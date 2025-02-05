@@ -1,0 +1,17 @@
+{
+  "extends": "@vue/tsconfig/tsconfig.json",
+  "compilerOptions": {
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "module": "commonjs",
+    "target": "es2020",
+     "outDir": "./dist",
+     "skipLibCheck": true
+  },
+  "include": ["server/**/*.ts", "server/**/*.d.ts"],
+  "exclude": ["node_modules", "dist"]
+}

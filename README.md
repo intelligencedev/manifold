@@ -46,7 +46,7 @@ $ npm run dev
 Backend - localhost:8080:
 
 The backend has Open Telemetry support and requires the JAEGER_ENDPOINT (Jaeger) endpoint be set. This does not have to exist so a fake endpoint can be set.
-The application will just throw an error when attempting to send telemtry to the endpoint but will still function.
+The application will just throw an error when attempting to send telemetry to the endpoint but will still function.
 
 ```
 $ export JAEGER_ENDPOINT=<my otel endpoint>

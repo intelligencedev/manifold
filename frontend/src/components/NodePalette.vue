@@ -89,6 +89,7 @@ const nodeCategories = {
     "datadogGraphNode": null,
   },
   "Misc": {
+    "repoConcatNode": null,
     "flowControlNode": null,
     "textNode": null,
     "textSplitterNode": null,

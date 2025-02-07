@@ -35,14 +35,6 @@ Jaeger is not required, but we recommend [deploying the container](https://www.j
 
 Requires Node 20. We recommend using [NVM](https://github.com/nvm-sh/nvm) to manage Node environments.
 
-
-Frontend - localhost:3000:
-```
-$ nvm use 20
-$ npm install
-$ npm run dev
-```
-
 Backend - localhost:8080:
 
 The backend has Open Telemetry support and requires the JAEGER_ENDPOINT (Jaeger) endpoint be set. This does not have to exist so a fake endpoint can be set.
@@ -52,4 +44,12 @@ The application will just throw an error when attempting to send telemtry to the
 $ export JAEGER_ENDPOINT=<my otel endpoint>
 $ go mod tidy
 $ go run .
+```
+
+Frontend - localhost:3000:
+```
+$ cd frontend
+$ nvm use 20
+$ npm install
+$ npm run dev
 ```

@@ -27,6 +27,23 @@ Backend is `localhost:8080` and frontend is `localhost:3000`
 
 We will implement a solution to change the configuration via a `.env` in a future commit.
 
+## Build and Run
+
+```
+$ nvm use 20
+$ npm run build
+$ go build -ldflags="-s -w" -trimpath -o ./dist/manifold main.go
+```
+
+The `manifold` binary will contain the compiled frontend and backend.
+
+Run the compiled application:
+
+```
+$ cd dist
+$ ./manifold
+```
+
 ### External Dependencies
 
 Jaeger is not required, but we recommend [deploying the container](https://www.jaegertracing.io/docs/1.6/getting-started/#all-in-one-docker-image).

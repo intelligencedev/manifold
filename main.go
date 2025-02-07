@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -39,6 +41,9 @@ import (
 	// Import manifold/internal/web/web.go
 	web "manifold/internal/web"
 )
+
+//go:embed frontend/dist
+var frontendDist embed.FS
 
 const (
 	service     = "api-gateway"
@@ -91,6 +96,8 @@ func main() {
 
 	// Add OpenTelemetry instrumentation for Echo
 	e.Use(otelecho.Middleware("api-gateway", otelecho.WithTracerProvider(tp)))
+
+	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
 
 	e.POST("/api/save-file", func(c echo.Context) error {
 		// Define a struct to bind the incoming JSON or form data.
@@ -491,6 +498,14 @@ func main() {
 	}
 
 	log.Println("Server gracefully stopped")
+}
+
+func getFileSystem() http.FileSystem {
+	fsys, err := fs.Sub(frontendDist, "frontend/dist")
+	if err != nil {
+		log.Fatalf("Failed to get file system: %v", err)
+	}
+	return http.FS(fsys)
 }
 
 // PythonCodeRequest represents the structure of the incoming Python execution request.

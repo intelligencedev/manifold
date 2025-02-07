@@ -99,6 +99,9 @@
           @node-resized="updateNodeDimensions"
         />
       </template>
+      <template #node-repoConcatNode="repoConcatNodeProps">
+        <RepoConcat v-bind="repoConcatNodeProps" />
+      </template>
 
       <SaveRestoreControls @save="onSave" @restore="onRestore" />
       <LayoutControls
@@ -166,6 +169,7 @@ import DatadogNode from './components/DatadogNode.vue';
 import DatadogGraphNode from './components/DatadogGraphNode.vue';
 import TokenCounterNode from './components/TokenCounterNode.vue';
 import FlowControl from './components/FlowControl.vue';
+import RepoConcat from './components/RepoConcat.vue';
 
 // --- SETUP ---
 interface BgColorInterface {

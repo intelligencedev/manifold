@@ -243,12 +243,12 @@ const props = defineProps({
             hasOutputs: true,
             inputs: {
                 api_key: '',
-                model: 'gemini-1.5-flash', // Default to a Gemini model
+                model: 'gemini-2.0-flash', // Default to a Gemini model
                 system_prompt: '', // Optional system prompt
                 user_prompt: 'Summarize the following text:',
             },
             outputs: { response: '' },
-            models: ['gemini-1.5-flash', 'gemini-pro', 'gemini-1.0-pro'],
+            models: ['gemini-2.0-flash', 'gemini-2.0-pro-exp-02-05' , 'gemini-2.0-flash-lite-preview-02-05', 'gemini-2.0-flash-thinking-exp-01-21'],
             // Match the same defaults as ResponseNode
             style: {
                 border: '1px solid #666',

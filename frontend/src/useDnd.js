@@ -18,6 +18,7 @@ import DatadogNode from './components/DatadogNode.vue'
 import DatadogGraphNode from './components/DatadogGraphNode.vue'
 import TokenCounterNode from './components/TokenCounterNode.vue'
 import FlowControl from './components/FlowControl.vue'
+import RepoConcat from './components/RepoConcat.vue'
 
 let id = 0
 
@@ -156,6 +157,9 @@ export default function useDragAndDrop() {
         break;
       case 'flowControlNode':
         component = FlowControl;
+        break;
+      case 'repoConcatNode':
+        component = RepoConcat;
         break;
       default:
         console.error(`Unknown node type: ${draggedType.value}`);

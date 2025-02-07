@@ -20,7 +20,7 @@ Combine public and locally hosted models to create powerful workflows that run s
 
 ## Developer Notes
 
-There are various hard coded configurations that need to br broken out into a configuration file the app loads.
+There are various hard coded configurations that need to be broken out into a configuration file the app loads.
 For now, developers can change those endpoints and ports via the appropriate component code, or match the hard configuration.
 
 Backend is `localhost:8080` and frontend is `localhost:3000`

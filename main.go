@@ -39,6 +39,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	// Import manifold/internal/web/web.go
+	"manifold/internal/repoconcat"
 	web "manifold/internal/web"
 )
 
@@ -50,6 +51,14 @@ const (
 	environment = "development"
 	id          = 1
 )
+
+// RepoConcatRequest represents the request body for the /api/repoconcat endpoint.
+type RepoConcatRequest struct {
+	Paths         []string `json:"paths"`
+	Types         []string `json:"types"`
+	Recursive     bool     `json:"recursive"`
+	IgnorePattern string   `json:"ignorePattern"`
+}
 
 // DatadogNodeRequest represents the structure of the incoming request from the frontend.
 type DatadogNodeRequest struct {
@@ -98,6 +107,37 @@ func main() {
 	e.Use(otelecho.Middleware("api-gateway", otelecho.WithTracerProvider(tp)))
 
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
+
+	e.POST("/api/repoconcat", func(c echo.Context) error {
+		var req RepoConcatRequest
+		log.Printf("Received request on /api/repoconcat")
+
+		if err := c.Bind(&req); err != nil {
+			log.Printf("Error binding request: %v", err)
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		log.Printf("Request body: %+v", req)
+
+		if len(req.Paths) == 0 || len(req.Types) == 0 {
+			log.Printf("Paths or Types are empty")
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Paths and types are required"})
+		}
+		// Instantiate RepoConcat
+		rc := repoconcat.NewRepoConcat()
+
+		// Call Concatenate
+		result, err := rc.Concatenate(req.Paths, req.Types, req.Recursive, req.IgnorePattern)
+		log.Printf("Concatenate result: %s, error: %v", result, err)
+
+		if err != nil {
+			log.Printf("Error from Concatenate: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		// Return the result
+		return c.String(http.StatusOK, result)
+	})
 
 	e.POST("/api/save-file", func(c echo.Context) error {
 		// Define a struct to bind the incoming JSON or form data.

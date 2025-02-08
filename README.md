@@ -20,7 +20,7 @@ Combine public and locally hosted models to create powerful workflows that run s
 
 ## Developer Notes
 
-There are various hard coded configurations that need to br broken out into a configuration file the app loads.
+There are various hard coded configurations that need to be broken out into a configuration file the app loads.
 For now, developers can change those endpoints and ports via the appropriate component code, or match the hard configuration.
 
 Backend is `localhost:8080` and frontend is `localhost:3000`
@@ -55,7 +55,7 @@ Requires Node 20. We recommend using [NVM](https://github.com/nvm-sh/nvm) to man
 Backend - localhost:8080:
 
 The backend has Open Telemetry support and requires the JAEGER_ENDPOINT (Jaeger) endpoint be set. This does not have to exist so a fake endpoint can be set.
-The application will just throw an error when attempting to send telemtry to the endpoint but will still function.
+The application will just throw an error when attempting to send telemetry to the endpoint but will still function.
 
 ```
 $ export JAEGER_ENDPOINT=<my otel endpoint>

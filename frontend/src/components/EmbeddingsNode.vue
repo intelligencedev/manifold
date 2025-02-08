@@ -128,7 +128,7 @@ const props = defineProps({
             hasInputs: true,
             hasOutputs: true,
             inputs: {
-                embeddings_endpoint: 'http://localhost:8080/v1/embeddings',
+                embeddings_endpoint: 'http://<llama.cpp endpoint only>/v1/embeddings',
             },
             outputs: {
                 result: { output: '' },

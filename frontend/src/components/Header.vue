@@ -12,6 +12,7 @@
 #cb-header {
     position: relative;
     height: 50px;
+    background-color: #222;
 }
 
 .box-container {

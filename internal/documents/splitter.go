@@ -45,7 +45,12 @@ func SplitTextByCount(text string, size int) []string {
 }
 
 // SplitText splits the given text using a simple chunk-based approach if the language is not specifically defined.
+// OR, it uses the recursive splitting approach if the language is defined.
 func (r *RecursiveCharacterTextSplitter) SplitText(text string) []string {
+	if len(r.Separators) > 0 {
+		// Use the recursive splitting mechanism if separators are defined
+		return r.splitTextHelper(text, r.Separators) // Corrected: Use all separators
+	}
 	// Use a simple character count-based splitting mechanism
 	return SplitTextByCount(text, r.ChunkSize)
 }
@@ -61,13 +66,18 @@ func FromLanguage(language Language) (*RecursiveCharacterTextSplitter, error) {
 		}
 		return &RecursiveCharacterTextSplitter{
 			Separators:       separators,
+			ChunkSize:        1000, // Add a default chunk size, even for language-specific splitters
+			OverlapSize:      100,
 			IsSeparatorRegex: true,
+			LengthFunction:   func(s string) int { return len(s) }, // Add length function
 		}, nil
 	}
 
 	// Fallback: for general text, create a simpler splitter that uses chunk sizes.
 	return &RecursiveCharacterTextSplitter{
-		ChunkSize: 1000, // Default chunk size
+		ChunkSize:      1000, // Default chunk size
+		OverlapSize:    100,
+		LengthFunction: func(s string) int { return len(s) }, // Add length function
 	}, nil
 }
 
@@ -160,39 +170,31 @@ func (r *RecursiveCharacterTextSplitter) applyOverlap(chunks []string) []string 
 func (r *RecursiveCharacterTextSplitter) splitTextHelper(text string, separators []string) []string {
 	finalChunks := make([]string, 0)
 
-	if len(separators) == 0 {
-		return []string{text}
+	if len(separators) == 0 || r.LengthFunction(text) < r.ChunkSize {
+		return []string{text} // Base case: no more separators or text is small enough
 	}
 
-	// Determine the separator
-	separator := separators[len(separators)-1]
-	newSeparators := make([]string, 0)
-	for i, sep := range separators {
-		sepPattern := sep
-		if !r.IsSeparatorRegex {
-			sepPattern = escapeString(sep)
-		}
-		if regexp.MustCompile(sepPattern).MatchString(text) {
-			separator = sep
-			newSeparators = separators[i+1:]
-			break
-		}
+	separator := separators[0]      //  Use separators in order
+	newSeparators := separators[1:] // Remaining separators
+
+	sepPattern := separator
+	if !r.IsSeparatorRegex {
+		sepPattern = escapeString(separator)
 	}
 
-	// Split the text using the determined separator
-	splits := splitTextWithRegex(text, separator, r.KeepSeparator)
+	splits := splitTextWithRegex(text, sepPattern, r.KeepSeparator)
 
-	// Check each split
 	for _, s := range splits {
 		if r.LengthFunction(s) < r.ChunkSize {
 			finalChunks = append(finalChunks, s)
 		} else if len(newSeparators) > 0 {
-			// If the split is too large, try to split it further using remaining separators
+			// If the split is too large, recursively split it with the remaining separators
 			recursiveSplits := r.splitTextHelper(s, newSeparators)
 			finalChunks = append(finalChunks, recursiveSplits...)
 		} else {
-			// If no more separators left, add the large chunk as it is
-			finalChunks = append(finalChunks, s)
+			// If no more separators, split by count
+			subChunks := SplitTextByCount(s, r.ChunkSize)
+			finalChunks = append(finalChunks, subChunks...)
 		}
 	}
 

@@ -109,8 +109,9 @@ func main() {
 
 	e.POST("/api/split-text", func(c echo.Context) error {
 		var req struct {
-			Text     string `json:"text"`
-			Splitter string `json:"splitter"`
+			Text      string `json:"text"`
+			Splitter  string `json:"splitter"`
+			ChunkSize int    `json:"chunk_size,omitempty"` // omitempty for optional field
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -120,7 +121,6 @@ func main() {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Text is required"})
 		}
 
-		// Default to chunk-based if splitter is not provided or invalid
 		splitterType := documents.Language(req.Splitter)
 		if splitterType == "" {
 			splitterType = documents.DEFAULT
@@ -128,35 +128,16 @@ func main() {
 
 		splitter, err := documents.FromLanguage(splitterType)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Error creating splitter: " + err.Error()})
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		// If it's the DEFAULT splitter, override the ChunkSize with the request's value (if provided)
+		if splitterType == documents.DEFAULT && req.ChunkSize > 0 {
+			splitter.ChunkSize = req.ChunkSize
 		}
 
 		chunks := splitter.SplitText(req.Text)
-
 		return c.JSON(http.StatusOK, map[string]interface{}{"chunks": chunks})
-	})
-
-	e.POST("/api/open-file", func(c echo.Context) error {
-		var req struct {
-			Filepath string `json:"filepath"`
-		}
-		if err := c.Bind(&req); err != nil {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-		}
-
-		if req.Filepath == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Filepath is required"})
-		}
-
-		content, err := os.ReadFile(req.Filepath)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{
-				"error": fmt.Sprintf("Failed to read file '%s': %v", req.Filepath, err),
-			})
-		}
-
-		// Return the file content as plain text.  Important!
-		return c.String(http.StatusOK, string(content))
 	})
 
 	e.POST("/api/save-file", func(c echo.Context) error {
@@ -192,6 +173,31 @@ func main() {
 
 		return c.JSON(http.StatusOK, map[string]string{"message": "File saved successfully"})
 	})
+
+	// --- ADDED /api/open-file HANDLER ---
+	e.POST("/api/open-file", func(c echo.Context) error {
+		var req struct {
+			Filepath string `json:"filepath"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		if req.Filepath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Filepath is required"})
+		}
+
+		content, err := os.ReadFile(req.Filepath)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": fmt.Sprintf("Failed to read file '%s': %v", req.Filepath, err),
+			})
+		}
+
+		// Return the file content as plain text.  Important!
+		return c.String(http.StatusOK, string(content))
+	})
+	// --- END ADDED HANDLER ---
 
 	e.GET("/api/web-content", func(c echo.Context) error {
 		urlsParam := c.QueryParam("urls")

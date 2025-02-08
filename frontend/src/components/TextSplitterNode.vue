@@ -12,8 +12,10 @@
         <!-- Splitter Selection -->
         <div class="input-field">
             <label :for="`${data.id}-splitter`" class="input-label">Splitter:</label>
-            <select :id="`${data.id}-splitter`" v-model="selectedSplitter" @change="updateNodeData" class="input-select">
-                <option value="DEFAULT">Default (Chunk-based)</option>
+            <select :id="`${data.id}-splitter`" v-model="selectedSplitter" @change="updateNodeData"
+                class="input-select">
+                <option value="COUNT">By Target Node Count</option>
+                <option value="SIZE">By Chunk Size</option>
                 <option value="PYTHON">Python</option>
                 <option value="GO">Go</option>
                 <option value="HTML">HTML</option>
@@ -24,11 +26,12 @@
             </select>
         </div>
 
-
-        <!-- Text Input -->
-        <div class="input-field">
-            <label :for="`${data.id}-text`" class="input-label">Text:</label>
-            <textarea :id="`${data.id}-text`" v-model="text" @change="updateNodeData" class="input-textarea"></textarea>
+        <!-- Count / Size text input -->
+        <div class="input-field" v-if="selectedSplitter === 'COUNT' || selectedSplitter === 'SIZE'">
+            <label :for="`${data.id}-count-size`" class="input-label">{{ selectedSplitter === 'COUNT' ? 'Count:' :
+                'Size:' }}</label>
+            <input :id="`${data.id}-count-size`" type="text" v-model="countSize" @change="updateNodeData"
+                class="input-text" />
         </div>
 
         <Handle v-if="data.hasInputs" type="target" position="left" />
@@ -58,7 +61,8 @@ const props = defineProps({
             inputs: {
                 endpoint: 'http://localhost:8080/api/split-text',
                 text: '',
-                splitter: 'DEFAULT', // Add splitter input
+                splitter: 'COUNT', // Add splitter input
+                countSize: '2', // Initialize countSize input
             },
             outputs: {},
             hasInputs: true,
@@ -72,7 +76,7 @@ const props = defineProps({
 
 const endpoint = ref(props.data.inputs?.endpoint || 'http://localhost:8080/api/split-text');
 const text = ref(props.data.inputs?.text || '');
-const selectedSplitter = ref(props.data.inputs?.splitter || 'DEFAULT'); // Add splitter ref
+const selectedSplitter = ref(props.data.inputs?.splitter || 'COUNT'); // Add splitter ref
 const outputConnectionCount = ref(0); // Initialize output connection count
 
 watch(
@@ -80,7 +84,7 @@ watch(
     (newData) => {
         endpoint.value = newData.inputs?.endpoint || 'http://localhost:8080/api/split-text';
         text.value = newData.inputs?.text || '';
-        selectedSplitter.value = newData.inputs?.splitter || 'DEFAULT'; // Update splitter
+        selectedSplitter.value = newData.inputs?.splitter || 'COUNT'; // Update splitter
         emit('update:data', { id: props.id, data: newData });
     },
     { deep: true }
@@ -153,17 +157,15 @@ async function run() {
 
     console.log('Source node:', sourceNode);
 
-   // Initialize an empty array to hold the chunks
+    // Initialize an empty array to hold the chunks
     let chunks = [];
 
     if (sourceNode) {
-        // Get the response value from the source node's outputs
-        const response = sourceNode.data.outputs.result.output;
+        // Get the result output value from the source node's outputs
+        const result = sourceNode.data.outputs.result.output;
 
-        console.log('Response:', response);
-
-        // Update the input text with the response value
-        text.value = response;
+        // Update the input text with the result output value
+        text.value = result;
 
         // Update the node data with the new input text
         updateNodeData();
@@ -174,29 +176,7 @@ async function run() {
         splitter: selectedSplitter.value, // Pass selected splitter to backend
     }
 
-    try {
-        // Make the call to the backend to split the text
-        const response = await fetch(endpoint.value, {
-            method: "POST",
-            headers: {
-            "Content-Type": "application/json",
-            },
-            body: JSON.stringify(requestBody),
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`Backend error (${response.status}): ${errorText}`);
-        }
-
-        const data = await response.json();
-        chunks = data.chunks
-
-    }
-    catch (error) {
-        console.error('Error in TextSplitterNode run:', error);
-        props.data.error = error.message;
-        return { error: error.message };
-    }
+    const chunkCount = props.data.inputs.num_chunks;
 
     // Get the source edges
     const sourceEdges = getEdges.value.filter(
@@ -208,41 +188,83 @@ async function run() {
 
     console.log('Target nodes:', targetNodes);
 
-    // Split the text by the number of target nodes, for example if there are two target nodes, then the text should be split into two strings:
-    // "This is my example test" -> ["This is my", "example test"]
+    // If the selected splitter is 'COUNT', then invoke the splitByCount function
+    if (selectedSplitter.value === 'COUNT') {
 
-    // First get a count of the source connections
-    const sourceCount = sourceEdges.length;
+        // Split the text by the number of target nodes, for example if there are two target nodes, then the text should be split into two strings:
+        // "This is my example test" -> ["This is my", "example test"]
 
-    // Ensure we don't exceed the number of chunks
-    if (sourceCount > chunks.length) {
-        console.warn("More source connections than chunks. Some connections will receive empty strings.");
-    }
+        // First get a count of the source connections
+        const sourceCount = sourceEdges.length;
 
-    // Distribute chunks among target nodes.
-    for (let i = 0; i < sourceCount; i++) {
-        const chunk = i < chunks.length ? chunks[i] : ""; // Get chunk or empty string
+        // Split the text into chunks based on the number of source connections
+        const words = text.value.split(' ');
+        const wordsPerChunk = Math.ceil(words.length / sourceCount);
+        const chunks = [];
 
-        if (targetNodes[i]) {
-            console.log('Updating target node:', targetNodes[i]);
-            targetNodes[i].data.inputs.response = chunk;
-            //targetNodes[i].data.outputs.result = { output: chunk }; // Set output for next node
+        for (let i = 0; i < sourceCount; i++) {
+            const start = i * wordsPerChunk;
+            const end = Math.min(start + wordsPerChunk, words.length);
+            chunks.push(words.slice(start, end).join(' '));
 
-            updateNodeData();
+            // Update the outputs for each target node
+            if (targetNodes[i]) {
+                console.log('Updating target node:', targetNodes[i]);
+                targetNodes[i].data.inputs.response += chunks[i];
+                targetNodes[i].data.inputs.text += chunks[i];
+
+                updateNodeData();
+            }
+        }
+    } else {
+        try {
+            // Make the call to the backend to split the text
+            const response = await fetch(endpoint.value, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(requestBody),
+            });
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Backend error (${response.status}): ${errorText}`);
+            }
+
+            const data = await response.json();
+            const chunks = data.chunks
+
+            for (let i = 0; i < chunks.length; i++) {
+                for (let j = 0; j < targetNodes.length; j++) {
+                    if (targetNodes[j]) {
+                        console.log('Updating target node:', targetNodes[j]);
+
+                        targetNodes[j].data.inputs.response += chunks[i];
+                        targetNodes[j].data.inputs.text += chunks[i];
+
+                        updateNodeData();
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Error in TextSplitterNode run:', error);
+            props.data.error = error.message;
+            return { error: error.message };
         }
     }
+}
 
-    console.log('Chunks:', chunks);
-
-    // Update the outputs for this node
-    props.data.outputs = {
-        result: {
-            output: chunks.join(" "),
-        },
+// splitByCount function to split text the number of chunks specified
+function splitByCount(text, count) {
+    const chunks = [];
+    const words = text.split(" ");
+    const chunkSize = Math.ceil(words.length / count);
+    for (let i = 0; i < count; i++) {
+        const start = i * chunkSize;
+        const end = start + chunkSize;
+        chunks.push(words.slice(start, end).join(" "));
     }
-
-    updateNodeData();
-
+    return chunks;
 }
 
 const emit = defineEmits(['update:data']);
@@ -279,7 +301,8 @@ const emit = defineEmits(['update:data']);
     margin-bottom: 8px;
 }
 
-.input-text, .input-select {
+.input-text,
+.input-select {
     background-color: #333;
     border: 1px solid #666;
     color: #eee;

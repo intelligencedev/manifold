@@ -79,6 +79,14 @@
           @node-resized="updateNodeDimensions"
         />
       </template>
+      <template #node-openFileNode="openFileNodeProps">
+        <OpenFileNode
+          v-bind="openFileNodeProps"
+          @disable-zoom="disableZoom"
+          @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions"
+        />
+      </template>
       <template #node-saveTextNode="saveTextNodeProps">
         <SaveTextNode v-bind="saveTextNodeProps" />
       </template>
@@ -164,6 +172,7 @@ import WebSearchNode from './components/WebSearchNode.vue';
 import WebRetrievalNode from './components/WebRetrievalNode.vue';
 import TextNode from './components/TextNode.vue';
 import TextSplitterNode from './components/TextSplitterNode.vue';
+import OpenFileNode from './components/OpenFileNode.vue';
 import SaveTextNode from './components/SaveTextNode.vue';
 import DatadogNode from './components/DatadogNode.vue';
 import DatadogGraphNode from './components/DatadogGraphNode.vue';

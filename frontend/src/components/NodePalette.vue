@@ -77,14 +77,17 @@ const nodeCategories = {
     "datadogNode": null,
     "datadogGraphNode": null,
   },
-  "Misc": {
+  "File Operations": {
+    "openFileNode": null,
+    "saveTextNode": null,
     "repoConcatNode": null,
+  },
+  "Misc": {
     "flowControlNode": null,
     "textNode": null,
     "textSplitterNode": null,
     "noteNode": null,
     "embeddingsNode": null,
-    "saveTextNode": null,
     "tokenCounterNode": null,
   },
 }

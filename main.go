@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	// Import manifold/internal/web/web.go
+	"manifold/internal/documents" // Import the documents package
 	"manifold/internal/repoconcat"
 	web "manifold/internal/web"
 )
@@ -40,7 +40,7 @@ const (
 
 func main() {
 	// Load the configuration
-	config, err := LoadConfig("config.yml")
+	config, err := LoadConfig("config.yaml")
 	if err != nil {
 		log.Fatal(err)
 	} else {
@@ -105,6 +105,58 @@ func main() {
 
 		// Return the result
 		return c.String(http.StatusOK, result)
+	})
+
+	e.POST("/api/split-text", func(c echo.Context) error {
+		var req struct {
+			Text     string `json:"text"`
+			Splitter string `json:"splitter"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		if req.Text == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Text is required"})
+		}
+
+		// Default to chunk-based if splitter is not provided or invalid
+		splitterType := documents.Language(req.Splitter)
+		if splitterType == "" {
+			splitterType = documents.DEFAULT
+		}
+
+		splitter, err := documents.FromLanguage(splitterType)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Error creating splitter: " + err.Error()})
+		}
+
+		chunks := splitter.SplitText(req.Text)
+
+		return c.JSON(http.StatusOK, map[string]interface{}{"chunks": chunks})
+	})
+
+	e.POST("/api/open-file", func(c echo.Context) error {
+		var req struct {
+			Filepath string `json:"filepath"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		if req.Filepath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Filepath is required"})
+		}
+
+		content, err := os.ReadFile(req.Filepath)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": fmt.Sprintf("Failed to read file '%s': %v", req.Filepath, err),
+			})
+		}
+
+		// Return the file content as plain text.  Important!
+		return c.String(http.StatusOK, string(content))
 	})
 
 	e.POST("/api/save-file", func(c echo.Context) error {

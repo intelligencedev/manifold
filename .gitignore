@@ -3,3 +3,4 @@ frontend/src/system_templates.yaml
 frontend/public/**
 deploy/.DS_Store
 dist/manifold
+config.yaml

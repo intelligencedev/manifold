@@ -16,8 +16,8 @@
         class="input-textarea"
       ></textarea>
   
-      <Handle v-if="data.hasInputs" type="target" position="left" id="input" />
-      <Handle v-if="data.hasOutputs" type="source" position="right" id="output" />
+      <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+      <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
   
       <!-- Node resizer for adjusting the node dimensions -->
       <NodeResizer

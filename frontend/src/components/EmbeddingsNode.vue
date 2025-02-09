@@ -10,8 +10,8 @@
         </div>
 
         <!-- Input/Output Handles -->
-        <Handle v-if="data.hasInputs" type="target" position="left" />
-        <Handle v-if="data.hasOutputs" type="source" position="right" />
+        <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
+        <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
 
         <!-- NodeResizer -->
         <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
@@ -128,7 +128,7 @@ const props = defineProps({
             hasInputs: true,
             hasOutputs: true,
             inputs: {
-                embeddings_endpoint: 'http://localhost:8080/v1/embeddings',
+                embeddings_endpoint: 'http://<llama.cpp endpoint only>/v1/embeddings',
             },
             outputs: {
                 result: { output: '' },

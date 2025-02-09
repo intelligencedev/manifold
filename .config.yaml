@@ -1,0 +1,11 @@
+# Manifold Example Configuration
+
+# Manifold Host
+host: 'localhost'
+port: 8080
+
+# Manifold storage path: models, database files, etc
+data_path: '~/.manifold'
+
+# Jaeger endpoint for tracing
+jaeger_host: '<jaeger docker endpoint and port>'

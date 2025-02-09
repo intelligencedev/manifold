@@ -1,4 +1,5 @@
 <template>
+
   <div
     :style="{
       ...data.style,
@@ -14,11 +15,11 @@
       {{ data.type }}
     </div>
 
-    <Handle type="target" position="left" id="input" />
+    <Handle style="width:12px; height:12px" type="target" position="left" id="input" />
 
     <div class="graph-container" ref="graphContainer"></div>
 
-    <Handle type="source" position="right" id="output" />
+    <Handle style="width:12px; height:12px" type="source" position="right" id="output"/>
 
     <NodeResizer
       :is-resizable="true"
@@ -254,6 +255,8 @@ onMounted(() => {
   color: #eee;
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .node-label {

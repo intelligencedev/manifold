@@ -13,6 +13,7 @@ import WebSearchNode from './components/WebSearchNode.vue'
 import WebRetrievalNode from './components/WebRetrievalNode.vue'
 import TextNode from './components/TextNode.vue'
 import TextSplitterNode from './components/TextSplitterNode.vue'
+import OpenFileNode from './components/OpenFileNode.vue'
 import SaveTextNode from './components/SaveTextNode.vue'
 import DatadogNode from './components/DatadogNode.vue'
 import DatadogGraphNode from './components/DatadogGraphNode.vue'
@@ -142,6 +143,9 @@ export default function useDragAndDrop() {
         break;
       case 'textSplitterNode':
         component = TextSplitterNode;
+        break;
+      case 'openFileNode':
+        component = OpenFileNode;
         break;
       case 'saveTextNode':
         component = SaveTextNode;

@@ -14,7 +14,7 @@
         />
       </div>
   
-      <Handle v-if="data.hasInputs" type="target" position="left" id="input" />
+      <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
     </div>
   </template>
   

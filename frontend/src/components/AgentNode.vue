@@ -59,8 +59,8 @@
       </div>
   
       <!-- Input/Output Handles -->
-      <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left"/>
-      <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right"/>
+      <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left"/>
+      <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" position="right"/>
   
       <!-- NodeResizer -->
       <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"

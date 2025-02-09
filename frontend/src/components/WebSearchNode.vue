@@ -37,17 +37,10 @@
     </div>
 
     <!-- Input Handle (Optional) -->
-    <Handle v-if="data.hasInputs" type="target" :position="Position.Left" id="input" :style="{
-      background: data.inputHandleColor,
-      borderRadius: data.inputHandleShape,
-      border: 'none',
-    }" class="handle-input" />
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" :position="Position.Left" id="input" />
 
     <!-- Output Handle -->
-    <Handle v-if="data.hasOutputs" type="source" :position="Position.Right" id="output" :style="{
-      background: data.handleColor,
-      borderRadius: data.outputHandleShape,
-    }" class="handle-output" />
+    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" :position="Position.Right" id="output" />
   </div>
 </template>
 

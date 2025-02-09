@@ -2,7 +2,7 @@
   <div id="app">
     <!-- Header Component Positioned Outside VueFlow -->
     <Header />
-
+    <NodePalette />
 
     <!-- VueFlow Component -->
     <VueFlow
@@ -22,10 +22,6 @@
       :max-zoom="4"
       fit-view-on-init
     >
-      <!-- NodePalette -->
-      <NodePalette
-        @toggle-palette="togglePalette"
-      />
       <!-- Node Templates -->
       <template #node-noteNode="noteNodeProps">
         <NoteNode

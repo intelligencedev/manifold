@@ -24,7 +24,6 @@
     >
       <!-- NodePalette -->
       <NodePalette
-        :style="{ zIndex: 1000 }"
         @toggle-palette="togglePalette"
       />
       <!-- Node Templates -->

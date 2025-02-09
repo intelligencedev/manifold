@@ -551,7 +551,7 @@ header {
   display: flex;
   justify-content: center;
   align-items: center;
-  background-color: #333;
+  background-color: #222;
   border-top-left-radius: 12px;
   border-top-right-radius: 12px;
   width: 33vw;

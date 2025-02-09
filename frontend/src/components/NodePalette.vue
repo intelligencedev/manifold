@@ -97,7 +97,7 @@ const nodeCategories = {
 .node-palette {
   position: fixed;
   top: 50px;
-  height: 100%;
+  bottom: 0px;
   width: 250px;
   background-color: #222;
   color: #eee;

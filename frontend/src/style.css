@@ -89,3 +89,8 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+.handle {
+  width: 12px;
+  height: 12px;
+}

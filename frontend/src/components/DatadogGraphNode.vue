@@ -15,11 +15,11 @@
       {{ data.type }}
     </div>
 
-    <Handle style="width:12px; height:12px" type="target" position="left" id="input" />
+    <Handle style="width:10px; height:10px" type="target" position="left" id="input" />
 
     <div class="graph-container" ref="graphContainer"></div>
 
-    <Handle style="width:12px; height:12px" type="source" position="right" id="output"/>
+    <Handle style="width:10px; height:10px" type="source" position="right" id="output"/>
 
     <NodeResizer
       :is-resizable="true"

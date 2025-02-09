@@ -18,8 +18,8 @@
   
       <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
   
-      <Handle v-if="data.hasInputs" type="target" position="left" id="input" />
-      <Handle v-if="data.hasOutputs" type="source" position="right" id="output" />
+      <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+      <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
   
       <div
         class="text-container"

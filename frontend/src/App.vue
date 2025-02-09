@@ -79,6 +79,14 @@
           @node-resized="updateNodeDimensions"
         />
       </template>
+      <template #node-openFileNode="openFileNodeProps">
+        <OpenFileNode
+          v-bind="openFileNodeProps"
+          @disable-zoom="disableZoom"
+          @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions"
+        />
+      </template>
       <template #node-saveTextNode="saveTextNodeProps">
         <SaveTextNode v-bind="saveTextNodeProps" />
       </template>
@@ -103,19 +111,38 @@
         <RepoConcat v-bind="repoConcatNodeProps" />
       </template>
 
-      <SaveRestoreControls @save="onSave" @restore="onRestore" />
-      <LayoutControls
-        ref="layoutControls"
-        @update-nodes="updateLayout"
-        :style="{ zIndex: 1000 }"
-        @update-edge-type="updateEdgeType"
-      />
       <Controls :style="{ backgroundColor: '#222', color: '#eee' }" />
-      <MiniMap :background-color="bgColor" node-color="#bbb" node-stroke-color="#eee" mask-color="#0008" />
+      <MiniMap 
+        :background-color="bgColor"
+        :node-color="'#333'"
+        :node-stroke-color="'#555'"
+        :node-stroke-width="2"
+        :mask-color="'rgba(40, 40, 40, 0.8)'"
+      />
       <Background :color="bgColor" :variant="bgVariant" />
 
       <!-- Run Workflow Button -->
-      <button class="run-button" @click="runWorkflow">Run</button>
+      <div class="bottom-bar">
+        <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
+        <div class="bottom-toolbar">
+          <!-- three divs -->
+            <div style="flex: 1; display: flex; justify-content: center;">
+            <SaveRestoreControls @save="onSave" @restore="onRestore" />
+            </div>
+            <div style="flex: 1; display: flex; justify-content: center;">
+            <button class="run-button" @click="runWorkflow">Run</button>
+            </div>
+            <div style="flex: 1; display: flex; justify-content: center;">
+            <LayoutControls
+              ref="layoutControls"
+              @update-nodes="updateLayout"
+              :style="{ zIndex: 1000 }"
+              @update-edge-type="updateEdgeType"
+            />
+            </div>
+          </div>
+          <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
+      </div>
     </VueFlow>
   </div>
 </template>
@@ -164,6 +191,7 @@ import WebSearchNode from './components/WebSearchNode.vue';
 import WebRetrievalNode from './components/WebRetrievalNode.vue';
 import TextNode from './components/TextNode.vue';
 import TextSplitterNode from './components/TextSplitterNode.vue';
+import OpenFileNode from './components/OpenFileNode.vue';
 import SaveTextNode from './components/SaveTextNode.vue';
 import DatadogNode from './components/DatadogNode.vue';
 import DatadogGraphNode from './components/DatadogGraphNode.vue';
@@ -507,14 +535,33 @@ header {
   font-family: 'Roboto', sans-serif;
 }
 
+.bottom-bar {
+  position: absolute;
+  bottom: 0px;
+  left: 0;
+  right: 0;
+  height: 40px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 10;
+}
+
+.bottom-toolbar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #333;
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+  width: 33vw;
+  height: 100%;
+  padding: 20px;
+  margin-bottom: 40px;
+}
+
 /* Run Button Styling */
 .run-button {
-  position: absolute;
-  left: 50%;
-  bottom: 20px;
-  transform: translateX(-50%);
-  z-index: 10;
-  padding: 8px 16px;
   font-size: 16px;
   font-weight: bold;
   color: #fff;

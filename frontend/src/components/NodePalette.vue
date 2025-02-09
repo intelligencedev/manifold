@@ -96,11 +96,12 @@ const nodeCategories = {
 <style scoped>
 .node-palette {
   position: fixed;
+  top: 50px;
   height: 100%;
   width: 250px;
-  top: 50px;
   background-color: #222;
   color: #eee;
+  z-index: 1100;
   transition: transform 0.3s ease-in-out;
   transform: translateX(-100%);
 }

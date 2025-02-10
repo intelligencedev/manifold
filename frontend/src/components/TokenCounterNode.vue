@@ -30,7 +30,7 @@
 
     <!-- Optional: Input handle if you want to allow connections from other nodes.
          Remove if you truly want zero handles. -->
-    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
+    <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" />
   </div>
 </template>
 

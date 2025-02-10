@@ -41,17 +41,17 @@
       </div>
   
       <!-- Input Handle (accepts multiple source nodes) -->
-      <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+      <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" id="input" />
   
       <!-- Output Handles placed on the right -->
-      <Handle style="width:12px; height:12px"
+      <Handle style="width:10px; height:10px"
         v-if="data.hasOutputs"
         type="source"
         position="right"
         id="continue"
         :style="{ top: '30%' }"
       />
-      <Handle style="width:12px; height:12px"
+      <Handle style="width:10px; height:10px"
         v-if="data.hasOutputs"
         type="source"
         position="right"

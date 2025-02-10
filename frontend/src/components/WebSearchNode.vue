@@ -37,10 +37,10 @@
     </div>
 
     <!-- Input Handle (Optional) -->
-    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" :position="Position.Left" id="input" />
+    <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" :position="Position.Left" id="input" />
 
     <!-- Output Handle -->
-    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" :position="Position.Right" id="output" />
+    <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" :position="Position.Right" id="output" />
   </div>
 </template>
 

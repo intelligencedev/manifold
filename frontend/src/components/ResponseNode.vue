@@ -3,8 +3,8 @@
         class="node-container response-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
         <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
-        <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
-        <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
+        <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" id="input" />
+        <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" position="right" id="output" />
 
         <div class="header">
             <div class="controls">

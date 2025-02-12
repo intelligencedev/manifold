@@ -20,6 +20,9 @@ import DatadogGraphNode from './components/DatadogGraphNode.vue'
 import TokenCounterNode from './components/TokenCounterNode.vue'
 import FlowControl from './components/FlowControl.vue'
 import RepoConcat from './components/RepoConcat.vue'
+import MLXFlux from './components/MLXFlux.vue'
+import DocumentsIngest from './components/DocumentsIngest.vue'
+import DocumentsRetrieve from './components/DocumentsRetrieve.vue'
 
 let id = 0
 
@@ -164,6 +167,15 @@ export default function useDragAndDrop() {
         break;
       case 'repoConcatNode':
         component = RepoConcat;
+        break;
+      case 'mlxFluxNode':
+        component = MLXFlux;
+        break;
+      case 'documentsIngestNode':
+        component = DocumentsIngest;
+        break;
+      case 'documentsRetrieveNode':
+        component = DocumentsRetrieve;
         break;
       default:
         console.error(`Unknown node type: ${draggedType.value}`);

@@ -1,44 +1,22 @@
 <template>
   <div class="node-palette" :class="{ 'is-open': isOpen }">
     <div class="toggle-button" @click="togglePalette">
-      <svg
-        v-if="isOpen"
-        xmlns="http://www.w3.org/2000/svg"
-        width="16"
-        height="16"
-        fill="currentColor"
-        viewBox="0 0 16 16"
-      >
-        <path
-          fill-rule="evenodd"
-          d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"
-        />
+      <svg v-if="isOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+        viewBox="0 0 16 16">
+        <path fill-rule="evenodd"
+          d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
       </svg>
-      <svg
-        v-else
-        xmlns="http://www.w3.org/2000/svg"
-        width="16"
-        height="16"
-        fill="currentColor"
-        viewBox="0 0 16 16"
-      >
-        <path
-          fill-rule="evenodd"
-          d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"
-        />
+      <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd"
+          d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
       </svg>
     </div>
     <div class="palette-content">
       <div class="scrollable-content">
         <div v-for="(nodes, category) in nodeCategories" :key="category" class="category">
           <div class="category-title">{{ category }}</div>
-          <div
-            v-for="(nodeComponent, key) in nodes"
-            :key="key"
-            class="node-item"
-            draggable="true"
-            @dragstart="(event) => onDragStart(event, key)"
-          >
+          <div v-for="(nodeComponent, key) in nodes" :key="key" class="node-item" draggable="true"
+            @dragstart="(event) => onDragStart(event, key)">
             {{ key }}
           </div>
         </div>
@@ -65,6 +43,9 @@ const nodeCategories = {
     "geminiNode": null,
     "geminiResponse": null,
   },
+  "Image Generation": {
+    "mlxFluxNode": null,
+  },
   "Code": {
     "runCmd": null,
     "webGLNode": null,
@@ -73,13 +54,11 @@ const nodeCategories = {
     "webSearchNode": null,
     "webRetrievalNode": null,
   },
-  "Monitoring": {
-    "datadogNode": null,
-    "datadogGraphNode": null,
-  },
-  "File Operations": {
+  "Documents": {
     "openFileNode": null,
     "saveTextNode": null,
+    "documentsIngestNode": null,
+    "documentsRetrieveNode": null,
     "repoConcatNode": null,
   },
   "Misc": {
@@ -89,6 +68,10 @@ const nodeCategories = {
     "noteNode": null,
     "embeddingsNode": null,
     "tokenCounterNode": null,
+  },
+  "Integrations": {
+    "datadogNode": null,
+    "datadogGraphNode": null,
   },
 }
 </script>

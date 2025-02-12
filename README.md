@@ -6,6 +6,10 @@ Manifold supports OpenAI compatible endpoints such as [llama-server](https://git
 
 Combine public and locally hosted models to create powerful workflows that run sequential or concurrent.
 
+## Image Generation
+
+![Manifold Image Generation](docs/manifold_img_gen.jpg)
+
 ## Web QA
 
 ![Manifold Web QA](docs/manifold_webqa.png)
@@ -17,6 +21,39 @@ Combine public and locally hosted models to create powerful workflows that run s
 ## DataDog Graph
 
 ![Manifold Web QA](docs/manifold_datadog.png)
+
+# Installation Requirements
+
+## PGVector
+
+PGVector is a required for retrieval workflows. Refer to the [PGVector](https://github.com/pgvector/pgvector?tab=readme-ov-file#installation) installation instructions
+
+The Docker build and run instructions are provided for convenience.
+```
+git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git
+cd pgvector
+docker build --pull --build-arg PG_MAJOR=17 -t manifold/pgvector .
+```
+
+Run the PGVector service:
+```
+docker run -d \
+  --name pg-manifold \
+  -p 5432:5432 \
+  -v postgres-data:/var/lib/postgresql/data \
+  -e POSTGRES_USER=myuser \
+  -e POSTGRES_PASSWORD=changeme \
+  -e POSTGRES_DB=manifold \
+  manifold/pgvector:latest
+```
+
+## Image Generation
+
+Please note the image generation feature only works on M series Macs only. We will implement Windows and Linux support soon.
+
+### MFlux - M Series Mac Only
+
+Mflux is used as the image generation backend on M Series Macs. Please refer to the [MFlux installation instructions](https://github.com/filipstrand/mflux)
 
 ## Developer Notes
 

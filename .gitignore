@@ -4,3 +4,7 @@ frontend/public/**
 deploy/.DS_Store
 dist/manifold
 config.yaml
+models
+mflux
+prompt.md
+embed_examples.md

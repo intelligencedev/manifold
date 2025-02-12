@@ -24,13 +24,24 @@ type ToolConfig struct {
 	Parameters map[string]interface{} `yaml:"parameters"`
 }
 
+type DatabaseConfig struct {
+	ConnectionString string `yaml:"connection_string"`
+}
+
+type EmbeddingsConfig struct {
+	Host   string `yaml:"host"`
+	APIKey string `yaml:"api_key"`
+}
+
 type Config struct {
-	Host            string `yaml:"host"`
-	Port            int    `yaml:"port"`
-	DataPath        string `yaml:"data_path"`
-	JaegerHost      string `yaml:"jaeger_host"`
-	OpenAIAPIKey    string `yaml:"openai_api_key,omitempty"`
-	GoogleGeminiKey string `yaml:"google_gemini_key,omitempty"`
+	Host            string           `yaml:"host"`
+	Port            int              `yaml:"port"`
+	DataPath        string           `yaml:"data_path"`
+	JaegerHost      string           `yaml:"jaeger_host"`
+	OpenAIAPIKey    string           `yaml:"openai_api_key,omitempty"`
+	GoogleGeminiKey string           `yaml:"google_gemini_key,omitempty"`
+	Database        DatabaseConfig   `yaml:"database"`
+	Embeddings      EmbeddingsConfig `yaml:"embeddings"`
 }
 
 func LoadConfig(filename string) (*Config, error) {

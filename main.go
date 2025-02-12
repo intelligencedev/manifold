@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -36,6 +39,7 @@ const (
 	service     = "api-gateway"
 	environment = "development"
 	id          = 1
+	imagePath   = "/Users/art/Documents/code/manifold/frontend/public/mlx_out.png"
 )
 
 func main() {
@@ -61,7 +65,7 @@ func main() {
 	}))
 
 	// Initialize OpenTelemetry
-	tp, err := initTracer()
+	tp, err := initTracer(config)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -75,6 +79,320 @@ func main() {
 	e.Use(otelecho.Middleware("api-gateway", otelecho.WithTracerProvider(tp)))
 
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
+
+	e.POST("/api/documents/ingest", func(c echo.Context) error {
+		var req ProcessTextRequest
+		if err := c.Bind(&req); err != nil {
+			log.Printf("Error binding request: %v, Request Body: %s", err, c.Request().Body)
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		// Validate required fields (adjust as needed)
+		if req.Text == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Text is required"})
+		}
+		if req.Language == "" {
+			req.Language = "en" //default value
+		}
+
+		if req.ChunkSize == 0 {
+			req.ChunkSize = 1500 // default
+		}
+
+		if req.ChunkOverlap == 0 {
+			req.ChunkOverlap = 100 // default
+		}
+
+		// Get DB connection string, embeddings host, and API key from the config
+		connStr := config.Database.ConnectionString
+		embeddingsHost := config.Embeddings.Host
+		apiKey := config.Embeddings.APIKey
+
+		// Establish a database connection
+		ctx := context.Background() // Or use c.Request().Context() for request-scoped context
+		conn, err := Connect(ctx, connStr)
+		if err != nil {
+			log.Printf("Error connecting to database: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+		}
+		defer conn.Close(ctx) // Ensure the connection is closed
+
+		// Call ProcessDocument
+		err = ProcessDocument(ctx, conn, embeddingsHost, apiKey, req.Text, req.Language, req.ChunkSize, req.ChunkOverlap)
+		if err != nil {
+			log.Printf("Error processing document: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to process document"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"message": "Document processed successfully"})
+	})
+
+	e.POST("/api/documents/retrieve", func(c echo.Context) error {
+		// Get the prompt from the request body
+		var req struct {
+			Prompt string `json:"prompt"`
+			Limit  int    `json:"limit"`
+		}
+
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		// Validate the prompt
+		if req.Prompt == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Prompt is required"})
+		}
+
+		// Get DB connection string, embeddings host, and API key from the config
+		connStr := config.Database.ConnectionString
+		embeddingsHost := config.Embeddings.Host
+		apiKey := config.Embeddings.APIKey
+
+		// Establish a database connection
+		ctx := context.Background() // Or use c.Request().Context() for request-scoped context
+		conn, err := Connect(ctx, connStr)
+		if err != nil {
+			log.Printf("Error connecting to database: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+		}
+		defer conn.Close(ctx) // Ensure the connection is closed
+
+		// Retrieve the most similar document to the content
+		docs, err := RetrieveDocuments(ctx, conn, embeddingsHost, apiKey, req.Prompt, req.Limit)
+		if err != nil {
+			log.Printf("Error retrieving documents: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to retrieve documents"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"documents": docs})
+	})
+
+	// Add new endpoint to invoke FMLX with the given parameters
+	e.POST("/api/run-fmlx", func(c echo.Context) error {
+		var req FMLXRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		if req.Model == "" || req.Prompt == "" || req.Steps == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing required fields"})
+		}
+
+		// Delete existing file if it exists
+		if _, err := os.Stat(req.Output); err == nil {
+			if err := os.Remove(req.Output); err != nil {
+				log.Printf("Error removing existing file: %v", err)
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to remove existing file"})
+			}
+		}
+
+		// Call FMLX with the given parameters
+		args := []string{
+			"--model", req.Model,
+			"--prompt", req.Prompt,
+			"--steps", fmt.Sprintf("%d", req.Steps),
+			"--seed", fmt.Sprintf("%d", req.Seed),
+			"-q", fmt.Sprintf("%d", req.Quality),
+			"--output", req.Output,
+		}
+
+		cmd := exec.Command("/Users/art/Documents/code/manifold/mflux/.venv/bin/mflux-generate", args...)
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			log.Printf("Error creating stdout pipe: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stdout pipe"})
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			log.Printf("Error creating stderr pipe: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stderr pipe"})
+		}
+
+		if err := cmd.Start(); err != nil {
+			log.Printf("Error starting mflux command: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to start mflux command"})
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				log.Printf("[mflux stdout] %s", scanner.Text())
+			}
+		}()
+
+		go func() {
+			defer wg.Done()
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				log.Printf("[mflux stderr] %s", scanner.Text())
+			}
+		}()
+
+		err = cmd.Wait()
+		wg.Wait()
+
+		if err != nil {
+			log.Printf("Error executing mflux command: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute mflux command: %v", err)})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"message": "FMLX command executed successfully"})
+	})
+
+	e.GET("/mlx_out.png", func(c echo.Context) error {
+		// Open the image file.
+		file, err := os.Open(imagePath)
+		if err != nil {
+			// Handle file not found or other errors appropriately.
+			if os.IsNotExist(err) {
+				return c.String(http.StatusNotFound, "Image not found")
+			}
+			return c.String(http.StatusInternalServerError, "Error opening image")
+		}
+		defer file.Close()
+
+		// Set the Content-Type header.  This is *crucial*.
+		c.Response().Header().Set(echo.HeaderContentType, "image/png")
+
+		// Copy the file content to the response.
+		_, err = io.Copy(c.Response().Writer, file)
+		if err != nil {
+			// Log the error, but don't return an error to the client, as headers have likely already been sent
+			log.Printf("Error copying image to response: %v", err)
+		}
+		return nil
+	})
+
+	e.POST("/api/run-sd", func(c echo.Context) error {
+		var req SDRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		if req.DiffusionModel == "" || req.Type == "" || req.ClipL == "" || req.T5xxl == "" || req.VAE == "" || req.Prompt == "" || req.Output == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing required fields"})
+		}
+
+		args := []string{
+			"--diffusion-model", req.DiffusionModel,
+			"--type", req.Type,
+			"--clip_l", req.ClipL,
+			"--t5xxl", req.T5xxl,
+			"--vae", req.VAE,
+			"--cfg-scale", fmt.Sprintf("%.1f", req.CfgScale),
+			"--steps", fmt.Sprintf("%d", req.Steps),
+			"--sampling-method", req.SamplingMethod,
+			"-H", fmt.Sprintf("%d", req.Height),
+			"-W", fmt.Sprintf("%d", req.Width),
+			"--seed", fmt.Sprintf("%d", req.Seed),
+			"-p", req.Prompt,
+			"--output", req.Output,
+		}
+		if req.Threads > 0 {
+			args = append(args, "-t", fmt.Sprintf("%d", req.Threads))
+		}
+		if req.NegativePrompt != "" {
+			args = append(args, "-n", req.NegativePrompt)
+		}
+
+		if req.StyleRatio > 0 {
+			args = append(args, "--style-ratio", fmt.Sprintf("%.1f", req.StyleRatio))
+		}
+
+		if req.ControlStrength > 0 {
+			args = append(args, "--control-strength", fmt.Sprintf("%.1f", req.ControlStrength))
+		}
+
+		if req.ClipSkip > 0 {
+			args = append(args, "--clip-skip", fmt.Sprintf("%d", req.ClipSkip))
+		}
+
+		if req.SLGScale > 0 {
+			args = append(args, "--slg-scale", fmt.Sprintf("%.1f", req.SLGScale))
+		}
+
+		if len(req.SkipLayers) > 0 {
+			for _, v := range req.SkipLayers {
+				args = append(args, "--skip-layers", fmt.Sprintf("%d", v))
+			}
+		}
+
+		if req.SkipLayerStart > 0 {
+			args = append(args, "--skip-layer-start", fmt.Sprintf("%.3f", req.SkipLayerStart))
+		}
+
+		if req.SkipLayerEnd > 0 {
+			args = append(args, "--skip-layer-end", fmt.Sprintf("%.3f", req.SkipLayerEnd))
+		}
+
+		cmd := exec.Command("./sd", args...)
+
+		cmd.Dir = "/Users/art/Downloads/sd-master--bin-Darwin-macOS-14.7.2-arm64/stable-diffusion.cpp/build/bin"
+
+		// Create pipes for stdout and stderr.
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			log.Printf("Error creating stdout pipe: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stdout pipe"})
+		}
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			log.Printf("Error creating stderr pipe: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stderr pipe"})
+		}
+
+		// Start the command.
+		if err := cmd.Start(); err != nil {
+			log.Printf("Error starting sd command: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to start sd command"})
+		}
+
+		// Create a WaitGroup to wait for the goroutines to finish.
+		var wg sync.WaitGroup
+		wg.Add(2)
+
+		// Goroutine to read from stdout and log.
+		go func() {
+			defer wg.Done()
+			scanner := bufio.NewScanner(stdout)
+			for scanner.Scan() {
+				log.Printf("[sd stdout] %s", scanner.Text())
+			}
+			if err := scanner.Err(); err != nil {
+				log.Printf("Error reading from sd stdout: %s", err)
+			}
+		}()
+
+		// Goroutine to read from stderr and log.
+		go func() {
+			defer wg.Done()
+			scanner := bufio.NewScanner(stderr)
+			for scanner.Scan() {
+				log.Printf("[sd stderr] %s", scanner.Text())
+			}
+			if err := scanner.Err(); err != nil {
+				log.Printf("Error reading from sd stderr: %s", err)
+			}
+		}()
+
+		// Wait for the command to finish *and* for the output to be processed.
+		err = cmd.Wait()
+		wg.Wait() // Wait for the goroutines to finish reading stdout/stderr
+
+		if err != nil {
+			log.Printf("Error executing sd command: %v", err)
+			// The error is already logged by cmd.Wait and the stderr scanner.
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute sd command: %v", err)})
+		}
+
+		// Return a success response.  You might want to return the path to the generated image.
+		return c.JSON(http.StatusOK, map[string]string{"message": "Stable Diffusion command executed successfully"})
+	})
 
 	e.POST("/api/repoconcat", func(c echo.Context) error {
 		var req RepoConcatRequest
@@ -539,7 +857,8 @@ func main() {
 
 	// Start the server in a separate goroutine
 	go func() {
-		if err := e.Start(":8080"); err != http.ErrServerClosed {
+		port := fmt.Sprintf(":%d", config.Port)
+		if err := e.Start(port); err != http.ErrServerClosed {
 			log.Fatalf("Error starting server: %v", err)
 		}
 	}()

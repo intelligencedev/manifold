@@ -368,9 +368,9 @@ func parseRelativeTime(relativeStr string, now time.Time) (time.Time, error) {
 }
 
 // initTracer initializes the OpenTelemetry tracer.
-func initTracer() (*sdktrace.TracerProvider, error) {
+func initTracer(config *Config) (*sdktrace.TracerProvider, error) {
 	// Load the trace endpoint from the environment variable
-	traceEndpoint := strings.TrimSpace(os.Getenv("JAEGER_ENDPOINT"))
+	traceEndpoint := config.JaegerHost
 	if traceEndpoint == "" {
 		return nil, fmt.Errorf("JAEGER_ENDPOINT environment variable not set")
 	}

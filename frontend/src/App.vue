@@ -5,39 +5,18 @@
     <NodePalette />
 
     <!-- VueFlow Component -->
-    <VueFlow
-      class="vue-flow-container"
-      :nodes="nodes"
-      :edges="edges"
-      :edge-types="edgeTypes"
-      :zoom-on-scroll="zoomOnScroll"
-      @nodes-initialized="onNodesInitialized"
-      @nodes-change="onNodesChange"
-      @edges-change="onEdgesChange"
-      @connect="onConnect"
-      @dragover="onDragOver"
-      @dragleave="onDragLeave"
-      @drop="onDrop"
-      :min-zoom="0.2"
-      :max-zoom="4"
-      fit-view-on-init
-    >
+    <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
+      :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
+      @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
+      :min-zoom="0.2" :max-zoom="4" fit-view-on-init>
       <!-- Node Templates -->
       <template #node-noteNode="noteNodeProps">
-        <NoteNode
-          v-bind="noteNodeProps"
-          @disable-zoom="disableZoom"
-          @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions"
-        />
+        <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-agentNode="agentNodeProps">
-        <AgentNode
-          v-bind="agentNodeProps"
-          @disable-zoom="disableZoom"
-          @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions"
-        />
+        <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-geminiNode="geminiNodeProps">
         <GeminiNode v-bind="geminiNodeProps" />
@@ -49,12 +28,8 @@
         <WebGLNode v-bind="webGLNodeProps" />
       </template>
       <template #node-responseNode="responseNodeProps">
-        <ResponseNode
-          v-bind="responseNodeProps"
-          @disable-zoom="disableZoom"
-          @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions"
-        />
+        <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-geminiResponse="geminiResponseProps">
         <GeminiResponse v-bind="geminiResponseProps" />
@@ -72,20 +47,12 @@
         <TextSplitterNode v-bind="textSplitterNodeProps" />
       </template>
       <template #node-textNode="textNodeProps">
-        <TextNode
-          v-bind="textNodeProps"
-          @disable-zoom="disableZoom"
-          @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions"
-        />
+        <TextNode v-bind="textNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-openFileNode="openFileNodeProps">
-        <OpenFileNode
-          v-bind="openFileNodeProps"
-          @disable-zoom="disableZoom"
-          @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions"
-        />
+        <OpenFileNode v-bind="openFileNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-saveTextNode="saveTextNodeProps">
         <SaveTextNode v-bind="saveTextNodeProps" />
@@ -100,25 +67,25 @@
         <TokenCounterNode v-bind="tokenCounterNodeProps" />
       </template>
       <template #node-flowControlNode="flowControlNodeProps">
-        <FlowControl
-          v-bind="flowControlNodeProps"
-          @disable-zoom="disableZoom"
-          @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions"
-        />
+        <FlowControl v-bind="flowControlNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-repoConcatNode="repoConcatNodeProps">
         <RepoConcat v-bind="repoConcatNodeProps" />
       </template>
+      <template #node-mlxFluxNode="mlxFluxNodeProps">
+        <MLXFlux v-bind="mlxFluxNodeProps" />
+      </template>
+      <template #node-documentsIngestNode="documentsIngestNodeProps">
+        <DocumentsIngest v-bind="documentsIngestNodeProps" />
+      </template>
+      <template #node-documentsRetrieveNode="documentsRetrieveNodeProps">
+        <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" />
+      </template>
 
       <Controls :style="{ backgroundColor: '#222', color: '#eee' }" />
-      <MiniMap 
-        :background-color="bgColor"
-        :node-color="'#333'"
-        :node-stroke-color="'#555'"
-        :node-stroke-width="2"
-        :mask-color="'rgba(40, 40, 40, 0.8)'"
-      />
+      <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
+        :mask-color="'rgba(40, 40, 40, 0.8)'" />
       <Background :color="bgColor" :variant="bgVariant" />
 
       <!-- Run Workflow Button -->
@@ -126,22 +93,18 @@
         <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
         <div class="bottom-toolbar">
           <!-- three divs -->
-            <div style="flex: 1; display: flex; justify-content: center;">
+          <div style="flex: 1; display: flex; justify-content: center;">
             <SaveRestoreControls @save="onSave" @restore="onRestore" />
-            </div>
-            <div style="flex: 1; display: flex; justify-content: center;">
-            <button class="run-button" @click="runWorkflow">Run</button>
-            </div>
-            <div style="flex: 1; display: flex; justify-content: center;">
-            <LayoutControls
-              ref="layoutControls"
-              @update-nodes="updateLayout"
-              :style="{ zIndex: 1000 }"
-              @update-edge-type="updateEdgeType"
-            />
-            </div>
           </div>
-          <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
+          <div style="flex: 1; display: flex; justify-content: center;">
+            <button class="run-button" @click="runWorkflow">Run</button>
+          </div>
+          <div style="flex: 1; display: flex; justify-content: center;">
+            <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }"
+              @update-edge-type="updateEdgeType" />
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
       </div>
     </VueFlow>
   </div>
@@ -198,6 +161,9 @@ import DatadogGraphNode from './components/DatadogGraphNode.vue';
 import TokenCounterNode from './components/TokenCounterNode.vue';
 import FlowControl from './components/FlowControl.vue';
 import RepoConcat from './components/RepoConcat.vue';
+import MLXFlux from './components/MLXFlux.vue';
+import DocumentsIngest from './components/DocumentsIngest.vue';
+import DocumentsRetrieve from './components/DocumentsRetrieve.vue';
 
 // --- SETUP ---
 interface BgColorInterface {

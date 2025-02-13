@@ -55,14 +55,14 @@
         <span v-if="selectedFileNames.length">
           Selected: {{ selectedFileNames.join(', ') }}
         </span>
-        <!-- Hidden file input; allow directory selection if "folder" is chosen -->
+        <!-- Use a single file input with dynamic webkitdirectory binding -->
         <input
           type="file"
           ref="fileInput"
           style="display: none;"
           :webkitdirectory="selectionType === 'folder'"
-          @change="handleFileSelection"
           multiple
+          @change="handleFileSelection"
         />
       </div>
     </div>
@@ -110,7 +110,7 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        ingestion_endpoint: 'http://localhost:32190/api/documents/ingest',
+        ingestion_endpoint: 'http://localhost:8080/api/documents/ingest',
         mode: 'documents', // default mode is "documents"
       },
       outputs: {
@@ -169,17 +169,20 @@ function openFilePicker() {
 }
 function handleFileSelection(event) {
   const files = event.target.files
+  console.log("Files selected:", files)  // Debug log
   selectedFiles.value = []
   for (let i = 0; i < files.length; i++) {
     const file = files[i]
-    // Accept text files based on MIME type or common file extensions
+    // Accept files if the MIME type starts with 'text/' OR if file.type is empty OR file name matches common text extensions
     if (
       (file.type && file.type.startsWith('text/')) ||
+      !file.type ||
       file.name.match(/\.(txt|md|csv|json)$/i)
     ) {
       selectedFiles.value.push(file)
     }
   }
+  console.log("Accepted files:", selectedFiles.value)  // Debug log
 }
 
 // The run function invoked when the node executes.
@@ -222,7 +225,9 @@ async function run() {
           console.log(`File ${file.name} is empty; skipping.`)
           continue
         }
-        const result = await callIngestAPI(text)
+        // Determine the file path: use webkitRelativePath if available, otherwise file name.
+        const filePath = file.webkitRelativePath || file.name
+        const result = await callIngestAPI(text, filePath)
         results.push({ file: file.name, result })
       }
       props.data.outputs = {
@@ -240,7 +245,7 @@ async function run() {
 }
 
 // Helper function to call the ingestion API.
-async function callIngestAPI(text) {
+async function callIngestAPI(text, filePath) {
   const payload = {
     text: text,
     language: language.value,
@@ -248,11 +253,18 @@ async function callIngestAPI(text) {
     chunk_overlap: chunk_overlap.value,
   }
   console.log('Calling Ingest API with payload:', payload)
+  
+  // Build headers and include file path if provided.
+  const headers = {
+    'Content-Type': 'application/json',
+  }
+  if (filePath) {
+    headers['X-File-Path'] = filePath
+  }
+  
   const response = await fetch(ingestion_endpoint.value, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: headers,
     body: JSON.stringify(payload),
   })
   if (!response.ok) {

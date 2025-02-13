@@ -66,7 +66,7 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        retrieve_endpoint: 'http://localhost:32190/api/documents/retrieve',
+        retrieve_endpoint: 'http://localhost:8080/api/documents/retrieve',
         text: 'Enter prompt text here...',
         limit: 1,
       },

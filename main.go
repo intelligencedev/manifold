@@ -61,7 +61,7 @@ func main() {
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"}, // Allow all origins
 		AllowMethods: []string{echo.GET, echo.PUT, echo.POST, echo.DELETE, echo.OPTIONS},
-		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "X-File-Path"},
 	}))
 
 	// Initialize OpenTelemetry
@@ -83,24 +83,28 @@ func main() {
 	e.POST("/api/documents/ingest", func(c echo.Context) error {
 		var req ProcessTextRequest
 		if err := c.Bind(&req); err != nil {
-			log.Printf("Error binding request: %v, Request Body: %s", err, c.Request().Body)
+			log.Printf("Error binding request: %v", err)
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 		}
 
-		// Validate required fields (adjust as needed)
+		// Validate required fields
 		if req.Text == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Text is required"})
 		}
 		if req.Language == "" {
-			req.Language = "en" //default value
+			req.Language = "en" // default value
 		}
-
 		if req.ChunkSize == 0 {
-			req.ChunkSize = 1500 // default
+			req.ChunkSize = 1500 // default chunk size
+		}
+		if req.ChunkOverlap == 0 {
+			req.ChunkOverlap = 100 // default overlap
 		}
 
-		if req.ChunkOverlap == 0 {
-			req.ChunkOverlap = 100 // default
+		// If FilePath is not provided in the JSON payload, attempt to get it from the header.
+		filePath := req.FilePath
+		if filePath == "" {
+			filePath = c.Request().Header.Get("X-File-Path")
 		}
 
 		// Get DB connection string, embeddings host, and API key from the config
@@ -108,17 +112,17 @@ func main() {
 		embeddingsHost := config.Embeddings.Host
 		apiKey := config.Embeddings.APIKey
 
-		// Establish a database connection
-		ctx := context.Background() // Or use c.Request().Context() for request-scoped context
+		// Establish a database connection (using the request context)
+		ctx := c.Request().Context()
 		conn, err := Connect(ctx, connStr)
 		if err != nil {
 			log.Printf("Error connecting to database: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
 		}
-		defer conn.Close(ctx) // Ensure the connection is closed
+		defer conn.Close(ctx)
 
-		// Call ProcessDocument
-		err = ProcessDocument(ctx, conn, embeddingsHost, apiKey, req.Text, req.Language, req.ChunkSize, req.ChunkOverlap)
+		// Process the document, passing the filePath so that each chunk is prefixed accordingly.
+		err = ProcessDocument(ctx, conn, embeddingsHost, apiKey, req.Text, req.Language, req.ChunkSize, req.ChunkOverlap, filePath)
 		if err != nil {
 			log.Printf("Error processing document: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to process document"})

@@ -69,4 +69,5 @@ type ProcessTextRequest struct {
 	Language     string `json:"language"`
 	ChunkSize    int    `json:"chunk_size"`
 	ChunkOverlap int    `json:"chunk_overlap"`
+	FilePath     string `json:"file_path"`
 }

@@ -48,14 +48,22 @@ func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
 	return conn, nil
 }
 
-// ProcessDocument processes a document by splitting it into chunks and saving it to the database
-func ProcessDocument(ctx context.Context, conn *pgx.Conn, embeddingsHost string, apiKey string, doc string, language string, chunkSize int, chunkOverlap int) error {
+// ProcessDocument processes a document by splitting it into chunks,
+// prepending the file path header to each chunk, and saving it to the database.
+func ProcessDocument(ctx context.Context, conn *pgx.Conn, embeddingsHost string, apiKey string, doc string, language string, chunkSize int, chunkOverlap int, filePath string) error {
 	chunks, err := SplitDocument(doc, language, chunkSize, chunkOverlap)
 	if err != nil {
 		return err
 	}
 
 	log.Printf("Split document into %d chunks", len(chunks))
+
+	// Prepend the file path header to each chunk if provided.
+	if filePath != "" {
+		for i, chunk := range chunks {
+			chunks[i] = fmt.Sprintf("[%s] %s", filePath, chunk)
+		}
+	}
 
 	embeddings, err := GenerateEmbeddings(embeddingsHost, apiKey, chunks)
 	if err != nil {
@@ -121,9 +129,7 @@ func SplitDocument(doc string, language string, chunkSize int, chunkOverlap int)
 	}
 
 	chunks := splitter.SplitText(doc)
-
 	return chunks, nil
-
 }
 
 // SaveDocument saves a document and its vector embeddings to the pgvector database
@@ -134,7 +140,6 @@ func SaveDocument(ctx context.Context, conn *pgx.Conn, embeddingsHost string, ap
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -161,7 +166,7 @@ func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]
 		return nil, err
 	}
 
-	// print the request
+	// Print the request for debugging purposes.
 	fmt.Println(string(b))
 
 	req, err := http.NewRequest("POST", host, bytes.NewBuffer(b))
@@ -169,7 +174,6 @@ func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]
 		return nil, err
 	}
 
-	//req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}

@@ -21,8 +21,8 @@
       <template #node-geminiNode="geminiNodeProps">
         <GeminiNode v-bind="geminiNodeProps" />
       </template>
-      <template #node-runCmd="runCmdNodeProps">
-        <RunCmdNode v-bind="runCmdNodeProps" />
+      <template #node-pythonRunnerNode="pythonRunnerNodeProps">
+        <PythonRunner v-bind="pythonRunnerNodeProps" />
       </template>
       <template #node-webGLNode="webGLNodeProps">
         <WebGLNode v-bind="webGLNodeProps" />
@@ -146,7 +146,7 @@ import NoteNode from './components/NoteNode.vue';
 import AgentNode from './components/AgentNode.vue';
 import GeminiNode from './components/GeminiNode.vue';
 import GeminiResponse from './components/GeminiResponse.vue';
-import RunCmdNode from './components/RunCmdNode.vue';
+import PythonRunner from './components/PythonRunner.vue';
 import WebGLNode from './components/WebGLNode.vue';
 import ResponseNode from './components/ResponseNode.vue';
 import EmbeddingsNode from './components/EmbeddingsNode.vue';

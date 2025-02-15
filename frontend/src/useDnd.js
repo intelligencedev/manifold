@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { useVueFlow } from '@vue-flow/core'
 import { ref, watch, nextTick } from 'vue'
 import NoteNode from './components/NoteNode.vue'
-import RunCmdNode from './components/RunCmdNode.vue'
+import PythonRunner from './components/PythonRunner.vue'
 import WebGLNode from './components/WebGLNode.vue'
 import AgentNode from './components/AgentNode.vue'
 import GeminiNode from './components/GeminiNode.vue'
@@ -114,8 +114,8 @@ export default function useDragAndDrop() {
       case 'noteNode':
         component = NoteNode;
         break;
-      case 'runCmd':
-        component = RunCmdNode;
+      case 'pythonRunnerNode':
+        component = PythonRunner;
         break;
       case 'webGLNode':
         component = WebGLNode;

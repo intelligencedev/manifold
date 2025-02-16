@@ -159,14 +159,6 @@ func (e *Engine) persistTokenMapping(ctx context.Context, token string, chunkID 
 // IngestDocument splits the text into chunks, generates embeddings, saves them, and updates the inverted index.
 // It also persists each token mapping into the inverted_index table.
 func (e *Engine) IngestDocument(ctx context.Context, text, language, filePath, embeddingsHost, apiKey string, chunkSize, chunkOverlap int) error {
-	// Ensure the required tables exist.
-	if err := e.EnsureTable(ctx); err != nil {
-		return err
-	}
-	if err := e.EnsureInvertedIndexTable(ctx); err != nil {
-		return err
-	}
-
 	// Use the existing splitter from internal/documents.
 	splitter, err := documents.FromLanguage(documents.Language(language))
 	if err != nil {

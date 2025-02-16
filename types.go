@@ -1,5 +1,11 @@
 package main
 
+// FileData represents a single file's metadata and content.
+type FileData struct {
+	Path    string `json:"path"`    // File path relative to the repository root.
+	Content string `json:"content"` // Full file content.
+}
+
 // RepoConcatRequest represents the request body for the /api/repoconcat endpoint.
 type RepoConcatRequest struct {
 	Paths         []string `json:"paths"`

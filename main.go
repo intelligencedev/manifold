@@ -164,6 +164,141 @@ func main() {
 		return c.JSON(http.StatusOK, results)
 	})
 
+	e.GET("/api/git-files", func(c echo.Context) error {
+		repoPath := c.QueryParam("repo_path")
+		if repoPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "repo_path query parameter is required"})
+		}
+
+		// Use the shared GetGitFiles function
+		files, err := documents.GetGitFiles(repoPath)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to list Git files"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{"files": files})
+	})
+
+	e.POST("/api/git-files/ingest", func(c echo.Context) error {
+		var req struct {
+			RepoPath     string `json:"repo_path"`
+			ChunkSize    int    `json:"chunk_size"`
+			ChunkOverlap int    `json:"chunk_overlap"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.RepoPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "repo_path is required"})
+		}
+		if req.ChunkSize == 0 {
+			req.ChunkSize = 1000
+		}
+		if req.ChunkOverlap == 0 {
+			req.ChunkOverlap = 100
+		}
+
+		ctx := c.Request().Context()
+		connStr := config.Database.ConnectionString
+		embeddingsHost := config.Embeddings.Host
+		apiKey := config.Embeddings.APIKey
+
+		conn, err := Connect(ctx, connStr)
+		if err != nil {
+			log.Printf("Error connecting to database: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+		}
+		defer conn.Close(ctx)
+
+		engine := sefii.NewEngine(conn)
+
+		// Ensure the required tables exist.
+		if err := engine.EnsureTable(ctx); err != nil {
+			return err
+		}
+		if err := engine.EnsureInvertedIndexTable(ctx); err != nil {
+			return err
+		}
+
+		// Fetch Git-tracked files directly (no HTTP call)
+		files, err := documents.GetGitFiles(req.RepoPath)
+		if err != nil {
+			log.Printf("Error fetching Git files: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch Git files"})
+		}
+
+		successCount := 0
+		filePreviews := []map[string]string{}
+
+		log.Println("SEFII Ingestion: Preparing to ingest files...")
+
+		for _, f := range files {
+			if f.Content == "" {
+				continue
+			}
+			lang := documents.DeduceLanguage(f.Path)
+
+			// Print file details before ingestion
+			contentPreview := f.Content
+			if len(contentPreview) > 200 {
+				contentPreview = contentPreview[:200] + "..." // Truncate long files for logging
+			}
+
+			log.Printf("[INGEST] File: %s | Language: %s | Preview: %s\n",
+				f.Path, lang, strings.ReplaceAll(contentPreview, "\n", " "))
+
+			filePreviews = append(filePreviews, map[string]string{
+				"path":     f.Path,
+				"language": string(lang),
+				"preview":  contentPreview,
+			})
+
+			// Call the /v1/chat/completions to get a summary of the content
+			summary, err := summarizeContent(ctx, f.Content)
+			if err != nil {
+				log.Printf("Error summarizing file %s: %v", f.Path, err)
+				// Continue without a summary if the call fails
+				summary = ""
+			} else {
+				// Log the summary for debugging purposes.
+				log.Printf("[DEBUG] Summary for file %s: %s", f.Path, summary)
+			}
+
+			// Prepend the summary above the file content with proper delimiters
+			finalContent := f.Content
+			if summary != "" {
+				finalContent = fmt.Sprintf("%s\n\n---\n\n%s", summary, f.Content)
+			}
+
+			// Actually call IngestDocument with the modified content
+			if err := engine.IngestDocument(
+				ctx,
+				finalContent,
+				string(lang),
+				f.Path,
+				embeddingsHost,
+				apiKey,
+				req.ChunkSize,
+				req.ChunkOverlap,
+			); err != nil {
+				log.Printf("Error ingesting file %s: %v", f.Path, err)
+				continue
+			}
+			successCount++
+		}
+
+		msg := fmt.Sprintf("Ingested %d file(s) from %s into pgvector", successCount, req.RepoPath)
+		log.Println(msg)
+
+		// Return ingestion summary with file previews
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message":       msg,
+			"ingested":      successCount,
+			"repo_path":     req.RepoPath,
+			"file_previews": filePreviews,
+		})
+	})
+
 	e.POST("/api/documents/ingest", func(c echo.Context) error {
 		var req ProcessTextRequest
 		if err := c.Bind(&req); err != nil {

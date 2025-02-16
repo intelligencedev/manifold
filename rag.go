@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -202,4 +203,74 @@ func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]
 		embeddings = append(embeddings, embedding)
 	}
 	return embeddings, nil
+}
+
+// summarizeContent sends the file content to the /v1/chat/completions endpoint to obtain a summary.
+func summarizeContent(ctx context.Context, content string) (string, error) {
+	summaryInstructions := `You are a helpful summarization assistant tasked with processing file content for an ingestion workflow. Your goal is to generate a concise, structured summary that captures the key aspects of the file. The summary should:
+
+	- Be short, ideally 1-3 sentences or a few bullet points.
+	- Clearly state the file's purpose, key functionalities, and any notable components.
+	- Avoid unnecessary details or extraneous commentary.
+	- Use a structured format if it helps clarity (for example, starting with a brief overview followed by bullet points for main features).
+
+	Keep the summary informative yet succinct, enabling quick understanding and efficient indexing of the file.
+	`
+	// Prepare the request payload.
+	reqPayload := map[string]interface{}{
+		"model": "local",
+		"messages": []map[string]string{
+			{"role": "system", "content": summaryInstructions},
+			{"role": "user", "content": "Please summarize the following chunk of text:\n" + content},
+		},
+		"max_completion_tokens": 8192,
+		"temperature":           0.6,
+		"stream":                false,
+	}
+	reqBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return "", err
+	}
+
+	// Create the HTTP request (update the URL if necessary).
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:32182/v1/chat/completions", bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Add auth headers if required.
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to summarize content, status: %d, body: %s", resp.StatusCode, body)
+	}
+
+	// OpenAI Chat Completion response structure.
+	var respData struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		return "", err
+	}
+
+	if len(respData.Choices) == 0 {
+		return "", fmt.Errorf("no completion choices returned")
+	}
+
+	summary := respData.Choices[0].Message.Content
+
+	// Log the summary for debugging.
+	log.Printf("Summary: %s", summary)
+
+	return summary, nil
 }

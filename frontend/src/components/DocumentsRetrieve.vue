@@ -31,13 +31,26 @@
       <input type="number" class="input-text" v-model.number="limit" />
     </div>
 
-    <!-- Input Handle (for connected source nodes) -->
+    <!-- Merge Mode Dropdown -->
+    <div class="input-field">
+      <label class="input-label">Merge Mode:</label>
+      <select class="input-text" v-model="merge_mode">
+        <option value="union">Union</option>
+        <option value="intersect">Intersect</option>
+      </select>
+    </div>
+
+    <!-- Return Full Docs Checkbox -->
+    <div class="input-field">
+      <input type="checkbox" :id="`${props.id}-return-full-docs`" v-model="return_full_docs" />
+      <label :for="`${props.id}-return-full-docs`" class="input-label">
+        Return Full Docs
+      </label>
+    </div>
+
+    <!-- Node Resizer and Handles -->
     <Handle v-if="data.hasInputs" style="width:10px; height:10px" type="target" position="left" />
-
-    <!-- Output Handle -->
     <Handle v-if="data.hasOutputs" style="width:10px; height:10px" type="source" position="right" />
-
-    <!-- Node Resizer -->
     <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle" :line-style="resizeHandleStyle"
       :min-width="200" :min-height="120" :width="200" :height="150" :node-id="props.id" @resize="onResize" />
   </div>
@@ -66,9 +79,12 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        retrieve_endpoint: 'http://localhost:8080/api/documents/retrieve',
+        // Default endpoint pointing to our new combined-retrieve endpoint.
+        retrieve_endpoint: 'http://localhost:8080/api/sefii/combined-retrieve',
         text: 'Enter prompt text here...',
         limit: 1,
+        merge_mode: 'intersect',
+        return_full_docs: true,
       },
       outputs: {
         result: { output: '' },
@@ -97,7 +113,7 @@ onMounted(() => {
 const isHovered = ref(false)
 const customStyle = ref({})
 
-// Computed property for the retrieve endpoint input
+// Computed properties for the inputs
 const retrieve_endpoint = computed({
   get: () => props.data.inputs.retrieve_endpoint,
   set: (value) => {
@@ -105,7 +121,6 @@ const retrieve_endpoint = computed({
   },
 })
 
-// Computed property for the prompt text input
 const prompt = computed({
   get: () => props.data.inputs.text,
   set: (value) => {
@@ -113,7 +128,6 @@ const prompt = computed({
   },
 })
 
-// Computed property for the limit parameter
 const limit = computed({
   get: () => props.data.inputs.limit,
   set: (value) => {
@@ -121,24 +135,36 @@ const limit = computed({
   },
 })
 
-// Reactive property for the updateFromSource checkbox (default comes from props)
+const merge_mode = computed({
+  get: () => props.data.inputs.merge_mode,
+  set: (value) => {
+    props.data.inputs.merge_mode = value
+  },
+})
+
+const return_full_docs = computed({
+  get: () => props.data.inputs.return_full_docs,
+  set: (value) => {
+    props.data.inputs.return_full_docs = value
+  },
+})
+
+// Reactive property for the updateFromSource checkbox
 const updateFromSource = ref(props.data.updateFromSource)
 watch(updateFromSource, (newVal) => {
   props.data.updateFromSource = newVal
   updateNodeData()
 })
 function onUpdateFromSourceChange() {
-  // This change is handled by the watch above.
+  // Change is handled by the watch above.
 }
 
-// The run() function will be invoked when the node executes.
+// The run() function executes the node logic
 async function run() {
   console.log('Running DocumentsRetrieveNode:', props.id)
   try {
-    const node = findNode(props.id)
+    // Gather prompt text either from connected source nodes or from local prompt input.
     let inputText = ''
-
-    // Get connected source nodes (if any)
     const connectedSources = getEdges.value
       .filter((edge) => edge.target === props.id)
       .map((edge) => edge.source)
@@ -154,19 +180,24 @@ async function run() {
     } else {
       inputText = prompt.value
     }
-
     inputText = inputText.trim()
+
+    // Build payload for the API endpoint.
+    // Leaving file_path_filter empty means “search everywhere.”
     const payload = {
-      prompt: inputText,
+      query: inputText,
+      file_path_filter: "",
       limit: Number(limit.value),
+      use_inverted_index: true,
+      use_vector_search: true,
+      merge_mode: merge_mode.value,
+      return_full_docs: return_full_docs.value,
     }
 
     console.log('Calling Documents Retrieve API with payload:', payload)
     const response = await fetch(retrieve_endpoint.value, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
 
@@ -178,14 +209,22 @@ async function run() {
     const responseData = await response.json()
     console.log('Documents Retrieve API response:', responseData)
 
-    // Assume the endpoint returns text in a "text" property.
-    // If not, stringify the entire response.
-    let outputText = responseData.text
-    if (typeof outputText !== 'string') {
-      outputText = JSON.stringify(responseData, null, 2)
+    let outputText = ''
+    // If full documents are returned, reassemble them.
+    if (responseData.documents) {
+      outputText = Object.entries(responseData.documents)
+        .map(([filePath, content]) => `Source: ${filePath}\n\n${content}`)
+        .join('\n\n---\n\n')
+    } else if (responseData.chunks) {
+      // Otherwise, process the chunk-level results.
+      outputText = responseData.chunks
+        .map(chunk => `${chunk.content}\n\nSource: ${chunk.file_path}\n---`)
+        .join('\n\n')
+    } else {
+      outputText = 'No results found.'
     }
 
-    // Update the node's output with the retrieved text.
+    // Update the node's output with the formatted result.
     props.data.outputs = {
       result: { output: outputText },
     }
@@ -197,7 +236,7 @@ async function run() {
   }
 }
 
-// Control the visibility of the resize handle based on hover state
+// Control the visibility of the resize handle based on hover state.
 const resizeHandleStyle = computed(() => ({
   visibility: isHovered.value ? 'visible' : 'hidden',
 }))

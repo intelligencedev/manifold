@@ -253,3 +253,211 @@ func (e *Engine) SearchChunks(ctx context.Context, query, filePathFilter string,
 
 	return results, nil
 }
+
+// SearchRelevantChunks performs either or both of:
+// - semantic search (vector-based)
+// - keyword/inverted index search (token-based)
+// then merges (via "union" or "intersect") the resulting chunk IDs and returns the corresponding chunks.
+func (e *Engine) SearchRelevantChunks(ctx context.Context,
+	query string,
+	filePathFilter string,
+	limit int,
+	useInvertedIndex bool,
+	useVectorSearch bool,
+	embeddingsHost, apiKey string,
+	mergeMode string, // "union" or "intersect"
+) ([]Chunk, error) {
+
+	// 1. Prepare empty sets for chunk IDs from each method.
+	vectorSet := make(map[int64]bool)
+	invertedSet := make(map[int64]bool)
+	finalSet := make(map[int64]bool)
+
+	// 2. If vector search is enabled, get chunk IDs from similarity search.
+	if useVectorSearch {
+		// Generate query embedding.
+		queryEmbeds, err := e.generateQueryEmbeddings(ctx, query, embeddingsHost, apiKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(queryEmbeds) == 0 {
+			return nil, fmt.Errorf("failed to generate query embedding")
+		}
+		queryVec := pgvector.NewVector(queryEmbeds[0])
+
+		// Build the SQL query.
+		sqlQuery := `SELECT id FROM documents WHERE 1=1`
+		var args []interface{}
+		idx := 1
+
+		if filePathFilter != "" {
+			sqlQuery += fmt.Sprintf(" AND file_path = $%d", idx)
+			args = append(args, filePathFilter)
+			idx++
+		}
+		sqlQuery += fmt.Sprintf(" ORDER BY embedding <-> $%d LIMIT $%d", idx, idx+1)
+		args = append(args, queryVec, limit)
+
+		rows, err := e.DB.Query(ctx, sqlQuery, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		count := 0
+		for rows.Next() {
+			var cID int64
+			if err := rows.Scan(&cID); err != nil {
+				return nil, err
+			}
+			vectorSet[cID] = true
+			count++
+		}
+		log.Printf("[SEFII] Vector search found %d chunks", count)
+	}
+
+	// 3. If inverted index is enabled, get chunk IDs by tokenizing.
+	if useInvertedIndex {
+		tokens := tokenize(query) // using the same tokenization as in ingestion.
+		countTotals := 0
+		for _, tk := range tokens {
+			normalized := strings.ToLower(tk)
+			// We can query the inverted_index table.
+			rows, err := e.DB.Query(ctx, `
+                SELECT chunk_id FROM inverted_index WHERE token = $1
+            `, normalized)
+			if err != nil {
+				return nil, fmt.Errorf("error querying inverted_index for token=%s: %w", normalized, err)
+			}
+			for rows.Next() {
+				var cID int64
+				if err := rows.Scan(&cID); err != nil {
+					return nil, err
+				}
+				invertedSet[cID] = true
+				countTotals++
+			}
+			rows.Close()
+		}
+		log.Printf("[SEFII] Inverted index search found %d chunk references", countTotals)
+	}
+
+	// 4. Combine sets depending on mergeMode.
+	switch mergeMode {
+	case "union":
+		// All chunks that appear in either set.
+		for cID := range vectorSet {
+			finalSet[cID] = true
+		}
+		for cID := range invertedSet {
+			finalSet[cID] = true
+		}
+	case "intersect":
+		// Only those that appear in both.
+		for cID := range vectorSet {
+			if invertedSet[cID] {
+				finalSet[cID] = true
+			}
+		}
+	default:
+		// If mergeMode is not recognized, default to union.
+		for cID := range vectorSet {
+			finalSet[cID] = true
+		}
+		for cID := range invertedSet {
+			finalSet[cID] = true
+		}
+	}
+
+	if len(finalSet) == 0 {
+		log.Printf("[SEFII] No chunks found after merge (mode=%s)", mergeMode)
+		return []Chunk{}, nil
+	}
+
+	// 5. Retrieve the actual chunks from `documents` using an IN query.
+	chunkIDs := make([]int64, 0, len(finalSet))
+	for id := range finalSet {
+		chunkIDs = append(chunkIDs, id)
+	}
+	// If the set is larger than the limit, trim it.
+	if len(chunkIDs) > limit {
+		chunkIDs = chunkIDs[:limit]
+	}
+
+	rows, err := e.DB.Query(ctx, `
+        SELECT id, content, file_path
+        FROM documents
+        WHERE id = ANY($1)
+    `, chunkIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []Chunk
+	for rows.Next() {
+		var c Chunk
+		if err := rows.Scan(&c.ID, &c.Content, &c.FilePath); err != nil {
+			return nil, err
+		}
+		results = append(results, c)
+	}
+	return results, nil
+}
+
+// generateQueryEmbeddings is a helper to obtain the query embedding.
+func (e *Engine) generateQueryEmbeddings(ctx context.Context, query string, embeddingsHost, apiKey string) ([][]float32, error) {
+	// Reuse the embeddings package.
+	return embeddings.GenerateEmbeddings(embeddingsHost, apiKey, []string{query})
+}
+
+// RetrieveDocumentsForChunks looks up all distinct file_paths for the given chunk IDs,
+// then fetches and concatenates all chunks belonging to each file (ordered by id) to reconstruct the full document.
+func (e *Engine) RetrieveDocumentsForChunks(ctx context.Context, chunkIDs []int64) (map[string]string, error) {
+	// 1. Get distinct file_paths from the selected chunk IDs.
+	rows, err := e.DB.Query(ctx, `
+        SELECT DISTINCT file_path
+        FROM documents
+        WHERE id = ANY($1)
+    `, chunkIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var paths []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+
+	// 2. For each file_path, get all chunks and concatenate them.
+	documentsMap := make(map[string]string)
+	for _, fp := range paths {
+		crows, err := e.DB.Query(ctx, `
+            SELECT content
+            FROM documents
+            WHERE file_path = $1
+            ORDER BY id ASC
+        `, fp)
+		if err != nil {
+			return nil, err
+		}
+		var builder strings.Builder
+		for crows.Next() {
+			var chunkText string
+			if err := crows.Scan(&chunkText); err != nil {
+				crows.Close()
+				return nil, err
+			}
+			builder.WriteString(chunkText)
+			builder.WriteString("\n\n")
+		}
+		crows.Close()
+		documentsMap[fp] = builder.String()
+	}
+	return documentsMap, nil
+}

@@ -164,6 +164,81 @@ func main() {
 		return c.JSON(http.StatusOK, results)
 	})
 
+	e.POST("/api/sefii/combined-retrieve", func(c echo.Context) error {
+		var req struct {
+			Query            string `json:"query"`
+			FilePathFilter   string `json:"file_path_filter"`
+			Limit            int    `json:"limit"`
+			UseInvertedIndex bool   `json:"use_inverted_index"`
+			UseVectorSearch  bool   `json:"use_vector_search"`
+			MergeMode        string `json:"merge_mode"` // "union" or "intersect"
+			ReturnFullDocs   bool   `json:"return_full_docs"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.Limit == 0 {
+			req.Limit = 10
+		}
+		if req.MergeMode == "" {
+			req.MergeMode = "union"
+		}
+
+		ctx := c.Request().Context()
+		connStr := config.Database.ConnectionString
+		embeddingsHost := config.Embeddings.Host
+		apiKey := config.Embeddings.APIKey
+
+		conn, err := Connect(ctx, connStr)
+		if err != nil {
+			log.Printf("Error connecting to database: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+		}
+		defer conn.Close(ctx)
+
+		engine := sefii.NewEngine(conn)
+
+		// Retrieve the relevant chunks using our hybrid search method
+		chunks, err := engine.SearchRelevantChunks(
+			ctx,
+			req.Query,
+			req.FilePathFilter,
+			req.Limit,
+			req.UseInvertedIndex,
+			req.UseVectorSearch,
+			embeddingsHost,
+			apiKey,
+			req.MergeMode,
+		)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		if len(chunks) == 0 {
+			return c.JSON(http.StatusOK, map[string]interface{}{"results": []string{}})
+		}
+
+		// If full documents are requested, reassemble them from chunks by file_path
+		if req.ReturnFullDocs {
+			var chunkIDs []int64
+			for _, ch := range chunks {
+				chunkIDs = append(chunkIDs, ch.ID)
+			}
+			docsMap, err := engine.RetrieveDocumentsForChunks(ctx, chunkIDs)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			}
+			return c.JSON(http.StatusOK, map[string]interface{}{
+				"documents": docsMap,
+			})
+		}
+
+		// Otherwise, return just the chunk-level results
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"chunks": chunks,
+		})
+	})
+
 	e.GET("/api/git-files", func(c echo.Context) error {
 		repoPath := c.QueryParam("repo_path")
 		if repoPath == "" {

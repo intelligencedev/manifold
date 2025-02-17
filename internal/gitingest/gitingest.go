@@ -4,8 +4,8 @@ package gitingest
 import (
 	"bufio"
 	"context"
-	"io/ioutil"
 	"log"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,18 +80,6 @@ func CloneAndIngestRepo(
 		log.Printf("No .gitignore file found or error opening it: %v", err)
 	}
 
-	// Define allowed file extensions (for text and code files).
-	allowedExts := map[string]bool{
-		".txt":  true,
-		".go":   true,
-		".py":   true,
-		".js":   true,
-		".java": true,
-		".c":    true,
-		".cpp":  true,
-		".md":   true,
-	}
-
 	// Walk the repository's file tree.
 	err = filepath.Walk(localPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -116,14 +104,14 @@ func CloneAndIngestRepo(
 			}
 		}
 
-		// Filter files by allowed extension.
-		ext := strings.ToLower(filepath.Ext(path))
-		if !allowedExts[ext] {
+		// Use the mime.TypeByExtension function to check if a file is text
+		ext := filepath.Ext(path)
+		if strings.HasPrefix(mime.TypeByExtension(ext), "text/") {
 			return nil
 		}
 
 		// Read the file content.
-		data, err := ioutil.ReadFile(path)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Error reading file %s: %v", path, err)
 			return nil // Skip file if error occurs.

@@ -287,6 +287,49 @@ func main() {
 		return c.JSON(http.StatusOK, map[string]interface{}{"files": files})
 	})
 
+	// Add this new endpoint in your main() function along with the other API endpoints.
+	e.POST("/api/sefii/pathingest", func(c echo.Context) error {
+		var req struct {
+			Directory    string `json:"directory"`
+			ChunkSize    int    `json:"chunk_size"`
+			ChunkOverlap int    `json:"chunk_overlap"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.Directory == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Directory path is required"})
+		}
+		if req.ChunkSize == 0 {
+			req.ChunkSize = 1000
+		}
+		if req.ChunkOverlap == 0 {
+			req.ChunkOverlap = 100
+		}
+
+		connStr := config.Database.ConnectionString
+		embeddingsHost := config.Embeddings.Host
+		apiKey := config.Embeddings.APIKey
+
+		ctx := c.Request().Context()
+		conn, err := Connect(ctx, connStr)
+		if err != nil {
+			log.Printf("Error connecting to database: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+		}
+		defer conn.Close(ctx)
+
+		engine := sefii.NewEngine(conn)
+
+		// Call IngestPath, which only ingests text files based on MIME type detection.
+		if err := sefii.IngestPath(ctx, req.Directory, engine, embeddingsHost, apiKey, req.ChunkSize, req.ChunkOverlap); err != nil {
+			log.Printf("Error ingesting directory %s: %v", req.Directory, err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ingest directory"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"message": "Directory ingested successfully"})
+	})
+
 	e.POST("/api/git-files/ingest", func(c echo.Context) error {
 		var req struct {
 			RepoPath     string `json:"repo_path"`

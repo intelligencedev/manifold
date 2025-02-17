@@ -14,7 +14,13 @@ jaeger_host: 'localhost:16686'
 database:
   connection_string: "postgres://pgadmin:yourpassword@localhost:5432/manifold?sslmode=disable"  # REPLACE with your actual credentials
 
+# Default Completions Configuration - 
+completions:
+  default_host: "http://192.168.1.200:32182/v1/chat/completions"
+  api_key: "my_api_key" # OpenAI key, or LLM endpoint key if configured in backend
+
 # Embeddings API Configuration
 embeddings:
   host: "http://localhost:8081/v1/embeddings" #  Replace with your actual embeddings API endpoint
   api_key: "your_embeddings_api_key"      #  Replace with your actual embeddings API key, not used for local embeddings
+  embedding_vectors: 768 # Size of embedding vectors depending on model

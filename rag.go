@@ -206,7 +206,7 @@ func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]
 }
 
 // summarizeContent sends the file content to the /v1/chat/completions endpoint to obtain a summary.
-func summarizeContent(ctx context.Context, content string) (string, error) {
+func summarizeContent(ctx context.Context, content string, endpoint string, apiKey string) (string, error) {
 	summaryInstructions := `You are a helpful summarization assistant tasked with processing file content for an ingestion workflow. Your goal is to generate a concise, structured summary that captures the key aspects of the file. The summary should:
 
 	- Be short, ideally 1-3 sentences or a few bullet points.
@@ -232,13 +232,19 @@ func summarizeContent(ctx context.Context, content string) (string, error) {
 		return "", err
 	}
 
-	// Create the HTTP request (update the URL if necessary).
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://localhost:32182/v1/chat/completions", bytes.NewBuffer(reqBytes))
+	// Ensure the endpoint has a proper scheme
+	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+		endpoint = "http://" + endpoint
+	}
+
+	// Create the HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	// Add auth headers if required.
+	// Add openai api key to the request header.
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

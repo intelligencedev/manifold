@@ -27,6 +27,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	pgxvector "github.com/pgvector/pgvector-go/pgx"
+
 	"manifold/internal/documents"
 	"manifold/internal/repoconcat"
 	"manifold/internal/sefii"
@@ -50,6 +52,37 @@ func main() {
 		log.Fatal(err)
 	} else {
 		log.Printf("Configuration loaded: %+v", config)
+	}
+
+	// Bootstrap database
+	db, err := Connect(context.Background(), config.Database.ConnectionString)
+	if err != nil {
+		log.Fatalf("Error connecting to database: %v", err)
+	}
+	defer db.Close(context.Background())
+
+	_, err = db.Exec(context.Background(), "CREATE EXTENSION IF NOT EXISTS vector")
+	if err != nil {
+		panic(err)
+	}
+
+	err = pgxvector.RegisterTypes(context.Background(), db)
+	if err != nil {
+		panic(err)
+	}
+
+	dbCmd := fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS documents (
+			id SERIAL PRIMARY KEY,
+			content TEXT NOT NULL,
+			embedding vector(%d) NOT NULL,
+			file_path TEXT
+		)
+	`, config.Embeddings.EmbeddingVectors)
+
+	_, err = db.Exec(context.Background(), dbCmd)
+	if err != nil {
+		panic(err)
 	}
 
 	// Create a new Echo instance
@@ -288,7 +321,7 @@ func main() {
 		engine := sefii.NewEngine(conn)
 
 		// Ensure the required tables exist.
-		if err := engine.EnsureTable(ctx); err != nil {
+		if err := engine.EnsureTable(ctx, config.Embeddings.EmbeddingVectors); err != nil {
 			return err
 		}
 		if err := engine.EnsureInvertedIndexTable(ctx); err != nil {
@@ -329,7 +362,7 @@ func main() {
 			})
 
 			// Call the /v1/chat/completions to get a summary of the content
-			summary, err := summarizeContent(ctx, f.Content)
+			summary, err := summarizeContent(ctx, f.Content, config.Completions.DefaultHost, config.Completions.APIKey)
 			if err != nil {
 				log.Printf("Error summarizing file %s: %v", f.Path, err)
 				// Continue without a summary if the call fails

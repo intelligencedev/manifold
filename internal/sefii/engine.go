@@ -73,7 +73,7 @@ func NewEngine(db *pgx.Conn) *Engine {
 
 // EnsureTable checks if the "documents" table exists, and if not, creates it.
 // If the table exists but is missing the "file_path" column, it alters the table to add it.
-func (e *Engine) EnsureTable(ctx context.Context) error {
+func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error {
 	var tableName *string
 	// Check if the table exists using PostgreSQL's to_regclass.
 	err := e.DB.QueryRow(ctx, "SELECT to_regclass('public.documents')").Scan(&tableName)
@@ -81,16 +81,18 @@ func (e *Engine) EnsureTable(ctx context.Context) error {
 		return fmt.Errorf("failed to check for documents table: %w", err)
 	}
 
+	query := fmt.Sprintf(`
+		CREATE TABLE documents (
+			id SERIAL PRIMARY KEY,
+			content TEXT NOT NULL,
+			embedding vector(%d) NOT NULL,
+			file_path TEXT
+		)
+	`, embeddingVectorSize)
+
 	if tableName == nil || *tableName == "" {
 		// Table doesn't exist; create it.
-		_, err := e.DB.Exec(ctx, `
-			CREATE TABLE documents (
-				id SERIAL PRIMARY KEY,
-				content TEXT NOT NULL,
-				embedding vector(768) NOT NULL,
-				file_path TEXT
-			)
-		`)
+		_, err := e.DB.Exec(ctx, query)
 		if err != nil {
 			return fmt.Errorf("failed to create documents table: %w", err)
 		}
@@ -214,7 +216,7 @@ func tokenize(text string) []string {
 
 // SearchChunks performs a semantic search on stored chunks using the query embedding.
 // It also applies an optional file path filter.
-func (e *Engine) SearchChunks(ctx context.Context, query, filePathFilter string, limit int, embeddingsHost, apiKey string) ([]Chunk, error) {
+func (e *Engine) SearchChunks(ctx context.Context, query, filePathFilter string, limit int, embeddingsHost string, apiKey string) ([]Chunk, error) {
 	// Generate the query embedding.
 	queryEmbeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, []string{query})
 	if err != nil {
@@ -276,7 +278,7 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 	// 2. If vector search is enabled, get chunk IDs from similarity search.
 	if useVectorSearch {
 		// Generate query embedding.
-		queryEmbeds, err := e.generateQueryEmbeddings(ctx, query, embeddingsHost, apiKey)
+		queryEmbeds, err := e.generateQueryEmbeddings(query, embeddingsHost, apiKey)
 		if err != nil {
 			return nil, err
 		}
@@ -406,7 +408,7 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 }
 
 // generateQueryEmbeddings is a helper to obtain the query embedding.
-func (e *Engine) generateQueryEmbeddings(ctx context.Context, query string, embeddingsHost, apiKey string) ([][]float32, error) {
+func (e *Engine) generateQueryEmbeddings(query string, embeddingsHost, apiKey string) ([][]float32, error) {
 	// Reuse the embeddings package.
 	return embeddings.GenerateEmbeddings(embeddingsHost, apiKey, []string{query})
 }

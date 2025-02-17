@@ -53,7 +53,7 @@
           Select {{ selectionType === 'folder' ? 'Folder' : 'File' }}
         </button>
         <span v-if="selectedFileNames.length">
-          Selected: {{ selectedFileNames.join(', ') }}
+          {{ selectedFileNames.length }} files in path.
         </span>
         <!-- Use a single file input with dynamic webkitdirectory binding -->
         <input
@@ -77,10 +77,8 @@
       :color="'#666'"
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle"
-      :min-width="200"
-      :min-height="120"
-      :width="200"
-      :height="120"
+      :min-width="300"
+      :min-height="200"
       :node-id="props.id"
       @resize="onResize"
     />
@@ -110,7 +108,7 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        ingestion_endpoint: 'http://localhost:8080/api/documents/ingest',
+        ingestion_endpoint: 'http://localhost:8080/api/sefii/ingest',
         mode: 'documents', // default mode is "documents"
       },
       outputs: {
@@ -121,7 +119,7 @@ const props = defineProps({
         borderRadius: '4px',
         backgroundColor: '#333',
         color: '#eee',
-        width: '200px',
+        width: '350px',
         height: '220px', // increased height for extra fields
       },
     }),
@@ -138,6 +136,7 @@ onMounted(() => {
 // Reactive variables for UI styling and state
 const isHovered = ref(false)
 const customStyle = ref({})
+const directoryPath = ref('')
 
 // Two-way binding for ingestion endpoint (mirrors the node’s inputs)
 const ingestion_endpoint = computed({
@@ -163,6 +162,13 @@ const selectionType = ref('file')
 const selectedFiles = ref([])
 const selectedFileNames = computed(() => selectedFiles.value.map((file) => file.name))
 
+const currentEndpoint = computed(() => {
+  if (mode.value === 'path') {
+    return 'http://localhost:8080/api/sefii/pathingest'
+  }
+  return ingestion_endpoint.value
+})
+
 const fileInput = ref(null)
 function openFilePicker() {
   fileInput.value && fileInput.value.click()
@@ -183,6 +189,28 @@ function handleFileSelection(event) {
     }
   }
   console.log("Accepted files:", selectedFiles.value)  // Debug log
+}
+
+// New helper function for path ingestion.
+async function callPathIngestAPI(directory) {
+  const payload = {
+    directory: directory,
+    chunk_size: chunk_size.value,
+    chunk_overlap: chunk_overlap.value
+  }
+  console.log('Calling Path Ingest API with payload:', payload)
+  const response = await fetch(currentEndpoint.value, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(`API error (${response.status}): ${errorText}`)
+  }
+  const responseData = await response.json()
+  console.log('Path Ingest API response:', responseData)
+  return responseData
 }
 
 // The run function invoked when the node executes.
@@ -235,6 +263,17 @@ async function run() {
       }
       updateNodeData()
       return { results }
+    } else if (mode.value === 'path') {
+      // In path mode, use the directory path input
+      if (!directoryPath.value) {
+        throw new Error('No directory path provided for ingestion.')
+      }
+      const ingestResult = await callPathIngestAPI(directoryPath.value)
+      props.data.outputs = {
+        result: { output: JSON.stringify(ingestResult, null, 2) },
+      }
+      updateNodeData()
+      return { ingestResult }
     } else {
       throw new Error('Invalid mode or missing input for passthrough mode.')
     }

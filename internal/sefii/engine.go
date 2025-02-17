@@ -3,10 +3,14 @@ package sefii
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"manifold/internal/documents"
 	"manifold/internal/embeddings" // Updated import for embedding functions
@@ -23,56 +27,38 @@ type Chunk struct {
 	// Future extensions: commit IDs, line numbers, etc.
 }
 
-// InvertedIndex is a simple in-memory mapping from token → set of chunk IDs.
-type InvertedIndex struct {
-	Index map[string]map[int64]bool // token → set of chunk IDs
-	Mutex sync.RWMutex
-}
-
-// NewInvertedIndex creates a new inverted index.
-func NewInvertedIndex() *InvertedIndex {
-	return &InvertedIndex{
-		Index: make(map[string]map[int64]bool),
-	}
-}
-
-// Add inserts a token mapping for a given chunk ID.
-func (ii *InvertedIndex) Add(token string, chunkID int64) {
-	ii.Mutex.Lock()
-	defer ii.Mutex.Unlock()
-	if _, exists := ii.Index[token]; !exists {
-		ii.Index[token] = make(map[int64]bool)
-	}
-	ii.Index[token][chunkID] = true
-}
-
-// Get returns all chunk IDs associated with a given token.
-func (ii *InvertedIndex) Get(token string) []int64 {
-	ii.Mutex.RLock()
-	defer ii.Mutex.RUnlock()
-	var ids []int64
-	for id := range ii.Index[token] {
-		ids = append(ids, id)
-	}
-	return ids
-}
-
 // Engine is the SEFII engine that handles ingestion and search.
 type Engine struct {
-	DB            *pgx.Conn
-	InvertedIndex *InvertedIndex
+	DB                  *pgx.Conn
+	queryEmbeddingCache map[string][]float32
+	cacheMutex          sync.RWMutex
 }
 
 // NewEngine returns a new SEFII engine.
 func NewEngine(db *pgx.Conn) *Engine {
 	return &Engine{
-		DB:            db,
-		InvertedIndex: NewInvertedIndex(),
+		DB:                  db,
+		queryEmbeddingCache: make(map[string][]float32),
 	}
 }
 
+// execWithRetry is a helper to execute a DB command with retries.
+func (e *Engine) execWithRetry(ctx context.Context, sqlQuery string, args ...interface{}) error {
+	var err error
+	const maxRetries = 3
+	for i := 0; i < maxRetries; i++ {
+		_, err = e.DB.Exec(ctx, sqlQuery, args...)
+		if err == nil {
+			return nil
+		}
+		log.Printf("[ERROR] DB Exec failed (attempt %d/%d): %s", i+1, maxRetries, err)
+		time.Sleep(time.Duration(i+1) * time.Second)
+	}
+	return fmt.Errorf("db exec failed after retries: %w", err)
+}
+
 // EnsureTable checks if the "documents" table exists, and if not, creates it.
-// If the table exists but is missing the "file_path" column, it alters the table to add it.
+// It also creates an IVFFlat index on the embedding column.
 func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error {
 	var tableName *string
 	// Check if the table exists using PostgreSQL's to_regclass.
@@ -81,7 +67,7 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 		return fmt.Errorf("failed to check for documents table: %w", err)
 	}
 
-	query := fmt.Sprintf(`
+	createTableQuery := fmt.Sprintf(`
 		CREATE TABLE documents (
 			id SERIAL PRIMARY KEY,
 			content TEXT NOT NULL,
@@ -92,8 +78,7 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 
 	if tableName == nil || *tableName == "" {
 		// Table doesn't exist; create it.
-		_, err := e.DB.Exec(ctx, query)
-		if err != nil {
+		if err := e.execWithRetry(ctx, createTableQuery); err != nil {
 			return fmt.Errorf("failed to create documents table: %w", err)
 		}
 		log.Println("Created table 'documents'")
@@ -106,10 +91,9 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 			FROM information_schema.columns 
 			WHERE table_name = 'documents' AND column_name = 'file_path'
 		`).Scan(&columnName)
-		if err == pgx.ErrNoRows {
+		if err == sql.ErrNoRows {
 			// The column doesn't exist, so alter the table to add it.
-			_, err := e.DB.Exec(ctx, `ALTER TABLE documents ADD COLUMN file_path TEXT`)
-			if err != nil {
+			if err := e.execWithRetry(ctx, `ALTER TABLE documents ADD COLUMN file_path TEXT`); err != nil {
 				return fmt.Errorf("failed to add file_path column: %w", err)
 			}
 			log.Println("Added column 'file_path' to table 'documents'")
@@ -119,10 +103,21 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 			log.Println("Column 'file_path' already exists")
 		}
 	}
+
+	// Create an IVFFlat index on the embedding column if it doesn't exist.
+	indexQuery := `
+		CREATE INDEX IF NOT EXISTS documents_embedding_idx 
+		ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
+	`
+	if err := e.execWithRetry(ctx, indexQuery); err != nil {
+		return fmt.Errorf("failed to create ivfflat index on documents.embedding: %w", err)
+	}
+	log.Println("Ensured IVFFlat index on documents.embedding")
 	return nil
 }
 
 // EnsureInvertedIndexTable checks if the "inverted_index" table exists, and if not, creates it.
+// This table uses a JSONB column to store an array of chunk IDs per token.
 func (e *Engine) EnsureInvertedIndexTable(ctx context.Context) error {
 	var tableName *string
 	err := e.DB.QueryRow(ctx, "SELECT to_regclass('public.inverted_index')").Scan(&tableName)
@@ -131,14 +126,13 @@ func (e *Engine) EnsureInvertedIndexTable(ctx context.Context) error {
 	}
 	if tableName == nil || *tableName == "" {
 		// Table doesn't exist; create it.
-		_, err := e.DB.Exec(ctx, `
+		createIndexQuery := `
 			CREATE TABLE inverted_index (
-				token TEXT NOT NULL,
-				chunk_id BIGINT NOT NULL,
-				PRIMARY KEY (token, chunk_id)
+				token TEXT PRIMARY KEY,
+				chunk_ids JSONB NOT NULL
 			)
-		`)
-		if err != nil {
+		`
+		if err := e.execWithRetry(ctx, createIndexQuery); err != nil {
 			return fmt.Errorf("failed to create inverted_index table: %w", err)
 		}
 		log.Println("Created table 'inverted_index'")
@@ -148,18 +142,49 @@ func (e *Engine) EnsureInvertedIndexTable(ctx context.Context) error {
 	return nil
 }
 
-// persistTokenMapping saves a single token to chunk ID mapping into the inverted_index table.
+// persistTokenMapping saves a token→chunk mapping into the inverted_index table using JSONB array update.
 func (e *Engine) persistTokenMapping(ctx context.Context, token string, chunkID int64) error {
-	_, err := e.DB.Exec(ctx, `
-		INSERT INTO inverted_index (token, chunk_id)
-		VALUES ($1, $2)
-		ON CONFLICT DO NOTHING
-	`, token, chunkID)
-	return err
+	// This query inserts a new row for the token or updates the existing JSONB array with the new chunkID,
+	// ensuring that chunk IDs remain unique.
+	query := `
+		INSERT INTO inverted_index (token, chunk_ids)
+		VALUES ($1, to_jsonb(ARRAY[$2]::BIGINT[]))
+		ON CONFLICT (token) DO UPDATE SET
+		chunk_ids = (
+			SELECT to_jsonb(array_agg(DISTINCT cid))
+			FROM (
+				SELECT jsonb_array_elements_text(inverted_index.chunk_ids)::BIGINT as cid
+				UNION
+				SELECT $2
+			) sub
+		)
+	`
+	return e.execWithRetry(ctx, query, token, chunkID)
+}
+
+// tokenize performs improved tokenization: lowercases text, removes punctuation, and filters stopwords.
+func tokenize(text string) []string {
+	// Normalize and remove punctuation.
+	text = strings.ToLower(text)
+	// Remove punctuation.
+	re := regexp.MustCompile(`[^\w\s]`)
+	text = re.ReplaceAllString(text, "")
+	words := strings.Fields(text)
+	// Filter out common stopwords.
+	stopwords := map[string]bool{
+		"the": true, "is": true, "at": true, "of": true, "on": true, "and": true,
+	}
+	var tokens []string
+	for _, word := range words {
+		if !stopwords[word] {
+			tokens = append(tokens, word)
+		}
+	}
+	return tokens
 }
 
 // IngestDocument splits the text into chunks, generates embeddings, saves them, and updates the inverted index.
-// It also persists each token mapping into the inverted_index table.
+// In-memory inverted index has been removed; token mappings are stored only in PostgreSQL.
 func (e *Engine) IngestDocument(ctx context.Context, text, language, filePath, embeddingsHost, apiKey string, chunkSize, chunkOverlap int) error {
 	// Use the existing splitter from internal/documents.
 	splitter, err := documents.FromLanguage(documents.Language(language))
@@ -175,7 +200,7 @@ func (e *Engine) IngestDocument(ctx context.Context, text, language, filePath, e
 	chunksText := splitter.SplitText(text)
 	log.Printf("SEFII: Document split into %d chunks", len(chunksText))
 
-	// Generate embeddings using the new embeddings package.
+	// Generate embeddings using the embeddings package.
 	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, chunksText)
 	if err != nil {
 		return err
@@ -184,7 +209,7 @@ func (e *Engine) IngestDocument(ctx context.Context, text, language, filePath, e
 		return fmt.Errorf("embedding count mismatch: got %d embeddings for %d chunks", len(embeds), len(chunksText))
 	}
 
-	// Save each chunk into the database and update the inverted index.
+	// Save each chunk into the database and persist token mappings.
 	for i, chunkContent := range chunksText {
 		var chunkID int64
 		err := e.DB.QueryRow(ctx,
@@ -195,12 +220,10 @@ func (e *Engine) IngestDocument(ctx context.Context, text, language, filePath, e
 			return err
 		}
 
-		// Tokenize the chunk and update the in-memory inverted index,
-		// then persist each token mapping in the database.
+		// Tokenize the chunk and persist each token mapping in the database.
 		tokens := tokenize(chunkContent)
 		for _, token := range tokens {
 			normalizedToken := strings.ToLower(token)
-			e.InvertedIndex.Add(normalizedToken, chunkID)
 			if err := e.persistTokenMapping(ctx, normalizedToken, chunkID); err != nil {
 				return fmt.Errorf("failed to persist token mapping for '%s': %w", normalizedToken, err)
 			}
@@ -209,23 +232,36 @@ func (e *Engine) IngestDocument(ctx context.Context, text, language, filePath, e
 	return nil
 }
 
-// tokenize performs a basic whitespace tokenization.
-func tokenize(text string) []string {
-	return strings.Fields(text)
+// getQueryEmbedding returns a cached embedding if available; otherwise it generates and caches it.
+func (e *Engine) getQueryEmbedding(query, embeddingsHost, apiKey string) ([]float32, error) {
+	e.cacheMutex.RLock()
+	embed, found := e.queryEmbeddingCache[query]
+	e.cacheMutex.RUnlock()
+	if found {
+		return embed, nil
+	}
+	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, []string{query})
+	if err != nil {
+		return nil, err
+	}
+	if len(embeds) == 0 {
+		return nil, fmt.Errorf("failed to generate query embedding")
+	}
+	e.cacheMutex.Lock()
+	e.queryEmbeddingCache[query] = embeds[0]
+	e.cacheMutex.Unlock()
+	return embeds[0], nil
 }
 
 // SearchChunks performs a semantic search on stored chunks using the query embedding.
 // It also applies an optional file path filter.
 func (e *Engine) SearchChunks(ctx context.Context, query, filePathFilter string, limit int, embeddingsHost string, apiKey string) ([]Chunk, error) {
-	// Generate the query embedding.
-	queryEmbeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, []string{query})
+	// Use cached embedding if available.
+	queryEmbed, err := e.getQueryEmbedding(query, embeddingsHost, apiKey)
 	if err != nil {
 		return nil, err
 	}
-	if len(queryEmbeds) == 0 {
-		return nil, fmt.Errorf("failed to generate query embedding")
-	}
-	queryVec := pgvector.NewVector(queryEmbeds[0])
+	vec := pgvector.NewVector(queryEmbed)
 
 	// Build the SQL query.
 	sqlQuery := "SELECT id, content, file_path FROM documents WHERE 1=1"
@@ -236,7 +272,7 @@ func (e *Engine) SearchChunks(ctx context.Context, query, filePathFilter string,
 		args = append(args, filePathFilter)
 	}
 	sqlQuery += " ORDER BY embedding <-> $2 LIMIT $3"
-	args = append(args, queryVec, limit)
+	args = append(args, vec, limit)
 
 	rows, err := e.DB.Query(ctx, sqlQuery, args...)
 	if err != nil {
@@ -270,24 +306,18 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 	mergeMode string, // "union" or "intersect"
 ) ([]Chunk, error) {
 
-	// 1. Prepare empty sets for chunk IDs from each method.
 	vectorSet := make(map[int64]bool)
 	invertedSet := make(map[int64]bool)
 	finalSet := make(map[int64]bool)
 
-	// 2. If vector search is enabled, get chunk IDs from similarity search.
+	// 1. If vector search is enabled, get chunk IDs from similarity search.
 	if useVectorSearch {
-		// Generate query embedding.
-		queryEmbeds, err := e.generateQueryEmbeddings(query, embeddingsHost, apiKey)
+		queryEmbed, err := e.getQueryEmbedding(query, embeddingsHost, apiKey)
 		if err != nil {
 			return nil, err
 		}
-		if len(queryEmbeds) == 0 {
-			return nil, fmt.Errorf("failed to generate query embedding")
-		}
-		queryVec := pgvector.NewVector(queryEmbeds[0])
+		queryVec := pgvector.NewVector(queryEmbed)
 
-		// Build the SQL query.
 		sqlQuery := `SELECT id FROM documents WHERE 1=1`
 		var args []interface{}
 		idx := 1
@@ -306,68 +336,69 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 		}
 		defer rows.Close()
 
-		count := 0
 		for rows.Next() {
 			var cID int64
 			if err := rows.Scan(&cID); err != nil {
 				return nil, err
 			}
 			vectorSet[cID] = true
-			count++
 		}
-		log.Printf("[SEFII] Vector search found %d chunks", count)
+		log.Printf("[SEFII] Vector search found %d chunks", len(vectorSet))
 	}
 
-	// 3. If inverted index is enabled, get chunk IDs by tokenizing.
+	// 2. If inverted index is enabled, get chunk IDs by tokenizing and querying the DB.
 	if useInvertedIndex {
-		tokens := tokenize(query) // using the same tokenization as in ingestion.
-		countTotals := 0
+		tokens := tokenize(query)
 		for _, tk := range tokens {
 			normalized := strings.ToLower(tk)
-			// We can query the inverted_index table.
 			rows, err := e.DB.Query(ctx, `
-                SELECT chunk_id FROM inverted_index WHERE token = $1
+                SELECT chunk_ids FROM inverted_index WHERE token = $1
             `, normalized)
 			if err != nil {
 				return nil, fmt.Errorf("error querying inverted_index for token=%s: %w", normalized, err)
 			}
 			for rows.Next() {
-				var cID int64
-				if err := rows.Scan(&cID); err != nil {
+				var jsonData []byte
+				if err := rows.Scan(&jsonData); err != nil {
+					rows.Close()
 					return nil, err
 				}
-				invertedSet[cID] = true
-				countTotals++
+				// Parse the JSONB array of chunk IDs.
+				var chunkIDs []int64
+				if err := json.Unmarshal(jsonData, &chunkIDs); err != nil {
+					rows.Close()
+					return nil, fmt.Errorf("failed to parse JSONB chunk_ids: %w", err)
+				}
+				for _, id := range chunkIDs {
+					invertedSet[id] = true
+				}
 			}
 			rows.Close()
 		}
-		log.Printf("[SEFII] Inverted index search found %d chunk references", countTotals)
+		log.Printf("[SEFII] Inverted index search found %d unique chunk references", len(invertedSet))
 	}
 
-	// 4. Combine sets depending on mergeMode.
+	// 3. Combine sets based on mergeMode.
 	switch mergeMode {
 	case "union":
-		// All chunks that appear in either set.
-		for cID := range vectorSet {
-			finalSet[cID] = true
+		for id := range vectorSet {
+			finalSet[id] = true
 		}
-		for cID := range invertedSet {
-			finalSet[cID] = true
+		for id := range invertedSet {
+			finalSet[id] = true
 		}
 	case "intersect":
-		// Only those that appear in both.
-		for cID := range vectorSet {
-			if invertedSet[cID] {
-				finalSet[cID] = true
+		for id := range vectorSet {
+			if invertedSet[id] {
+				finalSet[id] = true
 			}
 		}
 	default:
-		// If mergeMode is not recognized, default to union.
-		for cID := range vectorSet {
-			finalSet[cID] = true
+		for id := range vectorSet {
+			finalSet[id] = true
 		}
-		for cID := range invertedSet {
-			finalSet[cID] = true
+		for id := range invertedSet {
+			finalSet[id] = true
 		}
 	}
 
@@ -376,21 +407,20 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 		return []Chunk{}, nil
 	}
 
-	// 5. Retrieve the actual chunks from `documents` using an IN query.
-	chunkIDs := make([]int64, 0, len(finalSet))
+	// 4. Retrieve the actual chunks using an IN query.
+	var idList []int64
 	for id := range finalSet {
-		chunkIDs = append(chunkIDs, id)
+		idList = append(idList, id)
 	}
-	// If the set is larger than the limit, trim it.
-	if len(chunkIDs) > limit {
-		chunkIDs = chunkIDs[:limit]
+	if len(idList) > limit {
+		idList = idList[:limit]
 	}
 
 	rows, err := e.DB.Query(ctx, `
         SELECT id, content, file_path
         FROM documents
         WHERE id = ANY($1)
-    `, chunkIDs)
+    `, idList)
 	if err != nil {
 		return nil, err
 	}
@@ -407,16 +437,9 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 	return results, nil
 }
 
-// generateQueryEmbeddings is a helper to obtain the query embedding.
-func (e *Engine) generateQueryEmbeddings(query string, embeddingsHost, apiKey string) ([][]float32, error) {
-	// Reuse the embeddings package.
-	return embeddings.GenerateEmbeddings(embeddingsHost, apiKey, []string{query})
-}
-
 // RetrieveDocumentsForChunks looks up all distinct file_paths for the given chunk IDs,
 // then fetches and concatenates all chunks belonging to each file (ordered by id) to reconstruct the full document.
 func (e *Engine) RetrieveDocumentsForChunks(ctx context.Context, chunkIDs []int64) (map[string]string, error) {
-	// 1. Get distinct file_paths from the selected chunk IDs.
 	rows, err := e.DB.Query(ctx, `
         SELECT DISTINCT file_path
         FROM documents
@@ -436,7 +459,6 @@ func (e *Engine) RetrieveDocumentsForChunks(ctx context.Context, chunkIDs []int6
 		paths = append(paths, p)
 	}
 
-	// 2. For each file_path, get all chunks and concatenate them.
 	documentsMap := make(map[string]string)
 	for _, fp := range paths {
 		crows, err := e.DB.Query(ctx, `

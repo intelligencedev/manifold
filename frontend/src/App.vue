@@ -3,6 +3,7 @@
     <!-- Header Component Positioned Outside VueFlow -->
     <Header />
     <NodePalette />
+    <UtilityPalette />
 
     <!-- VueFlow Component -->
     <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
@@ -111,7 +112,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, markRaw, watch } from 'vue';
+import { ref, markRaw, watch, onMounted } from 'vue';
 import type {
   Connection,
   NodeChange,
@@ -135,6 +136,7 @@ import {
   BackgroundVariant,
 } from '@vue-flow/additional-components';
 import SpecialEdge from './components/SpecialEdge.vue';
+import { useConfigStore } from '@/stores/configStore'
 
 // Manifold custom components
 import Header from './components/Header.vue';
@@ -142,6 +144,7 @@ import SaveRestoreControls from './components/SaveRestoreControls.vue';
 import LayoutControls from './components/LayoutControls.vue';
 import useDragAndDrop from './useDnD';
 import NodePalette from './components/NodePalette.vue';
+import UtilityPalette from './components/UtilityPalette.vue';
 import NoteNode from './components/NoteNode.vue';
 import AgentNode from './components/AgentNode.vue';
 import GeminiNode from './components/GeminiNode.vue';
@@ -174,10 +177,18 @@ const bgColor: BgColorInterface['value'] = '#282828';
 const bgVariant = BackgroundVariant.Dots;
 
 // --- STATE ---
+
 const { findNode, getNodes, getEdges, toObject, fromObject } = useVueFlow();
 const nodes = ref<GraphNode[]>([]);
 const edges = ref<GraphEdge[]>([]);
 const defaultEdgeType = ref<string>('bezier'); // Set the default edge type
+
+const configStore = useConfigStore()
+
+// Load configuration on startup
+onMounted(() => {
+  configStore.fetchConfig()
+})
 
 // Watchers for debugging
 watch(getNodes, (newNodes) => console.log('nodes changed', newNodes));
@@ -205,14 +216,32 @@ interface UpdatedNode extends Partial<GraphNode> {
 }
 
 // Update node dimensions when a node is resized
-const updateNodeDimensions = (updatedNode: UpdatedNode): void => {
+interface Dimensions {
+  width?: number;
+  height?: number;
+}
+
+interface UpdatedNodeWithDimensions {
+  id: string;
+  dimensions?: Dimensions;
+}
+
+function updateNodeDimensions(updatedNode: UpdatedNodeWithDimensions): void {
+  // Make sure each node's .dimensions is current
   nodes.value = nodes.value.map((node: GraphNode) => {
     if (node.id === updatedNode.id) {
-      return { ...node, ...updatedNode };
+      // Merge in new width/height if provided
+      return {
+        ...node,
+        dimensions: {
+          width: updatedNode.dimensions?.width || node.dimensions?.width || 150,
+          height: updatedNode.dimensions?.height || node.dimensions?.height || 50,
+        },
+      };
     }
     return node;
   });
-};
+}
 
 // Update layout based on updated nodes
 const updateLayout = (updatedNodes: UpdatedNode[] | UpdatedNode): void => {

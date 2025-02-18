@@ -69,9 +69,51 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { useConfigStore } from '@/stores/configStore'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
+
+const props = defineProps({
+    id: {
+        type: String,
+        required: true,
+        default: 'Agent_0',
+    },
+    data: {
+        type: Object,
+        required: false,
+        default: () => ({
+            type: 'AgentNode',
+            labelStyle: { fontWeight: 'normal' },
+            hasInputs: true,
+            hasOutputs: true,
+            inputs: {
+                endpoint: '',
+                api_key: "", // Get the API key from the config store
+                // For now we provision the backend with a model already loaded. We need to add support for swapping it via this control.
+                // Otherwise, this works with OpenAI models and needs to have a valid model name when using OpenAI.
+                model: 'local',
+                system_prompt: 'You are a helpful assistant.',
+                user_prompt: 'Summarize the following text:',
+                max_completion_tokens: 8192,
+                temperature: 0.6,
+            },
+            outputs: { response: '' },
+            models: ['local', 'chatgpt-4o-latest', 'gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o1', 'o3-mini'],
+            style: {
+                border: '1px solid #666',
+                borderRadius: '4px',
+                backgroundColor: '#333',
+                color: '#eee',
+                width: '350px',
+                height: '400px',
+            },
+        }),
+    },
+})
+
+const configStore = useConfigStore()
 
 const { getEdges, findNode, zoomIn, zoomOut, updateNodeData } = useVueFlow()
 
@@ -86,12 +128,28 @@ onMounted(() => {
     }
 })
 
+// Watch for when the config is loaded and then set the Completions DefaultHost and APIKey
+watch(
+  () => configStore.config, 
+  (newConfig) => {
+    if (newConfig && newConfig.Completions) {
+      if (!props.data.inputs.api_key) {
+        props.data.inputs.api_key = newConfig.Completions.APIKey
+      }
+      if (!props.data.inputs.endpoint) {
+        props.data.inputs.endpoint = newConfig.Completions.DefaultHost
+      }
+    }
+  },
+  { immediate: true }
+)
+
 async function callCompletionsAPI(agentNode, prompt) {
     const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
     const responseNode = responseNodeId ? findNode(responseNodeId) : null;
 
     // Construct the endpoint URL
-    let endpoint = agentNode.data.inputs.endpoint + '/completions';
+    let endpoint = agentNode.data.inputs.endpoint;
 
     // Helper to detect if the current model is an o1 model.
     const isO1Model = (model) => model.toLowerCase().startsWith("o1" || "o3");
@@ -221,45 +279,6 @@ async function run() {
         return { error };
     }
 }
-
-const props = defineProps({
-    id: {
-        type: String,
-        required: true,
-        default: 'Agent_0',
-    },
-    data: {
-        type: Object,
-        required: false,
-        default: () => ({
-            type: 'AgentNode',
-            labelStyle: { fontWeight: 'normal' },
-            hasInputs: true,
-            hasOutputs: true,
-            inputs: {
-                endpoint: '<my_oai_compatible_endpoint>/v1/chat',
-                api_key: '',
-                // For now we provision the backend with a model already loaded. We need to add support for swapping it via this control.
-                // Otherwise, this works with OpenAI models and needs to have a valid model name when using OpenAI.
-                model: 'local',
-                system_prompt: 'You are a helpful assistant.',
-                user_prompt: 'Summarize the following text:',
-                max_completion_tokens: 8192,
-                temperature: 0.6,
-            },
-            outputs: { response: '' },
-            models: ['local', 'chatgpt-4o-latest', 'gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o1', 'o3-mini'],
-            style: {
-                border: '1px solid #666',
-                borderRadius: '4px',
-                backgroundColor: '#333',
-                color: '#eee',
-                width: '350px',
-                height: '400px',
-            },
-        }),
-    },
-})
 
 const model = computed({
     get: () => props.data.inputs.model,

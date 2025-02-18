@@ -27,8 +27,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"manifold/internal/documents" // Import the documents package
+	"manifold/internal/documents"
 	"manifold/internal/repoconcat"
+	"manifold/internal/sefii"
 	web "manifold/internal/web"
 )
 
@@ -51,6 +52,24 @@ func main() {
 		log.Printf("Configuration loaded: %+v", config)
 	}
 
+	// Bootstrap sefii engine
+	connStr := config.Database.ConnectionString
+
+	ctx := context.Background()
+
+	conn, err := Connect(ctx, connStr)
+	if err != nil {
+		log.Printf("Error connecting to database: %v", err)
+
+		// Exit the program if the database connection fails
+		os.Exit(1)
+	}
+	defer conn.Close(ctx)
+
+	engine := sefii.NewEngine(conn)
+	engine.EnsureTable(ctx, config.Embeddings.EmbeddingVectors)
+	engine.EnsureInvertedIndexTable(ctx)
+
 	// Create a new Echo instance
 	e := echo.New()
 
@@ -61,7 +80,7 @@ func main() {
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"}, // Allow all origins
 		AllowMethods: []string{echo.GET, echo.PUT, echo.POST, echo.DELETE, echo.OPTIONS},
-		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization},
+		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "X-File-Path"},
 	}))
 
 	// Initialize OpenTelemetry
@@ -80,94 +99,334 @@ func main() {
 
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
 
-	e.POST("/api/documents/ingest", func(c echo.Context) error {
-		var req ProcessTextRequest
+	e.GET("/api/config", func(c echo.Context) error {
+		config, err := LoadConfig("config.yaml")
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load config"})
+		}
+		return c.JSON(http.StatusOK, config)
+	})
+
+	// SEFII: Ingest endpoint.
+	e.POST("/api/sefii/ingest", func(c echo.Context) error {
+		var req struct {
+			Text         string `json:"text"`
+			Language     string `json:"language"`
+			ChunkSize    int    `json:"chunk_size"`
+			ChunkOverlap int    `json:"chunk_overlap"`
+			FilePath     string `json:"file_path"`
+		}
 		if err := c.Bind(&req); err != nil {
-			log.Printf("Error binding request: %v, Request Body: %s", err, c.Request().Body)
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 		}
-
-		// Validate required fields (adjust as needed)
 		if req.Text == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Text is required"})
 		}
 		if req.Language == "" {
-			req.Language = "en" //default value
+			req.Language = "DEFAULT"
 		}
-
 		if req.ChunkSize == 0 {
-			req.ChunkSize = 1500 // default
+			req.ChunkSize = 1000
 		}
-
 		if req.ChunkOverlap == 0 {
-			req.ChunkOverlap = 100 // default
+			req.ChunkOverlap = 100
 		}
 
-		// Get DB connection string, embeddings host, and API key from the config
+		ctx := c.Request().Context()
 		connStr := config.Database.ConnectionString
 		embeddingsHost := config.Embeddings.Host
 		apiKey := config.Embeddings.APIKey
 
-		// Establish a database connection
-		ctx := context.Background() // Or use c.Request().Context() for request-scoped context
 		conn, err := Connect(ctx, connStr)
 		if err != nil {
 			log.Printf("Error connecting to database: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
 		}
-		defer conn.Close(ctx) // Ensure the connection is closed
+		defer conn.Close(ctx)
 
-		// Call ProcessDocument
-		err = ProcessDocument(ctx, conn, embeddingsHost, apiKey, req.Text, req.Language, req.ChunkSize, req.ChunkOverlap)
+		engine := sefii.NewEngine(conn)
+
+		// Call summarizeContent to get a summary of the text.
+		summary, err := summarizeContent(ctx, req.Text, config.Completions.DefaultHost, config.Completions.APIKey)
 		if err != nil {
-			log.Printf("Error processing document: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to process document"})
+			log.Printf("Error summarizing text: %v", err)
+			// Continue without a summary if the call fails
+			summary = ""
+		} else {
+			log.Printf("[DEBUG] Summary for file %s: %s", req.FilePath, summary)
 		}
 
-		return c.JSON(http.StatusOK, map[string]string{"message": "Document processed successfully"})
+		// Prepend the summary to the original text if available.
+		finalContent := req.Text
+		if summary != "" {
+			finalContent = fmt.Sprintf("%s\n\n---\n\n%s", summary, req.Text)
+		}
+
+		if err := engine.IngestDocument(
+			ctx,
+			finalContent,
+			req.Language,
+			req.FilePath,
+			embeddingsHost,
+			apiKey,
+			req.ChunkSize,
+			req.ChunkOverlap,
+		); err != nil {
+			log.Printf("SEFII ingestion error: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ingest document"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"message": "Document ingested successfully"})
 	})
 
-	e.POST("/api/documents/retrieve", func(c echo.Context) error {
-		// Get the prompt from the request body
+	// SEFII: Search endpoint.
+	e.POST("/api/sefii/search", func(c echo.Context) error {
 		var req struct {
-			Prompt string `json:"prompt"`
-			Limit  int    `json:"limit"`
+			Query    string `json:"query"`
+			FilePath string `json:"file_path"`
+			Limit    int    `json:"limit"`
 		}
-
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 		}
-
-		// Validate the prompt
-		if req.Prompt == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Prompt is required"})
+		if req.Query == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Query is required"})
+		}
+		if req.Limit == 0 {
+			req.Limit = 10
 		}
 
-		// Get DB connection string, embeddings host, and API key from the config
 		connStr := config.Database.ConnectionString
 		embeddingsHost := config.Embeddings.Host
 		apiKey := config.Embeddings.APIKey
 
-		// Establish a database connection
-		ctx := context.Background() // Or use c.Request().Context() for request-scoped context
+		ctx := c.Request().Context()
 		conn, err := Connect(ctx, connStr)
 		if err != nil {
 			log.Printf("Error connecting to database: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
 		}
-		defer conn.Close(ctx) // Ensure the connection is closed
+		defer conn.Close(ctx)
 
-		// Retrieve the most similar document to the content
-		docs, err := RetrieveDocuments(ctx, conn, embeddingsHost, apiKey, req.Prompt, req.Limit)
+		engine := sefii.NewEngine(conn)
+		results, err := engine.SearchChunks(ctx, req.Query, req.FilePath, req.Limit, embeddingsHost, apiKey)
 		if err != nil {
-			log.Printf("Error retrieving documents: %v", err)
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to retrieve documents"})
+			log.Printf("SEFII search error: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to search chunks"})
 		}
-
-		return c.JSON(http.StatusOK, map[string]string{"documents": docs})
+		return c.JSON(http.StatusOK, results)
 	})
 
-	// Add new endpoint to invoke FMLX with the given parameters
+	e.POST("/api/sefii/combined-retrieve", func(c echo.Context) error {
+		var req struct {
+			Query            string `json:"query"`
+			FilePathFilter   string `json:"file_path_filter"`
+			Limit            int    `json:"limit"`
+			UseInvertedIndex bool   `json:"use_inverted_index"`
+			UseVectorSearch  bool   `json:"use_vector_search"`
+			MergeMode        string `json:"merge_mode"` // "union" or "intersect"
+			ReturnFullDocs   bool   `json:"return_full_docs"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.Limit == 0 {
+			req.Limit = 10
+		}
+		if req.MergeMode == "" {
+			req.MergeMode = "union"
+		}
+
+		ctx := c.Request().Context()
+		connStr := config.Database.ConnectionString
+		embeddingsHost := config.Embeddings.Host
+		apiKey := config.Embeddings.APIKey
+
+		conn, err := Connect(ctx, connStr)
+		if err != nil {
+			log.Printf("Error connecting to database: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+		}
+		defer conn.Close(ctx)
+
+		engine := sefii.NewEngine(conn)
+
+		// Retrieve the relevant chunks using our hybrid search method
+		chunks, err := engine.SearchRelevantChunks(
+			ctx,
+			req.Query,
+			req.FilePathFilter,
+			req.Limit,
+			req.UseInvertedIndex,
+			req.UseVectorSearch,
+			embeddingsHost,
+			apiKey,
+			req.MergeMode,
+		)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		if len(chunks) == 0 {
+			return c.JSON(http.StatusOK, map[string]interface{}{"results": []string{}})
+		}
+
+		// If full documents are requested, reassemble them from chunks by file_path
+		if req.ReturnFullDocs {
+			var chunkIDs []int64
+			for _, ch := range chunks {
+				chunkIDs = append(chunkIDs, ch.ID)
+			}
+			docsMap, err := engine.RetrieveDocumentsForChunks(ctx, chunkIDs)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			}
+			return c.JSON(http.StatusOK, map[string]interface{}{
+				"documents": docsMap,
+			})
+		}
+
+		// Otherwise, return just the chunk-level results
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"chunks": chunks,
+		})
+	})
+
+	e.GET("/api/git-files", func(c echo.Context) error {
+		repoPath := c.QueryParam("repo_path")
+		if repoPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "repo_path query parameter is required"})
+		}
+
+		// Use the shared GetGitFiles function
+		files, err := documents.GetGitFiles(repoPath)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to list Git files"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{"files": files})
+	})
+
+	e.POST("/api/git-files/ingest", func(c echo.Context) error {
+		var req struct {
+			RepoPath     string `json:"repo_path"`
+			ChunkSize    int    `json:"chunk_size"`
+			ChunkOverlap int    `json:"chunk_overlap"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.RepoPath == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "repo_path is required"})
+		}
+		if req.ChunkSize == 0 {
+			req.ChunkSize = 1000
+		}
+		if req.ChunkOverlap == 0 {
+			req.ChunkOverlap = 100
+		}
+
+		ctx := c.Request().Context()
+		connStr := config.Database.ConnectionString
+		embeddingsHost := config.Embeddings.Host
+		apiKey := config.Embeddings.APIKey
+
+		conn, err := Connect(ctx, connStr)
+		if err != nil {
+			log.Printf("Error connecting to database: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+		}
+		defer conn.Close(ctx)
+
+		engine := sefii.NewEngine(conn)
+
+		// Ensure the required tables exist.
+		if err := engine.EnsureTable(ctx, config.Embeddings.EmbeddingVectors); err != nil {
+			return err
+		}
+		if err := engine.EnsureInvertedIndexTable(ctx); err != nil {
+			return err
+		}
+
+		// Fetch Git-tracked files directly (no HTTP call)
+		files, err := documents.GetGitFiles(req.RepoPath)
+		if err != nil {
+			log.Printf("Error fetching Git files: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch Git files"})
+		}
+
+		successCount := 0
+		filePreviews := []map[string]string{}
+
+		log.Println("SEFII Ingestion: Preparing to ingest files...")
+
+		for _, f := range files {
+			if f.Content == "" {
+				continue
+			}
+			lang := documents.DeduceLanguage(f.Path)
+
+			// Print file details before ingestion
+			contentPreview := f.Content
+			if len(contentPreview) > 200 {
+				contentPreview = contentPreview[:200] + "..." // Truncate long files for logging
+			}
+
+			log.Printf("[INGEST] File: %s | Language: %s | Preview: %s\n",
+				f.Path, lang, strings.ReplaceAll(contentPreview, "\n", " "))
+
+			filePreviews = append(filePreviews, map[string]string{
+				"path":     f.Path,
+				"language": string(lang),
+				"preview":  contentPreview,
+			})
+
+			// Call the /v1/chat/completions to get a summary of the content
+			summary, err := summarizeContent(ctx, f.Content, config.Completions.DefaultHost, config.Completions.APIKey)
+			if err != nil {
+				log.Printf("Error summarizing file %s: %v", f.Path, err)
+				// Continue without a summary if the call fails
+				summary = ""
+			} else {
+				// Log the summary for debugging purposes.
+				log.Printf("[DEBUG] Summary for file %s: %s", f.Path, summary)
+			}
+
+			// Prepend the summary above the file content with proper delimiters
+			finalContent := f.Content
+			if summary != "" {
+				finalContent = fmt.Sprintf("%s\n\n---\n\n%s", summary, f.Content)
+			}
+
+			// Actually call IngestDocument with the modified content
+			if err := engine.IngestDocument(
+				ctx,
+				finalContent,
+				string(lang),
+				f.Path,
+				embeddingsHost,
+				apiKey,
+				req.ChunkSize,
+				req.ChunkOverlap,
+			); err != nil {
+				log.Printf("Error ingesting file %s: %v", f.Path, err)
+				continue
+			}
+			successCount++
+		}
+
+		msg := fmt.Sprintf("Ingested %d file(s) from %s into pgvector", successCount, req.RepoPath)
+		log.Println(msg)
+
+		// Return ingestion summary with file previews
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"message":       msg,
+			"ingested":      successCount,
+			"repo_path":     req.RepoPath,
+			"file_previews": filePreviews,
+		})
+	})
+
 	e.POST("/api/run-fmlx", func(c echo.Context) error {
 		var req FMLXRequest
 		if err := c.Bind(&req); err != nil {
@@ -492,7 +751,6 @@ func main() {
 		return c.JSON(http.StatusOK, map[string]string{"message": "File saved successfully"})
 	})
 
-	// --- ADDED /api/open-file HANDLER ---
 	e.POST("/api/open-file", func(c echo.Context) error {
 		var req struct {
 			Filepath string `json:"filepath"`
@@ -515,7 +773,6 @@ func main() {
 		// Return the file content as plain text.  Important!
 		return c.String(http.StatusOK, string(content))
 	})
-	// --- END ADDED HANDLER ---
 
 	e.GET("/api/web-content", func(c echo.Context) error {
 		urlsParam := c.QueryParam("urls")
@@ -643,7 +900,6 @@ func main() {
 		return c.JSON(http.StatusOK, result)
 	})
 
-	// Define the /api/datadog proxy route
 	e.POST("/api/datadog", func(c echo.Context) error {
 		// Start a new span for this request
 		span := trace.SpanFromContext(c.Request().Context())

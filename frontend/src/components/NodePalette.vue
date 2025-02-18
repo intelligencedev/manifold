@@ -47,7 +47,7 @@ const nodeCategories = {
     "mlxFluxNode": null,
   },
   "Code": {
-    "runCmd": null,
+    "pythonRunnerNode": null,
     "webGLNode": null,
   },
   "Web": {

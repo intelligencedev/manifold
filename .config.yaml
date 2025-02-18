@@ -7,20 +7,25 @@ port: 8080
 # Manifold storage path: models, database files, etc
 data_path: '~/.manifold'
 
-# Jaeger endpoint for tracing
-jaeger_host: 'localhost:16686'
-
 # Database Configuration (PGVector)
 database:
   connection_string: "postgres://pgadmin:yourpassword@localhost:5432/manifold?sslmode=disable"  # REPLACE with your actual credentials
 
-# Default Completions Configuration - 
+# Default Completions Configuration - any openai api compatible backend - llama.cpp (llama-server), vllm, mlx_lm.server, etc
 completions:
-  default_host: "http://192.168.1.200:32182/v1/chat/completions"
-  api_key: "my_api_key" # OpenAI key, or LLM endpoint key if configured in backend
+  default_host: "<my_openai_api_compatible_server>/v1/chat/completions"
+  # OpenAI API compatible API key, not required for local servers unless configured on that server
+  api_key: "my_api_key"
 
 # Embeddings API Configuration
 embeddings:
-  host: "http://localhost:8081/v1/embeddings" #  Replace with your actual embeddings API endpoint
-  api_key: "your_embeddings_api_key"      #  Replace with your actual embeddings API key, not used for local embeddings
+  host: "<my_openai_api_compatible_server>/v1/embeddings"
+  # OpenAI API compatible API key, not required for local servers unless configured on that server
+  api_key: "your_embeddings_api_key"
   embedding_vectors: 768 # Size of embedding vectors depending on model
+
+# OBSERVABILITY
+
+# Jaeger endpoint for tracing. Actual Jaeger deployment not required but server will throw error. 
+# Leave as-is unless you have a real Jaeger endpoint to configure
+jaeger_host: 'localhost:16686'

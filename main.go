@@ -99,6 +99,14 @@ func main() {
 
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
 
+	e.GET("/api/config", func(c echo.Context) error {
+		config, err := LoadConfig("config.yaml")
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load config"})
+		}
+		return c.JSON(http.StatusOK, config)
+	})
+
 	// SEFII: Ingest endpoint.
 	e.POST("/api/sefii/ingest", func(c echo.Context) error {
 		var req struct {

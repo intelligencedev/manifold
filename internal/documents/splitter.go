@@ -16,20 +16,6 @@ type RecursiveCharacterTextSplitter struct {
 	LengthFunction   func(string) int
 }
 
-// Language is a type that represents a programming language.
-type Language string
-
-const (
-	PYTHON   Language = "PYTHON"
-	GO       Language = "GO"
-	HTML     Language = "HTML"
-	JS       Language = "JS"
-	TS       Language = "TS"
-	MARKDOWN Language = "MARKDOWN"
-	JSON     Language = "JSON"
-	DEFAULT  Language = "DEFAULT"
-)
-
 // SplitTextByCount splits the given text into chunks of the given size.
 func SplitTextByCount(text string, size int) []string {
 	// Slice the string into chunks of the specified size

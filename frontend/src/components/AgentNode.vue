@@ -14,7 +14,7 @@
         </div>
 
         <!-- Parameters Accordion -->
-        <details class="parameters-accordion">
+        <details class="parameters-accordion" open>
             <summary>Parameters</summary>
 
             <!-- Endpoint Input -->
@@ -53,13 +53,13 @@
                 <input type="number" :id="`${data.id}-temperature`" v-model.number="temperature" class="input-text"
                     step="0.1" min="0" max="2" />
             </div>
-        </details>
 
-        <!-- System Prompt -->
-        <div class="input-field">
-            <label :for="`${data.id}-system_prompt`" class="input-label">System Prompt:</label>
-            <textarea :id="`${data.id}-system_prompt`" v-model="system_prompt" class="input-textarea"></textarea>
-        </div>
+            <!-- System Prompt (moved inside accordion) -->
+            <div class="input-field">
+                <label :for="`${data.id}-system_prompt`" class="input-label">System Prompt:</label>
+                <textarea :id="`${data.id}-system_prompt`" v-model="system_prompt" class="input-textarea"></textarea>
+            </div>
+        </details>
 
         <!-- User Prompt -->
         <div class="input-field user-prompt-field">
@@ -75,7 +75,7 @@
 
         <!-- NodeResizer -->
         <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-            :line-style="resizeHandleStyle" :min-width="320" :min-height="760" :node-id="props.id" @resize="onResize" />
+            :line-style="resizeHandleStyle" :width="360" :height="760" :min-width="360" :min-height="760" :node-id="props.id" @resize="onResize" />
     </div>
 </template>
 
@@ -349,7 +349,6 @@ const resizeHandleStyle = computed(() => ({
     visibility: isHovered.value ? 'visible' : 'hidden',
 }))
 
-// Same approach as in ResponseNode
 function onResize(event) {
     customStyle.value.width = `${event.width}px`
     customStyle.value.height = `${event.height}px`
@@ -468,6 +467,7 @@ const provider = computed({
 
 /* Basic styling for the parameters accordion */
 .parameters-accordion {
+    min-width: 180px !important;
     margin-bottom: 5px;
     margin-top: 5px;
     border: 1px solid #666;
@@ -475,6 +475,8 @@ const provider = computed({
     background-color: #444;
     color: #eee;
     padding: 5px;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .parameters-accordion summary {

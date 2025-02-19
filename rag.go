@@ -111,10 +111,9 @@ func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]
 func summarizeContent(ctx context.Context, content string, endpoint string, apiKey string) (string, error) {
 	summaryInstructions := `You are a helpful summarization assistant tasked with processing file content for an ingestion workflow. Your goal is to generate a concise, structured summary that captures the key aspects of the file. The summary should:
 
-	- Be short, ideally 1-3 sentences or a few bullet points.
-	- Clearly state the file's purpose, key functionalities, and any notable components.
+	- Start with a brief overview of the content: The <file path> document contains information about <brief description>.
+	- Add bullet points for main features: For example, key topics, important details, or notable sections.
 	- Avoid unnecessary details or extraneous commentary.
-	- Use a structured format if it helps clarity (for example, starting with a brief overview followed by bullet points for main features).
 
 	Keep the summary informative yet succinct, enabling quick understanding and efficient indexing of the file.
 	`

@@ -3,9 +3,36 @@
         class="node-container agent-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
         <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
+        <!-- Provider Selection -->
+        <div class="input-field">
+            <label for="provider-select" class="input-label">Provider:</label>
+            <select id="provider-select" v-model="provider" class="input-select">
+                <option value="llama-server">llama-server</option>
+                <option value="mlx_lm.server">mlx_lm.server</option>
+                <option value="openai">openai</option>
+            </select>
+        </div>
+
         <!-- Parameters Accordion -->
         <details class="parameters-accordion">
             <summary>Parameters</summary>
+
+            <!-- Endpoint Input -->
+            <div class="input-field">
+                <label class="input-label">Endpoint:</label>
+                <input type="text" class="input-text" v-model="endpoint" />
+            </div>
+
+            <!-- OpenAI API Key Input -->
+            <div class="input-field">
+                <label :for="`${data.id}-api_key`" class="input-label">OpenAI API Key:</label>
+                <input :id="`${data.id}-api_key`" :type="showApiKey ? 'text' : 'password'" class="input-text"
+                    v-model="api_key" />
+                <button @click="showApiKey = !showApiKey" class="toggle-password">
+                    <span v-if="showApiKey">👁️</span>
+                    <span v-else>🙈</span>
+                </button>
+            </div>
 
             <!-- Model Selection -->
             <div class="input-field">
@@ -41,22 +68,6 @@
                 @mouseenter="handleTextareaMouseEnter" @mouseleave="handleTextareaMouseLeave"></textarea>
         </div>
 
-        <!-- Endpoint Input -->
-        <div class="input-field">
-            <label class="input-label">Endpoint:</label>
-            <input type="text" class="input-text" v-model="endpoint" />
-        </div>
-
-        <!-- OpenAI API Key Input -->
-        <div class="input-field">
-            <label :for="`${data.id}-api_key`" class="input-label">OpenAI API Key:</label>
-            <input :id="`${data.id}-api_key`" :type="showApiKey ? 'text' : 'password'" class="input-text"
-                v-model="api_key" />
-            <button @click="showApiKey = !showApiKey" class="toggle-password">
-                <span v-if="showApiKey">👁️</span>
-                <span v-else>🙈</span>
-            </button>
-        </div>
 
         <!-- Input/Output Handles -->
         <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" />
@@ -64,7 +75,7 @@
 
         <!-- NodeResizer -->
         <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-            :line-style="resizeHandleStyle" :min-width="350" :min-height="560" :node-id="props.id" @resize="onResize" />
+            :line-style="resizeHandleStyle" :min-width="320" :min-height="760" :node-id="props.id" @resize="onResize" />
     </div>
 </template>
 
@@ -95,7 +106,7 @@ const props = defineProps({
                 // Otherwise, this works with OpenAI models and needs to have a valid model name when using OpenAI.
                 model: 'local',
                 system_prompt: 'You are a helpful assistant.',
-                user_prompt: 'Summarize the following text:',
+                user_prompt: 'Write a haiku about manifolds.',
                 max_completion_tokens: 8192,
                 temperature: 0.6,
             },
@@ -106,8 +117,8 @@ const props = defineProps({
                 borderRadius: '4px',
                 backgroundColor: '#333',
                 color: '#eee',
-                width: '350px',
-                height: '400px',
+                width: '320px',
+                height: '760px',
             },
         }),
     },
@@ -118,6 +129,12 @@ const configStore = useConfigStore()
 const { getEdges, findNode, zoomIn, zoomOut, updateNodeData } = useVueFlow()
 
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
+
+watch(() => configStore.config.Completions.Provider, (newProvider) => {
+    if (newProvider) {
+        props.data.inputs.endpoint = configStore.config.Completions.DefaultHost;
+    }
+}, { immediate: true })
 
 const showApiKey = ref(false);
 
@@ -322,7 +339,10 @@ const temperature = computed({
 })
 
 const isHovered = ref(false)
-const customStyle = ref({})
+const customStyle = ref({
+    width: '320px',
+    height: '760px'
+})
 
 // Show/hide the handles
 const resizeHandleStyle = computed(() => ({
@@ -346,6 +366,30 @@ const handleTextareaMouseLeave = () => {
     zoomIn(1);
     zoomOut(1);
 };
+
+const provider = computed({
+    get: () => {
+        if (props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
+            return 'openai';
+        } else if (props.data.inputs.endpoint === configStore.config.Completions.DefaultHost) {
+            // Check if the endpoint matches the provider type in the config
+            if (configStore.config.Completions.Provider === 'llama-server') {
+                return 'llama-server';
+            } else if (configStore.config.Completions.Provider === 'mlx_lm.server') {
+                return 'mlx_lm.server';
+            }
+        }
+        // Default to llama-server if no match
+        return 'llama-server';
+    },
+    set: (value) => {
+        if (value === 'openai') {
+            props.data.inputs.endpoint = 'https://api.openai.com/v1/chat/completions';
+        } else {
+            props.data.inputs.endpoint = configStore.config.Completions.DefaultHost;
+        }
+    }
+});
 </script>
 
 <style scoped>
@@ -371,12 +415,8 @@ const handleTextareaMouseLeave = () => {
     font-weight: bold;
 }
 
-/* Matching the pattern from ResponseNode: 
-       the rest is your typical input styling, etc. 
-  */
 .input-field {
     position: relative;
-    /* Add this to make positioning easier for child elements */
 }
 
 .toggle-password {
@@ -393,6 +433,8 @@ const handleTextareaMouseLeave = () => {
 .input-text,
 .input-select,
 .input-textarea {
+    margin-top: 5px;
+    margin-bottom: 5px;
     background-color: #333;
     border: 1px solid #666;
     color: #eee;
@@ -414,6 +456,8 @@ const handleTextareaMouseLeave = () => {
 .user-prompt-area {
     flex: 1;
     /* Fill the container's vertical space */
+    width: 100%;
+    /* Fill the container's horizontal space */
     resize: none;
     /* Prevent user dragging the bottom-right handle inside the textarea */
     overflow-y: auto;
@@ -424,7 +468,8 @@ const handleTextareaMouseLeave = () => {
 
 /* Basic styling for the parameters accordion */
 .parameters-accordion {
-    margin-bottom: 10px;
+    margin-bottom: 5px;
+    margin-top: 5px;
     border: 1px solid #666;
     border-radius: 4px;
     background-color: #444;

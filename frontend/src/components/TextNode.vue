@@ -95,25 +95,25 @@ onMounted(() => {
   }
 })
 
-// async function run() {
-//   const connectedSources = getEdges.value
-//     .filter((edge) => edge.target === props.id)
-//     .map((edge) => edge.source)
+async function run() {
+  const connectedSources = getEdges.value
+    .filter((edge) => edge.target === props.id)
+    .map((edge) => edge.source)
 
-//   if (connectedSources.length > 0) {
-//     const sourceNode = findNode(connectedSources[0])
-//     if (sourceNode && sourceNode.data.outputs.result) {
-//       props.data.inputs.text = sourceNode.data.outputs.result.output
-//     }
-//   }
+  if (connectedSources.length > 0) {
+    const sourceNode = findNode(connectedSources[0])
+    if (sourceNode && sourceNode.data.outputs.result) {
+      props.data.inputs.text = sourceNode.data.outputs.result.output
+    }
+  }
 
-//   // Set the output equal to the current text input
-//   props.data.outputs = {
-//     result: {
-//       output: text.value
-//     }
-//   }
-// }
+  // Set the output equal to the current text input
+  props.data.outputs = {
+    result: {
+      output: text.value
+    }
+  }
+}
 
 // Computed property for two-way binding of the text input
 const text = computed({

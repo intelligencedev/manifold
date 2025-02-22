@@ -128,7 +128,6 @@ import {
   addEdge,
   type Edge,
 } from '@vue-flow/core';
-
 import {
   Controls,
   MiniMap,
@@ -136,7 +135,7 @@ import {
   BackgroundVariant,
 } from '@vue-flow/additional-components';
 import SpecialEdge from './components/SpecialEdge.vue';
-import { useConfigStore } from '@/stores/configStore'
+import { useConfigStore } from '@/stores/configStore';
 
 // Manifold custom components
 import Header from './components/Header.vue';
@@ -178,17 +177,18 @@ const bgVariant = BackgroundVariant.Dots;
 
 // --- STATE ---
 
-const { findNode, getNodes, getEdges, toObject, fromObject } = useVueFlow();
+// Destructure fitView along with other methods
+const { findNode, getNodes, getEdges, toObject, fromObject, fitView } = useVueFlow();
 const nodes = ref<GraphNode[]>([]);
 const edges = ref<GraphEdge[]>([]);
 const defaultEdgeType = ref<string>('bezier'); // Set the default edge type
 
-const configStore = useConfigStore()
+const configStore = useConfigStore();
 
 // Load configuration on startup
 onMounted(() => {
-  configStore.fetchConfig()
-})
+  configStore.fetchConfig();
+});
 
 // Watchers for debugging
 watch(getNodes, (newNodes) => console.log('nodes changed', newNodes));
@@ -296,9 +296,7 @@ function onConnect(params: Connection) {
           connectedTo,
         };
         nodes.value = nodes.value.map((node) =>
-          node.id === targetNode.id
-            ? { ...node, data: { ...node.data } }
-            : node
+          node.id === targetNode.id ? { ...node, data: { ...node.data } } : node
         );
       }
     }
@@ -349,24 +347,17 @@ function onRestore(flow: Flow) {
  * the FlowControl node is re-run to aggregate updated inputs (e.g. from a ResponseNode).
  * Only after looping does the FlowControl node propagate its "continue" branch.
  */
-async function runWorkflow() {
-  // Clear response nodes and gemini response nodes
-  const responseNodes = nodes.value.filter((node) => node.type === 'responseNode');
-  for (const node of responseNodes) {
-    node.data.inputs.response = '';
-    node.data.outputs = {};
-  }
-  const geminiResponseNodes = nodes.value.filter((node) => node.type === 'geminiResponse');
-  for (const node of geminiResponseNodes) {
-    node.data.inputs.response = '';
-    node.data.outputs = {};
-  }
 
-  console.log('Running workflow with current nodes and edges:', nodes.value, edges.value);
-  await runWorkflowConcurrently();
-  console.log('Workflow execution complete.');
+// Helper: smoothly fit the view to a node using fitView
+async function smoothlyFitViewToNode(node: GraphNode) {
+  await fitView({
+    nodes: [node.id],
+    duration: 800, // duration in ms
+    padding: 0.6,
+  });
 }
 
+// Refactored sequential workflow execution using a queue
 async function runWorkflowConcurrently() {
   // 1. Build an adjacency list that records outgoing edges with their sourceHandle,
   // and compute in-degree for each node.
@@ -391,58 +382,77 @@ async function runWorkflowConcurrently() {
   // 2. Start with nodes that have in-degree 0.
   let queue = nodes.value.filter((node) => inDegree[node.id] === 0).map((node) => node.id);
 
-  // 3. Process nodes layer by layer.
+  // 3. Process nodes sequentially.
   while (queue.length > 0) {
-    const currentLayer = [...queue];
-    queue = [];
+    const nodeId = queue.shift()!;
+    const node = findNode(nodeId);
+    if (!node) continue;
 
-    // Execute all nodes in the current layer in parallel.
-    await Promise.all(
-      currentLayer.map(async (nodeId) => {
-        const node = findNode(nodeId);
-        if (!node) return;
+    // Smoothly fit view to the node about to run
+    await smoothlyFitViewToNode(node);
 
-        // All input dependencies are met here.
-        changeEdgeStyles(nodeId);
-        await node.data.run();
+    // Change edge styles for visual feedback
+    changeEdgeStyles(nodeId);
 
-        // If this is a FlowControl node, handle looping:
-        if (node.type === 'flowControlNode') {
-          const loopCount = node.data.inputs.loopCount || 1;
-          // For each additional loop iteration:
-          for (let i = 1; i < loopCount; i++) {
-            // Execute each loopback branch.
-            const loopbackEdges = adj[nodeId].filter((edge) => edge.handle === 'loopback');
-            for (const edge of loopbackEdges) {
-              const childNode = findNode(edge.target);
-              if (childNode) {
-                await childNode.data.run();
-              }
-            }
-            // After processing loopback branches, re-run the FlowControl node
-            // to re-aggregate its updated inputs.
-            await node.data.run();
-          }
-          // Now process "continue" branches.
-          const continueEdges = adj[nodeId].filter((edge) => edge.handle === 'continue');
-          for (const edge of continueEdges) {
-            inDegree[edge.target]--;
-            if (inDegree[edge.target] === 0) {
-              queue.push(edge.target);
-            }
-          }
-        } else {
-          // For non-FlowControl nodes, process all outgoing edges.
-          for (const edge of adj[nodeId]) {
-            inDegree[edge.target]--;
-            if (inDegree[edge.target] === 0) {
-              queue.push(edge.target);
-            }
+    // Execute the node's logic
+    await node.data.run();
+
+    // If this is a FlowControl node, handle looping:
+    if (node.type === 'flowControlNode') {
+      const loopCount = node.data.inputs.loopCount || 1;
+      // For each additional loop iteration:
+      for (let i = 1; i < loopCount; i++) {
+        // Execute each loopback branch.
+        const loopbackEdges = adj[nodeId].filter((edge) => edge.handle === 'loopback');
+        for (const edge of loopbackEdges) {
+          const childNode = findNode(edge.target);
+          if (childNode) {
+            await smoothlyFitViewToNode(childNode);
+            changeEdgeStyles(childNode.id);
+            await childNode.data.run();
           }
         }
-      })
-    );
+        // Re-run the FlowControl node to aggregate updated inputs.
+        await smoothlyFitViewToNode(node);
+        changeEdgeStyles(nodeId);
+        await node.data.run();
+      }
+      // Process "continue" branches.
+      const continueEdges = adj[nodeId].filter((edge) => edge.handle === 'continue');
+      for (const edge of continueEdges) {
+        inDegree[edge.target]--;
+        if (inDegree[edge.target] === 0) {
+          queue.push(edge.target);
+        }
+      }
+    } else {
+      // For non-FlowControl nodes, process all outgoing edges.
+      for (const edge of adj[nodeId]) {
+        inDegree[edge.target]--;
+        if (inDegree[edge.target] === 0) {
+          queue.push(edge.target);
+        }
+      }
+    }
   }
+}
+
+async function runWorkflow() {
+  // Clear response nodes and gemini response nodes
+  const responseNodes = nodes.value.filter((node) => node.type === 'responseNode');
+  for (const node of responseNodes) {
+    node.data.inputs.response = '';
+    node.data.outputs = {};
+  }
+  const geminiResponseNodes = nodes.value.filter((node) => node.type === 'geminiResponse');
+  for (const node of geminiResponseNodes) {
+    node.data.inputs.response = '';
+    node.data.outputs = {};
+  }
+
+  console.log('Running workflow with current nodes and edges:', nodes.value, edges.value);
+  await runWorkflowConcurrently();
+  console.log('Workflow execution complete.');
 }
 
 // Define custom edge types.
@@ -547,8 +557,6 @@ header {
   justify-content: center;
   align-items: center;
   background-color: #222;
-  /* border-top-left-radius: 12px;
-  border-top-right-radius: 12px; */
   border-radius: 12px;
   width: 33vw;
   height: 100%;

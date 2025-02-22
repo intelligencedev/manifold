@@ -70,6 +70,7 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
+const { getEdges } = useVueFlow()
 import { Handle, useVueFlow } from '@vue-flow/core';
 import { NodeResizer } from '@vue-flow/node-resizer';
 
@@ -130,12 +131,12 @@ watch(
 );
 
 // Function to call the FMLX API (using a Go backend endpoint)
-async function callFMLXAPI(mlxNode) {
+async function callFMLXAPI(mlxNode, finalPrompt) {
   const endpoint = '/api/run-fmlx'; // Your Go backend endpoint
 
   const requestBody = {
     model: mlxNode.data.inputs.model,
-    prompt: mlxNode.data.inputs.prompt,
+    prompt: finalPrompt,
     steps: mlxNode.data.inputs.steps,
     seed: mlxNode.data.inputs.seed,
     quality: mlxNode.data.inputs.quality,
@@ -174,8 +175,35 @@ async function callFMLXAPI(mlxNode) {
 }
 
 async function run() {
-  console.log("Calling RUN");
-  return await callFMLXAPI(findNode(props.id));
+    console.log('Running MLXFlux node:', props.id);
+
+    try {
+        const agentNode = findNode(props.id);
+        let finalPrompt = "";
+
+        // Get connected source nodes
+        const connectedSources = getEdges.value
+            .filter((edge) => edge.target === props.id)
+            .map((edge) => edge.source);
+
+        // If there are connected sources, process their outputs
+        if (connectedSources.length > 0) {
+            console.log('Connected sources:', connectedSources);
+            for (const sourceId of connectedSources) {
+                const sourceNode = findNode(sourceId);
+                if (sourceNode) {
+                    console.log('Processing source node:', sourceNode.id);
+                    finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
+                }
+            }
+            console.log('Processed prompt:', finalPrompt);
+        }
+
+        return await callFMLXAPI(findNode(props.id), finalPrompt);
+    } catch (error) {
+        console.error('Error in MLXFlux run:', error);
+        return { error };
+    }
 }
 
 // Computed properties for two-way data binding

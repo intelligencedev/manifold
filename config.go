@@ -40,15 +40,16 @@ type EmbeddingsConfig struct {
 }
 
 type Config struct {
-	Host            string            `yaml:"host"`
-	Port            int               `yaml:"port"`
-	DataPath        string            `yaml:"data_path"`
-	JaegerHost      string            `yaml:"jaeger_host"`
-	OpenAIAPIKey    string            `yaml:"openai_api_key,omitempty"`
-	GoogleGeminiKey string            `yaml:"google_gemini_key,omitempty"`
-	Database        DatabaseConfig    `yaml:"database"`
-	Completions     CompletionsConfig `yaml:"completions"`
-	Embeddings      EmbeddingsConfig  `yaml:"embeddings"`
+	Host             string            `yaml:"host"`
+	Port             int               `yaml:"port"`
+	DataPath         string            `yaml:"data_path"`
+	JaegerHost       string            `yaml:"jaeger_host"`
+	OpenAIAPIKey     string            `yaml:"openai_api_key,omitempty"`
+	GoogleGeminiKey  string            `yaml:"google_gemini_key,omitempty"`
+	HuggingFaceToken string            `yaml:"hf_token,omitempty"`
+	Database         DatabaseConfig    `yaml:"database"`
+	Completions      CompletionsConfig `yaml:"completions"`
+	Embeddings       EmbeddingsConfig  `yaml:"embeddings"`
 }
 
 func LoadConfig(filename string) (*Config, error) {

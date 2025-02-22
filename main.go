@@ -332,9 +332,9 @@ func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 			if err != nil {
 				summary = ""
 			}
-			finalContent := f.Content
+			finalContent := fmt.Sprintf("search_document: %s\n\n---\n\n%s", f.Path, f.Content)
 			if summary != "" {
-				finalContent = fmt.Sprintf("%s\n\n%s\n\n---\n\n%s", f.Path, summary, f.Content)
+				finalContent = fmt.Sprintf("search_document: %s\n\n%s\n\n---\n\n%s", f.Path, summary, f.Content)
 			}
 			if err := engine.IngestDocument(ctx, finalContent, string(lang), f.Path, config.Embeddings.Host, config.Embeddings.APIKey, req.ChunkSize, req.ChunkOverlap); err != nil {
 				continue

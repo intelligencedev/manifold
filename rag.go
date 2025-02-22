@@ -109,13 +109,20 @@ func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]
 
 // summarizeContent sends the file content to the /v1/chat/completions endpoint to obtain a summary.
 func summarizeContent(ctx context.Context, content string, endpoint string, apiKey string) (string, error) {
-	summaryInstructions := `You are a helpful summarization assistant tasked with processing file content for an ingestion workflow. Your goal is to generate a concise, structured summary that captures the key aspects of the file. The summary should:
+	summaryInstructions := `You are an expert code summarizer designed to create concise and informative summaries of code snippets for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the effectiveness of the RAG system by enabling it to retrieve the most relevant code snippets based on user queries about code functionality and behavior.
 
-	- Start with a brief overview of the content: The <file path> document contains information about <brief description>.
-	- Add bullet points for main features: For example, key topics, important details, or notable sections.
-	- Avoid unnecessary details or extraneous commentary.
+**Instructions:**
 
-	Keep the summary informative yet succinct, enabling quick understanding and efficient indexing of the file.
+1.  **Carefully analyze the following code snippet and its surrounding context (if any is provided).** Understand the purpose of the code, its inputs, outputs, and any potential side effects.
+2.  **Generate a short, self-contained summary (2-3 sentences maximum) that describes the core functionality of the code snippet.**
+3.  **Focus on creating a summary that answers potential user questions about the code's purpose, usage, and relationship to other parts of the codebase.**
+4.  **Prioritize information that is likely to be useful to a developer searching for code that performs a specific task or solves a particular problem.**
+5.  **Include relevant keywords related to the code's functionality (e.g., "data validation," "API call," "file parsing," "sorting algorithm") and any key data structures or libraries used.**
+6.  **If applicable, mention the programming language, important function names, and relevant classes or modules.**
+7.  **Avoid overly technical jargon or implementation details. Summarize the *what* and *why* of the code, rather than the *how* (unless the *how* is crucial for understanding the functionality).**
+8.  **Maintain the original code's level of abstraction. Don't oversimplify or overcomplicate the summary.**
+9.  **Do not include information that is not directly derived from the code snippet.  Avoid speculation or inference about the code's broader context.**
+10. **The output should be a single paragraph.**
 	`
 	// Prepare the request payload.
 	reqPayload := map[string]interface{}{

@@ -547,11 +547,13 @@ header {
   justify-content: center;
   align-items: center;
   background-color: #222;
-  border-top-left-radius: 12px;
-  border-top-right-radius: 12px;
+  /* border-top-left-radius: 12px;
+  border-top-right-radius: 12px; */
+  border-radius: 12px;
   width: 33vw;
   height: 100%;
-  padding: 20px;
+  padding: 4px;
+  border: 1px solid #777;
   margin-bottom: 40px;
 }
 
@@ -562,7 +564,7 @@ header {
   color: #fff;
   background-color: #007bff;
   border: none;
-  border-radius: 4px;
+  border-radius: 12px;
   cursor: pointer;
 }
 

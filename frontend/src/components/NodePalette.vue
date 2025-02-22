@@ -13,11 +13,25 @@
     </div>
     <div class="palette-content">
       <div class="scrollable-content">
-        <div v-for="(nodes, category) in nodeCategories" :key="category" class="category">
-          <div class="category-title">{{ category }}</div>
-          <div v-for="(nodeComponent, key) in nodes" :key="key" class="node-item" draggable="true"
-            @dragstart="(event) => onDragStart(event, key)">
-            {{ key }}
+        <div v-for="(nodes, category) in nodeCategories" :key="category" class="accordion-section">
+          <div class="accordion-header" @click="toggleAccordion(category)">
+            <span>{{ category }}</span>
+            <svg v-if="isExpanded(category)" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor"
+              viewBox="0 0 16 16">
+              <path fill-rule="evenodd"
+                d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor"
+              viewBox="0 0 16 16">
+              <path fill-rule="evenodd"
+                d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
+            </svg>
+          </div>
+          <div v-if="isExpanded(category)" class="accordion-content">
+            <div v-for="(nodeComponent, key) in nodes" :key="key" class="node-item" draggable="true"
+              @dragstart="(event) => onDragStart(event, key)">
+              {{ key }}
+            </div>
           </div>
         </div>
       </div>
@@ -26,7 +40,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import useDragAndDrop from '../useDnD.js'
 
 const { onDragStart } = useDragAndDrop()
@@ -73,6 +87,21 @@ const nodeCategories = {
     "datadogNode": null,
     "datadogGraphNode": null,
   },
+}
+
+// Initialize state for expanded/collapsed accordion sections
+const expandedCategories = reactive({})
+Object.keys(nodeCategories).forEach((category) => {
+  expandedCategories[category] = false
+})
+
+// Toggle individual accordion section; if the section is open, collapse it, and vice versa.
+function toggleAccordion(category) {
+  expandedCategories[category] = !expandedCategories[category]
+}
+
+function isExpanded(category) {
+  return expandedCategories[category]
 }
 </script>
 
@@ -124,7 +153,7 @@ const nodeCategories = {
 
 .scrollable-content {
   overflow-y: auto;
-  height: calc(100%);
+  height: 100%;
   padding-right: 10px;
 }
 
@@ -147,16 +176,32 @@ const nodeCategories = {
   background-color: #888;
 }
 
-.category {
+.accordion-section {
   margin-bottom: 15px;
 }
 
-.category-title {
+.accordion-header {
   font-size: 14px;
   font-weight: bold;
   margin-bottom: 8px;
   text-transform: uppercase;
   color: #bbb;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px;
+  background-color: #333;
+  border: 1px solid #666;
+  border-radius: 4px;
+}
+
+.accordion-header:hover {
+  background-color: #444;
+}
+
+.accordion-content {
+  padding-left: 8px;
 }
 
 .node-item {
@@ -166,9 +211,10 @@ const nodeCategories = {
   border: 1px solid #666;
   border-radius: 5px;
   cursor: grab;
-  height: 20px;
+  display: flex;
   align-items: center;
   justify-content: center;
+  height: 20px;
 }
 
 .node-item:hover {

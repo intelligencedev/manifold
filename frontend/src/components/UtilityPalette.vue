@@ -158,7 +158,6 @@ async function performSearch() {
         query: searchQuery.value,
         task: 'text-generation'  //  filter to text-generation models
       },
-      full: true  // Get full model details
     })
     const allModels = []
     for await (const model of modelsIterator) {

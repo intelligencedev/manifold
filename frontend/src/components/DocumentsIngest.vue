@@ -17,18 +17,28 @@
         <input type="radio" value="documents" v-model="mode" />
         Documents
       </label>
+      <label>
+        <input type="radio" value="git" v-model="mode" />
+        Git Repo
+      </label>
     </div>
 
     <!-- Ingestion Endpoint Input -->
     <div class="input-field">
       <label class="input-label">Ingestion Endpoint:</label>
-      <input type="text" class="input-text" v-model="ingestion_endpoint" />
+      <input type="text" class="input-text" v-model="ingestion_endpoint" :disabled="mode === 'git'"/>
+    </div>
+
+    <!-- Git Repo Path Input -->
+    <div v-if="mode === 'git'" class="input-field">
+      <label class="input-label">Git Repo Path:</label>
+      <input type="text" class="input-text" v-model="gitRepoPath" />
     </div>
 
     <!-- Additional Parameters (always visible) -->
     <div class="input-field">
       <label class="input-label">Language:</label>
-      <input type="text" class="input-text" v-model="language" placeholder="DEFAULT" />
+      <input type="text" class="input-text" v-model="language" placeholder="DEFAULT" :disabled="mode === 'git'" />
     </div>
     <div class="input-field">
       <label class="input-label">Chunk Size:</label>
@@ -68,8 +78,8 @@
     </div>
 
     <!-- Input/Output Handles -->
-    <Handle v-if="data.hasInputs" style="width:10px; height:10px" type="target" position="left" />
-    <Handle v-if="data.hasOutputs" style="width:10px; height:10px" type="source" position="right" />
+    <Handle v-if="data.hasInputs" style="width:12px; height:12px" type="target" position="left" />
+    <Handle v-if="data.hasOutputs" style="width:12px; height:12px" type="source" position="right" />
 
     <!-- Node Resizer -->
     <NodeResizer
@@ -116,7 +126,7 @@ const props = defineProps({
       },
       style: {
         border: '1px solid #666',
-        borderRadius: '4px',
+        borderRadius: '12px',
         backgroundColor: '#333',
         color: '#eee',
         width: '350px',
@@ -146,11 +156,29 @@ const ingestion_endpoint = computed({
   },
 })
 
-// Mode: either "passthrough" (using text from connected nodes) or "documents" (file/folder ingestion)
+// Mode: either "passthrough" (using text from connected nodes), "documents" (file/folder ingestion), or "git"
 const mode = ref(props.data.inputs.mode || 'documents')
 watch(mode, (newVal) => {
   props.data.inputs.mode = newVal
+  if (newVal === 'git') {
+    ingestion_endpoint.value = 'http://localhost:8080/api/git-files/ingest'
+  }
+
+  // Clear selected files when switching modes
+  selectedFiles.value = []
+
+  // Clear git repo path when switching modes
+  gitRepoPath.value = ''
+
+  // Clear directory path when switching modes
+  directoryPath.value = ''
+
+  // Clear file input value when switching modes
+  fileInput.value && (fileInput.value.value = '')
 })
+
+// Git Repo Path
+const gitRepoPath = ref('')
 
 // Additional parameters (always available)
 const language = ref('DEFAULT')
@@ -163,8 +191,11 @@ const selectedFiles = ref([])
 const selectedFileNames = computed(() => selectedFiles.value.map((file) => file.name))
 
 const currentEndpoint = computed(() => {
-  if (mode.value === 'path') {
-    return 'http://localhost:8080/api/sefii/pathingest'
+  if (mode.value === 'documents') {
+    return 'http://localhost:8080/api/sefii/ingest'
+  }
+  if (mode.value === 'git') {
+    return 'http://localhost:8080/api/git-files/ingest'
   }
   return ingestion_endpoint.value
 })
@@ -263,17 +294,16 @@ async function run() {
       }
       updateNodeData()
       return { results }
-    } else if (mode.value === 'path') {
-      // In path mode, use the directory path input
-      if (!directoryPath.value) {
-        throw new Error('No directory path provided for ingestion.')
+    } else if (mode.value === 'git') {
+      if (!gitRepoPath.value) {
+        throw new Error('Git Repo Path is required.')
       }
-      const ingestResult = await callPathIngestAPI(directoryPath.value)
+      const gitIngestResult = await callGitIngestAPI(gitRepoPath.value);
       props.data.outputs = {
-        result: { output: JSON.stringify(ingestResult, null, 2) },
+        result: { output: JSON.stringify(gitIngestResult, null, 2) },
       }
       updateNodeData()
-      return { ingestResult }
+      return { gitIngestResult };
     } else {
       throw new Error('Invalid mode or missing input for passthrough mode.')
     }
@@ -315,6 +345,27 @@ async function callIngestAPI(text, filePath) {
   return responseData
 }
 
+async function callGitIngestAPI(repoPath) {
+  const payload = {
+    repo_path: repoPath,
+    chunk_size: chunk_size.value,
+    chunk_overlap: chunk_overlap.value,
+  };
+  console.log('Calling Git Ingest API with payload:', payload);
+  const response = await fetch(currentEndpoint.value, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API error (${response.status}): ${errorText}`);
+  }
+  const responseData = await response.json();
+  console.log('Git Ingest API response:', responseData);
+  return responseData;
+}
+
 // Helper function to read a File object as text using the FileReader API.
 function readFileAsText(file) {
   return new Promise((resolve, reject) => {
@@ -328,6 +379,8 @@ function readFileAsText(file) {
 // Control the visibility of the resize handle based on hover state
 const resizeHandleStyle = computed(() => ({
   visibility: isHovered.value ? 'visible' : 'hidden',
+  width: '12px',
+  height: '12px',
 }))
 
 function onResize(event) {

@@ -4,8 +4,8 @@
     <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
     <!-- Input and Output Handles -->
-    <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" id="input" />
-    <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" position="right" id="output" />
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
         
     <!-- Container for our WebGL canvas -->
     <div class="canvas-container" ref="canvasContainer">
@@ -100,9 +100,12 @@ const webglCanvas = ref(null);
 const canvasContainer = ref(null);
 const customStyle = ref({});
 const isHovered = ref(false);
+
 const resizeHandleStyle = computed(() => ({
-  visibility: isHovered.value ? "visible" : "hidden",
-}));
+  visibility: isHovered.value ? 'visible' : 'hidden',
+  width: '12px',
+  height: '12px',
+}))
 
 // --- SHADER JSON HANDLING ---
 // Using a computed property so that we can update the node's data.

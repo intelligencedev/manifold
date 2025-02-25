@@ -1,10 +1,6 @@
 <template>
-  <div
-    :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-    class="node-container mlxflux-node tool-node"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
-  >
+  <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
+    class="node-container mlxflux-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
     <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
     <!-- Parameters Panel (no accordion) -->
@@ -51,25 +47,18 @@
     </div>
 
     <!-- Input/Output Handles -->
-    <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" />
-    <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" position="right" />
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
+    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
 
     <!-- NodeResizer -->
-    <NodeResizer
-      :is-resizable="true"
-      :color="'#666'"
-      :handle-style="resizeHandleStyle"
-      :line-style="resizeHandleStyle"
-      :min-width="350"
-      :min-height="560"
-      :node-id="props.id"
-      @resize="onResize"
-    />
+    <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle" :line-style="resizeHandleStyle"
+      :min-width="350" :min-height="560" :node-id="props.id" @resize="onResize" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
+const { getEdges } = useVueFlow()
 import { Handle, useVueFlow } from '@vue-flow/core';
 import { NodeResizer } from '@vue-flow/node-resizer';
 
@@ -103,7 +92,7 @@ const props = defineProps({
       outputs: { response: '' },
       style: {
         border: '1px solid #666',
-        borderRadius: '4px',
+        borderRadius: '12px',
         backgroundColor: '#333',
         color: '#eee',
         width: '350px',
@@ -130,12 +119,12 @@ watch(
 );
 
 // Function to call the FMLX API (using a Go backend endpoint)
-async function callFMLXAPI(mlxNode) {
+async function callFMLXAPI(mlxNode, finalPrompt) {
   const endpoint = '/api/run-fmlx'; // Your Go backend endpoint
 
   const requestBody = {
     model: mlxNode.data.inputs.model,
-    prompt: mlxNode.data.inputs.prompt,
+    prompt: finalPrompt,
     steps: mlxNode.data.inputs.steps,
     seed: mlxNode.data.inputs.seed,
     quality: mlxNode.data.inputs.quality,
@@ -174,8 +163,28 @@ async function callFMLXAPI(mlxNode) {
 }
 
 async function run() {
-  console.log("Calling RUN");
-  return await callFMLXAPI(findNode(props.id));
+  console.log('Running MLXFlux node:', props.id);
+
+  try {
+    const connectedSources = getEdges.value
+      .filter((edge) => edge.target === props.id)
+      .map((edge) => edge.source)
+
+    if (connectedSources.length > 0) {
+      const sourceNode = findNode(connectedSources[0])
+
+      console.log('Comfy Connected sources:', connectedSources)
+
+      if (sourceNode && sourceNode.data.outputs.result) {
+        props.data.inputs.prompt = sourceNode.data.outputs.result.output
+      }
+    }
+
+    return await callFMLXAPI(findNode(props.id), finalPrompt);
+  } catch (error) {
+    console.error('Error in MLXFlux run:', error);
+    return { error };
+  }
 }
 
 // Computed properties for two-way data binding
@@ -239,7 +248,9 @@ const customStyle = ref({});
 // Show/hide the handles based on hover state
 const resizeHandleStyle = computed(() => ({
   visibility: isHovered.value ? 'visible' : 'hidden',
-}));
+  width: '12px',
+  height: '12px',
+}))
 
 function onResize(event) {
   customStyle.value.width = `${event.width}px`;

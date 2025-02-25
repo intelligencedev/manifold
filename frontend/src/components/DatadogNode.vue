@@ -101,14 +101,14 @@
       />
     </div>
 
-    <Handle style="width:10px; height:10px"
+    <Handle style="width:12px; height:12px"
       v-if="data.hasInputs"
       type="target"
       position="left"
       id="input"
     />
 
-    <Handle style="width:10px; height:10px"
+    <Handle style="width:12px; height:12px"
       v-if="data.hasOutputs"
       type="source"
       position="right"
@@ -311,7 +311,7 @@ watch(
   background-color: var(--node-bg-color) !important;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   padding: 15px;
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--node-text-color);
   font-family: 'Roboto', sans-serif;
 }

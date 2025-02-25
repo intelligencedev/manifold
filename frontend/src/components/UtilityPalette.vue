@@ -216,7 +216,6 @@ function prevPage() {
   width: 30px;
   height: 60px;
   background-color: #222;
-  border: 1px solid #666;
   border-right: none;
   cursor: pointer;
   display: flex;

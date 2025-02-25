@@ -130,7 +130,6 @@ function isExpanded(category) {
   width: 30px;
   height: 60px;
   background-color: #222;
-  border: 1px solid #666;
   border-left: none;
   cursor: pointer;
   display: flex;

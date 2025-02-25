@@ -30,7 +30,7 @@
 
     <!-- Optional: Input handle if you want to allow connections from other nodes.
          Remove if you truly want zero handles. -->
-    <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" />
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
   </div>
 </template>
 
@@ -179,7 +179,7 @@ async function run() {
   border: 1px solid var(--node-border-color);
   background-color: var(--node-bg-color);
   color: var(--node-text-color);
-  border-radius: 4px;
+  border-radius: 12px;
   padding: 8px;
 }
 

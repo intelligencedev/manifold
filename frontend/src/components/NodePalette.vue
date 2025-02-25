@@ -58,6 +58,7 @@ const nodeCategories = {
     "geminiResponse": null,
   },
   "Image Generation": {
+    "comfyNode": null,
     "mlxFluxNode": null,
   },
   "Code": {

@@ -74,6 +74,9 @@
       <template #node-repoConcatNode="repoConcatNodeProps">
         <RepoConcat v-bind="repoConcatNodeProps" />
       </template>
+      <template #node-comfyNode="comfyNodeProps">
+        <ComfyNode v-bind="comfyNodeProps" />
+      </template>
       <template #node-mlxFluxNode="mlxFluxNodeProps">
         <MLXFlux v-bind="mlxFluxNodeProps" />
       </template>
@@ -97,8 +100,14 @@
           <div style="flex: 1; display: flex; justify-content: center;">
             <SaveRestoreControls @save="onSave" @restore="onRestore" />
           </div>
-          <div style="flex: 1; display: flex; justify-content: center;">
+          <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
             <button class="run-button" @click="runWorkflow">Run</button>
+            <!-- Toggle Switch -->
+            <label class="switch">
+              <input type="checkbox" v-model="autoPanEnabled">
+              <span class="slider round"></span>
+            </label>
+            <span style="color: white; margin-left: 5px;">Auto-Pan</span>
           </div>
           <div style="flex: 1; display: flex; justify-content: center;">
             <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }"
@@ -163,6 +172,7 @@ import DatadogGraphNode from './components/DatadogGraphNode.vue';
 import TokenCounterNode from './components/TokenCounterNode.vue';
 import FlowControl from './components/FlowControl.vue';
 import RepoConcat from './components/RepoConcat.vue';
+import ComfyNode from './components/ComfyNode.vue';
 import MLXFlux from './components/MLXFlux.vue';
 import DocumentsIngest from './components/DocumentsIngest.vue';
 import DocumentsRetrieve from './components/DocumentsRetrieve.vue';
@@ -348,13 +358,18 @@ function onRestore(flow: Flow) {
  * Only after looping does the FlowControl node propagate its "continue" branch.
  */
 
+// Auto-pan toggle
+const autoPanEnabled = ref(true);
+
 // Helper: smoothly fit the view to a node using fitView
 async function smoothlyFitViewToNode(node: GraphNode) {
-  await fitView({
-    nodes: [node.id],
-    duration: 800, // duration in ms
-    padding: 0.6,
-  });
+  if (autoPanEnabled.value) {
+      await fitView({
+        nodes: [node.id],
+        duration: 800, // duration in ms
+        padding: 0.6,
+      });
+  }
 }
 
 // Refactored sequential workflow execution using a queue
@@ -574,6 +589,7 @@ header {
   border: none;
   border-radius: 12px;
   cursor: pointer;
+  margin-right: 10px; /* Add some margin between button and toggle */
 }
 
 .run-button:hover {
@@ -585,5 +601,66 @@ header {
   --node-border-color: #777 !important;
   --node-bg-color: #1e1e1e !important;
   --node-text-color: #eee;
+}
+
+/* Toggle Switch Styling */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #2196F3;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #2196F3;
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(20px);
+  -ms-transform: translateX(20px);
+  transform: translateX(20px);
+}
+
+/* Rounded sliders */
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
 }
 </style>

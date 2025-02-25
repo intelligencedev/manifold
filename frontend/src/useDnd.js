@@ -20,6 +20,7 @@ import DatadogGraphNode from './components/DatadogGraphNode.vue'
 import TokenCounterNode from './components/TokenCounterNode.vue'
 import FlowControl from './components/FlowControl.vue'
 import RepoConcat from './components/RepoConcat.vue'
+import ComfyNode from './components/ComfyNode.vue'
 import MLXFlux from './components/MLXFlux.vue'
 import DocumentsIngest from './components/DocumentsIngest.vue'
 import DocumentsRetrieve from './components/DocumentsRetrieve.vue'
@@ -167,6 +168,9 @@ export default function useDragAndDrop() {
         break;
       case 'repoConcatNode':
         component = RepoConcat;
+        break;
+      case 'comfyNode':
+        component = ComfyNode;
         break;
       case 'mlxFluxNode':
         component = MLXFlux;

@@ -44,6 +44,7 @@ type Config struct {
 	Port             int               `yaml:"port"`
 	DataPath         string            `yaml:"data_path"`
 	JaegerHost       string            `yaml:"jaeger_host"`
+	AnthropicKey     string            `yaml:"anthropic_key,omitempty"`
 	OpenAIAPIKey     string            `yaml:"openai_api_key,omitempty"`
 	GoogleGeminiKey  string            `yaml:"google_gemini_key,omitempty"`
 	HuggingFaceToken string            `yaml:"hf_token,omitempty"`

@@ -3,7 +3,6 @@ package main
 // Add these imports near the top of your main.go file.
 import (
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -27,7 +26,7 @@ type AnthropicMessage struct {
 
 // handleAnthropicMessages handles incoming requests, proxies them to Anthropic's streaming API,
 // and writes out the response as a stream.
-func handleAnthropicMessages(c echo.Context) error {
+func handleAnthropicMessages(c echo.Context, config *Config) error {
 	// Parse the incoming JSON request.
 	var req AnthropicRequest
 	if err := c.Bind(&req); err != nil {
@@ -67,7 +66,7 @@ func handleAnthropicMessages(c echo.Context) error {
 	}
 
 	// Create the Anthropic client (using an API key from the ANTHROPIC_API_KEY env var).
-	client := anthropic.NewClient(option.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")))
+	client := anthropic.NewClient(option.WithAPIKey(config.AnthropicKey))
 	ctx := c.Request().Context()
 
 	// Initiate the streaming call.

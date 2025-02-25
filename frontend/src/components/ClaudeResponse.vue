@@ -1,12 +1,12 @@
 <template>
-    <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
+    <div :style="{ ...data.style, ...customStyle }"
          class="node-container claude-response-node tool-node"
          @mouseenter="isHovered = true" @mouseleave="isHovered = false">
       <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
-  
+    
       <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
       <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
-  
+    
       <div class="header">
         <div class="controls">
           <div class="select-container">
@@ -24,7 +24,7 @@
         </div>
         <div v-if="copyStatus" class="copy-feedback">{{ copyStatus }}</div>
       </div>
-  
+    
       <div class="text-container" ref="textContainer" @scroll="handleScroll"
            @mouseenter="$emit('disable-zoom')" @mouseleave="$emit('enable-zoom')"
            :style="{ fontSize: `${currentFontSize}px` }">
@@ -33,12 +33,12 @@
         </div>
         <div v-else-if="selectedRenderMode === 'markdown'" class="markdown-text" v-html="markdownToHtml"></div>
       </div>
-  
+    
       <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
                    :line-style="resizeHandleStyle" :min-width="350" :min-height="400"
                    :node-id="props.id" @resize="onResize" />
     </div>
-  </template>
+  </template>  
   
   <script setup>
   import { ref, computed, nextTick, onMounted, watch } from "vue";

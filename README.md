@@ -1,26 +1,8 @@
 # Manifold
 
-![Manifold](docs/manifold_glsl.png)
+![Manifold](docs/manifold_splash.jpg)
 
 Manifold supports OpenAI compatible endpoints such as [llama-server](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) and [Apple's MLX LM server](https://github.com/ml-explore/mlx-examples/blob/main/llms/mlx_lm/SERVER.md)
-
-Combine public and locally hosted models to create powerful workflows that run sequential or concurrent.
-
-## Image Generation
-
-![Manifold Image Generation](docs/manifold_img_gen.jpg)
-
-## Web QA
-
-![Manifold Web QA](docs/manifold_webqa.png)
-
-## On Demand Tool/Code Generation and Execution
-
-![Manifold Web QA](docs/manifold_code.png)
-
-## DataDog Graph
-
-![Manifold Web QA](docs/manifold_datadog.png)
 
 # Installation Requirements
 

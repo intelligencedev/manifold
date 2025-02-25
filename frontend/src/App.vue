@@ -9,7 +9,8 @@
     <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
       :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
       @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
-      :min-zoom="0.2" :max-zoom="4" fit-view-on-init>
+      :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[20, 20]"
+      :default-viewport="{ x: 0, y: 0, zoom: 1 }">
       <!-- Node Templates -->
       <template #node-noteNode="noteNodeProps">
         <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
@@ -90,7 +91,7 @@
       <Controls :style="{ backgroundColor: '#222', color: '#eee' }" />
       <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
         :mask-color="'rgba(40, 40, 40, 0.8)'" />
-      <Background :color="bgColor" :variant="bgVariant" />
+      <Background :color="bgColor" :variant="bgVariant" :gap="20" :size="1" :pattern-color="'#444'" />
 
       <!-- Run Workflow Button -->
       <div class="bottom-bar">
@@ -184,7 +185,7 @@ interface BgColorInterface {
   value: string;
 }
 
-const bgColor: BgColorInterface['value'] = '#282828';
+const bgColor: BgColorInterface['value'] = '#303030';
 const bgVariant = BackgroundVariant.Dots;
 
 // --- STATE ---
@@ -366,11 +367,11 @@ const autoPanEnabled = ref(true);
 // Helper: smoothly fit the view to a node using fitView
 async function smoothlyFitViewToNode(node: GraphNode) {
   if (autoPanEnabled.value) {
-      await fitView({
-        nodes: [node.id],
-        duration: 800, // duration in ms
-        padding: 0.6,
-      });
+    await fitView({
+      nodes: [node.id],
+      duration: 800, // duration in ms
+      padding: 0.6,
+    });
   }
 }
 
@@ -591,7 +592,8 @@ header {
   border: none;
   border-radius: 12px;
   cursor: pointer;
-  margin-right: 10px; /* Add some margin between button and toggle */
+  margin-right: 10px;
+  /* Add some margin between button and toggle */
 }
 
 .run-button:hover {
@@ -643,15 +645,15 @@ header {
   transition: .4s;
 }
 
-input:checked + .slider {
+input:checked+.slider {
   background-color: #2196F3;
 }
 
-input:focus + .slider {
+input:focus+.slider {
   box-shadow: 0 0 1px #2196F3;
 }
 
-input:checked + .slider:before {
+input:checked+.slider:before {
   -webkit-transform: translateX(20px);
   -ms-transform: translateX(20px);
   transform: translateX(20px);
@@ -671,8 +673,10 @@ input:checked + .slider:before {
 }
 
 .tooltip {
-  white-space: normal; /* Changed from pre-wrap */
-  width: 200px; /* Increased width to accommodate text */
+  white-space: normal;
+  /* Changed from pre-wrap */
+  width: 200px;
+  /* Increased width to accommodate text */
   visibility: hidden;
   position: absolute;
   bottom: 200%;
@@ -683,9 +687,11 @@ input:checked + .slider:before {
   padding: 8px 12px;
   border-radius: 12px;
   font-size: 12px;
-  font-weight: bold; /* Added bold text */
+  font-weight: bold;
+  /* Added bold text */
   z-index: 1000;
-  text-align: center; /* Added for better text alignment */
+  text-align: center;
+  /* Added for better text alignment */
 }
 
 .tooltip-container:hover .tooltip {

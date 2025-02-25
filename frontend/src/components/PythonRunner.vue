@@ -11,8 +11,8 @@
         rows="5"></textarea>
     </div>
 
-    <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" id="input" />
-    <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" position="right" id="output" />
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
   </div>
 </template>
 

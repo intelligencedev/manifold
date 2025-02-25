@@ -18,8 +18,8 @@
   
       <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
   
-      <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" id="input" />
-      <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" position="right" id="output" />
+      <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+      <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
   
       <div
         class="text-container"
@@ -82,7 +82,7 @@
         outputs: {},
         style: {
           border: '1px solid #e8c547',
-          borderRadius: '4px',
+          borderRadius: '12px',
           backgroundColor: '#f7f3d7',
           color: '#333',
           width: '200px',
@@ -111,8 +111,10 @@
   
   // Show/hide the resize handles when hovering
   const resizeHandleStyle = computed(() => ({
-    visibility: isHovered.value ? 'visible' : 'hidden'
-  }))
+  visibility: isHovered.value ? 'visible' : 'hidden',
+  width: '12px',
+  height: '12px',
+}))
   
   // References to DOM elements
   const textContainer = ref(null)

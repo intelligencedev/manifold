@@ -78,8 +78,8 @@
     </div>
 
     <!-- Input/Output Handles -->
-    <Handle v-if="data.hasInputs" style="width:10px; height:10px" type="target" position="left" />
-    <Handle v-if="data.hasOutputs" style="width:10px; height:10px" type="source" position="right" />
+    <Handle v-if="data.hasInputs" style="width:12px; height:12px" type="target" position="left" />
+    <Handle v-if="data.hasOutputs" style="width:12px; height:12px" type="source" position="right" />
 
     <!-- Node Resizer -->
     <NodeResizer
@@ -379,6 +379,8 @@ function readFileAsText(file) {
 // Control the visibility of the resize handle based on hover state
 const resizeHandleStyle = computed(() => ({
   visibility: isHovered.value ? 'visible' : 'hidden',
+  width: '12px',
+  height: '12px',
 }))
 
 function onResize(event) {

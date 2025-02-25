@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/DataDog/datadog-api-client-go/v2/api/datadog"
+	"github.com/labstack/echo-contrib/jaegertracing"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
@@ -59,6 +60,8 @@ func main() {
 
 	// Create Echo instance with middleware.
 	e := echo.New()
+	c := jaegertracing.New(e, nil)
+	defer c.Close()
 	e.Use(middleware.Logger())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
@@ -133,6 +136,7 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.POST("/executePython", executePythonHandler)
 	api.POST("/datadog", datadogHandler)
 	api.POST("/download-llama", downloadLlamaHandler)
+	api.POST("/comfy-proxy", comfyProxyHandler)
 }
 
 func configHandler(c echo.Context) error {

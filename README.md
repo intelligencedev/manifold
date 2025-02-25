@@ -31,20 +31,14 @@ docker run -d \
 
 ## Image Generation
 
-Please note the image generation feature only works on M series Macs only. We will implement Windows and Linux support soon.
+### ComfyUI - Windows, MaxOS, Linux
+
+ComfyUI can be used as an image generation backend. Please refer to the [ComfyUI installation instructions](https://github.com/comfyanonymous/ComfyUI?tab=readme-ov-file#manual-install-windows-linux).
 
 ### MFlux - M Series Mac Only
 
-Mflux is used as the image generation backend on M Series Macs. Please refer to the [MFlux installation instructions](https://github.com/filipstrand/mflux)
+Mflux is used as the image generation backend on M Series Macs. Please refer to the [MFlux installation instructions](https://github.com/filipstrand/mflux).
 
-## Developer Notes
-
-There are various hard coded configurations that need to be broken out into a configuration file the app loads.
-For now, developers can change those endpoints and ports via the appropriate component code, or match the hard configuration.
-
-Backend is `localhost:8080` and frontend is `localhost:3000`
-
-We will implement a solution to change the configuration via a `.env` in a future commit.
 
 ## Build and Run
 
@@ -61,31 +55,4 @@ Run the compiled application:
 ```
 $ cd dist
 $ ./manifold
-```
-
-### External Dependencies
-
-Jaeger is not required, but we recommend [deploying the container](https://www.jaegertracing.io/docs/1.6/getting-started/#all-in-one-docker-image).
-
-[pgvector](https://github.com/pgvector/pgvector) - SQL and vector store
-
-Requires Node 20. We recommend using [NVM](https://github.com/nvm-sh/nvm) to manage Node environments.
-
-Backend - localhost:8080:
-
-The backend has Open Telemetry support and requires the JAEGER_ENDPOINT (Jaeger) endpoint be set. This does not have to exist so a fake endpoint can be set.
-The application will just throw an error when attempting to send telemetry to the endpoint but will still function.
-
-```
-$ export JAEGER_ENDPOINT=<my otel endpoint>
-$ go mod tidy
-$ go run .
-```
-
-Frontend - localhost:3000:
-```
-$ cd frontend
-$ nvm use 20
-$ npm install
-$ npm run dev
 ```

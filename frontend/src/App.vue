@@ -201,6 +201,7 @@ const configStore = useConfigStore();
 // Load configuration on startup
 onMounted(() => {
   configStore.fetchConfig();
+  loadTemplate(); // Load the template on mount
 });
 
 // Watchers for debugging
@@ -507,6 +508,23 @@ function updateEdgeType(newEdgeType: string) {
     type: newEdgeType,
   }));
 }
+
+// Load template function
+async function loadTemplate() {
+  try {
+    const host = window.location.hostname;
+    const port = window.location.port;
+    const response = await fetch(`http://${host}:${port}/templates/basic_completions.json`);
+    if (!response.ok) {
+      throw new Error(`Failed to load template: ${response.statusText}`);
+    }
+    const flowData = await response.json();
+    onRestore(flowData);
+  } catch (error) {
+    console.error('Error loading template:', error);
+  }
+}
+
 </script>
 
 <style>

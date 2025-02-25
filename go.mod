@@ -6,6 +6,7 @@ toolchain go1.23.5
 
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.34.0
+	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.11
 	github.com/chromedp/cdproto v0.0.0-20250113203156-3ff4b409e0d4
 	github.com/chromedp/chromedp v0.11.2
 	github.com/go-git/go-git/v5 v5.13.2
@@ -57,6 +58,10 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/skeema/knownhosts v1.3.0 // indirect
+	github.com/tidwall/gjson v1.14.4 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.1 // indirect
+	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/uber/jaeger-client-go v2.30.0+incompatible // indirect
 	github.com/uber/jaeger-lib v2.4.1+incompatible // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

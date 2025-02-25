@@ -122,6 +122,12 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.GET("/git-files", gitFilesHandler)
 	api.POST("/git-files/ingest", gitFilesIngestHandler(config))
 
+	// Anthropic endpoints.
+	anthropicGroup := api.Group("/anthropic")
+	anthropicGroup.POST("/messages", func(c echo.Context) error {
+		return handleAnthropicMessages(c, config)
+	})
+
 	api.POST("/run-fmlx", runFMLXHandler)
 	e.GET("/mlx_out.png", imageHandler)
 	api.POST("/run-sd", runSDHandler)

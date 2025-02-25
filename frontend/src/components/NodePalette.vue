@@ -54,6 +54,8 @@ const nodeCategories = {
   "Text Completions": {
     "agentNode": null,
     "responseNode": null,
+    "claudeNode": null,
+    "claudeResponse": null,
     "geminiNode": null,
     "geminiResponse": null,
   },

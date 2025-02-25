@@ -5,6 +5,8 @@ import NoteNode from './components/NoteNode.vue'
 import PythonRunner from './components/PythonRunner.vue'
 import WebGLNode from './components/WebGLNode.vue'
 import AgentNode from './components/AgentNode.vue'
+import ClaudeNode from './components/ClaudeNode.vue'
+import ClaudeResponse from './components/ClaudeResponse.vue'
 import GeminiNode from './components/GeminiNode.vue'
 import GeminiResponse from './components/GeminiResponse.vue'
 import ResponseNode from './components/ResponseNode.vue'
@@ -123,6 +125,12 @@ export default function useDragAndDrop() {
         break;
       case 'agentNode':
         component = AgentNode;
+        break;
+      case 'claudeNode':
+        component = ClaudeNode;
+        break;
+      case 'claudeResponse':
+        component = ClaudeResponse;
         break;
       case 'geminiNode':
         component = GeminiNode;

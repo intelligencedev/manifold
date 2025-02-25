@@ -75,7 +75,7 @@
 
         <!-- NodeResizer -->
         <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-            :line-style="resizeHandleStyle" :width="360" :height="760" :min-width="360" :min-height="760" :node-id="props.id" @resize="onResize" />
+            :line-style="resizeHandleStyle" :width="380" :height="760" :min-width="380" :min-height="760" :node-id="props.id" @resize="onResize" />
     </div>
 </template>
 
@@ -348,7 +348,7 @@ const customStyle = ref({
 const resizeHandleStyle = computed(() => ({
     visibility: isHovered.value ? 'visible' : 'hidden',
     width: '12px',
-    height: '12px',
+    height: '12px'
 }))
 
 function onResize(event) {

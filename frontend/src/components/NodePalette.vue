@@ -93,7 +93,7 @@ const nodeCategories = {
 // Initialize state for expanded/collapsed accordion sections
 const expandedCategories = reactive({})
 Object.keys(nodeCategories).forEach((category) => {
-  expandedCategories[category] = false
+  expandedCategories[category] = category === "Text Completions"
 })
 
 // Toggle individual accordion section; if the section is open, collapse it, and vice versa.
@@ -130,7 +130,6 @@ function isExpanded(category) {
   width: 30px;
   height: 60px;
   background-color: #222;
-  border: 1px solid #666;
   border-left: none;
   cursor: pointer;
   display: flex;

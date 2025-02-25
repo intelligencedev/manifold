@@ -195,14 +195,12 @@ function prevPage() {
   top: 50px;
   bottom: 0;
   right: 0;
-  width: 300px;
+  width: 250px;
   background-color: #222;
   color: #eee;
   z-index: 1100;
   transition: transform 0.3s ease-in-out;
   transform: translateX(100%);
-  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2);
-  border-left: 1px solid #444;
   font-family: 'Roboto', sans-serif; /* Consistent font */
 }
 
@@ -218,7 +216,6 @@ function prevPage() {
   width: 30px;
   height: 60px;
   background-color: #222;
-  border: 1px solid #666;
   border-right: none;
   cursor: pointer;
   display: flex;

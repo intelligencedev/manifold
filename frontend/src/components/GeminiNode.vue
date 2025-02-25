@@ -1,6 +1,6 @@
 <template>
-    <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-        class="node-container gemini-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
+    <div :style="{ ...data.style, ...customStyle }" class="node-container gemini-node tool-node"
+         @mouseenter="isHovered = true" @mouseleave="isHovered = false">
         <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
         <!-- Model Selection -->
@@ -21,14 +21,14 @@
         <div class="input-field user-prompt-field">
             <label :for="`${data.id}-user_prompt`" class="input-label">User Prompt:</label>
             <textarea :id="`${data.id}-user_prompt`" v-model="user_prompt" class="input-textarea user-prompt-area"
-                @mouseenter="handleTextareaMouseEnter" @mouseleave="handleTextareaMouseLeave"></textarea>
+                      @mouseenter="handleTextareaMouseEnter" @mouseleave="handleTextareaMouseLeave"></textarea>
         </div>
 
         <!-- Google AI API Key Input -->
         <div class="input-field">
             <label :for="`${data.id}-api_key`" class="input-label">Google AI API Key:</label>
             <input :id="`${data.id}-api_key`" :type="showApiKey ? 'text' : 'password'" class="input-text"
-                v-model="api_key" />
+                   v-model="api_key" />
             <button @click="showApiKey = !showApiKey" class="toggle-password">
                 <span v-if="showApiKey">👁️</span>
                 <span v-else>🙈</span>
@@ -40,8 +40,14 @@
         <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
 
         <!-- NodeResizer -->
-        <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-            :line-style="resizeHandleStyle" :min-width="350" :min-height="560" :node-id="props.id" @resize="onResize" />
+        <NodeResizer :is-resizable="true" 
+                     :color="'#666'" 
+                     :handle-style="resizeHandleStyle"
+                     :line-style="resizeHandleStyle" 
+                     :min-width="380" 
+                     :min-height="560" 
+                     :node-id="props.id" 
+                     @resize="onResize" />
     </div>
 </template>
 
@@ -255,8 +261,8 @@ const props = defineProps({
                 borderRadius: '12px',
                 backgroundColor: '#333',
                 color: '#eee',
-                width: '350px',
-                height: '400px',
+                width: '380px',
+                height: '560px'
             },
         }),
     },
@@ -337,12 +343,8 @@ const handleTextareaMouseLeave = () => {
     font-weight: bold;
 }
 
-/* Matching the pattern from ResponseNode: 
-     the rest is your typical input styling, etc. 
-  */
 .input-field {
     position: relative;
-    /* Add this to make positioning easier for child elements */
 }
 
 .toggle-password {
@@ -380,6 +382,8 @@ const handleTextareaMouseLeave = () => {
 .user-prompt-area {
     flex: 1;
     /* Fill the container's vertical space */
+    width: 100%;
+    /* Fill the container's horizontal space */
     resize: none;
     /* Prevent user dragging the bottom-right handle inside the textarea */
     overflow-y: auto;

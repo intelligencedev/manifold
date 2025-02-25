@@ -31,23 +31,13 @@
         <input :id="`${data.id}-max_tokens`" type="number" class="input-text" v-model="max_tokens" />
       </div>
   
-      <!-- Anthropic API Key Input -->
-      <div class="input-field">
-        <label :for="`${data.id}-api_key`" class="input-label">Anthropic API Key:</label>
-        <input :id="`${data.id}-api_key`" :type="showApiKey ? 'text' : 'password'" class="input-text" v-model="api_key" />
-        <button @click="showApiKey = !showApiKey" class="toggle-password">
-          <span v-if="showApiKey">👁️</span>
-          <span v-else>🙈</span>
-        </button>
-      </div>
-  
       <!-- Input/Output Handles -->
       <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
       <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
   
       <!-- NodeResizer -->
       <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-                   :line-style="resizeHandleStyle" :min-width="350" :min-height="560" :node-id="props.id" @resize="onResize" />
+                   :line-style="resizeHandleStyle" :min-width="380" :min-height="560" :node-id="props.id" @resize="onResize" />
     </div>
   </template>
   
@@ -178,13 +168,13 @@
           max_tokens: 1024
         },
         outputs: { response: '' },
-        models: ['claude-3-5-sonnet-20241022'],
+        models: ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-20241022'],
         style: {
           border: '1px solid #666',
           borderRadius: '12px',
           backgroundColor: '#333',
           color: '#eee',
-          width: '350px',
+          width: '380px',
           height: '560px'
         }
       })

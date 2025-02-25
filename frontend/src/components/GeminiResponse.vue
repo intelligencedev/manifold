@@ -3,8 +3,8 @@
         class="node-container gemini-response-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
         <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
-        <Handle style="width:10px; height:10px" v-if="data.hasInputs" type="target" position="left" id="input" />
-        <Handle style="width:10px; height:10px" v-if="data.hasOutputs" type="source" position="right" id="output" />
+        <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+        <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
 
         <div class="header">
             <div class="controls">
@@ -127,7 +127,7 @@ const props = defineProps({
             },
             style: {
                 border: '1px solid #666',
-                borderRadius: '4px',
+                borderRadius: '12px',
                 backgroundColor: '#333',
                 color: '#eee',
                 width: '350px',
@@ -157,7 +157,9 @@ const customStyle = ref({});
 // Computed property for resize handle visibility
 const resizeHandleStyle = computed(() => ({
     visibility: isHovered.value ? 'visible' : 'hidden',
-}));
+    width: '12px',
+    height: '12px',
+}));;
 
 // Font size control
 const currentFontSize = ref(12); // Default font size

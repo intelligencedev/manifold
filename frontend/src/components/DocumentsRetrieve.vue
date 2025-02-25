@@ -49,8 +49,8 @@
     </div>
 
     <!-- Node Resizer and Handles -->
-    <Handle v-if="data.hasInputs" style="width:10px; height:10px" type="target" position="left" />
-    <Handle v-if="data.hasOutputs" style="width:10px; height:10px" type="source" position="right" />
+    <Handle v-if="data.hasInputs" style="width:12px; height:12px" type="target" position="left" />
+    <Handle v-if="data.hasOutputs" style="width:12px; height:12px" type="source" position="right" />
     <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle" :line-style="resizeHandleStyle"
       :min-width="200" :min-height="120" :width="200" :height="150" :node-id="props.id" @resize="onResize" />
   </div>
@@ -92,7 +92,7 @@ const props = defineProps({
       updateFromSource: true,
       style: {
         border: '1px solid #666',
-        borderRadius: '4px',
+        borderRadius: '12px',
         backgroundColor: '#333',
         color: '#eee',
         width: '200px',
@@ -239,6 +239,8 @@ async function run() {
 // Control the visibility of the resize handle based on hover state.
 const resizeHandleStyle = computed(() => ({
   visibility: isHovered.value ? 'visible' : 'hidden',
+  width: '12px',
+  height: '12px',
 }))
 
 function onResize(event) {

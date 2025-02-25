@@ -19,14 +19,14 @@
     ></textarea>
 
     <Handle
-      style="width:10px; height:10px"
+      style="width:12px; height:12px"
       v-if="data.hasInputs"
       type="target"
       position="left"
       id="input"
     />
     <Handle
-      style="width:10px; height:10px"
+      style="width:12px; height:12px"
       v-if="data.hasOutputs"
       type="source"
       position="right"
@@ -71,7 +71,7 @@ const props = defineProps({
       },
       style: {
         border: '1px solid var(--node-border-color)',
-        borderRadius: '4px',
+        borderRadius: '12px',
         backgroundColor: 'var(--node-bg-color)',
         color: 'var(--node-text-color)',
         padding: '10px'
@@ -139,8 +139,11 @@ const customStyle = ref({})
 
 // Track whether the node is hovered (to show/hide the resize handles)
 const isHovered = ref(false)
+
 const resizeHandleStyle = computed(() => ({
-  visibility: isHovered.value ? 'visible' : 'hidden'
+  visibility: isHovered.value ? 'visible' : 'hidden',
+  width: '12px',
+  height: '12px',
 }))
 
 // Handle the resize event to update the node dimensions

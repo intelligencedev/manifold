@@ -15,11 +15,11 @@
       {{ data.type }}
     </div>
 
-    <Handle style="width:10px; height:10px" type="target" position="left" id="input" />
+    <Handle style="width:12px; height:12px" type="target" position="left" id="input" />
 
     <div class="graph-container" ref="graphContainer"></div>
 
-    <Handle style="width:10px; height:10px" type="source" position="right" id="output"/>
+    <Handle style="width:12px; height:12px" type="source" position="right" id="output"/>
 
     <NodeResizer
       :is-resizable="true"
@@ -250,7 +250,7 @@ onMounted(() => {
 <style scoped>
 .datadog-graph-node {
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 12px;
   background-color: #1e1e1e;
   color: #eee;
   width: 100%;

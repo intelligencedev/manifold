@@ -200,6 +200,11 @@ func (e *Engine) IngestDocument(ctx context.Context, text, language, filePath, e
 	chunksText := splitter.SplitText(text)
 	log.Printf("SEFII: Document split into %d chunks", len(chunksText))
 
+	// For each chunk, prepend its file path to the content followed by a new line.
+	for i := range chunksText {
+		chunksText[i] = fmt.Sprintf("%s\n%s", filePath, chunksText[i])
+	}
+
 	// Generate embeddings using the embeddings package.
 	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, chunksText)
 	if err != nil {

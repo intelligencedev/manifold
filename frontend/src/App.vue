@@ -1,7 +1,7 @@
 <template>
   <div id="app">
-    <!-- Header Component Positioned Outside VueFlow -->
-    <Header />
+    <!-- Update Header to include save/restore handlers -->
+    <Header @save="onSave" @restore="onRestore" />
     <NodePalette />
     <UtilityPalette />
 
@@ -74,6 +74,9 @@
       <template #node-repoConcatNode="repoConcatNodeProps">
         <RepoConcat v-bind="repoConcatNodeProps" />
       </template>
+      <template #node-comfyNode="comfyNodeProps">
+        <ComfyNode v-bind="comfyNodeProps" />
+      </template>
       <template #node-mlxFluxNode="mlxFluxNodeProps">
         <MLXFlux v-bind="mlxFluxNodeProps" />
       </template>
@@ -95,9 +98,17 @@
         <div class="bottom-toolbar">
           <!-- three divs -->
           <div style="flex: 1; display: flex; justify-content: center;">
-            <SaveRestoreControls @save="onSave" @restore="onRestore" />
+            <!-- Toggle Switch -->
+            <div class="tooltip-container" style="display: flex; align-items: center;">
+              <label class="switch">
+                <input type="checkbox" v-model="autoPanEnabled">
+                <span class="slider round"></span>
+              </label>
+              <span style="color: white; margin-left: 5px; font-size: 14px;">Auto-Pan</span>
+              <span class="tooltip">When enabled, the view will automatically pan to follow node execution</span>
+            </div>
           </div>
-          <div style="flex: 1; display: flex; justify-content: center;">
+          <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
             <button class="run-button" @click="runWorkflow">Run</button>
           </div>
           <div style="flex: 1; display: flex; justify-content: center;">
@@ -128,7 +139,6 @@ import {
   addEdge,
   type Edge,
 } from '@vue-flow/core';
-
 import {
   Controls,
   MiniMap,
@@ -136,7 +146,7 @@ import {
   BackgroundVariant,
 } from '@vue-flow/additional-components';
 import SpecialEdge from './components/SpecialEdge.vue';
-import { useConfigStore } from '@/stores/configStore'
+import { useConfigStore } from '@/stores/configStore';
 
 // Manifold custom components
 import Header from './components/Header.vue';
@@ -164,6 +174,7 @@ import DatadogGraphNode from './components/DatadogGraphNode.vue';
 import TokenCounterNode from './components/TokenCounterNode.vue';
 import FlowControl from './components/FlowControl.vue';
 import RepoConcat from './components/RepoConcat.vue';
+import ComfyNode from './components/ComfyNode.vue';
 import MLXFlux from './components/MLXFlux.vue';
 import DocumentsIngest from './components/DocumentsIngest.vue';
 import DocumentsRetrieve from './components/DocumentsRetrieve.vue';
@@ -178,17 +189,18 @@ const bgVariant = BackgroundVariant.Dots;
 
 // --- STATE ---
 
-const { findNode, getNodes, getEdges, toObject, fromObject } = useVueFlow();
+// Destructure fitView along with other methods
+const { findNode, getNodes, getEdges, toObject, fromObject, fitView } = useVueFlow();
 const nodes = ref<GraphNode[]>([]);
 const edges = ref<GraphEdge[]>([]);
 const defaultEdgeType = ref<string>('bezier'); // Set the default edge type
 
-const configStore = useConfigStore()
+const configStore = useConfigStore();
 
 // Load configuration on startup
 onMounted(() => {
-  configStore.fetchConfig()
-})
+  configStore.fetchConfig();
+});
 
 // Watchers for debugging
 watch(getNodes, (newNodes) => console.log('nodes changed', newNodes));
@@ -296,9 +308,7 @@ function onConnect(params: Connection) {
           connectedTo,
         };
         nodes.value = nodes.value.map((node) =>
-          node.id === targetNode.id
-            ? { ...node, data: { ...node.data } }
-            : node
+          node.id === targetNode.id ? { ...node, data: { ...node.data } } : node
         );
       }
     }
@@ -349,24 +359,22 @@ function onRestore(flow: Flow) {
  * the FlowControl node is re-run to aggregate updated inputs (e.g. from a ResponseNode).
  * Only after looping does the FlowControl node propagate its "continue" branch.
  */
-async function runWorkflow() {
-  // Clear response nodes and gemini response nodes
-  const responseNodes = nodes.value.filter((node) => node.type === 'responseNode');
-  for (const node of responseNodes) {
-    node.data.inputs.response = '';
-    node.data.outputs = {};
-  }
-  const geminiResponseNodes = nodes.value.filter((node) => node.type === 'geminiResponse');
-  for (const node of geminiResponseNodes) {
-    node.data.inputs.response = '';
-    node.data.outputs = {};
-  }
 
-  console.log('Running workflow with current nodes and edges:', nodes.value, edges.value);
-  await runWorkflowConcurrently();
-  console.log('Workflow execution complete.');
+// Auto-pan toggle
+const autoPanEnabled = ref(true);
+
+// Helper: smoothly fit the view to a node using fitView
+async function smoothlyFitViewToNode(node: GraphNode) {
+  if (autoPanEnabled.value) {
+      await fitView({
+        nodes: [node.id],
+        duration: 800, // duration in ms
+        padding: 0.6,
+      });
+  }
 }
 
+// Refactored sequential workflow execution using a queue
 async function runWorkflowConcurrently() {
   // 1. Build an adjacency list that records outgoing edges with their sourceHandle,
   // and compute in-degree for each node.
@@ -391,58 +399,77 @@ async function runWorkflowConcurrently() {
   // 2. Start with nodes that have in-degree 0.
   let queue = nodes.value.filter((node) => inDegree[node.id] === 0).map((node) => node.id);
 
-  // 3. Process nodes layer by layer.
+  // 3. Process nodes sequentially.
   while (queue.length > 0) {
-    const currentLayer = [...queue];
-    queue = [];
+    const nodeId = queue.shift()!;
+    const node = findNode(nodeId);
+    if (!node) continue;
 
-    // Execute all nodes in the current layer in parallel.
-    await Promise.all(
-      currentLayer.map(async (nodeId) => {
-        const node = findNode(nodeId);
-        if (!node) return;
+    // Smoothly fit view to the node about to run
+    await smoothlyFitViewToNode(node);
 
-        // All input dependencies are met here.
-        changeEdgeStyles(nodeId);
-        await node.data.run();
+    // Change edge styles for visual feedback
+    changeEdgeStyles(nodeId);
 
-        // If this is a FlowControl node, handle looping:
-        if (node.type === 'flowControlNode') {
-          const loopCount = node.data.inputs.loopCount || 1;
-          // For each additional loop iteration:
-          for (let i = 1; i < loopCount; i++) {
-            // Execute each loopback branch.
-            const loopbackEdges = adj[nodeId].filter((edge) => edge.handle === 'loopback');
-            for (const edge of loopbackEdges) {
-              const childNode = findNode(edge.target);
-              if (childNode) {
-                await childNode.data.run();
-              }
-            }
-            // After processing loopback branches, re-run the FlowControl node
-            // to re-aggregate its updated inputs.
-            await node.data.run();
-          }
-          // Now process "continue" branches.
-          const continueEdges = adj[nodeId].filter((edge) => edge.handle === 'continue');
-          for (const edge of continueEdges) {
-            inDegree[edge.target]--;
-            if (inDegree[edge.target] === 0) {
-              queue.push(edge.target);
-            }
-          }
-        } else {
-          // For non-FlowControl nodes, process all outgoing edges.
-          for (const edge of adj[nodeId]) {
-            inDegree[edge.target]--;
-            if (inDegree[edge.target] === 0) {
-              queue.push(edge.target);
-            }
+    // Execute the node's logic
+    await node.data.run();
+
+    // If this is a FlowControl node, handle looping:
+    if (node.type === 'flowControlNode') {
+      const loopCount = node.data.inputs.loopCount || 1;
+      // For each additional loop iteration:
+      for (let i = 1; i < loopCount; i++) {
+        // Execute each loopback branch.
+        const loopbackEdges = adj[nodeId].filter((edge) => edge.handle === 'loopback');
+        for (const edge of loopbackEdges) {
+          const childNode = findNode(edge.target);
+          if (childNode) {
+            await smoothlyFitViewToNode(childNode);
+            changeEdgeStyles(childNode.id);
+            await childNode.data.run();
           }
         }
-      })
-    );
+        // Re-run the FlowControl node to aggregate updated inputs.
+        await smoothlyFitViewToNode(node);
+        changeEdgeStyles(nodeId);
+        await node.data.run();
+      }
+      // Process "continue" branches.
+      const continueEdges = adj[nodeId].filter((edge) => edge.handle === 'continue');
+      for (const edge of continueEdges) {
+        inDegree[edge.target]--;
+        if (inDegree[edge.target] === 0) {
+          queue.push(edge.target);
+        }
+      }
+    } else {
+      // For non-FlowControl nodes, process all outgoing edges.
+      for (const edge of adj[nodeId]) {
+        inDegree[edge.target]--;
+        if (inDegree[edge.target] === 0) {
+          queue.push(edge.target);
+        }
+      }
+    }
   }
+}
+
+async function runWorkflow() {
+  // Clear response nodes and gemini response nodes
+  const responseNodes = nodes.value.filter((node) => node.type === 'responseNode');
+  for (const node of responseNodes) {
+    node.data.inputs.response = '';
+    node.data.outputs = {};
+  }
+  const geminiResponseNodes = nodes.value.filter((node) => node.type === 'geminiResponse');
+  for (const node of geminiResponseNodes) {
+    node.data.inputs.response = '';
+    node.data.outputs = {};
+  }
+
+  console.log('Running workflow with current nodes and edges:', nodes.value, edges.value);
+  await runWorkflowConcurrently();
+  console.log('Workflow execution complete.');
 }
 
 // Define custom edge types.
@@ -547,11 +574,11 @@ header {
   justify-content: center;
   align-items: center;
   background-color: #222;
-  border-top-left-radius: 12px;
-  border-top-right-radius: 12px;
+  border-radius: 12px;
   width: 33vw;
   height: 100%;
-  padding: 20px;
+  padding: 4px;
+  border: 1px solid #777;
   margin-bottom: 40px;
 }
 
@@ -562,8 +589,9 @@ header {
   color: #fff;
   background-color: #007bff;
   border: none;
-  border-radius: 4px;
+  border-radius: 12px;
   cursor: pointer;
+  margin-right: 10px; /* Add some margin between button and toggle */
 }
 
 .run-button:hover {
@@ -575,5 +603,104 @@ header {
   --node-border-color: #777 !important;
   --node-bg-color: #1e1e1e !important;
   --node-text-color: #eee;
+}
+
+/* Toggle Switch Styling */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+}
+
+input:checked + .slider {
+  background-color: #2196F3;
+}
+
+input:focus + .slider {
+  box-shadow: 0 0 1px #2196F3;
+}
+
+input:checked + .slider:before {
+  -webkit-transform: translateX(20px);
+  -ms-transform: translateX(20px);
+  transform: translateX(20px);
+}
+
+/* Rounded sliders */
+.slider.round {
+  border-radius: 34px;
+}
+
+.slider.round:before {
+  border-radius: 50%;
+}
+
+.tooltip-container {
+  position: relative;
+}
+
+.tooltip {
+  white-space: normal; /* Changed from pre-wrap */
+  width: 200px; /* Increased width to accommodate text */
+  visibility: hidden;
+  position: absolute;
+  bottom: 200%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 140, 0, 0.9);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold; /* Added bold text */
+  z-index: 1000;
+  text-align: center; /* Added for better text alignment */
+}
+
+.tooltip-container:hover .tooltip {
+  visibility: visible;
+}
+
+/* Optional: Add an arrow to the tooltip */
+.tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: rgba(255, 140, 0, 0.9) transparent transparent transparent;
 }
 </style>

@@ -20,6 +20,12 @@
         <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
           @node-resized="updateNodeDimensions" />
       </template>
+      <template #node-claudeNode="claudeNodeProps">
+        <ClaudeNode v-bind="claudeNodeProps" />
+      </template>
+      <template #node-claudeResponse="claudeResponseProps">
+        <ClaudeResponse v-bind="claudeResponseProps" />
+      </template>
       <template #node-geminiNode="geminiNodeProps">
         <GeminiNode v-bind="geminiNodeProps" />
       </template>
@@ -158,6 +164,8 @@ import NodePalette from './components/NodePalette.vue';
 import UtilityPalette from './components/UtilityPalette.vue';
 import NoteNode from './components/NoteNode.vue';
 import AgentNode from './components/AgentNode.vue';
+import ClaudeNode from './components/ClaudeNode.vue';
+import ClaudeResponse from './components/ClaudeResponse.vue';
 import GeminiNode from './components/GeminiNode.vue';
 import GeminiResponse from './components/GeminiResponse.vue';
 import PythonRunner from './components/PythonRunner.vue';

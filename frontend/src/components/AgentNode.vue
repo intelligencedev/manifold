@@ -347,8 +347,6 @@ const customStyle = ref({
 // Show/hide the handles
 const resizeHandleStyle = computed(() => ({
     visibility: isHovered.value ? 'visible' : 'hidden',
-    width: '12px',
-    height: '12px',
 }))
 
 function onResize(event) {

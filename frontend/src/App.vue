@@ -1,7 +1,7 @@
 <template>
   <div id="app">
-    <!-- Header Component Positioned Outside VueFlow -->
-    <Header />
+    <!-- Update Header to include save/restore handlers -->
+    <Header @save="onSave" @restore="onRestore" />
     <NodePalette />
     <UtilityPalette />
 
@@ -98,16 +98,18 @@
         <div class="bottom-toolbar">
           <!-- three divs -->
           <div style="flex: 1; display: flex; justify-content: center;">
-            <SaveRestoreControls @save="onSave" @restore="onRestore" />
+            <!-- Toggle Switch -->
+            <div class="tooltip-container" style="display: flex; align-items: center;">
+              <label class="switch">
+                <input type="checkbox" v-model="autoPanEnabled">
+                <span class="slider round"></span>
+              </label>
+              <span style="color: white; margin-left: 5px; font-size: 14px;">Auto-Pan</span>
+              <span class="tooltip">When enabled, the view will automatically pan to follow node execution</span>
+            </div>
           </div>
           <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
             <button class="run-button" @click="runWorkflow">Run</button>
-            <!-- Toggle Switch -->
-            <label class="switch">
-              <input type="checkbox" v-model="autoPanEnabled">
-              <span class="slider round"></span>
-            </label>
-            <span style="color: white; margin-left: 5px;">Auto-Pan</span>
           </div>
           <div style="flex: 1; display: flex; justify-content: center;">
             <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }"
@@ -662,5 +664,43 @@ input:checked + .slider:before {
 
 .slider.round:before {
   border-radius: 50%;
+}
+
+.tooltip-container {
+  position: relative;
+}
+
+.tooltip {
+  white-space: normal; /* Changed from pre-wrap */
+  width: 200px; /* Increased width to accommodate text */
+  visibility: hidden;
+  position: absolute;
+  bottom: 200%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 140, 0, 0.9);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold; /* Added bold text */
+  z-index: 1000;
+  text-align: center; /* Added for better text alignment */
+}
+
+.tooltip-container:hover .tooltip {
+  visibility: visible;
+}
+
+/* Optional: Add an arrow to the tooltip */
+.tooltip::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: rgba(255, 140, 0, 0.9) transparent transparent transparent;
 }
 </style>

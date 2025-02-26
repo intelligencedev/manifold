@@ -157,7 +157,6 @@ import { useConfigStore } from '@/stores/configStore';
 
 // Manifold custom components
 import Header from './components/Header.vue';
-import SaveRestoreControls from './components/SaveRestoreControls.vue';
 import LayoutControls from './components/LayoutControls.vue';
 import useDragAndDrop from './useDnD';
 import NodePalette from './components/NodePalette.vue';

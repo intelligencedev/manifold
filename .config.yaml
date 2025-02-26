@@ -14,6 +14,9 @@ database:
 # HuggingFace Token
 hf_token: "..." 
 
+# Anthropic API token
+anthropic_key: "..."
+
 # Default Completions Configuration - any openai api compatible backend - llama.cpp (llama-server), vllm, mlx_lm.server, etc
 completions:
   default_host: "<my_openai_api_compatible_server>/v1/chat/completions"

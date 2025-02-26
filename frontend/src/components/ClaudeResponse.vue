@@ -22,13 +22,20 @@
       <div v-if="copyStatus" class="copy-feedback">{{ copyStatus }}</div>
     </div>
 
-    <div class="text-container" ref="textContainer" @scroll="handleScroll" @mouseenter="$emit('disable-zoom')"
-      @mouseleave="$emit('enable-zoom')" :style="{ fontSize: `${currentFontSize}px` }">
+    <div class="text-container" ref="textContainer"
+      @scroll="handleScroll"
+      @mouseenter="$emit('disable-zoom')"
+      @mouseleave="$emit('enable-zoom')"
+      @wheel.stop
+      :style="{ fontSize: `${currentFontSize}px` }">
       <div v-if="selectedRenderMode === 'raw'" class="raw-text">
         {{ response }}
       </div>
       <div v-else-if="selectedRenderMode === 'markdown'" class="markdown-text" v-html="markdownToHtml"></div>
     </div>
+
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
 
     <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle" :line-style="resizeHandleStyle"
       :min-width="350" :min-height="400" :node-id="props.id" @resize="onResize" />

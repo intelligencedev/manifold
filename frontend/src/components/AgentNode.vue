@@ -1,7 +1,7 @@
 <template>
     <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-        class="node-container agent-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
-        <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
+        class="node-container openai-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
+        <div :style="data.labelStyle" class="node-label">Open AI / Local</div>
 
         <!-- Provider Selection -->
         <div class="input-field">
@@ -394,7 +394,7 @@ const provider = computed({
 </script>
 
 <style scoped>
-.agent-node {
+.openai-node {
     /* Make sure we fill the bounding box and use border-box */
     width: 100%;
     height: 100%;

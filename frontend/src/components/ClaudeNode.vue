@@ -168,7 +168,7 @@
           max_tokens: 1024
         },
         outputs: { response: '' },
-        models: ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-20241022'],
+        models: ['claude-3-7-sonnet-latest', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-latest'],
         style: {
           border: '1px solid #666',
           borderRadius: '12px',

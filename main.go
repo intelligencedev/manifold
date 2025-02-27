@@ -819,11 +819,3 @@ func downloadLlamaHandler(c echo.Context) error {
 		"llama_file_path":  llamaFilePath,
 	})
 }
-
-// func getFileSystem() http.FileSystem {
-// 	fs, err := fs.Sub(frontendDist, "frontend/dist")
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	return http.FS(fs)
-// }

@@ -96,9 +96,11 @@ func runEphemeralPython(code string, dependencies []string) (*PythonCodeResponse
 	}
 
 	// 2. Install dependencies
+	successfulInstalls := []string{}
+	failedInstalls := []string{}
+
 	for _, dep := range dependencies {
 		ctxDep, cancelDep := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancelDep()
 
 		cmdInstall := exec.CommandContext(ctxDep, pipPath, "install", dep)
 		outBuf.Reset()
@@ -108,10 +110,18 @@ func runEphemeralPython(code string, dependencies []string) (*PythonCodeResponse
 
 		log.Printf("Installing dependency %s", dep)
 		if err := cmdInstall.Run(); err != nil {
-			log.Printf("Pip install error:\nSTDOUT: %s\nSTDERR: %s", outBuf.String(), errBuf.String())
-			return nil, fmt.Errorf("failed to install %s: %w", dep, err)
+			log.Printf("Pip install error for %s:\nSTDOUT: %s\nSTDERR: %s", dep, outBuf.String(), errBuf.String())
+			failedInstalls = append(failedInstalls, dep)
+		} else {
+			log.Printf("Installed %s successfully.", dep)
+			successfulInstalls = append(successfulInstalls, dep)
 		}
-		log.Printf("Installed %s successfully.", dep)
+
+		cancelDep() // Cancel the context after each dependency
+	}
+
+	if len(failedInstalls) > 0 {
+		log.Printf("Warning: Failed to install packages: %s", strings.Join(failedInstalls, ", "))
 	}
 
 	// 3. Write code to user_code.py

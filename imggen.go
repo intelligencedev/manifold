@@ -1,13 +1,19 @@
+// image_handlers.go
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +24,166 @@ import (
 type ComfyProxyRequest struct {
 	TargetEndpoint string `json:"targetEndpoint"`
 	Prompt         string `json:"prompt"`
+}
+
+func runFMLXHandler(c echo.Context) error {
+	var req FMLXRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if req.Model == "" || req.Prompt == "" || req.Steps == 0 {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing required fields"})
+	}
+	if _, err := os.Stat(req.Output); err == nil {
+		if err := os.Remove(req.Output); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to remove existing file"})
+		}
+	}
+	args := []string{
+		"--model", req.Model,
+		"--prompt", req.Prompt,
+		"--steps", fmt.Sprintf("%d", req.Steps),
+		"--seed", fmt.Sprintf("%d", req.Seed),
+		"-q", fmt.Sprintf("%d", req.Quality),
+		"--output", req.Output,
+	}
+	cmd := exec.Command("/Users/art/Documents/code/manifold/mflux/.venv/bin/mflux-generate", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stdout pipe"})
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stderr pipe"})
+	}
+	if err := cmd.Start(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to start mflux command"})
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			log.Printf("[mflux stdout] %s", scanner.Text())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			log.Printf("[mflux stderr] %s", scanner.Text())
+		}
+	}()
+	if err := cmd.Wait(); err != nil {
+		wg.Wait()
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute mflux command: %v", err)})
+	}
+	wg.Wait()
+	return c.JSON(http.StatusOK, map[string]string{"message": "FMLX command executed successfully"})
+}
+
+func imageHandler(c echo.Context) error {
+	file, err := os.Open(imagePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return c.String(http.StatusNotFound, "Image not found")
+		}
+		return c.String(http.StatusInternalServerError, "Error opening image")
+	}
+	defer file.Close()
+	c.Response().Header().Set(echo.HeaderContentType, "image/png")
+	if _, err := io.Copy(c.Response().Writer, file); err != nil {
+		log.Printf("Error copying image to response: %v", err)
+	}
+	return nil
+}
+
+func runSDHandler(c echo.Context) error {
+	var req SDRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+	if req.DiffusionModel == "" || req.Type == "" || req.ClipL == "" || req.T5xxl == "" || req.VAE == "" || req.Prompt == "" || req.Output == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing required fields"})
+	}
+	args := []string{
+		"--diffusion-model", req.DiffusionModel,
+		"--type", req.Type,
+		"--clip_l", req.ClipL,
+		"--t5xxl", req.T5xxl,
+		"--vae", req.VAE,
+		"--cfg-scale", fmt.Sprintf("%.1f", req.CfgScale),
+		"--steps", fmt.Sprintf("%d", req.Steps),
+		"--sampling-method", req.SamplingMethod,
+		"-H", fmt.Sprintf("%d", req.Height),
+		"-W", fmt.Sprintf("%d", req.Width),
+		"--seed", fmt.Sprintf("%d", req.Seed),
+		"-p", req.Prompt,
+		"--output", req.Output,
+	}
+	if req.Threads > 0 {
+		args = append(args, "-t", fmt.Sprintf("%d", req.Threads))
+	}
+	if req.NegativePrompt != "" {
+		args = append(args, "-n", req.NegativePrompt)
+	}
+	if req.StyleRatio > 0 {
+		args = append(args, "--style-ratio", fmt.Sprintf("%.1f", req.StyleRatio))
+	}
+	if req.ControlStrength > 0 {
+		args = append(args, "--control-strength", fmt.Sprintf("%.1f", req.ControlStrength))
+	}
+	if req.ClipSkip > 0 {
+		args = append(args, "--clip-skip", fmt.Sprintf("%d", req.ClipSkip))
+	}
+	if req.SLGScale > 0 {
+		args = append(args, "--slg-scale", fmt.Sprintf("%.1f", req.SLGScale))
+	}
+	for _, v := range req.SkipLayers {
+		args = append(args, "--skip-layers", fmt.Sprintf("%d", v))
+	}
+	if req.SkipLayerStart > 0 {
+		args = append(args, "--skip-layer-start", fmt.Sprintf("%.3f", req.SkipLayerStart))
+	}
+	if req.SkipLayerEnd > 0 {
+		args = append(args, "--skip-layer-end", fmt.Sprintf("%.3f", req.SkipLayerEnd))
+	}
+	cmd := exec.Command("./sd", args...)
+	cmd.Dir = "/Users/art/Downloads/sd-master--bin-Darwin-macOS-14.7.2-arm64/stable-diffusion.cpp/build/bin"
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stdout pipe"})
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stderr pipe"})
+	}
+	if err := cmd.Start(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to start sd command"})
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			log.Printf("[sd stdout] %s", scanner.Text())
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			log.Printf("[sd stderr] %s", scanner.Text())
+		}
+	}()
+	if err := cmd.Wait(); err != nil {
+		wg.Wait()
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute sd command: %v", err)})
+	}
+	wg.Wait()
+	return c.JSON(http.StatusOK, map[string]string{"message": "Stable Diffusion command executed successfully"})
 }
 
 var comfyTemplate = `{

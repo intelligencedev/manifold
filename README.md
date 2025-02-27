@@ -6,33 +6,37 @@
 
 ![Manifold](docs/manifold_splash.jpg)
 
-Manifold is a platform to enable workflow automation using AI models, including text generation, image generation, and retrieval-augmented generation. It integrates with OpenAI-compatible endpoints such as OpenAI API, llama.cpp and Apple's mlx_lm.server. Manifold also supports Google Gemini, Anthropic Claude, ComfyUI and MFlux image generation backends, and provides a powerful search interface using PGVector with SEFII engine (Semantic Embedding Forest with Inverted Index).
+Manifold is a powerful platform designed for workflow automation using AI models. It supports text generation, image generation, and retrieval-augmented generation, integrating seamlessly with popular AI endpoints including OpenAI, llama.cpp, Apple's MLX LM, Google Gemini, Anthropic Claude, ComfyUI, and MFlux. Additionally, Manifold provides robust semantic search capabilities using PGVector combined with the SEFII (Semantic Embedding Forest with Inverted Index) engine.
 
-NOTE: This software is under heavy development and breaking changes are expected. This project is NOT production ready. Contributions are welcome.
+> **Note:** Manifold is under active development, and breaking changes are expected. It is **NOT** production-ready. Contributions are highly encouraged!
+
+---
 
 ## Prerequisites
 
-Before you begin, ensure you have the following software installed:
+Ensure the following software is installed before proceeding:
 
-*   **Go:** A recent version of Go (e.g., 1.21 or later) is recommended.
-*   **Python** A recent version of Python (e.g., 3.10 or later) is recommended.
-*   **Node.js and npm:** Node.js v20 is required. Use `nvm` (Node Version Manager) to manage Node.js versions.
-*   **Docker:** Docker is used for running PGVector (recommended for ease of setup).
+- **Go:** Version 1.21 or newer ([Download](https://golang.org/dl/)).
+- **Python:** Version 3.10 or newer ([Download](https://www.python.org/downloads/)).
+- **Node.js:** Version 20 managed via `nvm` ([Installation Guide](https://github.com/nvm-sh/nvm)).
+- **Docker:** Recommended for easy setup of PGVector ([Download](https://www.docker.com/get-started)).
 
-## Installation
+---
 
-### 1. Clone the Repository (Optional)
+## Installation Steps
 
-If you haven't already, clone the Manifold repository:
+### 1. Clone the Repository
 
 ```bash
-git clone <repository_url>  # Replace <repository_url> with the actual URL
+git clone <repository_url>  # Replace with actual repository URL
 cd manifold
 ```
 
-### 2. Install PGVector (for Retrieval)
+### 2. Set Up PGVector
 
-PGVector is used for efficient similarity search in retrieval workflows.  The easiest way to install it is using Docker:
+PGVector provides efficient similarity search for retrieval workflows.
+
+**Docker Installation (Recommended):**
 
 ```bash
 docker run -d \
@@ -45,44 +49,40 @@ docker run -d \
   pgvector/pgvector:latest
 ```
 
-**Important:**
-
-*   Change `myuser` and `changeme` to your desired username and password.
-*   The `-v postgres-data:/var/lib/postgresql/data` part creates a persistent volume, so your data won't be lost when the container stops.
+> **Important:** Update `myuser` and `changeme` with your preferred username and password.
 
 **Verification:**
 
-You can verify the PGVector installation by connecting to the database using a tool like `psql`:
+Verify your PGVector installation using `psql`:
 
 ```bash
 psql -h localhost -p 5432 -U myuser -d manifold
-# Enter the password you set (changeme) when prompted.
 ```
 
-You should see the `manifold=#` prompt.  Type `\q` to exit.
+You should see a prompt like `manifold=#`. Type `\q` to exit.
 
-**Alternative Installation:**
+**Alternate Installation:**
 
-If you prefer not to use Docker, refer to the official PGVector installation instructions for other methods: [PGVector Installation](https://github.com/pgvector/pgvector?tab=readme-ov-file#installation).
+For non-Docker methods, refer to the [PGVector documentation](https://github.com/pgvector/pgvector#installation).
 
-### 3. Choose an Image Generation Backend (Choose One)
+---
 
-Manifold supports different backends for image generation.  Choose *one* of the following options:
+### 3. Configure an Image Generation Backend (Choose One)
 
-#### a) ComfyUI (Windows, macOS, Linux)
+#### Option A: ComfyUI (Cross-platform)
 
-ComfyUI is a versatile and powerful image generation tool.
+- Follow the [official ComfyUI installation guide](https://github.com/comfyanonymous/ComfyUI#manual-install-windows-linux).
+- No extra configuration needed; Manifold connects via proxy.
 
-*   **Installation:** Follow the official ComfyUI installation instructions: [ComfyUI Installation](https://github.com/comfyanonymous/ComfyUI?tab=readme-ov-file#manual-install-windows-linux).
-*  Manifold uses a proxy to connect to ComfyUI. No additional configuration is required.
+#### Option B: MFlux (M-series Macs Only)
 
-#### b) MFlux (M-Series Macs Only)
+- Follow the [MFlux installation guide](https://github.com/filipstrand/mflux).
 
-MFlux is specifically designed for image generation on Apple Silicon (M-series) Macs.
-
-*   **Installation:** Follow the MFlux installation instructions: [MFlux Installation](https://github.com/filipstrand/mflux).
+---
 
 ### 4. Build and Run Manifold
+
+Execute the following commands:
 
 ```bash
 nvm use 20
@@ -92,66 +92,93 @@ cd dist
 ./manifold
 ```
 
-This will:
+This sequence will:
 
-1.  Switch to Node.js version 20 using `nvm`.
-2.  Build the frontend using `npm run build`.
-3.  Build the Go backend, creating the `manifold` executable in the `dist` directory.
-4.  Change the current directory to `dist`.
-5.  Run the `manifold` application.
+- Switch Node.js to version 20.
+- Build frontend assets.
+- Compile the Go backend, generating the executable.
+- Launch Manifold from the `dist` directory.
 
-**Note:**  The first time you run Manifold, it will likely create a `data` directory and potentially other necessary files.
+Upon first execution, Manifold creates necessary directories and files (e.g., `data`).
 
-### 5. Configuration (config.yaml)
+---
 
-Manifold uses a `config.yaml` file for configuration. Reference the example `.config.yaml` at the root of this repository. Rename it to `config.yaml` or create a new file. Here are some key settings you'll likely want to configure:
+### 5. Configuration (`config.yaml`)
+
+Create or update your configuration based on the provided `.config.yaml` example in the repository root:
 
 ```yaml
 host: localhost
 port: 8080
 data_path: ./data
-jaeger_host: localhost:6831  # Jaeger tracing (optional)
+jaeger_host: localhost:6831  # Optional Jaeger tracing
 
-# Optional API Keys (only if you use these services)
+# API Keys (optional integrations)
 anthropic_key: "..."
 openai_api_key: "..."
 google_gemini_key: "..."
-hf_token: "..." #Hugging Face
+hf_token: "..."
 
-# Anthropic API token
-anthropic_key: "..."
-
+# Database Configuration
 database:
   connection_string: "postgres://myuser:changeme@localhost:5432/manifold"
 
+# Completion and Embedding Services
 completions:
   default_host: "http://localhost:8081"  # Example: llama.cpp server
-  api_key: ""  # OpenAI Compatible endpoint API key for the completion service (if required by backend service)
+  api_key: ""
 
 embeddings:
   host: "http://localhost:8081"  # Example: llama.cpp server
-  api_key: ""  # API key for the embedding service (if required)
-  embedding_vectors: 1024  # Dimensionality of embeddings (adjust as needed)
+  api_key: ""
+  embedding_vectors: 1024
 ```
 
-*   **`database.connection_string`:**  This *must* match the settings you used when running the PGVector Docker container (or your alternative PGVector installation).  **Crucially, update `myuser` and `changeme` here if you changed them.**
-*   **`completions.default_host` and `embeddings.host`:** These point to the address of your language model server (e.g., the `llama-server` or MLX LM server).  The example uses `http://localhost:8081`, which is the default for `llama.cpp`'s server.  Adjust if you're using a different server or port.
-*   **API Keys:** The various `*_key` fields are for optional integrations.  Leave them blank if you're not using those services.
+**Crucial Points:**
 
-### Accessing Manifold
+- Update database credentials (`myuser`, `changeme`) according to your PGVector setup.
+- Adjust `default_host` and `embeddings.host` based on your chosen model server.
 
-Once Manifold is running, you can access the web UI in your browser at:
+---
+
+## Accessing Manifold
+
+Launch your browser and navigate to:
 
 ```
 http://localhost:8080
 ```
 
-(Replace `8080` with the port you configured in `config.yaml` if you changed it.)
+> Replace `8080` if you customized your port in `config.yaml`.
 
-### Supported Endpoints
-Manifold supports OpenAI compatible endpoints such as [llama-server](https://github.com/ggerganov/llama.cpp/tree/master/examples/server) and [Apple's MLX LM server](https://github.com/ml-explore/mlx-examples/blob/main/llms/mlx_lm/SERVER.md)
+---
 
-## Troubleshooting
-*   **Port Conflicts:** If you encounter errors about port 8080 (or your configured port) being in use, make sure no other applications are using it. You can change the port in `config.yaml`.
-*   **PGVector Connection Issues:** Double-check your `database.connection_string` in `config.yaml`. Ensure the username, password, host, and port are correct.
-*  **Missing config.yaml** If the config file is not present, the application might not start.
+## Supported Endpoints
+
+Manifold is compatible with OpenAI-compatible endpoints:
+
+- [llama.cpp Server](https://github.com/ggerganov/llama.cpp/tree/master/examples/server)
+- [Apple MLX LM Server](https://github.com/ml-explore/mlx-examples/blob/main/llms/mlx_lm/SERVER.md)
+
+---
+
+## Troubleshooting Common Issues
+
+- **Port Conflict:** If port 8080 is occupied, either terminate conflicting processes or choose a new port in `config.yaml`.
+- **PGVector Connectivity:** Confirm your `database.connection_string` matches PGVector container credentials.
+- **Missing Config File:** Ensure `config.yaml` exists in the correct directory. Manifold will not launch without it.
+
+---
+
+## Contributing
+
+Manifold welcomes contributions! Check the open issues for tasks and feel free to submit pull requests.
+
+---
+
+## License
+
+[Specify your project's license here, e.g., MIT License]
+
+---
+

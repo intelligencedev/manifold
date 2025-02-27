@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
@@ -59,6 +60,13 @@ var (
 	resultURLs []string
 )
 
+// WebPageContent represents the content of a webpage.
+type WebPageContent struct {
+	Title   string
+	Content string // Markdown content
+	Source  string
+}
+
 // CheckRobotsTxt checks if the target website allows scraping by "et-bot".
 func checkRobotsTxt(ctx context.Context, u string) bool {
 	baseURL, err := url.Parse(u)
@@ -78,22 +86,12 @@ func checkRobotsTxt(ctx context.Context, u string) bool {
 	// Check if the status code is 200
 	if resp.StatusCode != 200 {
 		log.Printf("Failed to fetch robots.txt for %s: %v", baseURL.String(), err)
-
-		// We assume its allowed if not found
+		// We assume it's allowed if not found
 		return true
 	}
 
-	// Parse the robots.txt content if needed
-	// Print the URL and the content of the robots.txt
 	log.Printf("URL: %s\n", robotsUrl.String())
 	return true
-}
-
-// WebPageContent represents the content of a webpage.
-type WebPageContent struct {
-	Title   string
-	Content string
-	Source  string
 }
 
 // WebGetHandler retrieves the reader view content of a given URL.
@@ -156,22 +154,38 @@ func fetchHTML(address string) (string, error) {
 	return htmlContent, nil
 }
 
-// extractMainContent extracts the main content of a webpage and returns it in reader view format.
+// extractMainContent extracts the main content of a webpage, cleans it, and converts it to Markdown.
 func extractMainContent(htmlContent string, sourceURL string) (*WebPageContent, error) {
 	doc, err := html.Parse(strings.NewReader(htmlContent))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse HTML: %w", err)
 	}
 
-	title := extractTitle(doc)
-	mainContent := extractArticleContent(doc)
+	// Prune nodes that are unlikely to be part of the main content.
+	pruneNonContentNodes(doc)
 
-	// Clean up the content
-	cleanedContent := cleanText(mainContent)
+	title := extractTitle(doc)
+	mainContentNode := findMainContentNode(doc)
+	if mainContentNode == nil {
+		return nil, errors.New("failed to locate main content node")
+	}
+
+	// Include qualifying sibling nodes (e.g. additional paragraphs)
+	contentHTML := includeSiblingContent(mainContentNode)
+
+	// Convert cleaned HTML to Markdown using an external library.
+	converter := md.NewConverter("", true, nil)
+	mdContent, err := converter.ConvertString(contentHTML)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert HTML to Markdown: %w", err)
+	}
+
+	// Further clean up Markdown (remove extra empty lines, etc.)
+	mdContent = removeEmptyRows(mdContent)
 
 	return &WebPageContent{
 		Title:   title,
-		Content: cleanedContent,
+		Content: mdContent,
 		Source:  sourceURL,
 	}, nil
 }
@@ -181,11 +195,9 @@ func extractTitle(n *html.Node) string {
 	var title string
 	var f func(*html.Node)
 	f = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "title" {
-			if n.FirstChild != nil && n.FirstChild.Type == html.TextNode {
-				title = n.FirstChild.Data
-				return
-			}
+		if n.Type == html.ElementNode && n.Data == "title" && n.FirstChild != nil {
+			title = n.FirstChild.Data
+			return
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			f(c)
@@ -195,33 +207,48 @@ func extractTitle(n *html.Node) string {
 	return title
 }
 
-// extractArticleContent extracts the main article content from the HTML node.
-func extractArticleContent(n *html.Node) string {
-	// Find the main content node (e.g., <article>, <main>, or the largest <div>)
-	mainContentNode := findMainContentNode(n)
-	if mainContentNode == nil {
-		return ""
+// pruneNonContentNodes recursively removes nodes that are unlikely to be part of the main content.
+func pruneNonContentNodes(n *html.Node) {
+	if n == nil {
+		return
 	}
-
-	// Extract text content from the main content node
-	var content strings.Builder
-	extractText(mainContentNode, &content)
-	return content.String()
+	// List of tags to remove.
+	unwantedTags := map[string]bool{
+		"script":   true,
+		"style":    true,
+		"noscript": true,
+		"iframe":   true,
+		"header":   true,
+		"footer":   true,
+		"nav":      true,
+		"aside":    true,
+		"form":     true,
+	}
+	for c := n.FirstChild; c != nil; {
+		next := c.NextSibling
+		if c.Type == html.ElementNode {
+			if unwantedTags[c.Data] {
+				n.RemoveChild(c)
+			} else {
+				pruneNonContentNodes(c)
+			}
+		} else {
+			pruneNonContentNodes(c)
+		}
+		c = next
+	}
 }
 
-// findMainContentNode attempts to locate the primary content node within the HTML document.
+// extractArticleContent is now replaced by findMainContentNode and includeSiblingContent.
+// findMainContentNode locates the candidate node using tag hints and a fallback heuristic.
 func findMainContentNode(n *html.Node) *html.Node {
-	// Define a list of potential content node tag names
-	contentTags := []string{"article", "main"}
-
-	// Search for specific content tags
-	for _, tag := range contentTags {
+	// First, look for semantic tags.
+	for _, tag := range []string{"article", "main"} {
 		if node := findNodeByTag(n, tag); node != nil {
 			return node
 		}
 	}
-
-	// Fallback: find the div with the most text content as a last resort
+	// Fallback: return the <div> with the highest score.
 	return findLargestContentDiv(n)
 }
 
@@ -238,17 +265,17 @@ func findNodeByTag(n *html.Node, tag string) *html.Node {
 	return nil
 }
 
-// findLargestContentDiv finds the div with the most significant text content.
+// findLargestContentDiv finds the div with the highest computed score (text length discounted by link density).
 func findLargestContentDiv(n *html.Node) *html.Node {
 	var largestDiv *html.Node
-	maxTextLength := 0
+	bestScore := 0.0
 
 	var f func(*html.Node)
 	f = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "div" {
-			textLength := extractText(n, nil)
-			if textLength > maxTextLength {
-				maxTextLength = textLength
+			score := computeScore(n)
+			if score > bestScore {
+				bestScore = score
 				largestDiv = n
 			}
 		}
@@ -260,7 +287,58 @@ func findLargestContentDiv(n *html.Node) *html.Node {
 	return largestDiv
 }
 
-// extractText recursively extracts text from a node and its children, optionally writing to a strings.Builder.
+// computeScore calculates a simple score based on text length discounted by link density.
+func computeScore(n *html.Node) float64 {
+	totalLength := float64(extractText(n, nil))
+	linkLength := float64(extractLinkTextLength(n))
+	// Avoid division by zero; higher link density reduces score.
+	return totalLength * (1 - linkLength/(totalLength+1))
+}
+
+// extractLinkTextLength recursively calculates the total text length within <a> elements.
+func extractLinkTextLength(n *html.Node) int {
+	total := 0
+	if n.Type == html.ElementNode && n.Data == "a" {
+		total += extractText(n, nil)
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		total += extractLinkTextLength(c)
+	}
+	return total
+}
+
+// includeSiblingContent concatenates the HTML of the candidate node with qualifying siblings.
+func includeSiblingContent(candidate *html.Node) string {
+	var buf bytes.Buffer
+	// Render candidate node.
+	if err := html.Render(&buf, candidate); err != nil {
+		return ""
+	}
+	candidateScore := computeScore(candidate)
+	if candidate.Parent != nil {
+		for sibling := candidate.Parent.FirstChild; sibling != nil; sibling = sibling.NextSibling {
+			// Skip candidate itself.
+			if sibling == candidate {
+				continue
+			}
+			// Only consider block-level elements.
+			if sibling.Type == html.ElementNode && (sibling.Data == "p" || sibling.Data == "div") {
+				score := computeScore(sibling)
+				// If the sibling's score is significant, append it.
+				if score > 0.2*candidateScore {
+					buf.WriteString("\n")
+					if err := html.Render(&buf, sibling); err != nil {
+						continue
+					}
+				}
+			}
+		}
+	}
+	return buf.String()
+}
+
+// extractText recursively extracts text from a node and its children.
+// If sb is non-nil, text is appended to it; otherwise it just returns the total length.
 func extractText(n *html.Node, sb *strings.Builder) int {
 	if n.Type == html.TextNode {
 		text := cleanText(n.Data)
@@ -277,48 +355,39 @@ func extractText(n *html.Node, sb *strings.Builder) int {
 	return totalLength
 }
 
-// cleanText removes unnecessary whitespace and symbols from text.
+// cleanText removes unnecessary whitespace from text.
 func cleanText(text string) string {
-	// Remove leading and trailing whitespace
 	text = strings.TrimSpace(text)
-
-	// Replace multiple spaces with a single space
 	re := regexp.MustCompile(`\s+`)
-	text = re.ReplaceAllString(text, " ")
-
-	// Remove newlines
-	text = strings.ReplaceAll(text, "\n", " ")
-
-	return text
+	return re.ReplaceAllString(text, " ")
 }
 
 // removeEmptyRows removes empty rows from the input string.
 func removeEmptyRows(input string) string {
 	lines := strings.Split(input, "\n")
 	var filteredLines []string
-
 	for _, line := range lines {
 		if strings.TrimSpace(line) != "" {
 			filteredLines = append(filteredLines, line)
 		}
 	}
-
 	return strings.Join(filteredLines, "\n")
 }
+
+// --- The remaining functions (ExtractURLs, RemoveUrl, cleanURL, SearchDDG, GetSearchResults,
+// RemoveUnwantedURLs, GetPageScreen, RemoveUrls, postRequest, extractURLsFromHTML, GetSearXNGResults)
+// remain largely unchanged. ---
 
 // ExtractURLs extracts URLs from the input string.
 func ExtractURLs(input string) []string {
 	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
 	re := regexp.MustCompile(urlRegex)
-
 	matches := re.FindAllString(input, -1)
-
 	var cleanedURLs []string
 	for _, match := range matches {
 		cleanedURL := cleanURL(match)
 		cleanedURLs = append(cleanedURLs, cleanedURL)
 	}
-
 	return cleanedURLs
 }
 
@@ -326,34 +395,29 @@ func ExtractURLs(input string) []string {
 func RemoveUrl(input []string) []string {
 	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
 	re := regexp.MustCompile(urlRegex)
-
 	for i, str := range input {
 		matches := re.FindAllString(str, -1)
 		for _, match := range matches {
 			input[i] = strings.ReplaceAll(input[i], match, "")
 		}
 	}
-
 	return input
 }
 
 // cleanURL removes illegal trailing characters from a URL.
-func cleanURL(url string) string {
+func cleanURL(urlStr string) string {
 	illegalTrailingChars := []rune{'.', ',', ';', '!', '?'}
-
 	for _, char := range illegalTrailingChars {
-		if url[len(url)-1] == byte(char) {
-			url = url[:len(url)-1]
+		if urlStr[len(urlStr)-1] == byte(char) {
+			urlStr = urlStr[:len(urlStr)-1]
 		}
 	}
-
-	return url
+	return urlStr
 }
 
 // SearchDDG performs a search on DuckDuckGo and returns the result URLs.
 func SearchDDG(query string) []string {
 	resultURLs = nil
-
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 	)
@@ -361,12 +425,9 @@ func SearchDDG(query string) []string {
 	defer cancel()
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
-
 	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-
 	var nodes []*cdp.Node
-
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(`https://lite.duckduckgo.com/lite/`),
 		chromedp.WaitVisible(`input[name="q"]`, chromedp.ByQuery),
@@ -379,14 +440,12 @@ func SearchDDG(query string) []string {
 		log.Printf("Error during search: %v", err)
 		return nil
 	}
-
 	err = chromedp.Run(ctx,
 		chromedp.ActionFunc(func(c context.Context) error {
 			re, err := regexp.Compile(`^http[s]?://`)
 			if err != nil {
 				return err
 			}
-
 			uniqueUrls := make(map[string]bool)
 			for _, n := range nodes {
 				for _, attr := range n.Attributes {
@@ -395,45 +454,36 @@ func SearchDDG(query string) []string {
 					}
 				}
 			}
-
 			for u := range uniqueUrls {
 				resultURLs = append(resultURLs, u)
 			}
-
 			return nil
 		}),
 	)
-
 	if err != nil {
 		log.Printf("Error processing results: %v", err)
 		return nil
 	}
-
 	resultURLs = RemoveUnwantedURLs(resultURLs)
-
-	// If resultURLs is contains cnn.com, replace the URL with https://lite.cnn.com
+	// If resultURLs contains cnn.com, replace the URL with https://lite.cnn.com
 	for i, u := range resultURLs {
 		if strings.Contains(u, "https://www.cnn.com") {
 			resultURLs[i] = strings.Replace(u, "https://www.cnn.com", "https://lite.cnn.com", 1)
 		}
 	}
-
 	log.Println("Search results:", resultURLs)
-
 	return resultURLs
 }
 
 // GetSearchResults retrieves the content of multiple URLs and returns it as a concatenated string.
 func GetSearchResults(urls []string) string {
 	var result strings.Builder
-
 	for _, u := range urls {
 		content, err := WebGetHandler(u)
 		if err != nil {
 			log.Printf("Error getting search result for URL %s: %v", u, err)
 			continue
 		}
-
 		if content != nil && content.Content != "" {
 			result.WriteString(fmt.Sprintf("Title: %s\n", content.Title))
 			result.WriteString(fmt.Sprintf("Source: %s\n\n", content.Source))
@@ -441,7 +491,6 @@ func GetSearchResults(urls []string) string {
 			result.WriteString("\n\n")
 		}
 	}
-
 	return result.String()
 }
 
@@ -450,7 +499,6 @@ func RemoveUnwantedURLs(urls []string) []string {
 	var filteredURLs []string
 	for _, u := range urls {
 		log.Printf("Checking URL: %s", u)
-
 		unwanted := false
 		for _, unwantedURL := range unwantedURLs {
 			if strings.Contains(u, unwantedURL) {
@@ -463,25 +511,19 @@ func RemoveUnwantedURLs(urls []string) []string {
 			filteredURLs = append(filteredURLs, u)
 		}
 	}
-
 	log.Printf("Filtered URLs: %v", filteredURLs)
-
 	return filteredURLs
 }
 
 // GetPageScreen captures a screenshot of a webpage and saves it as a PNG file.
 func GetPageScreen(chromeUrl string, pageAddress string) string {
 	instanceUrl := chromeUrl
-
 	allocatorCtx, cancel := chromedp.NewRemoteAllocator(context.Background(), instanceUrl)
 	defer cancel()
-
 	ctx, cancel := chromedp.NewContext(allocatorCtx, chromedp.WithLogf(log.Printf))
 	defer cancel()
-
 	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-
 	var buf []byte
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(pageAddress),
@@ -490,20 +532,16 @@ func GetPageScreen(chromeUrl string, pageAddress string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	u, err := url.Parse(pageAddress)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	t := time.Now()
 	filename := u.Hostname() + "-" + t.Format("20060102150405") + ".png"
-
 	err = os.WriteFile(filename, buf, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	return filename
 }
 
@@ -511,13 +549,10 @@ func GetPageScreen(chromeUrl string, pageAddress string) string {
 func RemoveUrls(input string) string {
 	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
 	re := regexp.MustCompile(urlRegex)
-
 	matches := re.FindAllString(input, -1)
-
 	for _, match := range matches {
 		input = strings.ReplaceAll(input, match, "")
 	}
-
 	return input
 }
 
@@ -525,33 +560,26 @@ func RemoveUrls(input string) string {
 func postRequest(endpoint string, queryParam string) (string, error) {
 	formData := url.Values{}
 	formData.Set("q", queryParam)
-
 	data := bytes.NewBufferString(formData.Encode())
-
 	req, err := http.NewRequest("POST", endpoint, data)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
-
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to perform request: %w", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
-
 	buf := new(bytes.Buffer)
 	_, err = io.Copy(buf, resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
-
 	return buf.String(), nil
 }
 
@@ -561,7 +589,6 @@ func extractURLsFromHTML(htmlContent string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse HTML: %w", err)
 	}
-
 	var urls []string
 	var f func(*html.Node)
 	f = func(n *html.Node) {
@@ -577,7 +604,6 @@ func extractURLsFromHTML(htmlContent string) ([]string, error) {
 		}
 	}
 	f(doc)
-
 	return urls, nil
 }
 
@@ -588,21 +614,17 @@ func GetSearXNGResults(endpoint string, query string) []string {
 		log.Printf("Error: %v\n", err)
 		return nil
 	}
-
 	urls, err := extractURLsFromHTML(htmlContent)
 	if err != nil {
 		log.Printf("Error extracting URLs: %v\n", err)
 		return nil
 	}
-
 	// Remove unwanted URLs
 	urls = RemoveUnwantedURLs(urls)
-
 	for i, u := range resultURLs {
 		if strings.Contains(u, "https://www.cnn.com") {
 			resultURLs[i] = strings.Replace(u, "https://www.cnn.com", "https://lite.cnn.com", 1)
 		}
 	}
-
 	return urls
 }

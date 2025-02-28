@@ -6,6 +6,7 @@ toolchain go1.23.5
 
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.34.0
+	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/anthropics/anthropic-sdk-go v0.2.0-alpha.11
 	github.com/chromedp/cdproto v0.0.0-20250113203156-3ff4b409e0d4
 	github.com/chromedp/chromedp v0.11.2
@@ -29,6 +30,8 @@ require (
 	github.com/DataDog/zstd v1.5.2 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/ProtonMail/go-crypto v1.1.5 // indirect
+	github.com/PuerkitoBio/goquery v1.9.2 // indirect
+	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/cloudflare/circl v1.3.7 // indirect

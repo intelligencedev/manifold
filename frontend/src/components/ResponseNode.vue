@@ -13,6 +13,18 @@
                     </select>
                 </div>
 
+                <!-- Theme Selector -->
+                <div class="select-container" v-if="selectedRenderMode === 'markdown'">
+                    <label for="code-theme">Theme:</label>
+                    <select id="code-theme" v-model="selectedTheme">
+                        <option value="atom-one-dark">Dark</option>
+                        <option value="atom-one-light">Light</option>
+                        <option value="github">GitHub</option>
+                        <option value="monokai">Monokai</option>
+                        <option value="vs">VS</option>
+                    </select>
+                </div>
+
                 <!-- Font Size Controls -->
                 <div class="font-size-controls">
                     <button @click.prevent="decreaseFontSize">-</button>
@@ -52,14 +64,62 @@ import { reactive, watch, ref, computed, nextTick, onMounted } from "vue";
 import { Handle, useVueFlow } from "@vue-flow/core";
 import { marked } from "marked";
 import { NodeResizer } from "@vue-flow/node-resizer";
+import hljs from 'highlight.js';
+// Don't import themes here - we'll load them dynamically
 
 const { getEdges, findNode, updateNodeData } = useVueFlow()
 
+// Theme selection
+const selectedTheme = ref('atom-one-dark');
+let currentThemeLink = null;
+
+// Load highlight.js theme
+const loadTheme = (themeName) => {
+    // Remove the previous theme if it exists
+    if (currentThemeLink) {
+        document.head.removeChild(currentThemeLink);
+    }
+    
+    // Create and append the new theme link
+    currentThemeLink = document.createElement('link');
+    currentThemeLink.rel = 'stylesheet';
+    currentThemeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/${themeName}.min.css`;
+    document.head.appendChild(currentThemeLink);
+};
+
 onMounted(() => {
     if (!props.data.run) {
-        props.data.run = run
+        props.data.run = run;
     }
-})
+    
+    // Load initial theme
+    loadTheme(selectedTheme.value);
+    
+    // Configure marked to use highlight.js for code highlighting
+    marked.setOptions({
+        highlight: function(code, lang) {
+            if (lang && hljs.getLanguage(lang)) {
+                try {
+                    return hljs.highlight(code, { language: lang }).value;
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+            // Use auto-detection if language isn't specified
+            try {
+                return hljs.highlightAuto(code).value;
+            } catch (e) {
+                console.error(e);
+            }
+            return code; // Return original if highlighting fails
+        }
+    });
+});
+
+// Watch for theme changes
+watch(selectedTheme, (newTheme) => {
+    loadTheme(newTheme);
+});
 
 async function run() {
     console.log("Running ResponseNode:", props.id);
@@ -89,11 +149,12 @@ async function run() {
                 },
             }
 
+            // Increment reRenderKey here.
+            reRenderKey.value++;
+
             updateNodeData();
         }
     }
-
-
 
     // The AgentNode looks for sourceNode.data.outputs.result.output
     // So, store your aggregated text (or whatever you want) in the same structure:
@@ -183,8 +244,13 @@ marked.setOptions({
     headerIds: false, // Disable automatic header IDs if not needed
 });
 
+// ADDED: Reactive key to force re-render
+const reRenderKey = ref(0);
+
 // Computed property to convert markdown to HTML
 const markdownToHtml = computed(() => {
+    // Access reRenderKey to force re-evaluation
+    reRenderKey.value;
     return marked(response.value);
 });
 
@@ -274,6 +340,23 @@ watch(
     },
     { deep: true }
 )
+
+// Watch for render mode changes
+watch(selectedRenderMode, () => {
+    // Re-render if needed
+    nextTick(() => {
+        if (isAutoScrollEnabled.value) {
+            scrollToBottom();
+        }
+    });
+});
+
+watch(response, () => {
+  nextTick(() => {
+    hljs.highlightAll();
+  });
+});
+
 </script>
 
 <style scoped>
@@ -309,7 +392,6 @@ h3 {
 .select-container {
     display: flex;
     align-items: center;
-    margin-left: auto;
     margin-right: 10px;
 }
 
@@ -409,32 +491,49 @@ select {
     /* Font size is inherited from the parent .text-container */
 }
 
+/* Ensure code blocks are properly styled */
+:deep(.hljs) {
+    padding: 12px;
+    border-radius: 5px;
+    overflow-x: auto;
+}
+
+:deep(pre) {
+    margin: 10px 0;
+    border-radius: 5px;
+    overflow-x: auto;
+}
+
+:deep(code) {
+    font-family: monospace;
+}
+
 /* Optional: Add styles to ensure markdown renders correctly */
-.markdown-text img {
+:deep(.markdown-text img) {
     max-width: 100%;
     height: auto;
 }
 
-.markdown-text a {
+:deep(.markdown-text a) {
     color: #1e90ff;
     text-decoration: underline;
 }
 
-.markdown-text h1,
-.markdown-text h2,
-.markdown-text h3,
-.markdown-text h4,
-.markdown-text h5,
-.markdown-text h6 {
+:deep(.markdown-text h1),
+:deep(.markdown-text h2),
+:deep(.markdown-text h3),
+:deep(.markdown-text h4),
+:deep(.markdown-text h5),
+:deep(.markdown-text h6) {
     color: #fff;
 }
 
-.markdown-text ul,
-.markdown-text ol {
+:deep(.markdown-text ul),
+:deep(.markdown-text ol) {
     padding-left: 20px;
 }
 
-.markdown-text blockquote {
+:deep(.markdown-text blockquote) {
     border-left: 4px solid #555;
     padding-left: 10px;
     color: #ccc;

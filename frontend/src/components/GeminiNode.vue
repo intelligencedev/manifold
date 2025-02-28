@@ -11,6 +11,16 @@
             </select>
         </div>
 
+        <!-- Predefined System Prompt Dropdown -->
+        <div class="input-field">
+            <label for="system-prompt-select" class="input-label">Predefined System Prompt:</label>
+            <select id="system-prompt-select" v-model="selectedSystemPrompt" class="input-select">
+                <option v-for="(prompt, key) in systemPromptOptions" :key="key" :value="key">
+                    {{ prompt.role }}
+                </option>
+            </select>
+        </div>
+
         <!-- System Prompt (Not directly used by Gemini API, but can be included in the prompt) -->
         <div class="input-field">
             <label :for="`${data.id}-system_prompt`" class="input-label">System Prompt (Optional):</label>
@@ -52,7 +62,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 const { getEdges, findNode, zoomIn, zoomOut, updateNodeData } = useVueFlow()
@@ -60,6 +70,39 @@ const { getEdges, findNode, zoomIn, zoomOut, updateNodeData } = useVueFlow()
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 
 const showApiKey = ref(false);
+
+// New: Predefined System Prompt Options & selection
+const selectedSystemPrompt = ref("friendly_assistant");
+const systemPromptOptions = {
+    friendly_assistant: {
+        role: "Friendly Assistant",
+        system_prompt: "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks. Be concise in your responses when possible, but prioritize clarity and accuracy. If you don't know something, admit it. Maintain a conversational and approachable tone."
+    },
+    search_assistant: {
+        role: "Search Assistant",
+        system_prompt: "You are a helpful assistant that specializes in generating effective search engine queries. Given any text input, your task is to create one or more concise and relevant search queries that would be likely to retrieve information related to that text from a search engine (like Google, Bing, etc.). Consider the key concepts, entities, and the user's likely intent. Prioritize clarity and precision in the queries."
+    },
+    research_analyst: {
+        role: "Research Analyst",
+        system_prompt: "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation."
+    },
+    creative_writer: {
+        role: "Creative Writer",
+        system_prompt: "You are an exceptional creative writer. When responding, use vivid sensory details, emotional resonance, and varied sentence structures. Organize your narratives with clear beginnings, middles, and ends. Employ literary techniques like metaphor and foreshadowing appropriately. When providing examples or stories, ensure they have depth and authenticity. Present creative options when asked, rather than single solutions."
+    },
+    code_expert: {
+        role: "Programming Expert",
+        system_prompt: "You are a senior software developer with expertise across multiple programming languages. Present code solutions with clear comments explaining your approach. Structure responses with: 1) Problem understanding 2) Solution approach 3) Complete, executable code 4) Explanation of how the code works 5) Alternative approaches. Include error handling in examples, use consistent formatting, and provide explicit context for any code snippets. Test your solutions mentally before presenting them."
+    },
+    teacher: {
+        role: "Educational Expert",
+        system_prompt: "You are an experienced teacher skilled at explaining complex concepts. Present information in a structured, progressive manner from foundational to advanced. Use analogies and examples to connect new concepts to familiar ones. Break down complex ideas into smaller components. Incorporate multiple formats (definitions, examples, diagrams described in text) to accommodate different learning styles. Ask thought-provoking questions to deepen understanding. Anticipate common misconceptions and address them proactively."
+    },
+    data_analyst: {
+        role: "Data Analysis Expert",
+        system_prompt: "You are a data analysis expert. When working with data, focus on identifying patterns and outliers, considering statistical significance, and exploring causal relationships vs. correlations. Present your analysis with a clear narrative structure that connects data points to insights. Use hypothetical data visualization descriptions when relevant. Consider alternative interpretations of data and potential confounding variables. Clearly communicate limitations and assumptions in any analysis."
+    }
+};
 
 // The run() logic
 onMounted(() => {
@@ -299,8 +342,6 @@ const resizeHandleStyle = computed(() => ({
     height: '12px',
 }));
 
-
-
 // Same approach as in ResponseNode
 function onResize(event) {
     customStyle.value.width = `${event.width}px`
@@ -318,6 +359,13 @@ const handleTextareaMouseLeave = () => {
     zoomIn(1);
     zoomOut(1);
 };
+
+// Update the system prompt textbox when the dropdown selection changes
+watch(selectedSystemPrompt, (newKey) => {
+    if (systemPromptOptions[newKey]) {
+        system_prompt.value = systemPromptOptions[newKey].system_prompt;
+    }
+}, { immediate: true });
 </script>
 
 <style scoped>

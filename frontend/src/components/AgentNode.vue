@@ -54,7 +54,17 @@
                     step="0.1" min="0" max="2" />
             </div>
 
-            <!-- System Prompt (moved inside accordion) -->
+            <!-- Predefined System Prompt Dropdown -->
+            <div class="input-field">
+                <label for="system-prompt-select" class="input-label">Predefined System Prompt:</label>
+                <select id="system-prompt-select" v-model="selectedSystemPrompt" class="input-select">
+                    <option v-for="(prompt, key) in systemPromptOptions" :key="key" :value="key">
+                        {{ prompt.role }}
+                    </option>
+                </select>
+            </div>
+
+            <!-- System Prompt -->
             <div class="input-field">
                 <label :for="`${data.id}-system_prompt`" class="input-label">System Prompt:</label>
                 <textarea :id="`${data.id}-system_prompt`" v-model="system_prompt" class="input-textarea"></textarea>
@@ -67,7 +77,6 @@
             <textarea :id="`${data.id}-user_prompt`" v-model="user_prompt" class="input-textarea user-prompt-area"
                 @mouseenter="handleTextareaMouseEnter" @mouseleave="handleTextareaMouseLeave"></textarea>
         </div>
-
 
         <!-- Input/Output Handles -->
         <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
@@ -101,9 +110,7 @@ const props = defineProps({
             hasOutputs: true,
             inputs: {
                 endpoint: '',
-                api_key: "", // Get the API key from the config store
-                // For now we provision the backend with a model already loaded. We need to add support for swapping it via this control.
-                // Otherwise, this works with OpenAI models and needs to have a valid model name when using OpenAI.
+                api_key: "",
                 model: 'local',
                 system_prompt: 'You are a helpful assistant.',
                 user_prompt: 'Write a haiku about manifolds.',
@@ -125,18 +132,43 @@ const props = defineProps({
 })
 
 const configStore = useConfigStore()
-
 const { getEdges, findNode, zoomIn, zoomOut, updateNodeData } = useVueFlow()
-
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 
-watch(() => configStore.config.Completions.Provider, (newProvider) => {
-    if (newProvider) {
-        props.data.inputs.endpoint = configStore.config.Completions.DefaultHost;
-    }
-}, { immediate: true })
-
 const showApiKey = ref(false);
+
+// New: Predefined System Prompt Options & selection
+const selectedSystemPrompt = ref("friendly_assistant");
+const systemPromptOptions = {
+    friendly_assistant: {
+        role: "Friendly Assistant",
+        system_prompt: "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone."
+    },
+    search_assistant: {
+        role: "Search Assistant",
+        system_prompt: "You are a helpful assistant that specializes in generating effective search engine queries.  Given any text input, your task is to create one or more concise and relevant search queries that would be likely to retrieve information related to that text from a search engine (like Google, Bing, etc.).  Consider the key concepts, entities, and the user's likely intent.  Prioritize clarity and precision in the queries."
+    },
+    research_analyst: {
+        role: "Research Analyst",
+        system_prompt: "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation."
+    },
+    creative_writer: {
+        role: "Creative Writer",
+        system_prompt: "You are an exceptional creative writer. When responding, use vivid sensory details, emotional resonance, and varied sentence structures. Organize your narratives with clear beginnings, middles, and ends. Employ literary techniques like metaphor and foreshadowing appropriately. When providing examples or stories, ensure they have depth and authenticity. Present creative options when asked, rather than single solutions."
+    },
+    code_expert: {
+        role: "Programming Expert",
+        system_prompt: "You are a senior software developer with expertise across multiple programming languages. Present code solutions with clear comments explaining your approach. Structure responses with: 1) Problem understanding 2) Solution approach 3) Complete, executable code 4) Explanation of how the code works 5) Alternative approaches. Include error handling in examples, use consistent formatting, and provide explicit context for any code snippets. Test your solutions mentally before presenting them."
+    },
+    teacher: {
+        role: "Educational Expert",
+        system_prompt: "You are an experienced teacher skilled at explaining complex concepts. Present information in a structured, progressive manner from foundational to advanced. Use analogies and examples to connect new concepts to familiar ones. Break down complex ideas into smaller components. Incorporate multiple formats (definitions, examples, diagrams described in text) to accommodate different learning styles. Ask thought-provoking questions to deepen understanding. Anticipate common misconceptions and address them proactively."
+    },
+    data_analyst: {
+        role: "Data Analysis Expert",
+        system_prompt: "You are a data analysis expert. When working with data, focus on identifying patterns and outliers, considering statistical significance, and exploring causal relationships vs. correlations. Present your analysis with a clear narrative structure that connects data points to insights. Use hypothetical data visualization descriptions when relevant. Consider alternative interpretations of data and potential confounding variables. Clearly communicate limitations and assumptions in any analysis."
+    }
+};
 
 // The run() logic
 onMounted(() => {
@@ -145,7 +177,6 @@ onMounted(() => {
     }
 })
 
-// Watch for when the config is loaded and then set the Completions DefaultHost and APIKey
 watch(
   () => configStore.config, 
   (newConfig) => {
@@ -165,14 +196,10 @@ async function callCompletionsAPI(agentNode, prompt) {
     const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
     const responseNode = responseNodeId ? findNode(responseNodeId) : null;
 
-    // Construct the endpoint URL
     let endpoint = agentNode.data.inputs.endpoint;
 
-    // Helper to detect if the current model is an o1 model.
     const isO1Model = (model) => model.toLowerCase().startsWith("o1" || "o3");
 
-    // Build the messages array according to the model type.
-    let messages = [];
     let body = {};
     if (isO1Model(agentNode.data.inputs.model)) {
         body = {
@@ -241,12 +268,8 @@ async function callCompletionsAPI(agentNode, prompt) {
                     try {
                         const parsedData = JSON.parse(jsonData);
                         const delta = parsedData.choices[0]?.delta || {};
-
-                        // For older models delta.content will have the token.
-                        // For new "thinking" models, delta.thinking may be present.
                         const tokenContent = (delta.content || '') + (delta.thinking || '');
 
-                        // Update outputs response
                         props.data.outputs.response += tokenContent;
 
                         if (responseNode) {
@@ -272,12 +295,10 @@ async function run() {
         const agentNode = findNode(props.id);
         let finalPrompt = props.data.inputs.user_prompt;
 
-        // Get connected source nodes
         const connectedSources = getEdges.value
             .filter((edge) => edge.target === props.id)
             .map((edge) => edge.source);
 
-        // If there are connected sources, process their outputs
         if (connectedSources.length > 0) {
             console.log('Connected sources:', connectedSources);
             for (const sourceId of connectedSources) {
@@ -321,18 +342,10 @@ const api_key = computed({
     get: () => props.data.inputs.api_key,
     set: (value) => { props.data.inputs.api_key = value },
 })
-/** 
- * Computed Property for Max Completion Tokens
- */
 const max_completion_tokens = computed({
     get: () => props.data.inputs.max_completion_tokens,
     set: (value) => { props.data.inputs.max_completion_tokens = value },
 })
-/** End of Computed Property **/
-
-/** 
- * Computed Property for Temperature 
- */
 const temperature = computed({
     get: () => props.data.inputs.temperature,
     set: (value) => { props.data.inputs.temperature = value },
@@ -344,7 +357,6 @@ const customStyle = ref({
     height: '760px'
 })
 
-// Show/hide the handles
 const resizeHandleStyle = computed(() => ({
     visibility: isHovered.value ? 'visible' : 'hidden',
     width: '12px',
@@ -373,14 +385,12 @@ const provider = computed({
         if (props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
             return 'openai';
         } else if (props.data.inputs.endpoint === configStore.config.Completions.DefaultHost) {
-            // Check if the endpoint matches the provider type in the config
             if (configStore.config.Completions.Provider === 'llama-server') {
                 return 'llama-server';
             } else if (configStore.config.Completions.Provider === 'mlx_lm.server') {
                 return 'mlx_lm.server';
             }
         }
-        // Default to llama-server if no match
         return 'llama-server';
     },
     set: (value) => {
@@ -391,17 +401,28 @@ const provider = computed({
         }
     }
 });
+
+watch(() => configStore.config.Completions.Provider, (newProvider) => {
+    if (newProvider) {
+        props.data.inputs.endpoint = configStore.config.Completions.DefaultHost;
+    }
+}, { immediate: true });
+
+// Update the system prompt textbox when the dropdown selection changes
+watch(selectedSystemPrompt, (newKey) => {
+    if (systemPromptOptions[newKey]) {
+        system_prompt.value = systemPromptOptions[newKey].system_prompt;
+    }
+}, { immediate: true });
 </script>
 
 <style scoped>
 .openai-node {
-    /* Make sure we fill the bounding box and use border-box */
     width: 100%;
     height: 100%;
     display: flex;
     flex-direction: column;
     box-sizing: border-box;
-
     background-color: var(--node-bg-color);
     border: 1px solid var(--node-border-color);
     border-radius: 4px;
@@ -448,26 +469,18 @@ const provider = computed({
 .user-prompt-field {
     height: 100%;
     flex: 1;
-    /* Let this container take up all remaining height */
     display: flex;
     flex-direction: column;
 }
 
-/* The actual textarea also grows to fill the .user-prompt-field */
 .user-prompt-area {
     flex: 1;
-    /* Fill the container's vertical space */
     width: 100%;
-    /* Fill the container's horizontal space */
     resize: none;
-    /* Prevent user dragging the bottom-right handle inside the textarea */
     overflow-y: auto;
-    /* Scroll if the text is bigger than the area */
     min-height: 0;
-    /* Prevent flex sizing issues (needed in some browsers) */
 }
 
-/* Basic styling for the parameters accordion */
 .parameters-accordion {
     min-width: 180px !important;
     margin-bottom: 5px;

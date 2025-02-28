@@ -13,6 +13,19 @@
             <option value="raw">Raw Text</option>
           </select>
         </div>
+        
+        <!-- Theme Selector -->
+        <div class="select-container" v-if="selectedRenderMode === 'markdown'">
+          <label for="code-theme">Theme:</label>
+          <select id="code-theme" v-model="selectedTheme">
+            <option value="atom-one-dark">Dark</option>
+            <option value="atom-one-light">Light</option>
+            <option value="github">GitHub</option>
+            <option value="monokai">Monokai</option>
+            <option value="vs">VS</option>
+          </select>
+        </div>
+        
         <div class="font-size-controls">
           <button @click.prevent="decreaseFontSize">-</button>
           <button @click.prevent="increaseFontSize">+</button>
@@ -47,14 +60,64 @@ import { ref, computed, nextTick, onMounted, watch } from "vue";
 import { Handle, useVueFlow } from "@vue-flow/core";
 import { marked } from "marked";
 import { NodeResizer } from "@vue-flow/node-resizer";
+import hljs from 'highlight.js';
 
 const { getEdges, findNode, updateNodeData } = useVueFlow()
+
+// Theme selection
+const selectedTheme = ref('atom-one-dark');
+let currentThemeLink = null;
+
+// Load highlight.js theme
+const loadTheme = (themeName) => {
+  // Remove the previous theme if it exists
+  if (currentThemeLink) {
+    document.head.removeChild(currentThemeLink);
+  }
+  
+  // Create and append the new theme link
+  currentThemeLink = document.createElement('link');
+  currentThemeLink.rel = 'stylesheet';
+  currentThemeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/${themeName}.min.css`;
+  document.head.appendChild(currentThemeLink);
+};
 
 onMounted(() => {
   if (!props.data.run) {
     props.data.run = run
   }
+  
+  // Load initial theme
+  loadTheme(selectedTheme.value);
+  
+  // Configure marked to use highlight.js for code highlighting
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+    headerIds: false,
+    highlight: function(code, lang) {
+      if (lang && hljs.getLanguage(lang)) {
+        try {
+          return hljs.highlight(code, { language: lang }).value;
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      // Use auto-detection if language isn't specified
+      try {
+        return hljs.highlightAuto(code).value;
+      } catch (e) {
+        console.error(e);
+      }
+      return code; // Return original if highlighting fails
+    }
+  })
 })
+
+// Watch for theme changes
+watch(selectedTheme, (newTheme) => {
+  loadTheme(newTheme);
+});
 
 async function run() {
   console.log("Running ClaudeResponse:", props.id)
@@ -71,6 +134,8 @@ async function run() {
   }
   // Make the response available downstream.
   props.data.outputs = { result: { output: response.value } }
+  // Increment reRenderKey to force re-render
+  reRenderKey.value++;
   updateNodeData()
 }
 
@@ -110,6 +175,8 @@ const isHovered = ref(false)
 const copyStatus = ref("")
 const isCopying = ref(false)
 const customStyle = ref({})
+// Reactive key to force re-render
+const reRenderKey = ref(0)
 
 const resizeHandleStyle = computed(() => ({
   visibility: isHovered.value ? "visible" : "hidden",
@@ -129,18 +196,14 @@ const decreaseFontSize = () => {
   currentFontSize.value = Math.max(currentFontSize.value - fontSizeStep, minFontSize)
 }
 
-marked.setOptions({
-  breaks: true,
-  gfm: true,
-  headerIds: false
-})
-
 const response = computed({
   get: () => props.data.inputs.response,
   set: (value) => { props.data.inputs.response = value }
 })
 
 const markdownToHtml = computed(() => {
+  // Access reRenderKey to force re-evaluation
+  reRenderKey.value;
   return marked(response.value)
 })
 
@@ -190,9 +253,27 @@ watch(() => props.data, (newData) => {
 watch(() => props.data.inputs.response, () => {
   if (isAutoScrollEnabled.value) scrollToBottom()
 })
+
+// Watch for render mode changes
+watch(selectedRenderMode, () => {
+  // Re-render if needed
+  nextTick(() => {
+    if (isAutoScrollEnabled.value) {
+      scrollToBottom();
+    }
+  });
+});
+
+// Apply syntax highlighting after response updates
+watch(response, () => {
+  nextTick(() => {
+    hljs.highlightAll();
+  });
+});
 </script>
 
-<style scoped>
+<style>
+/* Note: removed 'scoped' to allow proper application of syntax highlighting */
 .claude-response-node {
   background-color: #333;
   border: 1px solid #666;
@@ -394,5 +475,22 @@ select {
 
 .markdown-text th {
   background-color: #444;
+}
+
+/* Syntax highlighting styles */
+.hljs {
+  padding: 12px;
+  border-radius: 5px;
+  overflow-x: auto;
+}
+
+pre {
+  margin: 10px 0;
+  border-radius: 5px;
+  overflow-x: auto;
+}
+
+code {
+  font-family: monospace;
 }
 </style>

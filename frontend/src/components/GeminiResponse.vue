@@ -16,6 +16,18 @@
                     </select>
                 </div>
 
+                <!-- Theme Selector -->
+                <div class="select-container" v-if="selectedRenderMode === 'markdown'">
+                    <label for="code-theme">Theme:</label>
+                    <select id="code-theme" v-model="selectedTheme">
+                        <option value="atom-one-dark">Dark</option>
+                        <option value="atom-one-light">Light</option>
+                        <option value="github">GitHub</option>
+                        <option value="monokai">Monokai</option>
+                        <option value="vs">VS</option>
+                    </select>
+                </div>
+
                 <!-- Font Size Controls -->
                 <div class="font-size-controls">
                     <button @click.prevent="decreaseFontSize">-</button>
@@ -35,7 +47,7 @@
         </div>
 
         <div class="text-container" ref="textContainer" @scroll="handleScroll" @mouseenter="$emit('disable-zoom')"
-            @mouseleave="$emit('enable-zoom')" :style="{ fontSize: `${currentFontSize}px` }">
+            @mouseleave="$emit('enable-zoom')" @wheel.stop :style="{ fontSize: `${currentFontSize}px` }">
             <div v-if="selectedRenderMode === 'raw'" class="raw-text">
                 {{ response }}
             </div>
@@ -51,20 +63,67 @@ import { reactive, watch, ref, computed, nextTick, onMounted } from "vue";
 import { Handle, useVueFlow } from "@vue-flow/core";
 import { marked } from "marked";
 import { NodeResizer } from "@vue-flow/node-resizer";
+import hljs from 'highlight.js';
 
 const { getEdges, findNode, updateNodeData } = useVueFlow()
+
+// Theme selection
+const selectedTheme = ref('atom-one-dark');
+let currentThemeLink = null;
+
+// Load highlight.js theme
+const loadTheme = (themeName) => {
+    // Remove the previous theme if it exists
+    if (currentThemeLink) {
+        document.head.removeChild(currentThemeLink);
+    }
+    
+    // Create and append the new theme link
+    currentThemeLink = document.createElement('link');
+    currentThemeLink.rel = 'stylesheet';
+    currentThemeLink.href = `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/${themeName}.min.css`;
+    document.head.appendChild(currentThemeLink);
+};
 
 onMounted(() => {
     if (!props.data.run) {
         props.data.run = run
     }
+    
+    // Load initial theme
+    loadTheme(selectedTheme.value);
+    
+    // Configure marked to use highlight.js for code highlighting
+    marked.setOptions({
+        breaks: true, 
+        gfm: true,
+        headerIds: false,
+        highlight: function(code, lang) {
+            if (lang && hljs.getLanguage(lang)) {
+                try {
+                    return hljs.highlight(code, { language: lang }).value;
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+            // Use auto-detection if language isn't specified
+            try {
+                return hljs.highlightAuto(code).value;
+            } catch (e) {
+                console.error(e);
+            }
+            return code; // Return original if highlighting fails
+        }
+    });
 })
+
+// Watch for theme changes
+watch(selectedTheme, (newTheme) => {
+    loadTheme(newTheme);
+});
 
 async function run() {
     console.log("Running GeminiResponse:", props.id);
-
-    // Get target edges
-    const targetEdges = getEdges.value;
 
     // Get the source node
     const connectedSources = getEdges.value
@@ -80,25 +139,24 @@ async function run() {
             // Get the response from the source node
             props.data.inputs.response = sourceNode.data.outputs.response;
 
-            // The GeminiNode looks for sourceNode.data.outputs.response
-            // So, store your aggregated text (or whatever you want) in the same structure:
+            // Make the response available downstream
             props.data.outputs = {
                 result: {
-                    output: response.value, // or results, or both, depending on your preference
+                    output: response.value
                 },
             }
-
+            
+            // Increment reRenderKey to force re-render
+            reRenderKey.value++;
+            
             updateNodeData();
         }
     }
 
-
-
-    // The AgentNode looks for sourceNode.data.outputs.result.output
-    // So, store your aggregated text (or whatever you want) in the same structure:
+    // Make the response available downstream
     props.data.outputs = {
         result: {
-            output: response.value, // or results, or both, depending on your preference
+            output: response.value
         },
     }
 }
@@ -139,7 +197,7 @@ const props = defineProps({
 const emit = defineEmits(["update:data", "disable-zoom", "enable-zoom", "resize"]);
 
 // Reactive state for render mode
-const selectedRenderMode = ref("raw");
+const selectedRenderMode = ref("markdown"); // Changed default to markdown
 
 // References to DOM elements
 const textContainer = ref(null);
@@ -154,12 +212,15 @@ const isCopying = ref(false); // To prevent rapid clicks
 
 const customStyle = ref({});
 
+// Reactive key to force re-render
+const reRenderKey = ref(0);
+
 // Computed property for resize handle visibility
 const resizeHandleStyle = computed(() => ({
     visibility: isHovered.value ? 'visible' : 'hidden',
     width: '12px',
     height: '12px',
-}));;
+}));
 
 // Font size control
 const currentFontSize = ref(12); // Default font size
@@ -175,15 +236,10 @@ const decreaseFontSize = () => {
     currentFontSize.value = Math.max(currentFontSize.value - fontSizeStep, minFontSize);
 };
 
-// Configure marked to handle line breaks properly
-marked.setOptions({
-    breaks: false, // Disable GitHub Flavored Line Breaks
-    gfm: true, // Enable GitHub Flavored Markdown
-    headerIds: false, // Disable automatic header IDs if not needed
-});
-
 // Computed property to convert markdown to HTML
 const markdownToHtml = computed(() => {
+    // Access reRenderKey to force re-evaluation
+    reRenderKey.value;
     return marked(response.value);
 });
 
@@ -194,11 +250,6 @@ const response = computed({
         props.data.inputs.response = value
     },
 })
-
-// Emit updates to parent components
-const emitUpdate = () => {
-    emit("update:data", { id: props.id, data: { ...props.data } });
-};
 
 // Function to scroll to the bottom of the text container
 const scrollToBottom = () => {
@@ -213,28 +264,12 @@ const scrollToBottom = () => {
 const handleScroll = () => {
     if (textContainer.value) {
         const { scrollTop, scrollHeight, clientHeight } = textContainer.value;
-        if (scrollTop + clientHeight < scrollHeight) {
-            isAutoScrollEnabled.value = false;
-        } else {
-            isAutoScrollEnabled.value = true;
-        }
+        isAutoScrollEnabled.value = scrollTop + clientHeight >= scrollHeight - 10;
     }
 };
 
 // Access zoom functions from VueFlow
 const { zoomIn, zoomOut } = useVueFlow();
-
-// Disable zoom when interacting with the text container
-const disableZoom = () => {
-    zoomIn(0);
-    zoomOut(0);
-};
-
-// Enable zoom when not interacting
-const enableZoom = () => {
-    zoomIn(1);
-    zoomOut(1);
-};
 
 // Handle resize events
 const onResize = (event) => {
@@ -272,10 +307,28 @@ watch(
         }
     },
     { deep: true }
-)
+);
+
+// Watch for render mode changes
+watch(selectedRenderMode, () => {
+    // Re-render if needed
+    nextTick(() => {
+        if (isAutoScrollEnabled.value) {
+            scrollToBottom();
+        }
+    });
+});
+
+// Apply syntax highlighting after response updates
+watch(response, () => {
+    nextTick(() => {
+        hljs.highlightAll();
+    });
+});
 </script>
 
-<style scoped>
+<style>
+/* Note: removed 'scoped' to allow proper application of syntax highlighting */
 .gemini-response-node {
     background-color: #333;
     border: 1px solid #666;
@@ -285,6 +338,14 @@ watch(
     height: 100%;
     display: flex;
     flex-direction: column;
+}
+
+.node-label {
+    color: var(--node-text-color);
+    font-size: 16px;
+    text-align: center;
+    margin-bottom: 10px;
+    font-weight: bold;
 }
 
 .header {
@@ -308,7 +369,6 @@ h3 {
 .select-container {
     display: flex;
     align-items: center;
-    margin-left: auto;
     margin-right: 10px;
 }
 
@@ -399,16 +459,14 @@ select {
     max-height: none;
     white-space: normal;
     text-align: left;
-    /* Font size will be applied via inline style */
 }
 
 .raw-text,
 .markdown-text {
     line-height: 1.5;
-    /* Font size is inherited from the parent .text-container */
 }
 
-/* Optional: Add styles to ensure markdown renders correctly */
+/* Ensure markdown renders correctly */
 .markdown-text img {
     max-width: 100%;
     height: auto;
@@ -426,16 +484,73 @@ select {
 .markdown-text h5,
 .markdown-text h6 {
     color: #fff;
+    margin-top: 16px;
+    margin-bottom: 8px;
 }
 
 .markdown-text ul,
 .markdown-text ol {
     padding-left: 20px;
+    margin-bottom: 16px;
 }
 
 .markdown-text blockquote {
     border-left: 4px solid #555;
     padding-left: 10px;
+    margin-left: 0;
     color: #ccc;
+}
+
+.markdown-text code {
+    background-color: #444;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+.markdown-text pre {
+    background-color: #222;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.markdown-text pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+.markdown-text table {
+    border-collapse: collapse;
+    width: 100%;
+    margin-bottom: 16px;
+}
+
+.markdown-text th,
+.markdown-text td {
+    border: 1px solid #555;
+    padding: 8px;
+    text-align: left;
+}
+
+.markdown-text th {
+    background-color: #444;
+}
+
+/* Syntax highlighting styles */
+.hljs {
+    padding: 12px;
+    border-radius: 5px;
+    overflow-x: auto;
+}
+
+pre {
+    margin: 10px 0;
+    border-radius: 5px;
+    overflow-x: auto;
+}
+
+code {
+    font-family: monospace;
 }
 </style>

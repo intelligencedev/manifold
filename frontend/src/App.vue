@@ -390,6 +390,9 @@ async function runWorkflowConcurrently() {
   type ChildEdge = { target: string; handle: string };
   const adj: Record<string, ChildEdge[]> = {};
   const inDegree: Record<string, number> = {};
+  
+  // Track nodes that have been processed to prevent double execution
+  const processed = new Set<string>();
 
   // Initialize for each node
   for (const node of nodes.value) {
@@ -411,8 +414,15 @@ async function runWorkflowConcurrently() {
   // 3. Process nodes sequentially.
   while (queue.length > 0) {
     const nodeId = queue.shift()!;
+    
+    // Skip if already processed
+    if (processed.has(nodeId)) continue;
+    
     const node = findNode(nodeId);
     if (!node) continue;
+    
+    // Mark as processed
+    processed.add(nodeId);
 
     // Smoothly fit view to the node about to run
     await smoothlyFitViewToNode(node);
@@ -423,8 +433,12 @@ async function runWorkflowConcurrently() {
     // Execute the node's logic
     await node.data.run();
 
+    // Flag to indicate if we've handled edges in a special way
+    let edgesProcessed = false;
+
     // If this is a FlowControl node, handle looping:
     if (node.type === 'flowControlNode') {
+      edgesProcessed = true;  // Edges are handled, so flag
       const loopCount = node.data.inputs.loopCount || 1;
       // For each additional loop iteration:
       for (let i = 1; i < loopCount; i++) {
@@ -451,8 +465,83 @@ async function runWorkflowConcurrently() {
           queue.push(edge.target);
         }
       }
-    } else {
-      // For non-FlowControl nodes, process all outgoing edges.
+    }
+    // Handle split text node connections - run them concurrently
+    else if (node.type === 'textSplitterNode') {
+      edgesProcessed = true; // Edges are handled, so flag
+      const outputEdges = adj[nodeId];
+      
+      // Execute all child nodes concurrently
+      await Promise.all(outputEdges.map(async (edge) => {
+        const childNodeId = edge.target;
+        
+        // Skip if already processed
+        if (processed.has(childNodeId)) return;
+        
+        const childNode = findNode(childNodeId);
+        if (!childNode) return;
+        
+        // Mark as processed to prevent future execution
+        processed.add(childNodeId);
+        
+        // Decrement in-degree for connected node
+        inDegree[childNodeId]--;
+        
+        // Execute the node
+        await smoothlyFitViewToNode(childNode);
+        changeEdgeStyles(childNodeId);
+        await childNode.data.run();
+        
+        // Process child node's children (add to queue)
+        const childEdges = adj[childNodeId];
+        for (const childEdge of childEdges) {
+          inDegree[childEdge.target]--;
+          if (inDegree[childEdge.target] === 0) {
+            queue.push(childEdge.target);
+          }
+        }
+      }));
+    }
+    // Handle text node connections - run them concurrently
+    else if (node.type === 'textNode') {
+      edgesProcessed = true; // Edges are handled, so flag
+      const outputEdges = adj[nodeId];
+      
+      // Execute all child nodes concurrently
+      await Promise.all(outputEdges.map(async (edge) => {
+        const childNodeId = edge.target;
+        
+        // Skip if already processed
+        if (processed.has(childNodeId)) return;
+        
+        const childNode = findNode(childNodeId);
+        if (!childNode) return;
+        
+        // Mark as processed to prevent future execution
+        processed.add(childNodeId);
+        
+        // Decrement in-degree for connected node
+        inDegree[childNodeId]--;
+        
+        // Execute the node
+        await smoothlyFitViewToNode(childNode);
+        changeEdgeStyles(childNodeId);
+        await childNode.data.run();
+        
+        // Process child node's children (add to queue)
+        const childEdges = adj[childNodeId];
+        for (const childEdge of childEdges) {
+          inDegree[childEdge.target]--;
+          if (inDegree[childEdge.target] === 0) {
+            queue.push(childEdge.target);
+          }
+        }
+      }));
+    }
+
+    // Only process non-FlowControl/Splitter edges if we haven't handled them already
+    if (!edgesProcessed) {
+      // For non-FlowControl nodes, process all outgoing edges
       for (const edge of adj[nodeId]) {
         inDegree[edge.target]--;
         if (inDegree[edge.target] === 0) {

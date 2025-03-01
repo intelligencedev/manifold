@@ -79,7 +79,6 @@ const nodeCategories = {
     "repoConcatNode": null,
   },
   "Misc": {
-    "flowControlNode": null,
     "textNode": null,
     "textSplitterNode": null,
     "noteNode": null,
@@ -89,6 +88,9 @@ const nodeCategories = {
   "Integrations": {
     "datadogNode": null,
     "datadogGraphNode": null,
+  },
+  "Experimental": {
+    "flowControlNode": null,
   },
 }
 

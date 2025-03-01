@@ -95,8 +95,8 @@
       </template>
 
       <Controls :style="{ backgroundColor: '#222', color: '#eee' }" />
-      <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
-        :mask-color="'rgba(40, 40, 40, 0.8)'" />
+      <!-- <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
+        :mask-color="'rgba(40, 40, 40, 0.8)'" /> -->
       <Background :color="bgColor" :variant="bgVariant" :gap="20" :size="1" :pattern-color="'#444'" />
 
       <!-- Run Workflow Button -->

@@ -119,12 +119,12 @@ watch(
 );
 
 // Function to call the FMLX API (using a Go backend endpoint)
-async function callFMLXAPI(mlxNode, finalPrompt) {
+async function callFMLXAPI(mlxNode) {
   const endpoint = '/api/run-fmlx'; // Your Go backend endpoint
 
   const requestBody = {
     model: mlxNode.data.inputs.model,
-    prompt: finalPrompt,
+    prompt: mlxNode.data.inputs.prompt,
     steps: mlxNode.data.inputs.steps,
     seed: mlxNode.data.inputs.seed,
     quality: mlxNode.data.inputs.quality,
@@ -180,7 +180,7 @@ async function run() {
       }
     }
 
-    return await callFMLXAPI(findNode(props.id), finalPrompt);
+    return await callFMLXAPI(findNode(props.id));
   } catch (error) {
     console.error('Error in MLXFlux run:', error);
     return { error };

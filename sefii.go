@@ -1,4 +1,3 @@
-// sefii_handlers.go
 package main
 
 import (
@@ -18,6 +17,7 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 			ChunkSize    int    `json:"chunk_size"`
 			ChunkOverlap int    `json:"chunk_overlap"`
 			FilePath     string `json:"file_path"`
+			DocTitle     string `json:"doc_title"` // new metadata
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -29,7 +29,7 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 			req.Language = "DEFAULT"
 		}
 		if req.ChunkSize == 0 {
-			req.ChunkSize = 1000
+			req.ChunkSize = 1200
 		}
 		if req.ChunkOverlap == 0 {
 			req.ChunkOverlap = 100
@@ -42,17 +42,29 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 		}
 		defer conn.Close(ctx)
 		engine := sefii.NewEngine(conn)
-		summary, err := summarizeContent(ctx, req.Text, config.Completions.DefaultHost, config.Completions.APIKey)
+
+		// Summarize the entire doc
+		summaryOut, err := summarizeContent(ctx, req.Text, config.Completions.DefaultHost, config.Completions.APIKey)
 		if err != nil {
-			summary = ""
+			// if summarization fails, we skip it
+			summaryOut = SummarizeOutput{}
 		}
+
+		// Combine summary + original text. (Optional approach)
 		finalContent := req.Text
-		if summary != "" {
-			finalContent = fmt.Sprintf("%s\n\n---\n\n%s", summary, req.Text)
+		if summaryOut.Summary != "" {
+			finalContent = fmt.Sprintf("%s\n\n---\n\n%s", summaryOut.Summary, req.Text)
 		}
-		if err := engine.IngestDocument(ctx, finalContent, req.Language, req.FilePath, config.Embeddings.Host, config.Embeddings.APIKey, req.ChunkSize, req.ChunkOverlap); err != nil {
+
+		// Ingest with new or existing function. We can pass doc title and summary as metadata.
+		err = engine.IngestDocument(ctx, finalContent, req.Language, req.FilePath, req.DocTitle,
+			summaryOut.Keywords,
+			config.Embeddings.Host, config.Embeddings.APIKey,
+			req.ChunkSize, req.ChunkOverlap)
+		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ingest document"})
 		}
+
 		return c.JSON(http.StatusOK, map[string]string{"message": "Document ingested successfully"})
 	}
 }
@@ -79,11 +91,14 @@ func sefiiSearchHandler(config *Config) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
 		}
 		defer conn.Close(ctx)
+
 		engine := sefii.NewEngine(conn)
+
 		results, err := engine.SearchChunks(ctx, req.Query, req.FilePath, req.Limit, config.Embeddings.Host, config.Embeddings.APIKey)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to search chunks"})
 		}
+
 		return c.JSON(http.StatusOK, results)
 	}
 }
@@ -96,8 +111,9 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 			Limit            int    `json:"limit"`
 			UseInvertedIndex bool   `json:"use_inverted_index"`
 			UseVectorSearch  bool   `json:"use_vector_search"`
-			MergeMode        string `json:"merge_mode"`
+			MergeMode        string `json:"merge_mode"` // "union", "intersect", or "weighted"
 			ReturnFullDocs   bool   `json:"return_full_docs"`
+			Rerank           bool   `json:"rerank"` // new param to do cross-encoder rerank
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -108,6 +124,7 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 		if req.MergeMode == "" {
 			req.MergeMode = "union"
 		}
+
 		ctx := c.Request().Context()
 		conn, err := Connect(ctx, config.Database.ConnectionString)
 		if err != nil {
@@ -115,10 +132,26 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 		}
 		defer conn.Close(ctx)
 		engine := sefii.NewEngine(conn)
-		chunks, err := engine.SearchRelevantChunks(ctx, req.Query, req.FilePathFilter, req.Limit, req.UseInvertedIndex, req.UseVectorSearch, config.Embeddings.Host, config.Embeddings.APIKey, req.MergeMode)
+
+		chunks, err := engine.SearchRelevantChunks(ctx,
+			req.Query,
+			req.FilePathFilter,
+			req.Limit,
+			req.UseInvertedIndex,
+			req.UseVectorSearch,
+			config.Embeddings.Host,
+			config.Embeddings.APIKey,
+			req.MergeMode,
+		)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
+
+		// Rerank if requested
+		if req.Rerank {
+			chunks, _ = reRankChunks(ctx, config, req.Query, chunks)
+		}
+
 		if len(chunks) == 0 {
 			return c.JSON(http.StatusOK, map[string]interface{}{"results": []string{}})
 		}

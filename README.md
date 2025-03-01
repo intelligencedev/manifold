@@ -175,10 +175,3 @@ Manifold is compatible with OpenAI-compatible endpoints:
 Manifold welcomes contributions! Check the open issues for tasks and feel free to submit pull requests.
 
 ---
-
-## License
-
-[Specify your project's license here, e.g., MIT License]
-
----
-

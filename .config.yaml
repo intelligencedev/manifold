@@ -30,6 +30,11 @@ embeddings:
   api_key: "your_embeddings_api_key"
   embedding_vectors: 768 # Size of embedding vectors depending on model
 
+# Reranker llama.cpp endpoint
+reranker:
+  host: "<my llama.cpp or other /v1/rerank endpoint>"
+
+
 # OBSERVABILITY
 
 # Jaeger endpoint for tracing. Actual Jaeger deployment not required but server will throw error. 

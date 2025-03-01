@@ -39,6 +39,10 @@ type EmbeddingsConfig struct {
 	EmbeddingVectors int    `yaml:"embedding_vectors"`
 }
 
+type RerankerConfig struct {
+	Host string `yaml:"host"`
+}
+
 type Config struct {
 	Host             string            `yaml:"host"`
 	Port             int               `yaml:"port"`
@@ -51,6 +55,7 @@ type Config struct {
 	Database         DatabaseConfig    `yaml:"database"`
 	Completions      CompletionsConfig `yaml:"completions"`
 	Embeddings       EmbeddingsConfig  `yaml:"embeddings"`
+	Reranker         RerankerConfig    `yaml:"reranker"`
 }
 
 func LoadConfig(filename string) (*Config, error) {

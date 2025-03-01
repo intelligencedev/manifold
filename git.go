@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	"manifold/internal/documents"
@@ -25,6 +26,9 @@ func gitFilesHandler(c echo.Context) error {
 
 func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
+
+		log.Printf("Configuration loaded: %+v", config.Embeddings.Host)
+
 		var req struct {
 			RepoPath     string `json:"repo_path"`
 			ChunkSize    int    `json:"chunk_size"`
@@ -60,25 +64,21 @@ func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 				continue
 			}
 			lang := documents.DeduceLanguage(f.Path)
-			contentPreview := f.Content
-			if len(contentPreview) > 200 {
-				contentPreview = contentPreview[:200] + "..."
-			}
-			filePreviews = append(filePreviews, map[string]string{
-				"path":     f.Path,
-				"language": string(lang),
-				"preview":  contentPreview,
-			})
-			summary, err := summarizeContent(ctx, f.Content, config.Completions.DefaultHost, config.Completions.APIKey)
-			if err != nil {
-				summary = ""
-			}
-			finalContent := fmt.Sprintf("search_document: %s\n\n---\n\n%s", f.Path, f.Content)
-			if summary != "" {
-				finalContent = fmt.Sprintf("search_document: %s\n\n%s\n\n---\n\n%s", f.Path, summary, f.Content)
-			}
-			if err := engine.IngestDocument(ctx, finalContent, string(lang), f.Path, config.Embeddings.Host, config.Embeddings.APIKey, req.ChunkSize, req.ChunkOverlap); err != nil {
-				continue
+			log.Printf("Embeddings endpoint: %s", config.Embeddings.Host)
+			log.Printf("Ingesting file %s with language %s", f.Path, lang)
+			if err := engine.IngestDocument(
+				ctx,
+				f.Content,
+				string(lang),
+				f.Path,
+				f.Path, // Using file path as document title, replace with proper title if needed
+				[]string{},
+				config.Embeddings.Host,
+				config.Embeddings.APIKey,
+				req.ChunkSize,
+				req.ChunkOverlap,
+			); err != nil {
+				return err
 			}
 			successCount++
 		}

@@ -3,6 +3,7 @@ package documents
 import (
 	"errors"
 	"regexp"
+	"strings"
 )
 
 // RecursiveCharacterTextSplitter is a struct that represents a text splitter
@@ -46,24 +47,95 @@ func (r *RecursiveCharacterTextSplitter) SplitText(text string) []string {
 	return chunks
 }
 
+// AdaptiveSplit splits text by paragraphs/headings, then enforces a chunk limit.
+func (r *RecursiveCharacterTextSplitter) AdaptiveSplit(text string) []string {
+	// 1) Split by double newlines (as a proxy for paragraphs)
+	rawParagraphs := strings.Split(text, "\n\n")
+
+	// 2) Accumulate paragraphs until we exceed r.ChunkSize tokens,
+	// but always enforce the maximum chunk size even if exceeded.
+	var chunks []string
+	var buffer strings.Builder
+
+	for _, para := range rawParagraphs {
+		if r.LengthFunction == nil {
+			r.LengthFunction = func(s string) int {
+				return len([]rune(s)) // fallback: simple char count
+			}
+		}
+		para = strings.TrimSpace(para)
+		if para == "" {
+			continue
+		}
+
+		var newCandidate string
+		if buffer.Len() > 0 {
+			newCandidate = buffer.String() + "\n\n" + para
+		} else {
+			newCandidate = para
+		}
+
+		if r.LengthFunction(newCandidate) > r.ChunkSize && buffer.Len() > 0 {
+			// Finalize the accumulated buffer,
+			// then enforce maximum chunk size on it.
+			chunkStr := strings.TrimSpace(buffer.String())
+			enforced := r.enforceChunkSize([]string{chunkStr})
+			chunks = append(chunks, enforced...)
+
+			// Reset the buffer and start with the current paragraph.
+			buffer.Reset()
+			buffer.WriteString(para)
+		} else {
+			if buffer.Len() == 0 {
+				buffer.WriteString(para)
+			} else {
+				buffer.WriteString("\n\n" + para)
+			}
+		}
+	}
+
+	// Finalize the last buffer
+	if buffer.Len() > 0 {
+		chunkStr := strings.TrimSpace(buffer.String())
+		enforced := r.enforceChunkSize([]string{chunkStr})
+		chunks = append(chunks, enforced...)
+	}
+
+	// 3) Apply overlap to the chunks
+	if r.OverlapSize > 0 {
+		chunks = r.applyOverlap(chunks)
+	}
+
+	return chunks
+}
+
 // FromLanguage creates a RecursiveCharacterTextSplitter based on the given language.
 // If the language is not a special case, it will default to simple chunk-based splitting.
 func FromLanguage(language Language) (*RecursiveCharacterTextSplitter, error) {
-	// If language is not DEFAULT, create a RecursiveCharacterTextSplitter with specific settings
-	if language != DEFAULT {
-		separators, err := GetSeparatorsForLanguage(language)
-		if err != nil {
-			return nil, err
-		}
+	// If language is DEFAULT, create a splitter for general text
+	if language == DEFAULT {
 		return &RecursiveCharacterTextSplitter{
-			Separators:       separators,
-			IsSeparatorRegex: false,
+			ChunkSize:   1200, // slightly bigger default
+			OverlapSize: 100,
+			LengthFunction: func(s string) int {
+				return len([]rune(s))
+			},
 		}, nil
 	}
 
-	// Fallback: for general text, create a simpler splitter that uses chunk sizes.
+	// For specific languages, create a specialized splitter
+	separators, err := GetSeparatorsForLanguage(language)
+	if err != nil {
+		return nil, err
+	}
 	return &RecursiveCharacterTextSplitter{
-		ChunkSize: 1000, // Default chunk size
+		Separators:       separators,
+		IsSeparatorRegex: false,
+		ChunkSize:        1000,
+		OverlapSize:      100,
+		LengthFunction: func(s string) int {
+			return len([]rune(s))
+		},
 	}, nil
 }
 
@@ -134,14 +206,13 @@ func (r *RecursiveCharacterTextSplitter) applyOverlap(chunks []string) []string 
 
 		// Ensure overlap does not go out of range
 		overlapLength := min(len(nextChunk), r.OverlapSize)
-		if overlapLength > len(nextChunk) {
-			overlapLength = len(nextChunk)
+		if overlapLength > 0 && overlapLength < len(nextChunk) {
+			nextChunkOverlap := nextChunk[:overlapLength]
+			overlappedChunk := currentChunk + "\n" + nextChunkOverlap
+			overlappedChunks = append(overlappedChunks, overlappedChunk)
+		} else {
+			overlappedChunks = append(overlappedChunks, currentChunk)
 		}
-
-		nextChunkOverlap := nextChunk[:overlapLength]
-
-		overlappedChunk := currentChunk + nextChunkOverlap
-		overlappedChunks = append(overlappedChunks, overlappedChunk)
 	}
 
 	// Add the last chunk without any overlap

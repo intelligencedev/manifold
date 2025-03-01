@@ -37,6 +37,11 @@ type UsageMetrics struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
+type SummarizeOutput struct {
+	Summary  string   `json:"summary"`
+	Keywords []string `json:"keywords,omitempty"`
+}
+
 // Connect takes a connection string and returns a connection to the database
 func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
 	conn, err := pgx.Connect(ctx, connStr)
@@ -48,7 +53,6 @@ func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
 
 // GenerateEmbeddings generates embeddings for a given text
 func GenerateEmbeddings(host string, apiKey string, chunks []string) ([][]float32, error) {
-	// Create a new EmbeddingRequest
 	embeddingRequest := EmbeddingRequest{
 		Input:          chunks,
 		Model:          "nomic-embed-text-v1.5.Q8_0",
@@ -108,64 +112,59 @@ func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]
 }
 
 // summarizeContent sends the file content to the /v1/chat/completions endpoint to obtain a summary.
-func summarizeContent(ctx context.Context, content string, endpoint string, apiKey string) (string, error) {
+func summarizeContent(ctx context.Context, content string, endpoint string, apiKey string) (SummarizeOutput, error) {
 	summaryInstructions := `You are an expert code summarizer designed to create concise and informative summaries of code snippets for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the effectiveness of the RAG system by enabling it to retrieve the most relevant code snippets based on user queries about code functionality and behavior.
 
 **Instructions:**
 
-1.  **Carefully analyze the following code snippet and its surrounding context (if any is provided).** Understand the purpose of the code, its inputs, outputs, and any potential side effects.
-2.  **Generate a short, self-contained summary (2-3 sentences maximum) that describes the core functionality of the code snippet.**
-3.  **Focus on creating a summary that answers potential user questions about the code's purpose, usage, and relationship to other parts of the codebase.**
-4.  **Prioritize information that is likely to be useful to a developer searching for code that performs a specific task or solves a particular problem.**
-5.  **Include relevant keywords related to the code's functionality (e.g., "data validation," "API call," "file parsing," "sorting algorithm") and any key data structures or libraries used.**
-6.  **If applicable, mention the programming language, important function names, and relevant classes or modules.**
-7.  **Avoid overly technical jargon or implementation details. Summarize the *what* and *why* of the code, rather than the *how* (unless the *how* is crucial for understanding the functionality).**
-8.  **Maintain the original code's level of abstraction. Don't oversimplify or overcomplicate the summary.**
-9.  **Do not include information that is not directly derived from the code snippet.  Avoid speculation or inference about the code's broader context.**
-10. **The output should be a single paragraph.**
+1. Carefully analyze the following code snippet and its surrounding context (if any is provided). Understand the purpose of the code, its inputs, outputs, and any potential side effects.
+2. Generate a short, self-contained summary (2-3 sentences maximum) that describes the core functionality of the code snippet.
+3. Focus on creating a summary that answers potential user questions about the code's purpose, usage, and relationship to other parts of the codebase.
+4. Prioritize information that is likely to be useful to a developer searching for code that performs a specific task or solves a particular problem.
+5. Include relevant keywords related to the code's functionality (e.g., "data validation," "API call," "file parsing," "sorting algorithm") and any key data structures or libraries used.
+6. If applicable, mention the programming language, important function names, and relevant classes or modules.
+7. Avoid overly technical jargon or implementation details. Summarize the *what* and *why* of the code, rather than the *how* (unless the *how* is crucial for understanding the functionality).
+8. Maintain the original code's level of abstraction. Don't oversimplify or overcomplicate the summary.
+9. Do not include information that is not directly derived from the code snippet. Avoid speculation or inference about the code's broader context.
+10. The output should be a single paragraph.
 	`
-	// Prepare the request payload.
+
 	reqPayload := map[string]interface{}{
 		"model": "local",
 		"messages": []map[string]string{
 			{"role": "system", "content": summaryInstructions},
-			{"role": "user", "content": "Please summarize the following chunk of text:\n" + content},
+			{"role": "user", "content": "Please summarize:\n" + content},
 		},
-		"max_completion_tokens": 8192,
+		"max_completion_tokens": 2048,
 		"temperature":           0.6,
 		"stream":                false,
 	}
 	reqBytes, err := json.Marshal(reqPayload)
 	if err != nil {
-		return "", err
+		return SummarizeOutput{}, err
 	}
 
-	// Ensure the endpoint has a proper scheme
-	if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+	if !strings.HasPrefix(endpoint, "http") {
 		endpoint = "http://" + endpoint
 	}
-
-	// Create the HTTP request
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return "", err
+		return SummarizeOutput{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	// Add openai api key to the request header.
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return "", err
+		return SummarizeOutput{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("failed to summarize content, status: %d, body: %s", resp.StatusCode, body)
+		return SummarizeOutput{}, fmt.Errorf("failed to summarize content, status: %d, body: %s", resp.StatusCode, body)
 	}
 
-	// OpenAI Chat Completion response structure.
 	var respData struct {
 		Choices []struct {
 			Message struct {
@@ -174,17 +173,91 @@ func summarizeContent(ctx context.Context, content string, endpoint string, apiK
 		} `json:"choices"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		return "", err
+		return SummarizeOutput{}, err
 	}
-
 	if len(respData.Choices) == 0 {
-		return "", fmt.Errorf("no completion choices returned")
+		return SummarizeOutput{}, fmt.Errorf("no completion choices returned")
 	}
 
-	summary := respData.Choices[0].Message.Content
+	summaryText := respData.Choices[0].Message.Content
+	log.Printf("Summary: %s", summaryText)
 
-	// Log the summary for debugging.
-	log.Printf("Summary: %s", summary)
+	// Call the keyword extraction function to retrieve a comma-delimited list of keywords.
+	keywords, err := extractKeywords(ctx, summaryText, endpoint, apiKey)
+	if err != nil {
+		return SummarizeOutput{}, err
+	}
 
-	return summary, nil
+	return SummarizeOutput{
+		Summary:  summaryText,
+		Keywords: keywords,
+	}, nil
+}
+
+// extractKeywords calls the LLM with a tuned system prompt to extract keywords.
+// The LLM should return a comma delimited list of keywords which we then parse.
+func extractKeywords(ctx context.Context, summary string, endpoint string, apiKey string) ([]string, error) {
+	keywordInstructions := `You are a specialized keyword extractor. Given the summary text of a code snippet, extract the most relevant keywords that represent the core concepts and functionality. Return the keywords as a comma-delimited list with no additional text.`
+
+	reqPayload := map[string]interface{}{
+		"model": "local",
+		"messages": []map[string]string{
+			{"role": "system", "content": keywordInstructions},
+			{"role": "user", "content": "Please extract keywords from the following summary:\n" + summary},
+		},
+		"max_completion_tokens": 256,
+		"temperature":           0.6,
+		"stream":                false,
+	}
+	reqBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	if !strings.HasPrefix(endpoint, "http") {
+		endpoint = "http://" + endpoint
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to extract keywords, status: %d, body: %s", resp.StatusCode, body)
+	}
+
+	var respData struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		return nil, err
+	}
+	if len(respData.Choices) == 0 {
+		return nil, fmt.Errorf("no keyword extraction choices returned")
+	}
+
+	keywordsText := respData.Choices[0].Message.Content
+	// Parse the comma-delimited list of keywords.
+	parts := strings.Split(keywordsText, ",")
+	var keywords []string
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			keywords = append(keywords, trimmed)
+		}
+	}
+	return keywords, nil
 }

@@ -1,10 +1,14 @@
 package sefii
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -33,6 +37,12 @@ type Engine struct {
 	DB                  *pgx.Conn
 	queryEmbeddingCache map[string][]float32
 	cacheMutex          sync.RWMutex
+}
+
+// SummarizeOutput contains a summary and extracted keywords
+type SummarizeOutput struct {
+	Summary  string   `json:"summary"`
+	Keywords []string `json:"keywords,omitempty"`
 }
 
 func NewEngine(db *pgx.Conn) *Engine {
@@ -127,6 +137,10 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 		return err
 	}
 
+	if err := e.EnsureDocumentMetadataTable(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -146,6 +160,28 @@ func (e *Engine) EnsureInvertedIndexTable(ctx context.Context) error {
 		if err := e.execWithRetry(ctx, createIndexQuery); err != nil {
 			return fmt.Errorf("failed to create inverted_index table: %w", err)
 		}
+	}
+	return nil
+}
+
+func (e *Engine) EnsureDocumentMetadataTable(ctx context.Context) error {
+	var tableName *string
+	err := e.DB.QueryRow(ctx, "SELECT to_regclass('public.document_metadata')").Scan(&tableName)
+	if err != nil {
+		return fmt.Errorf("failed to check for document_metadata table: %w", err)
+	}
+
+	if tableName == nil || *tableName == "" {
+		createTableQuery := `
+            CREATE TABLE document_metadata (
+                file_path TEXT PRIMARY KEY,
+                metadata JSONB NOT NULL
+            )
+        `
+		if err := e.execWithRetry(ctx, createTableQuery); err != nil {
+			return fmt.Errorf("failed to create document_metadata table: %w", err)
+		}
+		log.Println("Created document_metadata table")
 	}
 	return nil
 }
@@ -197,12 +233,167 @@ func tokenize(text string) []string {
 	return tokens
 }
 
-// IngestDocument updated to accept docTitle, keywords, etc.
+// summarizeChunk sends the chunk content to the /v1/chat/completions endpoint to obtain a summary.
+func summarizeChunk(ctx context.Context, content string, endpoint string, apiKey string) (SummarizeOutput, error) {
+	summaryInstructions := `You are an expert text summarizer designed to create concise, informative summaries of document chunks for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the RAG system's effectiveness by enabling it to retrieve the most relevant text chunks based on user queries.
+
+**Instructions:**
+
+1. Analyze the provided text chunk and understand its main topics, key points, and important context.
+2. Generate a very concise summary (1-2 sentences maximum, no more than 50 words) that captures the essential information of the chunk.
+3. Focus on creating a summary that preserves the most important searchable elements that a user might query for.
+4. Extract 3-5 relevant keywords that represent the main topics and concepts in the text.
+5. Maintain factual accuracy while condensing information - never introduce facts not present in the original text.
+6. Prioritize unique, distinctive information in the chunk rather than general information that might appear in many chunks.
+7. If the chunk contains specialized terminology, technical concepts, names, dates, or quantitative data, preserve these elements in your summary as they are likely to be search targets.
+8. Avoid vague descriptions or overly general statements - be specific about the chunk's content.
+9. The summary should stand alone, but acknowledge that this is part of a larger document.
+10. Your output should use the following format only:
+
+    Summary: [1-2 sentence summary of the chunk]
+    Keywords: [comma-separated list of 3-5 keywords]
+    `
+
+	reqPayload := map[string]interface{}{
+		"model": "local",
+		"messages": []map[string]string{
+			{"role": "system", "content": summaryInstructions},
+			{"role": "user", "content": "Please summarize:\n" + content},
+		},
+		"max_completion_tokens": 2048,
+		"temperature":           0.6,
+		"stream":                false,
+	}
+	reqBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return SummarizeOutput{}, err
+	}
+
+	if !strings.HasPrefix(endpoint, "http") {
+		endpoint = "http://" + endpoint
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return SummarizeOutput{}, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return SummarizeOutput{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return SummarizeOutput{}, fmt.Errorf("failed to summarize content, status: %d, body: %s", resp.StatusCode, body)
+	}
+
+	var respData struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		return SummarizeOutput{}, err
+	}
+	if len(respData.Choices) == 0 {
+		return SummarizeOutput{}, fmt.Errorf("no completion choices returned")
+	}
+
+	summaryText := respData.Choices[0].Message.Content
+	log.Printf("Summary: %s", summaryText)
+
+	// Call the keyword extraction function to retrieve a comma-delimited list of keywords.
+	keywords, err := extractKeywords(ctx, summaryText, endpoint, apiKey)
+	if err != nil {
+		return SummarizeOutput{}, err
+	}
+
+	return SummarizeOutput{
+		Summary:  summaryText,
+		Keywords: keywords,
+	}, nil
+}
+
+// extractKeywords calls the LLM with a tuned system prompt to extract keywords.
+// The LLM should return a comma delimited list of keywords which we then parse.
+func extractKeywords(ctx context.Context, summary string, endpoint string, apiKey string) ([]string, error) {
+	keywordInstructions := `You are a specialized keyword extractor. Given the summary text of a code snippet, extract the most relevant keywords that represent the core concepts and functionality. Return the keywords as a comma-delimited list with no additional text.`
+
+	reqPayload := map[string]interface{}{
+		"model": "local",
+		"messages": []map[string]string{
+			{"role": "system", "content": keywordInstructions},
+			{"role": "user", "content": "Please extract keywords from the following summary:\n" + summary},
+		},
+		"max_completion_tokens": 256,
+		"temperature":           0.6,
+		"stream":                false,
+	}
+	reqBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	if !strings.HasPrefix(endpoint, "http") {
+		endpoint = "http://" + endpoint
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("failed to extract keywords, status: %d, body: %s", resp.StatusCode, body)
+	}
+
+	var respData struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		return nil, err
+	}
+	if len(respData.Choices) == 0 {
+		return nil, fmt.Errorf("no keyword extraction choices returned")
+	}
+
+	keywordsText := respData.Choices[0].Message.Content
+	// Parse the comma-delimited list of keywords.
+	parts := strings.Split(keywordsText, ",")
+	var keywords []string
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			keywords = append(keywords, trimmed)
+		}
+	}
+	return keywords, nil
+}
+
+// IngestDocument updated to include metadata tokens (filePath and docTitle)
+// in the inverted index.
 func (e *Engine) IngestDocument(
 	ctx context.Context,
-	text, language, filePath, docTitle string,
+	text, languageStr, filePath, docTitle string,
 	keywords []string,
-	embeddingsHost, apiKey string,
+	embeddingsHost, apiKey, completionsHost, completionsAPIKey string,
 	chunkSize int, chunkOverlap int,
 ) error {
 
@@ -212,16 +403,34 @@ func (e *Engine) IngestDocument(
 		return err
 	}
 
-	splitter, err := documents.FromLanguage(documents.Language(language))
+	// Convert string to Language type and get appropriate splitter
+	language := documents.Language(languageStr)
+	splitter, err := documents.FromLanguage(language)
 	if err != nil {
-		return err
+		// Fallback to default if language not supported
+		splitter, _ = documents.FromLanguage(documents.DEFAULT)
 	}
 
 	splitter.ChunkSize = chunkSize
 	splitter.OverlapSize = chunkOverlap
 
-	// Use our new adaptive method for chunking
-	chunksText := splitter.AdaptiveSplit(text)
+	// Use adaptive method for chunking based on language
+	var chunksText []string
+	if language == documents.DEFAULT {
+		chunksText = splitter.SplitText(text)
+	} else {
+		// Use adaptive splitting for code and structured content
+		chunksText = splitter.AdaptiveSplit(text)
+	}
+
+	for i := 0; i < len(chunksText); i++ {
+		// Skip empty or extremely short chunks that could cause embedding issues
+		if len(strings.TrimSpace(chunksText[i])) < 10 {
+			log.Printf("Warning: Skipping too short chunk at index %d", i)
+			chunksText = append(chunksText[:i], chunksText[i+1:]...)
+			i-- // Adjust index after removing element
+		}
+	}
 
 	// Create embeddings
 	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, chunksText)
@@ -233,33 +442,95 @@ func (e *Engine) IngestDocument(
 		return fmt.Errorf("embedding count mismatch: got %d for %d chunks", len(embeds), len(chunksText))
 	}
 
-	// Insert each chunk
+	// Collect all keywords from chunks for document-level aggregation
+	// var allChunkKeywords []string
+
+	// Insert each chunk with summary
 	for i, chunkContent := range chunksText {
+		// Summarize each chunk if completions endpoints are provided
+		// var chunkSummary string
+		// var chunkKeywords []string
+		// if completionsHost != "" && completionsAPIKey != "" {
+		// 	summaryOutput, err := summarizeChunk(ctx, chunkContent, completionsHost, completionsAPIKey)
+		// 	if err == nil {
+		// 		chunkSummary = summaryOutput.Summary
+		// 		chunkKeywords = summaryOutput.Keywords
+		// 		// Collect keywords for document-level aggregation
+		// 		allChunkKeywords = append(allChunkKeywords, chunkKeywords...)
+		// 	} else {
+		// 		log.Printf("SEFII: Failed to summarize chunk: %v", err)
+		// 	}
+		// }
+
+		// // Create metadata object
 		chunkMetadata := map[string]string{
 			"docTitle": docTitle,
 		}
-		// store keywords in metadata if you want
-		if len(keywords) > 0 {
-			// convert keywords to a comma string or store as JSON
-			// We'll do a naive approach:
-			chunkMetadata["keywords"] = strings.Join(keywords, ",")
+
+		// // Add summary to metadata if available
+		// if chunkSummary != "" {
+		// 	chunkMetadata["summary"] = chunkSummary
+		// }
+
+		// // Use chunk-specific keywords if available, otherwise fall back to document keywords
+		// var keywordsToUse []string
+		// if len(chunkKeywords) > 0 {
+		// 	keywordsToUse = chunkKeywords
+		// } else if len(keywords) > 0 {
+		// 	keywordsToUse = keywords
+		// }
+
+		// if len(keywordsToUse) > 0 {
+		// 	chunkMetadata["keywords"] = strings.Join(keywordsToUse, ",")
+		// }
+
+		// mdBytes, _ := json.Marshal(chunkMetadata)
+
+		// Prepare content - prepend summary if available
+		// finalChunkContent := chunkContent
+		// if chunkSummary != "" {
+		// 	finalChunkContent = fmt.Sprintf("%s\n\n---\n\n%s", chunkSummary, chunkContent)
+		// }
+
+		// Prepend metadata to chunkContent
+		// finalChunkContent := chunkContent
+		// if chunkMetadata != "" {
+		// 	finalChunkContent = fmt.Sprintf("%s\n\n---\n\n%s", chunkSummary, chunkMetadata)
+		// }
+
+		var keywords []string
+		if len(strings.TrimSpace(chunkContent)) > 10 {
+			keywords, err = extractKeywords(ctx, chunkContent, completionsHost, completionsAPIKey)
+			if err != nil {
+				// Log error but continue rather than failing
+				log.Printf("Warning: Failed to extract keywords: %v", err)
+			}
+		} else {
+			log.Printf("Warning: Content too short for keyword extraction")
 		}
 
-		mdBytes, _ := json.Marshal(chunkMetadata)
+		var keywordsToUse []string
+
+		keywordsToUse = append(keywordsToUse, keywords...)
+		chunkMetadata["keywords"] = strings.Join(keywordsToUse, ",")
+
+		finalChunkContent := fmt.Sprintf("%s\n\n---\n\n%s", chunkContent, keywords)
 
 		var chunkID int64
-		err := e.DB.QueryRow(ctx,
+		mdBytes, _ := json.Marshal(chunkMetadata)
+		err = e.DB.QueryRow(ctx,
 			`INSERT INTO documents (content, embedding, file_path, metadata)
-			 VALUES ($1, $2, $3, $4)
-			 RETURNING id`,
-			chunkContent, pgvector.NewVector(embeds[i]), filePath, mdBytes).Scan(&chunkID)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id`,
+			finalChunkContent, pgvector.NewVector(embeds[i]), filePath, mdBytes).Scan(&chunkID)
 		if err != nil {
 			log.Printf("SEFII: Failed to insert chunk: %v", err)
 			return err
 		}
 
-		// Inverted index
-		tokens := tokenize(chunkContent)
+		// Inverted index: use buildSearchText so that tokens from file_path and docTitle are also indexed.
+		searchText := buildSearchText(finalChunkContent, filePath, docTitle)
+		tokens := tokenize(searchText)
 		for _, token := range tokens {
 			if err := e.persistTokenMapping(ctx, token, chunkID); err != nil {
 				log.Printf("SEFII: Failed to persist token mapping: %v", err)
@@ -267,6 +538,10 @@ func (e *Engine) IngestDocument(
 			}
 		}
 	}
+
+	// Optionally, store document-level aggregated keywords
+	// This could be implemented by creating a special chunk ID or
+	// by storing in a separate document_metadata table
 
 	return nil
 }
@@ -349,6 +624,7 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 	useVectorSearch bool,
 	embeddingsHost, apiKey string,
 	mergeMode string,
+	alpha, beta float64,
 ) ([]Chunk, error) {
 
 	vectorSet := make(map[int64]float64)   // store a float "score" from vector
@@ -450,8 +726,8 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 			}
 		}
 	case "weighted":
-		// Weighted example: alpha * vector + beta * inverted
-		alpha, beta := 0.7, 0.3
+		// Use the provided alpha and beta values
+		// Normalize scores if needed
 		allIDs := make(map[int64]bool)
 		for k := range vectorSet {
 			allIDs[k] = true
@@ -586,4 +862,38 @@ func (e *Engine) RetrieveDocumentsForChunks(ctx context.Context, chunkIDs []int6
 		documentsMap[fp] = builder.String()
 	}
 	return documentsMap, nil
+}
+
+// buildSearchText combines the content with file path and document title so that
+// tokens from these metadata fields are also indexed.
+func buildSearchText(content, filePath, docTitle string) string {
+	// Extract filename from path for better tokenization
+	filename := filepath.Base(filePath)
+	// Normalize the path to improve matching
+	normalizedPath := strings.ReplaceAll(filePath, "/", " ")
+	normalizedPath = strings.ReplaceAll(normalizedPath, ".", " ")
+
+	return fmt.Sprintf("%s %s %s %s", content, normalizedPath, filename, docTitle)
+}
+
+// GetDocumentMetadata retrieves the consolidated metadata for a document by file path
+func (e *Engine) GetDocumentMetadata(ctx context.Context, filePath string) (map[string]interface{}, error) {
+	var metadataBytes []byte
+	err := e.DB.QueryRow(ctx,
+		"SELECT metadata FROM document_metadata WHERE file_path = $1",
+		filePath).Scan(&metadataBytes)
+
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil // No metadata found, not an error
+		}
+		return nil, fmt.Errorf("failed to retrieve document metadata: %w", err)
+	}
+
+	var metadata map[string]interface{}
+	if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal document metadata: %w", err)
+	}
+
+	return metadata, nil
 }

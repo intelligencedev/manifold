@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"manifold/internal/documents"
 	"manifold/internal/sefii"
@@ -26,9 +28,6 @@ func gitFilesHandler(c echo.Context) error {
 
 func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
-
-		log.Printf("Configuration loaded: %+v", config.Embeddings.Host)
-
 		var req struct {
 			RepoPath     string `json:"repo_path"`
 			ChunkSize    int    `json:"chunk_size"`
@@ -38,56 +37,67 @@ func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
 		}
 		if req.RepoPath == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "repo_path is required"})
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Repo path is required"})
 		}
 		if req.ChunkSize == 0 {
-			req.ChunkSize = 500
+			req.ChunkSize = 1000
 		}
 		if req.ChunkOverlap == 0 {
-			req.ChunkOverlap = 150
+			req.ChunkOverlap = 100
 		}
+
 		ctx := c.Request().Context()
 		conn, err := Connect(ctx, config.Database.ConnectionString)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
 		}
 		defer conn.Close(ctx)
+
 		engine := sefii.NewEngine(conn)
-		files, err := documents.GetGitFiles(req.RepoPath)
+
+		// Get all git files
+		gitFiles, err := documents.GetGitFiles(req.RepoPath)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to fetch Git files"})
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to get git files: %v", err)})
 		}
-		successCount := 0
-		filePreviews := []map[string]string{}
-		for _, f := range files {
-			if f.Content == "" {
+
+		// Process each file individually
+		successFiles := []string{}
+		for _, file := range gitFiles {
+			// Skip empty files
+			if len(strings.TrimSpace(file.Content)) == 0 {
 				continue
 			}
-			lang := documents.DeduceLanguage(f.Path)
-			log.Printf("Embeddings endpoint: %s", config.Embeddings.Host)
-			log.Printf("Ingesting file %s with language %s", f.Path, lang)
-			if err := engine.IngestDocument(
+
+			// Deduce language from file extension
+			language := documents.DeduceLanguage(file.Path)
+
+			// Ingest the file with the appropriate language
+			err = engine.IngestDocument(
 				ctx,
-				f.Content,
-				string(lang),
-				f.Path,
-				f.Path, // Using file path as document title, replace with proper title if needed
-				[]string{},
+				file.Content,
+				string(language),
+				file.Path,
+				filepath.Base(file.Path), // Use filename as doc title
+				[]string{file.Path},      // Add file path as a keyword
 				config.Embeddings.Host,
 				config.Embeddings.APIKey,
+				config.Completions.DefaultHost,
+				config.Completions.APIKey,
 				req.ChunkSize,
 				req.ChunkOverlap,
-			); err != nil {
-				return err
+			)
+
+			if err == nil {
+				successFiles = append(successFiles, file.Path)
+			} else {
+				log.Printf("Failed to ingest file %s: %v", file.Path, err)
 			}
-			successCount++
 		}
-		msg := fmt.Sprintf("Ingested %d file(s) from %s into pgvector", successCount, req.RepoPath)
+
 		return c.JSON(http.StatusOK, map[string]interface{}{
-			"message":       msg,
-			"ingested":      successCount,
-			"repo_path":     req.RepoPath,
-			"file_previews": filePreviews,
+			"message": fmt.Sprintf("Ingested %d files successfully", len(successFiles)),
+			"files":   successFiles,
 		})
 	}
 }

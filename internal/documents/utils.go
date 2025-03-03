@@ -111,8 +111,8 @@ func GetFilesInDir(dirPath string) ([]FileData, error) {
 			return err
 		}
 
-		// Skip directories and non-text files.
-		if info.IsDir() || !strings.HasPrefix(info.Name(), ".") {
+		// Skip directories and hidden files
+		if info.IsDir() || strings.HasPrefix(info.Name(), ".") {
 			return nil
 		}
 

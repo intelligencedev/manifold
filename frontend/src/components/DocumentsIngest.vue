@@ -277,18 +277,37 @@ async function run() {
         throw new Error('No file(s) selected for ingestion.')
       }
       const results = []
-      // Loop over each selected file (or each file within the selected folder)
+      
+      // Important change: Process each file INDIVIDUALLY
       for (const file of selectedFiles.value) {
         const text = await readFileAsText(file)
         if (text.trim().length === 0) {
           console.log(`File ${file.name} is empty; skipping.`)
           continue
         }
+        
         // Determine the file path: use webkitRelativePath if available, otherwise file name.
         const filePath = file.webkitRelativePath || file.name
-        const result = await callIngestAPI(text, filePath)
+        
+        // Infer language based on file extension
+        let fileLanguage = language.value
+        if (language.value === 'DEFAULT') {
+          // Infer language from file extension
+          const ext = filePath.split('.').pop().toUpperCase()
+          if (['PY'].includes(ext)) fileLanguage = 'PYTHON'
+          else if (['JS'].includes(ext)) fileLanguage = 'JS'
+          else if (['TS'].includes(ext)) fileLanguage = 'TS'
+          else if (['GO'].includes(ext)) fileLanguage = 'GO'
+          else if (['MD', 'MARKDOWN'].includes(ext)) fileLanguage = 'MARKDOWN'
+          else if (['HTML', 'HTM'].includes(ext)) fileLanguage = 'HTML'
+          else if (['JSON'].includes(ext)) fileLanguage = 'JSON'
+        }
+        
+        // Call the API for this individual file, passing its language
+        const result = await callIngestAPI(text, filePath, fileLanguage)
         results.push({ file: file.name, result })
       }
+      
       props.data.outputs = {
         result: { output: JSON.stringify(results, null, 2) },
       }
@@ -314,12 +333,14 @@ async function run() {
 }
 
 // Helper function to call the ingestion API.
-async function callIngestAPI(text, filePath) {
+async function callIngestAPI(text, filePath, fileLanguage = language.value) {
   const payload = {
     text: text,
-    language: language.value,
+    language: fileLanguage,
     chunk_size: chunk_size.value,
     chunk_overlap: chunk_overlap.value,
+    file_path: filePath,  // Make sure file_path is explicitly passed
+    doc_title: filePath.split('/').pop() // Use filename as doc title
   }
   console.log('Calling Ingest API with payload:', payload)
   

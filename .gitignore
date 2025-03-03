@@ -10,3 +10,4 @@ embed_examples.md
 sample/*
 .DS_Store
 frontend/public/*
+pgvec.sh

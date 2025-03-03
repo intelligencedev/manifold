@@ -37,7 +37,17 @@
       <select class="input-text" v-model="merge_mode">
         <option value="union">Union</option>
         <option value="intersect">Intersect</option>
+        <option value="weighted">Weighted</option>
       </select>
+    </div>
+
+    <div v-if="merge_mode === 'weighted'" class="input-field">
+      <label class="input-label">Vector Weight (Alpha):</label>
+      <input type="number" step="0.1" min="0" max="1" class="input-text" v-model.number="alpha" />
+    </div>
+    <div v-if="merge_mode === 'weighted'" class="input-field">
+      <label class="input-label">Keyword Weight (Beta):</label>
+      <input type="number" step="0.1" min="0" max="1" class="input-text" v-model.number="beta" />
     </div>
 
     <!-- Return Full Docs Checkbox -->
@@ -192,6 +202,9 @@ async function run() {
       use_vector_search: true,
       merge_mode: merge_mode.value,
       return_full_docs: return_full_docs.value,
+      rerank: true,  // Enable reranking for better results
+      alpha: merge_mode.value === 'weighted' ? Number(alpha.value) : 0.7,
+      beta: merge_mode.value === 'weighted' ? Number(beta.value) : 0.3
     }
 
     console.log('Calling Documents Retrieve API with payload:', payload)
@@ -242,6 +255,20 @@ const resizeHandleStyle = computed(() => ({
   width: '12px',
   height: '12px',
 }))
+
+const alpha = computed({
+  get: () => props.data.inputs.alpha || 0.7,
+  set: (value) => {
+    props.data.inputs.alpha = value
+  },
+})
+
+const beta = computed({
+  get: () => props.data.inputs.beta || 0.3,
+  set: (value) => {
+    props.data.inputs.beta = value
+  },
+})
 
 function onResize(event) {
   customStyle.value.width = `${event.width}px`

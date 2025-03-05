@@ -45,4 +45,9 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.POST("/datadog", datadogHandler)
 	api.POST("/download-llama", downloadLlamaHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
+
+	// NEW: Agentic Memory endpoints.
+	agenticGroup := api.Group("/agentic-memory")
+	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
+	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
 }

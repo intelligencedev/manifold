@@ -234,7 +234,7 @@ func tokenize(text string) []string {
 }
 
 // summarizeChunk sends the chunk content to the /v1/chat/completions endpoint to obtain a summary.
-func summarizeChunk(ctx context.Context, content string, endpoint string, apiKey string) (SummarizeOutput, error) {
+func SummarizeChunk(ctx context.Context, content string, endpoint string, apiKey string) (SummarizeOutput, error) {
 	summaryInstructions := `You are an expert text summarizer designed to create concise, informative summaries of document chunks for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the RAG system's effectiveness by enabling it to retrieve the most relevant text chunks based on user queries.
 
 **Instructions:**

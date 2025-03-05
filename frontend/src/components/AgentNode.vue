@@ -219,6 +219,26 @@ watch(
     { immediate: true }
 )
 
+const agenticRetrieveFunction = {
+    name: "agentic_retrieve",
+    description: "Retrieves stored agentic memory responses using vector search from the agentic memory endpoint.",
+    parameters: {
+        type: "object",
+        properties: {
+            query: {
+                type: "string",
+                description: "The prompt or query to retrieve relevant agentic memory notes."
+            },
+            limit: {
+                type: "number",
+                description: "The number of agentic memory notes to retrieve.",
+                default: 3
+            }
+        },
+        required: ["query"]
+    }
+}
+
 // ---------------------------
 // Combined Retrieve Function
 // ---------------------------
@@ -335,39 +355,23 @@ async function callCompletionsAPI_local(agentNode, prompt) {
 
     // Prepare request body
     let body = {};
-    if (isO1Model(agentNode.data.inputs.model)) {
-        body = {
-            model: agentNode.data.inputs.model,
-            max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
-            temperature: agentNode.data.inputs.temperature,
-            messages: [
-                {
-                    role: "user",
-                    content: `${agentNode.data.inputs.system_prompt}\n\n${prompt}`,
-                },
-            ],
-            functions: [combinedRetrieveFunction],
-            stream: true,
-        };
-    } else {
-        body = {
-            model: agentNode.data.inputs.model,
-            max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
-            temperature: agentNode.data.inputs.temperature,
-            messages: [
-                {
-                    role: "system",
-                    content: agentNode.data.inputs.system_prompt,
-                },
-                {
-                    role: "user",
-                    content: prompt,
-                },
-            ],
-            functions: [combinedRetrieveFunction],
-            function_call: "auto",
-        };
-    }
+    body = {
+        model: agentNode.data.inputs.model,
+        max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+        temperature: agentNode.data.inputs.temperature,
+        messages: [
+            {
+                role: "system",
+                content: agentNode.data.inputs.system_prompt,
+            },
+            {
+                role: "user",
+                content: prompt,
+            },
+        ],
+        functions: [combinedRetrieveFunction, agenticRetrieveFunction],
+        function_call: "auto",
+    };
 
     // 1. First call to see if tool_call is returned
     const responseData = await fetch(endpoint, {
@@ -466,6 +470,9 @@ async function callCompletionsAPI_local(agentNode, prompt) {
         }
         buffer = buffer.substring(start);
     }
+
+    await storeResponseInAgenticMemory(props.data.outputs.response);
+
     return { response: props.data.outputs.response };
 }
 
@@ -497,7 +504,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                     content: `${agentNode.data.inputs.system_prompt}\n\n${prompt}`,
                 },
             ],
-            functions: [combinedRetrieveFunction],
+            functions: [combinedRetrieveFunction, agenticRetrieveFunction],
             stream: false, // note: we set stream: false on the first call
         };
     } else {
@@ -515,7 +522,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                     content: prompt,
                 },
             ],
-            functions: [combinedRetrieveFunction],
+            functions: [combinedRetrieveFunction, agenticRetrieveFunction],
             function_call: "auto",
             stream: false, // first call is not streamed
         };
@@ -621,6 +628,8 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
         buffer = buffer.substring(start);
     }
 
+    await storeResponseInAgenticMemory(props.data.outputs.response);
+
     return { response: props.data.outputs.response };
 }
 
@@ -656,6 +665,29 @@ async function run() {
     } catch (error) {
         console.error('Error in AgentNode run:', error);
         return { error };
+    }
+}
+
+async function storeResponseInAgenticMemory(responseText) {
+    const ingestEndpoint = "http://localhost:8080/api/agentic-memory/ingest";
+    const payload = {
+        content: responseText,
+        doc_title: "Agentic Response", // you can modify this dynamically if needed
+        completions_host: props.data.inputs.endpoint,
+        completions_api_key: props.data.inputs.api_key,
+        embeddings_host: "http://localhost:6000", // or use configStore if available
+        embeddings_api_key: configStore.config.Embeddings.APIKey
+    };
+    try {
+        const res = await fetch(ingestEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        const jsonRes = await res.json();
+        console.log("Stored response in agentic memory:", jsonRes);
+    } catch (err) {
+        console.error("Error storing response in agentic memory:", err);
     }
 }
 
@@ -701,7 +733,7 @@ const provider = computed({
         // If it's explicitly the OpenAI endpoint, choose 'openai'.
         if (props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
             return 'openai';
-        } 
+        }
         // If it matches our local config store, see which local provider is set
         else if (props.data.inputs.endpoint === configStore.config.Completions.DefaultHost) {
             if (configStore.config.Completions.Provider === 'llama-server') {

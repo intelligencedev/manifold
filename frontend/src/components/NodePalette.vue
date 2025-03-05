@@ -90,6 +90,7 @@ const nodeCategories = {
     "datadogGraphNode": null,
   },
   "Experimental": {
+    "ttsNode": null,
     "flowControlNode": null,
   },
 }

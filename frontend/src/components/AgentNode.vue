@@ -338,6 +338,29 @@ async function callCombinedRetrieveAPI(userPrompt) {
     }
 }
 
+async function callAgenticMemoryAPI(userPrompt) {
+    const payload = {
+        query: userPrompt,
+        limit: 3
+    };
+    const retrieveEndpoint = "http://localhost:8080/api/agentic-memory/search";
+    try {
+        const response = await fetch(retrieveEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Agentic Memory API error (${response.status}): ${errorText}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error("Error calling agentic memory API:", error);
+        //throw error;
+    }
+}
+
 // ---------------------------
 // callCompletionsAPI_local
 // ---------------------------
@@ -407,6 +430,36 @@ async function callCompletionsAPI_local(agentNode, prompt) {
             // Update second message in the body for next call
             if (body.messages[1]) {
                 body.messages[1].content = combinedPrompt;
+            }
+        }
+        if (functionName === "agentic_retrieve") {
+            // Retrieve from agentic memory
+            try {
+                const retrieveResult = await callAgenticMemoryAPI(prompt);
+                
+                // Continue only if we got valid results
+                if (retrieveResult && retrieveResult.results) {
+                    // Parse the response json
+                    const documents = retrieveResult.results || {};
+                    
+                    console.log('documents:', documents);
+                    
+                    // Build a concise, human-readable reference string
+                    const documentsString = buildReferenceString(documents);
+                    
+                    console.log('documentsString:', documentsString);
+                    
+                    // Combine the retrieve result with the original prompt
+                    const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
+                    
+                    // Update the second message in the body with the combined prompt
+                    if (body.messages?.[1]) {
+                        body.messages[1].content = combinedPrompt;
+                    }
+                }
+            } catch (error) {
+                console.warn("Error retrieving from agentic memory, continuing without retrieval:", error);
+                // Continue without modification to the prompt
             }
         }
     }
@@ -565,6 +618,36 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                 body.messages[1].content = combinedPrompt;
             }
         }
+        if (functionName === "agentic_retrieve") {
+            // Retrieve from agentic memory
+            try {
+                const retrieveResult = await callAgenticMemoryAPI(prompt);
+                
+                // Continue only if we got valid results
+                if (retrieveResult && retrieveResult.results) {
+                    // Parse the response json
+                    const documents = retrieveResult.results || {};
+                    
+                    console.log('documents:', documents);
+                    
+                    // Build a concise, human-readable reference string
+                    const documentsString = buildReferenceString(documents);
+                    
+                    console.log('documentsString:', documentsString);
+                    
+                    // Combine the retrieve result with the original prompt
+                    const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
+                    
+                    // Update the second message in the body with the combined prompt
+                    if (body.messages?.[1]) {
+                        body.messages[1].content = combinedPrompt;
+                    }
+                }
+            } catch (error) {
+                console.warn("Error retrieving from agentic memory, continuing without retrieval:", error);
+                // Continue without modification to the prompt
+            }
+        }
     }
 
     // 3. Now make a second call to get the final streamed completion
@@ -631,6 +714,27 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
     await storeResponseInAgenticMemory(props.data.outputs.response);
 
     return { response: props.data.outputs.response };
+}
+
+// Helper: Build a reference string from retrieved documents,
+// excluding keys like 'embedding' and 'links'.
+function buildReferenceString(documents) {
+    let reference = "";
+    Object.entries(documents).forEach(([key, value]) => {
+        console.log('key:', key);
+        console.log('value:', value);
+        if (typeof value === 'object' && value !== null) {
+            // Exclude non-text fields
+            const filtered = Object.entries(value)
+                .filter(([fieldKey]) => fieldKey !== 'embedding' && fieldKey !== 'links')
+                .map(([fieldKey, fieldValue]) => `${fieldKey}: ${fieldValue}`)
+                .join("\n");
+            reference += `${key}:\n\n${filtered}\n\n`;
+        } else {
+            reference += `${key}:\n\n${String(value)}\n\n`;
+        }
+    });
+    return reference.trim() || 'No valid documents found';
 }
 
 // ---------------------------

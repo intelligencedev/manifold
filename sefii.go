@@ -159,6 +159,8 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 			config.Completions.APIKey,
 			req.ChunkSize,
 			req.ChunkOverlap,
+			config.Embeddings.Dimensions,
+			config.Embeddings.EmbedPrefix,
 		)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ingest document"})
@@ -249,6 +251,7 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 			req.UseVectorSearch,
 			config.Embeddings.Host,
 			config.Embeddings.APIKey,
+			config.Embeddings.SearchPrefix,
 			req.MergeMode,
 			req.Alpha, // Pass alpha
 			req.Beta,  // Pass beta

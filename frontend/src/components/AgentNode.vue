@@ -172,14 +172,15 @@ const systemPromptOptions = {
     retrieval_assistant: {
         role: "Retrieval Assistant",
         system_prompt: `You are capable of executing available function(s) and should always use them.
-Ask for the required input to:recipient==all
+Always ask for the required input to: recipient==all.
 Use JSON for function arguments.
-Respond in this format:
+Respond using the following format:
 >>>\${recipient}
 \${content}
+
 Available functions:
 namespace functions {
-  // Retrieves documents using a combined search of inverted index and vector search.
+  // retrieves documents related to the topic
   type combined_retrieve = (_: {
     query: string,
     file_path_filter?: string,
@@ -192,7 +193,14 @@ namespace functions {
     alpha?: number,
     beta?: number
   }) => any;
-}`
+  
+  // remembers previous chats
+  type agentic_retrieve = (_: {
+    query: string,
+    limit?: number
+  }) => any;
+}
+`
     },
 }
 
@@ -221,17 +229,17 @@ watch(
 
 const agenticRetrieveFunction = {
     name: "agentic_retrieve",
-    description: "Retrieves stored agentic memory responses using vector search from the agentic memory endpoint.",
+    description: "Gets memories from previous discussions to help remember things.",
     parameters: {
         type: "object",
         properties: {
             query: {
                 type: "string",
-                description: "The prompt or query to retrieve relevant agentic memory notes."
+                description: "The prompt or query to retrieve relevant memories."
             },
             limit: {
                 type: "number",
-                description: "The number of agentic memory notes to retrieve.",
+                description: "The number of memories to retrieve.",
                 default: 3
             }
         },
@@ -393,7 +401,8 @@ async function callCompletionsAPI_local(agentNode, prompt) {
             },
         ],
         functions: [combinedRetrieveFunction, agenticRetrieveFunction],
-        function_call: "auto",
+        function_call: { name: "agentic_retrieve" }
+        // function_call: "auto",
     };
 
     // 1. First call to see if tool_call is returned

@@ -24,19 +24,15 @@ completions:
   api_key: "my_api_key"
 
 # Embeddings API Configuration
+# Manifold is tested with https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF
 embeddings:
   host: "<my_openai_api_compatible_server>/v1/embeddings"
   # OpenAI API compatible API key, not required for local servers unless configured on that server
   api_key: "your_embeddings_api_key"
-  embedding_vectors: 768 # Size of embedding vectors depending on model
+  dimensions: 768 # Size of embedding dimensions
+  embed_prefix: "search_document: "
+  search_prefix: "search_query: "
 
 # Reranker llama.cpp endpoint
 reranker:
   host: "<my llama.cpp or other /v1/rerank endpoint>"
-
-
-# OBSERVABILITY
-
-# Jaeger endpoint for tracing. Actual Jaeger deployment not required but server will throw error. 
-# Leave as-is unless you have a real Jaeger endpoint to configure
-jaeger_host: 'localhost:16686'

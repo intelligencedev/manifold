@@ -49,7 +49,7 @@ func InitializeApplication(config *Config) error {
 	}
 
 	engine := sefii.NewEngine(db)
-	engine.EnsureTable(ctx, config.Embeddings.EmbeddingVectors)
+	engine.EnsureTable(ctx, config.Embeddings.Dimensions)
 	engine.EnsureInvertedIndexTable(ctx)
 
 	// Create a database table for models and their configurations

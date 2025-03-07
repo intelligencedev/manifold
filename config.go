@@ -34,9 +34,11 @@ type CompletionsConfig struct {
 }
 
 type EmbeddingsConfig struct {
-	Host             string `yaml:"host"`
-	APIKey           string `yaml:"api_key"`
-	EmbeddingVectors int    `yaml:"embedding_vectors"`
+	Host         string `yaml:"host"`
+	APIKey       string `yaml:"api_key"`
+	Dimensions   int    `yaml:"dimensions"`
+	EmbedPrefix  string `yaml:"embed_prefix"`
+	SearchPrefix string `yaml:"search_prefix"`
 }
 
 type RerankerConfig struct {
@@ -47,7 +49,6 @@ type Config struct {
 	Host             string            `yaml:"host"`
 	Port             int               `yaml:"port"`
 	DataPath         string            `yaml:"data_path"`
-	JaegerHost       string            `yaml:"jaeger_host"`
 	AnthropicKey     string            `yaml:"anthropic_key,omitempty"`
 	OpenAIAPIKey     string            `yaml:"openai_api_key,omitempty"`
 	GoogleGeminiKey  string            `yaml:"google_gemini_key,omitempty"`

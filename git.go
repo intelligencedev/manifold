@@ -86,6 +86,8 @@ func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 				config.Completions.APIKey,
 				req.ChunkSize,
 				req.ChunkOverlap,
+				config.Embeddings.Dimensions,
+				config.Embeddings.EmbedPrefix,
 			)
 
 			if err == nil {

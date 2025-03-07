@@ -120,6 +120,7 @@ const props = defineProps({
       inputs: {
         ingestion_endpoint: 'http://localhost:8080/api/sefii/ingest',
         mode: 'documents', // default mode is "documents"
+        documents: "",
       },
       outputs: {
         result: { output: '' },
@@ -260,7 +261,7 @@ async function run() {
       console.log('Passthrough mode: Using text from connected source nodes')
       for (const sourceId of connectedSources) {
         const sourceNode = findNode(sourceId)
-        if (sourceNode && sourceNode.data.outputs && sourceNode.data.outputs.result) {
+        if (sourceNode && sourceNode.data.outputs && sourceNode.data.outputs.result.output) {
           inputText += `\n\n${sourceNode.data.outputs.result.output}`
         }
       }
@@ -340,7 +341,7 @@ async function callIngestAPI(text, filePath, fileLanguage = language.value) {
     chunk_size: chunk_size.value,
     chunk_overlap: chunk_overlap.value,
     file_path: filePath,  // Make sure file_path is explicitly passed
-    doc_title: filePath.split('/').pop() // Use filename as doc title
+    doc_title: filePath
   }
   console.log('Calling Ingest API with payload:', payload)
   

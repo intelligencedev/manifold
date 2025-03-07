@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,14 +12,6 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/sdk/resource"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	// Import manifold/internal/web/web.go
 )
 
@@ -120,52 +111,6 @@ func downloadLlamaHandler(c echo.Context) error {
 		"cudart_file_path": cudartFilePath,
 		"llama_file_path":  llamaFilePath,
 	})
-}
-
-// initTracer initializes the OpenTelemetry tracer.
-func initTracer(config *Config) (*sdktrace.TracerProvider, error) {
-	// Load the trace endpoint from the environment variable
-	traceEndpoint := config.JaegerHost
-	if traceEndpoint == "" {
-		return nil, fmt.Errorf("JAEGER_ENDPOINT environment variable not set")
-	}
-
-	exporter, err := otlptracehttp.New(
-		context.Background(),
-		otlptracehttp.WithEndpoint(traceEndpoint),
-		otlptracehttp.WithInsecure(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OTLP exporter: %w", err)
-	}
-
-	// Create a resource
-	res, err := resource.New(
-		context.Background(),
-		resource.WithAttributes(
-			semconv.ServiceNameKey.String(service),
-			semconv.ServiceVersionKey.String("v0.1.0"),
-			attribute.String("environment", environment),
-			attribute.Int64("ID", id),
-		),
-		resource.WithSchemaURL(semconv.SchemaURL),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create resource: %w", err)
-	}
-
-	// Create a tracer provider
-	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
-	)
-
-	// Set the global tracer provider and propagator
-	otel.SetTracerProvider(tp)
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
-
-	return tp, nil
 }
 
 // Helper function to download a file

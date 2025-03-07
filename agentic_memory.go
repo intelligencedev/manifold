@@ -95,7 +95,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	tags := keywords
 
 	// 2. Compute the embedding.
-	embeddingInput := content + " " + noteContext + " " + strings.Join(keywords, " ") + " " + strings.Join(tags, " ")
+	embeddingInput := config.Embeddings.EmbedPrefix + content + " " + noteContext + " " + strings.Join(keywords, " ") + " " + strings.Join(tags, " ")
 	embeds, err := GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
 	if err != nil || len(embeds) == 0 {
 		return 0, fmt.Errorf("failed to generate embedding: %w", err)
@@ -245,8 +245,7 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 		}
 		defer conn.Close(ctx)
 		engine := NewAgenticEngine(conn)
-		// Ensure the agentic_memories table exists (using 768 as an example embedding dimension).
-		if err := engine.EnsureAgenticMemoryTable(ctx, 768); err != nil {
+		if err := engine.EnsureAgenticMemoryTable(ctx, config.Embeddings.Dimensions); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to ensure agentic memory table: %v", err)})
 		}
 		newID, err := engine.IngestAgenticMemory(ctx, config, req.Content, req.DocTitle)
@@ -282,7 +281,10 @@ func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
 		}
 		defer conn.Close(ctx)
 		engine := NewAgenticEngine(conn)
-		results, err := engine.SearchAgenticMemories(ctx, config, req.Query, req.Limit)
+
+		searchQuery := fmt.Sprintf("%s%s", config.Embeddings.SearchPrefix, req.Query)
+
+		results, err := engine.SearchAgenticMemories(ctx, config, searchQuery, req.Limit)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to search agentic memories: %v", err)})
 		}

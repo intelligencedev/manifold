@@ -54,6 +54,14 @@
                     step="0.1" min="0" max="2" />
             </div>
 
+            <!-- Toggle for Tool/Function Calling -->
+            <div class="input-field">
+                <label class="input-label">
+                    <input type="checkbox" v-model="enableToolCalls" />
+                    Enable Tool/Function Calls
+                </label>
+            </div>
+
             <!-- Predefined System Prompt Dropdown -->
             <div class="input-field">
                 <label for="system-prompt-select" class="input-label">Predefined System Prompt:</label>
@@ -137,6 +145,7 @@ const { getEdges, findNode, zoomIn, zoomOut } = useVueFlow()
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 
 const showApiKey = ref(false)
+const enableToolCalls = ref(true)  // <-- New toggle state
 
 // Predefined System Prompt Options
 const selectedSystemPrompt = ref("friendly_assistant")
@@ -202,6 +211,12 @@ namespace functions {
 }
 `
     },
+}
+
+// A helper function to check if a model is an O1/O3 variant.
+function isO1Model(model) {
+    const lower = model.toLowerCase();
+    return lower.startsWith("o1") || lower.startsWith("o3");
 }
 
 // Set default run function on mount
@@ -313,9 +328,7 @@ const combinedRetrieveFunction = {
 // ---------------------------
 // callCombinedRetrieveAPI
 // ---------------------------
-// Common utility for both local and openai flows
 async function callCombinedRetrieveAPI(userPrompt) {
-    // If local, we might prefix "retrieve:" but here we decide based on provider:
     const payload = {
         query: provider.value === 'openai' ? userPrompt : "retrieve: " + userPrompt,
         file_path_filter: "",
@@ -365,28 +378,84 @@ async function callAgenticMemoryAPI(userPrompt) {
         return await response.json();
     } catch (error) {
         console.error("Error calling agentic memory API:", error);
-        //throw error;
     }
 }
 
 // ---------------------------
 // callCompletionsAPI_local
 // ---------------------------
-// For llama-server & mlx_lm.server, uses "tool_calls" in the response
 async function callCompletionsAPI_local(agentNode, prompt) {
     const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
     const responseNode = responseNodeId ? findNode(responseNodeId) : null;
     let endpoint = agentNode.data.inputs.endpoint;
 
-    // Check if O1 or O3 model
-    const isO1Model = (model) => {
-        const lower = model.toLowerCase();
-        return lower.startsWith("o1") || lower.startsWith("o3");
-    };
+    if (!enableToolCalls.value) {
+        // Direct streaming request without tool/function call parameters.
+        let body = {
+            model: agentNode.data.inputs.model,
+            max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+            temperature: agentNode.data.inputs.temperature,
+            messages: [
+                { role: "system", content: agentNode.data.inputs.system_prompt },
+                { role: "user", content: prompt }
+            ],
+            stream: true
+        };
 
-    // Prepare request body
-    let body = {};
-    body = {
+        endpoint = "http://192.168.1.200:32188/v1/chat/completions";
+        const streamResponse = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!streamResponse.ok) {
+            const errorText = await streamResponse.text();
+            throw new Error(`API error (${streamResponse.status}): ${errorText}`);
+        }
+
+        let buffer = "";
+        const reader = streamResponse.body.getReader();
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = new TextDecoder().decode(value);
+            buffer += chunk;
+            let start = 0;
+            for (let i = 0; i < buffer.length; i++) {
+                if (buffer[i] === "\n") {
+                    const line = buffer.substring(start, i).trim();
+                    start = i + 1;
+                    if (line.startsWith("data: ")) {
+                        const jsonData = line.substring(6);
+                        if (jsonData === "[DONE]") break;
+                        try {
+                            const parsedData = JSON.parse(jsonData);
+                            const delta = parsedData.choices[0]?.delta || {};
+                            const tokenContent = (delta.content || "") + (delta.thinking || "");
+                            props.data.outputs.response += tokenContent;
+                            if (responseNode) {
+                                responseNode.data.inputs.response += tokenContent;
+                                responseNode.run();
+                            }
+                        } catch (e) {
+                            console.error("Error parsing response chunk:", e);
+                        }
+                    }
+                }
+            }
+            buffer = buffer.substring(start);
+        }
+
+        await storeResponseInAgenticMemory(props.data.outputs.response);
+        return { response: props.data.outputs.response };
+    }
+
+    // Existing two-step workflow with tool/function call enabled.
+    let body = {
         model: agentNode.data.inputs.model,
         max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
         temperature: agentNode.data.inputs.temperature,
@@ -402,10 +471,8 @@ async function callCompletionsAPI_local(agentNode, prompt) {
         ],
         functions: [combinedRetrieveFunction, agenticRetrieveFunction],
         function_call: { name: "agentic_retrieve" }
-        // function_call: "auto",
     };
 
-    // 1. First call to see if tool_call is returned
     const responseData = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -418,12 +485,10 @@ async function callCompletionsAPI_local(agentNode, prompt) {
     const result = await responseData.json();
     const message = result.choices[0]?.message;
 
-    // 2. Check if the local server returned "tool_calls" in the response
     if (message && message.tool_calls) {
         const toolCall = message.tool_calls[0];
         const functionName = toolCall?.function?.name;
         if (functionName === "combined_retrieve") {
-            // Perform retrieval
             const retrieveResult = await callCombinedRetrieveAPI(prompt);
             const documents = retrieveResult.documents || {};
             let documentsString = '';
@@ -434,57 +499,36 @@ async function callCompletionsAPI_local(agentNode, prompt) {
             } else {
                 documentsString = 'No valid documents found';
             }
-            // Combine the original prompt with the retrieved reference
             const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-            // Update second message in the body for next call
             if (body.messages[1]) {
                 body.messages[1].content = combinedPrompt;
             }
         }
         if (functionName === "agentic_retrieve") {
-            // Retrieve from agentic memory
             try {
                 const retrieveResult = await callAgenticMemoryAPI(prompt);
-                
-                // Continue only if we got valid results
                 if (retrieveResult && retrieveResult.results) {
-                    // Parse the response json
                     const documents = retrieveResult.results || {};
-                    
                     console.log('documents:', documents);
-                    
-                    // Build a concise, human-readable reference string
                     const documentsString = buildReferenceString(documents);
-                    
                     console.log('documentsString:', documentsString);
-                    
-                    // Combine the retrieve result with the original prompt
                     const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-                    
-                    // Update the second message in the body with the combined prompt
                     if (body.messages?.[1]) {
                         body.messages[1].content = combinedPrompt;
                     }
                 }
             } catch (error) {
                 console.warn("Error retrieving from agentic memory, continuing without retrieval:", error);
-                // Continue without modification to the prompt
             }
         }
     }
 
-    // 3. Now stream the final response
     body.stream = true;
-    // We no longer need to pass the function definitions or function_call
     delete body.functions;
     delete body.function_call;
     delete body.tool_calls;
-
-    // Change the system prompt to the combined prompt
     body.messages[0].content = "Use the provided documents to respond to the user's query. Be thorough and accurate and respond in a structured manner.";
-
-    // The local streaming endpoint might differ from the initial endpoint
-    endpoint = "http://192.168.1.200:32188/v1/chat/completions"; // adjust if needed
+    endpoint = "http://192.168.1.200:32188/v1/chat/completions";
 
     const streamResponse = await fetch(endpoint, {
         method: "POST",
@@ -500,8 +544,8 @@ async function callCompletionsAPI_local(agentNode, prompt) {
         throw new Error(`API error (${streamResponse.status}): ${errorText}`);
     }
 
-    const reader = streamResponse.body.getReader();
     let buffer = "";
+    const reader = streamResponse.body.getReader();
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -534,26 +578,92 @@ async function callCompletionsAPI_local(agentNode, prompt) {
     }
 
     await storeResponseInAgenticMemory(props.data.outputs.response);
-
     return { response: props.data.outputs.response };
 }
 
 // ---------------------------
 // callCompletionsAPI_openai
 // ---------------------------
-// For OpenAI, uses "function_call" in the response
 async function callCompletionsAPI_openai(agentNode, prompt) {
     const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
     const responseNode = responseNodeId ? findNode(responseNodeId) : null;
     let endpoint = agentNode.data.inputs.endpoint;
 
-    // Check if O1 or O3 model
-    const isO1Model = (model) => {
-        const lower = model.toLowerCase();
-        return lower.startsWith("o1") || lower.startsWith("o3");
-    };
+    if (!enableToolCalls.value) {
+        let body = {};
+        if (isO1Model(agentNode.data.inputs.model)) {
+            body = {
+                model: agentNode.data.inputs.model,
+                max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+                temperature: agentNode.data.inputs.temperature,
+                messages: [
+                    { role: "user", content: `${agentNode.data.inputs.system_prompt}\n\n${prompt}` }
+                ],
+                stream: true
+            };
+        } else {
+            body = {
+                model: agentNode.data.inputs.model,
+                max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+                temperature: agentNode.data.inputs.temperature,
+                messages: [
+                    { role: "system", content: agentNode.data.inputs.system_prompt },
+                    { role: "user", content: prompt }
+                ],
+                stream: true
+            };
+        }
 
-    // Prepare request body
+        const streamResponse = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!streamResponse.ok) {
+            const errorText = await streamResponse.text();
+            throw new Error(`API error (${streamResponse.status}): ${errorText}`);
+        }
+
+        let buffer = "";
+        const reader = streamResponse.body.getReader();
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = new TextDecoder().decode(value);
+            buffer += chunk;
+            let start = 0;
+            for (let i = 0; i < buffer.length; i++) {
+                if (buffer[i] === "\n") {
+                    const line = buffer.substring(start, i).trim();
+                    start = i + 1;
+                    if (line.startsWith("data: ")) {
+                        const jsonData = line.substring(6);
+                        if (jsonData === "[DONE]") break;
+                        try {
+                            const parsedData = JSON.parse(jsonData);
+                            const delta = parsedData.choices[0]?.delta || {};
+                            const tokenContent = (delta.content || "") + (delta.thinking || "");
+                            props.data.outputs.response += tokenContent;
+                            if (responseNode) {
+                                responseNode.data.inputs.response += tokenContent;
+                                responseNode.run();
+                            }
+                        } catch (e) {
+                            console.error("Error parsing response chunk:", e);
+                        }
+                    }
+                }
+            }
+            buffer = buffer.substring(start);
+        }
+        await storeResponseInAgenticMemory(props.data.outputs.response);
+        return { response: props.data.outputs.response };
+    }
+
     let body = {};
     if (isO1Model(agentNode.data.inputs.model)) {
         body = {
@@ -567,7 +677,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                 },
             ],
             functions: [combinedRetrieveFunction, agenticRetrieveFunction],
-            stream: false, // note: we set stream: false on the first call
+            stream: false,
         };
     } else {
         body = {
@@ -586,11 +696,10 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
             ],
             functions: [combinedRetrieveFunction, agenticRetrieveFunction],
             function_call: "auto",
-            stream: false, // first call is not streamed
+            stream: false,
         };
     }
 
-    // 1. First call, check if function_call is returned
     const responseData = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -600,15 +709,10 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
         body: JSON.stringify(body),
     });
     const result = await responseData.json();
-
-    // 2. If function_call is returned, handle it
     const message = result.choices?.[0]?.message;
     if (message && message.function_call) {
         const functionName = message.function_call.name;
-        const functionParameters = message.function_call.parameters;
-
         if (functionName === "combined_retrieve") {
-            // Retrieve docs
             const retrieveResult = await callCombinedRetrieveAPI(prompt);
             const documents = retrieveResult.documents || {};
             let documentsString = '';
@@ -619,55 +723,33 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
             } else {
                 documentsString = 'No valid documents found';
             }
-
-            // Combine the retrieve result with the original prompt
             const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-            // Modify the second message in the body
             if (body.messages?.[1]) {
                 body.messages[1].content = combinedPrompt;
             }
         }
         if (functionName === "agentic_retrieve") {
-            // Retrieve from agentic memory
             try {
                 const retrieveResult = await callAgenticMemoryAPI(prompt);
-                
-                // Continue only if we got valid results
                 if (retrieveResult && retrieveResult.results) {
-                    // Parse the response json
                     const documents = retrieveResult.results || {};
-                    
                     console.log('documents:', documents);
-                    
-                    // Build a concise, human-readable reference string
                     const documentsString = buildReferenceString(documents);
-                    
                     console.log('documentsString:', documentsString);
-                    
-                    // Combine the retrieve result with the original prompt
                     const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-                    
-                    // Update the second message in the body with the combined prompt
                     if (body.messages?.[1]) {
                         body.messages[1].content = combinedPrompt;
                     }
                 }
             } catch (error) {
                 console.warn("Error retrieving from agentic memory, continuing without retrieval:", error);
-                // Continue without modification to the prompt
             }
         }
     }
-
-    // 3. Now make a second call to get the final streamed completion
     body.stream = true;
-    // Remove function definitions & function_call for this second request
     delete body.functions;
     delete body.function_call;
-
-    // Change the system prompt to the combined prompt
     body.messages[0].content = "Use the provided documents to respond to the user's query.";
-
     const streamResponse = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -676,36 +758,29 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
         },
         body: JSON.stringify(body),
     });
-
     if (!streamResponse.ok) {
         const errorText = await streamResponse.text();
         throw new Error(`API error (${streamResponse.status}): ${errorText}`);
     }
-
-    // 4. Stream the response
-    const reader = streamResponse.body.getReader();
     let buffer = "";
+    const reader = streamResponse.body.getReader();
     while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = new TextDecoder().decode(value);
         buffer += chunk;
-
         let start = 0;
         for (let i = 0; i < buffer.length; i++) {
             if (buffer[i] === "\n") {
                 const line = buffer.substring(start, i).trim();
                 start = i + 1;
-
                 if (line.startsWith("data: ")) {
                     const jsonData = line.substring(6);
                     if (jsonData === "[DONE]") break;
                     try {
                         const parsedData = JSON.parse(jsonData);
                         const delta = parsedData.choices[0]?.delta || {};
-                        const tokenContent =
-                            (delta.content || "") + (delta.thinking || "");
-
+                        const tokenContent = (delta.content || "") + (delta.thinking || "");
                         props.data.outputs.response += tokenContent;
                         if (responseNode) {
                             responseNode.data.inputs.response += tokenContent;
@@ -719,9 +794,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
         }
         buffer = buffer.substring(start);
     }
-
     await storeResponseInAgenticMemory(props.data.outputs.response);
-
     return { response: props.data.outputs.response };
 }
 
@@ -733,7 +806,6 @@ function buildReferenceString(documents) {
         console.log('key:', key);
         console.log('value:', value);
         if (typeof value === 'object' && value !== null) {
-            // Exclude non-text fields
             const filtered = Object.entries(value)
                 .filter(([fieldKey]) => fieldKey !== 'embedding' && fieldKey !== 'links')
                 .map(([fieldKey, fieldValue]) => `${fieldKey}: ${fieldValue}`)
@@ -755,7 +827,6 @@ async function run() {
         const agentNode = findNode(props.id);
         let finalPrompt = props.data.inputs.user_prompt;
 
-        // Optionally gather text from connected sources
         const connectedSources = getEdges.value
             .filter((edge) => edge.target === props.id)
             .map((edge) => edge.source);
@@ -769,7 +840,6 @@ async function run() {
             }
         }
 
-        // Decide which API to call
         if (provider.value === 'openai') {
             return await callCompletionsAPI_openai(agentNode, finalPrompt);
         } else {
@@ -785,10 +855,10 @@ async function storeResponseInAgenticMemory(responseText) {
     const ingestEndpoint = "http://localhost:8080/api/agentic-memory/ingest";
     const payload = {
         content: responseText,
-        doc_title: "Agentic Response", // you can modify this dynamically if needed
+        doc_title: "Agentic Response",
         completions_host: props.data.inputs.endpoint,
         completions_api_key: props.data.inputs.api_key,
-        embeddings_host: "http://localhost:6000", // or use configStore if available
+        embeddings_host: "http://localhost:6000",
         embeddings_api_key: configStore.config.Embeddings.APIKey
     };
     try {
@@ -843,12 +913,9 @@ const temperature = computed({
 // Provider detection
 const provider = computed({
     get: () => {
-        // If it's explicitly the OpenAI endpoint, choose 'openai'.
         if (props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
             return 'openai';
-        }
-        // If it matches our local config store, see which local provider is set
-        else if (props.data.inputs.endpoint === configStore.config.Completions.DefaultHost) {
+        } else if (props.data.inputs.endpoint === configStore.config.Completions.DefaultHost) {
             if (configStore.config.Completions.Provider === 'llama-server') {
                 return 'llama-server';
             } else if (configStore.config.Completions.Provider === 'mlx_lm.server') {

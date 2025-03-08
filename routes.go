@@ -42,11 +42,15 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/executePython", executePythonHandler)
+
+	// NEW: Execute MCP endpoint to work with MCPNode.vue.
+	api.POST("/executeMCP", executeRealMCPHandler)
+
 	api.POST("/datadog", datadogHandler)
 	api.POST("/download-llama", downloadLlamaHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
 
-	// NEW: Agentic Memory endpoints.
+	// Agentic Memory endpoints.
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))

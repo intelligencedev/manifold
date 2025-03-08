@@ -858,7 +858,7 @@ async function storeResponseInAgenticMemory(responseText) {
         doc_title: "Agentic Response",
         completions_host: props.data.inputs.endpoint,
         completions_api_key: props.data.inputs.api_key,
-        embeddings_host: "http://localhost:6000",
+        embeddings_host: configStore.config.Embeddings.Host,
         embeddings_api_key: configStore.config.Embeddings.APIKey
     };
     try {

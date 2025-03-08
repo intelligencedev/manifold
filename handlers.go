@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,11 +9,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	// Import manifold/internal/web/web.go
+	mcp "github.com/metoro-io/mcp-golang"
+	"github.com/metoro-io/mcp-golang/transport/stdio"
 )
 
 func configHandler(c echo.Context) error {
@@ -137,4 +140,121 @@ func downloadFile(url, filepath string) error {
 	}
 
 	return nil
+}
+
+// executeMCPHandler handles the MCP execution request.
+// It parses the JSON payload, determines the requested action (defaulting to "listTools"),
+// and returns a simulated response.
+func executeMCPHandler(c echo.Context) error {
+	// Parse the JSON payload from the request.
+	var payload map[string]interface{}
+	if err := c.Bind(&payload); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
+	}
+
+	log.Printf("Received MCP payload: %+v", payload)
+
+	// Determine the action specified in the payload.
+	action, ok := payload["action"].(string)
+	if !ok || action == "" {
+		action = "listTools"
+	}
+
+	var result string
+	switch action {
+	case "listTools":
+		// Simulate returning a list of available tools.
+		result = "ToolA, ToolB, ToolC"
+	case "execute":
+		// Simulate executing an action (customize as needed).
+		result = "Execution completed successfully."
+	default:
+		result = fmt.Sprintf("Action '%s' not implemented", action)
+	}
+
+	// Optionally, log the output as JSON for debugging.
+	outputBytes, _ := json.Marshal(map[string]string{"stdout": result})
+	log.Printf("MCP handler output: %s", outputBytes)
+
+	// Return the result as a JSON object.
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"stdout": result,
+	})
+}
+
+// executeMCPHandler handles the MCP execution request using a real MCP server.
+func executeRealMCPHandler(c echo.Context) error {
+	// Parse the JSON payload from the request.
+	var payload map[string]interface{}
+	if err := c.Bind(&payload); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
+	}
+
+	log.Printf("Received MCP payload: %+v", payload)
+
+	// Determine the action specified in the payload.
+	action, ok := payload["action"].(string)
+	if !ok || action == "" {
+		action = "listTools"
+	}
+
+	// Launch the MCP server process (using the real server example).
+	// Note: Adjust the command and path as necessary.
+	cmd := exec.Command("go", "run", "cmd/mcpserver/mcpserver.go")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get server stdin pipe"})
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get server stdout pipe"})
+	}
+
+	if err := cmd.Start(); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to start MCP server process"})
+	}
+	// Ensure the server is terminated when done.
+	defer cmd.Process.Kill()
+
+	// Create an MCP client using the stdio transport.
+	clientTransport := stdio.NewStdioServerTransportWithIO(stdout, stdin)
+	client := mcp.NewClient(clientTransport)
+
+	// Initialize the client.
+	if _, err := client.Initialize(context.Background()); err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to initialize MCP client: %v", err)})
+	}
+
+	// Prepare a variable to hold the result.
+	var result interface{}
+
+	// Choose action based on the payload.
+	switch action {
+	case "listTools":
+		tools, err := client.ListTools(context.Background(), nil)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to list tools: %v", err)})
+		}
+		result = tools
+	case "execute":
+		// Expect payload to include "tool" and "args"
+		toolName, ok := payload["tool"].(string)
+		if !ok || toolName == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing tool name for execution"})
+		}
+		args, ok := payload["args"].(map[string]interface{})
+		if !ok {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing or invalid arguments for tool execution"})
+		}
+		toolResp, err := client.CallTool(context.Background(), toolName, args)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to call tool: %v", err)})
+		}
+		result = toolResp
+	default:
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Action '%s' not implemented", action)})
+	}
+
+	// Return the result as a JSON response.
+	return c.JSON(http.StatusOK, result)
 }

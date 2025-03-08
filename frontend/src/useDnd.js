@@ -27,6 +27,7 @@ import MLXFlux from './components/MLXFlux.vue'
 import DocumentsIngest from './components/DocumentsIngest.vue'
 import DocumentsRetrieve from './components/DocumentsRetrieve.vue'
 import ttsNode from './components/ttsNode.vue'
+import MCPClientNode from './components/MCPClient.vue'
 
 let id = 0
 
@@ -192,6 +193,9 @@ export default function useDragAndDrop() {
         break;
       case 'ttsNode':
         component = ttsNode;
+        break;
+      case 'mcpClientNode':
+        component = MCPClientNode;
         break;
       default:
         console.error(`Unknown node type: ${draggedType.value}`);

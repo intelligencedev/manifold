@@ -11,3 +11,4 @@ sample/*
 .DS_Store
 frontend/public/*
 pgvec.sh
+mcp/mcpenv

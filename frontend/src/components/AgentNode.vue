@@ -152,31 +152,38 @@ const selectedSystemPrompt = ref("friendly_assistant")
 const systemPromptOptions = {
     friendly_assistant: {
         role: "Friendly Assistant",
-        system_prompt: "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone."
+        system_prompt:
+            "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone."
     },
     search_assistant: {
         role: "Search Assistant",
-        system_prompt: "You are a helpful assistant that specializes in generating effective search engine queries.  Given any text input, your task is to create one or more concise and relevant search queries that would be likely to retrieve information related to that text from a search engine (like Google, Bing, etc.).  Consider the key concepts, entities, and the user's likely intent.  Prioritize clarity and precision in the queries."
+        system_prompt:
+            "You are a helpful assistant that specializes in generating effective search engine queries.  Given any text input, your task is to create one or more concise and relevant search queries that would be likely to retrieve information related to that text from a search engine (like Google, Bing, etc.).  Consider the key concepts, entities, and the user's likely intent.  Prioritize clarity and precision in the queries."
     },
     research_analyst: {
         role: "Research Analyst",
-        system_prompt: "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation."
+        system_prompt:
+            "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation."
     },
     creative_writer: {
         role: "Creative Writer",
-        system_prompt: "You are an exceptional creative writer. When responding, use vivid sensory details, emotional resonance, and varied sentence structures. Organize your narratives with clear beginnings, middles, and ends. Employ literary techniques like metaphor and foreshadowing appropriately. When providing examples or stories, ensure they have depth and authenticity. Present creative options when asked, rather than single solutions."
+        system_prompt:
+            "You are an exceptional creative writer. When responding, use vivid sensory details, emotional resonance, and varied sentence structures. Organize your narratives with clear beginnings, middles, and ends. Employ literary techniques like metaphor and foreshadowing appropriately. When providing examples or stories, ensure they have depth and authenticity. Present creative options when asked, rather than single solutions."
     },
     code_expert: {
         role: "Programming Expert",
-        system_prompt: "You are a senior software developer with expertise across multiple programming languages. Present code solutions with clear comments explaining your approach. Structure responses with: 1) Problem understanding 2) Solution approach 3) Complete, executable code 4) Explanation of how the code works 5) Alternative approaches. Include error handling in examples, use consistent formatting, and provide explicit context for any code snippets. Test your solutions mentally before presenting them."
+        system_prompt:
+            "You are a senior software developer with expertise across multiple programming languages. Present code solutions with clear comments explaining your approach. Structure responses with: 1) Problem understanding 2) Solution approach 3) Complete, executable code 4) Explanation of how the code works 5) Alternative approaches. Include error handling in examples, use consistent formatting, and provide explicit context for any code snippets. Test your solutions mentally before presenting them."
     },
     teacher: {
         role: "Educational Expert",
-        system_prompt: "You are an experienced teacher skilled at explaining complex concepts. Present information in a structured, progressive manner from foundational to advanced. Use analogies and examples to connect new concepts to familiar ones. Break down complex ideas into smaller components. Incorporate multiple formats (definitions, examples, diagrams described in text) to accommodate different learning styles. Ask thought-provoking questions to deepen understanding. Anticipate common misconceptions and address them proactively."
+        system_prompt:
+            "You are an experienced teacher skilled at explaining complex concepts. Present information in a structured, progressive manner from foundational to advanced. Use analogies and examples to connect new concepts to familiar ones. Break down complex ideas into smaller components. Incorporate multiple formats (definitions, examples, diagrams described in text) to accommodate different learning styles. Ask thought-provoking questions to deepen understanding. Anticipate common misconceptions and address them proactively."
     },
     data_analyst: {
         role: "Data Analysis Expert",
-        system_prompt: "You are a data analysis expert. When working with data, focus on identifying patterns and outliers, considering statistical significance, and exploring causal relationships vs. correlations. Present your analysis with a clear narrative structure that connects data points to insights. Use hypothetical data visualization descriptions when relevant. Consider alternative interpretations of data and potential confounding variables. Clearly communicate limitations and assumptions in any analysis."
+        system_prompt:
+            "You are a data analysis expert. When working with data, focus on identifying patterns and outliers, considering statistical significance, and exploring causal relationships vs. correlations. Present your analysis with a clear narrative structure that connects data points to insights. Use hypothetical data visualization descriptions when relevant. Consider alternative interpretations of data and potential confounding variables. Clearly communicate limitations and assumptions in any analysis."
     },
     retrieval_assistant: {
         role: "Retrieval Assistant",
@@ -212,10 +219,36 @@ namespace functions {
 `
     },
     mcp_client: {
-        "role": "MCP Client", 
-        "system_prompt": `Below is a list of the actions you can perform. Choose the best output to answer the user's query:\n\n1. listTools\n - Purpose: Returns a list of all registered tools.\n - Payload Example:\n { \"action\": \"listTools\" }\n\n2. execute\n - Purpose: Executes a specific tool.\n - Required Fields:\n - \"tool\": The name of the tool you wish to execute (e.g. \"hello\", \"calculate\", or \"time\").\n - \"args\": A JSON object containing the arguments required by the tool.\n - Payload Examples:\n - Executing the \"hello\" tool:\n { \"action\": \"execute\", \"tool\": \"hello\", \"args\": { \"name\": \"World\" } }\n - Executing the \"calculate\" tool:\n { \"action\": \"execute\", \"tool\": \"calculate\", \"args\": { \"operation\": \"add\", \"a\": 10, \"b\": 5 } }\n - Executing the \"time\" tool:\n { \"action\": \"execute\", \"tool\": \"time\", \"args\": { \"format\": \"2006-01-02 15:04:05\" } }\n\nYou NEVER respond using Markdown. You ALWAYS respond using raw json choosing the best tool to respond to the query.`,
+        role: "MCP Client",
+        system_prompt: `Below is a list of file system operations you can perform. Choose the best output to answer the user's query:
+
+1. listTools
+ - Purpose: Returns a list of all registered file system tools.
+ - Payload Example:
+   { "action": "listTools" }
+
+2. execute
+ - Purpose: Executes a specific file system operation.
+ - Required Fields:
+   - "tool": The name of the file system tool you wish to execute. This can be one of:
+       "read_file", "read_multiple_files", "write_file", "edit_file", "create_directory", "list_directory", "directory_tree", "move_file", "search_files", "get_file_info", "list_allowed_directories"
+   - "args": A JSON object containing the arguments required by the tool.
+ - Payload Examples:
+   - Executing the "read_file" tool:
+     { "action": "execute", "tool": "read_file", "args": { "path": "/path/to/file.txt" } }
+   - Executing the "write_file" tool:
+     { "action": "execute", "tool": "write_file", "args": { "path": "/path/to/file.txt", "content": "New file content" } }
+   - Executing the "list_directory" tool:
+     { "action": "execute", "tool": "list_directory", "args": { "path": "/path/to/directory" } }
+   - Executing the "create_directory" tool:
+     { "action": "execute", "tool": "create_directory", "args": { "path": "/path/to/newdirectory" } }
+   - Executing the "move_file" tool:
+     { "action": "execute", "tool": "move_file", "args": { "source": "/path/to/source.txt", "destination": "/path/to/destination.txt" } }
+
+You NEVER respond using Markdown. You ALWAYS respond using raw json choosing the best file system tool to respond to the query.`
     },
 }
+
 
 // A helper function to check if a model is an O1/O3 variant.
 function isO1Model(model) {
@@ -267,72 +300,72 @@ const agenticRetrieveFunction = {
 }
 
 const mcpServerFunctions = {
-  "tools": [
-    {
-      "description": "Performs basic mathematical operations",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "a": {
-            "description": "First number",
-            "type": "number"
-          },
-          "b": {
-            "description": "Second number",
-            "type": "number"
-          },
-          "operation": {
-            "description": "The mathematical operation to perform",
-            "enum": [
-              "add",
-              "subtract",
-              "multiply",
-              "divide"
-            ],
-            "type": "string"
-          }
+    "tools": [
+        {
+            "description": "Performs basic mathematical operations",
+            "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                    "a": {
+                        "description": "First number",
+                        "type": "number"
+                    },
+                    "b": {
+                        "description": "Second number",
+                        "type": "number"
+                    },
+                    "operation": {
+                        "description": "The mathematical operation to perform",
+                        "enum": [
+                            "add",
+                            "subtract",
+                            "multiply",
+                            "divide"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "operation",
+                    "a",
+                    "b"
+                ],
+                "type": "object"
+            },
+            "name": "calculate"
         },
-        "required": [
-          "operation",
-          "a",
-          "b"
-        ],
-        "type": "object"
-      },
-      "name": "calculate"
-    },
-    {
-      "description": "Says hello to the provided name",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "name": {
-            "description": "The name to say hello to",
-            "type": "string"
-          }
+        {
+            "description": "Says hello to the provided name",
+            "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                    "name": {
+                        "description": "The name to say hello to",
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "name"
+                ],
+                "type": "object"
+            },
+            "name": "hello"
         },
-        "required": [
-          "name"
-        ],
-        "type": "object"
-      },
-      "name": "hello"
-    },
-    {
-      "description": "Returns the current time",
-      "inputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "format": {
-            "description": "Optional time format (default: RFC3339)",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "name": "time"
-    }
-  ]
+        {
+            "description": "Returns the current time",
+            "inputSchema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                    "format": {
+                        "description": "Optional time format (default: RFC3339)",
+                        "type": "string"
+                    }
+                },
+                "type": "object"
+            },
+            "name": "time"
+        }
+    ]
 }
 
 // ---------------------------

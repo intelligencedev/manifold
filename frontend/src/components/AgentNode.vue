@@ -259,11 +259,7 @@ namespace functions {
             { "action": "execute", "tool": "git_push", "args": { "path": "/path/to/repo" } }
 
         You NEVER respond using Markdown. You ALWAYS respond using raw json choosing the best tool to respond to the query.
-        ALWAYS use the following raw json structure (for example for the time tool): {
-        "action": "execute",
-        "tool": "time",
-        "args": {}
-        }
+        ALWAYS use the following raw json structure (for example for the time tool): { "action": "execute", "tool": "time", "args": {} }
         REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
     },
 }
@@ -529,7 +525,6 @@ async function callCompletionsAPI_local(agentNode, prompt) {
             stream: true
         };
 
-        endpoint = "http://192.168.1.200:32188/v1/chat/completions";
         const streamResponse = await fetch(endpoint, {
             method: "POST",
             headers: {
@@ -655,7 +650,6 @@ async function callCompletionsAPI_local(agentNode, prompt) {
     delete body.function_call;
     delete body.tool_calls;
     body.messages[0].content = "Use the provided documents to respond to the user's query. Be thorough and accurate and respond in a structured manner.";
-    endpoint = "http://192.168.1.200:32188/v1/chat/completions";
 
     const streamResponse = await fetch(endpoint, {
         method: "POST",

@@ -19,6 +19,44 @@
         <!-- Accordion -->
         <div class="accordion">
 
+          <!-- Console Logs Card Accordion Item -->
+          <div class="accordion-item">
+            <div class="accordion-header" @click="toggleAccordion('logs')">
+              <h3 class="accordion-title">Console Logs</h3>
+              <span class="accordion-icon" :class="{ 'is-open': accordionOpen.logs }">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-down"
+                  viewBox="0 0 16 16">
+                  <path fill-rule="evenodd"
+                    d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
+                </svg>
+              </span>
+            </div>
+            <div class="accordion-content" v-if="accordionOpen.logs">
+              <!-- Console Logs Content -->
+              <div class="logs-card">
+                <div class="logs-controls">
+                  <button @click="clearLogs" class="clear-logs-button">Clear Logs</button>
+                  <label class="auto-scroll-label">
+                    <input type="checkbox" v-model="autoScroll">
+                    Auto-scroll
+                  </label>
+                </div>
+                <div class="logs-container" ref="logsContainer">
+                  <div v-for="(log, index) in consoleLogs" :key="index" :class="['log-entry', `log-${log.type}`]">
+                    <span class="log-time">{{ log.timestamp }}</span>
+                    <span class="log-type">[{{ log.type.toUpperCase() }}]</span>
+                    <span class="log-message">{{ log.message }}</span>
+                  </div>
+                  <div v-if="consoleLogs.length === 0" class="no-logs-message">
+                    No logs captured yet
+                  </div>
+                </div>
+              </div>
+              <!-- End Console Logs Content -->
+            </div>
+          </div>
+          <!-- End Console Logs Card Accordion Item -->
+
           <!-- Search Card Accordion Item -->
           <div class="accordion-item">
             <div class="accordion-header" @click="toggleAccordion('search')">
@@ -104,36 +142,114 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useConfigStore } from '@/stores/configStore'
 import { listModels } from '@huggingface/hub'
 
 const isOpen = ref(false)
 const configStore = useConfigStore()
+const logsContainer = ref<HTMLElement | null>(null)
 
 // Accordion State
 const accordionOpen = ref({
-  search: true,  // Start with search open
+  logs: true,    // Start with logs open
+  search: false, // Close search
   config: false,
 })
 
+// Console Logs Logic
+interface ConsoleLog {
+  type: 'warning' | 'error';
+  message: string;
+  timestamp: string;
+}
+
+const consoleLogs = ref<ConsoleLog[]>([])
+const autoScroll = ref(true)
+
+// Original console methods
+const originalConsoleWarn = console.warn
+const originalConsoleError = console.error
+
+// Function to format timestamp
+function formatTimestamp(): string {
+  const now = new Date()
+  return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
+// Override console methods to capture logs
+function overrideConsole() {
+  console.warn = function(...args: any[]) {
+    // Call original method
+    originalConsoleWarn.apply(console, args)
+    
+    // Add to our logs
+    consoleLogs.value.push({
+      type: 'warning',
+      message: args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '),
+      timestamp: formatTimestamp()
+    })
+  }
+  
+  console.error = function(...args: any[]) {
+    // Call original method
+    originalConsoleError.apply(console, args)
+    
+    // Add to our logs
+    consoleLogs.value.push({
+      type: 'error',
+      message: args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '),
+      timestamp: formatTimestamp()
+    })
+  }
+}
+
+// Restore original console methods
+function restoreConsole() {
+  console.warn = originalConsoleWarn
+  console.error = originalConsoleError
+}
+
+function clearLogs() {
+  consoleLogs.value = []
+}
+
+// Auto-scroll logic
+watch(consoleLogs, () => {
+  if (autoScroll.value) {
+    nextTick(() => {
+      if (logsContainer.value) {
+        logsContainer.value.scrollTop = logsContainer.value.scrollHeight
+      }
+    })
+  }
+}, { deep: true })
+
 onMounted(() => {
   configStore.fetchConfig()
+  overrideConsole()
+  
+  // Test logs
+  console.warn("Console logger initialized")
+})
+
+onUnmounted(() => {
+  restoreConsole()
 })
 
 function togglePalette() {
   isOpen.value = !isOpen.value
 }
 
-function toggleAccordion(item: 'search' | 'config') {
+function toggleAccordion(item: 'logs' | 'search' | 'config') {
   for (const key in accordionOpen.value) {
     // Close all other items
     if (key !== item) {
-      accordionOpen.value[key as 'search' | 'config'] = false;
+      accordionOpen.value[key as 'logs' | 'search' | 'config'] = false
     }
   }
   // Toggle the clicked item
-  accordionOpen.value[item] = !accordionOpen.value[item];
+  accordionOpen.value[item] = !accordionOpen.value[item]
 }
 
 // --- Search Card Logic ---
@@ -440,5 +556,87 @@ function prevPage() {
 .page-number {
   color: #eee;
   font-size: 0.9rem;
+}
+
+/* Console Logs Card Styles */
+.logs-card {
+  padding: 10px;
+  border-radius: 8px;
+  color: #eee;
+  margin-bottom: 0;
+}
+
+.logs-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.clear-logs-button {
+  padding: 5px 10px;
+  background-color: #444;
+  color: #eee;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background-color 0.2s;
+}
+
+.clear-logs-button:hover {
+  background-color: #555;
+}
+
+.auto-scroll-label {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.auto-scroll-label input {
+  margin-right: 5px;
+}
+
+.logs-container {
+  height: 200px;
+  overflow-y: auto;
+  background-color: #1a1a1a;
+  border-radius: 4px;
+  padding: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.8rem;
+}
+
+.log-entry {
+  margin-bottom: 4px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-time {
+  color: #888;
+  margin-right: 6px;
+}
+
+.log-type {
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+.log-warning {
+  color: #ffcc00;
+}
+
+.log-error {
+  color: #ff6b6b;
+}
+
+.no-logs-message {
+  color: #888;
+  text-align: center;
+  padding: 10px;
 }
 </style>

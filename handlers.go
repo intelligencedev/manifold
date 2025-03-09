@@ -200,7 +200,7 @@ func executeRealMCPHandler(c echo.Context) error {
 
 	// Launch the MCP server process (using the real server example).
 	// Note: Adjust the command and path as necessary.
-	cmd := exec.Command("go", "run", "cmd/mcpserver/mcpserver.go")
+	cmd := exec.Command("go", "run", "cmd/mcpserver/mcpserver.go", "/Users/art/Documents/code/manifold")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get server stdin pipe"})

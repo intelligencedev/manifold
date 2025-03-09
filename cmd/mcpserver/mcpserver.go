@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -74,6 +76,68 @@ type CreateDirectoryArgs struct {
 type MoveFileArgs struct {
 	Source      string `json:"source" jsonschema:"required,description=Source file/directory path"`
 	Destination string `json:"destination" jsonschema:"required,description=Destination file/directory path"`
+}
+
+// =====================
+// Git Tool Argument Types
+// =====================
+
+// GitInitArgs is used by the "git_init" tool.
+type GitInitArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Directory in which to initialize a Git repo"`
+}
+
+// GitRepoArgs is used by "git_status", "git_pull", "git_push"—i.e. any command that just needs the repo path.
+type GitRepoArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
+}
+
+// GitAddArgs is used by the "git_add" tool.
+type GitAddArgs struct {
+	Path     string   `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
+	FileList []string `json:"fileList" jsonschema:"required,description=List of files to add (or empty to add all)"`
+}
+
+// GitCommitArgs is used by the "git_commit" tool.
+type GitCommitArgs struct {
+	Path    string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
+	Message string `json:"message" jsonschema:"required,description=Commit message"`
+}
+
+// --------------------------
+// Helper Functions for Git
+// --------------------------
+
+// checkGitRepo returns an error if the given path is not a directory or doesn't contain a .git folder.
+func checkGitRepo(repoPath string) error {
+	info, err := os.Stat(repoPath)
+	if err != nil {
+		return fmt.Errorf("cannot access path %q: %w", repoPath, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path %q is not a directory", repoPath)
+	}
+
+	gitDir := filepath.Join(repoPath, ".git")
+	gitInfo, err := os.Stat(gitDir)
+	if err != nil {
+		return fmt.Errorf("this path does not appear to be a Git repo (missing .git folder): %w", err)
+	}
+	if !gitInfo.IsDir() {
+		return fmt.Errorf(".git is not a directory")
+	}
+	return nil
+}
+
+// runGitCommand runs a Git command in the specified directory and returns its combined output.
+func runGitCommand(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git command failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
 }
 
 func main() {
@@ -249,6 +313,118 @@ func main() {
 				fmt.Sprintf("Moved/renamed '%s' to '%s'", args.Source, args.Destination),
 			),
 		), nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// --------------------------
+	// New Git Tools
+	// --------------------------
+
+	// git_init: initialize a new Git repository in the given path
+	err = server.RegisterTool("git_init", "Initializes a new Git repository in a specified directory", func(args GitInitArgs) (*mcp.ToolResponse, error) {
+		// Check if the path is a directory
+		info, err := os.Stat(args.Path)
+		if err != nil {
+			return nil, fmt.Errorf("cannot access path %q: %w", args.Path, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("path %q is not a directory", args.Path)
+		}
+
+		// Run git init
+		output, err := runGitCommand(args.Path, "init")
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(output)), nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// git_status: show the working tree status
+	err = server.RegisterTool("git_status", "Shows the working tree status of a Git repository", func(args GitRepoArgs) (*mcp.ToolResponse, error) {
+		if err := checkGitRepo(args.Path); err != nil {
+			return nil, err
+		}
+		output, err := runGitCommand(args.Path, "status", "--short", "--branch")
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(output)), nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// git_add: add file(s) to the index
+	err = server.RegisterTool("git_add", "Stages file changes (git add)", func(args GitAddArgs) (*mcp.ToolResponse, error) {
+		if err := checkGitRepo(args.Path); err != nil {
+			return nil, err
+		}
+
+		// If no files specified, default to adding everything
+		if len(args.FileList) == 0 {
+			args.FileList = []string{"."}
+		}
+		// e.g. "git add file1 file2 ..."
+		fullArgs := append([]string{"add"}, args.FileList...)
+		output, err := runGitCommand(args.Path, fullArgs...)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(output)), nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// git_commit: commit changes with a message
+	err = server.RegisterTool("git_commit", "Commits staged changes with a given commit message", func(args GitCommitArgs) (*mcp.ToolResponse, error) {
+		if err := checkGitRepo(args.Path); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(args.Message) == "" {
+			return nil, fmt.Errorf("commit message cannot be empty")
+		}
+
+		output, err := runGitCommand(args.Path, "commit", "-m", args.Message)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(output)), nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// git_pull: pull changes from remote
+	err = server.RegisterTool("git_pull", "Pulls changes from the remote repository", func(args GitRepoArgs) (*mcp.ToolResponse, error) {
+		if err := checkGitRepo(args.Path); err != nil {
+			return nil, err
+		}
+		output, err := runGitCommand(args.Path, "pull", "--rebase")
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(output)), nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// git_push: push changes to remote
+	err = server.RegisterTool("git_push", "Pushes local commits to the remote repository", func(args GitRepoArgs) (*mcp.ToolResponse, error) {
+		if err := checkGitRepo(args.Path); err != nil {
+			return nil, err
+		}
+		output, err := runGitCommand(args.Path, "push")
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(output)), nil
 	})
 	if err != nil {
 		panic(err)

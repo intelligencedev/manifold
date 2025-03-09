@@ -234,7 +234,7 @@ func tokenize(text string) []string {
 }
 
 // summarizeChunk sends the chunk content to the /v1/chat/completions endpoint to obtain a summary.
-func summarizeChunk(ctx context.Context, content string, endpoint string, apiKey string) (SummarizeOutput, error) {
+func SummarizeChunk(ctx context.Context, content string, endpoint string, apiKey string) (SummarizeOutput, error) {
 	summaryInstructions := `You are an expert text summarizer designed to create concise, informative summaries of document chunks for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the RAG system's effectiveness by enabling it to retrieve the most relevant text chunks based on user queries.
 
 **Instructions:**
@@ -394,11 +394,12 @@ func (e *Engine) IngestDocument(
 	text, languageStr, filePath, docTitle string,
 	keywords []string,
 	embeddingsHost, apiKey, completionsHost, completionsAPIKey string,
-	chunkSize int, chunkOverlap int,
+	chunkSize int, chunkOverlap int, embeddingDims int,
+	embedPrefix string,
 ) error {
 
 	// ensure table
-	if err := e.EnsureTable(ctx, 768 /* or whatever dim you have */); err != nil {
+	if err := e.EnsureTable(ctx, embeddingDims); err != nil {
 		log.Printf("SEFII: Failed to ensure table: %v", err)
 		return err
 	}
@@ -514,7 +515,7 @@ func (e *Engine) IngestDocument(
 		keywordsToUse = append(keywordsToUse, keywords...)
 		chunkMetadata["keywords"] = strings.Join(keywordsToUse, ",")
 
-		finalChunkContent := fmt.Sprintf("%s\n\n---\n\n%s", chunkContent, keywords)
+		finalChunkContent := fmt.Sprintf("%s %s\n\n---\n\n%s", embedPrefix, chunkContent, keywords)
 
 		var chunkID int64
 		mdBytes, _ := json.Marshal(chunkMetadata)
@@ -622,7 +623,9 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 	limit int,
 	useInvertedIndex bool,
 	useVectorSearch bool,
-	embeddingsHost, apiKey string,
+	embeddingsHost,
+	apiKey string,
+	searchPrefix string,
 	mergeMode string,
 	alpha, beta float64,
 ) ([]Chunk, error) {
@@ -633,7 +636,8 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 
 	// 1) Vector
 	if useVectorSearch {
-		qEmb, err := e.getQueryEmbedding(query, embeddingsHost, apiKey)
+		searchQuery := fmt.Sprintf("%s%s", searchPrefix, query)
+		qEmb, err := e.getQueryEmbedding(searchQuery, embeddingsHost, apiKey)
 		if err != nil {
 			return nil, err
 		}

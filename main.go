@@ -12,10 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/labstack/echo-contrib/jaegertracing"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
 )
 
 //go:embed frontend/dist
@@ -42,26 +40,12 @@ func main() {
 
 	// Create Echo instance with middleware.
 	e := echo.New()
-	c := jaegertracing.New(e, nil)
-	defer c.Close()
 	e.Use(middleware.Logger())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{echo.GET, echo.PUT, echo.POST, echo.DELETE, echo.OPTIONS},
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "X-File-Path"},
 	}))
-
-	tp, err := initTracer(config)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		if err := tp.Shutdown(context.Background()); err != nil {
-			log.Printf("Error shutting down tracer provider: %v", err)
-		}
-	}()
-
-	e.Use(otelecho.Middleware(service, otelecho.WithTracerProvider(tp)))
 
 	// Register all routes.
 	registerRoutes(e, config)

@@ -19,6 +19,7 @@
     "d3": "^7.9.0",
     "highlight.js": "^11.11.1",
     "install": "^0.13.0",
+    "kokoro-js": "^1.2.0",
     "license-checker": "^25.0.1",
     "marked": "^15.0.6",
     "npm": "^11.1.0",

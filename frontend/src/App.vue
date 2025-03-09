@@ -93,6 +93,12 @@
       <template #node-documentsRetrieveNode="documentsRetrieveNodeProps">
         <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" />
       </template>
+      <template #node-ttsNode="ttsNodeProps">
+        <ttsNode v-bind="ttsNodeProps" />
+      </template>
+      <template #node-mcpClientNode="mcpClientNodeProps">
+        <MCPClient v-bind="mcpClientNodeProps" />
+      </template>
 
       <Controls :style="{ backgroundColor: '#222', color: '#eee' }" />
       <!-- <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
@@ -186,6 +192,8 @@ import ComfyNode from './components/ComfyNode.vue';
 import MLXFlux from './components/MLXFlux.vue';
 import DocumentsIngest from './components/DocumentsIngest.vue';
 import DocumentsRetrieve from './components/DocumentsRetrieve.vue';
+import ttsNode from './components/ttsNode.vue';
+import MCPClient from './components/MCPClient.vue';
 
 // --- SETUP ---
 interface BgColorInterface {

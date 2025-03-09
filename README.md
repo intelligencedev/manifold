@@ -87,7 +87,7 @@ Execute the following commands:
 ```bash
 nvm use 20
 npm run build
-go build -ldflags="-s -w" -trimpath -o ./dist/manifold main.go
+go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
 cd dist
 ./manifold
 ```

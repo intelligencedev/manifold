@@ -31,7 +31,7 @@
   
   const { getEdges, findNode } = useVueFlow()
   
-  // Define component props with defaults
+  // Define component props with defaults.
   const props = defineProps({
     id: {
       type: String,
@@ -57,10 +57,10 @@
     }
   })
   
-  // Emit updated data to VueFlow
+  // Emit updated data to VueFlow.
   const emit = defineEmits(['update:data'])
   
-  // Assign the run() function once the component is mounted
+  // Assign the run() function once the component is mounted.
   onMounted(() => {
     if (!props.data.run) {
       props.data.run = run
@@ -71,17 +71,18 @@
    * The run method performs the following:
    * 1. Clears previous output.
    * 2. Checks if there is connected source data via VueFlow edges.
-   * 3. Uses the connected source data (if available) or falls back to the user’s configuration.
-   * 4. Ensures the payload includes an action (defaults to "listTools").
-   * 5. POSTs the payload to the MCP endpoint.
-   * 6. Updates the output based on the response.
+   * 3. If found, reads that node’s output and overwrites the MCP node’s input.
+   * 4. Parses the (possibly updated) input to create a payload.
+   * 5. Ensures the payload includes an action (defaulting to "listTools").
+   * 6. Sends the payload to the MCP endpoint and stores the result.
    */
   async function run() {
     try {
-      // Clear previous output
+      // Clear previous input and output.
+      // props.inputs.command = '';
       props.data.outputs.result = '';
   
-      // Identify connected source nodes (if any)
+      // Identify connected source nodes.
       const connectedSources = getEdges.value
         .filter((edge) => edge.target === props.id)
         .map((edge) => edge.source);
@@ -98,10 +99,11 @@
           } catch (err) {
             payload = { config: sourceData };
           }
-          // Update the input field with the connected data
+          // Overwrite the input field with the connected source's result.
           props.data.inputs.command = JSON.stringify(payload, null, 2);
         }
       } else {
+        // If no connected source, parse the user's input.
         let userInput = props.data.inputs.command;
         try {
           payload = JSON.parse(userInput);
@@ -110,12 +112,12 @@
         }
       }
   
-      // Ensure payload includes an action; default to "listTools" if missing
+      // Ensure payload includes an action; default to "listTools" if missing.
       if (!payload.action) {
         payload.action = 'listTools';
       }
   
-      // POST to the MCP execution endpoint (adjust the URL as needed)
+      // POST to the MCP execution endpoint (adjust the URL as needed).
       const response = await fetch('http://localhost:8080/api/executeMCP', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -132,7 +134,7 @@
       const result = await response.json();
       console.log('MCP Client run result:', result);
   
-      // Extract a result string from stdout or stderr, or fallback to the full JSON result
+      // Extract a result string from stdout or stderr, or fallback to full JSON.
       const resultStr = result.stdout || result.stderr || JSON.stringify(result, null, 2);
   
       props.data.outputs = {
@@ -140,7 +142,6 @@
       };
   
       updateNodeData();
-  
       return { response, result };
     } catch (error) {
       console.error('Error in run():', error);
@@ -149,7 +150,7 @@
     }
   }
   
-  // Computed property for the user input (configuration)
+  // Computed property for the configuration input (two-way binding).
   const command = computed({
     get: () => props.data.inputs?.command || '',
     set: (value) => {
@@ -158,7 +159,7 @@
     }
   });
   
-  // Ensure data updates are emitted to VueFlow
+  // Emit updated node data back to VueFlow.
   function updateNodeData() {
     const updatedData = {
       ...props.data,

@@ -145,7 +145,7 @@ const { getEdges, findNode, zoomIn, zoomOut } = useVueFlow()
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 
 const showApiKey = ref(false)
-const enableToolCalls = ref(true)  // <-- New toggle state
+const enableToolCalls = ref(false)
 
 // Predefined System Prompt Options
 const selectedSystemPrompt = ref("friendly_assistant")
@@ -211,6 +211,10 @@ namespace functions {
 }
 `
     },
+    mcp_client: {
+        "role": "MCP Client", 
+        "system_prompt": `Below is a list of the actions you can perform. Choose the best output to answer the user's query:\n\n1. listTools\n - Purpose: Returns a list of all registered tools.\n - Payload Example:\n { \"action\": \"listTools\" }\n\n2. execute\n - Purpose: Executes a specific tool.\n - Required Fields:\n - \"tool\": The name of the tool you wish to execute (e.g. \"hello\", \"calculate\", or \"time\").\n - \"args\": A JSON object containing the arguments required by the tool.\n - Payload Examples:\n - Executing the \"hello\" tool:\n { \"action\": \"execute\", \"tool\": \"hello\", \"args\": { \"name\": \"World\" } }\n - Executing the \"calculate\" tool:\n { \"action\": \"execute\", \"tool\": \"calculate\", \"args\": { \"operation\": \"add\", \"a\": 10, \"b\": 5 } }\n - Executing the \"time\" tool:\n { \"action\": \"execute\", \"tool\": \"time\", \"args\": { \"format\": \"2006-01-02 15:04:05\" } }\n\nYou NEVER respond using Markdown. You ALWAYS respond using raw json choosing the best tool to respond to the query.`,
+    },
 }
 
 // A helper function to check if a model is an O1/O3 variant.
@@ -260,6 +264,75 @@ const agenticRetrieveFunction = {
         },
         required: ["query"]
     }
+}
+
+const mcpServerFunctions = {
+  "tools": [
+    {
+      "description": "Performs basic mathematical operations",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "a": {
+            "description": "First number",
+            "type": "number"
+          },
+          "b": {
+            "description": "Second number",
+            "type": "number"
+          },
+          "operation": {
+            "description": "The mathematical operation to perform",
+            "enum": [
+              "add",
+              "subtract",
+              "multiply",
+              "divide"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "a",
+          "b"
+        ],
+        "type": "object"
+      },
+      "name": "calculate"
+    },
+    {
+      "description": "Says hello to the provided name",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "name": {
+            "description": "The name to say hello to",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "name": "hello"
+    },
+    {
+      "description": "Returns the current time",
+      "inputSchema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "format": {
+            "description": "Optional time format (default: RFC3339)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "time"
+    }
+  ]
 }
 
 // ---------------------------
@@ -381,6 +454,8 @@ async function callAgenticMemoryAPI(userPrompt) {
     }
 }
 
+
+
 // ---------------------------
 // callCompletionsAPI_local
 // ---------------------------
@@ -450,7 +525,7 @@ async function callCompletionsAPI_local(agentNode, prompt) {
             buffer = buffer.substring(start);
         }
 
-        await storeResponseInAgenticMemory(props.data.outputs.response);
+        //await storeResponseInAgenticMemory(props.data.outputs.response);
         return { response: props.data.outputs.response };
     }
 
@@ -577,7 +652,7 @@ async function callCompletionsAPI_local(agentNode, prompt) {
         buffer = buffer.substring(start);
     }
 
-    await storeResponseInAgenticMemory(props.data.outputs.response);
+    // await storeResponseInAgenticMemory(props.data.outputs.response);
     return { response: props.data.outputs.response };
 }
 
@@ -660,7 +735,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
             }
             buffer = buffer.substring(start);
         }
-        await storeResponseInAgenticMemory(props.data.outputs.response);
+        //await storeResponseInAgenticMemory(props.data.outputs.response);
         return { response: props.data.outputs.response };
     }
 
@@ -694,7 +769,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                     content: prompt,
                 },
             ],
-            functions: [combinedRetrieveFunction, agenticRetrieveFunction],
+            functions: [mcpServerFunctions],
             function_call: "auto",
             stream: false,
         };
@@ -794,7 +869,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
         }
         buffer = buffer.substring(start);
     }
-    await storeResponseInAgenticMemory(props.data.outputs.response);
+    // await storeResponseInAgenticMemory(props.data.outputs.response);
     return { response: props.data.outputs.response };
 }
 

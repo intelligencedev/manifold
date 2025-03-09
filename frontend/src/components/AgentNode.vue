@@ -213,7 +213,29 @@ namespace functions {
     },
     mcp_client: {
         "role": "MCP Client", 
-        "system_prompt": `Below is a list of the actions you can perform. Choose the best output to answer the user's query:\n\n1. listTools\n - Purpose: Returns a list of all registered tools.\n - Payload Example:\n { \"action\": \"listTools\" }\n\n2. execute\n - Purpose: Executes a specific tool.\n - Required Fields:\n - \"tool\": The name of the tool you wish to execute (e.g. \"hello\", \"calculate\", or \"time\").\n - \"args\": A JSON object containing the arguments required by the tool.\n - Payload Examples:\n - Executing the \"hello\" tool:\n { \"action\": \"execute\", \"tool\": \"hello\", \"args\": { \"name\": \"World\" } }\n - Executing the \"calculate\" tool:\n { \"action\": \"execute\", \"tool\": \"calculate\", \"args\": { \"operation\": \"add\", \"a\": 10, \"b\": 5 } }\n - Executing the \"time\" tool:\n { \"action\": \"execute\", \"tool\": \"time\", \"args\": { \"format\": \"2006-01-02 15:04:05\" } }\n\nYou NEVER respond using Markdown. You ALWAYS respond using raw json choosing the best tool to respond to the query.`,
+        "system_prompt": `Below is a list of the actions you can perform. Choose the best output to answer the user's query:
+
+1. listTools
+ - Purpose: Returns a list of all registered tools.
+ - Payload Example:
+ { "action": "listTools" }
+
+2. execute
+ - Purpose: Executes a specific tool.
+ - Required Fields:
+ - "tool": The name of the tool you wish to execute (e.g. "hello", "calculate", "time", or "get_weather").
+ - "args": A JSON object containing the arguments required by the tool.
+ - Payload Examples:
+ - Executing the "hello" tool:
+ { "action": "execute", "tool": "hello", "args": { "name": "World" } }
+ - Executing the "calculate" tool:
+ { "action": "execute", "tool": "calculate", "args": { "operation": "add", "a": 10, "b": 5 } }
+ - Executing the "time" tool:
+ { "action": "execute", "tool": "time", "args": { "format": "2006-01-02 15:04:05" } }
+ - Executing the "get_weather" tool:
+ { "action": "execute", "tool": "get_weather", "args": { "latitude": 37.7749, "longitude": -122.4194 } }
+
+You NEVER respond using Markdown. You ALWAYS respond using raw json choosing the best tool to respond to the query.`,
     },
 }
 

@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -29,6 +31,12 @@ type TimeArgs struct {
 // PromptArgs represents the arguments for custom prompts
 type PromptArgs struct {
 	Input string `json:"input" jsonschema:"required,description=The input text to process"`
+}
+
+// WeatherArgs represents the arguments for the weather tool
+type WeatherArgs struct {
+	Longitude float64 `json:"longitude" jsonschema:"required,description=The longitude of the location to get the weather for"`
+	Latitude  float64 `json:"latitude" jsonschema:"required,description=The latitude of the location to get the weather for"`
 }
 
 func main() {
@@ -80,6 +88,24 @@ func main() {
 		}
 		message := time.Now().Format(format)
 		return mcp.NewToolResponse(mcp.NewTextContent(message)), nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	// Register weather tool
+	err = server.RegisterTool("get_weather", "Get the weather forecast for temperature, wind speed and relative humidity", func(args WeatherArgs) (*mcp.ToolResponse, error) {
+		url := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current=temperature_2m,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m", args.Latitude, args.Longitude)
+		resp, err := http.Get(url)
+		if err != nil {
+			return nil, err
+		}
+		defer resp.Body.Close()
+		output, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(string(output))), nil
 	})
 	if err != nil {
 		panic(err)

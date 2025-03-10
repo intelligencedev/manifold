@@ -112,6 +112,135 @@ type GitCommitArgs struct {
 	Message string `json:"message" jsonschema:"required,description=Commit message"`
 }
 
+// =====================
+// Agent Tool Argument Type
+// =====================
+type AgentArgs struct {
+	Query    string `json:"query" jsonschema:"required,description=User's query"`
+	MaxCalls int    `json:"maxCalls" jsonschema:"required,description=Number of maximum LLM calls allowed"`
+}
+
+// ChatCompletionRequest is used to marshal the body for OpenAI's chat completion request.
+type ChatCompletionRequest struct {
+	Model       string              `json:"model"`
+	Messages    []ChatCompletionMsg `json:"messages"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	Temperature float64             `json:"temperature,omitempty"`
+}
+
+// ChatCompletionMsg represents a message with role and content for the Chat API.
+type ChatCompletionMsg struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ChatCompletionResponse is used to unmarshal the OpenAI chat completion response.
+type ChatCompletionResponse struct {
+	Choices []struct {
+		Message struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+// =====================
+// New Tools: Additional Argument Types
+// =====================
+
+// ReadMultipleFilesArgs is used by the "read_multiple_files" tool.
+type ReadMultipleFilesArgs struct {
+	Paths []string `json:"paths" jsonschema:"required,description=List of file paths to read"`
+}
+
+// EditFileArgs is used by the "edit_file" tool.
+type EditFileArgs struct {
+	Path         string `json:"path" jsonschema:"required,description=Path to the file to edit"`
+	Search       string `json:"search,omitempty" jsonschema:"description=Text to search for"`
+	Replace      string `json:"replace,omitempty" jsonschema:"description=Text to replace with"`
+	PatchContent string `json:"patchContent,omitempty" jsonschema:"description=A unified diff patch to apply to the file"`
+}
+
+// DirectoryTreeArgs is used by the "directory_tree" tool.
+type DirectoryTreeArgs struct {
+	Path     string `json:"path" jsonschema:"required,description=Root directory for the tree"`
+	MaxDepth int    `json:"maxDepth,omitempty" jsonschema:"description=Limit recursion depth (0 for unlimited)"`
+}
+
+// SearchFilesArgs is used by the "search_files" tool.
+type SearchFilesArgs struct {
+	Path    string `json:"path" jsonschema:"required,description=Base path to search"`
+	Pattern string `json:"pattern" jsonschema:"required,description=Text or regex pattern to find"`
+}
+
+// GetFileInfoArgs is used by the "get_file_info" tool.
+type GetFileInfoArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Path to the file or directory"`
+}
+
+// ListAllowedDirectoriesArgs is used by the "list_allowed_directories" tool.
+type ListAllowedDirectoriesArgs struct{}
+
+// DeleteFileArgs is used by the "delete_file" tool.
+type DeleteFileArgs struct {
+	Path      string `json:"path" jsonschema:"required,description=File or directory path to delete"`
+	Recursive bool   `json:"recursive,omitempty" jsonschema:"description=If true, delete recursively"`
+}
+
+// CopyFileArgs is used by the "copy_file" tool.
+type CopyFileArgs struct {
+	Source      string `json:"source" jsonschema:"required"`
+	Destination string `json:"destination" jsonschema:"required"`
+	Recursive   bool   `json:"recursive,omitempty" jsonschema:"description=Copy directories recursively"`
+}
+
+// GitCloneArgs is used by the "git_clone" tool.
+type GitCloneArgs struct {
+	RepoURL string `json:"repoUrl" jsonschema:"required"`
+	Path    string `json:"path" jsonschema:"required,description=Local path to clone into"`
+}
+
+// GitCheckoutArgs is used by the "git_checkout" tool.
+type GitCheckoutArgs struct {
+	Path      string `json:"path" jsonschema:"required"`
+	Branch    string `json:"branch" jsonschema:"required"`
+	CreateNew bool   `json:"createNew,omitempty" jsonschema:"description=Create a new branch if true"`
+}
+
+// GitDiffArgs is used by the "git_diff" tool.
+type GitDiffArgs struct {
+	Path    string `json:"path" jsonschema:"required"`
+	FromRef string `json:"fromRef,omitempty" jsonschema:"description=Starting reference"`
+	ToRef   string `json:"toRef,omitempty" jsonschema:"description=Ending reference"`
+}
+
+// ShellCommandArgs is used by the "run_shell_command" tool.
+type ShellCommandArgs struct {
+	Directory string   `json:"directory" jsonschema:"required"`
+	Command   []string `json:"command" jsonschema:"required"`
+}
+
+// GoBuildArgs is used by the "go_build" tool.
+type GoBuildArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Directory of the Go module to build"`
+}
+
+// GoTestArgs is used by the "go_test" tool.
+type GoTestArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Directory of the Go module to test"`
+}
+
+// FormatGoCodeArgs is used by the "format_go_code" tool.
+type FormatGoCodeArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Directory of the Go code to format"`
+}
+
+// LintCodeArgs is used by the "lint_code" tool.
+type LintCodeArgs struct {
+	Path       string `json:"path" jsonschema:"required,description=Directory or file to lint"`
+	LinterName string `json:"linterName,omitempty" jsonschema:"description=Name of the linter to use (optional)"`
+}
+
 // --------------------------
 // Helper Functions for Git
 // --------------------------
@@ -146,36 +275,101 @@ func runGitCommand(dir string, args ...string) (string, error) {
 	return string(output), nil
 }
 
-// ----------------------------
-// Agent Tool Argument Type
-// ----------------------------
-type AgentArgs struct {
-	Query    string `json:"query" jsonschema:"required,description=User's query"`
-	MaxCalls int    `json:"maxCalls" jsonschema:"required,description=Number of maximum LLM calls allowed"`
+// -------------------------
+// Helper Functions for File Copy and Directory Tree
+// -------------------------
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
-// ChatCompletionRequest is used to marshal the body for OpenAI's chat completion request.
-type ChatCompletionRequest struct {
-	Model       string              `json:"model"`
-	Messages    []ChatCompletionMsg `json:"messages"`
-	MaxTokens   int                 `json:"max_tokens,omitempty"`
-	Temperature float64             `json:"temperature,omitempty"`
+func copyDir(src string, dst string) error {
+	entries, err := ioutil.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
-// ChatCompletionMsg represents a message with role and content for the Chat API.
-type ChatCompletionMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+func buildDirectoryTree(path string, prefix string, maxDepth int, currentDepth int) (string, error) {
+	if maxDepth > 0 && currentDepth > maxDepth {
+		return "", nil
+	}
+	entries, err := ioutil.ReadDir(path)
+	if err != nil {
+		return "", err
+	}
+	var result strings.Builder
+	for _, entry := range entries {
+		result.WriteString(prefix)
+		if entry.IsDir() {
+			result.WriteString("[DIR] " + entry.Name() + "\n")
+			subtree, err := buildDirectoryTree(filepath.Join(path, entry.Name()), prefix+"    ", maxDepth, currentDepth+1)
+			if err != nil {
+				return "", err
+			}
+			result.WriteString(subtree)
+		} else {
+			result.WriteString("[FILE] " + entry.Name() + "\n")
+		}
+	}
+	return result.String(), nil
 }
 
-// ChatCompletionResponse is used to unmarshal the OpenAI chat completion response.
-type ChatCompletionResponse struct {
-	Choices []struct {
-		Message struct {
-			Role    string `json:"role"`
-			Content string `json:"content"`
-		} `json:"message"`
-	} `json:"choices"`
+func searchFilesRecursive(root, pattern string) ([]string, error) {
+	var matches []string
+	entries, err := ioutil.ReadDir(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		fullPath := filepath.Join(root, entry.Name())
+		if entry.IsDir() {
+			subMatches, err := searchFilesRecursive(fullPath, pattern)
+			if err != nil {
+				return nil, err
+			}
+			matches = append(matches, subMatches...)
+		} else {
+			data, err := ioutil.ReadFile(fullPath)
+			if err != nil {
+				continue
+			}
+			if strings.Contains(string(data), pattern) {
+				matches = append(matches, fullPath)
+			}
+		}
+	}
+	return matches, nil
 }
 
 // -------------------------
@@ -228,14 +422,12 @@ func callOpenAI(messages []ChatCompletionMsg) (string, error) {
 	return answer, nil
 }
 
-//
 // ---------------------------------------------------------
 // Tool helper functions: each tool has a function that takes its
 // typed arguments and returns a string result. In addition, each
 // wrapper (callXXXTool) unmarshals JSON and calls the underlying
 // function.
 // ---------------------------------------------------------
-//
 
 // hello tool
 func helloTool(args HelloArgs) (string, error) {
@@ -546,6 +738,344 @@ func callGitPushTool(jsonArgs string) (string, error) {
 	return gitPushTool(args)
 }
 
+// -------------------------
+// New Tools Implementations
+// -------------------------
+
+// read_multiple_files tool
+func readMultipleFilesTool(args ReadMultipleFilesArgs) (string, error) {
+	var result strings.Builder
+	for _, path := range args.Paths {
+		data, err := ioutil.ReadFile(path)
+		if err != nil {
+			result.WriteString(fmt.Sprintf("Error reading %s: %v\n", path, err))
+		} else {
+			result.WriteString(fmt.Sprintf("File: %s\n%s\n------\n", path, string(data)))
+		}
+	}
+	return result.String(), nil
+}
+
+func callReadMultipleFilesTool(jsonArgs string) (string, error) {
+	var args ReadMultipleFilesArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return readMultipleFilesTool(args)
+}
+
+// edit_file tool
+func editFileTool(args EditFileArgs) (string, error) {
+	if args.PatchContent != "" {
+		return "", fmt.Errorf("patchContent not supported in this implementation")
+	}
+	if args.Search == "" {
+		return "", fmt.Errorf("must provide a search string for edit_file")
+	}
+	// Read file
+	original, err := ioutil.ReadFile(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+	edited := strings.ReplaceAll(string(original), args.Search, args.Replace)
+	err = ioutil.WriteFile(args.Path, []byte(edited), 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to write edited file: %w", err)
+	}
+	return fmt.Sprintf("Edited file: %s", args.Path), nil
+}
+
+func callEditFileTool(jsonArgs string) (string, error) {
+	var args EditFileArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return editFileTool(args)
+}
+
+// directory_tree tool
+func directoryTreeTool(args DirectoryTreeArgs) (string, error) {
+	tree, err := buildDirectoryTree(args.Path, "", args.MaxDepth, 1)
+	if err != nil {
+		return "", err
+	}
+	return tree, nil
+}
+
+func callDirectoryTreeTool(jsonArgs string) (string, error) {
+	var args DirectoryTreeArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return directoryTreeTool(args)
+}
+
+// search_files tool
+func searchFilesTool(args SearchFilesArgs) (string, error) {
+	matches, err := searchFilesRecursive(args.Path, args.Pattern)
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "No files found matching the pattern.", nil
+	}
+	return "Files matching pattern:\n" + strings.Join(matches, "\n"), nil
+}
+
+func callSearchFilesTool(jsonArgs string) (string, error) {
+	var args SearchFilesArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return searchFilesTool(args)
+}
+
+// get_file_info tool
+func getFileInfoTool(args GetFileInfoArgs) (string, error) {
+	info, err := os.Stat(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat file: %w", err)
+	}
+	return fmt.Sprintf("Name: %s\nSize: %d bytes\nMode: %s\nModified: %s\nIsDir: %t",
+		info.Name(), info.Size(), info.Mode().String(), info.ModTime().Format(time.RFC3339), info.IsDir()), nil
+}
+
+func callGetFileInfoTool(jsonArgs string) (string, error) {
+	var args GetFileInfoArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return getFileInfoTool(args)
+}
+
+// list_allowed_directories tool
+func listAllowedDirectoriesTool(args ListAllowedDirectoriesArgs) (string, error) {
+	// In a real system, this might pull from configuration.
+	return "All directories are allowed.", nil
+}
+
+func callListAllowedDirectoriesTool(jsonArgs string) (string, error) {
+	var args ListAllowedDirectoriesArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return listAllowedDirectoriesTool(args)
+}
+
+// delete_file tool
+func deleteFileTool(args DeleteFileArgs) (string, error) {
+	var err error
+	if args.Recursive {
+		err = os.RemoveAll(args.Path)
+	} else {
+		err = os.Remove(args.Path)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to delete %s: %w", args.Path, err)
+	}
+	return fmt.Sprintf("Deleted: %s", args.Path), nil
+}
+
+func callDeleteFileTool(jsonArgs string) (string, error) {
+	var args DeleteFileArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return deleteFileTool(args)
+}
+
+// copy_file tool
+func copyFileTool(args CopyFileArgs) (string, error) {
+	info, err := os.Stat(args.Source)
+	if err != nil {
+		return "", fmt.Errorf("failed to access source: %w", err)
+	}
+	if info.IsDir() {
+		if !args.Recursive {
+			return "", fmt.Errorf("source is a directory, set recursive to true to copy directories")
+		}
+		err = copyDir(args.Source, args.Destination)
+	} else {
+		err = copyFile(args.Source, args.Destination)
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to copy: %w", err)
+	}
+	return fmt.Sprintf("Copied from %s to %s", args.Source, args.Destination), nil
+}
+
+func callCopyFileTool(jsonArgs string) (string, error) {
+	var args CopyFileArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return copyFileTool(args)
+}
+
+// git_clone tool
+func gitCloneTool(args GitCloneArgs) (string, error) {
+	cmd := exec.Command("git", "clone", args.RepoURL, args.Path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git clone failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+func callGitCloneTool(jsonArgs string) (string, error) {
+	var args GitCloneArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return gitCloneTool(args)
+}
+
+// git_checkout tool
+func gitCheckoutTool(args GitCheckoutArgs) (string, error) {
+	var cmd *exec.Cmd
+	if args.CreateNew {
+		cmd = exec.Command("git", "checkout", "-b", args.Branch)
+	} else {
+		cmd = exec.Command("git", "checkout", args.Branch)
+	}
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git checkout failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+func callGitCheckoutTool(jsonArgs string) (string, error) {
+	var args GitCheckoutArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return gitCheckoutTool(args)
+}
+
+// git_diff tool
+func gitDiffTool(args GitDiffArgs) (string, error) {
+	var diffArgs []string
+	diffArgs = append(diffArgs, "diff")
+	if args.FromRef != "" && args.ToRef != "" {
+		diffArgs = append(diffArgs, args.FromRef, args.ToRef)
+	}
+	output, err := runGitCommand(args.Path, diffArgs...)
+	if err != nil {
+		return "", err
+	}
+	return output, nil
+}
+
+func callGitDiffTool(jsonArgs string) (string, error) {
+	var args GitDiffArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return gitDiffTool(args)
+}
+
+// run_shell_command tool
+func runShellCommandTool(args ShellCommandArgs) (string, error) {
+	cmd := exec.Command(args.Command[0], args.Command[1:]...)
+	cmd.Dir = args.Directory
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("shell command failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+func callShellCommandTool(jsonArgs string) (string, error) {
+	var args ShellCommandArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return runShellCommandTool(args)
+}
+
+// go_build tool
+func goBuildTool(args GoBuildArgs) (string, error) {
+	cmd := exec.Command("go", "build")
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go build failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+func callGoBuildTool(jsonArgs string) (string, error) {
+	var args GoBuildArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return goBuildTool(args)
+}
+
+// go_test tool
+func goTestTool(args GoTestArgs) (string, error) {
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go test failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+func callGoTestTool(jsonArgs string) (string, error) {
+	var args GoTestArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return goTestTool(args)
+}
+
+// format_go_code tool
+func formatGoCodeTool(args FormatGoCodeArgs) (string, error) {
+	cmd := exec.Command("go", "fmt", "./...")
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go fmt failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+func callFormatGoCodeTool(jsonArgs string) (string, error) {
+	var args FormatGoCodeArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return formatGoCodeTool(args)
+}
+
+// lint_code tool
+func lintCodeTool(args LintCodeArgs) (string, error) {
+	var cmd *exec.Cmd
+	if args.LinterName != "" {
+		cmd = exec.Command(args.LinterName, "run")
+	} else {
+		cmd = exec.Command("golangci-lint", "run")
+	}
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("lint command failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+func callLintCodeTool(jsonArgs string) (string, error) {
+	var args LintCodeArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return lintCodeTool(args)
+}
+
 // callToolInServer dispatches a tool call based on the tool name and JSON arguments.
 func callToolInServer(toolName, jsonArgs string) (string, error) {
 	switch toolName {
@@ -579,6 +1109,42 @@ func callToolInServer(toolName, jsonArgs string) (string, error) {
 		return callGitPullTool(jsonArgs)
 	case "git_push":
 		return callGitPushTool(jsonArgs)
+	// New Tools
+	case "read_multiple_files":
+		return callReadMultipleFilesTool(jsonArgs)
+	case "edit_file":
+		return callEditFileTool(jsonArgs)
+	case "directory_tree":
+		return callDirectoryTreeTool(jsonArgs)
+	case "search_files":
+		return callSearchFilesTool(jsonArgs)
+	case "get_file_info":
+		return callGetFileInfoTool(jsonArgs)
+	case "list_allowed_directories":
+		return callListAllowedDirectoriesTool(jsonArgs)
+	case "delete_file":
+		return callDeleteFileTool(jsonArgs)
+	case "copy_file":
+		return callCopyFileTool(jsonArgs)
+	case "git_clone":
+		return callGitCloneTool(jsonArgs)
+	case "git_checkout":
+		return callGitCheckoutTool(jsonArgs)
+	case "git_diff":
+		return callGitDiffTool(jsonArgs)
+	case "run_shell_command":
+		return callShellCommandTool(jsonArgs)
+	case "go_build":
+		return callGoBuildTool(jsonArgs)
+	case "go_test":
+		return callGoTestTool(jsonArgs)
+	case "format_go_code":
+		return callFormatGoCodeTool(jsonArgs)
+	case "lint_code":
+		return callLintCodeTool(jsonArgs)
+	case "agent":
+		// agent is handled separately below
+		return "", fmt.Errorf("agent tool should be handled separately")
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -750,6 +1316,169 @@ func main() {
 	}
 
 	// --------------------------
+	// Register New Tools
+	// --------------------------
+	if err := server.RegisterTool("read_multiple_files", "Reads the contents of multiple files", func(args ReadMultipleFilesArgs) (*mcp.ToolResponse, error) {
+		res, err := readMultipleFilesTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("edit_file", "Edits a file via search and replace", func(args EditFileArgs) (*mcp.ToolResponse, error) {
+		res, err := editFileTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("directory_tree", "Recursively lists the directory structure", func(args DirectoryTreeArgs) (*mcp.ToolResponse, error) {
+		res, err := directoryTreeTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("search_files", "Searches for a text pattern in files", func(args SearchFilesArgs) (*mcp.ToolResponse, error) {
+		res, err := searchFilesTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("get_file_info", "Returns metadata for a file or directory", func(args GetFileInfoArgs) (*mcp.ToolResponse, error) {
+		res, err := getFileInfoTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("list_allowed_directories", "Lists directories allowed for access", func(args ListAllowedDirectoriesArgs) (*mcp.ToolResponse, error) {
+		res, err := listAllowedDirectoriesTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("delete_file", "Deletes a file or directory", func(args DeleteFileArgs) (*mcp.ToolResponse, error) {
+		res, err := deleteFileTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("copy_file", "Copies a file or directory", func(args CopyFileArgs) (*mcp.ToolResponse, error) {
+		res, err := copyFileTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("git_clone", "Clones a remote Git repository", func(args GitCloneArgs) (*mcp.ToolResponse, error) {
+		res, err := gitCloneTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("git_checkout", "Switches or creates a new Git branch", func(args GitCheckoutArgs) (*mcp.ToolResponse, error) {
+		res, err := gitCheckoutTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("git_diff", "Shows Git diff between references", func(args GitDiffArgs) (*mcp.ToolResponse, error) {
+		res, err := gitDiffTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("run_shell_command", "Executes an arbitrary shell command", func(args ShellCommandArgs) (*mcp.ToolResponse, error) {
+		res, err := runShellCommandTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("go_build", "Builds a Go module", func(args GoBuildArgs) (*mcp.ToolResponse, error) {
+		res, err := goBuildTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("go_test", "Runs Go tests", func(args GoTestArgs) (*mcp.ToolResponse, error) {
+		res, err := goTestTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("format_go_code", "Formats Go code using go fmt", func(args FormatGoCodeArgs) (*mcp.ToolResponse, error) {
+		res, err := formatGoCodeTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	if err := server.RegisterTool("lint_code", "Runs a code linter", func(args LintCodeArgs) (*mcp.ToolResponse, error) {
+		res, err := lintCodeTool(args)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+	}); err != nil {
+		panic(err)
+	}
+
+	// --------------------------
 	// Register our new "agent" tool:
 	// --------------------------
 	if err := server.RegisterTool("agent", "Agent that uses LLM to decide which tools to call", agentHandler()); err != nil {
@@ -770,55 +1499,118 @@ func main() {
 // agentHandler returns a closure that processes the agent query.
 func agentHandler() func(args AgentArgs) (*mcp.ToolResponse, error) {
 	return func(args AgentArgs) (*mcp.ToolResponse, error) {
-		// First, always retrieve the list of available tools
-		// toolsList, err := callToolInServer("listTools", "{}")
-		// if err != nil {
-		// 	toolsList = fmt.Sprintf("Error retrieving available tools: %v", err)
-		// }
-
 		// Initialize conversation context including the list of tools.
 		conversation := []ChatCompletionMsg{
 			{
 				Role: "system",
-				Content: `Below is a list of file system, Git, and agent operations you can perform.
-When answering queries, you MUST use the available tools rather than relying on internal knowledge.
-After each tool call, evaluate whether the aggregated tool responses provide enough context to answer the user's original query.
-If yes, respond with:
-  FINAL_ANSWER: <your final answer>
-If not, respond with:
-  CALL_TOOL: <toolName>
-  ARGS: <json arguments for that tool>
-In particular, if a query requires real-time data (e.g., "What time is it?"), you MUST invoke the "time" tool.
-The available tools are:
-    - "tool": The name of the tool you wish to execute. This can be one of:
-        "read_file", "read_multiple_files", "write_file", "edit_file", "create_directory", "list_directory", "directory_tree", "move_file", "search_files", "get_file_info", "list_allowed_directories",
-        "git_init", "git_status", "git_add", "git_commit", "git_pull", "git_push", "get_weather", or "agent".
-    - "args": A JSON object containing the arguments required by the tool.
-    - Payload Examples:
-    - Executing the "read_file" tool:
-        { "action": "execute", "tool": "read_file", "args": { "path": "/path/to/file.txt" } }
-    - Executing the "write_file" tool:
-        { "action": "execute", "tool": "write_file", "args": { "path": "/path/to/file.txt", "content": "New file content" } }
-    - Executing the "list_directory" tool:
-        { "action": "execute", "tool": "list_directory", "args": { "path": "/path/to/directory" } }
-    - Executing the "create_directory" tool:
-        { "action": "execute", "tool": "create_directory", "args": { "path": "/path/to/newdirectory" } }
-    - Executing the "move_file" tool:
-        { "action": "execute", "tool": "move_file", "args": { "source": "/path/to/source.txt", "destination": "/path/to/destination.txt" } }
-    - Executing the "git_init" tool:
-        { "action": "execute", "tool": "git_init", "args": { "path": "/path/to/repo" } }
-    - Executing the "git_status" tool:
-        { "action": "execute", "tool": "git_status", "args": { "path": "/path/to/repo" } }
-    - Executing the "git_add" tool:
-        { "action": "execute", "tool": "git_add", "args": { "path": "/path/to/repo", "fileList": ["file1.txt", "file2.txt"] } }
-    - Executing the "git_commit" tool:
-        { "action": "execute", "tool": "git_commit", "args": { "path": "/path/to/repo", "message": "Your commit message" } }
-    - Executing the "git_pull" tool:
-        { "action": "execute", "tool": "git_pull", "args": { "path": "/path/to/repo" } }
-    - Executing the "git_push" tool:
-        { "action": "execute", "tool": "git_push", "args": { "path": "/path/to/repo" } }
-	- Executing the "get_weather" tool:
-	 	{ "action": "execute", "tool": "get_weather", "args": { "longitude": 0.0, "latitude": 0.0 } }`,
+				Content: `Below is a list of file system, Git, shell, code, and agent operations you can perform.
+		When answering queries, you MUST use the available tools rather than relying on internal knowledge.
+		After each tool call, evaluate whether the aggregated tool responses provide enough context to answer the user's original query.
+		If yes, respond with:
+		  FINAL_ANSWER: <your final answer>
+		If not, respond with:
+		  CALL_TOOL: <toolName>
+		  ARGS: <json arguments for that tool>
+		In particular, if a query requires real-time data (e.g., "What time is it?"), you MUST invoke the "time" tool.
+		The available tools and sample JSON invocations are as follows:
+		
+		1. "hello": Greet a user.
+		   Example: { "name": "Alice" }
+		
+		2. "calculate": Perform basic arithmetic operations.
+		   Example: { "operation": "add", "a": 5, "b": 3 }
+		
+		3. "time": Return the current time.
+		   Example: { "format": "2006-01-02T15:04:05Z07:00" }
+		
+		4. "get_weather": Get the weather forecast for a specified location.
+		   Example: { "longitude": -122.4194, "latitude": 37.7749 }
+		
+		5. "read_file": Read the contents of a file.
+		   Example: { "path": "/path/to/file.txt" }
+		
+		6. "read_multiple_files": Read the contents of multiple files.
+		   Example: { "paths": ["/path/to/file1.txt", "/path/to/file2.txt"] }
+		
+		7. "write_file": Write text content to a file.
+		   Example: { "path": "/path/to/file.txt", "content": "New file content" }
+		
+		8. "edit_file": Edit a file via search-and-replace (or apply a patch if supported).
+		   Example: { "path": "/path/to/file.txt", "search": "oldText", "replace": "newText" }
+		
+		9. "create_directory": Create a new directory.
+		   Example: { "path": "/path/to/newdirectory" }
+		
+		10. "list_directory": List files and directories in a given path.
+			Example: { "path": "/path/to/directory" }
+		
+		11. "directory_tree": Recursively list the directory structure.
+			Example: { "path": "/path/to/directory", "maxDepth": 3 }
+		
+		12. "move_file": Move or rename a file/directory.
+			Example: { "source": "/path/to/source.txt", "destination": "/path/to/destination.txt" }
+		
+		13. "search_files": Search for a text pattern in files.
+			Example: { "path": "/path/to/directory", "pattern": "TODO" }
+		
+		14. "get_file_info": Retrieve metadata (size, modification time, etc.) for a file or directory.
+			Example: { "path": "/path/to/file.txt" }
+		
+		15. "list_allowed_directories": List directories allowed for access.
+			Example: { }
+		
+		16. "delete_file": Delete a file or directory.
+			Example: { "path": "/path/to/file_or_directory", "recursive": true }
+		
+		17. "copy_file": Copy a file or directory.
+			Example: { "source": "/path/to/source", "destination": "/path/to/destination", "recursive": true }
+		
+		18. "git_init": Initialize a new Git repository.
+			Example: { "path": "/path/to/repo" }
+		
+		19. "git_status": Show Git status.
+			Example: { "path": "/path/to/repo" }
+		
+		20. "git_add": Stage file changes.
+			Example: { "path": "/path/to/repo", "fileList": ["file1.txt", "file2.txt"] }
+		
+		21. "git_commit": Commit staged changes.
+			Example: { "path": "/path/to/repo", "message": "Your commit message" }
+		
+		22. "git_pull": Pull changes from a remote repository.
+			Example: { "path": "/path/to/repo" }
+		
+		23. "git_push": Push commits to a remote repository.
+			Example: { "path": "/path/to/repo" }
+		
+		24. "git_clone": Clone a remote Git repository.
+			Example: { "repoUrl": "https://github.com/user/repo.git", "path": "/path/to/clone" }
+		
+		25. "git_checkout": Switch or create a new Git branch.
+			Example: { "path": "/path/to/repo", "branch": "feature", "createNew": true }
+		
+		26. "git_diff": Show Git diff between references.
+			Example: { "path": "/path/to/repo", "fromRef": "HEAD~1", "toRef": "HEAD" }
+		
+		27. "run_shell_command": Execute an arbitrary shell command.
+			Example: { "directory": "/path/to/dir", "command": ["ls", "-la"] }
+		
+		28. "go_build": Build a Go module.
+			Example: { "path": "/path/to/go/module" }
+		
+		29. "go_test": Run Go tests.
+			Example: { "path": "/path/to/go/module" }
+		
+		30. "format_go_code": Format Go code using go fmt.
+			Example: { "path": "/path/to/go/code" }
+		
+		31. "lint_code": Run a code linter.
+			Example: { "path": "/path/to/code", "linterName": "golangci-lint" }
+		
+		32. "agent": Use an LLM to decide which tools to call.
+			Example: { "query": "Explain the code", "maxCalls": 3 }
+		
+		Please use the appropriate JSON object when invoking a tool.`,
 			},
 			{
 				Role:    "user",

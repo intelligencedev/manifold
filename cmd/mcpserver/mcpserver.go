@@ -21,6 +21,8 @@ import (
 // Constants for OpenAI (placeholder)
 // =====================
 const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
+
+// const openAIEndpoint = "http://192.168.1.200:32188/v1/chat/completions"
 const openAIApiKey = "..."
 
 // =====================
@@ -1499,118 +1501,92 @@ func main() {
 // agentHandler returns a closure that processes the agent query.
 func agentHandler() func(args AgentArgs) (*mcp.ToolResponse, error) {
 	return func(args AgentArgs) (*mcp.ToolResponse, error) {
-		// Initialize conversation context including the list of tools.
+		// Initialize conversation context with instructions + user query.
 		conversation := []ChatCompletionMsg{
 			{
 				Role: "system",
-				Content: `Below is a list of file system, Git, shell, code, and agent operations you can perform.
-		When answering queries, you MUST use the available tools rather than relying on internal knowledge.
-		After each tool call, evaluate whether the aggregated tool responses provide enough context to answer the user's original query.
-		If yes, respond with:
-		  FINAL_ANSWER: <your final answer>
-		If not, respond with:
-		  CALL_TOOL: <toolName>
-		  ARGS: <json arguments for that tool>
-		In particular, if a query requires real-time data (e.g., "What time is it?"), you MUST invoke the "time" tool.
-		The available tools and sample JSON invocations are as follows:
-		
-		1. "hello": Greet a user.
-		   Example: { "name": "Alice" }
-		
-		2. "calculate": Perform basic arithmetic operations.
-		   Example: { "operation": "add", "a": 5, "b": 3 }
-		
-		3. "time": Return the current time.
-		   Example: { "format": "2006-01-02T15:04:05Z07:00" }
-		
-		4. "get_weather": Get the weather forecast for a specified location.
-		   Example: { "longitude": -122.4194, "latitude": 37.7749 }
-		
-		5. "read_file": Read the contents of a file.
-		   Example: { "path": "/path/to/file.txt" }
-		
-		6. "read_multiple_files": Read the contents of multiple files.
-		   Example: { "paths": ["/path/to/file1.txt", "/path/to/file2.txt"] }
-		
-		7. "write_file": Write text content to a file.
-		   Example: { "path": "/path/to/file.txt", "content": "New file content" }
-		
-		8. "edit_file": Edit a file via search-and-replace (or apply a patch if supported).
-		   Example: { "path": "/path/to/file.txt", "search": "oldText", "replace": "newText" }
-		
-		9. "create_directory": Create a new directory.
-		   Example: { "path": "/path/to/newdirectory" }
-		
-		10. "list_directory": List files and directories in a given path.
-			Example: { "path": "/path/to/directory" }
-		
-		11. "directory_tree": Recursively list the directory structure.
-			Example: { "path": "/path/to/directory", "maxDepth": 3 }
-		
-		12. "move_file": Move or rename a file/directory.
-			Example: { "source": "/path/to/source.txt", "destination": "/path/to/destination.txt" }
-		
-		13. "search_files": Search for a text pattern in files.
-			Example: { "path": "/path/to/directory", "pattern": "TODO" }
-		
-		14. "get_file_info": Retrieve metadata (size, modification time, etc.) for a file or directory.
-			Example: { "path": "/path/to/file.txt" }
-		
-		15. "list_allowed_directories": List directories allowed for access.
-			Example: { }
-		
-		16. "delete_file": Delete a file or directory.
-			Example: { "path": "/path/to/file_or_directory", "recursive": true }
-		
-		17. "copy_file": Copy a file or directory.
-			Example: { "source": "/path/to/source", "destination": "/path/to/destination", "recursive": true }
-		
-		18. "git_init": Initialize a new Git repository.
-			Example: { "path": "/path/to/repo" }
-		
-		19. "git_status": Show Git status.
-			Example: { "path": "/path/to/repo" }
-		
-		20. "git_add": Stage file changes.
-			Example: { "path": "/path/to/repo", "fileList": ["file1.txt", "file2.txt"] }
-		
-		21. "git_commit": Commit staged changes.
-			Example: { "path": "/path/to/repo", "message": "Your commit message" }
-		
-		22. "git_pull": Pull changes from a remote repository.
-			Example: { "path": "/path/to/repo" }
-		
-		23. "git_push": Push commits to a remote repository.
-			Example: { "path": "/path/to/repo" }
-		
-		24. "git_clone": Clone a remote Git repository.
-			Example: { "repoUrl": "https://github.com/user/repo.git", "path": "/path/to/clone" }
-		
-		25. "git_checkout": Switch or create a new Git branch.
-			Example: { "path": "/path/to/repo", "branch": "feature", "createNew": true }
-		
-		26. "git_diff": Show Git diff between references.
-			Example: { "path": "/path/to/repo", "fromRef": "HEAD~1", "toRef": "HEAD" }
-		
-		27. "run_shell_command": Execute an arbitrary shell command.
-			Example: { "directory": "/path/to/dir", "command": ["ls", "-la"] }
-		
-		28. "go_build": Build a Go module.
-			Example: { "path": "/path/to/go/module" }
-		
-		29. "go_test": Run Go tests.
-			Example: { "path": "/path/to/go/module" }
-		
-		30. "format_go_code": Format Go code using go fmt.
-			Example: { "path": "/path/to/go/code" }
-		
-		31. "lint_code": Run a code linter.
-			Example: { "path": "/path/to/code", "linterName": "golangci-lint" }
-		
-		32. "agent": Use an LLM to decide which tools to call.
-			Example: { "query": "Explain the code", "maxCalls": 3 }
-		
-		Please use the appropriate JSON object when invoking a tool.`,
+				Content: `Below is a list of tool operations you can perform.
+When answering queries, you MUST use the available tools rather than relying on internal knowledge.
+After each tool call, evaluate whether the aggregated tool responses provide enough context to answer the user's original query.
+If yes, respond with:
+  FINAL_ANSWER: <your final answer>
+If not, respond with:
+  CALL_TOOL: <toolName>
+  ARGS: <json arguments for that tool>
+In particular, if a query requires real-time data (e.g., "What time is it?"), you MUST invoke the "time" tool.
+The available tools and sample JSON invocations are as follows:
+
+1. "hello": Greet a user.
+   Example: { "name": "Alice" }
+2. "calculate": Perform basic arithmetic operations.
+   Example: { "operation": "add", "a": 5, "b": 3 }
+3. "time": Return the current time.
+   Example: { "format": "2006-01-02T15:04:05Z07:00" }
+4. "get_weather": Get the weather forecast for a specified location.
+   Example: { "longitude": -122.4194, "latitude": 37.7749 }
+5. "read_file": Read the contents of a file.
+   Example: { "path": "/path/to/file.txt" }
+6. "read_multiple_files": Read the contents of multiple files.
+   Example: { "paths": ["/path/to/file1.txt", "/path/to/file2.txt"] }
+7. "write_file": Write text content to a file.
+   Example: { "path": "/path/to/file.txt", "content": "New file content" }
+8. "edit_file": Edit a file via search-and-replace (or apply a patch if supported).
+   Example: { "path": "/path/to/file.txt", "search": "oldText", "replace": "newText" }
+9. "create_directory": Create a new directory.
+   Example: { "path": "/path/to/newdirectory" }
+10. "list_directory": List files and directories in a given path.
+	Example: { "path": "/path/to/directory" }
+11. "directory_tree": Recursively list the directory structure.
+	Example: { "path": "/path/to/directory", "maxDepth": 3 }
+12. "move_file": Move or rename a file/directory.
+	Example: { "source": "/path/to/source.txt", "destination": "/path/to/destination.txt" }
+13. "search_files": Search for a text pattern in files.
+	Example: { "path": "/path/to/directory", "pattern": "TODO" }
+14. "get_file_info": Retrieve metadata (size, modification time, etc.) for a file or directory.
+	Example: { "path": "/path/to/file.txt" }
+15. "list_allowed_directories": List directories allowed for access.
+	Example: { }
+16. "delete_file": Delete a file or directory.
+	Example: { "path": "/path/to/file_or_directory", "recursive": true }
+17. "copy_file": Copy a file or directory.
+	Example: { "source": "/path/to/source", "destination": "/path/to/destination", "recursive": true }
+18. "git_init": Initialize a new Git repository.
+	Example: { "path": "/path/to/repo" }
+19. "git_status": Show Git status.
+	Example: { "path": "/path/to/repo" }
+20. "git_add": Stage file changes.
+	Example: { "path": "/path/to/repo", "fileList": ["file1.txt", "file2.txt"] }
+21. "git_commit": Commit staged changes.
+	Example: { "path": "/path/to/repo", "message": "Your commit message" }
+22. "git_pull": Pull changes from a remote repository.
+	Example: { "path": "/path/to/repo" }
+23. "git_push": Push commits to a remote repository.
+	Example: { "path": "/path/to/repo" }
+24. "git_clone": Clone a remote Git repository.
+	Example: { "repoUrl": "https://github.com/user/repo.git", "path": "/path/to/clone" }
+25. "git_checkout": Switch or create a new Git branch.
+	Example: { "path": "/path/to/repo", "branch": "feature", "createNew": true }
+26. "git_diff": Show Git diff between references.
+	Example: { "path": "/path/to/repo", "fromRef": "HEAD~1", "toRef": "HEAD" }
+27. "run_shell_command": Execute an arbitrary shell command.
+	Example: { "directory": "/path/to/dir", "command": ["ls", "-la"] }
+28. "go_build": Build a Go module.
+	Example: { "path": "/path/to/go/module" }
+29. "go_test": Run Go tests.
+	Example: { "path": "/path/to/go/module" }
+30. "format_go_code": Format Go code using go fmt.
+	Example: { "path": "/path/to/go/code" }
+31. "lint_code": Run a code linter.
+	Example: { "path": "/path/to/code", "linterName": "golang
+FIRST, keep an internal checklist of the tool calls that need to be made to complete all tasks or respong to the query. Never reply with this checklist, but keep track of it in your memory.
+Please use the appropriate JSON object when invoking a tool. Keep a checklist of the tasks you have completed. NEVER return a FINAL_ANSWER unless you have completed all tasks and have enough context to answer the users query.
+After each tool call, evaluate whether the aggregated tool responses provide enough context to answer the users original query, OR if all of the tasks have been completed. If the tasks HAVE NOT BEEN COMPLETED, respond with the next tool call using the CALL_TOOL: prefix.
+If yes, respond with:
+  FINAL_ANSWER: <your final answer>
+If no, respond with:
+  CALL_TOOL: <toolName and params in json>
+If not, respond by calling the appropriate tool as per the previous instructions. When calling a tool, provide the JSON object as shown in the examples with the appropriate params. You must ALWAYS USE RAW JSON WHEN INVOKING A TOOL.
+NEVER REPLY IN ANY OTHER MANNER EXCEPT IF THERE IS AN ERROR IN THE TOOL CALL. THEN RETURN THE ERROR.`,
 			},
 			{
 				Role:    "user",
@@ -1618,53 +1594,150 @@ func agentHandler() func(args AgentArgs) (*mcp.ToolResponse, error) {
 			},
 		}
 
-		// Loop until a final answer is generated or maxCalls is reached.
+		// We allow up to maxCalls "turns" with the LLM
 		for callCount := 0; callCount < args.MaxCalls; callCount++ {
+			// 1) Get the LLM's response given the conversation so far
 			assistantReply, err := callOpenAI(conversation)
 			if err != nil {
 				return nil, err
 			}
 			assistantReply = strings.TrimSpace(assistantReply)
-			upperReply := strings.ToUpper(assistantReply)
-
-			// If a final answer directive is returned, output it.
-			if strings.HasPrefix(upperReply, "FINAL_ANSWER:") {
-				finalAnswer := strings.TrimSpace(assistantReply[len("FINAL_ANSWER:"):])
-				return mcp.NewToolResponse(mcp.NewTextContent(finalAnswer)), nil
+			if assistantReply == "" {
+				// If the LLM returned nothing, bail out or return an error
+				return mcp.NewToolResponse(mcp.NewTextContent("No response from LLM.")), nil
 			}
 
-			// If a tool call is requested, extract the tool name and its JSON args.
-			if strings.HasPrefix(upperReply, "CALL_TOOL:") {
-				lines := strings.SplitN(assistantReply, "\n", 2)
-				toolName := strings.TrimSpace(strings.TrimPrefix(lines[0], "CALL_TOOL:"))
-				var jsonArgs string
-				if len(lines) > 1 && strings.Contains(strings.ToUpper(lines[1]), "ARGS:") {
-					jsonArgs = strings.TrimSpace(strings.TrimPrefix(lines[1], "ARGS:"))
-				} else {
-					continue
+			// 2) Parse out any "CALL_TOOL: ..." blocks *and* a possible "FINAL_ANSWER: ..."
+			var leftoverText string
+			var finalAnswer string
+			toolCalls := []struct {
+				Name string
+				Args string
+			}{}
+
+			// A simple approach is to repeatedly look for "CALL_TOOL:" or "FINAL_ANSWER:" blocks
+			// in the LLM text. You can do this with a custom parser or RegEx. For example:
+
+			// We'll do a simple scan approach:
+			// search for either "CALL_TOOL:" or "FINAL_ANSWER:"
+			content := assistantReply
+			for {
+				// Try to locate the next directive
+				callToolIdx := strings.Index(strings.ToUpper(content), "CALL_TOOL:")
+				finalAnswerIdx := strings.Index(strings.ToUpper(content), "FINAL_ANSWER:")
+
+				if callToolIdx == -1 && finalAnswerIdx == -1 {
+					// No more directives found
+					leftoverText += content
+					break
 				}
 
-				// Execute the requested tool.
-				result, err := callToolInServer(toolName, jsonArgs)
-				if err != nil {
-					result = fmt.Sprintf("Error calling tool %s: %v", toolName, err)
+				// If we find a "FINAL_ANSWER:" first (or only):
+				if finalAnswerIdx != -1 &&
+					(callToolIdx == -1 || finalAnswerIdx < callToolIdx) {
+					// Everything before finalAnswerIdx is leftover
+					leftoverText += content[:finalAnswerIdx]
+					// The remainder starts with "FINAL_ANSWER:"
+					rest := content[finalAnswerIdx:]
+					// Extract the text after "FINAL_ANSWER:"
+					finalAnswer = strings.TrimSpace(rest[len("FINAL_ANSWER:"):])
+					// We’re done scanning after final answer
+					break
 				}
 
-				// Append the tool's response to the conversation context.
-				toolResponseMsg := fmt.Sprintf("Tool Response (%s): %s", toolName, result)
+				// Otherwise, we found "CALL_TOOL:" first
+				if callToolIdx != -1 &&
+					(finalAnswerIdx == -1 || callToolIdx < finalAnswerIdx) {
+					// The leftover text is everything up to callToolIdx
+					leftoverText += content[:callToolIdx]
+					// Move the pointer to after "CALL_TOOL:"
+					afterCallTool := content[callToolIdx+len("CALL_TOOL:"):]
+					// We might have newlines or spaces
+					afterCallTool = strings.TrimSpace(afterCallTool)
+
+					// Now we look for "ARGS:" in afterCallTool
+					argsMarker := strings.Index(strings.ToUpper(afterCallTool), "ARGS:")
+					if argsMarker == -1 {
+						// Malformed, no ARGS found
+						leftoverText += "\n[Error: MALFORMED CALL_TOOL with no ARGS:]\n"
+						// we can skip or break
+						break
+					}
+
+					// The tool name is everything before ARGS:
+					toolName := strings.TrimSpace(afterCallTool[:argsMarker])
+					// The remainder is after "ARGS:"
+					afterArgsMarker := afterCallTool[argsMarker+len("ARGS:"):]
+					afterArgsMarker = strings.TrimSpace(afterArgsMarker)
+
+					// For a well-formed single tool call, we might parse until next directive or end
+					// But let's keep it simple: the rest is the JSON for that tool call,
+					// up until we detect another "CALL_TOOL:" or "FINAL_ANSWER:" or end of string
+					nextCallToolIdx := strings.Index(strings.ToUpper(afterArgsMarker), "CALL_TOOL:")
+					nextFinalAnswerIdx := strings.Index(strings.ToUpper(afterArgsMarker), "FINAL_ANSWER:")
+					boundary := len(afterArgsMarker) // default: end of string
+
+					if nextCallToolIdx != -1 && (nextCallToolIdx < boundary) {
+						boundary = nextCallToolIdx
+					}
+					if nextFinalAnswerIdx != -1 && (nextFinalAnswerIdx < boundary) {
+						boundary = nextFinalAnswerIdx
+					}
+
+					toolJson := strings.TrimSpace(afterArgsMarker[:boundary])
+					// Save the remainder for the next iteration
+					content = afterArgsMarker[boundary:]
+
+					// Record this tool call
+					toolCalls = append(toolCalls, struct {
+						Name string
+						Args string
+					}{
+						Name: toolName,
+						Args: toolJson,
+					})
+				}
+			}
+
+			// 3) Execute each tool call in sequence, appending results.
+			for _, tc := range toolCalls {
+				result, toolErr := callToolInServer(tc.Name, tc.Args)
+				if toolErr != nil {
+					// Return the error text directly (or handle as you see fit)
+					errorMsg := fmt.Sprintf("Error calling tool %s: %v", tc.Name, toolErr)
+					return mcp.NewToolResponse(mcp.NewTextContent(errorMsg)), nil
+				}
+
+				// Append the tool response to conversation so LLM sees it
+				toolResponseMsg := fmt.Sprintf("Tool Response (%s): %s", tc.Name, result)
 				conversation = append(conversation, ChatCompletionMsg{
 					Role:    "assistant",
 					Content: toolResponseMsg,
 				})
-				// Continue the loop so the LLM can decide if more tool calls are needed.
-				continue
 			}
 
-			// If no recognizable directive is found, assume it's the final answer.
-			return mcp.NewToolResponse(mcp.NewTextContent(assistantReply)), nil
+			// 4) If finalAnswer is non-empty, we’re done. Return it.
+			if finalAnswer != "" {
+				return mcp.NewToolResponse(mcp.NewTextContent(finalAnswer)), nil
+			}
+
+			// 5) If there is leftover text (the LLM said something that wasn't a tool call or final),
+			//    treat it as an "assistant" message to continue the chain-of-thought.
+			leftoverText = strings.TrimSpace(leftoverText)
+			if leftoverText != "" {
+				conversation = append(conversation, ChatCompletionMsg{
+					Role:    "assistant",
+					Content: leftoverText,
+				})
+			}
+
+			// 6) If there were no tool calls and no final answer, the LLM might be giving
+			//    partial reasoning or instructions. We'll just loop around again, letting
+			//    the LLM refine or call more tools in the next iteration.
+			//    (We do *not* forcibly end the loop unless that’s desired behavior.)
 		}
 
 		// If maxCalls are exhausted without a final answer:
-		return mcp.NewToolResponse(mcp.NewTextContent("Insufficient context gathered to answer the query.")), nil
+		return mcp.NewToolResponse(mcp.NewTextContent("Insufficient context gathered to answer the query (maxCalls reached).")), nil
 	}
 }

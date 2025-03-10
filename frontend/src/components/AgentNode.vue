@@ -234,7 +234,7 @@ namespace functions {
         "agent".
     - "args": A JSON object containing the arguments required by the tool.
     - Payload Examples:
-        { "action": "execute", "tool": "agent", "args": { "query": "Your query here", "maxCalls": 5 } }
+        { "action": "execute", "tool": "agent", "args": { "query": "Your query here", "maxCalls": 15 } }
 
     You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.
     ALWAYS use the following raw JSON structure (for example for the time tool): { "action": "execute", "tool": "time", "args": {} }

@@ -771,10 +771,10 @@ func main() {
 func agentHandler() func(args AgentArgs) (*mcp.ToolResponse, error) {
 	return func(args AgentArgs) (*mcp.ToolResponse, error) {
 		// First, always retrieve the list of available tools
-		toolsList, err := callToolInServer("listTools", "{}")
-		if err != nil {
-			toolsList = fmt.Sprintf("Error retrieving available tools: %v", err)
-		}
+		// toolsList, err := callToolInServer("listTools", "{}")
+		// if err != nil {
+		// 	toolsList = fmt.Sprintf("Error retrieving available tools: %v", err)
+		// }
 
 		// Initialize conversation context including the list of tools.
 		conversation := []ChatCompletionMsg{
@@ -790,7 +790,35 @@ If not, respond with:
   ARGS: <json arguments for that tool>
 In particular, if a query requires real-time data (e.g., "What time is it?"), you MUST invoke the "time" tool.
 The available tools are:
-` + toolsList,
+    - "tool": The name of the tool you wish to execute. This can be one of:
+        "read_file", "read_multiple_files", "write_file", "edit_file", "create_directory", "list_directory", "directory_tree", "move_file", "search_files", "get_file_info", "list_allowed_directories",
+        "git_init", "git_status", "git_add", "git_commit", "git_pull", "git_push", "get_weather", or "agent".
+    - "args": A JSON object containing the arguments required by the tool.
+    - Payload Examples:
+    - Executing the "read_file" tool:
+        { "action": "execute", "tool": "read_file", "args": { "path": "/path/to/file.txt" } }
+    - Executing the "write_file" tool:
+        { "action": "execute", "tool": "write_file", "args": { "path": "/path/to/file.txt", "content": "New file content" } }
+    - Executing the "list_directory" tool:
+        { "action": "execute", "tool": "list_directory", "args": { "path": "/path/to/directory" } }
+    - Executing the "create_directory" tool:
+        { "action": "execute", "tool": "create_directory", "args": { "path": "/path/to/newdirectory" } }
+    - Executing the "move_file" tool:
+        { "action": "execute", "tool": "move_file", "args": { "source": "/path/to/source.txt", "destination": "/path/to/destination.txt" } }
+    - Executing the "git_init" tool:
+        { "action": "execute", "tool": "git_init", "args": { "path": "/path/to/repo" } }
+    - Executing the "git_status" tool:
+        { "action": "execute", "tool": "git_status", "args": { "path": "/path/to/repo" } }
+    - Executing the "git_add" tool:
+        { "action": "execute", "tool": "git_add", "args": { "path": "/path/to/repo", "fileList": ["file1.txt", "file2.txt"] } }
+    - Executing the "git_commit" tool:
+        { "action": "execute", "tool": "git_commit", "args": { "path": "/path/to/repo", "message": "Your commit message" } }
+    - Executing the "git_pull" tool:
+        { "action": "execute", "tool": "git_pull", "args": { "path": "/path/to/repo" } }
+    - Executing the "git_push" tool:
+        { "action": "execute", "tool": "git_push", "args": { "path": "/path/to/repo" } }
+	- Executing the "get_weather" tool:
+	 	{ "action": "execute", "tool": "get_weather", "args": { "longitude": 0.0, "latitude": 0.0 } }`,
 			},
 			{
 				Role:    "user",

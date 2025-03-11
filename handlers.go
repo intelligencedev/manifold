@@ -142,9 +142,7 @@ func downloadFile(url, filepath string) error {
 	return nil
 }
 
-// executeMCPHandler handles the MCP execution request.
-// It parses the JSON payload, determines the requested action (defaulting to "listTools"),
-// and returns a simulated response.
+// executeMCPHandler handles the MCP execution request using an MCP server.
 func executeMCPHandler(c echo.Context) error {
 	// Parse the JSON payload from the request.
 	var payload map[string]interface{}
@@ -160,47 +158,8 @@ func executeMCPHandler(c echo.Context) error {
 		action = "listTools"
 	}
 
-	var result string
-	switch action {
-	case "listTools":
-		// Simulate returning a list of available tools.
-		result = "ToolA, ToolB, ToolC"
-	case "execute":
-		// Simulate executing an action (customize as needed).
-		result = "Execution completed successfully."
-	default:
-		result = fmt.Sprintf("Action '%s' not implemented", action)
-	}
-
-	// Optionally, log the output as JSON for debugging.
-	outputBytes, _ := json.Marshal(map[string]string{"stdout": result})
-	log.Printf("MCP handler output: %s", outputBytes)
-
-	// Return the result as a JSON object.
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"stdout": result,
-	})
-}
-
-// executeMCPHandler handles the MCP execution request using a real MCP server.
-func executeRealMCPHandler(c echo.Context) error {
-	// Parse the JSON payload from the request.
-	var payload map[string]interface{}
-	if err := c.Bind(&payload); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
-	}
-
-	log.Printf("Received MCP payload: %+v", payload)
-
-	// Determine the action specified in the payload.
-	action, ok := payload["action"].(string)
-	if !ok || action == "" {
-		action = "listTools"
-	}
-
 	// Launch the MCP server process (using the real server example).
-	// Note: Adjust the command and path as necessary.
-	cmd := exec.Command("go", "run", "cmd/mcpserver/mcpserver.go", "/Users/art/Documents/code/manifold")
+	cmd := exec.Command("go", "run", "cmd/mcpserver/mcpserver.go")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get server stdin pipe"})

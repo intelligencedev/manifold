@@ -44,7 +44,7 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.POST("/executePython", executePythonHandler)
 
 	// NEW: Execute MCP endpoint to work with MCPNode.vue.
-	api.POST("/executeMCP", executeRealMCPHandler)
+	api.POST("/executeMCP", executeMCPHandler)
 
 	api.POST("/datadog", datadogHandler)
 	api.POST("/download-llama", downloadLlamaHandler)

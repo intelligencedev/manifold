@@ -1213,7 +1213,7 @@ func callToolInServer(toolName, jsonArgs string) (string, error) {
 // ---------------------------------------------------------
 func main() {
 	// Load configuration from config file
-	configPath := "../../config.yaml" // Path to config.yaml relative to mcpserver executable
+	configPath := "./config.yaml" // Path to config.yaml relative to mcpserver executable
 
 	var err error
 	appConfig, err = loadConfig(configPath)

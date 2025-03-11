@@ -85,8 +85,10 @@ For non-Docker methods, refer to the [PGVector documentation](https://github.com
 Execute the following commands:
 
 ```bash
+cd frontend
 nvm use 20
 npm run build
+cd ..
 go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
 cd dist
 ./manifold

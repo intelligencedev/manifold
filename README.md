@@ -48,7 +48,7 @@ docker run -d \
   -e POSTGRES_USER=myuser \
   -e POSTGRES_PASSWORD=changeme \
   -e POSTGRES_DB=manifold \
-  pgvector/pgvector:latest
+  ankane/pgvector
 ```
 
 > **Important:** Update `myuser` and `changeme` with your preferred username and password.
@@ -87,8 +87,10 @@ For non-Docker methods, refer to the [PGVector documentation](https://github.com
 Execute the following commands:
 
 ```bash
+cd frontend
 nvm use 20
 npm run build
+cd ..
 go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
 cd dist
 ./manifold

@@ -17,15 +17,65 @@ import (
 
 	mcp "github.com/metoro-io/mcp-golang"
 	"github.com/metoro-io/mcp-golang/transport/stdio"
+	"gopkg.in/yaml.v2" // Added for YAML parsing
 )
 
 // =====================
-// Constants for OpenAI (placeholder)
+// Config structs
 // =====================
-// const openAIEndpoint = "https://api.openai.com/v1/chat/completions"
+type DatabaseConfig struct {
+	ConnectionString string `yaml:"connection_string"`
+}
 
-const openAIEndpoint = "http://192.168.1.200:32188/v1/chat/completions"
-const openAIApiKey = "..."
+type CompletionsConfig struct {
+	DefaultHost string `yaml:"default_host"`
+	APIKey      string `yaml:"api_key"`
+}
+
+type EmbeddingsConfig struct {
+	Host         string `yaml:"host"`
+	APIKey       string `yaml:"api_key"`
+	Dimensions   int    `yaml:"dimensions"`
+	EmbedPrefix  string `yaml:"embed_prefix"`
+	SearchPrefix string `yaml:"search_prefix"`
+}
+
+type RerankerConfig struct {
+	Host string `yaml:"host"`
+}
+
+type Config struct {
+	Host             string            `yaml:"host"`
+	Port             int               `yaml:"port"`
+	DataPath         string            `yaml:"data_path"`
+	AnthropicKey     string            `yaml:"anthropic_key,omitempty"`
+	OpenAIAPIKey     string            `yaml:"openai_api_key,omitempty"`
+	GoogleGeminiKey  string            `yaml:"google_gemini_key,omitempty"`
+	HuggingFaceToken string            `yaml:"hf_token,omitempty"`
+	Database         DatabaseConfig    `yaml:"database"`
+	Completions      CompletionsConfig `yaml:"completions"`
+	Embeddings       EmbeddingsConfig  `yaml:"embeddings"`
+	Reranker         RerankerConfig    `yaml:"reranker"`
+}
+
+// Function to load the configuration file
+func loadConfig(filename string) (*Config, error) {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("error reading config file: %w", err)
+	}
+
+	var config Config
+	err = yaml.Unmarshal(data, &config)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshaling config: %w", err)
+	}
+
+	return &config, nil
+}
+
+// Global config variable that will hold our loaded configuration
+var appConfig *Config
 
 // =====================
 // Existing Argument Types
@@ -384,7 +434,7 @@ func callOpenAI(messages []ChatCompletionMsg) (string, error) {
 		Model:       "gpt-4o-mini",
 		Messages:    messages,
 		MaxTokens:   8192,
-		Temperature: 0.3,
+		Temperature: 0.1,
 	}
 
 	jsonBytes, err := json.Marshal(requestBody)
@@ -392,12 +442,16 @@ func callOpenAI(messages []ChatCompletionMsg) (string, error) {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", openAIEndpoint, bytes.NewBuffer(jsonBytes))
+	// Using configuration values instead of hardcoded constants
+	endpoint := appConfig.Completions.DefaultHost
+	apiKey := appConfig.Completions.APIKey
+
+	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBytes))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+openAIApiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	client := &http.Client{
 		Timeout: 30 * time.Second,
@@ -1158,6 +1212,17 @@ func callToolInServer(toolName, jsonArgs string) (string, error) {
 // Main function: registering tools and starting the server
 // ---------------------------------------------------------
 func main() {
+	// Load configuration from config file
+	configPath := "../../config.yaml" // Path to config.yaml relative to mcpserver executable
+
+	var err error
+	appConfig, err = loadConfig(configPath)
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
+	}
+
+	log.Printf("Loaded configuration. Using completions endpoint: %s", appConfig.Completions.DefaultHost)
+
 	// Create a transport for the server
 	serverTransport := stdio.NewStdioServerTransport()
 

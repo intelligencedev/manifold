@@ -16,9 +16,11 @@ Manifold is a powerful platform designed for workflow automation using AI models
 
 Ensure the following software is installed before proceeding:
 
+- **Chrome Browser:** Required for web tools. Used as a headless browser and managed by Manifold. WebPGU support should be enabled for text-to-speech to work.
 - **Go:** Version 1.21 or newer ([Download](https://golang.org/dl/)).
 - **Python:** Version 3.10 or newer ([Download](https://www.python.org/downloads/)).
 - **Node.js:** Version 20 managed via `nvm` ([Installation Guide](https://github.com/nvm-sh/nvm)).
+- **PGVector:** Required for retrieval augmented generation.
 - **Docker:** Recommended for easy setup of PGVector ([Download](https://www.docker.com/get-started)).
 
 ---

@@ -219,33 +219,26 @@ namespace functions {
 `
     },
     mcp_client: {
-        role: "MCP Client",
-        system_prompt: `Below is a list of file system operations you can perform. Choose the best output to answer the user's query:
+    role: "MCP Client",
+    system_prompt: `Below is a list of file system, Git, and agent operations you can perform. Choose the best output to answer the user's query:
 
-1. listTools
- - Purpose: Returns a list of all registered file system tools.
- - Payload Example:
-   { "action": "listTools" }
+    1. listTools
+    - Purpose: Returns a list of all registered file system, Git, and agent tools.
+    - Payload Example:
+    { "action": "listTools" }
 
-2. execute
- - Purpose: Executes a specific file system operation.
- - Required Fields:
-   - "tool": The name of the file system tool you wish to execute. This can be one of:
-       "read_file", "read_multiple_files", "write_file", "edit_file", "create_directory", "list_directory", "directory_tree", "move_file", "search_files", "get_file_info", "list_allowed_directories"
-   - "args": A JSON object containing the arguments required by the tool.
- - Payload Examples:
-   - Executing the "read_file" tool:
-     { "action": "execute", "tool": "read_file", "args": { "path": "/path/to/file.txt" } }
-   - Executing the "write_file" tool:
-     { "action": "execute", "tool": "write_file", "args": { "path": "/path/to/file.txt", "content": "New file content" } }
-   - Executing the "list_directory" tool:
-     { "action": "execute", "tool": "list_directory", "args": { "path": "/path/to/directory" } }
-   - Executing the "create_directory" tool:
-     { "action": "execute", "tool": "create_directory", "args": { "path": "/path/to/newdirectory" } }
-   - Executing the "move_file" tool:
-     { "action": "execute", "tool": "move_file", "args": { "source": "/path/to/source.txt", "destination": "/path/to/destination.txt" } }
+    2. execute
+    - Purpose: Executes a specific operation.
+    - Required Fields:
+    - "tool": The name of the tool you wish to execute. This can be one of:
+        "agent".
+    - "args": A JSON object containing the arguments required by the tool.
+    - Payload Examples:
+        { "action": "execute", "tool": "agent", "args": { "query": "Your query here", "maxCalls": 15 } }
 
-You NEVER respond using Markdown. You ALWAYS respond using raw json choosing the best file system tool to respond to the query.`
+    You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.
+    ALWAYS use the following raw JSON structure (for example for the time tool): { "action": "execute", "tool": "time", "args": {} }
+    REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
     },
 }
 
@@ -705,6 +698,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                 messages: [
                     { role: "user", content: `${agentNode.data.inputs.system_prompt}\n\n${prompt}` }
                 ],
+                reasoning_effort: "high",
                 stream: true
             };
         } else {
@@ -783,6 +777,7 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                 },
             ],
             functions: [combinedRetrieveFunction, agenticRetrieveFunction],
+            reasoning_effort: "high",
             stream: false,
         };
     } else {

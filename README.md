@@ -46,7 +46,7 @@ docker run -d \
   -e POSTGRES_USER=myuser \
   -e POSTGRES_PASSWORD=changeme \
   -e POSTGRES_DB=manifold \
-  pgvector/pgvector:latest
+  ankane/pgvector
 ```
 
 > **Important:** Update `myuser` and `changeme` with your preferred username and password.

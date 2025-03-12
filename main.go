@@ -14,6 +14,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/pterm/pterm"
 )
 
 //go:embed frontend/dist
@@ -40,7 +41,11 @@ func main() {
 
 	// Create Echo instance with middleware.
 	e := echo.New()
-	e.Use(middleware.Logger())
+	// Use pterm for logging
+	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: "${time_rfc3339} ${method} ${uri} ${status}\n",
+		Output: pterm.DefaultLogger.Writer,
+	}))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{echo.GET, echo.PUT, echo.POST, echo.DELETE, echo.OPTIONS},

@@ -12,8 +12,10 @@ import (
 	"manifold/internal/sefii"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/jackc/pgx/v5"
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
@@ -150,40 +152,34 @@ func InitializeLlamaCpp(config *Config) error {
 
 	llamaCppDir := filepath.Join(config.DataPath, "llama-cpp")
 
-	// Check if llama.cpp binaries already exist
-	if _, err := os.Stat(llamaCppDir); err == nil {
-		// Directory exists, check for binary
-		files, err := os.ReadDir(llamaCppDir)
-		if err != nil {
-			return fmt.Errorf("failed to read llama-cpp directory: %w", err)
-		}
-
-		// Look for main binary file based on OS
-		hostInfo, err := GetHostInfo()
-		if err != nil {
-			return fmt.Errorf("failed to get host info: %w", err)
-		}
-
-		binaryName := "main"
-		if hostInfo.OS == "windows" {
-			binaryName = "main.exe"
-		}
-
-		for _, file := range files {
-			if file.Name() == binaryName {
-				pterm.Info.Println("llama.cpp binaries already installed")
-				return nil
-			}
-		}
-	}
-
-	pterm.Info.Println("Downloading llama.cpp binaries...")
-
-	// Get host info for architecture detection
+	// Determine binary name and path based on OS
 	hostInfo, err := GetHostInfo()
 	if err != nil {
 		return fmt.Errorf("failed to get host info: %w", err)
 	}
+
+	binaryName := "llama-server"
+	if hostInfo.OS == "windows" {
+		binaryName = "llama-server.exe"
+	}
+
+	// Check if binary exists in the build/bin directory
+	binaryPath := filepath.Join(llamaCppDir, "build", "bin", binaryName)
+	if fi, err := os.Stat(binaryPath); err == nil && !fi.IsDir() {
+		// On Unix systems, check if the file is executable
+		if hostInfo.OS != "windows" {
+			if fi.Mode()&0111 != 0 {
+				pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
+				return nil
+			}
+		} else {
+			// On Windows just check if file exists
+			pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
+			return nil
+		}
+	}
+
+	pterm.Info.Println("llama-server binary not found, downloading llama.cpp...")
 
 	// Create llama-cpp directory
 	if err := os.MkdirAll(llamaCppDir, 0755); err != nil {
@@ -266,6 +262,25 @@ func InitializeLlamaCpp(config *Config) error {
 	}
 	os.Remove(llamaFilePath)
 
+	// After extraction, create build/bin directory if it doesn't exist
+	buildBinDir := filepath.Join(llamaCppDir, "build", "bin")
+	if err := os.MkdirAll(buildBinDir, 0755); err != nil {
+		return fmt.Errorf("failed to create build/bin directory: %w", err)
+	}
+
+	// Move the binary to build/bin directory
+	oldBinaryPath := filepath.Join(llamaCppDir, binaryName)
+	if err := os.Rename(oldBinaryPath, binaryPath); err != nil {
+		return fmt.Errorf("failed to move binary to build/bin: %w", err)
+	}
+
+	// Make the binary executable on Unix systems
+	if hostInfo.OS != "windows" {
+		if err := os.Chmod(binaryPath, 0755); err != nil {
+			return fmt.Errorf("failed to make binary executable: %w", err)
+		}
+	}
+
 	pterm.Success.Println("Successfully downloaded and installed llama.cpp binaries")
 	return nil
 }
@@ -345,6 +360,29 @@ func InitializeApplication(config *Config) error {
 	engine := sefii.NewEngine(db)
 	engine.EnsureTable(ctx, config.Embeddings.Dimensions)
 	engine.EnsureInvertedIndexTable(ctx)
+
+	// Start local services if needed
+	if err := StartEmbeddingsService(config); err != nil {
+		pterm.Warning.Printf("Failed to start local embeddings service: %v\n", err)
+	} else if config.Embeddings.Host == "" {
+		pterm.Success.Println("Started local embeddings service")
+	}
+
+	if err := StartRerankerService(config); err != nil {
+		pterm.Warning.Printf("Failed to start local reranker service: %v\n", err)
+	} else if config.Reranker.Host == "" {
+		pterm.Success.Println("Started local reranker service")
+	}
+
+	// Set up cleanup on program exit
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		pterm.Info.Println("Shutting down local services...")
+		StopAllServices()
+		os.Exit(0)
+	}()
 
 	return nil
 }

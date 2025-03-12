@@ -3,9 +3,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
+	"github.com/pterm/pterm"
 	"gopkg.in/yaml.v2"
 )
 
@@ -59,17 +61,32 @@ type Config struct {
 	Reranker         RerankerConfig    `yaml:"reranker"`
 }
 
+// LoadConfig reads the configuration from a YAML file, unmarshals it into a Config struct,
+// logs the outcome using pterm, and prints the loaded configuration as pretty printed JSON.
 func LoadConfig(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
+		pterm.Error.Printf("Error reading config file: %v\n", err)
 		return nil, fmt.Errorf("error reading config file: %w", err)
 	}
 
 	var config Config
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
+		pterm.Error.Printf("Error unmarshaling config: %v\n", err)
 		return nil, fmt.Errorf("error unmarshaling config: %w", err)
 	}
 
+	pterm.Success.Println("Configuration loaded successfully.")
 	return &config, nil
+}
+
+// printPrettyConfig marshals the config as pretty printed JSON and outputs it.
+func printPrettyConfig(config *Config) {
+	prettyJSON, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		pterm.Error.Printf("Failed to marshal config as pretty JSON: %v\n", err)
+		return
+	}
+	pterm.Info.Println(string(prettyJSON))
 }

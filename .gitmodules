@@ -1,0 +1,6 @@
+[submodule "external/llama.cpp"]
+	path = external/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git
+[submodule "external/pgvector"]
+	path = external/pgvector
+	url = https://github.com/pgvector/pgvector.git

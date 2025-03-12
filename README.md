@@ -30,46 +30,43 @@ Ensure the following software is installed before proceeding:
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository_url>  # Replace with actual repository URL
-cd manifold
+$ git clone https://github.com/intelligencedev/manifold.git
+$ cd manifold
 ```
 
-### 2. Set Up PGVector
+### 3. Initialize Submodules
 
-PGVector provides efficient similarity search for retrieval workflows.
-
-**Docker Installation (Recommended):**
+After cloning the repository, initialize and update the git submodules:
 
 ```bash
-docker run -d \
-  --name pg-manifold \
-  -p 5432:5432 \
-  -v postgres-data:/var/lib/postgresql/data \
-  -e POSTGRES_USER=myuser \
-  -e POSTGRES_PASSWORD=changeme \
-  -e POSTGRES_DB=manifold \
-  ankane/pgvector
+$ git submodule update --init --recursive
 ```
 
-> **Important:** Update `myuser` and `changeme` with your preferred username and password.
+This will fetch the required dependencies:
+- llama.cpp for local model inference
+- pgvector for vector similarity search in PostgreSQL
 
-**Verification:**
+#### PGVector Setup
 
-Verify your PGVector installation using `psql`:
+After initializing the submodules, set up pgvector using Docker:
 
+1. Navigate to the pgvector directory and build the Docker image:
 ```bash
-psql -h localhost -p 5432 -U myuser -d manifold
+$ cd external/pgvector
+$ docker build -t pgvector .
 ```
 
-You should see a prompt like `manifold=#`. Type `\q` to exit.
+2. Run the PostgreSQL container with pgvector:
+```bash
+$ docker run --name pgvector -e POSTGRES_USER=myuser -e POSTGRES_PASSWORD=changeme -e POSTGRES_DB=manifold -p 5432:5432 -d pgvector
+```
 
-**Alternate Installation:**
+3. The vector extension will be automatically enabled in your database. You can verify it by connecting to the database and running:
+```sql
+SELECT * FROM pg_extension WHERE extname = 'vector';
+```
 
-For non-Docker methods, refer to the [PGVector documentation](https://github.com/pgvector/pgvector#installation).
-
----
-
-### 3. Configure an Image Generation Backend (Choose One)
+### 4. Install an Image Generation Backend (Choose One)
 
 #### Option A: ComfyUI (Cross-platform)
 
@@ -82,18 +79,30 @@ For non-Docker methods, refer to the [PGVector documentation](https://github.com
 
 ---
 
-### 4. Build and Run Manifold
+### 5. Configuration
+
+Use the provided `.config.yaml` template to create a new `config.yaml` file. This file must be placed in the same path as the main.go file if running in development mode, or in the same path as the manifold binary if you build the project.
+
+Ensure to update the values to match your environment.
+
+### 6. Build and Run Manifold
+
+For development it is not necessary to build the application. See development notes at the bottom of this guide.
 
 Execute the following commands:
 
 ```bash
-cd frontend
-nvm use 20
-npm run build
-cd ..
-go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
-cd dist
-./manifold
+$ cd frontend
+$ nvm use 20
+$ npm run build
+$ cd ..
+$ go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
+$ cd dist
+
+# 1. Ensure PG Vector is running
+# 2. Place config.yaml in the same path as the binary
+# 3. Run the binary
+$ ./manifold
 ```
 
 This sequence will:
@@ -105,9 +114,11 @@ This sequence will:
 
 Upon first execution, Manifold creates necessary directories and files (e.g., `data`).
 
+Note that Manifold builds the frontend and embeds it in its binary. When building the application, the frontend is not a separate web server.
+
 ---
 
-### 5. Configuration (`config.yaml`)
+### 6. Configuration (`config.yaml`)
 
 Create or update your configuration based on the provided `.config.yaml` example in the repository root:
 
@@ -174,8 +185,24 @@ Manifold is compatible with OpenAI-compatible endpoints:
 
 ---
 
+## Run in Development Mode
+
+Ensure `config.yaml` is present at the root of the project by using the provided `.config.yaml` template and configuring your values.
+
+Run the Go backend:
+```
+$ go mod tidy
+$ go run .
+```
+
+Run the frontend:
+```
+$ cd frontend
+$ nvm use 20
+$ npm install
+$ npm run dev
+```
+
 ## Contributing
 
 Manifold welcomes contributions! Check the open issues for tasks and feel free to submit pull requests.
-
----

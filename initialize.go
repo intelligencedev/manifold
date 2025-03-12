@@ -3,39 +3,348 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
-	"log"
 	"manifold/internal/sefii"
+	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/jackc/pgx/v5"
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
+	"github.com/pterm/pterm"
 )
 
-// InitializeApplication performs necessary setup tasks, such as creating the data directory.
-func InitializeApplication(config *Config) error {
-	// Check if the data directory exists. If not, create it.
-	if config.DataPath != "" {
-		if _, err := os.Stat(config.DataPath); os.IsNotExist(err) {
-			log.Printf("Data directory '%s' does not exist, creating it...", config.DataPath)
-			if err := os.MkdirAll(config.DataPath, 0755); err != nil {
-				return fmt.Errorf("failed to create data directory: %w", err)
+// downloadModelFile downloads a file from a URL to a local filepath
+func downloadModelFile(url, filePath string) error {
+	// Create all parent directories if they don't exist
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// downloadModels downloads required reranker and embedding models
+func downloadModels(config *Config) error {
+	if config.DataPath == "" {
+		return fmt.Errorf("data path not configured")
+	}
+
+	models := map[string]string{
+		filepath.Join(config.DataPath, "models", "rerankers", "slide-bge-reranker-v2-m3.Q4_K_M.gguf"): "https://huggingface.co/mradermacher/slide-bge-reranker-v2-m3-GGUF/resolve/main/slide-bge-reranker-v2-m3.Q4_K_M.gguf",
+		filepath.Join(config.DataPath, "models", "embeddings", "nomic-embed-text-v1.5.Q8_0.gguf"):     "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
+	}
+
+	for filePath, url := range models {
+		// Check if file already exists
+		if _, err := os.Stat(filePath); err == nil {
+			pterm.Info.Printf("Model already exists at %s\n", filePath)
+			continue
+		}
+
+		pterm.Info.Printf("Downloading model from %s\n", url)
+		if err := downloadModelFile(url, filePath); err != nil {
+			return fmt.Errorf("failed to download model %s: %w", url, err)
+		}
+		pterm.Success.Printf("Successfully downloaded model to %s\n", filePath)
+	}
+
+	return nil
+}
+
+// downloadLlamaBinary downloads a file from a URL to a local filepath
+func downloadLlamaBinary(url, filepath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// unzipLlamaBinary extracts a zip archive to a destination directory
+func unzipLlamaBinary(src, dest string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		// Ensure extracted path is within destination directory
+		path := filepath.Join(dest, f.Name)
+		if !strings.HasPrefix(path, filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid file path in zip: %s", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(path, os.ModePerm)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+			return err
+		}
+
+		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			outFile.Close()
+			return err
+		}
+
+		_, err = io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// InitializeLlamaCpp downloads and sets up llama.cpp binaries if they don't exist
+func InitializeLlamaCpp(config *Config) error {
+	if config.DataPath == "" {
+		return fmt.Errorf("data path not configured")
+	}
+
+	llamaCppDir := filepath.Join(config.DataPath, "llama-cpp")
+
+	// Determine binary name and path based on OS
+	hostInfo, err := GetHostInfo()
+	if err != nil {
+		return fmt.Errorf("failed to get host info: %w", err)
+	}
+
+	binaryName := "llama-server"
+	if hostInfo.OS == "windows" {
+		binaryName = "llama-server.exe"
+	}
+
+	// Check if binary exists in the build/bin directory
+	binaryPath := filepath.Join(llamaCppDir, "build", "bin", binaryName)
+	if fi, err := os.Stat(binaryPath); err == nil && !fi.IsDir() {
+		// On Unix systems, check if the file is executable
+		if hostInfo.OS != "windows" {
+			if fi.Mode()&0111 != 0 {
+				pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
+				return nil
 			}
-			log.Printf("Data directory '%s' created successfully.", config.DataPath)
-		} else if err != nil {
-			return fmt.Errorf("failed to stat data directory: %w", err)
+		} else {
+			// On Windows just check if file exists
+			pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
+			return nil
 		}
 	}
 
-	// Bootstrap sefii engine.
+	pterm.Info.Println("llama-server binary not found, downloading llama.cpp...")
+
+	// Create llama-cpp directory
+	if err := os.MkdirAll(llamaCppDir, 0755); err != nil {
+		return fmt.Errorf("failed to create llama-cpp directory: %w", err)
+	}
+
+	// Determine OS/arch for download
+	var osArch string
+	switch hostInfo.OS {
+	case "darwin":
+		if hostInfo.Arch == "arm64" {
+			osArch = "macos-arm64"
+		} else {
+			return fmt.Errorf("unsupported macOS architecture")
+		}
+	case "linux":
+		osArch = "ubuntu-x64"
+	case "windows":
+		osArch = "win-cuda-cu12.4-x64"
+	default:
+		return fmt.Errorf("unsupported operating system")
+	}
+
+	// Get latest release info from GitHub
+	resp, err := http.Get("https://api.github.com/repos/ggerganov/llama.cpp/releases/latest")
+	if err != nil {
+		return fmt.Errorf("failed to fetch latest release info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var release map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("failed to decode release info: %w", err)
+	}
+
+	assets, ok := release["assets"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid release assets format")
+	}
+
+	var llamaDownloadURL string
+	var releaseVersion string
+	if tag, ok := release["tag_name"].(string); ok {
+		releaseVersion = strings.TrimPrefix(tag, "b")
+	}
+
+	for _, asset := range assets {
+		assetMap, ok := asset.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, ok := assetMap["name"].(string)
+		if !ok {
+			continue
+		}
+		downloadURL, ok := assetMap["browser_download_url"].(string)
+		if !ok {
+			continue
+		}
+
+		if releaseVersion != "" && strings.Contains(name, "llama-b"+releaseVersion+"-bin-"+osArch) && strings.HasSuffix(name, ".zip") {
+			llamaDownloadURL = downloadURL
+			break
+		}
+	}
+
+	if llamaDownloadURL == "" {
+		return fmt.Errorf("could not find download URL for system architecture")
+	}
+
+	// Download and extract llama.cpp
+	llamaFilePath := filepath.Join(llamaCppDir, "llama.zip")
+	if err := downloadLlamaBinary(llamaDownloadURL, llamaFilePath); err != nil {
+		return fmt.Errorf("failed to download llama.cpp: %w", err)
+	}
+
+	if err := unzipLlamaBinary(llamaFilePath, llamaCppDir); err != nil {
+		os.Remove(llamaFilePath)
+		return fmt.Errorf("failed to unzip llama.cpp: %w", err)
+	}
+	os.Remove(llamaFilePath)
+
+	// After extraction, create build/bin directory if it doesn't exist
+	buildBinDir := filepath.Join(llamaCppDir, "build", "bin")
+	if err := os.MkdirAll(buildBinDir, 0755); err != nil {
+		return fmt.Errorf("failed to create build/bin directory: %w", err)
+	}
+
+	// Move the binary to build/bin directory
+	oldBinaryPath := filepath.Join(llamaCppDir, binaryName)
+	if err := os.Rename(oldBinaryPath, binaryPath); err != nil {
+		return fmt.Errorf("failed to move binary to build/bin: %w", err)
+	}
+
+	// Make the binary executable on Unix systems
+	if hostInfo.OS != "windows" {
+		if err := os.Chmod(binaryPath, 0755); err != nil {
+			return fmt.Errorf("failed to make binary executable: %w", err)
+		}
+	}
+
+	pterm.Success.Println("Successfully downloaded and installed llama.cpp binaries")
+	return nil
+}
+
+// InitializeApplication performs necessary setup tasks, such as creating the data directory.
+func InitializeApplication(config *Config) error {
+	hostInfo, err := GetHostInfo()
+	if err != nil {
+		pterm.Error.Printf("Failed to get host information: %+v\n", err)
+	} else {
+		pterm.DefaultTable.WithData(pterm.TableData{
+			{"Key", "Value"},
+			{"OS", hostInfo.OS},
+			{"Arch", hostInfo.Arch},
+			{"CPUs", fmt.Sprintf("%d", hostInfo.CPUs)},
+			{"Total Memory (GB)", fmt.Sprintf("%.2f", float64(hostInfo.Memory.Total)/(1024*1024*1024))},
+			{"GPU Model", hostInfo.GPUs[0].Model},
+			{"GPU Cores", hostInfo.GPUs[0].TotalNumberOfCores},
+			{"Metal Support", hostInfo.GPUs[0].MetalSupport},
+		}).Render()
+	}
+
+	if config.DataPath != "" {
+		if _, err := os.Stat(config.DataPath); os.IsNotExist(err) {
+			pterm.Info.Printf("Data directory '%s' does not exist, creating it...\n", config.DataPath)
+			if err := os.MkdirAll(config.DataPath, 0755); err != nil {
+				return fmt.Errorf("failed to create data directory: %w", err)
+			}
+			pterm.Success.Printf("Data directory '%s' created successfully.\n", config.DataPath)
+		} else if err != nil {
+			return fmt.Errorf("failed to stat data directory: %w", err)
+		}
+
+		// Create model directories
+		modelDirs := []string{
+			filepath.Join(config.DataPath, "models"),
+			filepath.Join(config.DataPath, "models", "gguf"),
+			filepath.Join(config.DataPath, "models", "mlx"),
+			filepath.Join(config.DataPath, "models", "embeddings"),
+			filepath.Join(config.DataPath, "models", "rerankers"),
+		}
+
+		for _, dir := range modelDirs {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create model directory %s: %w", dir, err)
+			}
+			pterm.Success.Printf("Model directory '%s' created successfully.\n", dir)
+		}
+
+		// Initialize llama.cpp after data directory is created
+		if err := InitializeLlamaCpp(config); err != nil {
+			pterm.Warning.Printf("Failed to initialize llama.cpp: %v\n", err)
+		}
+
+		// Download required models
+		if err := downloadModels(config); err != nil {
+			pterm.Warning.Printf("Failed to download models: %v\n", err)
+		}
+	}
+
 	ctx := context.Background()
 	db, err := Connect(ctx, config.Database.ConnectionString)
 	if err != nil {
-		log.Fatal(err)
+		pterm.Fatal.Println(err)
 	}
 	defer db.Close(ctx)
 
@@ -52,68 +361,46 @@ func InitializeApplication(config *Config) error {
 	engine.EnsureTable(ctx, config.Embeddings.Dimensions)
 	engine.EnsureInvertedIndexTable(ctx)
 
-	// Create a database table for models and their configurations
-	// err = CreateModelsTable(ctx, db)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to create models table: %w", err)
-	// }
+	// Start local services if needed
+	if err := StartEmbeddingsService(config); err != nil {
+		pterm.Warning.Printf("Failed to start local embeddings service: %v\n", err)
+	} else if config.Embeddings.Host == "" {
+		pterm.Success.Println("Started local embeddings service")
+	}
 
-	// modelsDir := fmt.Sprintf("%s/models", config.DataPath)
+	if err := StartRerankerService(config); err != nil {
+		pterm.Warning.Printf("Failed to start local reranker service: %v\n", err)
+	} else if config.Reranker.Host == "" {
+		pterm.Success.Println("Started local reranker service")
+	}
 
-	// // Scan the models directories and insert the models into the database
-	// ggufModels, err := ScanGGUFModels(modelsDir)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to scan GGUF models: %w", err)
-	// }
-
-	// mlxModels, err := ScanMLXModels(modelsDir)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to scan MLX models: %w", err)
-	// }
-
-	// // Insert the gguf models into the database with a gguf model type, do not use engine!
-	// for _, model := range ggufModels {
-	// 	_, err := db.Exec(ctx, `
-	// 	INSERT INTO models (name, path, model_type, temperature, top_p, top_k, repetition_penalty, ctx)
-	// 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	// `, model.Name, model.Path, model.ModelType, model.Temperature, model.TopP, model.TopK, model.RepetitionPenalty, model.Ctx)
-	// 	if err != nil {
-	// 		return fmt.Errorf("failed to insert model into database: %w", err)
-	// 	}
-
-	// 	log.Printf("Inserted GGUF model '%s' into the database", model.Name)
-	// }
-
-	// // Insert the mlx models into the database with a mlx model type, do not use engine!
-	// for _, model := range mlxModels {
-	// 	_, err := db.Exec(ctx, `
-	// 	INSERT INTO models (name, path, model_type, temperature, top_p, top_k, repetition_penalty, ctx)
-	// 	VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-	// `, model.Name, model.Path, model.ModelType, model.Temperature, model.TopP, model.TopK, model.RepetitionPenalty, model.Ctx)
-	// 	if err != nil {
-	// 		return fmt.Errorf("failed to insert model into database: %w", err)
-	// 	}
-
-	// 	log.Printf("Inserted MLX model '%s' into the database", model.Name)
-	// }
+	// Set up cleanup on program exit
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		pterm.Info.Println("Shutting down local services...")
+		StopAllServices()
+		os.Exit(0)
+	}()
 
 	return nil
 }
 
 func CreateModelsTable(ctx context.Context, db *pgx.Conn) error {
 	_, err := db.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS models (
-			id SERIAL PRIMARY KEY,
-			name TEXT UNIQUE,
-			path TEXT UNIQUE,
-			model_type TEXT,
-			temperature FLOAT,
-			top_p FLOAT,
-			top_k INT,
-			repetition_penalty FLOAT,
-			ctx INT
-		)
-	`)
+        CREATE TABLE IF NOT EXISTS models (
+            id SERIAL PRIMARY KEY,
+            name TEXT UNIQUE,
+            path TEXT UNIQUE,
+            model_type TEXT,
+            temperature FLOAT,
+            top_p FLOAT,
+            top_k INT,
+            repetition_penalty FLOAT,
+            ctx INT
+        )
+    `)
 	if err != nil {
 		return fmt.Errorf("failed to create models table: %w", err)
 	}
@@ -121,7 +408,6 @@ func CreateModelsTable(ctx context.Context, db *pgx.Conn) error {
 	return nil
 }
 
-// ScanGGUFModels scans the "models-gguf" directory and returns a list of models.
 func ScanGGUFModels(modelsDir string) ([]LanguageModel, error) {
 	var ggufModels []LanguageModel
 
@@ -138,7 +424,7 @@ func ScanGGUFModels(modelsDir string) ([]LanguageModel, error) {
 
 			files, err := ioutil.ReadDir(modelDir)
 			if err != nil {
-				log.Printf("Failed to read directory %s: %v", modelDir, err)
+				pterm.Error.Printf("Failed to read directory %s: %v\n", modelDir, err)
 				continue
 			}
 
@@ -149,13 +435,13 @@ func ScanGGUFModels(modelsDir string) ([]LanguageModel, error) {
 						Name:              modelName,
 						Path:              fullPath,
 						ModelType:         "gguf",
-						Temperature:       0.5,
+						Temperature:       0.6,
 						TopP:              0.9,
 						TopK:              50,
 						RepetitionPenalty: 1.1,
 						Ctx:               4096,
 					})
-					break // Only first gguf file per model
+					break
 				}
 			}
 		}
@@ -164,7 +450,6 @@ func ScanGGUFModels(modelsDir string) ([]LanguageModel, error) {
 	return ggufModels, nil
 }
 
-// ScanMLXModels scans the "models-mlx" directory and returns a list of models.
 func ScanMLXModels(modelsDir string) ([]LanguageModel, error) {
 	var mlxModels []LanguageModel
 
@@ -181,7 +466,7 @@ func ScanMLXModels(modelsDir string) ([]LanguageModel, error) {
 
 			files, err := os.ReadDir(modelDir)
 			if err != nil {
-				log.Printf("Failed to read directory %s: %v", modelDir, err)
+				pterm.Error.Printf("Failed to read directory %s: %v\n", modelDir, err)
 				continue
 			}
 
@@ -190,7 +475,7 @@ func ScanMLXModels(modelsDir string) ([]LanguageModel, error) {
 				if !file.IsDir() && strings.HasSuffix(file.Name(), ".safetensors") {
 					fullPath := filepath.Join(modelDir, file.Name())
 					safetensorsPath = fullPath
-					break // Only first safetensors file per model
+					break
 				}
 			}
 

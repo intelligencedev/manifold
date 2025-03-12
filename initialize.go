@@ -20,6 +20,128 @@ import (
 	"github.com/pterm/pterm"
 )
 
+// downloadModelFile downloads a file from a URL to a local filepath
+func downloadModelFile(url, filePath string) error {
+	// Create all parent directories if they don't exist
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directories: %w", err)
+	}
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// downloadModels downloads required reranker and embedding models
+func downloadModels(config *Config) error {
+	if config.DataPath == "" {
+		return fmt.Errorf("data path not configured")
+	}
+
+	models := map[string]string{
+		filepath.Join(config.DataPath, "models", "rerankers", "slide-bge-reranker-v2-m3.Q4_K_M.gguf"): "https://huggingface.co/mradermacher/slide-bge-reranker-v2-m3-GGUF/resolve/main/slide-bge-reranker-v2-m3.Q4_K_M.gguf",
+		filepath.Join(config.DataPath, "models", "embeddings", "nomic-embed-text-v1.5.Q8_0.gguf"):     "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
+	}
+
+	for filePath, url := range models {
+		// Check if file already exists
+		if _, err := os.Stat(filePath); err == nil {
+			pterm.Info.Printf("Model already exists at %s\n", filePath)
+			continue
+		}
+
+		pterm.Info.Printf("Downloading model from %s\n", url)
+		if err := downloadModelFile(url, filePath); err != nil {
+			return fmt.Errorf("failed to download model %s: %w", url, err)
+		}
+		pterm.Success.Printf("Successfully downloaded model to %s\n", filePath)
+	}
+
+	return nil
+}
+
+// downloadLlamaBinary downloads a file from a URL to a local filepath
+func downloadLlamaBinary(url, filepath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// unzipLlamaBinary extracts a zip archive to a destination directory
+func unzipLlamaBinary(src, dest string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		// Ensure extracted path is within destination directory
+		path := filepath.Join(dest, f.Name)
+		if !strings.HasPrefix(path, filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid file path in zip: %s", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(path, os.ModePerm)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+			return err
+		}
+
+		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			outFile.Close()
+			return err
+		}
+
+		_, err = io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // InitializeLlamaCpp downloads and sets up llama.cpp binaries if they don't exist
 func InitializeLlamaCpp(config *Config) error {
 	if config.DataPath == "" {
@@ -197,6 +319,11 @@ func InitializeApplication(config *Config) error {
 		if err := InitializeLlamaCpp(config); err != nil {
 			pterm.Warning.Printf("Failed to initialize llama.cpp: %v\n", err)
 		}
+
+		// Download required models
+		if err := downloadModels(config); err != nil {
+			pterm.Warning.Printf("Failed to download models: %v\n", err)
+		}
 	}
 
 	ctx := context.Background()
@@ -330,71 +457,4 @@ func ScanMLXModels(modelsDir string) ([]LanguageModel, error) {
 	}
 
 	return mlxModels, nil
-}
-
-// downloadLlamaBinary downloads a file from a URL to a local filepath
-func downloadLlamaBinary(url, filepath string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status: %s", resp.Status)
-	}
-
-	out, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
-}
-
-// unzipLlamaBinary extracts a zip archive to a destination directory
-func unzipLlamaBinary(src, dest string) error {
-	r, err := zip.OpenReader(src)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	for _, f := range r.File {
-		// Ensure extracted path is within destination directory
-		path := filepath.Join(dest, f.Name)
-		if !strings.HasPrefix(path, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid file path in zip: %s", f.Name)
-		}
-
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(path, os.ModePerm)
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
-			return err
-		}
-
-		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-		if err != nil {
-			return err
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			outFile.Close()
-			return err
-		}
-
-		_, err = io.Copy(outFile, rc)
-		outFile.Close()
-		rc.Close()
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }

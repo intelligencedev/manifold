@@ -5,7 +5,6 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -28,15 +27,16 @@ const (
 )
 
 func main() {
+	logger := pterm.DefaultLogger.WithLevel(pterm.LogLevelTrace)
+
 	config, err := LoadConfig("config.yaml")
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(fmt.Sprintf("Failed to load configuration: %v", err))
 	}
-	log.Printf("Configuration loaded: %+v", config)
 
 	// Initialize application (create data directory, etc.).
 	if err := InitializeApplication(config); err != nil {
-		log.Fatalf("Failed to initialize application: %v", err)
+		logger.Fatal(fmt.Sprintf("Failed to initialize application: %v", err))
 	}
 
 	// Create Echo instance with middleware.
@@ -59,8 +59,9 @@ func main() {
 	go func() {
 		port := fmt.Sprintf(":%d", config.Port)
 		if err := e.Start(port); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Error starting server: %v", err)
+			logger.Fatal(fmt.Sprintf("Error starting server: %v", err))
 		}
+		logger.Info(fmt.Sprintf("Server started on port: %d", config.Port))
 	}()
 
 	// Graceful shutdown.
@@ -68,10 +69,12 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
+	logger.Warn("Received shutdown signal")
+
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := e.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("Error shutting down server: %v", err)
+		logger.Fatal(fmt.Sprintf("Error shutting down server: %v", err))
 	}
-	log.Println("Server gracefully stopped")
+	logger.Info("Server gracefully stopped")
 }

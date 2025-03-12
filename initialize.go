@@ -3,10 +3,14 @@
 package main
 
 import (
+	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"manifold/internal/sefii"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +19,134 @@ import (
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
 	"github.com/pterm/pterm"
 )
+
+// InitializeLlamaCpp downloads and sets up llama.cpp binaries if they don't exist
+func InitializeLlamaCpp(config *Config) error {
+	if config.DataPath == "" {
+		return fmt.Errorf("data path not configured")
+	}
+
+	llamaCppDir := filepath.Join(config.DataPath, "llama-cpp")
+
+	// Check if llama.cpp binaries already exist
+	if _, err := os.Stat(llamaCppDir); err == nil {
+		// Directory exists, check for binary
+		files, err := os.ReadDir(llamaCppDir)
+		if err != nil {
+			return fmt.Errorf("failed to read llama-cpp directory: %w", err)
+		}
+
+		// Look for main binary file based on OS
+		hostInfo, err := GetHostInfo()
+		if err != nil {
+			return fmt.Errorf("failed to get host info: %w", err)
+		}
+
+		binaryName := "main"
+		if hostInfo.OS == "windows" {
+			binaryName = "main.exe"
+		}
+
+		for _, file := range files {
+			if file.Name() == binaryName {
+				pterm.Info.Println("llama.cpp binaries already installed")
+				return nil
+			}
+		}
+	}
+
+	pterm.Info.Println("Downloading llama.cpp binaries...")
+
+	// Get host info for architecture detection
+	hostInfo, err := GetHostInfo()
+	if err != nil {
+		return fmt.Errorf("failed to get host info: %w", err)
+	}
+
+	// Create llama-cpp directory
+	if err := os.MkdirAll(llamaCppDir, 0755); err != nil {
+		return fmt.Errorf("failed to create llama-cpp directory: %w", err)
+	}
+
+	// Determine OS/arch for download
+	var osArch string
+	switch hostInfo.OS {
+	case "darwin":
+		if hostInfo.Arch == "arm64" {
+			osArch = "macos-arm64"
+		} else {
+			return fmt.Errorf("unsupported macOS architecture")
+		}
+	case "linux":
+		osArch = "ubuntu-x64"
+	case "windows":
+		osArch = "win-cuda-cu12.4-x64"
+	default:
+		return fmt.Errorf("unsupported operating system")
+	}
+
+	// Get latest release info from GitHub
+	resp, err := http.Get("https://api.github.com/repos/ggerganov/llama.cpp/releases/latest")
+	if err != nil {
+		return fmt.Errorf("failed to fetch latest release info: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var release map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return fmt.Errorf("failed to decode release info: %w", err)
+	}
+
+	assets, ok := release["assets"].([]interface{})
+	if !ok {
+		return fmt.Errorf("invalid release assets format")
+	}
+
+	var llamaDownloadURL string
+	var releaseVersion string
+	if tag, ok := release["tag_name"].(string); ok {
+		releaseVersion = strings.TrimPrefix(tag, "b")
+	}
+
+	for _, asset := range assets {
+		assetMap, ok := asset.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		name, ok := assetMap["name"].(string)
+		if !ok {
+			continue
+		}
+		downloadURL, ok := assetMap["browser_download_url"].(string)
+		if !ok {
+			continue
+		}
+
+		if releaseVersion != "" && strings.Contains(name, "llama-b"+releaseVersion+"-bin-"+osArch) && strings.HasSuffix(name, ".zip") {
+			llamaDownloadURL = downloadURL
+			break
+		}
+	}
+
+	if llamaDownloadURL == "" {
+		return fmt.Errorf("could not find download URL for system architecture")
+	}
+
+	// Download and extract llama.cpp
+	llamaFilePath := filepath.Join(llamaCppDir, "llama.zip")
+	if err := downloadLlamaBinary(llamaDownloadURL, llamaFilePath); err != nil {
+		return fmt.Errorf("failed to download llama.cpp: %w", err)
+	}
+
+	if err := unzipLlamaBinary(llamaFilePath, llamaCppDir); err != nil {
+		os.Remove(llamaFilePath)
+		return fmt.Errorf("failed to unzip llama.cpp: %w", err)
+	}
+	os.Remove(llamaFilePath)
+
+	pterm.Success.Println("Successfully downloaded and installed llama.cpp binaries")
+	return nil
+}
 
 // InitializeApplication performs necessary setup tasks, such as creating the data directory.
 func InitializeApplication(config *Config) error {
@@ -43,6 +175,11 @@ func InitializeApplication(config *Config) error {
 			pterm.Success.Printf("Data directory '%s' created successfully.\n", config.DataPath)
 		} else if err != nil {
 			return fmt.Errorf("failed to stat data directory: %w", err)
+		}
+
+		// Initialize llama.cpp after data directory is created
+		if err := InitializeLlamaCpp(config); err != nil {
+			pterm.Warning.Printf("Failed to initialize llama.cpp: %v\n", err)
 		}
 	}
 
@@ -177,4 +314,71 @@ func ScanMLXModels(modelsDir string) ([]LanguageModel, error) {
 	}
 
 	return mlxModels, nil
+}
+
+// downloadLlamaBinary downloads a file from a URL to a local filepath
+func downloadLlamaBinary(url, filepath string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("bad status: %s", resp.Status)
+	}
+
+	out, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	return err
+}
+
+// unzipLlamaBinary extracts a zip archive to a destination directory
+func unzipLlamaBinary(src, dest string) error {
+	r, err := zip.OpenReader(src)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		// Ensure extracted path is within destination directory
+		path := filepath.Join(dest, f.Name)
+		if !strings.HasPrefix(path, filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("invalid file path in zip: %s", f.Name)
+		}
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(path, os.ModePerm)
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
+			return err
+		}
+
+		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+		if err != nil {
+			return err
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			outFile.Close()
+			return err
+		}
+
+		_, err = io.Copy(outFile, rc)
+		outFile.Close()
+		rc.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

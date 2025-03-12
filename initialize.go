@@ -177,6 +177,22 @@ func InitializeApplication(config *Config) error {
 			return fmt.Errorf("failed to stat data directory: %w", err)
 		}
 
+		// Create model directories
+		modelDirs := []string{
+			filepath.Join(config.DataPath, "models"),
+			filepath.Join(config.DataPath, "models", "gguf"),
+			filepath.Join(config.DataPath, "models", "mlx"),
+			filepath.Join(config.DataPath, "models", "embeddings"),
+			filepath.Join(config.DataPath, "models", "rerankers"),
+		}
+
+		for _, dir := range modelDirs {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("failed to create model directory %s: %w", dir, err)
+			}
+			pterm.Success.Printf("Model directory '%s' created successfully.\n", dir)
+		}
+
 		// Initialize llama.cpp after data directory is created
 		if err := InitializeLlamaCpp(config); err != nil {
 			pterm.Warning.Printf("Failed to initialize llama.cpp: %v\n", err)

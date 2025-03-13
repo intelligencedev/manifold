@@ -48,23 +48,9 @@ This will fetch the required dependencies:
 
 #### PGVector Setup
 
-After initializing the submodules, set up pgvector using Docker:
+Manifold will automatically manage the lifecycle of the PGVector container using Docker. Ensure Docker is installed and running on your system.
 
-1. Navigate to the pgvector directory and build the Docker image:
-```bash
-$ cd external/pgvector
-$ docker build -t pgvector .
-```
-
-2. Run the PostgreSQL container with pgvector:
-```bash
-$ docker run --name pgvector -e POSTGRES_USER=myuser -e POSTGRES_PASSWORD=changeme -e POSTGRES_DB=manifold -p 5432:5432 -d pgvector
-```
-
-3. The vector extension will be automatically enabled in your database. You can verify it by connecting to the database and running:
-```sql
-SELECT * FROM pg_extension WHERE extname = 'vector';
-```
+---
 
 ### 4. Install an Image Generation Backend (Choose One)
 
@@ -99,9 +85,8 @@ $ cd ..
 $ go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
 $ cd dist
 
-# 1. Ensure PG Vector is running
-# 2. Place config.yaml in the same path as the binary
-# 3. Run the binary
+# 1. Place config.yaml in the same path as the binary
+# 2. Run the binary
 $ ./manifold
 ```
 
@@ -115,6 +100,10 @@ This sequence will:
 Upon first execution, Manifold creates necessary directories and files (e.g., `data`).
 
 Note that Manifold builds the frontend and embeds it in its binary. When building the application, the frontend is not a separate web server.
+
+- On first boot, the application will take longer as it downloads the required models for completions, embeddings, and reranker services.
+- The application defaults to a single node instance configuration, managing the lifecycle of services using the llama-server backend and bootstrapping PGVector.
+- Services can be configured to run on remote hosts to alleviate load on a single host, but users must manage the lifecycle of remote services manually.
 
 ---
 
@@ -140,13 +129,17 @@ database:
 
 # Completion and Embedding Services
 completions:
-  default_host: "http://localhost:8081"  # Example: llama.cpp server
+  default_host: "http://localhost:32186/v1/chat/completions"  # Default: local llama-server
   api_key: ""
 
 embeddings:
-  host: "http://localhost:8081"  # Example: llama.cpp server
+  host: "http://localhost:32184/v1/embeddings"  # Default: local llama-server
   api_key: ""
-  embedding_vectors: 1024
+  dimensions: 768
+  embed_prefix: "search_document: "
+  search_prefix: "search_query: "
+reranker:
+  host: "http://localhost:32185/v1/rerank"  # Default: local llama-server
 ```
 
 **Crucial Points:**

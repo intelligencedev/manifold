@@ -58,6 +58,7 @@ func downloadModels(config *Config) error {
 	models := map[string]string{
 		filepath.Join(config.DataPath, "models", "rerankers", "slide-bge-reranker-v2-m3.Q4_K_M.gguf"): "https://huggingface.co/mradermacher/slide-bge-reranker-v2-m3-GGUF/resolve/main/slide-bge-reranker-v2-m3.Q4_K_M.gguf",
 		filepath.Join(config.DataPath, "models", "embeddings", "nomic-embed-text-v1.5.Q8_0.gguf"):     "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
+		filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it.Q8_0.gguf"):                   "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it.Q8_0.gguf",
 	}
 
 	for filePath, url := range models {
@@ -361,17 +362,12 @@ func InitializeApplication(config *Config) error {
 	engine.EnsureTable(ctx, config.Embeddings.Dimensions)
 	engine.EnsureInvertedIndexTable(ctx)
 
-	// Start local services if needed
-	if err := StartEmbeddingsService(config); err != nil {
-		pterm.Warning.Printf("Failed to start local embeddings service: %v\n", err)
-	} else if config.Embeddings.Host == "" {
-		pterm.Success.Println("Started local embeddings service")
-	}
-
-	if err := StartRerankerService(config); err != nil {
-		pterm.Warning.Printf("Failed to start local reranker service: %v\n", err)
-	} else if config.Reranker.Host == "" {
-		pterm.Success.Println("Started local reranker service")
+	// Start local services if SingleNodeInstance is true
+	if config.SingleNodeInstance {
+		pterm.Info.Println("Running in single node mode, starting local services...")
+		if err := StartLocalServices(config); err != nil {
+			pterm.Warning.Printf("Failed to start local services: %v\n", err)
+		}
 	}
 
 	// Set up cleanup on program exit

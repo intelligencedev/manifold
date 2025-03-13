@@ -28,7 +28,6 @@ const (
 
 func main() {
 	logger := pterm.DefaultLogger.WithLevel(pterm.LogLevelTrace)
-
 	config, err := LoadConfig("config.yaml")
 	if err != nil {
 		logger.Fatal(fmt.Sprintf("Failed to load configuration: %v", err))
@@ -71,10 +70,24 @@ func main() {
 
 	logger.Warn("Received shutdown signal")
 
+	// First, stop all local services
+	logger.Info("Shutting down local services...")
+	StopAllServices()
+
+	// Stop PGVector container with explicit confirmation
+	logger.Info("Shutting down PGVector container...")
+	if err := StopPGVectorContainer(); err != nil {
+		logger.Error(fmt.Sprintf("Error stopping PGVector container: %v", err))
+	} else {
+		logger.Info("PGVector container stopped successfully")
+	}
+
+	// Then, shut down the HTTP server
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := e.Shutdown(shutdownCtx); err != nil {
 		logger.Fatal(fmt.Sprintf("Error shutting down server: %v", err))
 	}
+
 	logger.Info("Server gracefully stopped")
 }

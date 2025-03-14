@@ -90,10 +90,16 @@ jobs:
       shell: bash
       run: |
         GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe .
+
+    - name: Create Windows zip archive
+      if: matrix.platform == 'windows'
+      shell: pwsh
+      run: |
+        # Copy config file to dist
+        Copy-Item -Path "config.yaml.example" -Destination "dist"
         
-        cd dist
-        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe ../config.yaml.example
-        cd ..
+        # Create zip using PowerShell
+        Compress-Archive -Path "dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe", "dist/config.yaml.example" -DestinationPath "dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4

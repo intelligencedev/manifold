@@ -1,0 +1,125 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+            arch: amd64
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Build Frontend
+      run: |
+        cd frontend
+        npm ci
+        npm run build
+        cd ..
+
+    - name: Build for macOS (universal binary)
+      if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
+      run: |
+        # Build arm64 binary
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-darwin-arm64 .
+        
+        # Build amd64 binary
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-darwin-amd64 .
+        
+        # Create universal binary
+        lipo -create -output ./dist/manifold-darwin-universal ./dist/manifold-darwin-arm64 ./dist/manifold-darwin-amd64
+        
+        # Create zip archives
+        cd dist
+        zip -r manifold-darwin-arm64.zip manifold-darwin-arm64 ../config.yaml.example
+        zip -r manifold-darwin-amd64.zip manifold-darwin-amd64 ../config.yaml.example
+        zip -r manifold-darwin-universal.zip manifold-darwin-universal ../config.yaml.example
+        cd ..
+
+    - name: Build for Linux/Windows
+      if: matrix.platform != 'darwin' || matrix.arch != 'arm64'
+      run: |
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.platform == 'windows' && '.exe' || '' }} .
+        
+        cd dist
+        if [ "${{ matrix.platform }}" = "windows" ]; then
+          zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe ../config.yaml.example
+        else
+          zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }} ../config.yaml.example
+        fi
+        cd ..
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: manifold-${{ matrix.platform }}-${{ matrix.arch }}
+        path: dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Manifold ${{ github.ref_name }}
+          body: |
+            # Manifold ${{ github.ref_name }}
+            
+            This is the first alpha release of Manifold, a powerful platform for workflow automation using AI models.
+            
+            ## Installation
+            
+            Download the appropriate binary for your platform and follow the instructions in the README.md.
+            
+            ## Changelog
+            
+            - Initial alpha release
+          files: |
+            artifacts/**/*.zip
+          draft: false
+          prerelease: true

@@ -17,15 +17,41 @@ Manifold is a powerful platform designed for workflow automation using AI models
 Ensure the following software is installed before proceeding:
 
 - **Chrome Browser:** Required for web tools. Used as a headless browser and managed by Manifold. WebPGU support should be enabled for text-to-speech to work.
-- **Go:** Version 1.21 or newer ([Download](https://golang.org/dl/)).
 - **Python:** Version 3.10 or newer ([Download](https://www.python.org/downloads/)).
-- **Node.js:** Version 20 managed via `nvm` ([Installation Guide](https://github.com/nvm-sh/nvm)).
-- **PGVector:** Required for retrieval augmented generation.
 - **Docker:** Recommended for easy setup of PGVector ([Download](https://www.docker.com/get-started)).
+
+For development, you'll also need:
+- **Go:** Version 1.21 or newer ([Download](https://golang.org/dl/)).
+- **Node.js:** Version 20 managed via `nvm` ([Installation Guide](https://github.com/nvm-sh/nvm)).
 
 ---
 
-## Installation Steps
+## Quick Start with Pre-built Binaries
+
+The easiest way to get started with Manifold is to download a pre-built binary from the [releases page](https://github.com/intelligencedev/manifold/releases).
+
+1. Download the appropriate binary for your platform:
+   - macOS: `manifold-darwin-universal.zip` (Universal binary for both Intel and Apple Silicon)
+   - Linux: `manifold-linux-amd64.zip` or `manifold-linux-arm64.zip`
+   - Windows: `manifold-windows-amd64.zip`
+   
+2. Extract the zip file and navigate to the extracted directory.
+
+3. Create a `config.yaml` file in the same directory as the binary (a template `config.yaml.example` is included).
+
+4. Run the binary:
+   ```bash
+   # On macOS/Linux
+   $ chmod +x manifold-*
+   $ ./manifold-*
+   
+   # On Windows
+   $ manifold-windows-amd64.exe
+   ```
+
+---
+
+## Installation from Source
 
 ### 1. Clone the Repository
 
@@ -34,7 +60,7 @@ $ git clone https://github.com/intelligencedev/manifold.git
 $ cd manifold
 ```
 
-### 3. Initialize Submodules
+### 2. Initialize Submodules
 
 After cloning the repository, initialize and update the git submodules:
 
@@ -52,7 +78,7 @@ Manifold will automatically manage the lifecycle of the PGVector container using
 
 ---
 
-### 4. Install an Image Generation Backend (Choose One)
+### 3. Install an Image Generation Backend (Choose One)
 
 #### Option A: ComfyUI (Cross-platform)
 
@@ -65,13 +91,13 @@ Manifold will automatically manage the lifecycle of the PGVector container using
 
 ---
 
-### 5. Configuration
+### 4. Configuration
 
-Use the provided `.config.yaml` template to create a new `config.yaml` file. This file must be placed in the same path as the main.go file if running in development mode, or in the same path as the manifold binary if you build the project.
+Use the provided `config.yaml.example` template to create a new `config.yaml` file. This file must be placed in the same path as the main.go file if running in development mode, or in the same path as the manifold binary if you build the project.
 
 Ensure to update the values to match your environment.
 
-### 6. Build and Run Manifold
+### 5. Build and Run Manifold
 
 For development it is not necessary to build the application. See development notes at the bottom of this guide.
 
@@ -80,6 +106,7 @@ Execute the following commands:
 ```bash
 $ cd frontend
 $ nvm use 20
+$ npm install
 $ npm run build
 $ cd ..
 $ go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
@@ -109,7 +136,7 @@ Note that Manifold builds the frontend and embeds it in its binary. When buildin
 
 ### 6. Configuration (`config.yaml`)
 
-Create or update your configuration based on the provided `.config.yaml` example in the repository root:
+Create or update your configuration based on the provided `config.yaml.example` in the repository:
 
 ```yaml
 host: localhost
@@ -180,7 +207,7 @@ Manifold is compatible with OpenAI-compatible endpoints:
 
 ## Run in Development Mode
 
-Ensure `config.yaml` is present at the root of the project by using the provided `.config.yaml` template and configuring your values.
+Ensure `config.yaml` is present at the root of the project by using the provided `config.yaml.example` template and configuring your values.
 
 Run the Go backend:
 ```
@@ -195,6 +222,14 @@ $ nvm use 20
 $ npm install
 $ npm run dev
 ```
+
+## Release Process
+
+Manifold uses GitHub Actions to automatically build and publish releases. To create a new release:
+
+1. Update version references in the codebase as needed
+2. Create and push a new tag with the version number (e.g., `v0.1.0`)
+3. GitHub Actions will automatically build binaries for all supported platforms and publish them as a GitHub release
 
 ## Contributing
 

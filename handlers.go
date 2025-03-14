@@ -260,7 +260,7 @@ func executeMCPHandler(c echo.Context) error {
 	}
 
 	// Launch the MCP server process (using the real server example).
-	cmd := exec.Command("go", "run", "cmd/mcpserver/mcpserver.go")
+	cmd := exec.Command("./mcpserver")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to get server stdin pipe"})

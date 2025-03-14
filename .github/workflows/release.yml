@@ -62,20 +62,26 @@ jobs:
       if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
       shell: bash
       run: |
-        # Build arm64 binary
+        # Build arm64 binaries
         GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-darwin-arm64 .
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver-darwin-arm64 ./cmd/mcpserver
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient-darwin-arm64 ./cmd/mcpclient
         
-        # Build amd64 binary
+        # Build amd64 binaries
         GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-darwin-amd64 .
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver-darwin-amd64 ./cmd/mcpserver
+        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient-darwin-amd64 ./cmd/mcpclient
         
-        # Create universal binary
+        # Create universal binaries
         lipo -create -output ./dist/manifold-darwin-universal ./dist/manifold-darwin-arm64 ./dist/manifold-darwin-amd64
+        lipo -create -output ./dist/mcpserver-darwin-universal ./dist/mcpserver-darwin-arm64 ./dist/mcpserver-darwin-amd64
+        lipo -create -output ./dist/mcpclient-darwin-universal ./dist/mcpclient-darwin-arm64 ./dist/mcpclient-darwin-amd64
         
         # Create zip archives
         cd dist
-        zip -r manifold-darwin-arm64.zip manifold-darwin-arm64 ../config.yaml.example
-        zip -r manifold-darwin-amd64.zip manifold-darwin-amd64 ../config.yaml.example
-        zip -r manifold-darwin-universal.zip manifold-darwin-universal ../config.yaml.example
+        zip -r manifold-darwin-arm64.zip manifold-darwin-arm64 mcpserver-darwin-arm64 mcpclient-darwin-arm64 ../config.yaml.example
+        zip -r manifold-darwin-amd64.zip manifold-darwin-amd64 mcpserver-darwin-amd64 mcpclient-darwin-amd64 ../config.yaml.example
+        zip -r manifold-darwin-universal.zip manifold-darwin-universal mcpserver-darwin-universal mcpclient-darwin-universal ../config.yaml.example
         cd ..
 
     - name: Build for Linux
@@ -83,9 +89,11 @@ jobs:
       shell: bash
       run: |
         GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-${{ matrix.platform }}-${{ matrix.arch }} .
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver-${{ matrix.platform }}-${{ matrix.arch }} ./cmd/mcpserver
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient-${{ matrix.platform }}-${{ matrix.arch }} ./cmd/mcpclient
         
         cd dist
-        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }} ../config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }} mcpserver-${{ matrix.platform }}-${{ matrix.arch }} mcpclient-${{ matrix.platform }}-${{ matrix.arch }} ../config.yaml.example
         cd ..
 
     - name: Build for Windows
@@ -93,6 +101,8 @@ jobs:
       shell: bash
       run: |
         GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe .
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver-${{ matrix.platform }}-${{ matrix.arch }}.exe ./cmd/mcpserver
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient-${{ matrix.platform }}-${{ matrix.arch }}.exe ./cmd/mcpclient
 
     - name: Create Windows zip archive
       if: matrix.platform == 'windows'
@@ -102,7 +112,7 @@ jobs:
         Copy-Item -Path "config.yaml.example" -Destination "dist"
         
         # Create zip using PowerShell
-        Compress-Archive -Path "dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe", "dist/config.yaml.example" -DestinationPath "dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
+        Compress-Archive -Path "dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe", "dist/mcpserver-${{ matrix.platform }}-${{ matrix.arch }}.exe", "dist/mcpclient-${{ matrix.platform }}-${{ matrix.arch }}.exe", "dist/config.yaml.example" -DestinationPath "dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
@@ -119,12 +129,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -141,6 +149,7 @@ jobs:
             ## Changelog
             
             - Initial alpha release
+            - Added MCP server and client binaries for Machine Coordinated Programming
           files: |
             artifacts/**/*.zip
           draft: false

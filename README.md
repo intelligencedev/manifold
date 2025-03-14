@@ -110,6 +110,8 @@ $ npm install
 $ npm run build
 $ cd ..
 $ go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
+$ go build -ldflags="-s -w" -trimpath -o ./dist/mcpclient ./cmd/mcpclient
+$ go build -ldflags="-s -w" -trimpath -o ./dist/mcpserver ./cmd/mcpserver
 $ cd dist
 
 # 1. Place config.yaml in the same path as the binary

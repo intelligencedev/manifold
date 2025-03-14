@@ -52,8 +52,12 @@ jobs:
         npm run build
         cd ..
 
+    - name: Create dist directory
+      run: mkdir -p dist
+
     - name: Build for macOS (universal binary)
       if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
+      shell: bash
       run: |
         # Build arm64 binary
         GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-darwin-arm64 .
@@ -71,17 +75,24 @@ jobs:
         zip -r manifold-darwin-universal.zip manifold-darwin-universal ../config.yaml.example
         cd ..
 
-    - name: Build for Linux/Windows
-      if: matrix.platform != 'darwin' || matrix.arch != 'arm64'
+    - name: Build for Linux
+      if: matrix.platform == 'linux'
+      shell: bash
       run: |
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.platform == 'windows' && '.exe' || '' }} .
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-${{ matrix.platform }}-${{ matrix.arch }} .
         
         cd dist
-        if [ "${{ matrix.platform }}" = "windows" ]; then
-          zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe ../config.yaml.example
-        else
-          zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }} ../config.yaml.example
-        fi
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }} ../config.yaml.example
+        cd ..
+
+    - name: Build for Windows
+      if: matrix.platform == 'windows'
+      shell: bash
+      run: |
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe .
+        
+        cd dist
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold-${{ matrix.platform }}-${{ matrix.arch }}.exe ../config.yaml.example
         cd ..
 
     - name: Upload build artifact

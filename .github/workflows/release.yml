@@ -18,16 +18,10 @@ jobs:
         include:
           - os: macos-latest
             platform: darwin
-            arch: amd64
-          - os: macos-latest
-            platform: darwin
             arch: arm64
           - os: ubuntu-latest
             platform: linux
             arch: amd64
-          - os: ubuntu-latest
-            platform: linux
-            arch: arm64
           - os: windows-latest
             platform: windows
             arch: amd64
@@ -58,32 +52,20 @@ jobs:
     - name: Create dist directory
       run: mkdir -p dist
 
-    - name: Build for macOS (universal binary)
+    - name: Build for macOS
       if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
       shell: bash
       run: |
         # Build arm64 binaries
-        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-darwin-arm64 .
-        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver-darwin-arm64 ./cmd/mcpserver
-        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient-darwin-arm64 ./cmd/mcpclient
-        
-        # Build amd64 binaries
-        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold-darwin-amd64 .
-        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver-darwin-amd64 ./cmd/mcpserver
-        GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient-darwin-amd64 ./cmd/mcpclient
-        
-        # Create universal binaries
-        lipo -create -output ./dist/manifold ./dist/manifold-darwin-arm64 ./dist/manifold-darwin-amd64
-        lipo -create -output ./dist/mcpserver ./dist/mcpserver-darwin-arm64 ./dist/mcpserver-darwin-amd64
-        lipo -create -output ./dist/mcpclient ./dist/mcpclient-darwin-arm64 ./dist/mcpclient-darwin-amd64
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold .
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver ./cmd/mcpserver
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient ./cmd/mcpclient
         
         # Create zip archives
         cd dist
         # Create distribution with correctly named binaries and config.yaml
         cp ../config.yaml.example ./config.yaml.example
-        zip -r manifold-darwin-arm64.zip manifold-darwin-arm64 mcpserver-darwin-arm64 mcpclient-darwin-arm64 config.yaml.example
-        zip -r manifold-darwin-amd64.zip manifold-darwin-amd64 mcpserver-darwin-amd64 mcpclient-darwin-amd64 config.yaml.example
-        zip -r manifold-darwin-universal.zip manifold mcpserver mcpclient config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold mcpserver mcpclient config.yaml.example
         cd ..
 
     - name: Build for Linux

@@ -84,7 +84,7 @@ func StartCompletionsService(config *Config, binaryPath string) error {
 	// Default port for completions service
 	const completionsPort = 32186
 
-	modelPath := filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it.Q8_0.gguf")
+	modelPath := filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it-Q8_0.gguf")
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		return fmt.Errorf("completions model not found at %s", modelPath)
 	}

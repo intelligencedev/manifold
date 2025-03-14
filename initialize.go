@@ -57,7 +57,7 @@ func downloadModels(config *Config) error {
 	models := map[string]string{
 		filepath.Join(config.DataPath, "models", "rerankers", "slide-bge-reranker-v2-m3.Q4_K_M.gguf"): "https://huggingface.co/mradermacher/slide-bge-reranker-v2-m3-GGUF/resolve/main/slide-bge-reranker-v2-m3.Q4_K_M.gguf",
 		filepath.Join(config.DataPath, "models", "embeddings", "nomic-embed-text-v1.5.Q8_0.gguf"):     "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
-		filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it.Q8_0.gguf"):                   "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it.Q8_0.gguf",
+		filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it-Q8_0.gguf"):                   "https://huggingface.co/unsloth/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q8_0.gguf",
 	}
 
 	for filePath, url := range models {

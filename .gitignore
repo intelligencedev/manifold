@@ -11,3 +11,4 @@ sample/*
 .DS_Store
 pgvec.sh
 mcp/mcpenv
+scripts/*

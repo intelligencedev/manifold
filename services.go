@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -429,4 +430,183 @@ func getLlamaServerBinaryPath(config *Config) (string, error) {
 	}
 
 	return "", fmt.Errorf("llama-server binary not found in expected locations")
+}
+
+// StartPGVectorContainer starts a Docker container running PGVector if Docker is available
+func StartPGVectorContainer(config *Config) error {
+	// Check if Docker is installed
+	_, err := exec.LookPath("docker")
+	if err != nil {
+		return fmt.Errorf("Docker is not installed or not in PATH: %w", err)
+	}
+
+	// Check if Docker is running
+	checkCmd := exec.Command("docker", "info")
+	if err := checkCmd.Run(); err != nil {
+		return fmt.Errorf("Docker is not running: %w", err)
+	}
+
+	pterm.Info.Println("Docker is available, checking PGVector container...")
+
+	// Container configuration
+	containerName := "pg-manifold"
+	volumeName := "postgres-data"
+
+	// Check if container is already running
+	checkContainerCmd := exec.Command("docker", "ps", "-q", "--filter", "name="+containerName)
+	output, err := checkContainerCmd.Output()
+	if err == nil && len(output) > 0 {
+		pterm.Success.Printf("PGVector container '%s' is already running\n", containerName)
+		return nil
+	}
+
+	// Check if container exists but is not running
+	checkStoppedCmd := exec.Command("docker", "ps", "-a", "-q", "--filter", "name="+containerName)
+	output, err = checkStoppedCmd.Output()
+	if err == nil && len(output) > 0 {
+		pterm.Info.Printf("PGVector container '%s' exists but is not running, starting it...\n", containerName)
+		startCmd := exec.Command("docker", "start", containerName)
+		if err := startCmd.Run(); err != nil {
+			return fmt.Errorf("failed to start existing PGVector container: %w", err)
+		}
+		pterm.Success.Printf("PGVector container '%s' started\n", containerName)
+		return nil
+	}
+
+	// Parse database config for credentials from connection string
+	username := "postgres" // default
+	password := "postgres" // default
+	dbname := "manifold"   // default
+
+	if config != nil && config.Database.ConnectionString != "" {
+		if u, p, db, ok := parseConnectionString(config.Database.ConnectionString); ok {
+			username = u
+			password = p
+			dbname = db
+		} else {
+			pterm.Warning.Println("Could not parse database connection string, using default credentials")
+		}
+	} else {
+		pterm.Warning.Println("No database connection string provided, using default credentials")
+	}
+
+	// Create and run new container using ankane/pgvector image
+	pterm.Info.Printf("Creating new PGVector container: %s with image ankane/pgvector\n", containerName)
+
+	runCmd := exec.Command("docker", "run", "-d",
+		"--name", containerName,
+		"-p", "5432:5432",
+		"-v", volumeName+":/var/lib/postgresql/data",
+		"-e", "POSTGRES_USER="+username,
+		"-e", "POSTGRES_PASSWORD="+password,
+		"-e", "POSTGRES_DB="+dbname,
+		"ankane/pgvector")
+
+	if output, err := runCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to start PGVector container: %w\n%s", err, string(output))
+	}
+
+	pterm.Success.Printf("PGVector container '%s' created and started\n", containerName)
+
+	// Give the database some time to initialize
+	pterm.Info.Println("Waiting for PGVector database to initialize...")
+	time.Sleep(5 * time.Second)
+
+	return nil
+}
+
+// StopPGVectorContainer stops the PGVector container if it's running
+func StopPGVectorContainer() error {
+	containerName := "pg-manifold"
+
+	// Check if container is running
+	checkCmd := exec.Command("docker", "ps", "-q", "--filter", "name="+containerName)
+	output, err := checkCmd.Output()
+	if err != nil || len(output) == 0 {
+		// Container is not running
+		pterm.Info.Printf("PGVector container '%s' is not running, nothing to stop\n", containerName)
+		return nil
+	}
+
+	pterm.Info.Printf("Gracefully stopping PGVector container '%s'...\n", containerName)
+
+	// Use timeout to ensure graceful shutdown of the database
+	stopCmd := exec.Command("docker", "stop", "--time", "10", containerName)
+	if output, err := stopCmd.CombinedOutput(); err != nil {
+		pterm.Warning.Printf("Error while stopping container: %v\n%s", err, string(output))
+
+		// Try to force kill if graceful stop fails
+		killCmd := exec.Command("docker", "kill", containerName)
+		if err := killCmd.Run(); err != nil {
+			return fmt.Errorf("failed to kill PGVector container: %w", err)
+		}
+		pterm.Warning.Printf("PGVector container '%s' had to be forcefully killed\n", containerName)
+	}
+
+	// Verify the container has actually stopped
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		// Check if the container is still running
+		checkCmd := exec.Command("docker", "ps", "-q", "--filter", "name="+containerName)
+		output, err := checkCmd.Output()
+		if err != nil || len(output) == 0 {
+			// Container is no longer running
+			pterm.Success.Printf("PGVector container '%s' gracefully stopped\n", containerName)
+			return nil
+		}
+
+		// Container is still running, wait a bit and try again
+		pterm.Warning.Printf("PGVector container '%s' is still running, waiting...\n", containerName)
+		time.Sleep(1 * time.Second)
+	}
+
+	// If we get here, the container might be stuck
+	pterm.Error.Printf("Failed to stop PGVector container '%s' after multiple attempts\n", containerName)
+
+	// Last resort: try to force kill
+	killCmd := exec.Command("docker", "kill", containerName)
+	if err := killCmd.Run(); err != nil {
+		return fmt.Errorf("failed to kill PGVector container after multiple stop attempts: %w", err)
+	}
+
+	pterm.Warning.Printf("PGVector container '%s' was forcefully killed after failing to stop gracefully\n", containerName)
+	return nil
+}
+
+// parseConnectionString attempts to extract username, password and database name from a connection string
+func parseConnectionString(connStr string) (username, password, dbname string, ok bool) {
+	// Default values
+	username = "cloudadmin"
+	password = "peanut732688"
+	dbname = "manifold"
+
+	// Very basic parsing - this won't handle all formats but should work for simple cases
+	// Example: postgres://username:password@hostname:5432/dbname
+	if strings.HasPrefix(connStr, "postgres://") {
+		connStr = strings.TrimPrefix(connStr, "postgres://")
+
+		// Extract username and password
+		if userPassEnd := strings.Index(connStr, "@"); userPassEnd > 0 {
+			userPass := connStr[:userPassEnd]
+			if passwordSep := strings.Index(userPass, ":"); passwordSep > 0 {
+				username = userPass[:passwordSep]
+				password = userPass[passwordSep+1:]
+			}
+
+			// Extract database name
+			remainder := connStr[userPassEnd+1:]
+			if dbSep := strings.LastIndex(remainder, "/"); dbSep > 0 {
+				potentialDb := remainder[dbSep+1:]
+				if queryParamSep := strings.Index(potentialDb, "?"); queryParamSep > 0 {
+					dbname = potentialDb[:queryParamSep]
+				} else {
+					dbname = potentialDb
+				}
+			}
+
+			return username, password, dbname, true
+		}
+	}
+
+	return username, password, dbname, false
 }

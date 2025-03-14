@@ -12,10 +12,9 @@ import (
 	"manifold/internal/sefii"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
@@ -331,14 +330,59 @@ func InitializeApplication(config *Config) error {
 			pterm.Success.Printf("Model directory '%s' created successfully.\n", dir)
 		}
 
-		// Initialize llama.cpp after data directory is created
-		if err := InitializeLlamaCpp(config); err != nil {
-			pterm.Warning.Printf("Failed to initialize llama.cpp: %v\n", err)
+		// Use WaitGroup to wait for concurrent initialization tasks
+		var wg sync.WaitGroup
+		var initErrors []error
+		var errorsMutex sync.Mutex
+
+		// Helper function to add errors
+		addError := func(err error) {
+			errorsMutex.Lock()
+			initErrors = append(initErrors, err)
+			errorsMutex.Unlock()
 		}
 
-		// Download required models
-		if err := downloadModels(config); err != nil {
-			pterm.Warning.Printf("Failed to download models: %v\n", err)
+		// Start PGVector container in a goroutine
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pterm.Info.Println("Initializing PGVector database container...")
+			if err := StartPGVectorContainer(config); err != nil {
+				addError(fmt.Errorf("PGVector container initialization error: %w", err))
+				pterm.Warning.Printf("Failed to initialize PGVector container: %v\n", err)
+			}
+		}()
+
+		// Initialize llama.cpp in a goroutine
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := InitializeLlamaCpp(config); err != nil {
+				addError(fmt.Errorf("llama.cpp initialization error: %w", err))
+				pterm.Warning.Printf("Failed to initialize llama.cpp: %v\n", err)
+			}
+		}()
+
+		// Download required models in a goroutine
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := downloadModels(config); err != nil {
+				addError(fmt.Errorf("model download error: %w", err))
+				pterm.Warning.Printf("Failed to download models: %v\n", err)
+			}
+		}()
+
+		// Wait for all initialization tasks to complete
+		wg.Wait()
+
+		// Check if there were any errors during initialization
+		if len(initErrors) > 0 {
+			pterm.Warning.Println("Some initialization tasks encountered errors:")
+			for _, err := range initErrors {
+				pterm.Warning.Println("- " + err.Error())
+			}
+			// Continue anyway since some errors might be non-fatal
 		}
 	}
 
@@ -370,15 +414,7 @@ func InitializeApplication(config *Config) error {
 		}
 	}
 
-	// Set up cleanup on program exit
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		pterm.Info.Println("Shutting down local services...")
-		StopAllServices()
-		os.Exit(0)
-	}()
+	// Note: Signal handling removed from here - now centralized in main.go
 
 	return nil
 }

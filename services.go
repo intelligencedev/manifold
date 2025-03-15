@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/pterm/pterm"
 )
 
@@ -437,13 +438,13 @@ func StartPGVectorContainer(config *Config) error {
 	// Check if Docker is installed
 	_, err := exec.LookPath("docker")
 	if err != nil {
-		return fmt.Errorf("Docker is not installed or not in PATH: %w", err)
+		return fmt.Errorf("docker is not installed or not in PATH: %w", err)
 	}
 
 	// Check if Docker is running
 	checkCmd := exec.Command("docker", "info")
 	if err := checkCmd.Run(); err != nil {
-		return fmt.Errorf("Docker is not running: %w", err)
+		return fmt.Errorf("docker is not running: %w", err)
 	}
 
 	pterm.Info.Println("Docker is available, checking PGVector container...")
@@ -470,49 +471,108 @@ func StartPGVectorContainer(config *Config) error {
 			return fmt.Errorf("failed to start existing PGVector container: %w", err)
 		}
 		pterm.Success.Printf("PGVector container '%s' started\n", containerName)
-		return nil
+	} else {
+		// Parse database config for credentials from connection string
+		username := "postgres" // default
+		password := "postgres" // default
+		dbname := "manifold"   // default
+
+		if config != nil && config.Database.ConnectionString != "" {
+			if u, p, db, ok := parseConnectionString(config.Database.ConnectionString); ok {
+				username = u
+				password = p
+				dbname = db
+			} else {
+				pterm.Warning.Println("Could not parse database connection string, using default credentials")
+			}
+		} else {
+			pterm.Warning.Println("No database connection string provided, using default credentials")
+		}
+
+		// Create and run new container using ankane/pgvector image
+		pterm.Info.Printf("Creating new PGVector container: %s with image ankane/pgvector\n", containerName)
+
+		runCmd := exec.Command("docker", "run", "-d",
+			"--name", containerName,
+			"-p", "5432:5432",
+			"-v", volumeName+":/var/lib/postgresql/data",
+			"-e", "POSTGRES_USER="+username,
+			"-e", "POSTGRES_PASSWORD="+password,
+			"-e", "POSTGRES_DB="+dbname,
+			"ankane/pgvector")
+
+		if output, err := runCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to start pgvector container: %w\n%s", err, string(output))
+		}
+
+		pterm.Success.Printf("PGVector container '%s' created and started\n", containerName)
 	}
 
-	// Parse database config for credentials from connection string
-	username := "postgres" // default
-	password := "postgres" // default
-	dbname := "manifold"   // default
+	// Wait for the database to be ready
+	pterm.Info.Println("Waiting for PGVector database to initialize...")
+
+	// Use parsed credentials or defaults for connection check
+	username := "postgres"
+	password := "postgres"
+	dbname := "manifold"
 
 	if config != nil && config.Database.ConnectionString != "" {
 		if u, p, db, ok := parseConnectionString(config.Database.ConnectionString); ok {
 			username = u
 			password = p
 			dbname = db
-		} else {
-			pterm.Warning.Println("Could not parse database connection string, using default credentials")
 		}
+	}
+
+	// Create a connection string for verification
+	connStr := fmt.Sprintf("postgres://%s:%s@localhost:5432/%s", username, password, dbname)
+
+	// Try to connect to the database with timeout
+	if err := waitForDatabaseReady(connStr, 30*time.Second); err != nil {
+		pterm.Warning.Printf("Database container started but connection check failed: %v\n", err)
+		pterm.Warning.Println("Proceeding anyway, but database might not be fully initialized")
 	} else {
-		pterm.Warning.Println("No database connection string provided, using default credentials")
+		pterm.Success.Println("PGVector database is ready to accept connections")
 	}
-
-	// Create and run new container using ankane/pgvector image
-	pterm.Info.Printf("Creating new PGVector container: %s with image ankane/pgvector\n", containerName)
-
-	runCmd := exec.Command("docker", "run", "-d",
-		"--name", containerName,
-		"-p", "5432:5432",
-		"-v", volumeName+":/var/lib/postgresql/data",
-		"-e", "POSTGRES_USER="+username,
-		"-e", "POSTGRES_PASSWORD="+password,
-		"-e", "POSTGRES_DB="+dbname,
-		"ankane/pgvector")
-
-	if output, err := runCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start PGVector container: %w\n%s", err, string(output))
-	}
-
-	pterm.Success.Printf("PGVector container '%s' created and started\n", containerName)
-
-	// Give the database some time to initialize
-	pterm.Info.Println("Waiting for PGVector database to initialize...")
-	time.Sleep(5 * time.Second)
 
 	return nil
+}
+
+// waitForDatabaseReady attempts to connect to the database until it succeeds or times out
+func waitForDatabaseReady(connStr string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+
+	// Create a context with timeout for the overall operation
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	for time.Now().Before(deadline) {
+		// Use a short timeout for each connection attempt
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, 2*time.Second)
+
+		// Try to connect
+		conn, err := pgx.Connect(attemptCtx, connStr)
+		if err == nil {
+			// Successfully connected
+			conn.Close(attemptCtx)
+			attemptCancel()
+			return nil
+		}
+
+		attemptCancel()
+
+		// Check if our overall deadline is reached
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for database: %w", ctx.Err())
+		default:
+			// Wait a bit before trying again
+			pterm.Info.Println("Waiting for database to be ready...")
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+	return fmt.Errorf("timed out waiting for database to be ready after %v", timeout)
 }
 
 // StopPGVectorContainer stops the PGVector container if it's running

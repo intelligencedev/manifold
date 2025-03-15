@@ -99,8 +99,6 @@ jobs:
         with:
           name: Manifold ${{ github.ref_name }}
           body: |
-            # Manifold ${{ github.ref_name }}
-            
             This is the first alpha release of Manifold, a powerful platform for workflow automation using AI models.
             
             ## Installation

@@ -262,16 +262,79 @@ func InitializeLlamaCpp(config *Config) error {
 	}
 	os.Remove(llamaFilePath)
 
-	// After extraction, create build/bin directory if it doesn't exist
+	// After extraction, check if the binary is already in the build/bin directory
 	buildBinDir := filepath.Join(llamaCppDir, "build", "bin")
+	binaryPath = filepath.Join(buildBinDir, binaryName)
+
+	// First, check if binary exists directly in the expected location
+	if _, err := os.Stat(binaryPath); err == nil {
+		// Binary already exists in the correct location
+		pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
+
+		// Make the binary executable on Unix systems if needed
+		if hostInfo.OS != "windows" {
+			if err := os.Chmod(binaryPath, 0755); err != nil {
+				return fmt.Errorf("failed to make binary executable: %w", err)
+			}
+		}
+		return nil
+	}
+
+	// If not in build/bin, create directory structure if it doesn't exist
 	if err := os.MkdirAll(buildBinDir, 0755); err != nil {
 		return fmt.Errorf("failed to create build/bin directory: %w", err)
 	}
 
-	// Move the binary to build/bin directory
+	// Check if binary is in root directory
 	oldBinaryPath := filepath.Join(llamaCppDir, binaryName)
-	if err := os.Rename(oldBinaryPath, binaryPath); err != nil {
-		return fmt.Errorf("failed to move binary to build/bin: %w", err)
+	if _, err := os.Stat(oldBinaryPath); err == nil {
+		// Move the binary from root to build/bin
+		if err := os.Rename(oldBinaryPath, binaryPath); err != nil {
+			return fmt.Errorf("failed to move binary to build/bin: %w", err)
+		}
+	} else {
+		// Binary wasn't found in either location - try to locate it
+		var binaryFound bool
+
+		err := filepath.Walk(llamaCppDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() && strings.HasSuffix(info.Name(), binaryName) {
+				pterm.Info.Printf("Found llama-server binary at %s\n", path)
+
+				// If found, copy it to the build/bin location
+				srcFile, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer srcFile.Close()
+
+				destFile, err := os.Create(binaryPath)
+				if err != nil {
+					return err
+				}
+				defer destFile.Close()
+
+				_, err = io.Copy(destFile, srcFile)
+				if err != nil {
+					return err
+				}
+
+				binaryFound = true
+				return filepath.SkipDir
+			}
+			return nil
+		})
+
+		if err != nil {
+			return fmt.Errorf("error searching for llama-server binary: %w", err)
+		}
+
+		if !binaryFound {
+			return fmt.Errorf("could not find llama-server binary in extracted files")
+		}
 	}
 
 	// Make the binary executable on Unix systems

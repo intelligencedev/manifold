@@ -58,14 +58,12 @@ jobs:
       run: |
         # Build arm64 binaries
         GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold .
-        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver ./cmd/mcpserver
-        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient ./cmd/mcpclient
         
         # Create zip archives
         cd dist
         # Create distribution with correctly named binaries and config.yaml
         cp ../config.yaml.example ./config.yaml.example
-        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold mcpserver mcpclient config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold config.yaml.example
         cd ..
 
     - name: Build for Linux
@@ -73,13 +71,11 @@ jobs:
       shell: bash
       run: |
         GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold .
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver ./cmd/mcpserver
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient ./cmd/mcpclient
         
         cd dist
         # Create distribution with correctly named binaries and config.yaml
         cp ../config.yaml.example ./config.yaml.example
-        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold mcpserver mcpclient config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold config.yaml.example
         cd ..
 
     - name: Build for Windows
@@ -87,8 +83,6 @@ jobs:
       shell: bash
       run: |
         GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold.exe .
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpserver.exe ./cmd/mcpserver
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/mcpclient.exe ./cmd/mcpclient
 
     - name: Create Windows zip archive
       if: matrix.platform == 'windows'
@@ -98,7 +92,7 @@ jobs:
         Copy-Item -Path "config.yaml.example" -Destination "dist\config.yaml.example"
         
         # Create zip using PowerShell
-        Compress-Archive -Path "dist\manifold.exe", "dist\mcpserver.exe", "dist\mcpclient.exe", "dist\config.yaml.example" -DestinationPath "dist\manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
+        Compress-Archive -Path "dist\manifold.exe", "dist\config.yaml.example" -DestinationPath "dist\manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4

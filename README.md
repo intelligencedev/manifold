@@ -33,7 +33,6 @@ The easiest way to get started with Manifold is to download a pre-built binary f
 1. Download the appropriate binary for your platform:
    - macOS: `manifold-darwin-universal.zip` (Universal binary for both Intel and Apple Silicon)
    - Linux: `manifold-linux-amd64.zip` or `manifold-linux-arm64.zip`
-   - Windows: `manifold-windows-amd64.zip`
    
 2. Extract the zip file and navigate to the extracted directory.
 
@@ -44,9 +43,6 @@ The easiest way to get started with Manifold is to download a pre-built binary f
    # On macOS/Linux
    $ chmod +x manifold-*
    $ ./manifold-*
-   
-   # On Windows
-   $ manifold-windows-amd64.exe
    ```
 
 ---

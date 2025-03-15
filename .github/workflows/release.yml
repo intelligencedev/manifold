@@ -22,9 +22,6 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: amd64
-          - os: windows-latest
-            platform: windows
-            arch: amd64
 
     steps:
     - name: Checkout code
@@ -77,22 +74,6 @@ jobs:
         cp ../config.yaml.example ./config.yaml.example
         zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold config.yaml.example
         cd ..
-
-    - name: Build for Windows
-      if: matrix.platform == 'windows'
-      shell: bash
-      run: |
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold.exe .
-
-    - name: Create Windows zip archive
-      if: matrix.platform == 'windows'
-      shell: pwsh
-      run: |
-        # Copy config file to dist
-        Copy-Item -Path "config.yaml.example" -Destination "dist\config.yaml.example"
-        
-        # Create zip using PowerShell
-        Compress-Archive -Path "dist\manifold.exe", "dist\config.yaml.example" -DestinationPath "dist\manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4

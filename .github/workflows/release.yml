@@ -110,7 +110,6 @@ jobs:
             ## Changelog
             
             - Initial alpha release
-            - Added MCP server and client binaries for Machine Coordinated Programming
           files: |
             artifacts/**/*.zip
           draft: false

@@ -197,8 +197,6 @@ func InitializeLlamaCpp(config *Config) error {
 		}
 	case "linux":
 		osArch = "ubuntu-x64"
-	case "windows":
-		osArch = "win-cuda-cu12.4-x64"
 	default:
 		return fmt.Errorf("unsupported operating system")
 	}

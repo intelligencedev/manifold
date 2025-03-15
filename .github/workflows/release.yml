@@ -1,0 +1,136 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          - os: ubuntu-latest
+            platform: linux
+            arch: amd64
+          - os: windows-latest
+            platform: windows
+            arch: amd64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.21'
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Build Frontend
+      run: |
+        cd frontend
+        npm ci
+        npm run build
+        cd ..
+
+    - name: Create dist directory
+      run: mkdir -p dist
+
+    - name: Build for macOS
+      if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
+      shell: bash
+      run: |
+        # Build arm64 binaries
+        GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold .
+        
+        # Create zip archives
+        cd dist
+        # Create distribution with correctly named binaries and config.yaml
+        cp ../config.yaml.example ./config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold config.yaml.example
+        cd ..
+
+    - name: Build for Linux
+      if: matrix.platform == 'linux'
+      shell: bash
+      run: |
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold .
+        
+        cd dist
+        # Create distribution with correctly named binaries and config.yaml
+        cp ../config.yaml.example ./config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold config.yaml.example
+        cd ..
+
+    - name: Build for Windows
+      if: matrix.platform == 'windows'
+      shell: bash
+      run: |
+        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold.exe .
+
+    - name: Create Windows zip archive
+      if: matrix.platform == 'windows'
+      shell: pwsh
+      run: |
+        # Copy config file to dist
+        Copy-Item -Path "config.yaml.example" -Destination "dist\config.yaml.example"
+        
+        # Create zip using PowerShell
+        Compress-Archive -Path "dist\manifold.exe", "dist\config.yaml.example" -DestinationPath "dist\manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: manifold-${{ matrix.platform }}-${{ matrix.arch }}
+        path: dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}*
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Manifold ${{ github.ref_name }}
+          body: |
+            # Manifold ${{ github.ref_name }}
+            
+            This is the first alpha release of Manifold, a powerful platform for workflow automation using AI models.
+            
+            ## Installation
+            
+            Download the appropriate binary for your platform and follow the instructions in the README.md.
+            
+            ## Changelog
+            
+            - Initial alpha release
+            - Added MCP server and client binaries for Machine Coordinated Programming
+          files: |
+            artifacts/**/*.zip
+          draft: false
+          prerelease: true

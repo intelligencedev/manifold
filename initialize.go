@@ -291,16 +291,26 @@ func InitializeApplication(config *Config) error {
 	if err != nil {
 		pterm.Error.Printf("Failed to get host information: %+v\n", err)
 	} else {
-		pterm.DefaultTable.WithData(pterm.TableData{
+		tableData := [][]string{
 			{"Key", "Value"},
 			{"OS", hostInfo.OS},
 			{"Arch", hostInfo.Arch},
 			{"CPUs", fmt.Sprintf("%d", hostInfo.CPUs)},
 			{"Total Memory (GB)", fmt.Sprintf("%.2f", float64(hostInfo.Memory.Total)/(1024*1024*1024))},
-			{"GPU Model", hostInfo.GPUs[0].Model},
-			{"GPU Cores", hostInfo.GPUs[0].TotalNumberOfCores},
-			{"Metal Support", hostInfo.GPUs[0].MetalSupport},
-		}).Render()
+		}
+
+		// Only add GPU information if GPUs are available
+		if len(hostInfo.GPUs) > 0 {
+			tableData = append(tableData,
+				[]string{"GPU Model", hostInfo.GPUs[0].Model},
+				[]string{"GPU Cores", hostInfo.GPUs[0].TotalNumberOfCores},
+				[]string{"Metal Support", hostInfo.GPUs[0].MetalSupport},
+			)
+		} else {
+			tableData = append(tableData, []string{"GPU", "None detected"})
+		}
+
+		pterm.DefaultTable.WithData(pterm.TableData(tableData)).Render()
 	}
 
 	if config.DataPath != "" {

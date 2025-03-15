@@ -159,24 +159,16 @@ func InitializeLlamaCpp(config *Config) error {
 	}
 
 	binaryName := "llama-server"
-	if hostInfo.OS == "windows" {
-		binaryName = "llama-server.exe"
-	}
 
 	// Check if binary exists in the build/bin directory
 	binaryPath := filepath.Join(llamaCppDir, "build", "bin", binaryName)
 	if fi, err := os.Stat(binaryPath); err == nil && !fi.IsDir() {
 		// On Unix systems, check if the file is executable
-		if hostInfo.OS != "windows" {
-			if fi.Mode()&0111 != 0 {
-				pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
-				return nil
-			}
-		} else {
-			// On Windows just check if file exists
+		if fi.Mode()&0111 != 0 {
 			pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
 			return nil
 		}
+
 	}
 
 	pterm.Info.Println("llama-server binary not found, downloading llama.cpp...")
@@ -269,12 +261,16 @@ func InitializeLlamaCpp(config *Config) error {
 		// Binary already exists in the correct location
 		pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
 
-		// Make the binary executable on Unix systems if needed
-		if hostInfo.OS != "windows" {
-			if err := os.Chmod(binaryPath, 0755); err != nil {
-				return fmt.Errorf("failed to make binary executable: %w", err)
+		if err := os.Chmod(binaryPath, 0755); err != nil {
+			return fmt.Errorf("failed to make binary executable: %w", err)
+		}
+		// On Linux, copy all *.so files to current working directory
+		if hostInfo.OS == "linux" {
+			if err := copySharedLibsToCurrentDir(buildBinDir); err != nil {
+				return fmt.Errorf("failed to copy shared libraries: %w", err)
 			}
 		}
+
 		return nil
 	}
 
@@ -335,10 +331,14 @@ func InitializeLlamaCpp(config *Config) error {
 		}
 	}
 
-	// Make the binary executable on Unix systems
-	if hostInfo.OS != "windows" {
-		if err := os.Chmod(binaryPath, 0755); err != nil {
-			return fmt.Errorf("failed to make binary executable: %w", err)
+	if err := os.Chmod(binaryPath, 0755); err != nil {
+		return fmt.Errorf("failed to make binary executable: %w", err)
+	}
+
+	// On Linux, copy all *.so files to current working directory
+	if hostInfo.OS == "linux" {
+		if err := copySharedLibsToCurrentDir(buildBinDir); err != nil {
+			return fmt.Errorf("failed to copy shared libraries: %w", err)
 		}
 	}
 
@@ -598,4 +598,70 @@ func ScanMLXModels(modelsDir string) ([]LanguageModel, error) {
 	}
 
 	return mlxModels, nil
+}
+
+// copySharedLibsToCurrentDir copies all *.so files from the source directory to the current working directory
+func copySharedLibsToCurrentDir(sourceDir string) error {
+	// Get current working directory
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+
+	pterm.Info.Printf("Copying shared libraries from %s to %s\n", sourceDir, currentDir)
+
+	// Read the source directory
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return fmt.Errorf("failed to read source directory: %w", err)
+	}
+
+	// Keep track if we copied any files
+	filesCopied := false
+
+	// Copy each .so file
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// Check if the file is a shared library
+		if strings.HasSuffix(entry.Name(), ".so") {
+			srcPath := filepath.Join(sourceDir, entry.Name())
+			destPath := filepath.Join(currentDir, entry.Name())
+
+			// Open source file
+			srcFile, err := os.Open(srcPath)
+			if err != nil {
+				return fmt.Errorf("failed to open source file %s: %w", srcPath, err)
+			}
+
+			// Create destination file
+			destFile, err := os.Create(destPath)
+			if err != nil {
+				srcFile.Close()
+				return fmt.Errorf("failed to create destination file %s: %w", destPath, err)
+			}
+
+			// Copy the file contents
+			_, err = io.Copy(destFile, srcFile)
+			srcFile.Close()
+			destFile.Close()
+
+			if err != nil {
+				return fmt.Errorf("failed to copy file %s to %s: %w", srcPath, destPath, err)
+			}
+
+			filesCopied = true
+			pterm.Info.Printf("Copied %s to %s\n", srcPath, destPath)
+		}
+	}
+
+	if filesCopied {
+		pterm.Success.Println("Successfully copied shared libraries to working directory")
+	} else {
+		pterm.Info.Println("No shared libraries found to copy")
+	}
+
+	return nil
 }

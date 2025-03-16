@@ -336,6 +336,20 @@ func registerMCPTools(server *mcp.Server, config *Config) {
 			}
 			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
 		}},
+		{"web_search", "Performs a web search using selected backend", func(args WebSearchArgs) (*mcp.ToolResponse, error) {
+			res, err := webSearchTool(args)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+		}},
+		{"web_content", "Fetches and extracts content from web URLs", func(args WebContentArgs) (*mcp.ToolResponse, error) {
+			res, err := webContentTool(args)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+		}},
 		{"agent", "Agent that uses LLM to decide which tools to call", agentHandler(config)},
 	}
 

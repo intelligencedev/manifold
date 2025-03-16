@@ -727,14 +727,17 @@ func searchFilesRecursive(root, pattern string) ([]string, error) {
 }
 
 // -------------------------
-// callOpenAI is a helper
+// callOpenAI is a helper for OpenAI API compatible completions endpoint
+// This function will invoke the default completios endpoint configured
+// in the config file, therefore the model and API key are not required
+// as arguments unless
 // -------------------------
 func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (string, error) {
 	requestBody := ChatCompletionRequest{
-		Model:       "gpt-4o-mini",
+		Model:       config.Completions.CompletionsModel,
 		Messages:    messages,
-		MaxTokens:   8192,
-		Temperature: 0.1,
+		MaxTokens:   16384,
+		Temperature: 0.3,
 	}
 
 	jsonBytes, err := json.Marshal(requestBody)

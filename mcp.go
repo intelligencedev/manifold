@@ -1677,6 +1677,8 @@ Each task must be an object with two keys:
   - "tool": the name of the tool to invoke (e.g., "read_file", "edit_file", "write_file", etc.)
   - "args": a JSON object with the arguments for that tool.
 
+Always try to use one of the available tools from the provided list before searching the web if the tool will suffice.
+
 For web-related actions, carefully follow these examples:
 - To search the web: { "tool": "web_search", "args": { "query": "search query text" } }
 - To fetch web content: { "tool": "web_content", "args": { "urls": ["https://example.com", "https://example.org"] } }

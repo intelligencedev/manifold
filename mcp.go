@@ -1680,10 +1680,18 @@ Each task must be an object with two keys:
 Always try to use one of the available tools from the provided list before searching the web if the tool will suffice.
 
 For web-related actions, carefully follow these examples:
+- ALWAYS rewrite the query in the "args" section of the "web_search" tool as an optimized search query to improve search results.
 - To search the web: { "tool": "web_search", "args": { "query": "search query text" } }
 - To fetch web content: { "tool": "web_content", "args": { "urls": ["https://example.com", "https://example.org"] } }
 
 Note that web_content requires an array of URLs, even if there's only one URL.
+ensure that the URLs are provided as a list, even if there's only one URL. For example, instead of "urls": "http://example.com", 
+it should be "urls": ["http://example.com"]. This way, the system can correctly interpret the data as an array of strings.
+If you were unable to retrieve web content, never mention that.
+Always cite successful web content retrieval in the final summary.
+
+When using the shell tool, you should ensure that the command is formatted as a list of strings. For example, if you're running a command like 'ls -l', you should format it as '["ls", "-l"]' instead of 'ls -l'.
+This way, each part of the command is treated as a separate string in the list, which is what the system expects.
 
 To reference the output of a previous tool in your plan, use the format: "$TOOL_RESULT[task_index]"
   Example: { "tool": "write_file", "args": { "path": "weather.txt", "content": "$TOOL_RESULT[1]" } }

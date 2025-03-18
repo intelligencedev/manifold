@@ -55,7 +55,7 @@
         <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
 
         <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-            :line-style="resizeHandleStyle" :min-width="760" :min-height="760" :node-id="props.id" @resize="onResize" />
+            :line-style="resizeHandleStyle" :min-width="350" :min-height="400" :node-id="props.id" @resize="onResize" />
     </div>
 </template>
 
@@ -192,8 +192,8 @@ const props = defineProps({
                 borderRadius: '12px',
                 backgroundColor: '#333',
                 color: '#eee',
-                width: '760px',
-                height: '760px',
+                width: '350px',
+                height: '400px',
             },
         }),
     },

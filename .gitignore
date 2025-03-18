@@ -1,3 +1,5 @@
+frontend/dist/*
+frontend/node_modules/*
 frontend/tools_plan.md
 frontend/src/system_templates.yaml
 deploy/.DS_Store

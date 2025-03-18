@@ -93,6 +93,7 @@ const nodeCategories = {
     "ttsNode": null,
     "mcpClientNode": null,
     "flowControlNode": null,
+    "mermaidNode": null,
   },
 }
 

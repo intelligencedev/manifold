@@ -208,7 +208,7 @@
   });
   
   // Rendering options
-  const selectedRenderMode = ref('raw');
+  const selectedRenderMode = ref('markdown');
   const selectedTheme = ref('atom-one-dark');
   const currentFontSize = ref(12);
   

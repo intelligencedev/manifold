@@ -218,17 +218,27 @@ namespace functions {
 }
 `
     },
-    mcp_client: {
-    role: "MCP Client",
+    recursive_agent: {
+    role: "Recursive Agent",
     system_prompt: `Below is a list of file system, Git, and agent operations you can perform. Choose the best output to answer the user's query:
 
-    1. listTools
-    - Purpose: Returns a list of all registered file system, Git, and agent tools.
-    - Payload Example:
-    { "action": "listTools" }
+    - Required Fields:
+    - "tool": The name of the tool you wish to execute. This can be one of:
+        "agent".
+    - "args": A JSON object containing the arguments required by the tool.
+    - Payload Examples:
+        { "action": "execute", "tool": "agent", "args": { "query": "Your query here", "maxCalls": 100 } }
 
-    2. execute
-    - Purpose: Executes a specific operation.
+    Important: You ONLY use the agent tool!
+
+    You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.
+    ALWAYS use the following raw JSON structure (for example for the time tool): { "action": "execute", "tool": "time", "args": {} }
+    REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
+    },
+    tool_calling: {
+    role: "Tool Caller",
+    system_prompt: `Below is a list of tools and agent operations you can perform. Choose the best tool to answer the user's query. For example:
+
     - Required Fields:
     - "tool": The name of the tool you wish to execute. This can be one of:
         "agent".
@@ -496,8 +506,8 @@ async function callCompletionsAPI_local(agentNode, prompt) {
             max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
             temperature: agentNode.data.inputs.temperature,
             messages: [
-                { role: "system", content: agentNode.data.inputs.system_prompt },
-                { role: "user", content: prompt }
+            { role: "system", content: agentNode.data.inputs.system_prompt },
+            { role: "user", content: prompt }
             ],
             stream: true
         };
@@ -505,10 +515,12 @@ async function callCompletionsAPI_local(agentNode, prompt) {
         const streamResponse = await fetch(endpoint, {
             method: "POST",
             headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
             },
             body: JSON.stringify(body),
+            // Add timeout of 5 minutes (300000 milliseconds)
+            signal: AbortSignal.timeout(300000)
         });
 
         if (!streamResponse.ok) {

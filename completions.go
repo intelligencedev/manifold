@@ -82,7 +82,7 @@ func completionsHandler(c echo.Context, config *Config) error {
 
 	// Create a new request to OpenAI
 	// openAIURL := "https://api.openai.com/v1/chat/completions"
-	openAIURL := "http://192.168.1.125:32182/v1/chat/completions"
+	openAIURL := config.Completions.DefaultHost
 	req, err := http.NewRequest("POST", openAIURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{

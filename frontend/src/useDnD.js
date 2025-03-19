@@ -28,6 +28,7 @@ import DocumentsIngest from './components/DocumentsIngest.vue'
 import DocumentsRetrieve from './components/DocumentsRetrieve.vue'
 import ttsNode from './components/ttsNode.vue'
 import MCPClientNode from './components/MCPClient.vue'
+import Mermaid from './components/Mermaid.vue'
 
 let id = 0
 
@@ -196,6 +197,9 @@ export default function useDragAndDrop() {
         break;
       case 'mcpClientNode':
         component = MCPClientNode;
+        break;
+      case 'mermaidNode':
+        component = Mermaid;
         break;
       default:
         console.error(`Unknown node type: ${draggedType.value}`);

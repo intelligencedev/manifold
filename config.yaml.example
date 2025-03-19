@@ -34,9 +34,9 @@ anthropic_key: "..."
 #
 # Default Completions Configuration - using local gemma-3-4b-it model
 completions:
-  default_host: "http://127.0.0.1:32186/v1/chat/completions"
-  # OpenAI API compatible API key, not required for local servers unless configured on that server
-  api_key: ""
+  default_host: "http://127.0.0.1:32186/v1/chat/completions" # or https://api.openai.com/v1/chat/completions
+  completions_model: 'gpt-4o' # ignored if using local endpoint
+  api_key: "" # Used with OpenAI API if configured as default host
 
 # Example CLI command for running the embeddings service manually:
 # llama-server -m <data_path>/models/embeddings/nomic-embed-text-v1.5.Q8_0.gguf -c 65536 -np 8 -b 8192 -ub 8192 -fa --host 127.0.0.1 --port 32184 -lv 1 --embedding

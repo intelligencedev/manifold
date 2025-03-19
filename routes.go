@@ -47,7 +47,6 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.POST("/executeMCP", executeMCPHandler)
 
 	api.POST("/datadog", datadogHandler)
-	api.POST("/download-llama", downloadLlamaHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
 
 	// Agentic Memory endpoints.

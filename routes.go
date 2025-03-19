@@ -14,6 +14,12 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api := e.Group("/api")
 	api.GET("/config", configHandler)
 
+	// Completions proxy
+	completionsGroup := e.Group("/v1")
+	completionsGroup.POST("/chat/completions", func(c echo.Context) error {
+		return completionsHandler(c, config)
+	})
+
 	// SEFII endpoints.
 	sefiiGroup := api.Group("/sefii")
 	sefiiGroup.POST("/ingest", sefiiIngestHandler(config))

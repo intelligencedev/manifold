@@ -757,26 +757,26 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 
 	client := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 5 * time.Minute,
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("openai request failed: %w", err)
+		return "", fmt.Errorf("completions request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("openai API error, status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
+	// if resp.StatusCode < 200 || resp.StatusCode > 299 {
+	// 	bodyBytes, _ := io.ReadAll(resp.Body)
+	// 	return "", fmt.Errorf("completions API error, status %d: %s", resp.StatusCode, string(bodyBytes))
+	// }
 
 	var completionResp ChatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
-		return "", fmt.Errorf("failed to parse openai response: %w", err)
+		return "", fmt.Errorf("failed to parse completions response: %w", err)
 	}
 
 	if len(completionResp.Choices) == 0 {
-		return "", fmt.Errorf("no completion returned by OpenAI")
+		return "", fmt.Errorf("no completion returned by endpoint")
 	}
 
 	answer := completionResp.Choices[0].Message.Content

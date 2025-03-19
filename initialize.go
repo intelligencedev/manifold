@@ -159,24 +159,16 @@ func InitializeLlamaCpp(config *Config) error {
 	}
 
 	binaryName := "llama-server"
-	if hostInfo.OS == "windows" {
-		binaryName = "llama-server.exe"
-	}
 
 	// Check if binary exists in the build/bin directory
 	binaryPath := filepath.Join(llamaCppDir, "build", "bin", binaryName)
 	if fi, err := os.Stat(binaryPath); err == nil && !fi.IsDir() {
 		// On Unix systems, check if the file is executable
-		if hostInfo.OS != "windows" {
-			if fi.Mode()&0111 != 0 {
-				pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
-				return nil
-			}
-		} else {
-			// On Windows just check if file exists
+		if fi.Mode()&0111 != 0 {
 			pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
 			return nil
 		}
+
 	}
 
 	pterm.Info.Println("llama-server binary not found, downloading llama.cpp...")
@@ -197,8 +189,6 @@ func InitializeLlamaCpp(config *Config) error {
 		}
 	case "linux":
 		osArch = "ubuntu-x64"
-	case "windows":
-		osArch = "win-cuda-cu12.4-x64"
 	default:
 		return fmt.Errorf("unsupported operating system")
 	}
@@ -262,22 +252,93 @@ func InitializeLlamaCpp(config *Config) error {
 	}
 	os.Remove(llamaFilePath)
 
-	// After extraction, create build/bin directory if it doesn't exist
+	// After extraction, check if the binary is already in the build/bin directory
 	buildBinDir := filepath.Join(llamaCppDir, "build", "bin")
+	binaryPath = filepath.Join(buildBinDir, binaryName)
+
+	// First, check if binary exists directly in the expected location
+	if _, err := os.Stat(binaryPath); err == nil {
+		// Binary already exists in the correct location
+		pterm.Info.Printf("llama-server binary found at %s\n", binaryPath)
+
+		if err := os.Chmod(binaryPath, 0755); err != nil {
+			return fmt.Errorf("failed to make binary executable: %w", err)
+		}
+		// On Linux, copy all *.so files to current working directory
+		if hostInfo.OS == "linux" {
+			if err := copySharedLibsToCurrentDir(buildBinDir); err != nil {
+				return fmt.Errorf("failed to copy shared libraries: %w", err)
+			}
+		}
+
+		return nil
+	}
+
+	// If not in build/bin, create directory structure if it doesn't exist
 	if err := os.MkdirAll(buildBinDir, 0755); err != nil {
 		return fmt.Errorf("failed to create build/bin directory: %w", err)
 	}
 
-	// Move the binary to build/bin directory
+	// Check if binary is in root directory
 	oldBinaryPath := filepath.Join(llamaCppDir, binaryName)
-	if err := os.Rename(oldBinaryPath, binaryPath); err != nil {
-		return fmt.Errorf("failed to move binary to build/bin: %w", err)
+	if _, err := os.Stat(oldBinaryPath); err == nil {
+		// Move the binary from root to build/bin
+		if err := os.Rename(oldBinaryPath, binaryPath); err != nil {
+			return fmt.Errorf("failed to move binary to build/bin: %w", err)
+		}
+	} else {
+		// Binary wasn't found in either location - try to locate it
+		var binaryFound bool
+
+		err := filepath.Walk(llamaCppDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			if !info.IsDir() && strings.HasSuffix(info.Name(), binaryName) {
+				pterm.Info.Printf("Found llama-server binary at %s\n", path)
+
+				// If found, copy it to the build/bin location
+				srcFile, err := os.Open(path)
+				if err != nil {
+					return err
+				}
+				defer srcFile.Close()
+
+				destFile, err := os.Create(binaryPath)
+				if err != nil {
+					return err
+				}
+				defer destFile.Close()
+
+				_, err = io.Copy(destFile, srcFile)
+				if err != nil {
+					return err
+				}
+
+				binaryFound = true
+				return filepath.SkipDir
+			}
+			return nil
+		})
+
+		if err != nil {
+			return fmt.Errorf("error searching for llama-server binary: %w", err)
+		}
+
+		if !binaryFound {
+			return fmt.Errorf("could not find llama-server binary in extracted files")
+		}
 	}
 
-	// Make the binary executable on Unix systems
-	if hostInfo.OS != "windows" {
-		if err := os.Chmod(binaryPath, 0755); err != nil {
-			return fmt.Errorf("failed to make binary executable: %w", err)
+	if err := os.Chmod(binaryPath, 0755); err != nil {
+		return fmt.Errorf("failed to make binary executable: %w", err)
+	}
+
+	// On Linux, copy all *.so files to current working directory
+	if hostInfo.OS == "linux" {
+		if err := copySharedLibsToCurrentDir(buildBinDir); err != nil {
+			return fmt.Errorf("failed to copy shared libraries: %w", err)
 		}
 	}
 
@@ -291,16 +352,26 @@ func InitializeApplication(config *Config) error {
 	if err != nil {
 		pterm.Error.Printf("Failed to get host information: %+v\n", err)
 	} else {
-		pterm.DefaultTable.WithData(pterm.TableData{
+		tableData := [][]string{
 			{"Key", "Value"},
 			{"OS", hostInfo.OS},
 			{"Arch", hostInfo.Arch},
 			{"CPUs", fmt.Sprintf("%d", hostInfo.CPUs)},
 			{"Total Memory (GB)", fmt.Sprintf("%.2f", float64(hostInfo.Memory.Total)/(1024*1024*1024))},
-			{"GPU Model", hostInfo.GPUs[0].Model},
-			{"GPU Cores", hostInfo.GPUs[0].TotalNumberOfCores},
-			{"Metal Support", hostInfo.GPUs[0].MetalSupport},
-		}).Render()
+		}
+
+		// Only add GPU information if GPUs are available
+		if len(hostInfo.GPUs) > 0 {
+			tableData = append(tableData,
+				[]string{"GPU Model", hostInfo.GPUs[0].Model},
+				[]string{"GPU Cores", hostInfo.GPUs[0].TotalNumberOfCores},
+				[]string{"Metal Support", hostInfo.GPUs[0].MetalSupport},
+			)
+		} else {
+			tableData = append(tableData, []string{"GPU", "None detected"})
+		}
+
+		pterm.DefaultTable.WithData(pterm.TableData(tableData)).Render()
 	}
 
 	if config.DataPath != "" {
@@ -527,4 +598,70 @@ func ScanMLXModels(modelsDir string) ([]LanguageModel, error) {
 	}
 
 	return mlxModels, nil
+}
+
+// copySharedLibsToCurrentDir copies all *.so files from the source directory to the current working directory
+func copySharedLibsToCurrentDir(sourceDir string) error {
+	// Get current working directory
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+
+	pterm.Info.Printf("Copying shared libraries from %s to %s\n", sourceDir, currentDir)
+
+	// Read the source directory
+	entries, err := os.ReadDir(sourceDir)
+	if err != nil {
+		return fmt.Errorf("failed to read source directory: %w", err)
+	}
+
+	// Keep track if we copied any files
+	filesCopied := false
+
+	// Copy each .so file
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		// Check if the file is a shared library
+		if strings.HasSuffix(entry.Name(), ".so") {
+			srcPath := filepath.Join(sourceDir, entry.Name())
+			destPath := filepath.Join(currentDir, entry.Name())
+
+			// Open source file
+			srcFile, err := os.Open(srcPath)
+			if err != nil {
+				return fmt.Errorf("failed to open source file %s: %w", srcPath, err)
+			}
+
+			// Create destination file
+			destFile, err := os.Create(destPath)
+			if err != nil {
+				srcFile.Close()
+				return fmt.Errorf("failed to create destination file %s: %w", destPath, err)
+			}
+
+			// Copy the file contents
+			_, err = io.Copy(destFile, srcFile)
+			srcFile.Close()
+			destFile.Close()
+
+			if err != nil {
+				return fmt.Errorf("failed to copy file %s to %s: %w", srcPath, destPath, err)
+			}
+
+			filesCopied = true
+			pterm.Info.Printf("Copied %s to %s\n", srcPath, destPath)
+		}
+	}
+
+	if filesCopied {
+		pterm.Success.Println("Successfully copied shared libraries to working directory")
+	} else {
+		pterm.Info.Println("No shared libraries found to copy")
+	}
+
+	return nil
 }

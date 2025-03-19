@@ -31,8 +31,9 @@ type DatabaseConfig struct {
 }
 
 type CompletionsConfig struct {
-	DefaultHost string `yaml:"default_host"`
-	APIKey      string `yaml:"api_key"`
+	DefaultHost      string `yaml:"default_host"`
+	CompletionsModel string `yaml:"completions_model"`
+	APIKey           string `yaml:"api_key"`
 }
 
 type EmbeddingsConfig struct {

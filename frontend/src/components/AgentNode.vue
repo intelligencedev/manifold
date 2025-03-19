@@ -493,7 +493,6 @@ async function callCompletionsAPI_local(agentNode, prompt) {
     if (!enableToolCalls.value) {
         // Direct streaming request without tool/function call parameters.
         let body = {
-            model: agentNode.data.inputs.model,
             max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
             temperature: agentNode.data.inputs.temperature,
             messages: [
@@ -539,7 +538,7 @@ async function callCompletionsAPI_local(agentNode, prompt) {
                             props.data.outputs.response += tokenContent;
                             if (responseNode) {
                                 responseNode.data.inputs.response += tokenContent;
-                                responseNode.run();
+                                //responseNode.run();
                             }
                         } catch (e) {
                             console.error("Error parsing response chunk:", e);

@@ -22,9 +22,6 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: amd64
-          - os: windows-latest
-            platform: windows
-            arch: amd64
 
     steps:
     - name: Checkout code
@@ -78,22 +75,6 @@ jobs:
         zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold config.yaml.example
         cd ..
 
-    - name: Build for Windows
-      if: matrix.platform == 'windows'
-      shell: bash
-      run: |
-        GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold.exe .
-
-    - name: Create Windows zip archive
-      if: matrix.platform == 'windows'
-      shell: pwsh
-      run: |
-        # Copy config file to dist
-        Copy-Item -Path "config.yaml.example" -Destination "dist\config.yaml.example"
-        
-        # Create zip using PowerShell
-        Compress-Archive -Path "dist\manifold.exe", "dist\config.yaml.example" -DestinationPath "dist\manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
-
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
@@ -118,8 +99,6 @@ jobs:
         with:
           name: Manifold ${{ github.ref_name }}
           body: |
-            # Manifold ${{ github.ref_name }}
-            
             This is the first alpha release of Manifold, a powerful platform for workflow automation using AI models.
             
             ## Installation
@@ -129,7 +108,6 @@ jobs:
             ## Changelog
             
             - Initial alpha release
-            - Added MCP server and client binaries for Machine Coordinated Programming
           files: |
             artifacts/**/*.zip
           draft: false

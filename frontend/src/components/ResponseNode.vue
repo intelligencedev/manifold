@@ -201,7 +201,7 @@ const props = defineProps({
 const emit = defineEmits(["update:data", "disable-zoom", "enable-zoom", "resize"]);
 
 // Reactive state for render mode
-const selectedRenderMode = ref("raw");
+const selectedRenderMode = ref("markdown");
 
 // References to DOM elements
 const textContainer = ref(null);

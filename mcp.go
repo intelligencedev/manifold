@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"manifold/internal/web"
 	"net/http"
 	"os"
 	"os/exec"
@@ -581,6 +582,19 @@ type LintCodeArgs struct {
 	LinterName string `json:"linterName,omitempty" jsonschema:"description=Name of the linter to use (optional)"`
 }
 
+// WebSearchArgs is used by the "web_search" tool.
+type WebSearchArgs struct {
+	Query         string `json:"query" jsonschema:"required,description=Search query text"`
+	ResultSize    int    `json:"result_size,omitempty" jsonschema:"description=Number of results to return (default: 3)"`
+	SearchBackend string `json:"search_backend,omitempty" jsonschema:"description=Search backend to use (default: ddg, alternative: sxng)"`
+	SxngURL       string `json:"sxng_url,omitempty" jsonschema:"description=URL of SearXNG instance when using sxng backend"`
+}
+
+// WebContentArgs is used by the "web_content" tool.
+type WebContentArgs struct {
+	URLs []string `json:"urls" jsonschema:"required,description=List of URLs to fetch content from"`
+}
+
 // --------------------------
 // Helper Functions for Git
 // --------------------------
@@ -713,14 +727,17 @@ func searchFilesRecursive(root, pattern string) ([]string, error) {
 }
 
 // -------------------------
-// callOpenAI is a helper
+// callOpenAI is a helper for OpenAI API compatible completions endpoint
+// This function will invoke the default completios endpoint configured
+// in the config file, therefore the model and API key are not required
+// as arguments unless
 // -------------------------
 func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (string, error) {
 	requestBody := ChatCompletionRequest{
-		Model:       "gpt-4o-mini",
+		Model:       config.Completions.CompletionsModel,
 		Messages:    messages,
-		MaxTokens:   8192,
-		Temperature: 0.1,
+		MaxTokens:   16384,
+		Temperature: 0.3,
 	}
 
 	jsonBytes, err := json.Marshal(requestBody)
@@ -1428,6 +1445,88 @@ func callLintCodeTool(jsonArgs string) (string, error) {
 	return lintCodeTool(args)
 }
 
+// web_search tool
+func webSearchTool(args WebSearchArgs) (string, error) {
+	results := web.SearchDDG(args.Query)
+	if results == nil {
+		return "", fmt.Errorf("error performing web search")
+	}
+
+	log.Printf("Web search results!!!!!!!!!!: %v", results)
+
+	return strings.Join(results, "\n"), nil
+}
+
+func callWebSearchTool(jsonArgs string) (string, error) {
+	var args WebSearchArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return webSearchTool(args)
+}
+
+// web_content tool
+func webContentTool(args WebContentArgs) (string, error) {
+	// Validate input
+	if len(args.URLs) == 0 {
+		return "", fmt.Errorf("error: no URLs provided. The web_content tool requires at least one URL in the 'urls' array")
+	}
+
+	log.Printf("Fetching content from URLs: %v", args.URLs)
+
+	// Split the URLs and fetch content from each
+	urls := strings.Join(args.URLs, "/\n")
+
+	var content strings.Builder
+
+	urlList := strings.Split(urls, "\n")
+	for _, urlStr := range urlList {
+		urlStr = strings.TrimSpace(urlStr)
+		if urlStr == "" {
+			continue
+		}
+
+		//log.Printf("Fetching content from URL: %s", urlStr)
+		apiURL := "http://localhost:8080/api/web-content?urls=" + urlStr
+
+		// Build URL with comma-separated URLs
+		// apiURL := "http://localhost:8080/api/web-content?urls=" + strings.Join(args.URLs, ",")
+
+		// Make the request
+		resp, err := http.Get(apiURL)
+
+		if err != nil {
+			return "", fmt.Errorf("web content request failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			// bodyBytes, _ := io.ReadAll(resp.Body)
+			//return "", fmt.Errorf("web content API error, status %d: %s", resp.StatusCode, string(bodyBytes))
+
+		}
+
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("failed to read response: %w", err)
+		}
+
+		// Append the content to the result
+		content.WriteString(string(bodyBytes))
+
+	}
+
+	return content.String(), nil
+}
+
+func callWebContentTool(jsonArgs string) (string, error) {
+	var args WebContentArgs
+	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+		return "", err
+	}
+	return webContentTool(args)
+}
+
 // callToolInServer dispatches a tool call based on the tool name and JSON arguments.
 func callToolInServer(toolName, jsonArgs string) (string, error) {
 	switch toolName {
@@ -1494,6 +1593,10 @@ func callToolInServer(toolName, jsonArgs string) (string, error) {
 		return callFormatGoCodeTool(jsonArgs)
 	case "lint_code":
 		return callLintCodeTool(jsonArgs)
+	case "web_search":
+		return callWebSearchTool(jsonArgs)
+	case "web_content":
+		return callWebContentTool(jsonArgs)
 	case "agent":
 		// agent is handled separately below
 		return "", fmt.Errorf("agent tool should be handled separately")
@@ -1542,6 +1645,8 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 				{"name": "go_test", "description": "Runs Go tests"},
 				{"name": "format_go_code", "description": "Formats Go code using go fmt"},
 				{"name": "lint_code", "description": "Runs a code linter"},
+				{"name": "web_search", "description": "Performs a web search"},
+				{"name": "web_content", "description": "Fetches and extracts content from web URLs"},
 			},
 		}
 
@@ -1554,7 +1659,7 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 		// --- Initialize conversation context ---
 		// The conversation will be built up over iterations.
 		conversation = []ChatCompletionMsg{
-			{Role: "system", Content: "You are an autonomous planning assistant. Use the provided tools list to decide which actions to perform."},
+			{Role: "system", Content: "You are an autonomous planning assistant. Use the provided tools list to decide which actions to perform. Never perform more actions than necessary to respond to the query or complete the task."},
 			{Role: "user", Content: args.Query},
 		}
 
@@ -1572,6 +1677,22 @@ Each task must be an object with two keys:
   - "tool": the name of the tool to invoke (e.g., "read_file", "edit_file", "write_file", etc.)
   - "args": a JSON object with the arguments for that tool.
 
+Always try to use one of the available tools from the provided list before searching the web if the tool will suffice.
+
+For web-related actions, carefully follow these examples:
+- ALWAYS rewrite the query in the "args" section of the "web_search" tool as an optimized search query to improve search results.
+- To search the web: { "tool": "web_search", "args": { "query": "search query text" } }
+- To fetch web content: { "tool": "web_content", "args": { "urls": ["https://example.com", "https://example.org"] } }
+
+Note that web_content requires an array of URLs, even if there's only one URL.
+ensure that the URLs are provided as a list, even if there's only one URL. For example, instead of "urls": "http://example.com", 
+it should be "urls": ["http://example.com"]. This way, the system can correctly interpret the data as an array of strings.
+If you were unable to retrieve web content, never mention that.
+Always cite successful web content retrieval in the final summary.
+
+When using the shell tool, you should ensure that the command is formatted as a list of strings. For example, if you're running a command like 'ls -l', you should format it as '["ls", "-l"]' instead of 'ls -l'.
+This way, each part of the command is treated as a separate string in the list, which is what the system expects.
+
 To reference the output of a previous tool in your plan, use the format: "$TOOL_RESULT[task_index]"
   Example: { "tool": "write_file", "args": { "path": "weather.txt", "content": "$TOOL_RESULT[1]" } }
   This would use the result from the 2nd task (index 1) as the content for the write_file tool.
@@ -1579,9 +1700,10 @@ To reference the output of a previous tool in your plan, use the format: "$TOOL_
 Do not include any task that calls the "agent" tool.
 Output only the JSON array. For example:
 [
-  { "tool": "read_file", "args": { "path": "/path/to/file.txt" } },
-  { "tool": "edit_file", "args": { "path": "/path/to/file.txt", "search": "old", "replace": "new" } }
+  { "tool": "web_search", "args": { "query": "golang tutorials" } },
+  { "tool": "web_content", "args": { "urls": ["$TOOL_RESULT[0]"] } }
 ]`
+
 			// Append planning prompt to conversation
 			conversation = append(conversation, ChatCompletionMsg{Role: "user", Content: planningPrompt})
 			planOutput, err := callCompletionsEndpoint(config, conversation)
@@ -1597,6 +1719,8 @@ Output only the JSON array. For example:
 				planOutput = strings.TrimSuffix(planOutput, "```")
 				planOutput = strings.TrimSpace(planOutput)
 			}
+
+			log.Printf("Plan Output: %s", planOutput)
 
 			type PlanTask struct {
 				Tool string          `json:"tool"`
@@ -1618,6 +1742,10 @@ Output only the JSON array. For example:
 				return nil, fmt.Errorf("plan produced no valid tasks (all tasks were forbidden)")
 			}
 
+			for i, task := range validTasks {
+				log.Printf("Task %d: %s", i+1, task.Tool)
+			}
+
 			// --- Phase 3: Execution (Worker) ---
 			executionLog := []string{}
 			for i, task := range validTasks {
@@ -1626,7 +1754,9 @@ Output only the JSON array. For example:
 				if processErr != nil {
 					logMsg := fmt.Sprintf("Task %d (%s) argument processing failed: %v", i+1, task.Tool, processErr)
 					executionLog = append(executionLog, logMsg)
-					return mcp.NewToolResponse(mcp.NewTextContent(logMsg)), nil
+
+					// join the log messages and return immediately
+					return mcp.NewToolResponse(mcp.NewTextContent(strings.Join(executionLog, "\n"))), nil
 				}
 
 				// Call the tool with the processed arguments

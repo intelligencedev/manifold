@@ -538,7 +538,7 @@ async function callCompletionsAPI_local(agentNode, prompt) {
                             props.data.outputs.response += tokenContent;
                             if (responseNode) {
                                 responseNode.data.inputs.response += tokenContent;
-                                responseNode.run();
+                                //responseNode.run();
                             }
                         } catch (e) {
                             console.error("Error parsing response chunk:", e);

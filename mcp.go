@@ -728,7 +728,7 @@ func searchFilesRecursive(root, pattern string) ([]string, error) {
 
 // -------------------------
 // callOpenAI is a helper for OpenAI API compatible completions endpoint
-// This function will invoke the default completios endpoint configured
+// This function will invoke the default completions endpoint configured
 // in the config file, therefore the model and API key are not required
 // as arguments unless
 // -------------------------
@@ -764,11 +764,6 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 		return "", fmt.Errorf("completions request failed: %w", err)
 	}
 	defer resp.Body.Close()
-
-	// if resp.StatusCode < 200 || resp.StatusCode > 299 {
-	// 	bodyBytes, _ := io.ReadAll(resp.Body)
-	// 	return "", fmt.Errorf("completions API error, status %d: %s", resp.StatusCode, string(bodyBytes))
-	// }
 
 	var completionResp ChatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
@@ -1339,7 +1334,6 @@ func callGitDiffTool(jsonArgs string) (string, error) {
 
 // run_shell_command tool
 func runShellCommandTool(args ShellCommandArgs) (string, error) {
-
 	// Handle either string or []string format for Command
 	cmdParts := args.Command
 
@@ -1486,24 +1480,21 @@ func webContentTool(args WebContentArgs) (string, error) {
 			continue
 		}
 
-		//log.Printf("Fetching content from URL: %s", urlStr)
 		apiURL := "http://localhost:8080/api/web-content?urls=" + urlStr
 
-		// Build URL with comma-separated URLs
-		// apiURL := "http://localhost:8080/api/web-content?urls=" + strings.Join(args.URLs, ",")
+		// Create a client with the same 5-minute timeout
+		client := &http.Client{
+			Timeout: 5 * time.Minute,
+		}
 
-		// Make the request
-		resp, err := http.Get(apiURL)
-
+		resp, err := client.Get(apiURL)
 		if err != nil {
 			return "", fmt.Errorf("web content request failed: %w", err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			// bodyBytes, _ := io.ReadAll(resp.Body)
-			//return "", fmt.Errorf("web content API error, status %d: %s", resp.StatusCode, string(bodyBytes))
-
+			// For now we ignore non-OK responses.
 		}
 
 		bodyBytes, err := io.ReadAll(resp.Body)
@@ -1511,9 +1502,7 @@ func webContentTool(args WebContentArgs) (string, error) {
 			return "", fmt.Errorf("failed to read response: %w", err)
 		}
 
-		// Append the content to the result
 		content.WriteString(string(bodyBytes))
-
 	}
 
 	return content.String(), nil
@@ -1610,8 +1599,6 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 	return func(args AgentArgs) (*mcp.ToolResponse, error) {
 		var conversation []ChatCompletionMsg
 		// --- Step 0: Retrieve Available Tools ---
-		// Instead of trying to make HTTP requests, we'll build a static list of available tools
-		// This avoids the need for mcp.NewToolRequest and server.HandleToolRequest
 		toolsInfo := map[string]interface{}{
 			"tools": []map[string]interface{}{
 				{"name": "hello", "description": "Says hello to the provided name"},
@@ -1657,7 +1644,6 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 		toolsJSON := string(toolsJSONBytes)
 
 		// --- Initialize conversation context ---
-		// The conversation will be built up over iterations.
 		conversation = []ChatCompletionMsg{
 			{Role: "system", Content: "You are an autonomous planning assistant. Use the provided tools list to decide which actions to perform. Never perform more actions than necessary to respond to the query or complete the task."},
 			{Role: "user", Content: args.Query},
@@ -1693,9 +1679,14 @@ Always cite successful web content retrieval in the final summary.
 When using the shell tool, you should ensure that the command is formatted as a list of strings. For example, if you're running a command like 'ls -l', you should format it as '["ls", "-l"]' instead of 'ls -l'.
 This way, each part of the command is treated as a separate string in the list, which is what the system expects.
 
+When using the calculate tool, ensure proper to provide the proper operation string: "add", "subtract", "multiply", "divide".
+For example: { "tool": "calculate", "args": { "operation": "multiply", "a": 12, "b": 8 } }
+
 To reference the output of a previous tool in your plan, use the format: "$TOOL_RESULT[task_index]"
   Example: { "tool": "write_file", "args": { "path": "weather.txt", "content": "$TOOL_RESULT[1]" } }
   This would use the result from the 2nd task (index 1) as the content for the write_file tool.
+
+When using the list_directory tool, ensure that the path provided is a valid directory path. For example: { "tool": "list_directory", "args": { "path": "/path/to/directory" } }
 
 Do not include any task that calls the "agent" tool.
 Output only the JSON array. For example:
@@ -1704,7 +1695,6 @@ Output only the JSON array. For example:
   { "tool": "web_content", "args": { "urls": ["$TOOL_RESULT[0]"] } }
 ]`
 
-			// Append planning prompt to conversation
 			conversation = append(conversation, ChatCompletionMsg{Role: "user", Content: planningPrompt})
 			planOutput, err := callCompletionsEndpoint(config, conversation)
 			if err != nil {
@@ -1713,7 +1703,6 @@ Output only the JSON array. For example:
 
 			// --- Phase 2: Clean and Parse the Plan ---
 			planOutput = strings.TrimSpace(planOutput)
-			// Remove markdown fences if present.
 			if strings.HasPrefix(planOutput, "```json") {
 				planOutput = strings.TrimPrefix(planOutput, "```json")
 				planOutput = strings.TrimSuffix(planOutput, "```")
@@ -1747,6 +1736,7 @@ Output only the JSON array. For example:
 			}
 
 			// --- Phase 3: Execution (Worker) ---
+			// Instead of aborting on the first error, we log errors and continue processing subsequent tasks.
 			executionLog := []string{}
 			for i, task := range validTasks {
 				// Process the task args to substitute any references to previous tool results
@@ -1754,9 +1744,8 @@ Output only the JSON array. For example:
 				if processErr != nil {
 					logMsg := fmt.Sprintf("Task %d (%s) argument processing failed: %v", i+1, task.Tool, processErr)
 					executionLog = append(executionLog, logMsg)
-
-					// join the log messages and return immediately
-					return mcp.NewToolResponse(mcp.NewTextContent(strings.Join(executionLog, "\n"))), nil
+					toolResults[fmt.Sprintf("%d", i)] = logMsg
+					continue
 				}
 
 				// Call the tool with the processed arguments
@@ -1764,9 +1753,8 @@ Output only the JSON array. For example:
 				if toolErr != nil {
 					logMsg := fmt.Sprintf("Task %d (%s) failed: %v", i+1, task.Tool, toolErr)
 					executionLog = append(executionLog, logMsg)
-					log.Printf("Execution log so far: %v", executionLog)
-					// Don't append to conversation since we're returning immediately
-					return mcp.NewToolResponse(mcp.NewTextContent(logMsg)), nil
+					toolResults[fmt.Sprintf("%d", i)] = logMsg
+					continue
 				}
 
 				// Store the tool result for potential future reference
@@ -1808,24 +1796,18 @@ Output only the JSON array. For example:
 // processPreviousToolResults processes the JSON args string and substitutes any references to previous tool results.
 // It looks for patterns like $TOOL_RESULT[index] and replaces them with the actual tool result.
 func processPreviousToolResults(argsJSON string, toolResults map[string]string) (string, error) {
-	// Define a regex pattern to match $TOOL_RESULT[index]
 	pattern := regexp.MustCompile(`\$TOOL_RESULT\[(\d+)\]`)
-
-	// First check if there are any matches to process
 	if !pattern.MatchString(argsJSON) {
 		return argsJSON, nil
 	}
 
-	// Parse the JSON to work with its structure
 	var argsMap map[string]interface{}
 	if err := json.Unmarshal([]byte(argsJSON), &argsMap); err != nil {
 		return "", fmt.Errorf("failed to parse args JSON for substitution: %v", err)
 	}
 
-	// Process all string values in the map
 	processJSONValue(argsMap, pattern, toolResults)
 
-	// Convert back to JSON
 	processedJSON, err := json.Marshal(argsMap)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal processed args: %v", err)
@@ -1838,38 +1820,30 @@ func processPreviousToolResults(argsJSON string, toolResults map[string]string) 
 func processJSONValue(value interface{}, pattern *regexp.Regexp, toolResults map[string]string) interface{} {
 	switch v := value.(type) {
 	case map[string]interface{}:
-		// Process each key-value pair in the map
 		for key, val := range v {
 			v[key] = processJSONValue(val, pattern, toolResults)
 		}
 		return v
 	case []interface{}:
-		// Process each element in the slice
 		for i, val := range v {
 			v[i] = processJSONValue(val, pattern, toolResults)
 		}
 		return v
 	case string:
-		// Replace any $TOOL_RESULT[index] in the string
 		return pattern.ReplaceAllStringFunc(v, func(match string) string {
-			// Extract the index from the match
 			submatches := pattern.FindStringSubmatch(match)
 			if len(submatches) < 2 {
-				return match // Keep original if no index found
+				return match
 			}
 			index := submatches[1]
-
-			// Get the result for the index
 			result, exists := toolResults[index]
 			if !exists {
 				log.Printf("Warning: Tool result for index %s not found", index)
-				return match // Keep original if result not found
+				return match
 			}
-
 			return result
 		})
 	default:
-		// Return unchanged for other types
 		return v
 	}
 }
@@ -1881,7 +1855,6 @@ func isFinal(answer string) bool {
 	if strings.HasPrefix(lower, "final_answer:") {
 		return true
 	}
-	// If the answer does not contain any indication of further actions, consider it final.
 	if !strings.Contains(lower, "call_tool:") && !strings.Contains(lower, "next step") {
 		return true
 	}

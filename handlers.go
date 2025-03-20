@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	mcp "github.com/metoro-io/mcp-golang"
@@ -99,9 +100,11 @@ func executeMCPHandler(c echo.Context) error {
 		if !ok {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing or invalid arguments for tool execution"})
 		}
-		toolResp, err := client.CallTool(context.Background(), toolName, args)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		toolResp, err := client.CallTool(ctx, toolName, args)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to call tool: %v", err)})
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute tool '%s': %v", toolName, err)})
 		}
 		result = toolResp
 	default:

@@ -12,7 +12,88 @@ import (
 	"github.com/labstack/echo/v4"
 	mcp "github.com/metoro-io/mcp-golang"
 	"github.com/metoro-io/mcp-golang/transport/stdio"
+
+	assistant "manifold/internal/assistant"
 )
+
+// executeAssistantHandler handles the assistant completion request.
+func executeAssistantHandler(c echo.Context, config *Config) error {
+	// Parse the JSON payload from the request.
+	var payload map[string]interface{}
+	if err := c.Bind(&payload); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
+	}
+
+	log.Printf("Received assistant payload: %+v", payload)
+
+	// Create a new assistant client
+	assistantClient := assistant.NewAssistantClient(config.Completions.DefaultHost)
+
+	// Extract messages from the payload if available, or create a default message
+	var messages []assistant.Message
+	if rawMessages, ok := payload["messages"].([]interface{}); ok {
+		for _, rawMsg := range rawMessages {
+			if msgMap, ok := rawMsg.(map[string]interface{}); ok {
+				role, _ := msgMap["role"].(string)
+				content, _ := msgMap["content"].(string)
+				messages = append(messages, assistant.Message{
+					Role:    role,
+					Content: content,
+				})
+			}
+		}
+	} else if prompt, ok := payload["prompt"].(string); ok {
+		// Fall back to using prompt as a user message if no messages array
+		messages = []assistant.Message{
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		}
+	} else {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Request must contain either 'messages' array or 'prompt' field"})
+	}
+
+	// Get model from payload or use default
+	model := "gpt-3.5-turbo"
+	if payloadModel, ok := payload["model"].(string); ok && payloadModel != "" {
+		model = payloadModel
+	}
+
+	// Get temperature from payload or use default
+	temperature := 0.5
+	if payloadTemp, ok := payload["temperature"].(float64); ok {
+		temperature = payloadTemp
+	}
+
+	// Get max_tokens from payload or use default
+	maxTokens := 100
+	if payloadMaxTokens, ok := payload["max_tokens"].(float64); ok {
+		maxTokens = int(payloadMaxTokens)
+	}
+
+	// Send the completion request to the assistant
+	req := &assistant.CompletionRequest{
+		Model:       model,
+		Messages:    messages,
+		Temperature: temperature,
+		MaxTokens:   maxTokens,
+		Stream:      false,
+	}
+
+	resp, err := assistantClient.Completion(req)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to complete request: %v", err)})
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func WithServerName(name string) func(*mcp.ServerOptions) {
+	return func(opts *mcp.ServerOptions) {
+		WithServerName(name)(opts)
+	}
+}
 
 func configHandler(c echo.Context) error {
 	config, err := LoadConfig("config.yaml")
@@ -115,7 +196,7 @@ func executeMCPHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, result)
 }
 
-// registerMCPTools extracts the tool registration part from RunMCP function
+// registerMCPTools registers all the tools with the MCP server.
 func registerMCPTools(server *mcp.Server, config *Config) {
 	tools := []struct {
 		name        string
@@ -339,7 +420,7 @@ func registerMCPTools(server *mcp.Server, config *Config) {
 			}
 			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
 		}},
-		{"web_search", "Performs a web search using selected backend", func(args WebSearchArgs) (*mcp.ToolResponse, error) {
+		{"web_search", "Performs a web search", func(args WebSearchArgs) (*mcp.ToolResponse, error) {
 			res, err := webSearchTool(args)
 			if err != nil {
 				return nil, err
@@ -353,7 +434,8 @@ func registerMCPTools(server *mcp.Server, config *Config) {
 			}
 			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
 		}},
-		{"agent", "Agent that uses LLM to decide which tools to call", agentHandler(config)},
+		// Use the new agent implementation.
+		{"agent", "Agent that uses LLM to decide which tools to call", newPlanExecuteAgent(config)},
 	}
 
 	for _, tool := range tools {

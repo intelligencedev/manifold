@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	mcp "github.com/metoro-io/mcp-golang"
@@ -346,10 +347,9 @@ func RunMCP(config *Config) {
 		panic(err)
 	}
 
-	// --------------------------
-	// Register our new "agent" tool:
-	// --------------------------
-	if err := server.RegisterTool("agent", "Agent that uses LLM to decide which tools to call", agentHandler(config)); err != nil {
+	if err := server.RegisterTool("agent",
+		"Agent that uses LLM to decide which tools to call - Plan and Execute style",
+		newPlanExecuteAgent(config)); err != nil {
 		panic(err)
 	}
 
@@ -458,7 +458,15 @@ type GitCommitArgs struct {
 // =====================
 type AgentArgs struct {
 	Query    string `json:"query" jsonschema:"required,description=User's query"`
-	MaxCalls int    `json:"maxCalls" jsonschema:"required,description=Number of maximum LLM calls allowed"`
+	MaxCalls int    `json:"maxCalls" jsonschema:"required,description=Max iteration steps allowed"`
+}
+
+// planTask is the JSON structure representing a single planned task in the plan array.
+type planTask struct {
+	Tool      string          `json:"tool"`
+	Args      json.RawMessage `json:"args"`
+	TaskID    int             `json:"task_id,omitempty"`
+	DependsOn []int           `json:"depends_on,omitempty"`
 }
 
 // ChatCompletionRequest is used to marshal the body for OpenAI's chat completion request.
@@ -1594,269 +1602,405 @@ func callToolInServer(toolName, jsonArgs string) (string, error) {
 	}
 }
 
-// agentHandler returns a closure that processes the agent query using a recursive planner+worker approach.
-func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error) {
+// newPlanExecuteAgent returns a function (tool handler) that implements the recommended plan-execute loop.
+func newPlanExecuteAgent(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error) {
 	return func(args AgentArgs) (*mcp.ToolResponse, error) {
+		if args.MaxCalls <= 0 {
+			args.MaxCalls = 5 // fallback
+		}
+
+		// A map/dict to store intermediate outputs from each executed tool
+		agentMemory := make(map[string]string)
+
+		// Build a stable JSON representation of the available tools
+		toolsJSON := buildToolsListJSON()
+
+		// Initialize a conversation or structured context for the LLM
+		// This conversation can store system messages, user queries, partial logs, etc.
 		var conversation []ChatCompletionMsg
-		// --- Step 0: Retrieve Available Tools ---
-		toolsInfo := map[string]interface{}{
-			"tools": []map[string]interface{}{
-				{"name": "hello", "description": "Says hello to the provided name"},
-				{"name": "calculate", "description": "Performs basic mathematical operations"},
-				{"name": "time", "description": "Returns the current time"},
-				{"name": "get_weather", "description": "Get the weather forecast"},
-				{"name": "read_file", "description": "Reads the entire contents of a text file"},
-				{"name": "write_file", "description": "Writes text content to a file"},
-				{"name": "list_directory", "description": "Lists files and directories"},
-				{"name": "create_directory", "description": "Creates a directory"},
-				{"name": "move_file", "description": "Moves or renames a file/directory"},
-				{"name": "git_init", "description": "Initializes a new Git repository"},
-				{"name": "git_status", "description": "Shows Git status"},
-				{"name": "git_add", "description": "Stages file changes"},
-				{"name": "git_commit", "description": "Commits staged changes"},
-				{"name": "git_pull", "description": "Pulls changes"},
-				{"name": "git_push", "description": "Pushes commits"},
-				{"name": "read_multiple_files", "description": "Reads the contents of multiple files"},
-				{"name": "edit_file", "description": "Edits a file via search and replace"},
-				{"name": "directory_tree", "description": "Recursively lists the directory structure"},
-				{"name": "search_files", "description": "Searches for a text pattern in files"},
-				{"name": "get_file_info", "description": "Returns metadata for a file or directory"},
-				{"name": "list_allowed_directories", "description": "Lists directories allowed for access"},
-				{"name": "delete_file", "description": "Deletes a file or directory"},
-				{"name": "copy_file", "description": "Copies a file or directory"},
-				{"name": "git_clone", "description": "Clones a remote Git repository"},
-				{"name": "git_checkout", "description": "Switches or creates a new Git branch"},
-				{"name": "git_diff", "description": "Shows Git diff between references"},
-				{"name": "run_shell_command", "description": "Executes an arbitrary shell command"},
-				{"name": "go_build", "description": "Builds a Go module"},
-				{"name": "go_test", "description": "Runs Go tests"},
-				{"name": "format_go_code", "description": "Formats Go code using go fmt"},
-				{"name": "lint_code", "description": "Runs a code linter"},
-				{"name": "web_search", "description": "Performs a web search"},
-				{"name": "web_content", "description": "Fetches and extracts content from web URLs"},
-			},
-		}
+		conversation = append(conversation, ChatCompletionMsg{
+			Role:    "system",
+			Content: "You are an advanced autonomous planning assistant. You can plan tasks by referencing the tool list, then execute them. Use as few steps as possible to accomplish the query. You store partial results in your memory, referencing them if needed.",
+		})
+		conversation = append(conversation, ChatCompletionMsg{Role: "user", Content: args.Query})
 
-		toolsJSONBytes, err := json.MarshalIndent(toolsInfo, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal tools info: %v", err)
-		}
-		toolsJSON := string(toolsJSONBytes)
-
-		// --- Initialize conversation context ---
-		conversation = []ChatCompletionMsg{
-			{Role: "system", Content: "You are an autonomous planning assistant. Use the provided tools list to decide which actions to perform. Never perform more actions than necessary to respond to the query or complete the task."},
-			{Role: "user", Content: args.Query},
-		}
-
-		// --- Track tool execution results for substitution ---
-		toolResults := make(map[string]string)
-
-		// Maximum number of iterations (recursive refinement)
+		// We'll loop up to args.MaxCalls times:
 		for iteration := 0; iteration < args.MaxCalls; iteration++ {
-			// --- Phase 1: Planning ---
-			planningPrompt := "Available Tools:\n" + toolsJSON + "\n\n" +
-				`You are a planning assistant for an autonomous agent.
-The current user query is: "` + args.Query + `".
-Produce a JSON array of tasks that will accomplish the query. 
-Each task must be an object with two keys:
-  - "tool": the name of the tool to invoke (e.g., "read_file", "edit_file", "write_file", etc.)
-  - "args": a JSON object with the arguments for that tool.
+			// ---------- PHASE 1: PLANNING ----------
+			planningPrompt := fmt.Sprintf(`
+Available Tools (JSON):
+%s
 
-Always try to use one of the available tools from the provided list before searching the web if the tool will suffice.
-
-For web-related actions, carefully follow these examples:
-- ALWAYS rewrite the query in the "args" section of the "web_search" tool as an optimized search query to improve search results.
-- To search the web: { "tool": "web_search", "args": { "query": "search query text" } }
-- To fetch web content: { "tool": "web_content", "args": { "urls": ["https://example.com", "https://example.org"] } }
-
-Note that web_content requires an array of URLs, even if there's only one URL.
-ensure that the URLs are provided as a list, even if there's only one URL. For example, instead of "urls": "http://example.com", 
-it should be "urls": ["http://example.com"]. This way, the system can correctly interpret the data as an array of strings.
-If you were unable to retrieve web content, never mention that.
-Always cite successful web content retrieval in the final summary.
-
-When using the shell tool, you should ensure that the command is formatted as a list of strings. For example, if you're running a command like 'ls -l', you should format it as '["ls", "-l"]' instead of 'ls -l'.
-This way, each part of the command is treated as a separate string in the list, which is what the system expects.
-
-When using the calculate tool, ensure proper to provide the proper operation string: "add", "subtract", "multiply", "divide".
-For example: { "tool": "calculate", "args": { "operation": "multiply", "a": 12, "b": 8 } }
-
-To reference the output of a previous tool in your plan, use the format: "$TOOL_RESULT[task_index]"
-  Example: { "tool": "write_file", "args": { "path": "weather.txt", "content": "$TOOL_RESULT[1]" } }
-  This would use the result from the 2nd task (index 1) as the content for the write_file tool.
-
-When using the list_directory tool, ensure that the path provided is a valid directory path. For example: { "tool": "list_directory", "args": { "path": "/path/to/directory" } }
-
-Do not include any task that calls the "agent" tool.
-Output only the JSON array. For example:
+You must produce a raw text JSON array of tasks, for instance:
 [
-  { "tool": "web_search", "args": { "query": "golang tutorials" } },
-  { "tool": "web_content", "args": { "urls": ["$TOOL_RESULT[0]"] } }
-]`
+  { "tool": "some_tool", "args": { "key": "value" }, "depends_on": [] },
+  { "tool": "another_tool", "args": { "whatever": 123 }, "depends_on": [0] }
+]
 
-			conversation = append(conversation, ChatCompletionMsg{Role: "user", Content: planningPrompt})
-			planOutput, err := callCompletionsEndpoint(config, conversation)
-			if err != nil {
-				return nil, fmt.Errorf("planning phase failed: %v", err)
+A task must NEVER depend on itself.
+
+Any "depends_on" array references zero-based indices of previous tasks in this plan that must complete first.
+Please plan the tasks to solve the user's query: "%s"
+
+Return only valid JSON array. If no more steps are needed, respond with an empty JSON array "[]".
+IMPORTANT: NEVER respond using markdown syntax. ONLY raw JSON is permitted. NEVER wrap in triple backticks.
+`, toolsJSON, args.Query)
+
+			planningMsg := ChatCompletionMsg{
+				Role:    "user",
+				Content: planningPrompt,
+			}
+			conversation = append(conversation, planningMsg)
+
+			planOutput, planErr := callCompletionsEndpoint(config, conversation)
+			if planErr != nil {
+				return nil, fmt.Errorf("planning step failed: %w", planErr)
 			}
 
-			// --- Phase 2: Clean and Parse the Plan ---
 			planOutput = strings.TrimSpace(planOutput)
-			if strings.HasPrefix(planOutput, "```json") {
-				planOutput = strings.TrimPrefix(planOutput, "```json")
-				planOutput = strings.TrimSuffix(planOutput, "```")
-				planOutput = strings.TrimSpace(planOutput)
+			log.Printf("Planning raw output: %s", planOutput)
+
+			// Attempt to parse as JSON array of planTask
+			tasks, parseErr := parsePlanOutput(planOutput)
+			if parseErr != nil {
+				// In a real scenario, we might try to re-prompt or finalize with partial result:
+				log.Printf("Failed to parse plan: %v", parseErr)
+				// Return partial or fallback
+				return mcp.NewToolResponse(mcp.NewTextContent(
+					fmt.Sprintf("Could not parse plan. Partial: %v", parseErr),
+				)), nil
 			}
 
-			log.Printf("Plan Output: %s", planOutput)
-
-			type PlanTask struct {
-				Tool string          `json:"tool"`
-				Args json.RawMessage `json:"args"`
-			}
-			var tasks []PlanTask
-			if err := json.Unmarshal([]byte(planOutput), &tasks); err != nil {
-				return nil, fmt.Errorf("failed to parse plan JSON: %v\nPlan output was: %s", err, planOutput)
-			}
-			// Filter out tasks that reference the "agent" tool.
-			validTasks := []PlanTask{}
-			for _, task := range tasks {
-				if strings.ToLower(task.Tool) == "agent" {
-					continue
-				}
-				validTasks = append(validTasks, task)
-			}
-			if len(validTasks) == 0 {
-				return nil, fmt.Errorf("plan produced no valid tasks (all tasks were forbidden)")
+			if len(tasks) == 0 {
+				// Means the LLM returned "[]", i.e. no further tasks. Let's do a final answer attempt.
+				finalAns := tryFinalAnswer(config, conversation, agentMemory, args)
+				return mcp.NewToolResponse(mcp.NewTextContent(finalAns)), nil
 			}
 
-			for i, task := range validTasks {
-				log.Printf("Task %d: %s", i+1, task.Tool)
+			// ---------- PHASE 2: EXECUTION ----------
+			// We'll track logs of each step to feed back into conversation if needed
+			iterationLog := make([]string, 0, len(tasks))
+
+			// concurrency approach: we can run tasks in waves, respecting depends_on
+			// Build adjacency / dependency references:
+			resultsMu := sync.Mutex{} // Protects agentMemory writes
+
+			if err := executePlanTasksConcurrently(tasks, &resultsMu, agentMemory, iterationLog); err != nil {
+				// If there's a catastrophic error, we can finalize or return partial:
+				log.Printf("Execution encountered an error: %v", err)
+				// We continue to final answer attempt or break:
+				finalAns := tryFinalAnswer(config, conversation, agentMemory, args)
+				return mcp.NewToolResponse(mcp.NewTextContent(
+					finalAns + "\n(Encountered partial errors in tasks.)",
+				)), nil
 			}
 
-			// --- Phase 3: Execution (Worker) ---
-			// Instead of aborting on the first error, we log errors and continue processing subsequent tasks.
-			executionLog := []string{}
-			for i, task := range validTasks {
-				// Process the task args to substitute any references to previous tool results
-				processedArgs, processErr := processPreviousToolResults(string(task.Args), toolResults)
-				if processErr != nil {
-					logMsg := fmt.Sprintf("Task %d (%s) argument processing failed: %v", i+1, task.Tool, processErr)
-					executionLog = append(executionLog, logMsg)
-					toolResults[fmt.Sprintf("%d", i)] = logMsg
-					continue
-				}
-
-				// Call the tool with the processed arguments
-				out, toolErr := callToolInServer(task.Tool, processedArgs)
-				if toolErr != nil {
-					logMsg := fmt.Sprintf("Task %d (%s) failed: %v", i+1, task.Tool, toolErr)
-					executionLog = append(executionLog, logMsg)
-					toolResults[fmt.Sprintf("%d", i)] = logMsg
-					continue
-				}
-
-				// Store the tool result for potential future reference
-				resultKey := fmt.Sprintf("%d", i)
-				toolResults[resultKey] = out
-
-				logMsg := fmt.Sprintf("Task %d (%s) succeeded: %s", i+1, task.Tool, out)
-				executionLog = append(executionLog, logMsg)
-				// Append tool response to conversation.
-				conversation = append(conversation, ChatCompletionMsg{Role: "assistant", Content: logMsg})
-			}
-			log.Printf("Final Execution Log: %v", executionLog)
-
-			// --- Phase 4: Finalization ---
-			finalPrompt := "Available Tools:\n" + toolsJSON + "\n\n" +
-				"The following tasks were executed in order:\n" + strings.Join(executionLog, "\n") +
-				"\nBased on these results, provide a final summary answer for the user's query: \"" + args.Query + "\". " +
-				"Output only the final summary. If the plan is not yet complete, include additional steps."
-			finalMessages := []ChatCompletionMsg{
-				{Role: "system", Content: "You are a finalizing assistant. Use the provided tools list and execution log to generate a final summary or further steps."},
-				{Role: "user", Content: finalPrompt},
-			}
-			finalAnswer, err := callCompletionsEndpoint(config, finalMessages)
-			if err != nil {
-				return nil, fmt.Errorf("finalization phase failed: %v", err)
+			// Append iteration logs into conversation so next iteration can see them
+			for _, stepResult := range iterationLog {
+				conversation = append(conversation, ChatCompletionMsg{Role: "assistant", Content: stepResult})
 			}
 
-			// Check termination: if the final answer clearly states a final summary or does not instruct any further actions, then return it.
-			if isFinal(finalAnswer) {
+			// ---------- PHASE 3: CHECK IF COMPLETE ----------
+			// We'll let the LLM see our iteration log & memory and see if final answer is possible
+			finalPrompt := buildFinalizationPrompt(args.Query, iterationLog, agentMemory, toolsJSON)
+			convFin := append([]ChatCompletionMsg{
+				{Role: "system", Content: "You have a log of the tasks just executed. Provide final or decide if more steps needed."},
+			}, ChatCompletionMsg{Role: "user", Content: finalPrompt})
+
+			finalAnswer, finalErr := callCompletionsEndpoint(config, convFin)
+			if finalErr != nil {
+				return mcp.NewToolResponse(
+					mcp.NewTextContent(fmt.Sprintf("Error finalizing: %v", finalErr)),
+				), nil
+			}
+
+			// If finalAnswer is truly a concluding answer (no further tasks), we return it:
+			if isConclusion(finalAnswer) {
 				return mcp.NewToolResponse(mcp.NewTextContent(finalAnswer)), nil
 			}
-			// Otherwise, append the final answer to conversation and iterate.
+
+			// Otherwise, we add the finalAnswer to conversation so the next iteration can see it
 			conversation = append(conversation, ChatCompletionMsg{Role: "assistant", Content: finalAnswer})
 		}
-		return mcp.NewToolResponse(mcp.NewTextContent("Insufficient context gathered to answer the query (max iterations reached).")), nil
+
+		// If we exhaust iteration limit, return partial result:
+		partial := tryFinalAnswer(config, conversation, agentMemory, args)
+		msg := fmt.Sprintf("Reached max iterations (%d). Partial answer:\n%s", args.MaxCalls, partial)
+		return mcp.NewToolResponse(mcp.NewTextContent(msg)), nil
 	}
 }
 
-// processPreviousToolResults processes the JSON args string and substitutes any references to previous tool results.
-// It looks for patterns like $TOOL_RESULT[index] and replaces them with the actual tool result.
-func processPreviousToolResults(argsJSON string, toolResults map[string]string) (string, error) {
+// parsePlanOutput tries to decode the LLM plan output into a list of planTask.
+func parsePlanOutput(planText string) ([]planTask, error) {
+	// handle triple backticks or code fence if present
+	planText = strings.TrimPrefix(planText, "```json")
+	planText = strings.TrimSuffix(planText, "```")
+
+	var tasks []planTask
+	if err := json.Unmarshal([]byte(planText), &tasks); err != nil {
+		return nil, fmt.Errorf("failed to parse plan: %w", err)
+	}
+	// Remove any tasks that are "agent" or invalid
+	filtered := make([]planTask, 0, len(tasks))
+	for i, t := range tasks {
+		if strings.ToLower(t.Tool) == "agent" {
+			log.Printf("Dropping plan task %d referencing 'agent' tool", i)
+			continue
+		}
+		// If needed: set default TaskID if not set
+		if t.TaskID == 0 {
+			t.TaskID = i
+		}
+		filtered = append(filtered, t)
+	}
+	return filtered, nil
+}
+
+// executePlanTasksConcurrently runs tasks in concurrency waves based on their dependencies.
+func executePlanTasksConcurrently(
+	tasks []planTask,
+	resultsMu *sync.Mutex,
+	agentMemory map[string]string,
+	iterationLog []string,
+) error {
+	completed := make(map[int]bool)
+	for {
+		// Find tasks that are not done, but whose dependencies are satisfied
+		var readyBatch []int
+		for i, t := range tasks {
+			if completed[i] {
+				continue
+			}
+			depsSatisfied := true
+			for _, dep := range t.DependsOn {
+				if dep < 0 || dep >= len(tasks) {
+					// invalid dependency
+					depsSatisfied = false
+					break
+				}
+				if !completed[dep] {
+					depsSatisfied = false
+					break
+				}
+			}
+			if depsSatisfied {
+				readyBatch = append(readyBatch, i)
+			}
+		}
+		if len(readyBatch) == 0 {
+			// if no tasks are ready but not all tasks are done, we have a dependency deadlock
+			doneCount := 0
+			for _, v := range completed {
+				if v {
+					doneCount++
+				}
+			}
+			if doneCount < len(tasks) {
+				return fmt.Errorf("dependency deadlock or all tasks blocked. done=%d total=%d", doneCount, len(tasks))
+			}
+			// Otherwise all tasks are complete
+			return nil
+		}
+
+		// Run this wave of tasks in parallel
+		var wg sync.WaitGroup
+		for _, idx := range readyBatch {
+			wg.Add(1)
+			go func(taskIndex int) {
+				defer wg.Done()
+
+				t := tasks[taskIndex]
+				// 1) process references in the arguments
+				processedArgs, pErr := processPreviousToolResults(string(t.Args), agentMemory)
+				if pErr != nil {
+					resultsMu.Lock()
+					iterationLog = append(iterationLog, fmt.Sprintf(
+						"Task %d (%s) argument-parse error: %v", taskIndex, t.Tool, pErr,
+					))
+					// store error in memory
+					agentMemory[fmt.Sprintf("task_%d", taskIndex)] = fmt.Sprintf("Error: %v", pErr)
+					resultsMu.Unlock()
+					return
+				}
+
+				// 2) run the tool
+				out, err := callToolInServer(t.Tool, processedArgs)
+				resultsMu.Lock()
+				defer resultsMu.Unlock()
+
+				if err != nil {
+					iterationLog = append(iterationLog, fmt.Sprintf(
+						"Task %d (%s) failed: %v", taskIndex, t.Tool, err,
+					))
+					agentMemory[fmt.Sprintf("task_%d", taskIndex)] = fmt.Sprintf("Error: %v", err)
+					// We do NOT return here. We let other tasks keep going if they can.
+				} else {
+					iterationLog = append(iterationLog, fmt.Sprintf(
+						"Task %d (%s) output:\n%s", taskIndex, t.Tool, out,
+					))
+					agentMemory[fmt.Sprintf("task_%d", taskIndex)] = out
+				}
+				completed[taskIndex] = true
+			}(idx)
+		}
+
+		wg.Wait()
+
+		// If we've completed all tasks, we can exit
+		doneCount := 0
+		for _, v := range completed {
+			if v {
+				doneCount++
+			}
+		}
+		if doneCount == len(tasks) {
+			break
+		}
+	}
+	return nil
+}
+
+// tryFinalAnswer attempts to get a final or partial answer if possible.
+func tryFinalAnswer(
+	config *Config,
+	conversation []ChatCompletionMsg,
+	agentMemory map[string]string,
+	args AgentArgs,
+) string {
+	finalPrompt := "We have possibly partial data. Summarize the best final answer to the user's query: \"" + args.Query + "\". " +
+		"If data is incomplete, do your best."
+	conv := append(conversation, ChatCompletionMsg{Role: "user", Content: finalPrompt})
+	ans, err := callCompletionsEndpoint(config, conv)
+	if err != nil {
+		return "Could not finalize answer: " + err.Error()
+	}
+	return ans
+}
+
+// buildFinalizationPrompt returns a finalization question after an iteration’s tasks:
+func buildFinalizationPrompt(query string, iterationLog []string, agentMemory map[string]string, toolsJSON string) string {
+	sb := strings.Builder{}
+	sb.WriteString("We ran tasks:\n")
+	for _, line := range iterationLog {
+		sb.WriteString(" - " + line + "\n")
+	}
+	sb.WriteString("\nCurrent memory:\n")
+	for k, v := range agentMemory {
+		sb.WriteString(fmt.Sprintf("  [%s]: %s\n", k, v))
+	}
+	sb.WriteString(fmt.Sprintf("\nUser query: '%s'\n", query))
+	sb.WriteString(`Decide if we can produce a final answer. If yes, output it. If we still need more steps, propose them (but do not list "agent" as a tool).
+If final, write "FINAL_ANSWER:" at the beginning. Otherwise mention next tasks or "call_tool: ..." 
+`)
+	return sb.String()
+}
+
+// isConclusion checks if the final answer is recognized as “finished”.
+func isConclusion(answer string) bool {
+	lower := strings.ToLower(strings.TrimSpace(answer))
+	if strings.HasPrefix(lower, "final_answer") {
+		return true
+	}
+	// Simple heuristic: if it doesn't mention "call_tool" or "further steps"
+	if !strings.Contains(lower, "call_tool:") && !strings.Contains(lower, "next step") {
+		// Possibly final
+		return true
+	}
+	return false
+}
+
+// buildToolsListJSON can produce a static JSON list of the tools.
+func buildToolsListJSON() string {
+	// For brevity, we create a short list. In your real code, gather from the server’s registry or keep a static list.
+	data := map[string]interface{}{
+		"tools": []map[string]interface{}{
+			{"name": "hello", "description": "Says hello to the provided name"},
+			{"name": "calculate", "description": "Performs basic mathematical operations"},
+			{"name": "time", "description": "Returns the current time"},
+			{"name": "get_weather", "description": "Get the weather forecast"},
+			{"name": "read_file", "description": "Reads the entire contents of a text file"},
+			{"name": "write_file", "description": "Writes text content to a file"},
+			{"name": "list_directory", "description": "Lists files and directories"},
+			{"name": "create_directory", "description": "Creates a directory"},
+			{"name": "move_file", "description": "Moves or renames a file/directory"},
+			{"name": "git_init", "description": "Initializes a new Git repository"},
+			{"name": "git_status", "description": "Shows Git status"},
+			{"name": "git_add", "description": "Stages file changes"},
+			{"name": "git_commit", "description": "Commits staged changes"},
+			{"name": "git_pull", "description": "Pulls changes"},
+			{"name": "git_push", "description": "Pushes commits"},
+			{"name": "read_multiple_files", "description": "Reads the contents of multiple files"},
+			{"name": "edit_file", "description": "Edits a file via search and replace"},
+			{"name": "directory_tree", "description": "Recursively lists the directory structure"},
+			{"name": "search_files", "description": "Searches for a text pattern in files"},
+			{"name": "get_file_info", "description": "Returns metadata for a file or directory"},
+			{"name": "list_allowed_directories", "description": "Lists directories allowed for access"},
+			{"name": "delete_file", "description": "Deletes a file or directory"},
+			{"name": "copy_file", "description": "Copies a file or directory"},
+			{"name": "git_clone", "description": "Clones a remote Git repository"},
+			{"name": "git_checkout", "description": "Switches or creates a new Git branch"},
+			{"name": "git_diff", "description": "Shows Git diff between references"},
+			{"name": "run_shell_command", "description": "Executes an arbitrary shell command"},
+			{"name": "go_build", "description": "Builds a Go module"},
+			{"name": "go_test", "description": "Runs Go tests"},
+			{"name": "format_go_code", "description": "Formats Go code using go fmt"},
+			{"name": "lint_code", "description": "Runs a code linter"},
+			{"name": "web_search", "description": "Performs a web search"},
+			{"name": "web_content", "description": "Fetches and extracts content from web URLs"},
+		},
+	}
+	b, _ := json.MarshalIndent(data, "", "  ")
+	return string(b)
+}
+
+// processPreviousToolResults looks for placeholders like $TOOL_RESULT[i] and replaces
+// them with the content from agentMemory["task_i"].
+func processPreviousToolResults(argsJSON string, agentMemory map[string]string) (string, error) {
 	pattern := regexp.MustCompile(`\$TOOL_RESULT\[(\d+)\]`)
 	if !pattern.MatchString(argsJSON) {
 		return argsJSON, nil
 	}
 
-	var argsMap map[string]interface{}
-	if err := json.Unmarshal([]byte(argsJSON), &argsMap); err != nil {
-		return "", fmt.Errorf("failed to parse args JSON for substitution: %v", err)
+	var generic interface{}
+	if err := json.Unmarshal([]byte(argsJSON), &generic); err != nil {
+		return "", fmt.Errorf("failed to parse JSON args for substitution: %v", err)
 	}
 
-	processJSONValue(argsMap, pattern, toolResults)
-
-	processedJSON, err := json.Marshal(argsMap)
+	updated := walkAndReplace(generic, pattern, agentMemory)
+	processed, err := json.Marshal(updated)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal processed args: %v", err)
+		return "", fmt.Errorf("failed to re-marshal updated JSON: %v", err)
 	}
-
-	return string(processedJSON), nil
+	return string(processed), nil
 }
 
-// processJSONValue recursively processes values in a map or slice to substitute tool results
-func processJSONValue(value interface{}, pattern *regexp.Regexp, toolResults map[string]string) interface{} {
+// walkAndReplace is a recursive function that replaces placeholders in string fields.
+func walkAndReplace(value interface{}, pattern *regexp.Regexp, agentMemory map[string]string) interface{} {
 	switch v := value.(type) {
 	case map[string]interface{}:
-		for key, val := range v {
-			v[key] = processJSONValue(val, pattern, toolResults)
+		for k, subVal := range v {
+			v[k] = walkAndReplace(subVal, pattern, agentMemory)
 		}
 		return v
 	case []interface{}:
-		for i, val := range v {
-			v[i] = processJSONValue(val, pattern, toolResults)
+		for i, subVal := range v {
+			v[i] = walkAndReplace(subVal, pattern, agentMemory)
 		}
 		return v
 	case string:
-		return pattern.ReplaceAllStringFunc(v, func(match string) string {
-			submatches := pattern.FindStringSubmatch(match)
-			if len(submatches) < 2 {
-				return match
+		return pattern.ReplaceAllStringFunc(v, func(m string) string {
+			sub := pattern.FindStringSubmatch(m)
+			if len(sub) < 2 {
+				return m
 			}
-			index := submatches[1]
-			result, exists := toolResults[index]
-			if !exists {
-				log.Printf("Warning: Tool result for index %s not found", index)
-				return match
+			idx := sub[1]
+			key := "task_" + idx
+			if res, ok := agentMemory[key]; ok {
+				return res
 			}
-			return result
+			return m
 		})
 	default:
 		return v
 	}
-}
-
-// isFinal returns true if the final answer is considered complete.
-// For example, if it starts with "FINAL_ANSWER:" or does not mention further tool calls.
-func isFinal(answer string) bool {
-	lower := strings.ToLower(answer)
-	if strings.HasPrefix(lower, "final_answer:") {
-		return true
-	}
-	if !strings.Contains(lower, "call_tool:") && !strings.Contains(lower, "next step") {
-		return true
-	}
-	return false
 }

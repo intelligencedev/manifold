@@ -425,7 +425,7 @@ func SearchDDG(query string) []string {
 	defer cancel()
 	ctx, cancel := chromedp.NewContext(allocCtx)
 	defer cancel()
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var nodes []*cdp.Node
 	err := chromedp.Run(ctx,

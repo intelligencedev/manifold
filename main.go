@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,6 +50,15 @@ func main() {
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{echo.GET, echo.PUT, echo.POST, echo.DELETE, echo.OPTIONS},
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "X-File-Path"},
+	}))
+	e.Use(middleware.TimeoutWithConfig(middleware.TimeoutConfig{
+		Skipper:      middleware.DefaultSkipper,
+		ErrorMessage: "custom timeout error message returns to client",
+		OnTimeoutRouteErrorHandler: func(err error, c echo.Context) {
+			log.Println(c.Path())
+			pterm.Error.Println("Timeout error")
+		},
+		Timeout: 5 * time.Minute,
 	}))
 
 	// Register all routes.

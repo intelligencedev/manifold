@@ -59,4 +59,10 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
+
+	// Test endpoint assistant handler.
+	api.POST("/assistant", func(c echo.Context) error {
+		return executeAssistantHandler(c, config)
+	})
+
 }

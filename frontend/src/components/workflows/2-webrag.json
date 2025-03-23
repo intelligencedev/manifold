@@ -1,0 +1,633 @@
+{
+    "nodes": [
+      {
+        "id": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+        "type": "agentNode",
+        "initialized": false,
+        "position": {
+          "x": 3880,
+          "y": -180
+        },
+        "data": {
+          "type": "AgentNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "endpoint": "http://localhost:32186/v1/chat/completions",
+            "api_key": "",
+            "model": "local",
+            "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone.",
+            "user_prompt": "You MUST ONLY use the provided web search results to respond to the query:\n\n",
+            "max_completion_tokens": 32768,
+            "temperature": 0.3
+          },
+          "outputs": {
+            "response": ""
+          },
+          "models": [
+            "local",
+            "chatgpt-4o-latest",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o1-mini",
+            "o1",
+            "o3-mini"
+          ],
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "320px",
+            "height": "760px"
+          }
+        },
+        "style": {
+          "width": "380px",
+          "height": "760px"
+        }
+      },
+      {
+        "id": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 880,
+          "y": 100
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": ""
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "350px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
+          ]
+        },
+        "style": {
+          "width": "880px",
+          "height": "760px"
+        }
+      },
+      {
+        "id": "webSearchNode_bbd9f686-b1fa-40e2-9c74-38a42853591c",
+        "type": "webSearchNode",
+        "initialized": false,
+        "position": {
+          "x": 2300,
+          "y": 360
+        },
+        "data": {
+          "type": "WebSearchNode",
+          "labelStyle": {},
+          "style": {},
+          "inputs": {
+            "query": "",
+            "result_size": 6,
+            "search_backend": "ddg",
+            "sxng_url": "https://searx.be"
+          },
+          "outputs": {
+            "urls": []
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputHandleColor": "#777",
+          "inputHandleShape": "50%",
+          "handleColor": "#777",
+          "outputHandleShape": "50%",
+          "connectedTo": [
+            "agentNode_3c98f664-c580-4584-9e5d-5f43286cc913",
+            "responseNode_f96a2bf2-403a-4ca4-a8d3-a4bca9df1fa1"
+          ]
+        }
+      },
+      {
+        "id": "webRetrievalNode_9417ab6c-4385-44eb-9450-ac1f9d9ce058",
+        "type": "webRetrievalNode",
+        "initialized": false,
+        "position": {
+          "x": 2580,
+          "y": 420
+        },
+        "data": {
+          "type": "WebRetrievalNode",
+          "labelStyle": {},
+          "style": {},
+          "inputs": {
+            "url": ""
+          },
+          "outputs": {},
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputHandleColor": "#777",
+          "inputHandleShape": "50%",
+          "handleColor": "#777",
+          "outputHandleShape": "50%",
+          "connectedTo": [
+            "webSearchNode_bbd9f686-b1fa-40e2-9c74-38a42853591c"
+          ]
+        }
+      },
+      {
+        "id": "textNode_e6cf6114-4e23-4487-80a9-b1f7d4fb288c",
+        "type": "textNode",
+        "initialized": false,
+        "position": {
+          "x": 880,
+          "y": -180
+        },
+        "data": {
+          "type": "TextNode",
+          "labelStyle": {
+            "fontWeight": "bold",
+            "textAlign": "center",
+            "marginBottom": "10px",
+            "fontSize": "16px"
+          },
+          "style": {
+            "border": "1px solid var(--node-border-color)",
+            "borderRadius": "12px",
+            "backgroundColor": "var(--node-bg-color)",
+            "color": "var(--node-text-color)",
+            "padding": "10px",
+            "width": "undefinedpx",
+            "height": "undefinedpx"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "text": ""
+          },
+          "outputs": {}
+        },
+        "style": {
+          "width": "873px",
+          "height": "250px"
+        }
+      },
+      {
+        "id": "responseNode_6963eb22-58da-4536-b1bd-084f6a9b88e9",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 3120,
+          "y": -180
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": ""
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "350px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "textNode_e6cf6114-4e23-4487-80a9-b1f7d4fb288c"
+          ]
+        },
+        "style": {
+          "width": "480px",
+          "height": "400px"
+        }
+      },
+      {
+        "id": "agentNode_3c98f664-c580-4584-9e5d-5f43286cc913",
+        "type": "agentNode",
+        "initialized": false,
+        "position": {
+          "x": 1860,
+          "y": -180
+        },
+        "data": {
+          "type": "AgentNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "endpoint": "http://localhost:32186/v1/chat/completions",
+            "api_key": "",
+            "model": "local",
+            "system_prompt": "You are a helpful assistant that specializes in generating effective search engine queries.  Given any text input, your task is to create one or more concise and relevant search queries that would be likely to retrieve information related to that text from a search engine (like Google, Bing, etc.).  Consider the key concepts, entities, and the user's likely intent.  Prioritize clarity and precision in the queries.",
+            "user_prompt": "ONLY return a single search engine optimized query with no markdown formatting or wrapped as a string:\n",
+            "max_completion_tokens": 32768,
+            "temperature": 0.6
+          },
+          "outputs": {
+            "response": ""
+          },
+          "models": [
+            "local",
+            "chatgpt-4o-latest",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o1-mini",
+            "o1",
+            "o3-mini"
+          ],
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "320px",
+            "height": "760px"
+          }
+        },
+        "style": {
+          "width": "380px",
+          "height": "760px"
+        }
+      },
+      {
+        "id": "noteNode_3703aa7b-513f-44ca-b2e5-6daf4abd222a",
+        "type": "noteNode",
+        "initialized": false,
+        "position": {
+          "x": 1860,
+          "y": 600
+        },
+        "data": {
+          "type": "Notes",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": false,
+          "hasOutputs": false,
+          "inputs": {
+            "note": "Ensure the Search Assistant System Prompt is selected to convert the user's query to a search engine optimized query"
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #e8c547",
+            "borderRadius": "12px",
+            "backgroundColor": "#f7f3d7",
+            "color": "#333",
+            "width": "200px",
+            "height": "120px"
+          }
+        },
+        "style": {
+          "width": "380px",
+          "height": "120px"
+        }
+      },
+      {
+        "id": "responseNode_bf3ec31e-583e-43e7-b057-77281dbe9528",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 3120,
+          "y": 380
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": ""
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "350px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "webRetrievalNode_9417ab6c-4385-44eb-9450-ac1f9d9ce058"
+          ]
+        },
+        "style": {
+          "width": "480px",
+          "height": "400px"
+        }
+      },
+      {
+        "id": "noteNode_e37a1fde-414e-4d92-88d1-610bc9be91a9",
+        "type": "noteNode",
+        "initialized": false,
+        "position": {
+          "x": 3120,
+          "y": 240
+        },
+        "data": {
+          "type": "Notes",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": false,
+          "hasOutputs": false,
+          "inputs": {
+            "note": "- Use responseNode to control when an agentNode executes.\n- agentNode will only execute when all connected source responseNodes are done processing."
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #e8c547",
+            "borderRadius": "12px",
+            "backgroundColor": "#f7f3d7",
+            "color": "#333",
+            "width": "200px",
+            "height": "120px"
+          }
+        },
+        "style": {
+          "width": "480px",
+          "height": "120px"
+        }
+      },
+      {
+        "id": "noteNode_42874035-50af-4664-a69b-c3dc431bcef9",
+        "type": "noteNode",
+        "initialized": false,
+        "position": {
+          "x": 3880,
+          "y": 600
+        },
+        "data": {
+          "type": "Notes",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": false,
+          "hasOutputs": false,
+          "inputs": {
+            "note": "Research Analyst system prompt is a good candidate for web retrieval workflows, but you may use others or write your own."
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #e8c547",
+            "borderRadius": "12px",
+            "backgroundColor": "#f7f3d7",
+            "color": "#333",
+            "width": "200px",
+            "height": "120px"
+          }
+        },
+        "style": {
+          "width": "380px",
+          "height": "120px"
+        }
+      },
+      {
+        "id": "noteNode_bd6ce733-050e-4add-b511-7dba3f88a868",
+        "type": "noteNode",
+        "initialized": false,
+        "position": {
+          "x": 2300,
+          "y": 220
+        },
+        "data": {
+          "type": "Notes",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": false,
+          "hasOutputs": false,
+          "inputs": {
+            "note": "Result size can significantly increase context sent to LLM. Be mindful of this!"
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #e8c547",
+            "borderRadius": "12px",
+            "backgroundColor": "#f7f3d7",
+            "color": "#333",
+            "width": "200px",
+            "height": "120px"
+          }
+        },
+        "style": {
+          "width": "240px",
+          "height": "120px"
+        }
+      },
+      {
+        "id": "responseNode_f96a2bf2-403a-4ca4-a8d3-a4bca9df1fa1",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 1860,
+          "y": 740
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": ""
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "350px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "agentNode_3c98f664-c580-4584-9e5d-5f43286cc913"
+          ]
+        },
+        "style": {
+          "width": "480px",
+          "height": "400px"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-0.30367276511116714",
+        "type": "step",
+        "source": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+        "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+        "sourceHandle": null,
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 4267.000109835779,
+        "sourceY": 200.00010983577874,
+        "targetX": 872.999963718467,
+        "targetY": 480.00010983577874
+      },
+      {
+        "id": "edge-0.09849698713866317",
+        "type": "step",
+        "source": "webSearchNode_bbd9f686-b1fa-40e2-9c74-38a42853591c",
+        "target": "webRetrievalNode_9417ab6c-4385-44eb-9450-ac1f9d9ce058",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 2543.7264830422446,
+        "sourceY": 469.50004501153865,
+        "targetX": 2572.999963718467,
+        "targetY": 504.2499809987588
+      },
+      {
+        "id": "edge-0.4484411776258196",
+        "type": "step",
+        "source": "textNode_e6cf6114-4e23-4487-80a9-b1f7d4fb288c",
+        "target": "responseNode_6963eb22-58da-4536-b1bd-084f6a9b88e9",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 1757.0000967108172,
+        "sourceY": -54.99996582336229,
+        "targetX": 3112.9997935296487,
+        "targetY": 20.000076451540167
+      },
+      {
+        "id": "edge-0.4006450238712933",
+        "type": "step",
+        "source": "textNode_e6cf6114-4e23-4487-80a9-b1f7d4fb288c",
+        "target": "agentNode_3c98f664-c580-4584-9e5d-5f43286cc913",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 1757.0000967108172,
+        "sourceY": -54.99996582336229,
+        "targetX": 1853.000133907285,
+        "targetY": 200.00010983577874
+      },
+      {
+        "id": "edge-0.07605073518429839",
+        "type": "step",
+        "source": "responseNode_6963eb22-58da-4536-b1bd-084f6a9b88e9",
+        "target": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 3606.9999960134974,
+        "sourceY": 20.000076451540167,
+        "targetX": 3872.9997935296487,
+        "targetY": 200.00010983577874
+      },
+      {
+        "id": "edge-0.12444837080057669",
+        "type": "step",
+        "source": "webRetrievalNode_9417ab6c-4385-44eb-9450-ac1f9d9ce058",
+        "target": "responseNode_bf3ec31e-583e-43e7-b057-77281dbe9528",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 2938.874875928267,
+        "sourceY": 504.2499809987588,
+        "targetX": 3112.9997935296487,
+        "targetY": 579.9999913571311
+      },
+      {
+        "id": "edge-0.932439850928692",
+        "type": "step",
+        "source": "responseNode_bf3ec31e-583e-43e7-b057-77281dbe9528",
+        "target": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 3606.9999960134974,
+        "sourceY": 579.9999913571311,
+        "targetX": 3872.9997935296487,
+        "targetY": 200.00010983577874
+      },
+      {
+        "id": "edge-0.9446516890263505",
+        "type": "step",
+        "source": "responseNode_f96a2bf2-403a-4ca4-a8d3-a4bca9df1fa1",
+        "target": "webSearchNode_bbd9f686-b1fa-40e2-9c74-38a42853591c",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 2347.000166202315,
+        "sourceY": 940.0000764515402,
+        "targetX": 2292.999963718467,
+        "targetY": 469.50004501153865
+      },
+      {
+        "id": "edge-0.7555016254907807",
+        "type": "step",
+        "source": "agentNode_3c98f664-c580-4584-9e5d-5f43286cc913",
+        "target": "responseNode_f96a2bf2-403a-4ca4-a8d3-a4bca9df1fa1",
+        "sourceHandle": null,
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 2247.000109835779,
+        "sourceY": 200.00010983577874,
+        "targetX": 1853.000133907285,
+        "targetY": 940.0000764515402
+      }
+    ],
+    "position": [
+      -253.38609322748994,
+      263.36059780776964
+    ],
+    "zoom": 0.4108194657552521,
+    "viewport": {
+      "x": -253.38609322748994,
+      "y": 263.36059780776964,
+      "zoom": 0.4108194657552521
+    }
+  }

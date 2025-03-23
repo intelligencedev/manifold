@@ -1643,7 +1643,7 @@ Any "depends_on" array references zero-based indices of previous tasks in this p
 Please plan the tasks to solve the user's query: "%s"
 
 Return only valid JSON array. If no more steps are needed, respond with an empty JSON array "[]".
-IMPORTANT: NEVER respond using markdown syntax. ONLY raw JSON is permitted. NEVER wrap in triple backticks.
+IMPORTANT: NEVER respond using markdown syntax. ONLY raw JSON is permitted. NEVER wrap in triple backticks. ONLY output the JSON and nothing else.
 `, toolsJSON, args.Query)
 
 			planningMsg := ChatCompletionMsg{

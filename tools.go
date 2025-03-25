@@ -1,4 +1,4 @@
-package assistant
+package main
 
 import (
 	"encoding/json"
@@ -14,47 +14,678 @@ import (
 	"time"
 )
 
-// ---------------------------------------------------------------------
-// Common Types
-// ---------------------------------------------------------------------
+// ------------------------------------------------------------------------
+// Tool Metadata and Registry
+// ------------------------------------------------------------------------
 
-// ToolRequest represents a request to a tool.
-type ToolRequest struct {
-	Command string   `json:"command"` // Command to execute.
-	Args    []string `json:"args"`    // Arguments to the command.
+// ToolInfo represents the metadata returned in /tool/list.
+type ToolInfo struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	ExampleArgs map[string]interface{} `json:"example_args,omitempty"`
 }
 
-// ToolResponse represents a response from a tool.
-type ToolResponse struct {
-	Output string `json:"output"` // Output of the command.
-	Error  string `json:"error"`  // Error message, if any.
+// ToolDefinition ties together the metadata and the actual runtime logic.
+type ToolDefinition struct {
+	Info      ToolInfo
+	HandlerFn func(args json.RawMessage) (string, error)
 }
 
-// Tool interface defines the methods that a tool must implement.
-type Tool interface {
-	// Execute sends a request to the tool and returns the response.
-	Execute(req *ToolRequest) (*ToolResponse, error)
+type ThinkArgs struct {
+	Thought string `json:"thought" jsonschema:"required,description=The thought or reasoning text to be processed"`
 }
 
-// ---------------------------------------------------------------------
+// ------------------------------------------------------------------------
+// Tool Handlers
+// ------------------------------------------------------------------------
+
+func handleThink(rawArgs json.RawMessage) (string, error) {
+	var args ThinkArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for think tool: %w", err)
+	}
+
+	// Create a separator line.
+	separator := strings.Repeat("=", 100)
+
+	// ANSI escape codes for magenta background and white text.
+	header := fmt.Sprintf("\n%s\n\033[45m\033[97m🧠 CLAUDE-STYLE THINKING PROCESS 🧠\033[0m\n%s\n", separator, separator)
+	fmt.Println(header)
+
+	// Split the thought into paragraphs.
+	paragraphs := strings.Split(args.Thought, "\n\n")
+	for _, para := range paragraphs {
+		trimmed := strings.TrimSpace(para)
+		if trimmed == "" {
+			continue
+		}
+		// If the paragraph starts with a numbered list, print it in green.
+		if strings.HasPrefix(trimmed, "1.") || strings.HasPrefix(trimmed, "2.") ||
+			strings.HasPrefix(trimmed, "3.") || strings.HasPrefix(trimmed, "4.") ||
+			strings.HasPrefix(trimmed, "5.") {
+			fmt.Println("\033[32m" + trimmed + "\033[0m\n")
+		} else {
+			// Otherwise, print in white.
+			fmt.Println("\033[37m" + trimmed + "\033[0m\n")
+		}
+	}
+
+	footer := fmt.Sprintf("%s\n", separator)
+	fmt.Println("\033[45m\033[97m" + footer + "\033[0m\n")
+
+	// Calculate and log the word count.
+	words := strings.Fields(args.Thought)
+	wordCount := len(words)
+	log.Printf("Model used the Claude-style think tool (%d words)", wordCount)
+
+	return "Thought recorded. Continue with your analysis.", nil
+}
+
+// handleHello processes the "hello" tool.
+func handleHello(rawArgs json.RawMessage) (string, error) {
+	var args HelloArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for hello tool: %w", err)
+	}
+	return fmt.Sprintf("Hello, %s!", args.Name), nil
+}
+
+// handleCalculate processes the "calculate" tool.
+func handleCalculate(rawArgs json.RawMessage) (string, error) {
+	var args CalculateArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for calculate tool: %w", err)
+	}
+	switch args.Operation {
+	case "add":
+		return fmt.Sprintf("Result of add: %.2f", args.A+args.B), nil
+	case "subtract":
+		return fmt.Sprintf("Result of subtract: %.2f", args.A-args.B), nil
+	case "multiply":
+		return fmt.Sprintf("Result of multiply: %.2f", args.A*args.B), nil
+	case "divide":
+		if args.B == 0 {
+			return "", fmt.Errorf("division by zero")
+		}
+		return fmt.Sprintf("Result of divide: %.2f", args.A/args.B), nil
+	default:
+		return "", fmt.Errorf("unknown operation: %s", args.Operation)
+	}
+}
+
+// handleTime processes the "time" tool.
+func handleTime(rawArgs json.RawMessage) (string, error) {
+	var args TimeArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for time tool: %w", err)
+	}
+	format := time.RFC3339
+	if args.Format != "" {
+		format = args.Format
+	}
+	return time.Now().Format(format), nil
+}
+
+// handleWeather processes the "weather" tool.
+func handleWeather(rawArgs json.RawMessage) (string, error) {
+	var args WeatherArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for weather tool: %w", err)
+	}
+	return getWeatherTool(args)
+}
+
+// handleReadFile processes the "read_file" tool.
+func handleReadFile(rawArgs json.RawMessage) (string, error) {
+	var args ReadFileArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for read_file tool: %w", err)
+	}
+	return readFileTool(args)
+}
+
+// handleWriteFile processes the "write_file" tool.
+func handleWriteFile(rawArgs json.RawMessage) (string, error) {
+	var args WriteFileArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for write_file tool: %w", err)
+	}
+	return writeFileTool(args)
+}
+
+// handleListDirectory processes the "list_directory" tool.
+func handleListDirectory(rawArgs json.RawMessage) (string, error) {
+	var args ListDirectoryArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for list_directory tool: %w", err)
+	}
+	return listDirectoryTool(args)
+}
+
+// handleCreateDirectory processes the "create_directory" tool.
+func handleCreateDirectory(rawArgs json.RawMessage) (string, error) {
+	var args CreateDirectoryArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for create_directory tool: %w", err)
+	}
+	return createDirectoryTool(args)
+}
+
+// handleMoveFile processes the "move_file" tool.
+func handleMoveFile(rawArgs json.RawMessage) (string, error) {
+	var args MoveFileArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for move_file tool: %w", err)
+	}
+	return moveFileTool(args)
+}
+
+// handleGitInit processes the "git_init" tool.
+func handleGitInit(rawArgs json.RawMessage) (string, error) {
+	var args GitInitArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_init tool: %w", err)
+	}
+	return gitInitTool(args)
+}
+
+// handleGitStatus processes the "git_status" tool.
+func handleGitStatus(rawArgs json.RawMessage) (string, error) {
+	var args GitRepoArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_status tool: %w", err)
+	}
+	return gitStatusTool(args)
+}
+
+// handleGitAdd processes the "git_add" tool.
+func handleGitAdd(rawArgs json.RawMessage) (string, error) {
+	var args GitAddArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_add tool: %w", err)
+	}
+	return gitAddTool(args)
+}
+
+// handleGitCommit processes the "git_commit" tool.
+func handleGitCommit(rawArgs json.RawMessage) (string, error) {
+	var args GitCommitArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_commit tool: %w", err)
+	}
+	return gitCommitTool(args)
+}
+
+// handleGitPull processes the "git_pull" tool.
+func handleGitPull(rawArgs json.RawMessage) (string, error) {
+	var args GitRepoArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_pull tool: %w", err)
+	}
+	return gitPullTool(args)
+}
+
+// handleGitPush processes the "git_push" tool.
+func handleGitPush(rawArgs json.RawMessage) (string, error) {
+	var args GitRepoArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_push tool: %w", err)
+	}
+	return gitPushTool(args)
+}
+
+// handleSearchFiles processes the "search_files" tool.
+func handleSearchFiles(rawArgs json.RawMessage) (string, error) {
+	var args SearchFilesArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for search_files tool: %w", err)
+	}
+	return searchFilesTool(args)
+}
+
+// handleDeleteFile processes the "delete_file" tool.
+func handleDeleteFile(rawArgs json.RawMessage) (string, error) {
+	var args DeleteFileArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for delete_file tool: %w", err)
+	}
+	return deleteFileTool(args)
+}
+
+// handleCopyFile processes the "copy_file" tool.
+func handleCopyFile(rawArgs json.RawMessage) (string, error) {
+	var args CopyFileArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for copy_file tool: %w", err)
+	}
+	return copyFileTool(args)
+}
+
+// handleGitClone processes the "git_clone" tool.
+func handleGitClone(rawArgs json.RawMessage) (string, error) {
+	var args GitCloneArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_clone tool: %w", err)
+	}
+	return gitCloneTool(args)
+}
+
+// handleGitCheckout processes the "git_checkout" tool.
+func handleGitCheckout(rawArgs json.RawMessage) (string, error) {
+	var args GitCheckoutArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for git_checkout tool: %w", err)
+	}
+	return gitCheckoutTool(args)
+}
+
+// handleRunShellCommand processes the "run_shell_command" tool.
+func handleRunShellCommand(rawArgs json.RawMessage) (string, error) {
+	var args ShellCommandArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for run_shell_command tool: %w", err)
+	}
+	return runShellCommandTool(args)
+}
+
+// handleGoBuild processes the "go_build" tool.
+func handleGoBuild(rawArgs json.RawMessage) (string, error) {
+	var args GoBuildArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for go_build tool: %w", err)
+	}
+	return goBuildTool(args)
+}
+
+// handleGoTest processes the "go_test" tool.
+func handleGoTest(rawArgs json.RawMessage) (string, error) {
+	var args GoTestArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for go_test tool: %w", err)
+	}
+	return goTestTool(args)
+}
+
+// handleFormatGoCode processes the "format_go_code" tool.
+func handleFormatGoCode(rawArgs json.RawMessage) (string, error) {
+	var args FormatGoCodeArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for format_go_code tool: %w", err)
+	}
+	return formatGoCodeTool(args)
+}
+
+// handleLintCode processes the "lint_code" tool.
+func handleLintCode(rawArgs json.RawMessage) (string, error) {
+	var args LintCodeArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for lint_code tool: %w", err)
+	}
+	return lintCodeTool(args)
+}
+
+// handleWebSearch processes the "web_search" tool.
+func handleWebSearch(rawArgs json.RawMessage) (string, error) {
+	var args WebSearchArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for web_search tool: %w", err)
+	}
+	return webSearchTool(args)
+}
+
+// handleWebContent processes the "web_content" tool.
+func handleWebContent(rawArgs json.RawMessage) (string, error) {
+	var args WebContentArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for web_content tool: %w", err)
+	}
+	return webContentTool(args)
+}
+
+// ------------------------------------------------------------------------
+// Tool Registry
+// ------------------------------------------------------------------------
+
+var toolRegistry = map[string]ToolDefinition{
+	"think": {
+		Info: ToolInfo{
+			Name:        "think",
+			Description: "Processes a thought using a reasoning process",
+			ExampleArgs: map[string]interface{}{
+				"thought": "Your detailed analysis and reasoning here...",
+			},
+		},
+		HandlerFn: handleThink,
+	},
+	"hello": {
+		Info: ToolInfo{
+			Name:        "hello",
+			Description: "Says hello to the provided name",
+			ExampleArgs: map[string]interface{}{
+				"name": "Alice",
+			},
+		},
+		HandlerFn: handleHello,
+	},
+	"calculate": {
+		Info: ToolInfo{
+			Name:        "calculate",
+			Description: "Performs basic mathematical operations",
+			ExampleArgs: map[string]interface{}{
+				"operation": "add",
+				"a":         5,
+				"b":         3,
+			},
+		},
+		HandlerFn: handleCalculate,
+	},
+	"time": {
+		Info: ToolInfo{
+			Name:        "time",
+			Description: "Returns the current time",
+			ExampleArgs: map[string]interface{}{
+				"format": "optional time format",
+			},
+		},
+		HandlerFn: handleTime,
+	},
+	"weather": {
+		Info: ToolInfo{
+			Name:        "weather",
+			Description: "Fetches weather information for a given location",
+			ExampleArgs: map[string]interface{}{
+				"latitude":  37.7749,
+				"longitude": -122.4194,
+			},
+		},
+		HandlerFn: handleWeather,
+	},
+	"read_file": {
+		Info: ToolInfo{
+			Name:        "read_file",
+			Description: "Reads and returns the content of a file",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/file.txt",
+			},
+		},
+		HandlerFn: handleReadFile,
+	},
+	"write_file": {
+		Info: ToolInfo{
+			Name:        "write_file",
+			Description: "Writes content to a file",
+			ExampleArgs: map[string]interface{}{
+				"path":    "/path/to/file.txt",
+				"content": "Hello, World!",
+			},
+		},
+		HandlerFn: handleWriteFile,
+	},
+	"list_directory": {
+		Info: ToolInfo{
+			Name:        "list_directory",
+			Description: "Lists files and directories within a directory",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/directory",
+			},
+		},
+		HandlerFn: handleListDirectory,
+	},
+	"create_directory": {
+		Info: ToolInfo{
+			Name:        "create_directory",
+			Description: "Creates a new directory",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/new/directory",
+			},
+		},
+		HandlerFn: handleCreateDirectory,
+	},
+	"move_file": {
+		Info: ToolInfo{
+			Name:        "move_file",
+			Description: "Moves or renames a file or directory",
+			ExampleArgs: map[string]interface{}{
+				"source":      "/path/to/source",
+				"destination": "/path/to/destination",
+			},
+		},
+		HandlerFn: handleMoveFile,
+	},
+	"git_init": {
+		Info: ToolInfo{
+			Name:        "git_init",
+			Description: "Initializes a new Git repository",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/repo",
+			},
+		},
+		HandlerFn: handleGitInit,
+	},
+	"git_status": {
+		Info: ToolInfo{
+			Name:        "git_status",
+			Description: "Returns the Git status of a repository",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/repo",
+			},
+		},
+		HandlerFn: handleGitStatus,
+	},
+	"git_add": {
+		Info: ToolInfo{
+			Name:        "git_add",
+			Description: "Stages changes in a Git repository",
+			ExampleArgs: map[string]interface{}{
+				"path":     "/path/to/repo",
+				"fileList": []string{"file1.txt", "file2.txt"},
+			},
+		},
+		HandlerFn: handleGitAdd,
+	},
+	"git_commit": {
+		Info: ToolInfo{
+			Name:        "git_commit",
+			Description: "Commits changes in a Git repository",
+			ExampleArgs: map[string]interface{}{
+				"path":    "/path/to/repo",
+				"message": "Initial commit",
+			},
+		},
+		HandlerFn: handleGitCommit,
+	},
+	"git_pull": {
+		Info: ToolInfo{
+			Name:        "git_pull",
+			Description: "Pulls changes from a remote repository",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/repo",
+			},
+		},
+		HandlerFn: handleGitPull,
+	},
+	"git_push": {
+		Info: ToolInfo{
+			Name:        "git_push",
+			Description: "Pushes changes to a remote repository",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/repo",
+			},
+		},
+		HandlerFn: handleGitPush,
+	},
+	"search_files": {
+		Info: ToolInfo{
+			Name:        "search_files",
+			Description: "Searches for files containing a specific pattern",
+			ExampleArgs: map[string]interface{}{
+				"path":    "/path/to/search",
+				"pattern": "search term",
+			},
+		},
+		HandlerFn: handleSearchFiles,
+	},
+	"delete_file": {
+		Info: ToolInfo{
+			Name:        "delete_file",
+			Description: "Deletes a file or directory",
+			ExampleArgs: map[string]interface{}{
+				"path":      "/path/to/file_or_directory",
+				"recursive": true,
+			},
+		},
+		HandlerFn: handleDeleteFile,
+	},
+	"copy_file": {
+		Info: ToolInfo{
+			Name:        "copy_file",
+			Description: "Copies a file or directory",
+			ExampleArgs: map[string]interface{}{
+				"source":      "/path/to/source",
+				"destination": "/path/to/destination",
+				"recursive":   true,
+			},
+		},
+		HandlerFn: handleCopyFile,
+	},
+	"git_clone": {
+		Info: ToolInfo{
+			Name:        "git_clone",
+			Description: "Clones a Git repository",
+			ExampleArgs: map[string]interface{}{
+				"repoUrl": "https://github.com/example/repo.git",
+				"path":    "/path/to/clone",
+			},
+		},
+		HandlerFn: handleGitClone,
+	},
+	"git_checkout": {
+		Info: ToolInfo{
+			Name:        "git_checkout",
+			Description: "Checks out a Git branch",
+			ExampleArgs: map[string]interface{}{
+				"path":      "/path/to/repo",
+				"branch":    "feature-branch",
+				"createNew": true,
+			},
+		},
+		HandlerFn: handleGitCheckout,
+	},
+	"run_shell_command": {
+		Info: ToolInfo{
+			Name:        "run_shell_command",
+			Description: "Executes a shell command",
+			ExampleArgs: map[string]interface{}{
+				"command": []string{"ls", "-la"},
+				"dir":     "/path/to/dir",
+			},
+		},
+		HandlerFn: handleRunShellCommand,
+	},
+	"go_build": {
+		Info: ToolInfo{
+			Name:        "go_build",
+			Description: "Builds a Go module",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/module",
+			},
+		},
+		HandlerFn: handleGoBuild,
+	},
+	"go_test": {
+		Info: ToolInfo{
+			Name:        "go_test",
+			Description: "Runs tests for a Go module",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/module",
+			},
+		},
+		HandlerFn: handleGoTest,
+	},
+	"format_go_code": {
+		Info: ToolInfo{
+			Name:        "format_go_code",
+			Description: "Formats Go code",
+			ExampleArgs: map[string]interface{}{
+				"path": "/path/to/code",
+			},
+		},
+		HandlerFn: handleFormatGoCode,
+	},
+	"lint_code": {
+		Info: ToolInfo{
+			Name:        "lint_code",
+			Description: "Lints code using a specified linter",
+			ExampleArgs: map[string]interface{}{
+				"path":       "/path/to/code",
+				"linterName": "golangci-lint",
+			},
+		},
+		HandlerFn: handleLintCode,
+	},
+	// Add web tools below
+	"web_search": {
+		Info: ToolInfo{
+			Name:        "web_search",
+			Description: "Performs a web search using the DuckDuckGo backend",
+			ExampleArgs: map[string]interface{}{
+				"query":          "OpenAI GPT-4",
+				"result_size":    3,
+				"search_backend": "ddg",
+			},
+		},
+		HandlerFn: handleWebSearch,
+	},
+	"web_content": {
+		Info: ToolInfo{
+			Name:        "web_content",
+			Description: "Fetches content from a list of URLs",
+			ExampleArgs: map[string]interface{}{
+				"urls": []string{"https://example.com", "https://example.org"},
+			},
+		},
+		HandlerFn: handleWebContent,
+	},
+}
+
+// ------------------------------------------------------------------------
+// Tool Execution and Listing
+// ------------------------------------------------------------------------
+
+// GetAllTools returns the list of tool info for /tool/list.
+func GetAllTools() []ToolInfo {
+	tools := make([]ToolInfo, 0, len(toolRegistry))
+	for _, def := range toolRegistry {
+		tools = append(tools, def.Info)
+	}
+	return tools
+}
+
+// ExecuteToolByName looks up the tool, parses the JSON arguments, and calls the correct handler.
+func ExecuteToolByName(toolName string, rawArgs json.RawMessage) (string, error) {
+	def, ok := toolRegistry[toolName]
+	if !ok {
+		return "", fmt.Errorf("unrecognized tool name: %s", toolName)
+	}
+	return def.HandlerFn(rawArgs)
+}
+
+// ------------------------------------------------------------------------
 // Tool Argument Structs
-// ---------------------------------------------------------------------
+// ------------------------------------------------------------------------
 
-// HelloArgs represents the arguments for the hello tool.
 type HelloArgs struct {
-	Name string `json:"name" jsonschema:"required,description=The name to say hello to"`
+	Name string `json:"name"`
 }
 
-// CalculateArgs represents the arguments for the calculate tool.
 type CalculateArgs struct {
-	Operation string  `json:"operation" jsonschema:"required,enum=add,enum=subtract,enum=multiply,enum=divide,description=The mathematical operation to perform"`
-	A         float64 `json:"a" jsonschema:"required,description=First number"`
-	B         float64 `json:"b" jsonschema:"required,description=Second number"`
+	Operation string  `json:"operation"` // add, subtract, etc.
+	A         float64 `json:"a"`
+	B         float64 `json:"b"`
 }
 
-// TimeArgs represents the arguments for the current time tool.
 type TimeArgs struct {
-	Format string `json:"format,omitempty" jsonschema:"description=Optional time format (default: RFC3339)"`
+	Format string `json:"format,omitempty"`
 }
 
 // PromptArgs represents the arguments for custom prompts.
@@ -246,6 +877,9 @@ func runCommand(name, dir string, args ...string) (string, error) {
 	}
 	return string(output), nil
 }
+
+// Exported for testing so that tests can override the command execution.
+var RunCommand = runCommand
 
 // ---------------------------------------------------------------------
 // Helper Functions: Git
@@ -488,7 +1122,7 @@ func gitInitTool(args GitInitArgs) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("path %q is not a directory", args.Path)
 	}
-	return runCommand("git", args.Path, "init")
+	return RunCommand("git", args.Path, "init")
 }
 
 // GitStatusTool returns the Git status.
@@ -496,7 +1130,7 @@ func gitStatusTool(args GitRepoArgs) (string, error) {
 	if err := checkGitRepo(args.Path); err != nil {
 		return "", err
 	}
-	return runCommand("git", args.Path, "status", "--short", "--branch")
+	return RunCommand("git", args.Path, "status", "--short", "--branch")
 }
 
 // GitAddTool stages changes in a Git repository.
@@ -508,7 +1142,7 @@ func gitAddTool(args GitAddArgs) (string, error) {
 		args.FileList = []string{"."}
 	}
 	fullArgs := append([]string{"add"}, args.FileList...)
-	return runCommand("git", args.Path, fullArgs...)
+	return RunCommand("git", args.Path, fullArgs...)
 }
 
 // GitCommitTool commits changes in a Git repository.
@@ -519,7 +1153,7 @@ func gitCommitTool(args GitCommitArgs) (string, error) {
 	if strings.TrimSpace(args.Message) == "" {
 		return "", fmt.Errorf("commit message cannot be empty")
 	}
-	return runCommand("git", args.Path, "commit", "-m", args.Message)
+	return RunCommand("git", args.Path, "commit", "-m", args.Message)
 }
 
 // GitPullTool pulls changes from a remote repository.
@@ -527,7 +1161,7 @@ func gitPullTool(args GitRepoArgs) (string, error) {
 	if err := checkGitRepo(args.Path); err != nil {
 		return "", err
 	}
-	return runCommand("git", args.Path, "pull", "--rebase")
+	return RunCommand("git", args.Path, "pull", "--rebase")
 }
 
 // GitPushTool pushes changes to a remote repository.
@@ -535,7 +1169,7 @@ func gitPushTool(args GitRepoArgs) (string, error) {
 	if err := checkGitRepo(args.Path); err != nil {
 		return "", err
 	}
-	return runCommand("git", args.Path, "push")
+	return RunCommand("git", args.Path, "push")
 }
 
 // ReadMultipleFilesTool reads multiple files and concatenates their content.
@@ -640,7 +1274,7 @@ func copyFileTool(args CopyFileArgs) (string, error) {
 
 // GitCloneTool clones a Git repository.
 func gitCloneTool(args GitCloneArgs) (string, error) {
-	return runCommand("git", "", "clone", args.RepoURL, args.Path)
+	return RunCommand("git", "", "clone", args.RepoURL, args.Path)
 }
 
 // GitCheckoutTool checks out a Git branch.
@@ -651,7 +1285,7 @@ func gitCheckoutTool(args GitCheckoutArgs) (string, error) {
 	} else {
 		cmdArgs = []string{"checkout", args.Branch}
 	}
-	return runCommand("git", args.Path, cmdArgs...)
+	return RunCommand("git", args.Path, cmdArgs...)
 }
 
 // GitDiffTool shows Git diff between two references.
@@ -660,7 +1294,7 @@ func gitDiffTool(args GitDiffArgs) (string, error) {
 	if args.FromRef != "" && args.ToRef != "" {
 		diffArgs = append(diffArgs, args.FromRef, args.ToRef)
 	}
-	return runCommand("git", args.Path, diffArgs...)
+	return RunCommand("git", args.Path, diffArgs...)
 }
 
 // RunShellCommandTool executes a shell command.
@@ -668,30 +1302,30 @@ func runShellCommandTool(args ShellCommandArgs) (string, error) {
 	if len(args.Command) == 0 {
 		return "", fmt.Errorf("empty command")
 	}
-	return runCommand(args.Command[0], args.Dir, args.Command[1:]...)
+	return RunCommand(args.Command[0], args.Dir, args.Command[1:]...)
 }
 
 // GoBuildTool builds a Go module.
 func goBuildTool(args GoBuildArgs) (string, error) {
-	return runCommand("go", args.Path, "build")
+	return RunCommand("go", args.Path, "build")
 }
 
 // GoTestTool runs tests for a Go module.
 func goTestTool(args GoTestArgs) (string, error) {
-	return runCommand("go", args.Path, "test", "./...")
+	return RunCommand("go", args.Path, "test", "./...")
 }
 
 // FormatGoCodeTool formats Go code.
 func formatGoCodeTool(args FormatGoCodeArgs) (string, error) {
-	return runCommand("go", args.Path, "fmt", "./...")
+	return RunCommand("go", args.Path, "fmt", "./...")
 }
 
 // LintCodeTool lints code using a specified linter.
 func lintCodeTool(args LintCodeArgs) (string, error) {
 	if args.LinterName != "" {
-		return runCommand(args.LinterName, args.Path, "run")
+		return RunCommand(args.LinterName, args.Path, "run")
 	}
-	return runCommand("golangci-lint", args.Path, "run")
+	return RunCommand("golangci-lint", args.Path, "run")
 }
 
 // WebSearchTool performs a web search using the DuckDuckGo (ddg) backend.

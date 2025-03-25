@@ -146,6 +146,7 @@ const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'
 
 const showApiKey = ref(false)
 const enableToolCalls = ref(false)
+const availableTools = ref([])
 
 // Predefined System Prompt Options
 const selectedSystemPrompt = ref("friendly_assistant")
@@ -300,75 +301,6 @@ const agenticRetrieveFunction = {
         },
         required: ["query"]
     }
-}
-
-const mcpServerFunctions = {
-    "tools": [
-        {
-            "description": "Performs basic mathematical operations",
-            "inputSchema": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                    "a": {
-                        "description": "First number",
-                        "type": "number"
-                    },
-                    "b": {
-                        "description": "Second number",
-                        "type": "number"
-                    },
-                    "operation": {
-                        "description": "The mathematical operation to perform",
-                        "enum": [
-                            "add",
-                            "subtract",
-                            "multiply",
-                            "divide"
-                        ],
-                        "type": "string"
-                    }
-                },
-                "required": [
-                    "operation",
-                    "a",
-                    "b"
-                ],
-                "type": "object"
-            },
-            "name": "calculate"
-        },
-        {
-            "description": "Says hello to the provided name",
-            "inputSchema": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                    "name": {
-                        "description": "The name to say hello to",
-                        "type": "string"
-                    }
-                },
-                "required": [
-                    "name"
-                ],
-                "type": "object"
-            },
-            "name": "hello"
-        },
-        {
-            "description": "Returns the current time",
-            "inputSchema": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                    "format": {
-                        "description": "Optional time format (default: RFC3339)",
-                        "type": "string"
-                    }
-                },
-                "type": "object"
-            },
-            "name": "time"
-        }
-    ]
 }
 
 // ---------------------------
@@ -930,37 +862,251 @@ function buildReferenceString(documents) {
     return reference.trim() || 'No valid documents found';
 }
 
+async function executeToolCalls(toolCalls) {
+  const results = [];
+  
+  for (const call of toolCalls) {
+    try {
+      const response = await fetch("/v1/assistant/tool/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tool: call.tool,
+          arguments: call.arguments
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Tool execution error (${response.status}): ${errorText}`);
+      }
+
+      const result = await response.json();
+      results.push({
+        tool: call.tool,
+        output: result.output || JSON.stringify(result)
+      });
+    } catch (error) {
+      console.error(`Error executing tool ${call.tool}:`, error);
+      results.push({
+        tool: call.tool,
+        output: `Error: ${error.message}`,
+        error: true
+      });
+    }
+  }
+
+  return results;
+}
+
+async function runInitialLLMCall(agentNode, prompt, toolEnabledSystemPrompt) {
+  // Make initial call to get tool usage decisions
+  const body = {
+    model: agentNode.data.inputs.model,
+    max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+    temperature: agentNode.data.inputs.temperature,
+    messages: [
+      { role: "system", content: toolEnabledSystemPrompt },
+      { role: "user", content: prompt }
+    ],
+    stream: false
+  };
+
+  const endpoint = agentNode.data.inputs.endpoint;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API error (${response.status}): ${errorText}`);
+  }
+
+  const result = await response.json();
+  const content = result.choices?.[0]?.message?.content || "";
+  
+  // Try to extract JSON tool calls from the response
+  try {
+    // Look for JSON array in the content
+    const jsonMatch = content.match(/\[\s*{[^]*}\s*\]/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    
+    // If it's just a simple JSON object
+    if (content.trim().startsWith('{') && content.trim().endsWith('}')) {
+      const parsedObj = JSON.parse(content);
+      // If it's a single tool call object, wrap it in an array
+      if (parsedObj.tool && parsedObj.arguments) {
+        return [parsedObj];
+      }
+      return [];
+    }
+    
+    // No tool calls found
+    return [];
+  } catch (e) {
+    console.warn("Error parsing tool calls from LLM response:", e);
+    console.log("Raw content:", content);
+    return [];
+  }
+}
+
+async function runFinalLLMCall(agentNode, prompt, toolResults, responseNode) {
+  // Create a prompt that includes the tool results but instructs the model
+  // not to mention that it used tools
+  const finalSystemPrompt = 
+    "Use these tool results as if you always knew the information. " +
+    "Under no circumstances reveal that you used tools or mention tool details. " +
+    "You must never say 'according to the tool output.' Just answer the user's query " +
+    "with the combined knowledge below.";
+  
+  const toolResultsContext = toolResults.map(result => 
+    `[${result.tool}]\n${result.output}`
+  ).join("\n\n");
+  
+  const finalPrompt = `${prompt}\n\nKnowledge:\n${toolResultsContext}`;
+  
+  const body = {
+    model: agentNode.data.inputs.model,
+    max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+    temperature: agentNode.data.inputs.temperature,
+    messages: [
+      { role: "system", content: finalSystemPrompt },
+      { role: "user", content: finalPrompt }
+    ],
+    stream: true
+  };
+
+  const endpoint = agentNode.data.inputs.endpoint;
+  const streamResponse = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!streamResponse.ok) {
+    const errorText = await streamResponse.text();
+    throw new Error(`API error (${streamResponse.status}): ${errorText}`);
+  }
+
+  // Reset response before streaming new content
+  props.data.outputs.response = '';
+  
+  // Process streaming response
+  let buffer = "";
+  const reader = streamResponse.body.getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = new TextDecoder().decode(value);
+    buffer += chunk;
+    let start = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      if (buffer[i] === "\n") {
+        const line = buffer.substring(start, i).trim();
+        start = i + 1;
+        if (line.startsWith("data: ")) {
+          const jsonData = line.substring(6);
+          if (jsonData === "[DONE]") break;
+          try {
+            const parsedData = JSON.parse(jsonData);
+            const delta = parsedData.choices[0]?.delta || {};
+            const tokenContent = (delta.content || "") + (delta.thinking || "");
+            props.data.outputs.response += tokenContent;
+            if (responseNode) {
+              responseNode.data.inputs.response += tokenContent;
+              //responseNode.run();
+            }
+          } catch (e) {
+            console.error("Error parsing response chunk:", e);
+          }
+        }
+      }
+    }
+    buffer = buffer.substring(start);
+  }
+  
+  return { response: props.data.outputs.response };
+}
+
 // ---------------------------
 // run() method
 // ---------------------------
 async function run() {
-    console.log('Running AgentNode:', props.id);
-    try {
-        const agentNode = findNode(props.id);
-        let finalPrompt = props.data.inputs.user_prompt;
-
-        const connectedSources = getEdges.value
-            .filter((edge) => edge.target === props.id)
-            .map((edge) => edge.source);
-
-        if (connectedSources.length > 0) {
-            for (const sourceId of connectedSources) {
-                const sourceNode = findNode(sourceId);
-                if (sourceNode) {
-                    finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
-                }
-            }
+  console.log('Running AgentNode:', props.id);
+  try {
+    const agentNode = findNode(props.id);
+    let finalPrompt = props.data.inputs.user_prompt;
+    
+    const connectedSources = getEdges.value
+      .filter((edge) => edge.target === props.id)
+      .map((edge) => edge.source);
+    
+    if (connectedSources.length > 0) {
+      for (const sourceId of connectedSources) {
+        const sourceNode = findNode(sourceId);
+        if (sourceNode) {
+          finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
         }
-
-        if (provider.value === 'openai') {
-            return await callCompletionsAPI_openai(agentNode, finalPrompt);
-        } else {
-            return await callCompletionsAPI_local(agentNode, finalPrompt);
-        }
-    } catch (error) {
-        console.error('Error in AgentNode run:', error);
-        return { error };
+      }
     }
+    
+    const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+    const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+    
+    // Clear previous response
+    props.data.outputs.response = '';
+    if (responseNode) {
+      responseNode.data.inputs.response = '';
+    }
+    
+    if (!enableToolCalls.value) {
+      // Standard streaming call without tools
+      if (provider.value === 'openai') {
+        return await callCompletionsAPI_openai(agentNode, finalPrompt);
+      } else {
+        return await callCompletionsAPI_local(agentNode, finalPrompt);
+      }
+    }
+    
+    // Tool-enabled flow
+    // 1. Create tool-enabled system prompt
+    const toolEnabledSystemPrompt = buildToolEnabledSystemPrompt(agentNode.data.inputs.system_prompt);
+    
+    // 2. Make initial call to get tool decisions
+    const toolCalls = await runInitialLLMCall(agentNode, finalPrompt, toolEnabledSystemPrompt);
+    
+    if (!toolCalls || toolCalls.length === 0) {
+      console.log("No tool calls detected, using direct response");
+      if (provider.value === 'openai') {
+        return await callCompletionsAPI_openai(agentNode, finalPrompt);
+      } else {
+        return await callCompletionsAPI_local(agentNode, finalPrompt);
+      }
+    }
+    
+    console.log("Executing tool calls:", toolCalls);
+    
+    // 3. Execute the tools
+    const toolResults = await executeToolCalls(toolCalls);
+    console.log("Tool execution results:", toolResults);
+    
+    // 4. Final streaming call with tool results
+    return await runFinalLLMCall(agentNode, finalPrompt, toolResults, responseNode);
+  } catch (error) {
+    console.error('Error in AgentNode run:', error);
+    props.data.outputs.response = `Error: ${error.message}`;
+    return { error };
+  }
 }
 
 async function storeResponseInAgenticMemory(responseText) {
@@ -984,6 +1130,50 @@ async function storeResponseInAgenticMemory(responseText) {
     } catch (err) {
         console.error("Error storing response in agentic memory:", err);
     }
+}
+
+async function fetchToolList() {
+  try {
+    const response = await fetch("/v1/assistant/tool/list");
+    if (!response.ok) {
+      throw new Error(`Failed to fetch tool list. Status: ${response.status}`);
+    }
+    const data = await response.json();
+    availableTools.value = data.tools || [];
+  } catch (error) {
+    console.error("Error fetching tool list:", error);
+  }
+}
+
+// Build a tool-enabled system prompt by appending tool information to the base system prompt
+function buildToolEnabledSystemPrompt(baseSystemPrompt) {
+    if (!availableTools.value || availableTools.value.length === 0) {
+        return baseSystemPrompt;
+    }
+
+    let toolPrompt = `${baseSystemPrompt}\n\nYou can call the following tools by outputting a JSON array. Each element should have:
+{
+  "tool": "<tool_name>",
+  "arguments": { ... appropriate arguments ... }
+}\n\nTools available:\n`;
+
+    availableTools.value.forEach((tool, index) => {
+        const exampleArgs = tool.inputSchema?.properties 
+            ? Object.keys(tool.inputSchema.properties).reduce((acc, key) => {
+                const prop = tool.inputSchema.properties[key];
+                if (prop.type === "string") acc[key] = "example";
+                else if (prop.type === "number") acc[key] = 1;
+                else if (prop.type === "boolean") acc[key] = true;
+                else acc[key] = null;
+                return acc;
+              }, {})
+            : {};
+
+        toolPrompt += `${index + 1}. ${tool.name} - ${tool.description}\n`;
+        toolPrompt += `   Example usage: { "tool": "${tool.name}", "arguments": ${JSON.stringify(exampleArgs)} }\n`;
+    });
+
+    return toolPrompt;
 }
 
 // ---------------------------
@@ -1043,6 +1233,22 @@ const provider = computed({
             props.data.inputs.endpoint = configStore.config.Completions.DefaultHost;
         }
     }
+});
+
+// Tool calling
+watch(enableToolCalls, (newVal) => {
+  if (newVal) {
+    fetchToolList();
+
+    console.log("Tool list fetched:", availableTools.value);
+    if (availableTools.value.length > 0) {
+      props.data.inputs.system_prompt = buildToolEnabledSystemPrompt(props.data.inputs.system_prompt);
+    } else {
+      props.data.inputs.system_prompt = props.data.inputs.system_prompt;
+    }
+  } else {
+    availableTools.value = [];
+  }
 });
 
 // If the store's provider changes, reset endpoint

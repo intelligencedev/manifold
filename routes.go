@@ -17,6 +17,7 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	// Completions proxy
 	completionsGroup := e.Group("/v1")
 	completionsGroup.POST("/chat/completions", func(c echo.Context) error {
+		// return completionsHandler(c, config)
 		return completionsHandler(c, config)
 	})
 
@@ -50,7 +51,7 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.POST("/executePython", executePythonHandler)
 
 	// NEW: Execute MCP endpoint to work with MCPNode.vue.
-	api.POST("/executeMCP", executeMCPHandler)
+	api.POST("/executeMCP", toolExecuteHandler)
 
 	api.POST("/datadog", datadogHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
@@ -60,9 +61,7 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
 
-	// Test endpoint assistant handler.
-	api.POST("/assistant", func(c echo.Context) error {
-		return executeAssistantHandler(c, config)
-	})
-
+	toolGroup := completionsGroup.Group("/assistant/tool")
+	toolGroup.GET("/list", toolListHandler)
+	toolGroup.POST("/execute", toolExecuteHandler)
 }

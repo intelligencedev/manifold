@@ -113,17 +113,17 @@
         <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
         <div class="bottom-toolbar">
           <!-- three divs -->
-          <div style="flex: 1; display: flex; justify-content: center;">
+            <div style="flex: 1; display: flex; justify-content: center;">
             <!-- Toggle Switch -->
             <div class="tooltip-container" style="display: flex; align-items: center;">
               <label class="switch">
-                <input type="checkbox" v-model="autoPanEnabled">
-                <span class="slider round"></span>
+              <input type="checkbox" v-model="autoPanEnabled" :checked="false">
+              <span class="slider round"></span>
               </label>
               <span style="color: white; margin-left: 5px; font-size: 14px;">Auto-Pan</span>
               <span class="tooltip">When enabled, the view will automatically pan to follow node execution</span>
             </div>
-          </div>
+            </div>
           <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
             <button class="run-button" @click="runWorkflow">Run</button>
           </div>
@@ -382,7 +382,7 @@ function onRestore(flow: Flow) {
  */
 
 // Auto-pan toggle
-const autoPanEnabled = ref(true);
+const autoPanEnabled = ref(false);
 
 // Helper: smoothly fit the view to a node using fitView
 async function smoothlyFitViewToNode(node: GraphNode) {

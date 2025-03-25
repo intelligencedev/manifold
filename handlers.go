@@ -19,26 +19,35 @@ func toolListHandler(c echo.Context) error {
 	})
 }
 
-// toolExecuteHandler executes a tool by name, passing in the JSON arguments.
-func toolExecuteHandler(c echo.Context) error {
-	var req struct {
-		Tool      string          `json:"tool"`
-		Arguments json.RawMessage `json:"arguments"`
-	}
+type toolRequest struct {
+	// Change the json tag to "tool" to match your request
+	ToolName string `json:"tool"`
+
+	// Change the json tag to "arguments" to match your request
+	Args json.RawMessage `json:"arguments"`
+}
+
+// toolHandler executes a tool based on the provided JSON input.
+func toolHandler(c echo.Context) error {
+	// 1) Parse the incoming JSON body
+	var req toolRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Invalid JSON body: " + err.Error(),
+		})
 	}
 
-	// Call the appropriate tool function
-	output, err := ExecuteToolByName(req.Tool, req.Arguments)
+	// 2) Call the tool
+	result, err := ExecuteToolByName(req.ToolName, req.Args)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": err.Error(),
+		})
 	}
 
-	// Return the tool’s result
-	return c.JSON(http.StatusOK, map[string]interface{}{
-		"tool":   req.Tool,
-		"output": output,
+	// 3) Return the tool output
+	return c.JSON(http.StatusOK, map[string]string{
+		"result": result,
 	})
 }
 

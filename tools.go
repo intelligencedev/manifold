@@ -10,8 +10,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/labstack/echo/v4"
 )
 
 // ------------------------------------------------------------------------
@@ -29,10 +33,6 @@ type ToolInfo struct {
 type ToolDefinition struct {
 	Info      ToolInfo
 	HandlerFn func(args json.RawMessage) (string, error)
-}
-
-type ThinkArgs struct {
-	Thought string `json:"thought" jsonschema:"required,description=The thought or reasoning text to be processed"`
 }
 
 // ------------------------------------------------------------------------
@@ -342,6 +342,100 @@ func handleWebContent(rawArgs json.RawMessage) (string, error) {
 	return webContentTool(args)
 }
 
+func handleAgent(c echo.Context, config *Config, rawArgs json.RawMessage) (string, error) {
+	// 1) Unmarshal the agent arguments.
+	var args AgentArgs
+	if err := json.Unmarshal(rawArgs, &args); err != nil {
+		return "", fmt.Errorf("invalid arguments for agent tool: %w", err)
+	}
+	if args.MaxCalls <= 0 {
+		args.MaxCalls = 5 // fallback
+	}
+
+	// 2) Agent memory to store partial results from tasks
+	agentMemory := make(map[string]string)
+
+	// 3) Build a stable JSON or text representation of the available tools.
+	//    This can be done by iterating over the toolRegistry or using a JSON approach.
+	toolsJSON := buildToolsListJSON() // replicate or adapt from mcp.go
+
+	// 4) Prepare an initial conversation or message list.
+	var conversation []Message
+	conversation = append(conversation, Message{
+		Role:    "system",
+		Content: "You are an advanced planning assistant. ... (system instructions here)",
+	})
+	conversation = append(conversation, Message{
+		Role:    "user",
+		Content: args.Query,
+	})
+
+	// 5) Loop up to maxCalls times
+	var resultsMu sync.Mutex
+	for iteration := 0; iteration < args.MaxCalls; iteration++ {
+		// -- PHASE 1: PLAN --
+		// Build a prompt that says "Output a JSON array of tasks to run," etc.
+		planPrompt := fmt.Sprintf(`...
+Available Tools:
+%s
+User Query: %s
+...`, toolsJSON, args.Query)
+		conversation = append(conversation, Message{
+			Role:    "user",
+			Content: planPrompt,
+		})
+
+		planOutput := completionsHandler(c, config)
+
+		tasks, parseErr := parsePlanOutput(planOutput.Error())
+		if parseErr != nil {
+			// handle parse error or partial
+			return fmt.Sprintf("Error parsing plan output: %v", parseErr), nil
+		}
+		if len(tasks) == 0 {
+			// Means we got "[]", so do a final answer and break
+			finalAns := tryFinalAnswer(c, config, conversation, agentMemory, args)
+			return finalAns, nil
+		}
+
+		// -- PHASE 2: EXECUTION --
+		iterationLog := []string{}
+		err := executePlanTasksConcurrently(tasks, &resultsMu, agentMemory, iterationLog)
+		if err != nil {
+			// partial final
+			return fmt.Sprintf("Error executing tasks: %v", err), nil
+		}
+
+		// append iteration logs to conversation
+		for _, line := range iterationLog {
+			conversation = append(conversation, Message{Role: "assistant", Content: line})
+		}
+
+		// -- PHASE 3: Final check
+		finPrompt := buildFinalizationPrompt(args.Query, iterationLog, agentMemory, toolsJSON)
+		convFin := []Message{
+			{Role: "system", Content: "... instructions ..."},
+			{Role: "user", Content: finPrompt},
+		}
+
+		// change the context to the finalization prompt
+		c.Set("conversation", convFin)
+
+		finalAnswer := completionsHandler(c, config)
+
+		if isConclusion(finalAnswer.Error()) {
+			return finalAnswer.Error(), nil
+		} else {
+			// Add finalAnswer into conversation for the next iteration
+			conversation = append(conversation, Message{Role: "assistant", Content: finalAnswer.Error()})
+		}
+	}
+
+	// If we exhausted the loop, return partial
+	partial := tryFinalAnswer(c, config, conversation, agentMemory, args)
+	return partial, nil
+}
+
 // ------------------------------------------------------------------------
 // Tool Registry
 // ------------------------------------------------------------------------
@@ -356,6 +450,26 @@ var toolRegistry = map[string]ToolDefinition{
 			},
 		},
 		HandlerFn: handleThink,
+	},
+	"agent": {
+		Info: ToolInfo{
+			Name:        "agent",
+			Description: "Agent that uses LLM to decide which tools to call (Plan & Execute style)",
+			ExampleArgs: map[string]interface{}{
+				"query":    "User's query or high-level task",
+				"maxCalls": 5,
+			},
+		},
+		HandlerFn: func(rawArgs json.RawMessage) (string, error) {
+			// Create a dummy echo.Context and provide a valid config instance
+			e := echo.New()
+			c := e.NewContext(nil, nil)
+			config, err := LoadConfig("config.yaml")
+			if err != nil {
+				return "", fmt.Errorf("failed to load config: %w", err)
+			}
+			return handleAgent(c, config, rawArgs)
+		},
 	},
 	"hello": {
 		Info: ToolInfo{
@@ -673,6 +787,15 @@ func ExecuteToolByName(toolName string, rawArgs json.RawMessage) (string, error)
 // ------------------------------------------------------------------------
 // Tool Argument Structs
 // ------------------------------------------------------------------------
+
+type ThinkArgs struct {
+	Thought string `json:"thought" jsonschema:"required,description=The thought or reasoning text to be processed"`
+}
+
+type AgentArgs struct {
+	Query    string `json:"query" jsonschema:"required,description=User's query"`
+	MaxCalls int    `json:"maxCalls" jsonschema:"required,description=Max iteration steps allowed"`
+}
 
 type HelloArgs struct {
 	Name string `json:"name"`
@@ -1364,4 +1487,368 @@ func webContentTool(args WebContentArgs) (string, error) {
 		content.WriteString(string(bodyBytes))
 	}
 	return content.String(), nil
+}
+
+// Define the planTask struct
+type planTask struct {
+	TaskID    int    `json:"task_id"`
+	Tool      string `json:"tool"`
+	Args      string `json:"args"`
+	DependsOn []int  `json:"depends_on"`
+}
+
+// parsePlanOutput tries to decode the LLM plan output into a list of planTask.
+func parsePlanOutput(planText string) ([]planTask, error) {
+	// handle triple backticks or code fence if present
+	planText = strings.TrimPrefix(planText, "```json")
+	planText = strings.TrimSuffix(planText, "```")
+
+	var tasks []planTask
+	if err := json.Unmarshal([]byte(planText), &tasks); err != nil {
+		return nil, fmt.Errorf("failed to parse plan: %w", err)
+	}
+	// Remove any tasks that are "agent" or invalid
+	filtered := make([]planTask, 0, len(tasks))
+	for i, t := range tasks {
+		if strings.ToLower(t.Tool) == "agent" {
+			log.Printf("Dropping plan task %d referencing 'agent' tool", i)
+			continue
+		}
+		// If needed: set default TaskID if not set
+		if t.TaskID == 0 {
+			t.TaskID = i
+		}
+		filtered = append(filtered, t)
+	}
+	return filtered, nil
+}
+
+// executePlanTasksConcurrently runs tasks in concurrency waves based on their dependencies.
+func executePlanTasksConcurrently(
+	tasks []planTask,
+	resultsMu *sync.Mutex,
+	agentMemory map[string]string,
+	iterationLog []string,
+) error {
+	completed := make(map[int]bool)
+	for {
+		// Find tasks that are not done, but whose dependencies are satisfied
+		var readyBatch []int
+		for i, t := range tasks {
+			if completed[i] {
+				continue
+			}
+			depsSatisfied := true
+			for _, dep := range t.DependsOn {
+				if dep < 0 || dep >= len(tasks) {
+					// invalid dependency
+					depsSatisfied = false
+					break
+				}
+				if !completed[dep] {
+					depsSatisfied = false
+					break
+				}
+			}
+			if depsSatisfied {
+				readyBatch = append(readyBatch, i)
+			}
+		}
+		if len(readyBatch) == 0 {
+			// if no tasks are ready but not all tasks are done, we have a dependency deadlock
+			doneCount := 0
+			for _, v := range completed {
+				if v {
+					doneCount++
+				}
+			}
+			if doneCount < len(tasks) {
+				return fmt.Errorf("dependency deadlock or all tasks blocked. done=%d total=%d", doneCount, len(tasks))
+			}
+			// Otherwise all tasks are complete
+			return nil
+		}
+
+		// Run this wave of tasks in parallel
+		var wg sync.WaitGroup
+		for _, idx := range readyBatch {
+			wg.Add(1)
+			go func(taskIndex int) {
+				defer wg.Done()
+
+				t := tasks[taskIndex]
+				// 1) process references in the arguments
+				processedArgs, pErr := processPreviousToolResults(string(t.Args), agentMemory)
+				if pErr != nil {
+					resultsMu.Lock()
+					iterationLog = append(iterationLog, fmt.Sprintf(
+						"Task %d (%s) argument-parse error: %v", taskIndex, t.Tool, pErr,
+					))
+					// store error in memory
+					agentMemory[fmt.Sprintf("task_%d", taskIndex)] = fmt.Sprintf("Error: %v", pErr)
+					resultsMu.Unlock()
+					return
+				}
+
+				// 2) run the tool
+				out, err := callToolInServer(t.Tool, processedArgs)
+				resultsMu.Lock()
+				defer resultsMu.Unlock()
+
+				if err != nil {
+					iterationLog = append(iterationLog, fmt.Sprintf(
+						"Task %d (%s) failed: %v", taskIndex, t.Tool, err,
+					))
+					agentMemory[fmt.Sprintf("task_%d", taskIndex)] = fmt.Sprintf("Error: %v", err)
+					// We do NOT return here. We let other tasks keep going if they can.
+				} else {
+					iterationLog = append(iterationLog, fmt.Sprintf(
+						"Task %d (%s) output:\n%s", taskIndex, t.Tool, out,
+					))
+					agentMemory[fmt.Sprintf("task_%d", taskIndex)] = out
+				}
+				completed[taskIndex] = true
+			}(idx)
+		}
+
+		wg.Wait()
+
+		// If we've completed all tasks, we can exit
+		doneCount := 0
+		for _, v := range completed {
+			if v {
+				doneCount++
+			}
+		}
+		if doneCount == len(tasks) {
+			break
+		}
+	}
+	return nil
+}
+
+// tryFinalAnswer attempts to get a final or partial answer if possible.
+func tryFinalAnswer(
+	c echo.Context,
+	config *Config,
+	conversation []Message,
+	agentMemory map[string]string,
+	args AgentArgs,
+) string {
+	finalPrompt := "We have possibly partial data. Summarize the best final answer to the user's query: \"" + args.Query + "\". " +
+		"If data is incomplete, do your best."
+	conv := append(conversation, Message{Role: "user", Content: finalPrompt})
+
+	// Set the c body to conv
+	c.Set("body", conv)
+
+	if err := completionsHandler(c, config); err != nil {
+		return "Error generating final answer: " + err.Error()
+	}
+	return "Final answer generated successfully."
+}
+
+// buildFinalizationPrompt returns a finalization question after an iteration’s tasks:
+func buildFinalizationPrompt(query string, iterationLog []string, agentMemory map[string]string, toolsJSON string) string {
+	sb := strings.Builder{}
+	sb.WriteString("We ran tasks:\n")
+	for _, line := range iterationLog {
+		sb.WriteString(" - " + line + "\n")
+	}
+	sb.WriteString("\nCurrent memory:\n")
+	for k, v := range agentMemory {
+		sb.WriteString(fmt.Sprintf("  [%s]: %s\n", k, v))
+	}
+	sb.WriteString(fmt.Sprintf("\nUser query: '%s'\n", query))
+	sb.WriteString(`Decide if we can produce a final answer. If yes, output it. If we still need more steps, propose them (but do not list "agent" as a tool).
+If final, write "FINAL_ANSWER:" at the beginning. Otherwise mention next tasks or "call_tool: ..." 
+`)
+	return sb.String()
+}
+
+// isConclusion checks if the final answer is recognized as “finished”.
+func isConclusion(answer string) bool {
+	lower := strings.ToLower(strings.TrimSpace(answer))
+	if strings.HasPrefix(lower, "final_answer") {
+		return true
+	}
+	// Simple heuristic: if it doesn't mention "call_tool" or "further steps"
+	if !strings.Contains(lower, "call_tool:") && !strings.Contains(lower, "next step") {
+		// Possibly final
+		return true
+	}
+	return false
+}
+
+// buildToolsListJSON can produce a static JSON list of the tools.
+func buildToolsListJSON() string {
+	// For brevity, we create a short list. In your real code, gather from the server’s registry or keep a static list.
+	data := map[string]interface{}{
+		"tools": []map[string]interface{}{
+			{"name": "hello", "description": "Says hello to the provided name"},
+			{"name": "calculate", "description": "Performs basic mathematical operations"},
+			{"name": "time", "description": "Returns the current time"},
+			{"name": "get_weather", "description": "Get the weather forecast"},
+			{"name": "read_file", "description": "Reads the entire contents of a text file"},
+			{"name": "write_file", "description": "Writes text content to a file"},
+			{"name": "list_directory", "description": "Lists files and directories"},
+			{"name": "create_directory", "description": "Creates a directory"},
+			{"name": "move_file", "description": "Moves or renames a file/directory"},
+			{"name": "git_init", "description": "Initializes a new Git repository"},
+			{"name": "git_status", "description": "Shows Git status"},
+			{"name": "git_add", "description": "Stages file changes"},
+			{"name": "git_commit", "description": "Commits staged changes"},
+			{"name": "git_pull", "description": "Pulls changes"},
+			{"name": "git_push", "description": "Pushes commits"},
+			{"name": "read_multiple_files", "description": "Reads the contents of multiple files"},
+			{"name": "edit_file", "description": "Edits a file via search and replace"},
+			{"name": "directory_tree", "description": "Recursively lists the directory structure"},
+			{"name": "search_files", "description": "Searches for a text pattern in files"},
+			{"name": "get_file_info", "description": "Returns metadata for a file or directory"},
+			{"name": "list_allowed_directories", "description": "Lists directories allowed for access"},
+			{"name": "delete_file", "description": "Deletes a file or directory"},
+			{"name": "copy_file", "description": "Copies a file or directory"},
+			{"name": "git_clone", "description": "Clones a remote Git repository"},
+			{"name": "git_checkout", "description": "Switches or creates a new Git branch"},
+			{"name": "git_diff", "description": "Shows Git diff between references"},
+			{"name": "run_shell_command", "description": "Executes an arbitrary shell command"},
+			{"name": "go_build", "description": "Builds a Go module"},
+			{"name": "go_test", "description": "Runs Go tests"},
+			{"name": "format_go_code", "description": "Formats Go code using go fmt"},
+			{"name": "lint_code", "description": "Runs a code linter"},
+			{"name": "web_search", "description": "Performs a web search"},
+			{"name": "web_content", "description": "Fetches and extracts content from web URLs"},
+		},
+	}
+	b, _ := json.MarshalIndent(data, "", "  ")
+	return string(b)
+}
+
+// processPreviousToolResults looks for placeholders like $TOOL_RESULT[i] and replaces
+// them with the content from agentMemory["task_i"].
+func processPreviousToolResults(argsJSON string, agentMemory map[string]string) (string, error) {
+	pattern := regexp.MustCompile(`\$TOOL_RESULT\[(\d+)\]`)
+	if !pattern.MatchString(argsJSON) {
+		return argsJSON, nil
+	}
+
+	var generic interface{}
+	if err := json.Unmarshal([]byte(argsJSON), &generic); err != nil {
+		return "", fmt.Errorf("failed to parse JSON args for substitution: %v", err)
+	}
+
+	updated := walkAndReplace(generic, pattern, agentMemory)
+	processed, err := json.Marshal(updated)
+	if err != nil {
+		return "", fmt.Errorf("failed to re-marshal updated JSON: %v", err)
+	}
+	return string(processed), nil
+}
+
+// walkAndReplace is a recursive function that replaces placeholders in string fields.
+func walkAndReplace(value interface{}, pattern *regexp.Regexp, agentMemory map[string]string) interface{} {
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for k, subVal := range v {
+			v[k] = walkAndReplace(subVal, pattern, agentMemory)
+		}
+		return v
+	case []interface{}:
+		for i, subVal := range v {
+			v[i] = walkAndReplace(subVal, pattern, agentMemory)
+		}
+		return v
+	case string:
+		return pattern.ReplaceAllStringFunc(v, func(m string) string {
+			sub := pattern.FindStringSubmatch(m)
+			if len(sub) < 2 {
+				return m
+			}
+			idx := sub[1]
+			key := "task_" + idx
+			if res, ok := agentMemory[key]; ok {
+				return res
+			}
+			return m
+		})
+	default:
+		return v
+	}
+}
+
+func callToolInServer(toolName, jsonArgs string) (string, error) {
+	switch toolName {
+	case "hello":
+		return helloTool(HelloArgs{Name: jsonArgs})
+	case "calculate":
+		return calculateTool(CalculateArgs{Operation: "add", A: 1, B: 2})
+	case "time":
+		return timeTool(TimeArgs{Format: "RFC3339"})
+	case "get_weather":
+		return getWeatherTool(WeatherArgs{Latitude: 37.7749, Longitude: -122.4194})
+	case "read_file":
+		return readFileTool(ReadFileArgs{Path: jsonArgs})
+	case "write_file":
+		return writeFileTool(WriteFileArgs{Path: jsonArgs, Content: "Hello"})
+	case "list_directory":
+		return listDirectoryTool(ListDirectoryArgs{Path: jsonArgs})
+	case "create_directory":
+		return createDirectoryTool(CreateDirectoryArgs{Path: jsonArgs})
+	case "move_file":
+		return moveFileTool(MoveFileArgs{Source: jsonArgs, Destination: "dest"})
+	case "git_init":
+		return gitInitTool(GitInitArgs{Path: jsonArgs})
+	case "git_status":
+		return gitStatusTool(GitRepoArgs{Path: jsonArgs})
+	case "git_add":
+		return gitAddTool(GitAddArgs{Path: jsonArgs, FileList: []string{"file"}})
+	case "git_commit":
+		return gitCommitTool(GitCommitArgs{Path: jsonArgs, Message: "commit"})
+	case "git_pull":
+		return gitPullTool(GitRepoArgs{Path: jsonArgs})
+	case "git_push":
+		return gitPushTool(GitRepoArgs{Path: jsonArgs})
+	// New Tools
+	case "read_multiple_files":
+		return readMultipleFilesTool(ReadMultipleFilesArgs{Paths: []string{jsonArgs}})
+	case "edit_file":
+		return editFileTool(EditFileArgs{Path: jsonArgs, Search: "old", Replace: "new"})
+	case "directory_tree":
+		return directoryTreeTool(DirectoryTreeArgs{Path: jsonArgs})
+	case "search_files":
+		return searchFilesTool(SearchFilesArgs{Path: jsonArgs, Pattern: "pattern"})
+	case "get_file_info":
+		return getFileInfoTool(GetFileInfoArgs{Path: jsonArgs})
+	case "list_allowed_directories":
+		return listAllowedDirectoriesTool(ListAllowedDirectoriesArgs{})
+	case "delete_file":
+		return deleteFileTool(DeleteFileArgs{Path: jsonArgs})
+	case "copy_file":
+		return copyFileTool(CopyFileArgs{Source: jsonArgs, Destination: "dest"})
+	case "git_clone":
+		return gitCloneTool(GitCloneArgs{RepoURL: jsonArgs, Path: "path"})
+	case "git_checkout":
+		return gitCheckoutTool(GitCheckoutArgs{Path: jsonArgs, Branch: "branch"})
+	case "git_diff":
+		return gitDiffTool(GitDiffArgs{Path: jsonArgs})
+	case "run_shell_command":
+		return runShellCommandTool(ShellCommandArgs{Command: []string{"ls"}, Dir: jsonArgs})
+	case "go_build":
+		return goBuildTool(GoBuildArgs{Path: jsonArgs})
+	case "go_test":
+		return goTestTool(GoTestArgs{Path: jsonArgs})
+	case "format_go_code":
+		return formatGoCodeTool(FormatGoCodeArgs{Path: jsonArgs})
+	case "lint_code":
+		return lintCodeTool(LintCodeArgs{Path: jsonArgs})
+	case "web_search":
+		return webSearchTool(WebSearchArgs{Query: jsonArgs})
+	case "web_content":
+		return webContentTool(WebContentArgs{URLs: []string{jsonArgs}})
+	case "agent":
+		// agent is handled separately below
+		return "", fmt.Errorf("agent tool should be handled separately")
+	default:
+		return "", fmt.Errorf("unknown tool: %s", toolName)
+	}
 }

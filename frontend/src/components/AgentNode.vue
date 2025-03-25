@@ -102,6 +102,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import { useConfigStore } from '@/stores/configStore'
+//import config from 'mermaid/dist/defaultConfig.js'
 
 const props = defineProps({
     id: {
@@ -512,8 +513,6 @@ async function callCompletionsAPI_local(agentNode, prompt) {
                 content: prompt,
             },
         ],
-        functions: [combinedRetrieveFunction, agenticRetrieveFunction],
-        function_call: { name: "agentic_retrieve" }
     };
 
     const responseData = await fetch(endpoint, {
@@ -624,176 +623,40 @@ async function callCompletionsAPI_local(agentNode, prompt) {
 }
 
 // ---------------------------
-// callCompletionsAPI_openai
+// callCompletionsAPI_openai - SIMPLIFIED
 // ---------------------------
 async function callCompletionsAPI_openai(agentNode, prompt) {
+    console.log("callCompletionsAPI_openai called (should only happen if enableToolCalls is false)");
     const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
     const responseNode = responseNodeId ? findNode(responseNodeId) : null;
     let endpoint = agentNode.data.inputs.endpoint;
 
-    if (!enableToolCalls.value) {
-        let body = {};
-        if (isO1Model(agentNode.data.inputs.model)) {
-            body = {
-                model: agentNode.data.inputs.model,
-                max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
-                temperature: agentNode.data.inputs.temperature,
-                messages: [
-                    { role: "user", content: `${agentNode.data.inputs.system_prompt}\n\n${prompt}` }
-                ],
-                reasoning_effort: "high",
-                stream: true
-            };
-        } else {
-            body = {
-                model: agentNode.data.inputs.model,
-                max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
-                temperature: agentNode.data.inputs.temperature,
-                messages: [
-                    { role: "system", content: agentNode.data.inputs.system_prompt },
-                    { role: "user", content: prompt }
-                ],
-                stream: true
-            };
-        }
-
-        const streamResponse = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
-            },
-            body: JSON.stringify(body),
-        });
-
-        if (!streamResponse.ok) {
-            const errorText = await streamResponse.text();
-            throw new Error(`API error (${streamResponse.status}): ${errorText}`);
-        }
-
-        let buffer = "";
-        const reader = streamResponse.body.getReader();
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = new TextDecoder().decode(value);
-            buffer += chunk;
-            let start = 0;
-            for (let i = 0; i < buffer.length; i++) {
-                if (buffer[i] === "\n") {
-                    const line = buffer.substring(start, i).trim();
-                    start = i + 1;
-                    if (line.startsWith("data: ")) {
-                        const jsonData = line.substring(6);
-                        if (jsonData === "[DONE]") break;
-                        try {
-                            const parsedData = JSON.parse(jsonData);
-                            const delta = parsedData.choices[0]?.delta || {};
-                            const tokenContent = (delta.content || "") + (delta.thinking || "");
-                            props.data.outputs.response += tokenContent;
-                            if (responseNode) {
-                                responseNode.data.inputs.response += tokenContent;
-                                responseNode.run();
-                            }
-                        } catch (e) {
-                            console.error("Error parsing response chunk:", e);
-                        }
-                    }
-                }
-            }
-            buffer = buffer.substring(start);
-        }
-        //await storeResponseInAgenticMemory(props.data.outputs.response);
-        return { response: props.data.outputs.response };
-    }
-
+    // This function now ONLY handles the direct streaming case (no tools)
     let body = {};
     if (isO1Model(agentNode.data.inputs.model)) {
         body = {
             model: agentNode.data.inputs.model,
-            max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+            max_tokens: agentNode.data.inputs.max_completion_tokens, // Use max_tokens for O1
             temperature: agentNode.data.inputs.temperature,
             messages: [
-                {
-                    role: "user",
-                    content: `${agentNode.data.inputs.system_prompt}\n\n${prompt}`,
-                },
+                { role: "user", content: `${agentNode.data.inputs.system_prompt}\n\n${prompt}` }
             ],
-            functions: [combinedRetrieveFunction, agenticRetrieveFunction],
-            reasoning_effort: "high",
-            stream: false,
+            // reasoning_effort: "high", // Optional for O1
+            stream: true
         };
     } else {
         body = {
             model: agentNode.data.inputs.model,
-            max_completion_tokens: agentNode.data.inputs.max_completion_tokens,
+            max_tokens: agentNode.data.inputs.max_completion_tokens, // Use max_tokens
             temperature: agentNode.data.inputs.temperature,
             messages: [
-                {
-                    role: "system",
-                    content: agentNode.data.inputs.system_prompt,
-                },
-                {
-                    role: "user",
-                    content: prompt,
-                },
+                { role: "system", content: agentNode.data.inputs.system_prompt },
+                { role: "user", content: prompt }
             ],
-            functions: [mcpServerFunctions],
-            function_call: "auto",
-            stream: false,
+            stream: true
         };
     }
 
-    const responseData = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${agentNode.data.inputs.api_key}`,
-        },
-        body: JSON.stringify(body),
-    });
-    const result = await responseData.json();
-    const message = result.choices?.[0]?.message;
-    if (message && message.function_call) {
-        const functionName = message.function_call.name;
-        if (functionName === "combined_retrieve") {
-            const retrieveResult = await callCombinedRetrieveAPI(prompt);
-            const documents = retrieveResult.documents || {};
-            let documentsString = '';
-            if (typeof documents === 'object' && documents !== null) {
-                documentsString = Object.entries(documents)
-                    .map(([key, value]) => `${key}:\n\n${String(value)}`)
-                    .join("\n\n");
-            } else {
-                documentsString = 'No valid documents found';
-            }
-            const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-            if (body.messages?.[1]) {
-                body.messages[1].content = combinedPrompt;
-            }
-        }
-        if (functionName === "agentic_retrieve") {
-            try {
-                const retrieveResult = await callAgenticMemoryAPI(prompt);
-                if (retrieveResult && retrieveResult.results) {
-                    const documents = retrieveResult.results || {};
-                    console.log('documents:', documents);
-                    const documentsString = buildReferenceString(documents);
-                    console.log('documentsString:', documentsString);
-                    const combinedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-                    if (body.messages?.[1]) {
-                        body.messages[1].content = combinedPrompt;
-                    }
-                }
-            } catch (error) {
-                console.warn("Error retrieving from agentic memory, continuing without retrieval:", error);
-            }
-        }
-    }
-    body.stream = true;
-    delete body.functions;
-    delete body.function_call;
-    body.messages[0].content = "Use the provided documents to respond to the user's query.";
     const streamResponse = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -802,10 +665,18 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
         },
         body: JSON.stringify(body),
     });
+
     if (!streamResponse.ok) {
         const errorText = await streamResponse.text();
         throw new Error(`API error (${streamResponse.status}): ${errorText}`);
     }
+
+    // --- Streaming logic remains the same ---
+    props.data.outputs.response = ''; // Clear previous response before streaming
+    if (responseNode) {
+        responseNode.data.inputs.response = '';
+    }
+
     let buffer = "";
     const reader = streamResponse.body.getReader();
     while (true) {
@@ -824,21 +695,24 @@ async function callCompletionsAPI_openai(agentNode, prompt) {
                     try {
                         const parsedData = JSON.parse(jsonData);
                         const delta = parsedData.choices[0]?.delta || {};
-                        const tokenContent = (delta.content || "") + (delta.thinking || "");
+                        // Adjust for potential differences in O1 vs standard response structure if needed
+                        const tokenContent = delta.content || "";
                         props.data.outputs.response += tokenContent;
                         if (responseNode) {
+                            // Avoid rapid updates if possible, maybe buffer slightly?
+                            // For now, direct update:
                             responseNode.data.inputs.response += tokenContent;
-                            responseNode.run();
+                            // Consider if responseNode.run() is needed here or causes issues
                         }
                     } catch (e) {
-                        console.error("Error parsing response chunk:", e);
+                        console.error("Error parsing response chunk:", e, "Data:", jsonData);
                     }
                 }
             }
         }
         buffer = buffer.substring(start);
     }
-    // await storeResponseInAgenticMemory(props.data.outputs.response);
+    // await storeResponseInAgenticMemory(props.data.outputs.response); // Consider if needed here
     return { response: props.data.outputs.response };
 }
 
@@ -867,7 +741,7 @@ async function executeToolCalls(toolCalls) {
   
   for (const call of toolCalls) {
     try {
-      const response = await fetch("/v1/assistant/tool/execute", {
+      const response = await fetch("/v1/tool/execute", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -929,30 +803,60 @@ async function runInitialLLMCall(agentNode, prompt, toolEnabledSystemPrompt) {
 
   const result = await response.json();
   const content = result.choices?.[0]?.message?.content || "";
-  
-  // Try to extract JSON tool calls from the response
+  console.log("Raw LLM content for tool decision:", content); // <-- ADD LOGGING
+
   try {
-    // Look for JSON array in the content
-    const jsonMatch = content.match(/\[\s*{[^]*}\s*\]/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+    let jsonString = content.trim();
+
+    // Attempt to extract JSON from markdown code blocks
+    const markdownMatch = jsonString.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (markdownMatch && markdownMatch[1]) {
+      jsonString = markdownMatch[1].trim();
+      console.log("Extracted JSON from markdown:", jsonString);
+    } else {
+       // Simple extraction: find first '[' or '{' and last ']' or '}'
+       const firstBracket = jsonString.indexOf('[');
+       const firstBrace = jsonString.indexOf('{');
+       let start = -1;
+
+       if (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace)) {
+           start = firstBracket;
+       } else if (firstBrace !== -1) {
+           start = firstBrace;
+       }
+
+       if (start !== -1) {
+           const lastBracket = jsonString.lastIndexOf(']');
+           const lastBrace = jsonString.lastIndexOf('}');
+           let end = Math.max(lastBracket, lastBrace);
+           if (end > start) {
+               jsonString = jsonString.substring(start, end + 1);
+               console.log("Attempting extraction between brackets/braces:", jsonString);
+           }
+       }
     }
-    
-    // If it's just a simple JSON object
-    if (content.trim().startsWith('{') && content.trim().endsWith('}')) {
-      const parsedObj = JSON.parse(content);
-      // If it's a single tool call object, wrap it in an array
-      if (parsedObj.tool && parsedObj.arguments) {
-        return [parsedObj];
-      }
-      return [];
+
+
+    // Try parsing what we extracted/found
+    const parsed = JSON.parse(jsonString);
+
+    // Ensure it's an array
+    if (Array.isArray(parsed)) {
+      console.log("Parsed tool calls (array):", parsed);
+      return parsed.filter(call => call.tool && call.arguments); // Basic validation
+    } else if (typeof parsed === 'object' && parsed !== null && parsed.tool && parsed.arguments) {
+      // If it's a single valid tool call object, wrap it in an array
+      console.log("Parsed single tool call (object), wrapping in array:", [parsed]);
+      return [parsed];
     }
-    
-    // No tool calls found
-    return [];
+
+    console.warn("Parsed JSON is not a valid tool call structure:", parsed);
+    return []; // Not a valid tool call structure
+
   } catch (e) {
-    console.warn("Error parsing tool calls from LLM response:", e);
-    console.log("Raw content:", content);
+    console.warn("Failed to parse tool calls from LLM response content:", e);
+    console.log("Content that failed parsing:", content);
+    // If parsing fails, assume no valid tool calls
     return [];
   }
 }
@@ -1045,67 +949,110 @@ async function run() {
   console.log('Running AgentNode:', props.id);
   try {
     const agentNode = findNode(props.id);
-    let finalPrompt = props.data.inputs.user_prompt;
-    
+    if (!agentNode) {
+        throw new Error(`AgentNode with ID ${props.id} not found.`);
+    }
+    let finalPrompt = props.data.inputs.user_prompt || ""; // Ensure finalPrompt is initialized
+
+    // Get input from connected source nodes, if any
     const connectedSources = getEdges.value
       .filter((edge) => edge.target === props.id)
       .map((edge) => edge.source);
-    
+
     if (connectedSources.length > 0) {
+      console.log(`Node ${props.id} has connected sources:`, connectedSources);
       for (const sourceId of connectedSources) {
         const sourceNode = findNode(sourceId);
-        if (sourceNode) {
-          finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
+        if (sourceNode && sourceNode.data && sourceNode.data.outputs) {
+           // Adjust based on the actual output structure of source nodes
+           // Assuming a common structure like sourceNode.data.outputs.response or sourceNode.data.outputs.result.output
+           let sourceOutput = "";
+           if (sourceNode.data.outputs.response) {
+               sourceOutput = sourceNode.data.outputs.response;
+           } else if (sourceNode.data.outputs.result && sourceNode.data.outputs.result.output) {
+               sourceOutput = sourceNode.data.outputs.result.output;
+           } else {
+               console.warn(`Source node ${sourceId} has unexpected output structure:`, sourceNode.data.outputs);
+           }
+
+           if (sourceOutput) {
+               finalPrompt += `\n\n--- Input from Node ${sourceId} ---\n${sourceOutput}`;
+           }
+        } else {
+            console.warn(`Source node ${sourceId} not found or has no data/outputs.`);
         }
       }
+      console.log(`Node ${props.id} final prompt after merging inputs:`, finalPrompt);
     }
-    
+
     const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
     const responseNode = responseNodeId ? findNode(responseNodeId) : null;
-    
-    // Clear previous response
+
+    // Clear previous response in this node and the connected response node
+    console.log(`Clearing previous responses for node ${props.id} and target ${responseNodeId || 'none'}`);
     props.data.outputs.response = '';
-    if (responseNode) {
+    if (responseNode && responseNode.data && responseNode.data.inputs) {
       responseNode.data.inputs.response = '';
+    } else if (responseNodeId) {
+        console.warn(`Response node ${responseNodeId} found but missing data.inputs`);
     }
-    
+
     if (!enableToolCalls.value) {
-      // Standard streaming call without tools
+      // Standard streaming call without tools - USES THE SIMPLIFIED FUNCTIONS
+      console.log(`Node ${props.id}: Tool calls disabled, running direct stream...`);
       if (provider.value === 'openai') {
+        // Ensure callCompletionsAPI_openai is simplified as per previous instructions
         return await callCompletionsAPI_openai(agentNode, finalPrompt);
       } else {
+        // Ensure callCompletionsAPI_local handles its cases correctly
         return await callCompletionsAPI_local(agentNode, finalPrompt);
       }
     }
-    
+
     // Tool-enabled flow
+    console.log(`Node ${props.id}: Tool calls enabled, starting multi-step process...`);
+
     // 1. Create tool-enabled system prompt
     const toolEnabledSystemPrompt = buildToolEnabledSystemPrompt(agentNode.data.inputs.system_prompt);
-    
+    console.log(`Node ${props.id}: Tool-enabled system prompt:`, toolEnabledSystemPrompt);
+
     // 2. Make initial call to get tool decisions
+    console.log(`Node ${props.id}: Calling runInitialLLMCall...`);
     const toolCalls = await runInitialLLMCall(agentNode, finalPrompt, toolEnabledSystemPrompt);
-    
+    console.log(`Node ${props.id}: Parsed tool calls from LLM:`, toolCalls);
+
+    let toolResults = []; // Initialize empty results
+
     if (!toolCalls || toolCalls.length === 0) {
-      console.log("No tool calls detected, using direct response");
-      if (provider.value === 'openai') {
-        return await callCompletionsAPI_openai(agentNode, finalPrompt);
-      } else {
-        return await callCompletionsAPI_local(agentNode, finalPrompt);
-      }
+      console.log(`Node ${props.id}: No tool calls detected by LLM or parsing failed. Proceeding without tool execution.`);
+      // Skip step 3 (executeToolCalls)
+    } else {
+      console.log(`Node ${props.id}: Executing tool calls:`, toolCalls);
+      // 3. Execute the tools
+      toolResults = await executeToolCalls(toolCalls);
+      console.log(`Node ${props.id}: Tool execution results:`, toolResults);
     }
-    
-    console.log("Executing tool calls:", toolCalls);
-    
-    // 3. Execute the tools
-    const toolResults = await executeToolCalls(toolCalls);
-    console.log("Tool execution results:", toolResults);
-    
-    // 4. Final streaming call with tool results
+
+    // 4. Final streaming call (ALWAYS runs, with or without tool results)
+    console.log(`Node ${props.id}: Running final LLM call...`);
     return await runFinalLLMCall(agentNode, finalPrompt, toolResults, responseNode);
+
   } catch (error) {
-    console.error('Error in AgentNode run:', error);
+    console.error(`Error in AgentNode run (${props.id}):`, error);
+    // Update this node's output with the error
     props.data.outputs.response = `Error: ${error.message}`;
-    return { error };
+
+    // Ensure the connected responseNode also shows the error if it exists
+    const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+    const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+     if (responseNode && responseNode.data && responseNode.data.inputs) {
+         responseNode.data.inputs.response = `Error: ${error.message}`;
+     } else if (responseNodeId) {
+         console.warn(`Response node ${responseNodeId} found but missing data.inputs during error propagation.`);
+     }
+
+    // Optionally re-throw or return an error state for the workflow runner
+    return { error: error.message }; // Return error state
   }
 }
 
@@ -1134,7 +1081,10 @@ async function storeResponseInAgenticMemory(responseText) {
 
 async function fetchToolList() {
   try {
-    const response = await fetch("/v1/assistant/tool/list");
+    const host = configStore.config.Host;
+    const port = configStore.config.Port;
+    const url = `http://${host}:${port}/v1/tool/list`;
+    const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`Failed to fetch tool list. Status: ${response.status}`);
     }

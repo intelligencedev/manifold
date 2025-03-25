@@ -51,7 +51,7 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api.POST("/executePython", executePythonHandler)
 
 	// NEW: Execute MCP endpoint to work with MCPNode.vue.
-	api.POST("/executeMCP", toolExecuteHandler)
+	api.POST("/executeMCP", toolHandler)
 
 	api.POST("/datadog", datadogHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
@@ -61,7 +61,10 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
 
-	toolGroup := completionsGroup.Group("/assistant/tool")
+	toolGroup := completionsGroup.Group("/tool")
 	toolGroup.GET("/list", toolListHandler)
-	toolGroup.POST("/execute", toolExecuteHandler)
+	toolGroup.POST("/execute", toolHandler)
+
+	// Add the test route here:
+	api.POST("/test-tool", toolHandler)
 }

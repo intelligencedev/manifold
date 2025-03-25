@@ -382,7 +382,7 @@ function onRestore(flow: Flow) {
  */
 
 // Auto-pan toggle
-const autoPanEnabled = ref(true);
+const autoPanEnabled = ref(false);
 
 // Helper: smoothly fit the view to a node using fitView
 async function smoothlyFitViewToNode(node: GraphNode) {

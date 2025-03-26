@@ -23,8 +23,9 @@
       <template #node-claudeNode="claudeNodeProps">
         <ClaudeNode v-bind="claudeNodeProps" />
       </template>
-      <template #node-claudeResponse="claudeResponseProps">
-        <ClaudeResponse v-bind="claudeResponseProps" />
+      <template #node-responseNode="responseNodeProps">
+        <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-geminiNode="geminiNodeProps">
         <GeminiNode v-bind="geminiNodeProps" />
@@ -34,13 +35,6 @@
       </template>
       <template #node-webGLNode="webGLNodeProps">
         <WebGLNode v-bind="webGLNodeProps" />
-      </template>
-      <template #node-responseNode="responseNodeProps">
-        <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
-      </template>
-      <template #node-geminiResponse="geminiResponseProps">
-        <GeminiResponse v-bind="geminiResponseProps" />
       </template>
       <template #node-embeddingsNode="embeddingsNodeProps">
         <EmbeddingsNode v-bind="embeddingsNodeProps" />
@@ -157,7 +151,6 @@ import {
 } from '@vue-flow/core';
 import {
   Controls,
-  MiniMap,
   Background,
   BackgroundVariant,
 } from '@vue-flow/additional-components';
@@ -165,39 +158,37 @@ import SpecialEdge from './components/SpecialEdge.vue';
 import { useConfigStore } from '@/stores/configStore';
 
 // Manifold custom components
-import Header from './components/Header.vue';
-import LayoutControls from './components/LayoutControls.vue';
-import useDragAndDrop from './useDnD';
+import Header from './components/layout/Header.vue';
+import LayoutControls from './components/layout/LayoutControls.vue';
+import useDragAndDrop from './composables/useDnD.js';
 import NodePalette from './components/NodePalette.vue';
 import UtilityPalette from './components/UtilityPalette.vue';
-import NoteNode from './components/NoteNode.vue';
-import AgentNode from './components/AgentNode.vue';
-import ClaudeNode from './components/ClaudeNode.vue';
-import ClaudeResponse from './components/ClaudeResponse.vue';
-import GeminiNode from './components/GeminiNode.vue';
-import GeminiResponse from './components/GeminiResponse.vue';
-import PythonRunner from './components/PythonRunner.vue';
-import WebGLNode from './components/WebGLNode.vue';
-import ResponseNode from './components/ResponseNode.vue';
-import EmbeddingsNode from './components/EmbeddingsNode.vue';
-import WebSearchNode from './components/WebSearchNode.vue';
-import WebRetrievalNode from './components/WebRetrievalNode.vue';
-import TextNode from './components/TextNode.vue';
-import TextSplitterNode from './components/TextSplitterNode.vue';
-import OpenFileNode from './components/OpenFileNode.vue';
-import SaveTextNode from './components/SaveTextNode.vue';
-import DatadogNode from './components/DatadogNode.vue';
-import DatadogGraphNode from './components/DatadogGraphNode.vue';
-import TokenCounterNode from './components/TokenCounterNode.vue';
+import NoteNode from './components/nodes/NoteNode.vue';
+import AgentNode from './components/nodes/AgentNode.vue';
+import ClaudeNode from './components/nodes/ClaudeNode.vue';
+import ResponseNode from './components/nodes/ResponseNode.vue';
+import GeminiNode from './components/nodes/GeminiNode.vue';
+import PythonRunner from './components/nodes/PythonRunner.vue';
+import WebGLNode from './components/nodes/WebGLNode.vue';
+import EmbeddingsNode from './components/nodes/EmbeddingsNode.vue';
+import WebSearchNode from './components/nodes/WebSearchNode.vue';
+import WebRetrievalNode from './components/nodes/WebRetrievalNode.vue';
+import TextNode from './components/nodes/TextNode.vue';
+import TextSplitterNode from './components/nodes/TextSplitterNode.vue';
+import OpenFileNode from './components/nodes/OpenFileNode.vue';
+import SaveTextNode from './components/nodes/SaveTextNode.vue';
+import DatadogNode from './components/nodes/DatadogNode.vue';
+import DatadogGraphNode from './components/nodes/DatadogGraphNode.vue';
+import TokenCounterNode from './components/nodes/TokenCounterNode.vue';
 import FlowControl from './components/FlowControl.vue';
-import RepoConcat from './components/RepoConcat.vue';
-import ComfyNode from './components/ComfyNode.vue';
-import MLXFlux from './components/MLXFlux.vue';
-import DocumentsIngest from './components/DocumentsIngest.vue';
-import DocumentsRetrieve from './components/DocumentsRetrieve.vue';
-import ttsNode from './components/ttsNode.vue';
-import MCPClient from './components/MCPClient.vue';
-import Mermaid from './components/Mermaid.vue';
+import RepoConcat from './components/nodes/RepoConcat.vue';
+import ComfyNode from './components/nodes/ComfyNode.vue';
+import MLXFlux from './components/nodes/MLXFlux.vue';
+import DocumentsIngest from './components/nodes/DocumentsIngestNode.vue';
+import DocumentsRetrieve from './components/nodes/DocumentsRetrieveNode.vue';
+import ttsNode from './components/nodes/ttsNode.vue';
+import MCPClient from './components/nodes/MCPClient.vue';
+import Mermaid from './components/nodes/Mermaid.vue';
 
 // --- SETUP ---
 interface BgColorInterface {
@@ -382,7 +373,7 @@ function onRestore(flow: Flow) {
  */
 
 // Auto-pan toggle
-const autoPanEnabled = ref(true);
+const autoPanEnabled = ref(false);
 
 // Helper: smoothly fit the view to a node using fitView
 async function smoothlyFitViewToNode(node: GraphNode) {
@@ -565,16 +556,11 @@ async function runWorkflowConcurrently() {
 }
 
 async function runWorkflow() {
-  // Clear response nodes and gemini response nodes
+  // Clear response nodes
   const responseNodes = nodes.value.filter((node) => node.type === 'responseNode');
   for (const node of responseNodes) {
     node.data.inputs.response = '';
-    node.data.outputs = {};
-  }
-  const geminiResponseNodes = nodes.value.filter((node) => node.type === 'geminiResponse');
-  for (const node of geminiResponseNodes) {
-    node.data.inputs.response = '';
-    node.data.outputs = {};
+    node.data.outputs = { result: { output: '' } };
   }
 
   console.log('Running workflow with current nodes and edges:', nodes.value, edges.value);

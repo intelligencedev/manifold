@@ -7,7 +7,7 @@
   border: 1px solid var(--node-border-color, #666);
   border-radius: 12px;
   color: var(--node-text-color, #eee);
-  padding: 12px;
+  padding: 20px;
   overflow: hidden;
 }
 

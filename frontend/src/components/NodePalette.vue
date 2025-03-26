@@ -80,7 +80,7 @@ const nodeCategories = {
     "documentsRetrieveNode": null,
     "repoConcatNode": null,
   },
-  "Utilites": {
+  "Utilities": {
     "textNode": null,
     "noteNode": null,
     "embeddingsNode": null,

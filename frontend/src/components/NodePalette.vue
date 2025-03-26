@@ -53,11 +53,9 @@ function togglePalette() {
 const nodeCategories = {
   "Text Completions": {
     "agentNode": null,
-    "responseNode": null,
     "claudeNode": null,
-    "claudeResponse": null,
     "geminiNode": null,
-    "geminiResponse": null,
+    "responseNode": null,
   },
   "Image Generation": {
     "comfyNode": null,

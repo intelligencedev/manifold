@@ -36,7 +36,7 @@
 <script setup>
 import { Handle } from '@vue-flow/core'
 import { onMounted } from 'vue'
-import { useTokenCounterNode } from '../composables/useTokenCounterNode'
+import { useTokenCounterNode } from '../../composables/useTokenCounterNode'
 
 /**
  * Define props

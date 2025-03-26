@@ -37,7 +37,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import { useWebRetrieval } from '../composables/useWebRetrieval'
+import { useWebRetrieval } from '../../composables/useWebRetrieval'
 
 // ----- Define props & emits -----
 const props = defineProps({

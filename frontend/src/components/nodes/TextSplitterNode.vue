@@ -23,7 +23,7 @@
 <script setup>
 import { Handle } from '@vue-flow/core';
 import { onMounted } from 'vue';
-import { useTextSplitterNode } from '../composables/useTextSplitterNode';
+import { useTextSplitterNode } from '../../composables/useTextSplitterNode';
 
 const props = defineProps({
     id: {

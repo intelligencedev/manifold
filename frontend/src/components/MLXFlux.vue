@@ -8,37 +8,37 @@
       <!-- Model Selection -->
       <div class="input-field">
         <label :for="`${data.id}-model`" class="input-label">Model:</label>
-        <input type="text" :id="`${data.id}-model`" v-model="model" class="input-text" />
+        <BaseInput :id="`${data.id}-model`" v-model="model" class="input-text" />
       </div>
 
       <!-- Prompt Input -->
       <div class="input-field">
         <label :for="`${data.id}-prompt`" class="input-label">Prompt:</label>
-        <textarea :id="`${data.id}-prompt`" v-model="prompt" class="input-textarea"></textarea>
+        <BaseTextarea :id="`${data.id}-prompt`" v-model="prompt" class="input-textarea" />
       </div>
 
       <!-- Steps Input -->
       <div class="input-field">
         <label :for="`${data.id}-steps`" class="input-label">Steps:</label>
-        <input type="number" :id="`${data.id}-steps`" v-model.number="steps" class="input-text" min="1" />
+        <BaseInput :id="`${data.id}-steps`" v-model.number="steps" type="number" min="1" class="input-text" />
       </div>
 
       <!-- Seed Input -->
       <div class="input-field">
         <label :for="`${data.id}-seed`" class="input-label">Seed:</label>
-        <input type="number" :id="`${data.id}-seed`" v-model.number="seed" class="input-text" />
+        <BaseInput :id="`${data.id}-seed`" v-model.number="seed" type="number" class="input-text" />
       </div>
 
       <!-- Quality Input -->
       <div class="input-field">
         <label :for="`${data.id}-quality`" class="input-label">Quality:</label>
-        <input type="number" :id="`${data.id}-quality`" v-model.number="quality" class="input-text" min="1" />
+        <BaseInput :id="`${data.id}-quality`" v-model.number="quality" type="number" min="1" class="input-text" />
       </div>
 
       <!-- Output Path Input -->
       <div class="input-field">
         <label :for="`${data.id}-output`" class="input-label">Output:</label>
-        <input type="text" :id="`${data.id}-output`" v-model="output" class="input-text" />
+        <BaseInput :id="`${data.id}-output`" v-model="output" class="input-text" />
       </div>
     </div>
 
@@ -57,15 +57,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
-const { getEdges } = useVueFlow()
 import { Handle, useVueFlow } from '@vue-flow/core';
 import { NodeResizer } from '@vue-flow/node-resizer';
-
-const { findNode, updateNodeData } = useVueFlow();
-const emit = defineEmits(['update:data', 'resize']);
-
-const imageSrc = ref(''); // Holds the image URL
+import BaseInput from '@/components/base/BaseInput.vue';
+import BaseTextarea from '@/components/base/BaseTextarea.vue';
+import { useMLXFluxNode } from '@/composables/useMLXFluxNode';
 
 const props = defineProps({
   id: {
@@ -102,160 +98,28 @@ const props = defineProps({
   },
 });
 
-// Expose the run() function on mount
-onMounted(() => {
-  props.data.run = run;
-});
+const emit = defineEmits(['update:data', 'resize']);
+const vueFlowInstance = useVueFlow();
 
-// Watch for changes in the output response and update imageSrc accordingly
-watch(
-  () => props.data.outputs.response,
-  (newValue) => {
-    if (newValue) {
-      imageSrc.value = newValue; // Update imageSrc with the image URL from the response
-    }
-  },
-  { immediate: true }
-);
-
-// Function to call the FMLX API (using a Go backend endpoint)
-async function callFMLXAPI(mlxNode) {
-  const endpoint = '/api/run-fmlx'; // Your Go backend endpoint
-
-  const requestBody = {
-    model: mlxNode.data.inputs.model,
-    prompt: mlxNode.data.inputs.prompt,
-    steps: mlxNode.data.inputs.steps,
-    seed: mlxNode.data.inputs.seed,
-    quality: mlxNode.data.inputs.quality,
-    output: mlxNode.data.inputs.output, // Use the configured output path
-  };
-
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`API error (${response.status}): ${errorText}`);
-    }
-
-    const result = await response.json();
-    console.log('FMLX API response:', result);
-
-    updateNodeData(props.id, {
-      ...props.data,
-      outputs: {
-        response: result.image_url, // Update the output with the image URL
-      },
-    });
-
-    return { response: 'OK' };
-  } catch (e) {
-    console.error('Error calling fmlx api', e);
-    return { error: e.message };
-  }
-}
-
-async function run() {
-  console.log('Running MLXFlux node:', props.id);
-
-  try {
-    const connectedSources = getEdges.value
-      .filter((edge) => edge.target === props.id)
-      .map((edge) => edge.source)
-
-    if (connectedSources.length > 0) {
-      const sourceNode = findNode(connectedSources[0])
-
-      console.log('Comfy Connected sources:', connectedSources)
-
-      if (sourceNode && sourceNode.data.outputs.result) {
-        props.data.inputs.prompt = sourceNode.data.outputs.result.output
-      }
-    }
-
-    return await callFMLXAPI(findNode(props.id));
-  } catch (error) {
-    console.error('Error in MLXFlux run:', error);
-    return { error };
-  }
-}
-
-// Computed properties for two-way data binding
-const model = computed({
-  get: () => props.data.inputs.model,
-  set: (value) =>
-    updateNodeData(props.id, {
-      ...props.data,
-      inputs: { ...props.data.inputs, model: value },
-    }),
-});
-
-const prompt = computed({
-  get: () => props.data.inputs.prompt,
-  set: (value) =>
-    updateNodeData(props.id, {
-      ...props.data,
-      inputs: { ...props.data.inputs, prompt: value },
-    }),
-});
-
-const steps = computed({
-  get: () => props.data.inputs.steps,
-  set: (value) =>
-    updateNodeData(props.id, {
-      ...props.data,
-      inputs: { ...props.data.inputs, steps: value },
-    }),
-});
-
-const seed = computed({
-  get: () => props.data.inputs.seed,
-  set: (value) =>
-    updateNodeData(props.id, {
-      ...props.data,
-      inputs: { ...props.data.inputs, seed: value },
-    }),
-});
-
-const quality = computed({
-  get: () => props.data.inputs.quality,
-  set: (value) =>
-    updateNodeData(props.id, {
-      ...props.data,
-      inputs: { ...props.data.inputs, quality: value },
-    }),
-});
-
-const output = computed({
-  get: () => props.data.inputs.output,
-  set: (value) =>
-    updateNodeData(props.id, {
-      ...props.data,
-      inputs: { ...props.data.inputs, output: value },
-    }),
-});
-
-const isHovered = ref(false);
-const customStyle = ref({});
-
-// Show/hide the handles based on hover state
-const resizeHandleStyle = computed(() => ({
-  visibility: isHovered.value ? 'visible' : 'hidden',
-  width: '12px',
-  height: '12px',
-}))
-
-function onResize(event) {
-  customStyle.value.width = `${event.width}px`;
-  customStyle.value.height = `${event.height}px`;
-}
+// Use the composable to manage state and functionality
+const {
+  // State refs
+  isHovered,
+  customStyle,
+  imageSrc,
+  
+  // Computed properties
+  model,
+  prompt,
+  steps,
+  seed,
+  quality,
+  output,
+  resizeHandleStyle,
+  
+  // Methods
+  onResize
+} = useMLXFluxNode(props, vueFlowInstance);
 </script>
 
 <style scoped>

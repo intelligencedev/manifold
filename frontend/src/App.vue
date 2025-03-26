@@ -151,7 +151,6 @@ import {
 } from '@vue-flow/core';
 import {
   Controls,
-  MiniMap,
   Background,
   BackgroundVariant,
 } from '@vue-flow/additional-components';
@@ -185,8 +184,8 @@ import FlowControl from './components/FlowControl.vue';
 import RepoConcat from './components/nodes/RepoConcat.vue';
 import ComfyNode from './components/nodes/ComfyNode.vue';
 import MLXFlux from './components/nodes/MLXFlux.vue';
-import DocumentsIngest from './components/DocumentsIngest.vue';
-import DocumentsRetrieve from './components/DocumentsRetrieve.vue';
+import DocumentsIngest from './components/nodes/DocumentsIngestNode.vue';
+import DocumentsRetrieve from './components/nodes/DocumentsRetrieveNode.vue';
 import ttsNode from './components/nodes/ttsNode.vue';
 import MCPClient from './components/nodes/MCPClient.vue';
 import Mermaid from './components/nodes/Mermaid.vue';

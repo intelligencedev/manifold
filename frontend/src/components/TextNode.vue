@@ -48,9 +48,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { Handle, useVueFlow } from '@vue-flow/core'
+import { Handle } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
+import useTextNode from '../composables/useTextNode'
 
 const props = defineProps({
   id: {
@@ -87,75 +87,16 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['update:data', 'disable-zoom', 'enable-zoom', 'resize'])
-const { getEdges, findNode } = useVueFlow()
 
-onMounted(() => {
-  if (!props.data.run) {
-    props.data.run = run
-  }
-})
-
-async function run() {
-  const connectedSources = getEdges.value
-    .filter((edge) => edge.target === props.id)
-    .map((edge) => edge.source)
-
-  if (connectedSources.length > 0) {
-    const sourceNode = findNode(connectedSources[0])
-    if (sourceNode && sourceNode.data.outputs.result) {
-      props.data.inputs.text = sourceNode.data.outputs.result.output
-    }
-  }
-
-  // Set the output equal to the current text input
-  props.data.outputs = {
-    result: {
-      output: text.value
-    }
-  }
-}
-
-// Computed property for two-way binding of the text input
-const text = computed({
-  get: () => props.data.inputs.text,
-  set: (value) => {
-    props.data.inputs.text = value
-    updateNodeData()
-  }
-})
-
-// Emit updated node data back to VueFlow
-function updateNodeData() {
-  const updatedData = {
-    ...props.data,
-    inputs: { text: text.value },
-    outputs: props.data.outputs
-  }
-  emit('update:data', { id: props.id, data: updatedData })
-}
-
-// Custom style for handling resizes
-const customStyle = ref({})
-
-// Track whether the node is hovered (to show/hide the resize handles)
-const isHovered = ref(false)
-
-const resizeHandleStyle = computed(() => ({
-  visibility: isHovered.value ? 'visible' : 'hidden',
-  width: '12px',
-  height: '12px',
-}))
-
-// Handle the resize event to update the node dimensions
-const onResize = (event) => {
-  customStyle.value.width = `${event.width}px`
-  customStyle.value.height = `${event.height}px`
-  // Also update the node's style data so it persists
-  props.data.style.width = `${event.width}px`
-  props.data.style.height = `${event.height}px`
-  updateNodeData()
-  emit('resize', { id: props.id, width: event.width, height: event.height })
-}
+// Use the composable to get all the reactive state and methods
+const {
+  text,
+  customStyle,
+  isHovered,
+  resizeHandleStyle,
+  updateNodeData,
+  onResize
+} = useTextNode(props, emit)
 </script>
 
 <style scoped>

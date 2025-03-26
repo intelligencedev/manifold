@@ -1,7 +1,7 @@
 <script setup>
 import { ref, nextTick, onMounted, defineEmits, defineExpose } from "vue";
 import { Panel, useVueFlow } from "@vue-flow/core";
-import useLayout from "../useLayout.js";
+import useLayout from "../composables/useLayout.js";
 
 // Define all emitted events from both functionalities.
 const emit = defineEmits([

@@ -17,7 +17,7 @@
 </template>
 
 <script setup>
-import SaveRestoreControls from './SaveRestoreControls.vue';
+import SaveRestoreControls from '../layout/SaveRestoreControls.vue';
 
 defineEmits(['save', 'restore']);
 </script>
@@ -37,9 +37,10 @@ defineEmits(['save', 'restore']);
     padding: 0 20px;
 }
 
-.left-controls {
+.left-controls, .right-controls {
     display: flex;
     align-items: center;
+    width: 150px; /* Ensure equal width for left and right controls */
 }
 
 .box-container {
@@ -48,10 +49,7 @@ defineEmits(['save', 'restore']);
     font-size: 24px;
     font-weight: 700;
     color: white;
-}
-
-.right-controls {
-    /* Match width of left-controls for balance */
-    width: 100px;
+    text-align: center; /* Center text within the box */
+    flex-grow: 1; /* Allow the center box to grow and take up remaining space */
 }
 </style>

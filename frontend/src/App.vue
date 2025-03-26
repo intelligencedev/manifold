@@ -158,9 +158,9 @@ import SpecialEdge from './components/SpecialEdge.vue';
 import { useConfigStore } from '@/stores/configStore';
 
 // Manifold custom components
-import Header from './components/Header.vue';
-import LayoutControls from './components/LayoutControls.vue';
-import useDragAndDrop from './useDnD';
+import Header from './components/layout/Header.vue';
+import LayoutControls from './components/layout/LayoutControls.vue';
+import useDragAndDrop from './composables/useDnD.js';
 import NodePalette from './components/NodePalette.vue';
 import UtilityPalette from './components/UtilityPalette.vue';
 import NoteNode from './components/nodes/NoteNode.vue';

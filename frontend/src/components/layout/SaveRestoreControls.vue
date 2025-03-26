@@ -10,7 +10,7 @@ const templates = ref([]);
 const selectedTemplate = ref("");
 
 // Use Vite's import.meta.glob to get all JSON files in the workflows directory
-const workflowModules = import.meta.glob("../components/workflows/*.json");
+const workflowModules = import.meta.glob("../../components/workflows/*.json");
 
 onMounted(async () => {
   // Process the paths to get template names without extensions
@@ -111,9 +111,14 @@ async function onTemplateSelected() {
 
 .template-selector {
   margin: 0 4px;
+  min-width: 120px; /* Give the container a minimum width */
+  position: relative; /* Establish positioning context */
 }
 
 .template-dropdown {
+  appearance: none; /* Remove default appearance */
+  -webkit-appearance: none;
+  -moz-appearance: none;
   padding: 4px 8px;
   background: none;
   border: none;
@@ -122,7 +127,22 @@ async function onTemplateSelected() {
   font-size: 14px;
   text-transform: lowercase;
   outline: none;
-  min-width: 100px;
+  width: 100%;
+  box-sizing: border-box;
+  position: relative; /* Ensure the dropdown sits above other elements */
+  z-index: 1;
+}
+
+/* Add a custom dropdown arrow */
+.template-selector::after {
+  content: '▼';
+  font-size: 10px;
+  color: #eee;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none; /* Ensure this doesn't interfere with clicks */
 }
 
 .template-dropdown:hover {

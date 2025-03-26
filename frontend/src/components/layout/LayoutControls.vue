@@ -13,7 +13,7 @@
 <script setup>
 import { nextTick, onMounted, defineEmits, defineExpose } from "vue";
 import { useVueFlow, Panel } from "@vue-flow/core";
-import useLayout from "../useLayout.js";
+import useLayout from "../../composables/useLayout.js";
 import Icon from "./Icon.vue";
 
 const emit = defineEmits(["update-nodes", "layout-initialized", "update-edge-type"]);

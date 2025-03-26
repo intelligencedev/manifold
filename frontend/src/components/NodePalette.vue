@@ -41,7 +41,7 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import useDragAndDrop from '../useDnD.js'
+import useDragAndDrop from '../composables/useDnD.js'
 
 const { onDragStart } = useDragAndDrop()
 const isOpen = ref(false)

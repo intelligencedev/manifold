@@ -1,10 +1,20 @@
 <template>
     <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
         class="node-container response-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
-        <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
+        <div :style="data.labelStyle" class="node-label">{{ modelTypeLabel }}</div>
 
         <div class="header">
             <div class="controls">
+                <!-- Model Type Selector -->
+                <div class="select-container">
+                    <label for="model-type">Model:</label>
+                    <select id="model-type" v-model="selectedModelType">
+                        <option value="openai">OpenAI</option>
+                        <option value="claude">Claude</option>
+                        <option value="gemini">Gemini</option>
+                    </select>
+                </div>
+
                 <div class="select-container">
                     <label for="render-mode">Render Mode:</label>
                     <select id="render-mode" v-model="selectedRenderMode">
@@ -44,7 +54,7 @@
         </div>
 
         <div class="text-container" ref="textContainer" @scroll="handleScroll" @mouseenter="$emit('disable-zoom')"
-            @mouseleave="$emit('enable-zoom')" :style="{ fontSize: `${currentFontSize}px` }">
+            @mouseleave="$emit('enable-zoom')" @wheel.stop :style="{ fontSize: `${currentFontSize}px` }">
             <div v-if="selectedRenderMode === 'raw'" class="raw-text">
                 {{ response }}
             </div>
@@ -71,7 +81,18 @@ const { getEdges, findNode, updateNodeData } = useVueFlow()
 
 // Theme selection
 const selectedTheme = ref('atom-one-dark');
+const selectedModelType = ref('openai');
 let currentThemeLink = null;
+
+// Model type label computed property
+const modelTypeLabel = computed(() => {
+    const labels = {
+        openai: 'OpenAI Response',
+        claude: 'Claude Response',
+        gemini: 'Gemini Response'
+    };
+    return labels[selectedModelType.value] || 'Response';
+});
 
 // Load highlight.js theme
 const loadTheme = (themeName) => {
@@ -119,6 +140,12 @@ onMounted(() => {
 // Watch for theme changes
 watch(selectedTheme, (newTheme) => {
     loadTheme(newTheme);
+});
+
+// Watch for model type changes
+watch(selectedModelType, (newType) => {
+    props.data.type = `${newType}Response`;
+    updateNodeData();
 });
 
 async function run() {
@@ -537,5 +564,14 @@ select {
     border-left: 4px solid #555;
     padding-left: 10px;
     color: #ccc;
+}
+
+/* Additional styles for model type selector */
+.select-container:first-child {
+    margin-right: 15px;
+}
+
+.select-container select {
+    min-width: 100px;
 }
 </style>

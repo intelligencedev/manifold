@@ -63,6 +63,9 @@ const nodeCategories = {
     "comfyNode": null,
     "mlxFluxNode": null,
   },
+  "Speech Generation": {
+    "ttsNode": null,
+  },
   "Code": {
     "pythonRunnerNode": null,
     "webGLNode": null,
@@ -74,26 +77,25 @@ const nodeCategories = {
   "Documents": {
     "openFileNode": null,
     "saveTextNode": null,
+    "textSplitterNode": null,
     "documentsIngestNode": null,
     "documentsRetrieveNode": null,
     "repoConcatNode": null,
   },
-  "Misc": {
+  "Utilites": {
     "textNode": null,
-    "textSplitterNode": null,
     "noteNode": null,
     "embeddingsNode": null,
     "tokenCounterNode": null,
   },
   "Integrations": {
+    "mermaidNode": null,
     "datadogNode": null,
     "datadogGraphNode": null,
   },
   "Experimental": {
-    "ttsNode": null,
     "mcpClientNode": null,
     "flowControlNode": null,
-    "mermaidNode": null,
   },
 }
 

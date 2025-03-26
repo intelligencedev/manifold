@@ -67,7 +67,7 @@
 import { nextTick, onMounted, onUnmounted } from "vue";
 import { Handle } from "@vue-flow/core";
 import { NodeResizer } from "@vue-flow/node-resizer";
-import { useTtsNode } from "../composables/useTtsNode";
+import { useTtsNode } from "../../composables/useTtsNode";
 
 const props = defineProps({
   id: { type: String, required: true, default: "ttsNode_0" },

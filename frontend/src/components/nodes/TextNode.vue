@@ -50,7 +50,7 @@
 <script setup>
 import { Handle } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
-import useTextNode from '../composables/useTextNode'
+import useTextNode from '../../composables/useTextNode'
 
 const props = defineProps({
   id: {

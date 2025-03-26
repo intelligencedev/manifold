@@ -20,7 +20,7 @@
 import { onMounted, onUnmounted } from "vue";
 import { Handle } from "@vue-flow/core";
 import { NodeResizer } from "@vue-flow/node-resizer";
-import { useWebGLNode } from "../composables/useWebGLNode";
+import { useWebGLNode } from "../../composables/useWebGLNode";
 
 // --- PROPS & DEFAULTS ---
 const props = defineProps({

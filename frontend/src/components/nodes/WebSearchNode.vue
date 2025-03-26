@@ -69,7 +69,7 @@
 <script setup>
 import { onMounted } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import { useWebSearch } from '../composables/useWebSearch'
+import { useWebSearch } from '../../composables/useWebSearch'
 
 const props = defineProps({
   id: {

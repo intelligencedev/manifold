@@ -41,7 +41,7 @@
 
 <script setup>
 import { ref, reactive } from 'vue'
-import useDragAndDrop from '../useDnD.js'
+import useDragAndDrop from '../composables/useDnD.js'
 
 const { onDragStart } = useDragAndDrop()
 const isOpen = ref(false)
@@ -53,15 +53,16 @@ function togglePalette() {
 const nodeCategories = {
   "Text Completions": {
     "agentNode": null,
-    "responseNode": null,
     "claudeNode": null,
-    "claudeResponse": null,
     "geminiNode": null,
-    "geminiResponse": null,
+    "responseNode": null,
   },
   "Image Generation": {
     "comfyNode": null,
     "mlxFluxNode": null,
+  },
+  "Speech Generation": {
+    "ttsNode": null,
   },
   "Code": {
     "pythonRunnerNode": null,
@@ -74,26 +75,25 @@ const nodeCategories = {
   "Documents": {
     "openFileNode": null,
     "saveTextNode": null,
+    "textSplitterNode": null,
     "documentsIngestNode": null,
     "documentsRetrieveNode": null,
     "repoConcatNode": null,
   },
-  "Misc": {
+  "Utilities": {
     "textNode": null,
-    "textSplitterNode": null,
     "noteNode": null,
     "embeddingsNode": null,
     "tokenCounterNode": null,
   },
   "Integrations": {
+    "mermaidNode": null,
     "datadogNode": null,
     "datadogGraphNode": null,
   },
   "Experimental": {
-    "ttsNode": null,
     "mcpClientNode": null,
     "flowControlNode": null,
-    "mermaidNode": null,
   },
 }
 

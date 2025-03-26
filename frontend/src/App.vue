@@ -23,8 +23,9 @@
       <template #node-claudeNode="claudeNodeProps">
         <ClaudeNode v-bind="claudeNodeProps" />
       </template>
-      <template #node-claudeResponse="claudeResponseProps">
-        <ClaudeResponse v-bind="claudeResponseProps" />
+      <template #node-responseNode="responseNodeProps">
+        <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-geminiNode="geminiNodeProps">
         <GeminiNode v-bind="geminiNodeProps" />
@@ -34,13 +35,6 @@
       </template>
       <template #node-webGLNode="webGLNodeProps">
         <WebGLNode v-bind="webGLNodeProps" />
-      </template>
-      <template #node-responseNode="responseNodeProps">
-        <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
-      </template>
-      <template #node-geminiResponse="geminiResponseProps">
-        <GeminiResponse v-bind="geminiResponseProps" />
       </template>
       <template #node-embeddingsNode="embeddingsNodeProps">
         <EmbeddingsNode v-bind="embeddingsNodeProps" />
@@ -173,12 +167,10 @@ import UtilityPalette from './components/UtilityPalette.vue';
 import NoteNode from './components/NoteNode.vue';
 import AgentNode from './components/AgentNode.vue';
 import ClaudeNode from './components/ClaudeNode.vue';
-import ClaudeResponse from './components/ClaudeResponse.vue';
+import ResponseNode from './components/ResponseNode.vue';
 import GeminiNode from './components/GeminiNode.vue';
-import GeminiResponse from './components/GeminiResponse.vue';
 import PythonRunner from './components/PythonRunner.vue';
 import WebGLNode from './components/WebGLNode.vue';
-import ResponseNode from './components/ResponseNode.vue';
 import EmbeddingsNode from './components/EmbeddingsNode.vue';
 import WebSearchNode from './components/WebSearchNode.vue';
 import WebRetrievalNode from './components/WebRetrievalNode.vue';
@@ -565,16 +557,11 @@ async function runWorkflowConcurrently() {
 }
 
 async function runWorkflow() {
-  // Clear response nodes and gemini response nodes
+  // Clear response nodes
   const responseNodes = nodes.value.filter((node) => node.type === 'responseNode');
   for (const node of responseNodes) {
     node.data.inputs.response = '';
-    node.data.outputs = {};
-  }
-  const geminiResponseNodes = nodes.value.filter((node) => node.type === 'geminiResponse');
-  for (const node of geminiResponseNodes) {
-    node.data.inputs.response = '';
-    node.data.outputs = {};
+    node.data.outputs = { result: { output: '' } };
   }
 
   console.log('Running workflow with current nodes and edges:', nodes.value, edges.value);

@@ -1,7 +1,8 @@
 <script setup>
 import { ref, defineEmits, onMounted } from "vue";
 import { Panel, useVueFlow } from "@vue-flow/core";
-import Icon from "./Icon.vue";
+// Assuming Icon component is not strictly needed for these controls based on provided snippet
+// import Icon from "./Icon.vue";
 
 const emit = defineEmits(["save", "restore"]);
 
@@ -17,7 +18,7 @@ onMounted(async () => {
   templates.value = Object.keys(workflowModules).map(path => {
     const filename = path.split('/').pop();
     return filename.replace(/\.json$/, '');
-  });
+  }).sort(); // Sort templates alphabetically
 });
 
 function onSave() {
@@ -38,48 +39,68 @@ function onFileSelected(event) {
         emit("restore", flow);
       } catch (error) {
         console.error("Error parsing JSON file:", error);
+        alert("Failed to load file. Ensure it is a valid JSON workflow.");
       }
     };
+    reader.onerror = (e) => {
+        console.error("Error reading file:", e);
+        alert("Error reading file.");
+    }
     reader.readAsText(file);
   }
+  // Reset file input value to allow selecting the same file again
+  event.target.value = null;
 }
 
 async function onTemplateSelected() {
   if (!selectedTemplate.value) return;
-  
+
   // Find the module path for the selected template
-  const templatePath = Object.keys(workflowModules).find(path => 
-    path.includes(`${selectedTemplate.value}.json`)
+  const templatePath = Object.keys(workflowModules).find(path =>
+    path.includes(`/${selectedTemplate.value}.json`) // Be more specific with path matching
   );
-  
+
   if (templatePath) {
     try {
       // Dynamically import the selected template file
       const module = await workflowModules[templatePath]();
+      // Handle both default export and direct export
       const flow = module.default || module;
-      emit("restore", flow);
+      // Deep clone the template object to avoid modifying the original module cache
+      emit("restore", JSON.parse(JSON.stringify(flow)));
       // Reset dropdown after loading
       selectedTemplate.value = "";
     } catch (error) {
       console.error("Error loading template:", error);
+      alert(`Error loading template: ${selectedTemplate.value}`);
     }
+  } else {
+      console.error(`Template path not found for: ${selectedTemplate.value}`);
+      alert(`Could not find template file for: ${selectedTemplate.value}`);
+      selectedTemplate.value = ""; // Reset if path is invalid
   }
 }
 </script>
 
 <template>
   <div class="controls-container">
-    <button title="save graph" @click="onSave" class="text-button">
-      save
+    <button title="Save current workflow" @click="onSave" class="control-button">
+      Save
     </button>
-    <button title="restore graph" @click="onRestore" class="text-button">
-      load
+    <button title="Load workflow from file" @click="onRestore" class="control-button">
+      Load
       <input type="file" ref="fileInput" style="display: none" @change="onFileSelected" accept=".json" />
     </button>
-    
-    <div class="template-selector">
-      <select v-model="selectedTemplate" @change="onTemplateSelected" class="template-dropdown">
-        <option value="">Templates</option>
+
+    <div class="control-select-wrapper">
+      <select
+        v-model="selectedTemplate"
+        @change="onTemplateSelected"
+        class="control-select"
+        title="Load a workflow template"
+      >
+        <!-- Use a disabled option for the placeholder -->
+        <option disabled value="">Templates</option>
         <option v-for="template in templates" :key="template" :value="template">
           {{ template }}
         </option>
@@ -89,68 +110,89 @@ async function onTemplateSelected() {
 </template>
 
 <style scoped>
-.text-button {
-  padding: 4px 8px;
-  margin: 0 4px;
-  background: none;
-  border: none;
-  color: #eee;
-  cursor: pointer;
-  font-size: 14px;
-  text-transform: lowercase;
-}
-
-.text-button:hover {
-  color: #fff;
-}
-
 .controls-container {
   display: flex;
   align-items: center;
+  gap: 8px; /* Use gap for spacing between flex items */
+  padding: 8px; /* Add some padding around the controls */
+  border-radius: 6px; /* Optional: Rounded corners for the container */
 }
 
-.template-selector {
-  margin: 0 4px;
-  min-width: 120px; /* Give the container a minimum width */
-  position: relative; /* Establish positioning context */
-}
-
-.template-dropdown {
-  appearance: none; /* Remove default appearance */
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  padding: 4px 8px;
-  background: none;
-  border: none;
+/* Base styles for interactive elements */
+.control-button,
+.control-select {
+  padding: 6px 12px;
+  /* Removed margin, using gap on parent */
+  background-color: transparent; /* Changed to transparent */
+  border: 1px solid #555; /* Keeping the subtle border */
   color: #eee;
   cursor: pointer;
   font-size: 14px;
-  text-transform: lowercase;
-  outline: none;
-  width: 100%;
-  box-sizing: border-box;
-  position: relative; /* Ensure the dropdown sits above other elements */
-  z-index: 1;
+  border-radius: 4px; /* Consistent rounded corners */
+  height: 32px; /* Explicit height */
+  line-height: 18px; /* Aligns text vertically (Height - 2*PaddingY - 2*Border) */
+  text-transform: capitalize; /* Consistent capitalization */
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  box-sizing: border-box; /* Include padding and border in element's total width and height */
+  vertical-align: middle; /* Helps alignment if container wasn't flex */
+  white-space: nowrap; /* Prevent text wrapping */
 }
 
-/* Add a custom dropdown arrow */
-.template-selector::after {
-  content: '▼';
-  font-size: 10px;
-  color: #eee;
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none; /* Ensure this doesn't interfere with clicks */
-}
-
-.template-dropdown:hover {
+.control-button:hover,
+.control-select:hover {
+  background-color: rgba(85, 85, 85, 0.2); /* Light transparent hover effect */
+  border-color: #777;
   color: #fff;
 }
 
-.template-dropdown option {
+/* Specific styles for the select wrapper and element */
+.control-select-wrapper {
+  position: relative;
+  display: inline-block; /* Or block if needed */
+  vertical-align: middle;
+}
+
+.control-select {
+  appearance: none; /* Remove default OS styling */
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 30px; /* Make space for the custom arrow */
+  min-width: 130px; /* Adjust as needed */
+  background-image: none; /* Ensure no residual background images */
+  text-align: left; /* More standard alignment */
+  text-overflow: ellipsis; /* Handle long template names */
+}
+
+/* Style for the placeholder option */
+.control-select option[disabled] {
+  color: #999; /* Dim the placeholder text */
+}
+
+.control-select option {
   background: #333;
   color: #eee;
+}
+
+/* Custom dropdown arrow using pseudo-element on the wrapper */
+.control-select-wrapper::after {
+  content: '▼';
+  font-size: 12px;
+  color: #aaa;
+  position: absolute;
+  right: 10px; /* Position inside the padding area */
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none; /* So it doesn't interfere with clicking the select */
+  z-index: 1; /* Ensure it's above the select */
+  transition: color 0.2s ease;
+}
+
+.control-select-wrapper:hover::after {
+  color: #eee; /* Match text color on hover */
+}
+
+/* Hide file input (already done inline, but good practice) */
+input[type="file"] {
+  display: none;
 }
 </style>

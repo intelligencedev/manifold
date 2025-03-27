@@ -1,0 +1,224 @@
+{
+  "nodes": [
+    {
+      "id": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "type": "agentNode",
+      "initialized": false,
+      "position": {
+        "x": 512,
+        "y": 112
+      },
+      "data": {
+        "type": "AgentNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "endpoint": "http://localhost:32186/v1/chat/completions",
+          "api_key": "",
+          "model": "local",
+          "system_prompt": "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation.",
+          "user_prompt": "What are the top AI news?",
+          "max_completion_tokens": 8192,
+          "temperature": 0.6
+        },
+        "outputs": {
+          "response": ""
+        },
+        "models": [
+          "local",
+          "chatgpt-4o-latest",
+          "gpt-4o",
+          "gpt-4o-mini",
+          "o1-mini",
+          "o1",
+          "o3-mini"
+        ],
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "320px",
+          "height": "760px"
+        }
+      },
+      "style": {
+        "width": "380px",
+        "height": "760px"
+      }
+    },
+    {
+      "id": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+      "type": "responseNode",
+      "initialized": false,
+      "position": {
+        "x": 992,
+        "y": 80
+      },
+      "data": {
+        "type": "ResponseNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "response": ""
+        },
+        "outputs": {
+          "result": {
+            "output": ""
+          }
+        },
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "350px",
+          "height": "400px"
+        },
+        "connectedTo": [
+          "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
+        ]
+      },
+      "style": {
+        "width": "880px",
+        "height": "792px"
+      }
+    },
+    {
+      "id": "webSearchNode_07958e25-4da1-41fd-a485-dc99c4fdee5a",
+      "type": "webSearchNode",
+      "initialized": false,
+      "position": {
+        "x": 32,
+        "y": 400
+      },
+      "data": {
+        "type": "WebSearchNode",
+        "labelStyle": {},
+        "style": {},
+        "inputs": {
+          "query": "top ai news march 2025",
+          "result_size": 6,
+          "search_backend": "ddg",
+          "sxng_url": "https://searx.be"
+        },
+        "outputs": {
+          "urls": []
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputHandleColor": "#777",
+        "inputHandleShape": "50%",
+        "handleColor": "#777",
+        "outputHandleShape": "50%"
+      }
+    },
+    {
+      "id": "webRetrievalNode_6ac0e031-67af-4d07-80ca-4ebd1041e3cc",
+      "type": "webRetrievalNode",
+      "initialized": false,
+      "position": {
+        "x": 32,
+        "y": 688
+      },
+      "data": {
+        "type": "WebRetrievalNode",
+        "labelStyle": {},
+        "style": {},
+        "inputs": {
+          "url": []
+        },
+        "outputs": {
+          "result": {}
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputHandleColor": "#777",
+        "inputHandleShape": "50%",
+        "handleColor": "#777",
+        "outputHandleShape": "50%",
+        "connectedTo": [
+          "webSearchNode_07958e25-4da1-41fd-a485-dc99c4fdee5a"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-0.30367276511116714",
+      "type": "smoothstep",
+      "source": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+      "sourceHandle": null,
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge"
+      },
+      "label": "",
+      "sourceX": 898.9998141518495,
+      "sourceY": 491.9998387093671,
+      "targetX": 984.999829470748,
+      "targetY": 476.000314556242,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1
+      }
+    },
+    {
+      "id": "edge-0.4966825949360296",
+      "type": "smoothstep",
+      "source": "webSearchNode_07958e25-4da1-41fd-a485-dc99c4fdee5a",
+      "target": "webRetrievalNode_6ac0e031-67af-4d07-80ca-4ebd1041e3cc",
+      "sourceHandle": "output",
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge"
+      },
+      "label": "",
+      "sourceX": 297.85139086613356,
+      "sourceY": 509.5000337282771,
+      "targetX": 25.000026926041162,
+      "targetY": 772.2499940338985,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1
+      }
+    },
+    {
+      "id": "edge-0.6185593678347717",
+      "type": "smoothstep",
+      "source": "webRetrievalNode_6ac0e031-67af-4d07-80ca-4ebd1041e3cc",
+      "target": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "sourceHandle": "output",
+      "targetHandle": null,
+      "data": {
+        "label": "New Edge"
+      },
+      "label": "",
+      "sourceX": 432.99985852983787,
+      "sourceY": 772.2499940338985,
+      "targetX": 504.99992869597037,
+      "targetY": 491.9998387093671,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1
+      }
+    }
+  ],
+  "position": [
+    47.31784437149577,
+    60.304468491548164
+  ],
+  "zoom": 0.8596932759377529,
+  "viewport": {
+    "x": 47.31784437149577,
+    "y": 60.304468491548164,
+    "zoom": 0.8596932759377529
+  }
+}

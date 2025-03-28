@@ -1,6 +1,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useConfigStore } from '@/stores/configStore'
 import { useCompletionsApi } from './useCompletionsApi'
+import { useCodeEditor } from './useCodeEditor'
 
 /**
  * Composable for managing AgentNode state and functionality
@@ -8,6 +9,7 @@ import { useCompletionsApi } from './useCompletionsApi'
 export function useAgentNode(props, emit) {
   const configStore = useConfigStore()
   const { callCompletionsAPI } = useCompletionsApi()
+  const { setEditorCode } = useCodeEditor()
   
   // State variables
   const showApiKey = ref(false)
@@ -275,6 +277,34 @@ namespace functions {
     }
   }
   
+  /**
+   * Sends code to the code editor
+   * Extracts code from node output and sends it to the editor
+   */
+  function sendToCodeEditor() {
+    if (props.data.outputs && props.data.outputs.response) {
+      // Check for code blocks with ```js or ```javascript delimiters
+      const codeBlockRegex = /```(?:js|javascript)\s*([\s\S]*?)```/g;
+      const matches = [...props.data.outputs.response.matchAll(codeBlockRegex)];
+      
+      if (matches.length > 0) {
+        // Use the first JavaScript code block found
+        setEditorCode(matches[0][1].trim());
+      } else {
+        // If no specific code blocks are found, check for any code blocks
+        const anyCodeBlockRegex = /```([\s\S]*?)```/g;
+        const anyMatches = [...props.data.outputs.response.matchAll(anyCodeBlockRegex)];
+        
+        if (anyMatches.length > 0) {
+          setEditorCode(anyMatches[0][1].trim());
+        } else {
+          // If no code blocks at all, send the entire output
+          setEditorCode(props.data.outputs.response);
+        }
+      }
+    }
+  }
+
   // Event handlers
   function onResize(event) {
     customStyle.value.width = `${event.width}px`;
@@ -365,6 +395,7 @@ namespace functions {
     run,
     onResize,
     handleTextareaMouseEnter,
-    handleTextareaMouseLeave
+    handleTextareaMouseLeave,
+    sendToCodeEditor
   }
 }

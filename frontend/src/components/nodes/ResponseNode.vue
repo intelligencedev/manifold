@@ -20,6 +20,7 @@
                     <select id="render-mode" v-model="selectedRenderMode">
                         <option value="markdown">Markdown</option>
                         <option value="raw">Raw Text</option>
+                        <option value="html">HTML</option>
                     </select>
                 </div>
 
@@ -59,13 +60,14 @@
                 {{ response }}
             </div>
             <div v-else-if="selectedRenderMode === 'markdown'" class="markdown-text" v-html="markdownToHtml"></div>
+            <div v-else-if="selectedRenderMode === 'html'" class="html-content" v-html="sanitizedHtml"></div>
         </div>
 
         <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
         <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
 
         <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-            :line-style="resizeHandleStyle" :min-width="350" :min-height="400" :node-id="props.id" @resize="onResize" />
+            :line-style="resizeHandleStyle" :min-width="624" :min-height="256" :node-id="props.id" @resize="onResize" />
     </div>
 </template>
 
@@ -75,6 +77,7 @@ import { Handle, useVueFlow } from "@vue-flow/core";
 import { marked } from "marked";
 import { NodeResizer } from "@vue-flow/node-resizer";
 import hljs from 'highlight.js';
+import DOMPurify from 'dompurify';
 // Don't import themes here - we'll load them dynamically
 
 const { getEdges, findNode, updateNodeData } = useVueFlow()
@@ -219,7 +222,7 @@ const props = defineProps({
                 borderRadius: '12px',
                 backgroundColor: '#333',
                 color: '#eee',
-                width: '350px',
+                width: '624px',
                 height: '400px',
             },
         }),
@@ -279,6 +282,14 @@ const markdownToHtml = computed(() => {
     // Access reRenderKey to force re-evaluation
     reRenderKey.value;
     return marked(response.value);
+});
+
+// Add computed property for sanitized HTML
+const sanitizedHtml = computed(() => {
+    return DOMPurify.sanitize(response.value, {
+        ALLOWED_TAGS: ['p', 'div', 'span', 'a', 'ul', 'ol', 'li', 'b', 'i', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+        ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'id', 'style']
+    });
 });
 
 // ----- Computed properties -----
@@ -573,5 +584,30 @@ select {
 
 .select-container select {
     min-width: 100px;
+}
+
+.html-content {
+    line-height: 1.5;
+    /* Ensure proper spacing for HTML elements */
+    & :first-child {
+        margin-top: 0;
+    }
+    & :last-child {
+        margin-bottom: 0;
+    }
+    /* Basic table styles */
+    & table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1em 0;
+    }
+    & th, & td {
+        border: 1px solid #666;
+        padding: 8px;
+        text-align: left;
+    }
+    & th {
+        background-color: #444;
+    }
 }
 </style>

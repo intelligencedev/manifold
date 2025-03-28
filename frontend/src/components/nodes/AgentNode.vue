@@ -95,6 +95,16 @@
       @mouseleave="handleTextareaMouseLeave"
     />
 
+    <!-- Send to Code Editor button - only visible when there's response content -->
+    <button 
+      v-if="data.outputs && data.outputs.response" 
+      class="code-editor-button"
+      @click="sendToCodeEditor"
+      title="Send code to the editor"
+    >
+      <span class="button-icon">📝</span> Send to Code Editor
+    </button>
+
     <!-- Input/Output Handles -->
     <Handle 
       style="width:12px; height:12px" 
@@ -206,7 +216,8 @@ const {
   // Methods
   onResize,
   handleTextareaMouseEnter,
-  handleTextareaMouseLeave
+  handleTextareaMouseLeave,
+  sendToCodeEditor
 } = useAgentNode(props, emit)
 </script>
 
@@ -216,5 +227,29 @@ const {
 /* Additional component-specific styles */
 .input-wrapper {
   position: relative;
+}
+
+/* Code Editor Button Styles */
+.code-editor-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 10px 0;
+  padding: 6px 12px;
+  background-color: #4a5568;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  transition: background-color 0.2s;
+}
+
+.code-editor-button:hover {
+  background-color: #2c5282;
+}
+
+.button-icon {
+  margin-right: 5px;
 }
 </style>

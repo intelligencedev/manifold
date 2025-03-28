@@ -1,7 +1,7 @@
 <template>
-  <div class="utility-palette" :class="{ 'is-open': isOpen }">
+  <div class="utility-palette" :class="{ 'is-open': isEditorOpen }">
     <div class="toggle-button" @click="togglePalette">
-      <svg v-if="isOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+      <svg v-if="isEditorOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
         viewBox="0 0 16 16">
         <path fill-rule="evenodd"
           d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
@@ -56,10 +56,12 @@ import { javascript } from '@codemirror/lang-javascript';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorView } from '@codemirror/view';
 import { getQuickJS, QuickJSContext, QuickJSWASMModule } from 'quickjs-emscripten';
+import { useCodeEditor } from '@/composables/useCodeEditor';
+
+// Use the global code editor composable
+const { code, isEditorOpen, openEditor, closeEditor } = useCodeEditor();
 
 // --- Refs ---
-const isOpen = ref(false);
-const code = ref<string>('console.log("Hello from Wasm!");\n// Try accessing window or document - it should fail\n// Example: console.log(window.location.href);\n');
 const output = ref<string>('');
 const isRunning = ref<boolean>(false);
 const isLoadingWasm = ref<boolean>(true);
@@ -124,7 +126,7 @@ onUnmounted(() => {
 
 // --- Core Logic ---
 function togglePalette() {
-  isOpen.value = !isOpen.value;
+  isEditorOpen.value = !isEditorOpen.value;
 }
 
 const runCode = () => {

@@ -97,7 +97,7 @@
         <Mermaid v-bind="mermaidNodeProps" />
       </template>
 
-      <Controls :style="{ backgroundColor: '#222', color: '#eee' }" />
+      <!-- <Controls :style="{ backgroundColor: '#222', color: '#eee' }" /> -->
       <!-- <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
         :mask-color="'rgba(40, 40, 40, 0.8)'" /> -->
       <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
@@ -150,7 +150,6 @@ import {
   type Edge,
 } from '@vue-flow/core';
 import {
-  Controls,
   Background,
   BackgroundVariant,
 } from '@vue-flow/additional-components';

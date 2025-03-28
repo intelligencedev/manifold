@@ -9,7 +9,7 @@
     <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
       :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
       @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
-      :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[20, 20]"
+      :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[16, 16]"
       :default-viewport="{ x: 0, y: 0, zoom: 1 }">
       <!-- Node Templates -->
       <template #node-noteNode="noteNodeProps">
@@ -97,10 +97,10 @@
         <Mermaid v-bind="mermaidNodeProps" />
       </template>
 
-      <Controls :style="{ backgroundColor: '#222', color: '#eee' }" />
+      <!-- <Controls :style="{ backgroundColor: '#222', color: '#eee' }" /> -->
       <!-- <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
         :mask-color="'rgba(40, 40, 40, 0.8)'" /> -->
-      <Background :color="bgColor" :variant="bgVariant" :gap="20" :size="1" :pattern-color="'#444'" />
+      <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
 
       <!-- Run Workflow Button -->
       <div class="bottom-bar">
@@ -150,7 +150,6 @@ import {
   type Edge,
 } from '@vue-flow/core';
 import {
-  Controls,
   Background,
   BackgroundVariant,
 } from '@vue-flow/additional-components';

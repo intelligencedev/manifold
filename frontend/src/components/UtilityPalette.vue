@@ -12,296 +12,198 @@
           d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708z" />
       </svg>
     </div>
-
     <div class="utility-content">
-      <div class="scrollable-content">
-
-        <!-- Accordion -->
-        <div class="accordion">
-
-          <!-- Console Logs Card Accordion Item -->
-          <div class="accordion-item">
-            <div class="accordion-header" @click="toggleAccordion('logs')">
-              <h3 class="accordion-title">Console Logs</h3>
-              <span class="accordion-icon" :class="{ 'is-open': accordionOpen.logs }">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-down"
-                  viewBox="0 0 16 16">
-                  <path fill-rule="evenodd"
-                    d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
-                </svg>
-              </span>
-            </div>
-            <div class="accordion-content" v-if="accordionOpen.logs">
-              <!-- Console Logs Content -->
-              <div class="logs-card">
-                <div class="logs-controls">
-                  <button @click="clearLogs" class="clear-logs-button">Clear Logs</button>
-                  <label class="auto-scroll-label">
-                    <input type="checkbox" v-model="autoScroll">
-                    Auto-scroll
-                  </label>
-                </div>
-                <div class="logs-container" ref="logsContainer">
-                  <div v-for="(log, index) in consoleLogs" :key="index" :class="['log-entry', `log-${log.type}`]">
-                    <span class="log-time">{{ log.timestamp }}</span>
-                    <span class="log-type">[{{ log.type.toUpperCase() }}]</span>
-                    <span class="log-message">{{ log.message }}</span>
-                  </div>
-                  <div v-if="consoleLogs.length === 0" class="no-logs-message">
-                    No logs captured yet
-                  </div>
-                </div>
-              </div>
-              <!-- End Console Logs Content -->
-            </div>
-          </div>
-          <!-- End Console Logs Card Accordion Item -->
-
-          <!-- Search Card Accordion Item -->
-          <div class="accordion-item">
-            <div class="accordion-header" @click="toggleAccordion('search')">
-              <h3 class="accordion-title">Model Search</h3>
-              <span class="accordion-icon" :class="{ 'is-open': accordionOpen.search }">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-down"
-                  viewBox="0 0 16 16">
-                  <path fill-rule="evenodd"
-                    d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
-                </svg>
-              </span>
-            </div>
-            <div class="accordion-content" v-if="accordionOpen.search">
-              <!-- Search Card Content -->
-              <div class="search-card">
-                <div class="form-group">
-                  <label for="searchQuery" class="input-label">Search Query</label>
-                  <input type="text" id="searchQuery" v-model="searchQuery" placeholder="Enter search term"
-                    class="input-text" />
-                </div>
-                <div class="form-group">
-                  <label for="limit" class="input-label">Results Limit</label>
-                  <input type="number" id="limit" v-model.number="limit" min="1" class="input-number" />
-                </div>
-                <button @click="performSearch" :disabled="isSearching" class="search-button">
-                  {{ isSearching ? "Searching..." : "Search" }}
-                </button>
-                <div v-if="searchError" class="error-message">Error: {{ searchError }}</div>
-                <div v-if="results.length > 0" class="results">
-                  <ul>
-                    <li v-for="model in results" :key="model.id" class="result-item">
-                      <!-- Model name is now a link that opens in a new tab -->
-                      <a :href="`https://huggingface.co/${model.name}`" target="_blank" rel="noopener noreferrer"
-                        class="result-link">
-                        <strong>{{ model.name }}</strong>
-                      </a>
-                    </li>
-                  </ul>
-                  <div class="pagination">
-                    <button @click="prevPage" :disabled="page === 1" class="pagination-button">Previous</button>
-                    <span class="page-number">Page {{ page }}</span>
-                    <button @click="nextPage" :disabled="results.length < limit" class="pagination-button">Next</button>
-                  </div>
-                </div>
-              </div>
-              <!-- End Search Card Content -->
-            </div>
-          </div>
-          <!-- End Search Card Accordion Item -->
-
-          <!-- Configuration Card Accordion Item -->
-          <div class="accordion-item">
-            <div class="accordion-header" @click="toggleAccordion('config')">
-              <h3 class="accordion-title">Configuration</h3>
-              <span class="accordion-icon" :class="{ 'is-open': accordionOpen.config }">
-                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-chevron-down"
-                  viewBox="0 0 16 16">
-                  <path fill-rule="evenodd"
-                    d="M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z" />
-                </svg>
-              </span>
-            </div>
-            <div class="accordion-content" v-if="accordionOpen.config">
-              <!-- Configuration Card Content -->
-              <div class="config-card">
-                <div v-if="configStore.loading" class="loading-message">Loading...</div>
-                <div v-else-if="configStore.error" class="error-message">Error: {{ configStore.error }}</div>
-                <div v-else>
-                  <pre class="config-display">{{ configStore.config }}</pre>
-                </div>
-              </div>
-              <!-- End Configuration Card Content -->
-            </div>
-          </div>
-          <!-- End Configuration Card Accordion Item -->
-
+      <div class="wasm-code-editor-container">
+        <!-- Toolbar -->
+        <div class="toolbar">
+          <button @click="runCode" :disabled="isRunning || !quickJSVm">Run</button>
+          <button @click="clearOutput">Clear Output</button>
         </div>
-        <!-- End Accordion -->
-
+    
+        <!-- CodeMirror Editor -->
+        <div class="editor-wrapper">
+          <Codemirror
+            v-model="code"
+            placeholder="Enter JavaScript code..."
+            :style="{ height: '400px' }"
+            :autofocus="true"
+            :indent-with-tab="true"
+            :tab-size="2"
+            :extensions="cmExtensions"
+            @ready="handleCmReady"
+          />
+        </div>
+    
+        <!-- Output Area -->
+        <div class="output-area">
+          <h3>Output / Logs</h3>
+          <pre ref="outputRef" class="output-content">{{ output }}</pre>
+        </div>
+    
+        <!-- Status/Loading -->
+        <div v-if="isLoadingWasm" class="status-message">Loading Wasm Engine...</div>
+        <div v-if="wasmError" class="error-message">Wasm Error: {{ wasmError }}</div>
+        <div v-if="isRunning" class="status-message">Running...</div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { useConfigStore } from '@/stores/configStore'
-import { listModels } from '@huggingface/hub'
+import { ref, shallowRef, onMounted, computed, nextTick, onUnmounted } from 'vue';
+import { Codemirror } from 'vue-codemirror';
+import { javascript } from '@codemirror/lang-javascript';
+import { oneDark } from '@codemirror/theme-one-dark';
+import { EditorView } from '@codemirror/view';
+import { getQuickJS, QuickJSContext, QuickJSWASMModule } from 'quickjs-emscripten';
 
-const isOpen = ref(false)
-const configStore = useConfigStore()
-const logsContainer = ref<HTMLElement | null>(null)
+// --- Refs ---
+const isOpen = ref(false);
+const code = ref<string>('console.log("Hello from Wasm!");\n// Try accessing window or document - it should fail\n// Example: console.log(window.location.href);\n');
+const output = ref<string>('');
+const isRunning = ref<boolean>(false);
+const isLoadingWasm = ref<boolean>(true);
+const wasmError = ref<string | null>(null);
+const quickJSVm = shallowRef<QuickJSContext | null>(null); // Use shallowRef for complex non-reactive objects
+const outputRef = ref<HTMLPreElement | null>(null);
+const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
 
-// Accordion State
-const accordionOpen = ref({
-  logs: true,    // Start with logs open
-  search: false, // Close search
-  config: false,
-})
-
-// Console Logs Logic
-interface ConsoleLog {
-  type: 'warning' | 'error';
-  message: string;
-  timestamp: string;
-}
-
-const consoleLogs = ref<ConsoleLog[]>([])
-const autoScroll = ref(true)
-
-// Original console methods
-const originalConsoleWarn = console.warn
-const originalConsoleError = console.error
-
-// Function to format timestamp
-function formatTimestamp(): string {
-  const now = new Date()
-  return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-// Override console methods to capture logs
-function overrideConsole() {
-  console.warn = function(...args: any[]) {
-    // Call original method
-    originalConsoleWarn.apply(console, args)
-    
-    // Add to our logs
-    consoleLogs.value.push({
-      type: 'warning',
-      message: args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '),
-      timestamp: formatTimestamp()
-    })
-  }
-  
-  console.error = function(...args: any[]) {
-    // Call original method
-    originalConsoleError.apply(console, args)
-    
-    // Add to our logs
-    consoleLogs.value.push({
-      type: 'error',
-      message: args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' '),
-      timestamp: formatTimestamp()
-    })
-  }
-}
-
-// Restore original console methods
-function restoreConsole() {
-  console.warn = originalConsoleWarn
-  console.error = originalConsoleError
-}
-
-function clearLogs() {
-  consoleLogs.value = []
-}
-
-// Auto-scroll logic
-watch(consoleLogs, () => {
-  if (autoScroll.value) {
-    nextTick(() => {
-      if (logsContainer.value) {
-        logsContainer.value.scrollTop = logsContainer.value.scrollHeight
-      }
-    })
-  }
-}, { deep: true })
-
-onMounted(() => {
-  configStore.fetchConfig()
-  overrideConsole()
-  
-  // Test logs
-  console.warn("Console logger initialized")
-})
-
-onUnmounted(() => {
-  restoreConsole()
-})
-
-function togglePalette() {
-  isOpen.value = !isOpen.value
-}
-
-function toggleAccordion(item: 'logs' | 'search' | 'config') {
-  for (const key in accordionOpen.value) {
-    // Close all other items
-    if (key !== item) {
-      accordionOpen.value[key as 'logs' | 'search' | 'config'] = false
-    }
-  }
-  // Toggle the clicked item
-  accordionOpen.value[item] = !accordionOpen.value[item]
-}
-
-// --- Search Card Logic ---
-const searchQuery = ref('')
-const limit = ref(10)  // Default limit
-const page = ref(1)
-const results = ref<Array<any>>([])
-const isSearching = ref(false)
-const searchError = ref('')
-
-async function performSearch() {
-  if (!searchQuery.value) {
-    searchError.value = "Please enter a search query."
-    return
-  }
-  searchError.value = ''
-  isSearching.value = true
-  try {
-    // Retrieve all matching models (ignoring limit/offset on the API call)
-    const modelsIterator = listModels({
-      search: {
-        query: searchQuery.value,
-        task: 'text-generation'  //  filter to text-generation models
+// --- CodeMirror ---
+const cmTheme = oneDark; // Make this selectable later if needed
+const cmExtensions = computed(() => [
+    javascript(),
+    cmTheme,
+    EditorView.lineWrapping, // Enable line wrapping
+    // Add other extensions like line numbers, keymaps, etc.
+    EditorView.theme({ // Basic styling adjustments
+      '&': {
+        fontSize: '13px',
+        height: '100%', // Ensure it fills wrapper
       },
-    })
-    const allModels = []
-    for await (const model of modelsIterator) {
-      allModels.push(model)
-    }
-    // Manually paginate by slicing the complete result array.
-    const offset = (page.value - 1) * limit.value
-    results.value = allModels.slice(offset, offset + limit.value)
-  } catch (err: any) {
-    console.error("Error during search:", err)
-    searchError.value = err.message || 'An error occurred during search.'
-    results.value = [] // Clear results on error
+      '.cm-scroller': { overflow: 'auto' },
+      '.cm-content': { 
+        textAlign: 'left', // Ensure text is left-aligned
+        justifyContent: 'flex-start' // Align lines to the left
+      },
+      '.cm-line': {
+        textAlign: 'left', // Ensure each line is left-aligned
+        justifyContent: 'flex-start' // Left-justify content within lines
+      }
+    }),
+]);
+
+const handleCmReady = (payload: any) => {
+  cmView.value = payload.view;
+  console.log('CodeMirror instance ready');
+};
+
+// --- Wasm Engine ---
+onMounted(async () => {
+  try {
+    isLoadingWasm.value = true;
+    wasmError.value = null;
+    const QuickJS = await getQuickJS();
+    quickJSVm.value = QuickJS.newContext();
+    console.log('QuickJS Wasm engine initialized.');
+  } catch (error: any) {
+    console.error("Failed to load QuickJS Wasm:", error);
+    wasmError.value = error.message || 'Unknown error loading Wasm.';
   } finally {
-    isSearching.value = false
+    isLoadingWasm.value = false;
   }
+});
+
+// Cleanup Wasm VM on component unmount
+onUnmounted(() => {
+  if (quickJSVm.value) {
+    quickJSVm.value.dispose();
+    quickJSVm.value = null;
+    console.log('QuickJS Wasm VM disposed.');
+  }
+});
+
+// --- Core Logic ---
+function togglePalette() {
+  isOpen.value = !isOpen.value;
 }
 
-function nextPage() {
-  page.value += 1
-  performSearch()  // Re-fetch with new page
-}
+const runCode = () => {
+  if (!quickJSVm.value || isRunning.value) return;
 
-function prevPage() {
-  if (page.value > 1) {
-    page.value -= 1
-    performSearch() // Re-fetch with new page
-  }
-}
+  isRunning.value = true;
+  output.value = `Executing at ${new Date().toLocaleTimeString()}...\n\n`;
+  scrollToOutputBottom();
+
+  // Use setTimeout to allow UI update before potentially blocking execution
+  setTimeout(() => {
+    try {
+      const vm = quickJSVm.value as QuickJSContext; // Type assertion
+
+      // Capture console.log, console.error, etc.
+      // We need to expose functions from JS host (Vue) to Wasm guest (QuickJS)
+      const logHandler = vm.newFunction("log", (...args) => {
+        const formattedArgs = args.map(arg => vm.dump(arg));
+        output.value += `[LOG] ${formattedArgs.join(' ')}\n`;
+        scrollToOutputBottom();
+      });
+      const errorHandler = vm.newFunction("error", (...args) => {
+        const formattedArgs = args.map(arg => vm.dump(arg));
+        output.value += `[ERR] ${formattedArgs.join(' ')}\n`;
+        scrollToOutputBottom();
+      });
+
+      // Expose the handlers to the global scope inside QuickJS
+      const consoleObj = vm.newObject();
+      vm.setProp(consoleObj, "log", logHandler);
+      vm.setProp(consoleObj, "error", errorHandler);
+      vm.setProp(consoleObj, "warn", logHandler); // Map warn to log for simplicity
+      vm.setProp(vm.global, "console", consoleObj);
+
+      // Release handles for the functions and object
+      logHandler.dispose();
+      errorHandler.dispose();
+      consoleObj.dispose();
+
+      // Execute the code
+      const result = vm.evalCode(code.value);
+
+      if (result.error) {
+        output.value += `\n--- EXECUTION ERROR ---\n`;
+        const errorVal = vm.dump(result.error);
+        output.value += `${errorVal.name}: ${errorVal.message}\n`;
+        if (errorVal.stack) {
+            output.value += `Stack:\n${errorVal.stack}\n`;
+        }
+        result.error.dispose();
+      } else {
+        output.value += `\n--- EXECUTION SUCCESS ---\n`;
+        const resultVal = vm.dump(result.value);
+        output.value += `Return Value: ${JSON.stringify(resultVal, null, 2)}\n`;
+        result.value.dispose();
+      }
+
+    } catch (error: any) {
+      output.value += `\n--- HOST ERROR ---\n`;
+      output.value += error.message || 'An unexpected error occurred.';
+      console.error("Error running Wasm code:", error);
+    } finally {
+      isRunning.value = false;
+      scrollToOutputBottom();
+    }
+  }, 10); // Small delay
+};
+
+const clearOutput = () => {
+  output.value = '';
+};
+
+const scrollToOutputBottom = () => {
+    nextTick(() => {
+        if (outputRef.value) {
+            outputRef.value.scrollTop = outputRef.value.scrollHeight;
+        }
+    });
+};
 </script>
 
 <style scoped>
@@ -311,13 +213,14 @@ function prevPage() {
   top: 50px;
   bottom: 0;
   right: 0;
-  width: 250px;
+  width: 50%; /* Changed from 250px to 50% of viewport */
   background-color: #222;
   color: #eee;
   z-index: 1100;
   transition: transform 0.3s ease-in-out;
   transform: translateX(100%);
   font-family: 'Roboto', sans-serif; /* Consistent font */
+  box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3); /* Add shadow for better visuals */
 }
 
 .utility-palette.is-open {
@@ -350,293 +253,127 @@ function prevPage() {
 
 /* Utility Content */
 .utility-content {
-  padding: 10px;
   height: 100%;
   box-sizing: border-box;
+  overflow: hidden; /* Prevent content overflow */
 }
 
-.scrollable-content {
-  overflow-y: auto;
-  height: 100%;
-  padding-right: 10px;
-}
-
-/* Scrollbar Styles */
-.scrollable-content::-webkit-scrollbar {
-  width: 8px;
-}
-
-.scrollable-content::-webkit-scrollbar-track {
-  background: #333;
-  border-radius: 4px;
-}
-
-.scrollable-content::-webkit-scrollbar-thumb {
-  background-color: #666;
-  border-radius: 4px;
-  border: 2px solid #333;
-}
-
-.scrollable-content::-webkit-scrollbar-thumb:hover {
-  background-color: #888;
-}
-
-/* Accordion Styles */
-.accordion-item {
-  margin-bottom: 10px;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #444; /* Add border to accordion items */
-}
-
-.accordion-header {
-  background-color: #333;
-  padding: 12px 15px; /* Slightly smaller padding */
-  color: #eee;
-  font-weight: bold;
-  cursor: pointer;
+/* Code Editor Styles */
+.wasm-code-editor-container {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid #444; /* Add border */
-}
-
-.accordion-title {
-  margin: 0;
-  font-size: 1rem; /* Consistent font size */
-}
-
-.accordion-icon {
-  transition: transform 0.3s ease;
-  display: flex; /* Use flex for alignment */
-  align-items: center; /* Center vertically */
-}
-
-.accordion-icon.is-open {
-  transform: rotate(180deg);
-}
-
-.accordion-content {
-  background-color: #2a2a2a; /* Slightly lighter content background */
-  padding: 15px;
-  border-bottom-left-radius: 8px;  /* Round bottom corners */
-  border-bottom-right-radius: 8px;
-}
-
-/* Configuration Card Styles */
-.config-card {
-  padding: 15px;
-  border-radius: 8px;
+  flex-direction: column;
+  height: 100%; /* Fill parent (UtilityPalette) */
+  background-color: #2a2a2a; /* Match palette */
   color: #eee;
-  margin-bottom: 0; /* Remove bottom margin */
-}
-
-.config-display {
-  background: #222;
+  font-family: sans-serif;
   padding: 10px;
-  border-radius: 5px;
-  overflow-x: auto;
-  white-space: pre-wrap; /* Preserve newlines and spaces */
-  font-family: 'Courier New', monospace; /* Monospace font */
-  font-size: 0.9rem;
-}
-
-.loading-message,
-.error-message {
-  padding: 10px;
-  color: #eee;
-}
-.error-message {
-    color: #f88;
-}
-
-/* Search Card Styles */
-.search-card {
-  padding: 15px;
-  border-radius: 8px;
-  color: #eee;
-  margin-bottom: 0;  /* Remove bottom margin */
-}
-
-.form-group {
-  margin-bottom: 10px;
-}
-
-.input-label {
-  display: block;
-  margin-bottom: 5px;
-  font-size: 0.9rem;
-}
-
-.input-text,
-.input-number {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #555;
-  border-radius: 4px;
-  background-color: #222;
-  color: #eee;
   box-sizing: border-box;
-  font-size: 0.9rem; /* Consistent font size */
 }
 
-.search-button {
-  padding: 8px 16px;
-  background-color: #555;
-  color: #eee;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  margin-top: 10px;
-  font-size: 0.9rem;
-  transition: background-color 0.2s ease; /* Add transition */
-}
-
-.search-button:disabled {
-  background-color: #777;
-  cursor: not-allowed;
-}
-.search-button:hover:enabled { /* Hover effect */
-    background-color: #666;
-}
-
-.results {
-  margin-top: 15px;
-}
-
-.results ul {
-  list-style-type: none;
-  padding: 0;
-}
-
-.result-item {
-  padding: 8px 0; /* Slightly more padding */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
   border-bottom: 1px solid #444;
 }
-.result-item:last-child { /* Remove last border */
-    border-bottom: none;
-}
 
-.result-link {
-  color: #eee;
-  text-decoration: none; /* Remove underline */
-  font-size: 0.9rem;
-  transition: color 0.2s ease;
-}
-.result-link:hover {
-    color: #007bff;
-}
-
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 10px;
-}
-
-.pagination-button {
-  padding: 5px 10px;
-  background-color: #555;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.9rem;
-  color: #eee;
-  transition: background-color 0.2s ease;
-}
-
-.pagination-button:disabled {
-  background-color: #777;
-  cursor: not-allowed;
-}
-.pagination-button:hover:enabled {
-    background-color: #666;
-}
-
-.page-number {
-  color: #eee;
-  font-size: 0.9rem;
-}
-
-/* Console Logs Card Styles */
-.logs-card {
-  padding: 10px;
-  border-radius: 8px;
-  color: #eee;
-  margin-bottom: 0;
-}
-
-.logs-controls {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.clear-logs-button {
+.toolbar button {
   padding: 5px 10px;
   background-color: #444;
   color: #eee;
-  border: none;
+  border: 1px solid #666;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 0.8rem;
-  transition: background-color 0.2s;
+  font-size: 0.9em;
 }
 
-.clear-logs-button:hover {
+.toolbar button:hover:not(:disabled) {
   background-color: #555;
 }
 
-.auto-scroll-label {
+.toolbar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.editor-wrapper {
+  flex-shrink: 1; /* Allow shrinking */
+  flex-grow: 1; /* Allow growing but less than output */
+  min-height: 150px; /* Minimum editor height */
+  height: 50%; /* Default height percentage */
+  border: 1px solid #444;
+  margin-bottom: 10px;
+  overflow: hidden; /* Prevent editor from overflowing wrapper */
+}
+
+/* Style codemirror component */
+:deep(.cm-editor) {
+  height: 100%;
+}
+
+.output-area {
+  flex-shrink: 1;
+  flex-grow: 1; /* Take up remaining space */
+  min-height: 100px;
+  height: 45%; /* Default height percentage */
   display: flex;
-  align-items: center;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.auto-scroll-label input {
-  margin-right: 5px;
-}
-
-.logs-container {
-  height: 200px;
-  overflow-y: auto;
-  background-color: #1a1a1a;
+  flex-direction: column;
+  border: 1px solid #444;
+  background-color: #1e1e1e; /* Darker bg for output */
   border-radius: 4px;
-  padding: 8px;
-  font-family: 'Courier New', monospace;
-  font-size: 0.8rem;
 }
 
-.log-entry {
-  margin-bottom: 4px;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  word-break: break-word;
+.output-area h3 {
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 0.9em;
+  background-color: #333;
+  border-bottom: 1px solid #444;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
 }
 
-.log-time {
-  color: #888;
-  margin-right: 6px;
-}
-
-.log-type {
-  font-weight: bold;
-  margin-right: 6px;
-}
-
-.log-warning {
-  color: #ffcc00;
-}
-
-.log-error {
-  color: #ff6b6b;
-}
-
-.no-logs-message {
-  color: #888;
-  text-align: center;
+.output-content {
+  flex-grow: 1;
+  overflow: auto;
   padding: 10px;
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #ccc;
+  text-align: left; /* Ensure text is left-aligned */
+}
+
+/* Add specific styling for log entries to ensure they're left-aligned */
+.output-content * {
+  text-align: left;
+}
+
+.output-content::-webkit-scrollbar {
+  width: 6px;
+}
+.output-content::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 3px;
+}
+.output-content::-webkit-scrollbar-track {
+  background: #2a2a2a;
+}
+
+.status-message {
+  padding: 5px;
+  font-style: italic;
+  color: #aaa;
+  font-size: 0.9em;
+}
+.error-message {
+  padding: 5px;
+  font-weight: bold;
+  color: #ff6b6b; /* Error color */
+  font-size: 0.9em;
 }
 </style>

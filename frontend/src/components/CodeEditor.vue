@@ -44,7 +44,7 @@
   import { getQuickJS, QuickJSContext } from 'quickjs-emscripten';
   
   // --- Refs ---
-  const code = ref<string>('console.log("Hello from Wasm!");');
+  const code = ref<string>('console.log("Hello from Manifold!");');
   const output = ref<string>('');
   const isRunning = ref<boolean>(false);
   const isLoadingWasm = ref<boolean>(true);

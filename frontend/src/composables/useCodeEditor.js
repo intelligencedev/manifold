@@ -4,7 +4,7 @@ import { ref } from 'vue'
  * Global state management for the Code Editor component
  * Allows other components to update code in the editor
  */
-const code = ref('console.log("Hello from Wasm!");\n// Try accessing window or document - it should fail\n// Example: console.log(window.location.href);\n')
+const code = ref('console.log("Hello from Manifold!");')
 const isEditorOpen = ref(false)
 
 export function useCodeEditor() {

@@ -126,9 +126,9 @@
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle" 
       :width="380" 
-      :height="760" 
+      :height="906" 
       :min-width="380" 
-      :min-height="760"
+      :min-height="906"
       :node-id="id" 
       @resize="onResize" 
     />
@@ -176,8 +176,8 @@ const props = defineProps({
         borderRadius: '12px',
         backgroundColor: '#333',
         color: '#eee',
-        width: '320px',
-        height: '760px',
+        width: '380px',
+        height: '906px',
       },
     }),
   },

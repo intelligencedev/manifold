@@ -32,7 +32,7 @@
         </div>
     
         <!-- CodeMirror Editor -->
-        <div class="editor-wrapper" :style="{ height: editorHeight + 'px' }">
+        <div class="editor-wrapper" :style="{ height: editorHeightPercent + '%' }">
           <Codemirror
             v-model="code"
             placeholder="Enter JavaScript code..."
@@ -55,7 +55,7 @@
         </div>
     
         <!-- Output Area (Console or HTML Preview) -->
-        <div class="output-area" :style="{ height: outputHeight + 'px' }">
+        <div class="output-area" :style="{ height: (100 - editorHeightPercent) + '%' }">
           <div class="output-header">
             <h3>{{ selectedLanguage === 'html' ? 'HTML Preview' : 'Output / Logs' }}</h3>
             <div v-if="selectedLanguage === 'html'" class="preview-controls">
@@ -101,8 +101,7 @@ const htmlPreviewRef = ref<HTMLIFrameElement | null>(null);
 const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
 const selectedLanguage = ref<'javascript' | 'html'>('javascript');
 // Heights for resizable panels
-const editorHeight = ref<number>(300); // Initial height for editor
-const outputHeight = ref<number>(300); // Initial height for output panel
+const editorHeightPercent = ref<number>(50); // Default split at 50%
 const htmlCode = ref<string>(`<!DOCTYPE html>
 <html>
 <head>
@@ -370,43 +369,22 @@ const scrollToOutputBottom = () => {
 
 // --- Resizing Functionality ---
 let isResizing = false;
-let startY = 0;
-let startEditorHeight = 0;
-let startOutputHeight = 0;
-let containerHeight = 0;
-let clickOffsetY = 0; // Track where within the divider the user clicked
-let dividerInitialTop = 0; // Track the initial position of the divider
+let lastClientY = 0;
 
 // Start resize operation
 const startResize = (event: MouseEvent | TouchEvent) => {
   isResizing = true;
   
-  // Get initial position
-  startY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
-  startEditorHeight = editorHeight.value;
-  startOutputHeight = outputHeight.value;
+  // Store the initial mouse/touch position
+  lastClientY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
   
-  // Calculate the offset from the top of the divider
-  const divider = event.currentTarget as HTMLElement;
-  const dividerRect = divider.getBoundingClientRect();
-  
-  // Store initial divider position
-  dividerInitialTop = dividerRect.top;
-  
-  // Calculate the offset from the top of the divider where the user clicked
-  clickOffsetY = startY - dividerRect.top;
-  
-  // Get container height for calculations
-  const container = document.querySelector('.wasm-code-editor-container');
-  containerHeight = container ? container.clientHeight - 60 : 600; // Subtract padding and toolbar height
-  
-  // Add move and end event listeners
+  // Add event listeners
   document.addEventListener('mousemove', handleResize);
   document.addEventListener('touchmove', handleResize, { passive: false });
   document.addEventListener('mouseup', stopResize);
   document.addEventListener('touchend', stopResize);
   
-  // Prevent text selection during resize
+  // Prevent default to avoid text selection
   event.preventDefault();
 };
 
@@ -417,19 +395,34 @@ const handleResize = (event: MouseEvent | TouchEvent) => {
   // Get current mouse/touch position
   const clientY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
   
-  // Calculate where the divider's top should be to stay under the mouse
-  const targetDividerTop = clientY - clickOffsetY;
+  // Get container information for calculation
+  const container = document.querySelector('.wasm-code-editor-container');
+  if (!container) return;
   
-  // Calculate change in divider position
-  const delta = targetDividerTop - dividerInitialTop;
+  const containerRect = container.getBoundingClientRect();
+  const containerHeight = containerRect.height;
+  const minHeight = 50; // Minimum height in pixels for each section
   
-  // Calculate new heights maintaining minimum sizes
-  const newEditorHeight = Math.max(100, Math.min(containerHeight - 100, startEditorHeight + delta));
-  const newOutputHeight = Math.max(100, Math.min(containerHeight - 100, containerHeight - newEditorHeight));
+  // Calculate how much the mouse has moved
+  const deltaY = clientY - lastClientY;
   
-  // Update the reactive refs
-  editorHeight.value = newEditorHeight;
-  outputHeight.value = newOutputHeight;
+  // Calculate the percentage change based on container height
+  const deltaPercent = (deltaY / containerHeight) * 100;
+  
+  // Calculate new percentage, applying constraints
+  const newPercent = Math.min(
+    Math.max(
+      (minHeight / containerHeight) * 100,
+      editorHeightPercent.value + deltaPercent
+    ),
+    100 - (minHeight / containerHeight) * 100
+  );
+  
+  // Update percentage
+  editorHeightPercent.value = newPercent;
+  
+  // Update last position
+  lastClientY = clientY;
   
   // Prevent scrolling on touch devices
   if (event instanceof TouchEvent) {

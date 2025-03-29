@@ -250,6 +250,7 @@ namespace functions {
       
       // Reset the response
       props.data.outputs.response = '';
+      props.data.outputs.error = null;
       
       // Handle response updates
       const onResponseUpdate = (tokenContent, fullResponse) => {
@@ -270,10 +271,47 @@ namespace functions {
       
       // Call the API
       const result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
+
+      // Handle error in result
+      if (result.error) {
+        props.data.outputs.error = result.error;
+        props.data.outputs.response = JSON.stringify({ error: result.error }, null, 2);
+        
+        // Also update connected response nodes with the error
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = props.data.outputs.response;
+            responseNode.run();
+          }
+        }
+      }
+      
       return result;
     } catch (error) {
       console.error('Error in AgentNode run:', error);
-      return { error: error.message };
+      const errorMessage = error.message || "Unknown error occurred";
+      
+      // Store error in outputs
+      props.data.outputs.error = errorMessage;
+      props.data.outputs.response = JSON.stringify({ error: errorMessage }, null, 2);
+      
+      // Update connected response nodes with the error
+      if (props.vueFlowInstance) {
+        const { getEdges, findNode } = props.vueFlowInstance;
+        const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+        const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+        
+        if (responseNode) {
+          responseNode.data.inputs.response = props.data.outputs.response;
+          responseNode.run();
+        }
+      }
+      
+      return { error: errorMessage };
     }
   }
   

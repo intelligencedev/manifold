@@ -648,4 +648,23 @@ const stopResize = () => {
 .resize-handle:hover .handle-indicator {
   background-color: #777;
 }
+
+.output-content {
+  flex-grow: 1;
+  overflow: auto;
+  padding: 10px;
+  margin: 0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #ddd;
+  background-color: #1a1a1a;
+  text-align: left;
+  line-height: 1.4;
+  border-radius: 0 0 4px 4px;
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+}
 </style>

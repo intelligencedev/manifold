@@ -18,6 +18,59 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// CodeEvalRequest represents the structure for code evaluation requests
+type CodeEvalRequest struct {
+	Code         string   `json:"code"`
+	Language     string   `json:"language"`
+	Dependencies []string `json:"dependencies,omitempty"`
+}
+
+// CodeEvalResponse represents the structure for code evaluation responses
+type CodeEvalResponse struct {
+	Result string `json:"result,omitempty"`
+	Error  string `json:"error,omitempty"`
+}
+
+// evaluateCodeHandler handles code evaluation for multiple languages
+func evaluateCodeHandler(c echo.Context) error {
+	var req CodeEvalRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, CodeEvalResponse{
+			Error: "Invalid request body: " + err.Error(),
+		})
+	}
+
+	// Handle based on language
+	switch strings.ToLower(req.Language) {
+	case "python":
+		// Execute Python code
+		result, err := runEphemeralPython(req.Code, req.Dependencies)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, CodeEvalResponse{
+				Error: "Python execution error: " + err.Error(),
+			})
+		}
+
+		// Format the response
+		var response CodeEvalResponse
+		if result.ReturnCode != 0 {
+			response.Error = result.Stderr
+		} else {
+			response.Result = result.Stdout
+			// If stderr has content but exit code was 0, append warnings to result
+			if result.Stderr != "" {
+				response.Result += "\n/* Warnings:\n" + result.Stderr + "*/\n"
+			}
+		}
+		return c.JSON(http.StatusOK, response)
+
+	default:
+		return c.JSON(http.StatusBadRequest, CodeEvalResponse{
+			Error: "Unsupported language: " + req.Language,
+		})
+	}
+}
+
 // PythonCodeRequest represents the structure of the incoming Python execution request.
 type PythonCodeRequest struct {
 	Code         string   `json:"code"`
@@ -136,16 +189,4 @@ func runEphemeralPython(code string, dependencies []string) (*PythonCodeResponse
 	}
 
 	return response, nil
-}
-
-func executePythonHandler(c echo.Context) error {
-	var req PythonCodeRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-	}
-	result, err := runEphemeralPython(req.Code, req.Dependencies)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
-	return c.JSON(http.StatusOK, result)
 }

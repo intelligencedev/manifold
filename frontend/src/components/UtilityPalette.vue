@@ -20,6 +20,7 @@
             <label for="lang-select">Language:</label>
             <select id="lang-select" v-model="selectedLanguage" @change="handleLanguageChange">
               <option value="javascript">JavaScript</option>
+              <option value="python">Python</option>
               <option value="html">HTML</option>
             </select>
           </div>
@@ -82,13 +83,14 @@ import { ref, shallowRef, onMounted, computed, nextTick, onUnmounted, watch } fr
 import { Codemirror } from 'vue-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { html } from '@codemirror/lang-html';
+import { python } from '@codemirror/lang-python';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorView } from '@codemirror/view';
-import { getQuickJS, QuickJSContext, QuickJSWASMModule } from 'quickjs-emscripten';
+import { getQuickJS, QuickJSContext } from 'quickjs-emscripten';
 import { useCodeEditor } from '@/composables/useCodeEditor';
 
 // Use the global code editor composable
-const { code, isEditorOpen, openEditor, closeEditor } = useCodeEditor();
+const { code, isEditorOpen } = useCodeEditor();
 
 // --- Refs ---
 const output = ref<string>('');
@@ -99,7 +101,7 @@ const quickJSVm = shallowRef<QuickJSContext | null>(null); // Use shallowRef for
 const outputRef = ref<HTMLPreElement | null>(null);
 const htmlPreviewRef = ref<HTMLIFrameElement | null>(null);
 const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
-const selectedLanguage = ref<'javascript' | 'html'>('javascript');
+const selectedLanguage = ref<'javascript' | 'python' | 'html'>('javascript');
 // Heights for resizable panels
 const editorHeightPercent = ref<number>(50); // Default split at 50%
 const htmlCode = ref<string>(`<!DOCTYPE html>
@@ -139,13 +141,27 @@ const htmlCode = ref<string>(`<!DOCTYPE html>
 // Track code for different languages
 const codeStore = {
   javascript: "console.log('Hello from Manifold!');",
+  python: "print('Hello from Python!')",
   html: htmlCode.value
 };
 
 // --- CodeMirror ---
 const cmTheme = oneDark; // Make this selectable later if needed
 const cmExtensions = computed(() => {
-  const langSupport = selectedLanguage.value === 'html' ? html() : javascript();
+  let langSupport;
+  switch (selectedLanguage.value) {
+    case 'python':
+      langSupport = python();
+      break;
+    case 'html':
+      langSupport = html();
+      break;
+    case 'javascript':
+    default:
+      langSupport = javascript();
+      break;
+  }
+
   return [
     langSupport,
     cmTheme,
@@ -206,15 +222,14 @@ function togglePalette() {
 
 // Handle language switching
 const handleLanguageChange = () => {
-  // Save current code for the old language
-  if (selectedLanguage.value === 'javascript') {
-    codeStore.html = code.value;
-    code.value = codeStore.javascript;
-  } else {
-    codeStore.javascript = code.value;
-    code.value = codeStore.html;
-    
-    // When switching to HTML, render the preview
+  // Store current code in the appropriate language store
+  codeStore[selectedLanguage.value] = code.value;
+  
+  // Load code for the newly selected language
+  code.value = codeStore[selectedLanguage.value];
+  
+  // When switching to HTML, render the preview
+  if (selectedLanguage.value === 'html') {
     nextTick(() => {
       renderHtml();
     });
@@ -283,18 +298,24 @@ const refreshPreview = () => {
 };
 
 const runCode = () => {
-  // If HTML mode, render the HTML instead of running JavaScript
+  // If HTML mode, render the HTML instead of running code
   if (selectedLanguage.value === 'html') {
     renderHtml();
     return;
   }
   
-  // JavaScript execution code
-  if (!quickJSVm.value || isRunning.value) return;
-
   isRunning.value = true;
   output.value = `Executing at ${new Date().toLocaleTimeString()}...\n\n`;
   scrollToOutputBottom();
+  
+  // Handle Python code differently - call backend API
+  if (selectedLanguage.value === 'python') {
+    executePython();
+    return;
+  }
+
+  // JavaScript execution using QuickJS
+  if (!quickJSVm.value) return;
 
   // Use setTimeout to allow UI update before potentially blocking execution
   setTimeout(() => {
@@ -437,6 +458,45 @@ const stopResize = () => {
   document.removeEventListener('touchmove', handleResize);
   document.removeEventListener('mouseup', stopResize);
   document.removeEventListener('touchend', stopResize);
+};
+
+// Python execution function
+const executePython = async () => {
+  try {
+    output.value += 'Executing Python code...\n\n';
+    
+    // Call the backend API to execute Python code
+    const response = await fetch('http://localhost:8080/api/code/eval', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        code: code.value,
+        language: 'python',
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`API error (${response.status}): ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    // Show the execution result
+    if (data.error) {
+      output.value += `\n--- EXECUTION ERROR ---\n${data.error}\n`;
+    } else {
+      output.value += `\n--- EXECUTION SUCCESS ---\n${data.result || 'No output'}\n`;
+    }
+  } catch (error: any) {
+    output.value += `\n--- ERROR ---\n${error.message || 'An unexpected error occurred'}\n`;
+    console.error('Error executing Python code:', error);
+  } finally {
+    isRunning.value = false;
+    scrollToOutputBottom();
+  }
 };
 </script>
 

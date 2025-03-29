@@ -47,8 +47,7 @@ func registerRoutes(e *echo.Echo, config *Config) {
 
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", webSearchHandler)
-	api.POST("/executePython", executePythonHandler)
-
+	api.POST("/code/eval", evaluateCodeHandler) // Generic code evaluation endpoint
 	// NEW: Execute MCP endpoint to work with MCPNode.vue.
 	api.POST("/executeMCP", executeMCPHandler)
 

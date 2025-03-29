@@ -80,8 +80,7 @@ func completionsHandler(c echo.Context, config *Config) error {
 		})
 	}
 
-	// Create a new request to OpenAI
-	// openAIURL := "https://api.openai.com/v1/chat/completions"
+	// Create a new request to the default completions endpoint in the config
 	openAIURL := config.Completions.DefaultHost
 	req, err := http.NewRequest("POST", openAIURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
@@ -94,10 +93,14 @@ func completionsHandler(c echo.Context, config *Config) error {
 
 	// Copy headers from the original request
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+config.OpenAIAPIKey)
+	req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
 
 	// Check if this is a streaming request
 	var payload CompletionRequest
+
+	// Set the payload model to the default model if not provided
+	payload.Model = config.Completions.CompletionsModel
+
 	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
 		return c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: ErrorData{

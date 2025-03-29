@@ -18,7 +18,7 @@
       </div>
   
       <!-- CodeMirror Editor -->
-      <div class="editor-wrapper" :style="{ height: editorHeight + 'px' }">
+      <div class="editor-wrapper" :style="{ height: editorHeightPercent + '%' }">
         <Codemirror
           v-model="code"
           :placeholder="selectedLanguage === 'html' ? 'Enter HTML code...' : 'Enter JavaScript code...'"
@@ -41,7 +41,7 @@
       </div>
   
       <!-- Output Area (Console or HTML Preview) -->
-      <div class="output-area" :style="{ height: outputHeight + 'px' }">
+      <div class="output-area" :style="{ height: (100 - editorHeightPercent) + '%' }">
         <div class="output-header">
           <h3>{{ selectedLanguage === 'html' ? 'HTML Preview' : 'Output / Logs' }}</h3>
           <div v-if="selectedLanguage === 'html'" class="preview-controls">
@@ -81,8 +81,7 @@
   const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
   const selectedLanguage = ref<'javascript' | 'html'>('javascript');
   // Add missing height refs for resizable panels
-  const editorHeight = ref<number>(300); // Initial height for editor
-  const outputHeight = ref<number>(300); // Initial height for output panel
+  const editorHeightPercent = ref<number>(50); // Initial height for editor
   const savedCode = {
     javascript: 'console.log("Hello from Manifold!");',
     html: '<html>\n  <head>\n    <style>\n      body {\n        font-family: sans-serif;\n        padding: 20px;\n      }\n      h1 {\n        color: #336699;\n      }\n    </style>\n  </head>\n  <body>\n    <h1>Hello HTML World!</h1>\n    <p>Edit this HTML to see it rendered in the preview panel.</p>\n  </body>\n</html>'
@@ -280,27 +279,12 @@
   
   // --- Resizing Logic ---
   let isResizing = false;
-  let startY = 0;
-  let startHeight = 0;
-  let clickOffsetY = 0; // Track where within the divider the user clicked
-  let dividerInitialTop = 0; // Track the initial position of the divider
 
   const startResize = (event: MouseEvent | TouchEvent) => {
     isResizing = true;
     
-    // Get the starting mouse/touch position
-    startY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
-    startHeight = editorHeight.value;
-    
-    // Get the divider element and its position
-    const divider = event.currentTarget as HTMLElement;
-    const dividerRect = divider.getBoundingClientRect();
-    
-    // Store initial divider position
-    dividerInitialTop = dividerRect.top;
-    
-    // Calculate the offset from the top of the divider where the user clicked
-    clickOffsetY = startY - dividerRect.top;
+    // Immediately set initial divider position based on mouse position
+    handleMouseMove(event);
     
     // Add event listeners
     document.addEventListener('mousemove', handleMouseMove);
@@ -315,18 +299,22 @@
   const handleMouseMove = (event: MouseEvent | TouchEvent) => {
     if (!isResizing) return;
     
-    // Get current mouse/touch position
+    // Get container information for bounds checking
+    const container = document.querySelector('.wasm-code-editor-container');
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const containerTop = containerRect.top;
+    const containerHeight = containerRect.height;
+    
+    // Get current mouse position
     const clientY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
     
-    // Calculate where the divider's top should be to stay under the mouse
-    const targetDividerTop = clientY - clickOffsetY;
+    // Calculate divider position relative to container
+    const dividerPositionInContainer = Math.max(100, Math.min(containerHeight - 100, clientY - containerTop));
     
-    // Calculate change in divider position
-    const deltaY = targetDividerTop - dividerInitialTop;
-    
-    // Calculate new heights with constraints
-    editorHeight.value = Math.max(100, Math.min(window.innerHeight - 200, startHeight + deltaY));
-    outputHeight.value = Math.max(100, window.innerHeight - editorHeight.value - 100);
+    // Set panel heights directly based on divider position
+    editorHeightPercent.value = (dividerPositionInContainer / containerHeight) * 100;
     
     // Prevent scrolling on touch devices
     if (event instanceof TouchEvent) {

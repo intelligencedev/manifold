@@ -189,6 +189,11 @@ const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'
 const vueFlowInstance = useVueFlow()
 props.vueFlowInstance = vueFlowInstance
 
+// Ensure that the data.outputs structure is properly initialized
+if (!props.data.outputs) {
+  props.data.outputs = { response: '', error: null }
+}
+
 // Use the composable to manage state and functionality
 const {
   // State

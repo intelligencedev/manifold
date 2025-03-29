@@ -1,18 +1,28 @@
 <template>
     <div class="wasm-code-editor-container">
-      <!-- Toolbar will go here -->
+      <!-- Toolbar with language selector -->
       <div class="toolbar">
-        <button @click="runCode" :disabled="isRunning || !quickJSVm">Run</button>
-        <button @click="clearOutput">Clear Output</button>
-        <!-- Add theme selector if desired -->
+        <div class="language-selector">
+          <label for="lang-select">Language:</label>
+          <select id="lang-select" v-model="selectedLanguage" @change="handleLanguageChange">
+            <option value="javascript">JavaScript</option>
+            <option value="html">HTML</option>
+          </select>
+        </div>
+        <div class="action-buttons">
+          <button @click="runCode" :disabled="isRunning || !quickJSVm">
+            {{ selectedLanguage === 'html' ? 'Render' : 'Run' }}
+          </button>
+          <button @click="clearOutput">Clear Output</button>
+        </div>
       </div>
   
       <!-- CodeMirror Editor -->
-      <div class="editor-wrapper">
+      <div class="editor-wrapper" :style="{ height: editorHeightPercent + '%' }">
         <Codemirror
           v-model="code"
-          placeholder="Enter JavaScript code..."
-          :style="{ height: '400px' }"
+          :placeholder="selectedLanguage === 'html' ? 'Enter HTML code...' : 'Enter JavaScript code...'"
+          :style="{ height: '100%' }"
           :autofocus="true"
           :indent-with-tab="true"
           :tab-size="2"
@@ -20,11 +30,26 @@
           @ready="handleCmReady"
         />
       </div>
+      
+      <!-- Resizable divider -->
+      <div 
+        class="resize-handle" 
+        @mousedown="startResize"
+        @touchstart="startResize"
+      >
+        <div class="handle-indicator"></div>
+      </div>
   
-      <!-- Output Area -->
-      <div class="output-area">
-        <h3>Output / Logs</h3>
-        <pre ref="outputRef" class="output-content">{{ output }}</pre>
+      <!-- Output Area (Console or HTML Preview) -->
+      <div class="output-area" :style="{ height: (100 - editorHeightPercent) + '%' }">
+        <div class="output-header">
+          <h3>{{ selectedLanguage === 'html' ? 'HTML Preview' : 'Output / Logs' }}</h3>
+          <div v-if="selectedLanguage === 'html'" class="preview-controls">
+            <button @click="refreshPreview" title="Refresh Preview">↻</button>
+          </div>
+        </div>
+        <pre v-if="selectedLanguage !== 'html'" ref="outputRef" class="output-content">{{ output }}</pre>
+        <div v-else ref="htmlPreviewRef" class="html-preview"></div>
       </div>
   
       <!-- Status/Loading -->
@@ -36,9 +61,10 @@
   </template>
   
   <script setup lang="ts">
-  import { ref, shallowRef, onMounted, computed, nextTick } from 'vue';
+  import { ref, shallowRef, onMounted, computed, nextTick, watch, onUnmounted } from 'vue';
   import { Codemirror } from 'vue-codemirror';
   import { javascript } from '@codemirror/lang-javascript';
+  import { html } from '@codemirror/lang-html';
   import { oneDark } from '@codemirror/theme-one-dark'; // Example theme
   import { EditorView } from '@codemirror/view';
   import { getQuickJS, QuickJSContext } from 'quickjs-emscripten';
@@ -51,23 +77,34 @@
   const wasmError = ref<string | null>(null);
   const quickJSVm = shallowRef<QuickJSContext | null>(null); // Use shallowRef for complex non-reactive objects
   const outputRef = ref<HTMLPreElement | null>(null);
+  const htmlPreviewRef = ref<HTMLDivElement | null>(null);
   const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
+  const selectedLanguage = ref<'javascript' | 'html'>('javascript');
+  // Add missing height refs for resizable panels
+  const editorHeightPercent = ref<number>(50); // Initial height for editor
+  const savedCode = {
+    javascript: 'console.log("Hello from Manifold!");',
+    html: '<html>\n  <head>\n    <style>\n      body {\n        font-family: sans-serif;\n        padding: 20px;\n      }\n      h1 {\n        color: #336699;\n      }\n    </style>\n  </head>\n  <body>\n    <h1>Hello HTML World!</h1>\n    <p>Edit this HTML to see it rendered in the preview panel.</p>\n  </body>\n</html>'
+  };
   
   // --- CodeMirror ---
   const cmTheme = oneDark; // Make this selectable later if needed
-  const cmExtensions = computed(() => [
-    javascript(),
-    cmTheme,
-    EditorView.lineWrapping, // Enable line wrapping
-    // Add other extensions like line numbers, keymaps, etc.
-    EditorView.theme({ // Basic styling adjustments
-      '&': {
-        fontSize: '13px',
-        height: '100%', // Ensure it fills wrapper
-      },
-      '.cm-scroller': { overflow: 'auto' },
-    }),
-  ]);
+  const cmExtensions = computed(() => {
+    const langSupport = selectedLanguage.value === 'html' ? html() : javascript();
+    return [
+      langSupport,
+      cmTheme,
+      EditorView.lineWrapping, // Enable line wrapping
+      // Add other extensions like line numbers, keymaps, etc.
+      EditorView.theme({ // Basic styling adjustments
+        '&': {
+          fontSize: '13px',
+          height: '100%', // Ensure it fills wrapper
+        },
+        '.cm-scroller': { overflow: 'auto' },
+      }),
+    ];
+  });
   
   const handleCmReady = (payload: any) => {
     cmView.value = payload.view;
@@ -88,10 +125,14 @@
     } finally {
       isLoadingWasm.value = false;
     }
+  
+    // Initialize HTML preview if language is set to HTML
+    if (selectedLanguage.value === 'html' && htmlPreviewRef.value) {
+      htmlPreviewRef.value.innerHTML = code.value;
+    }
   });
   
   // Cleanup Wasm VM on component unmount
-  import { onUnmounted } from 'vue';
   onUnmounted(() => {
     if (quickJSVm.value) {
       quickJSVm.value.dispose();
@@ -100,8 +141,38 @@
     }
   });
   
+  // --- HTML Preview ---
+  watch(selectedLanguage, (newLang) => {
+    // Save current code for the old language
+    if (newLang === 'javascript') {
+      savedCode.html = code.value;
+      code.value = savedCode.javascript;
+    } else {
+      savedCode.javascript = code.value;
+      code.value = savedCode.html;
+    }
+    
+    // If switching to HTML, render the preview
+    if (newLang === 'html') {
+      nextTick(() => {
+        if (htmlPreviewRef.value) {
+          htmlPreviewRef.value.innerHTML = code.value;
+        }
+      });
+    }
+  });
+  
+  const handleLanguageChange = () => {
+    // The watch on selectedLanguage will handle the switch
+  };
+  
   // --- Core Logic ---
   const runCode = () => {
+    if (selectedLanguage.value === 'html') {
+      renderHtml();
+      return;
+    }
+  
     if (!quickJSVm.value || isRunning.value) return;
   
     isRunning.value = true;
@@ -167,8 +238,35 @@
     }, 10); // Small delay
   };
   
+  const renderHtml = () => {
+    if (!htmlPreviewRef.value) return;
+    
+    try {
+      // Render the HTML in the preview panel
+      htmlPreviewRef.value.innerHTML = code.value;
+    } catch (error: any) {
+      console.error('Error rendering HTML:', error);
+      htmlPreviewRef.value.innerHTML = `
+        <div class="html-render-error">
+          <h3>Error Rendering HTML</h3>
+          <p>${error.message || 'An unknown error occurred'}</p>
+        </div>
+      `;
+    }
+  };
+  
+  const refreshPreview = () => {
+    if (selectedLanguage.value === 'html') {
+      renderHtml();
+    }
+  };
+  
   const clearOutput = () => {
-    output.value = '';
+    if (selectedLanguage.value === 'html' && htmlPreviewRef.value) {
+      htmlPreviewRef.value.innerHTML = '';
+    } else {
+      output.value = '';
+    }
   };
   
   const scrollToOutputBottom = () => {
@@ -177,6 +275,59 @@
         outputRef.value.scrollTop = outputRef.value.scrollHeight;
       }
     });
+  };
+  
+  // --- Resizing Logic ---
+  let isResizing = false;
+
+  const startResize = (event: MouseEvent | TouchEvent) => {
+    isResizing = true;
+    
+    // Immediately set initial divider position based on mouse position
+    handleMouseMove(event);
+    
+    // Add event listeners
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('touchmove', handleMouseMove, { passive: false });
+    document.addEventListener('mouseup', stopResize);
+    document.addEventListener('touchend', stopResize);
+    
+    // Prevent default to avoid text selection
+    event.preventDefault();
+  };
+
+  const handleMouseMove = (event: MouseEvent | TouchEvent) => {
+    if (!isResizing) return;
+    
+    // Get container information for bounds checking
+    const container = document.querySelector('.wasm-code-editor-container');
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const containerTop = containerRect.top;
+    const containerHeight = containerRect.height;
+    
+    // Get current mouse position
+    const clientY = event instanceof MouseEvent ? event.clientY : event.touches[0].clientY;
+    
+    // Calculate divider position relative to container
+    const dividerPositionInContainer = Math.max(100, Math.min(containerHeight - 100, clientY - containerTop));
+    
+    // Set panel heights directly based on divider position
+    editorHeightPercent.value = (dividerPositionInContainer / containerHeight) * 100;
+    
+    // Prevent scrolling on touch devices
+    if (event instanceof TouchEvent) {
+      event.preventDefault();
+    }
+  };
+
+  const stopResize = () => {
+    isResizing = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('touchmove', handleMouseMove);
+    document.removeEventListener('mouseup', stopResize);
+    document.removeEventListener('touchend', stopResize);
   };
   </script>
   
@@ -194,11 +345,37 @@
   
   .toolbar {
     display: flex;
+    justify-content: space-between;
+    align-items: center;
     flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 10px;
     padding-bottom: 10px;
     border-bottom: 1px solid #444;
+  }
+  
+  .language-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .language-selector label {
+    font-size: 0.9em;
+  }
+  
+  .language-selector select {
+    padding: 4px 8px;
+    background-color: #333;
+    color: #eee;
+    border: 1px solid #555;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  
+  .action-buttons {
+    display: flex;
+    gap: 8px;
   }
   
   .toolbar button {
@@ -247,14 +424,41 @@
     border-radius: 4px;
   }
   
-  .output-area h3 {
-    margin: 0;
-    padding: 8px 10px;
-    font-size: 0.9em;
+  .output-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     background-color: #333;
     border-bottom: 1px solid #444;
     border-top-left-radius: 4px;
     border-top-right-radius: 4px;
+    padding: 0 10px;
+  }
+  
+  .preview-controls {
+    display: flex;
+    gap: 4px;
+  }
+  
+  .preview-controls button {
+    background-color: transparent;
+    border: none;
+    color: #ccc;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  
+  .preview-controls button:hover {
+    background-color: #444;
+    color: #fff;
+  }
+  
+  .output-area h3 {
+    margin: 0;
+    padding: 8px 0;
+    font-size: 0.9em;
   }
   
   .output-content {
@@ -269,14 +473,43 @@
     color: #ccc;
   }
   
-  .output-content::-webkit-scrollbar {
+  .html-preview {
+    flex-grow: 1;
+    overflow: auto;
+    background-color: white;
+    color: black;
+    padding: 0;
+    height: 100%;
+  }
+  
+  /* Content within the iframe should be styled by the HTML itself */
+  .html-preview :deep(html),
+  .html-preview :deep(body) {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+  }
+  
+  .html-render-error {
+    padding: 20px;
+    color: #ff6b6b;
+    background-color: rgba(255, 107, 107, 0.1);
+    border: 1px solid #ff6b6b;
+    border-radius: 4px;
+    margin: 10px;
+  }
+  
+  .output-content::-webkit-scrollbar,
+  .html-preview::-webkit-scrollbar {
     width: 6px;
   }
-  .output-content::-webkit-scrollbar-thumb {
+  .output-content::-webkit-scrollbar-thumb,
+  .html-preview::-webkit-scrollbar-thumb {
     background-color: #555;
     border-radius: 3px;
   }
-  .output-content::-webkit-scrollbar-track {
+  .output-content::-webkit-scrollbar-track,
+  .html-preview::-webkit-scrollbar-track {
     background: #2a2a2a;
   }
   
@@ -292,5 +525,23 @@
     color: #ff6b6b; /* Error color */
     font-size: 0.9em;
   }
-  </style>
   
+  .resize-handle {
+    cursor: ns-resize;
+    height: 10px;
+    background-color: transparent;
+    margin: 0 10px;
+    position: relative;
+  }
+  
+  .handle-indicator {
+    position: absolute;
+    top: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 20px;
+    background-color: #444;
+    border-radius: 10px;
+  }
+  </style>

@@ -63,16 +63,27 @@ export function formatRequestBody(config, systemPrompt, userPrompt, options = {}
     };
   }
   
-  // Standard case for other models
-  return {
-    model: provider === 'openai' ? model : undefined,
+  // Build the base request body
+  const requestBody = {
     max_completion_tokens: max_tokens,
     temperature,
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt }
     ],
-    stream: true,
-    ...(!enableToolCalls ? {} : { functions: options.functions, function_call: options.function_call })
+    stream: true
   };
+  
+  // Only add the model parameter for OpenAI provider
+  if (provider === 'openai') {
+    requestBody.model = model;
+  }
+  
+  // Add function calling options if enabled
+  if (enableToolCalls) {
+    requestBody.functions = options.functions;
+    requestBody.function_call = options.function_call;
+  }
+  
+  return requestBody;
 }

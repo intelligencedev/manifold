@@ -65,7 +65,7 @@ const nodeCategories = {
     "ttsNode": null,
   },
   "Code": {
-    "pythonRunnerNode": null,
+    "codeRunnerNode": null,
     "webGLNode": null,
   },
   "Web": {

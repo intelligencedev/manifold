@@ -65,7 +65,6 @@ export function useCodeRunner(props, emit) {
         payload.dependencies = []
       }
     } catch (_err) {
-      // Not JSON => default to Python code with no dependencies
       payload = {
         language: 'python',
         code: userInput,
@@ -81,7 +80,6 @@ export function useCodeRunner(props, emit) {
    */
   async function run() {
     try {
-      // Clear previous output - CRITICAL: ensure we use the EXACT structure expected
       props.data.outputs = {
         result: {
           output: ''
@@ -96,9 +94,7 @@ export function useCodeRunner(props, emit) {
       let payload
 
       if (connectedSources.length > 0) {
-        // Source node might produce code or JSON
         const sourceNode = findNode(connectedSources[0])
-        // Handle all possible source node output structures
         const sourceData = sourceNode.data.outputs.result.output
         
         console.log('Connected source data for code runner:', sourceData)
@@ -115,7 +111,6 @@ export function useCodeRunner(props, emit) {
       if (payload.error === 'language not supported') {
         const errorMsg = `Error: ${payload.error}`
         
-        // CRITICAL: Always use the result.output structure
         props.data.outputs.result.output = errorMsg
         
         updateNodeData()
@@ -124,7 +119,6 @@ export function useCodeRunner(props, emit) {
 
       console.log('Sending code execution payload:', payload)
 
-      // POST to /api/code/eval
       const response = await fetch('http://localhost:8080/api/code/eval', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -136,7 +130,6 @@ export function useCodeRunner(props, emit) {
         console.error('Error response from server:', errorMsg)
         const formattedError = `Error: ${errorMsg}`
         
-        // CRITICAL: Always use the result.output structure
         props.data.outputs.result.output = formattedError
         
         updateNodeData()
@@ -147,42 +140,9 @@ export function useCodeRunner(props, emit) {
       const apiResponse = await response.json()
       console.log('Raw API response:', apiResponse)
 
-      // CRITICAL: Handle the specific format returned by our API
-      // The API returns { result: "output text" } structure
       props.data.outputs.result.output = apiResponse.result || apiResponse.error || 'No output'
 
       console.log('Final node output structure:', props.data.outputs)
-
-      // Ensure reactivity by recreating the props.data object
-      // props.data = {
-      //   ...props.data,
-      //   outputs: {
-      //     result: {
-      //       output: props.data.outputs.result.output
-      //     }
-      //   }
-      // }
-      
-      // Update connected output nodes if any
-      // const connectedTargets = getEdges.value
-      //   .filter((edge) => edge.source === props.id)
-      //   .map((edge) => edge.target)
-      
-      // for (const targetId of connectedTargets) {
-      //   const targetNode = findNode(targetId)
-      //   if (targetNode && targetNode.data) {
-      //     if (!targetNode.data.inputs) {
-      //       targetNode.data.inputs = {}
-      //     }
-          
-      //     // Pass our output to the target node's input
-      //     // targetNode.data.inputs.response = props.data.outputs.result.output
-          
-      //     if (typeof targetNode.data.run === 'function') {
-      //       targetNode.data.run()
-      //     }
-      //   }
-      // }
       
       updateNodeData()
       return props.data.outputs.result.output

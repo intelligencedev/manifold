@@ -30,8 +30,9 @@
       <template #node-geminiNode="geminiNodeProps">
         <GeminiNode v-bind="geminiNodeProps" />
       </template>
-      <template #node-pythonRunnerNode="pythonRunnerNodeProps">
-        <PythonRunner v-bind="pythonRunnerNodeProps" />
+      <template #node-codeRunnerNode="codeRunnerNodeProps">
+        <CodeRunnerNode v-bind="codeRunnerNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+          @node-resized="updateNodeDimensions" />
       </template>
       <template #node-webGLNode="webGLNodeProps">
         <WebGLNode v-bind="webGLNodeProps" />
@@ -167,7 +168,7 @@ import AgentNode from './components/nodes/AgentNode.vue';
 import ClaudeNode from './components/nodes/ClaudeNode.vue';
 import ResponseNode from './components/nodes/ResponseNode.vue';
 import GeminiNode from './components/nodes/GeminiNode.vue';
-import PythonRunner from './components/nodes/PythonRunner.vue';
+import CodeRunnerNode from './components/nodes/CodeRunnerNode.vue';
 import WebGLNode from './components/nodes/WebGLNode.vue';
 import EmbeddingsNode from './components/nodes/EmbeddingsNode.vue';
 import WebSearchNode from './components/nodes/WebSearchNode.vue';

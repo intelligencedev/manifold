@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { useVueFlow } from '@vue-flow/core'
 import { ref, watch, nextTick } from 'vue'
 import NoteNode from '../components/nodes/NoteNode.vue'
-import PythonRunner from '../components/nodes/PythonRunner.vue'
+import PythonRunner from '../components/nodes/CodeRunnerNode.vue'
 import WebGLNode from '../components/nodes/WebGLNode.vue'
 import AgentNode from '../components/nodes/AgentNode.vue'
 import ClaudeNode from '../components/nodes/ClaudeNode.vue'
@@ -27,6 +27,7 @@ import DocumentsRetrieve from '../components/nodes/DocumentsRetrieveNode.vue'
 import ttsNode from '../components/nodes/ttsNode.vue'
 import MCPClientNode from '../components/nodes/MCPClient.vue'
 import Mermaid from '../components/nodes/Mermaid.vue'
+import CodeRunnerNode from '../components/nodes/CodeRunnerNode.vue'
 
 let id = 0
 
@@ -118,8 +119,8 @@ export default function useDragAndDrop() {
       case 'noteNode':
         component = NoteNode;
         break;
-      case 'pythonRunnerNode':
-        component = PythonRunner;
+      case 'codeRunnerNode':
+        component = CodeRunnerNode;
         break;
       case 'webGLNode':
         component = WebGLNode;

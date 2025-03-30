@@ -6,6 +6,7 @@
           <label for="lang-select">Language:</label>
           <select id="lang-select" v-model="selectedLanguage" @change="handleLanguageChange">
             <option value="javascript">JavaScript</option>
+            <option value="python">Python</option>
             <option value="html">HTML</option>
           </select>
         </div>
@@ -65,6 +66,7 @@
   import { Codemirror } from 'vue-codemirror';
   import { javascript } from '@codemirror/lang-javascript';
   import { html } from '@codemirror/lang-html';
+  import { python } from '@codemirror/lang-python';
   import { oneDark } from '@codemirror/theme-one-dark'; // Example theme
   import { EditorView } from '@codemirror/view';
   import { getQuickJS, QuickJSContext } from 'quickjs-emscripten';
@@ -79,18 +81,19 @@
   const outputRef = ref<HTMLPreElement | null>(null);
   const htmlPreviewRef = ref<HTMLDivElement | null>(null);
   const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
-  const selectedLanguage = ref<'javascript' | 'html'>('javascript');
+  const selectedLanguage = ref<'javascript' | 'python' | 'html'>('javascript');
   // Add missing height refs for resizable panels
   const editorHeightPercent = ref<number>(50); // Initial height for editor
   const savedCode = {
     javascript: 'console.log("Hello from Manifold!");',
+    python: 'print("Hello from Python!")',
     html: '<html>\n  <head>\n    <style>\n      body {\n        font-family: sans-serif;\n        padding: 20px;\n      }\n      h1 {\n        color: #336699;\n      }\n    </style>\n  </head>\n  <body>\n    <h1>Hello HTML World!</h1>\n    <p>Edit this HTML to see it rendered in the preview panel.</p>\n  </body>\n</html>'
   };
   
   // --- CodeMirror ---
   const cmTheme = oneDark; // Make this selectable later if needed
   const cmExtensions = computed(() => {
-    const langSupport = selectedLanguage.value === 'html' ? html() : javascript();
+    const langSupport = selectedLanguage.value === 'html' ? html() : selectedLanguage.value === 'python' ? python() : javascript();
     return [
       langSupport,
       cmTheme,
@@ -142,15 +145,12 @@
   });
   
   // --- HTML Preview ---
-  watch(selectedLanguage, (newLang) => {
-    // Save current code for the old language
-    if (newLang === 'javascript') {
-      savedCode.html = code.value;
-      code.value = savedCode.javascript;
-    } else {
-      savedCode.javascript = code.value;
-      code.value = savedCode.html;
-    }
+  watch(selectedLanguage, (newLang, oldLang) => {
+    // Save current code in the appropriate language store
+    savedCode[oldLang] = code.value;
+    
+    // Load code for the newly selected language
+    code.value = savedCode[newLang];
     
     // If switching to HTML, render the preview
     if (newLang === 'html') {
@@ -170,6 +170,12 @@
   const runCode = () => {
     if (selectedLanguage.value === 'html') {
       renderHtml();
+      return;
+    }
+    
+    // Handle Python code execution
+    if (selectedLanguage.value === 'python') {
+      executePython();
       return;
     }
   
@@ -236,6 +242,46 @@
         scrollToOutputBottom();
       }
     }, 10); // Small delay
+  };
+  
+  // Python execution function
+  const executePython = async () => {
+    try {
+      isRunning.value = true;
+      output.value = `Executing Python code at ${new Date().toLocaleTimeString()}...\n\n`;
+      
+      // Call the backend API to execute Python code
+      const response = await fetch('http://localhost:8080/api/code/eval', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          code: code.value,
+          language: 'python',
+        })
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`API error (${response.status}): ${errorText}`);
+      }
+      
+      const data = await response.json();
+      
+      // Show the execution result
+      if (data.error) {
+        output.value += `\n--- EXECUTION ERROR ---\n${data.error}\n`;
+      } else {
+        output.value += `\n--- EXECUTION SUCCESS ---\n${data.result || 'No output'}\n`;
+      }
+    } catch (error: any) {
+      output.value += `\n--- ERROR ---\n${error.message || 'An unexpected error occurred'}\n`;
+      console.error('Error executing Python code:', error);
+    } finally {
+      isRunning.value = false;
+      scrollToOutputBottom();
+    }
   };
   
   const renderHtml = () => {

@@ -1,31 +1,48 @@
 <template>
   <div :style="data.style" class="node-container tool-node">
     <div class="node-label">
-      <div>Python Runner</div>
+      <div>Code Runner</div>
     </div>
 
     <!-- Use a textarea for multiline code or JSON -->
     <div class="input-field">
       <label :for="`${data.id}-command`" class="input-label">Script:</label>
-      <textarea :id="`${data.id}-command`" v-model="command" @change="updateNodeData" class="input-text-area"
-        rows="5"></textarea>
+      <textarea
+        :id="`${data.id}-command`"
+        v-model="command"
+        @change="updateNodeData"
+        class="input-text-area"
+        rows="5"
+      ></textarea>
     </div>
 
-    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
-    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
+    <Handle
+      style="width:12px; height:12px"
+      v-if="data.hasInputs"
+      type="target"
+      position="left"
+      id="input"
+    />
+    <Handle
+      style="width:12px; height:12px"
+      v-if="data.hasOutputs"
+      type="source"
+      position="right"
+      id="output"
+    />
   </div>
 </template>
 
 <script setup>
 import { Handle } from '@vue-flow/core'
 import { onMounted } from 'vue'
-import { usePythonRunner } from '@/composables/usePythonRunner'
+import { useCodeRunner } from '@/composables/useCodeRunner'
 
 const props = defineProps({
   id: {
     type: String,
     required: false,
-    default: 'Python_Runner_0',
+    default: 'Code_Runner_0'
   },
   data: {
     type: Object,
@@ -33,27 +50,26 @@ const props = defineProps({
     default: () => ({
       style: {},
       labelStyle: {},
-      type: 'Python Code Runner',
+      type: 'Code Runner',
       inputs: {
-        // By default, a simple Python snippet
-        command: "print('Hello world!')",
+        // By default, a simple JS snippet
+        command: 'console.log("Hello world!")'
       },
-      outputs: {
-      },
+      outputs: {},
       hasInputs: true,
       hasOutputs: true,
       inputHandleColor: '#777',
       inputHandleShape: '50%',
       handleColor: '#777',
-      outputHandleShape: '50%',
-    }),
-  },
+      outputHandleShape: '50%'
+    })
+  }
 })
 
 const emit = defineEmits(['update:data'])
 
-// Use the Python runner composable
-const { command, updateNodeData, run } = usePythonRunner(props, emit)
+// Use the new CodeRunner composable
+const { command, updateNodeData, run } = useCodeRunner(props, emit)
 
 // Assign run() function once component is mounted
 onMounted(() => {
@@ -78,7 +94,6 @@ onMounted(() => {
   font-weight: bold;
 }
 
-/* Replacing the single-line input with a multiline textarea */
 .input-field {
   margin-bottom: 8px;
 }
@@ -93,6 +108,5 @@ onMounted(() => {
   height: auto;
   box-sizing: border-box;
   resize: vertical;
-  /* Allow user to resize vertically */
 }
 </style>

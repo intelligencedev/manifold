@@ -205,14 +205,33 @@ namespace functions {
           return 'mlx_lm.server';
         }
       }
+      
+      // Custom local endpoint case - check for localhost or common patterns
+      if (props.data.inputs.endpoint?.includes('localhost') ||
+          props.data.inputs.endpoint?.includes('127.0.0.1')) {
+        // Maintain the last selected local provider or default to llama-server
+        if (props.data._lastLocalProvider === 'mlx_lm.server') {
+          return 'mlx_lm.server';
+        }
+        return 'llama-server';
+      }
+      
       return 'llama-server';
     },
     set: (value) => {
+      // Store the last selected local provider for reference
+      if (value !== 'openai') {
+        props.data._lastLocalProvider = value;
+      }
+      
+      // Only change the endpoint when switching to OpenAI
       if (value === 'openai') {
         props.data.inputs.endpoint = 'https://api.openai.com/v1/chat/completions';
-      } else {
-        props.data.inputs.endpoint = configStore.config?.Completions?.DefaultHost || '';
+      } else if (!props.data.inputs.endpoint || props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
+        // Only set the default local endpoint if current endpoint is empty or OpenAI endpoint
+        props.data.inputs.endpoint = configStore.config?.Completions?.DefaultHost || 'http://localhost:32186/v1/chat/completions';
       }
+      // Otherwise, keep the user's custom endpoint
     }
   });
   

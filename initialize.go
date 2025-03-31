@@ -4,7 +4,9 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
+	_ "embed" // Required for go:embed
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"manifold/internal/sefii"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,6 +23,9 @@ import (
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
 	"github.com/pterm/pterm"
 )
+
+//go:embed sandbox/Dockerfile
+var sandboxDockerfile string
 
 // downloadModelFile downloads a file from a URL to a local filepath
 func downloadModelFile(url, filePath string) error {
@@ -141,6 +147,64 @@ func unzipLlamaBinary(src, dest string) error {
 			return err
 		}
 	}
+	return nil
+}
+
+// EnsureCodeSandboxImage checks if the code-sandbox Docker image exists,
+// and builds it if it doesn't exist using the embedded Dockerfile.
+func EnsureCodeSandboxImage() error {
+	// Check if Docker is installed
+	_, err := exec.LookPath("docker")
+	if err != nil {
+		return fmt.Errorf("docker is not installed or not in PATH: %w", err)
+	}
+
+	// Check if Docker is running
+	checkCmd := exec.Command("docker", "info")
+	if err := checkCmd.Run(); err != nil {
+		return fmt.Errorf("docker is not running: %w", err)
+	}
+
+	pterm.Info.Println("Docker is available, checking for code-sandbox image...")
+
+	// Check if the image exists
+	checkImageCmd := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "code-sandbox:latest")
+	output, err := checkImageCmd.Output()
+	if err == nil && len(output) > 0 {
+		pterm.Success.Println("code-sandbox:latest image already exists")
+		return nil
+	}
+
+	pterm.Info.Println("code-sandbox:latest image not found, building it...")
+
+	// Create a temporary directory to store the Dockerfile
+	tempDir, err := os.MkdirTemp("", "docker-build-")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory for Dockerfile: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Write the embedded Dockerfile to the temporary directory
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	if err := os.WriteFile(dockerfilePath, []byte(sandboxDockerfile), 0644); err != nil {
+		return fmt.Errorf("failed to write Dockerfile: %w", err)
+	}
+
+	// Build the Docker image
+	buildCmd := exec.Command("docker", "build", "-t", "code-sandbox:latest", "-f", dockerfilePath, ".")
+	buildCmd.Dir = tempDir
+
+	// Capture and display the build output
+	var stdoutBuf, stderrBuf bytes.Buffer
+	buildCmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	buildCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	pterm.Info.Println("Building code-sandbox Docker image...")
+	if err := buildCmd.Run(); err != nil {
+		return fmt.Errorf("failed to build code-sandbox image: %w\n%s", err, stderrBuf.String())
+	}
+
+	pterm.Success.Println("code-sandbox:latest image successfully built")
 	return nil
 }
 
@@ -412,6 +476,17 @@ func InitializeApplication(config *Config) error {
 			initErrors = append(initErrors, err)
 			errorsMutex.Unlock()
 		}
+
+		// Ensure code-sandbox Docker image exists
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pterm.Info.Println("Checking code-sandbox Docker image...")
+			if err := EnsureCodeSandboxImage(); err != nil {
+				addError(fmt.Errorf("code-sandbox image initialization error: %w", err))
+				pterm.Warning.Printf("Failed to initialize code-sandbox Docker image: %v\n", err)
+			}
+		}()
 
 		// Start PGVector container in a goroutine
 		wg.Add(1)

@@ -1,0 +1,697 @@
+{
+    "nodes": [
+      {
+        "id": "agentNode_cb711648-501e-4649-a521-d5c14478d45b",
+        "type": "agentNode",
+        "initialized": false,
+        "position": {
+          "x": -352,
+          "y": -160
+        },
+        "data": {
+          "type": "AgentNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "endpoint": "http://localhost:32186/v1/chat/completions",
+            "api_key": "",
+            "model": "local",
+            "system_prompt": "You are an expert in generating JSON payloads for executing code with dynamic dependency installation in a sandbox environment. The user can request code in one of three languages: python, go, or javascript. If the user requests a language outside of these three, respond with the text:\n\n'language not supported'\nOtherwise, produce a valid JSON object with the following structure:\n\nlanguage: a string with the value \"python\", \"go\", or \"javascript\".\n\ncode: a string containing the code that should be run in the specified language.\n\ndependencies: an array of strings, where each string is the name of a required package or library.\n\nIf no dependencies are needed, the dependencies array must be empty (e.g., []).\n\nAlways return only the raw JSON string without any additional text, explanation, or markdown formatting. If the requested language is unsupported, return only language not supported without additional formatting.",
+            "user_prompt": "",
+            "max_completion_tokens": 16000,
+            "temperature": 0.3
+          },
+          "outputs": {
+            "response": "{\"language\": \"python\", \"code\": \"for i in range(1, 101):\\n    if i % 3 == 0 and i % 5 == 0:\\n        print('FizzBuzz')\\n    elif i % 3 == 0:\\n        print('Fizz')\\n    elif i % 5 == 0:\\n        print('Buzz')\\n    else:\\n        print(i)\", \"dependencies\": []}",
+            "error": null
+          },
+          "models": [
+            "local",
+            "chatgpt-4o-latest",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o1-mini",
+            "o1",
+            "o3-mini"
+          ],
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "380px",
+            "height": "906px"
+          },
+          "_lastLocalProvider": "llama-server"
+        },
+        "style": {
+          "width": "380px",
+          "height": "906px"
+        }
+      },
+      {
+        "id": "responseNode_2c8b5e4f-4a7b-448d-af30-4867fa3bb9cc",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 64,
+          "y": -160
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": "{\"language\": \"python\", \"code\": \"for i in range(1, 101):\\n    if i % 3 == 0 and i % 5 == 0:\\n        print('FizzBuzz')\\n    elif i % 3 == 0:\\n        print('Fizz')\\n    elif i % 5 == 0:\\n        print('Buzz')\\n    else:\\n        print(i)\", \"dependencies\": []}"
+          },
+          "outputs": {
+            "result": {
+              "output": "{\"language\": \"python\", \"code\": \"for i in range(1, 101):\\n    if i % 3 == 0 and i % 5 == 0:\\n        print('FizzBuzz')\\n    elif i % 3 == 0:\\n        print('Fizz')\\n    elif i % 5 == 0:\\n        print('Buzz')\\n    else:\\n        print(i)\", \"dependencies\": []}"
+            }
+          },
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "624px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "agentNode_cb711648-501e-4649-a521-d5c14478d45b"
+          ]
+        },
+        "style": {
+          "width": "671px",
+          "height": "256px"
+        }
+      },
+      {
+        "id": "textNode_d3fc710b-b0f0-4167-9c9a-f1410947bbe0",
+        "type": "textNode",
+        "initialized": false,
+        "position": {
+          "x": 64,
+          "y": 336
+        },
+        "data": {
+          "type": "TextNode",
+          "labelStyle": {
+            "fontWeight": "bold",
+            "textAlign": "center",
+            "marginBottom": "10px",
+            "fontSize": "16px"
+          },
+          "style": {
+            "border": "1px solid var(--node-border-color)",
+            "borderRadius": "12px",
+            "backgroundColor": "var(--node-bg-color)",
+            "color": "var(--node-text-color)",
+            "padding": "10px",
+            "width": "undefinedpx",
+            "height": "undefinedpx"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "text": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n",
+            "response": "Error:   File \"user_code.py\", line 1\n    Sure! Here's a short JavaScript snippet that logs \"Hello from JS\" and uses Axios to fetch data from the GitHub API:\n        ^\nSyntaxError: invalid syntax\n"
+          },
+          "outputs": {
+            "result": {
+              "output": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n"
+            }
+          },
+          "connectedTo": [
+            "pythonRunnerNode_e7994aff-ad1f-43cc-909e-f2c86f1feef9",
+            "codeRunnerNode_b1b43286-61d5-40dc-a176-818e433833e4"
+          ]
+        },
+        "style": {
+          "width": "665px",
+          "height": "390px"
+        }
+      },
+      {
+        "id": "agentNode_8d37ee98-9da9-4617-a54d-2c5bcedd1ce1",
+        "type": "agentNode",
+        "initialized": false,
+        "position": {
+          "x": 768,
+          "y": -160
+        },
+        "data": {
+          "type": "AgentNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "endpoint": "http://localhost:32186/v1/chat/completions",
+            "api_key": "",
+            "model": "local",
+            "system_prompt": "You are an experienced teacher skilled at explaining complex concepts. Present information in a structured, progressive manner from foundational to advanced. Use analogies and examples to connect new concepts to familiar ones. Break down complex ideas into smaller components. Incorporate multiple formats (definitions, examples, diagrams described in text) to accommodate different learning styles. Ask thought-provoking questions to deepen understanding. Anticipate common misconceptions and address them proactively.",
+            "user_prompt": "Below is a query and the results of that query. Process the data and use it to respond as follows:\n\n\"Here is the code for <query>:\n\n<take the code only and wrap it in markdown code block>\n\nThe result is:\n<code execution results>\"",
+            "max_completion_tokens": 16000,
+            "temperature": 0.3
+          },
+          "outputs": {
+            "response": "Certainly! Let's break down the FizzBuzz example in Python and understand how it works.\n\n### The Code\n\n```python\nfor i in range(1, 101):\n    if i % 3 == 0 and i % 5 == 0:\n        print('FizzBuzz')\n    elif i % 3 == 0:\n        print('Fizz')\n    elif i % 5 == 0:\n        print('Buzz')\n    else:\n        print(i)\n```\n\n### Explanation\n\n1. **Loop through numbers 1 to 100:**\n   - `for i in range(1, 101):` This line sets up a loop that will iterate over each number from 1 to 100, inclusive.\n\n2. **Check if the number is divisible by both 3 and 5:**\n   - `if i % 3 == 0 and i % 5 == 0:` The `%` operator is the modulus operator, which gives the remainder of a division. If `i % 3` equals 0 and `i % 5` equals 0, it means `i` is divisible by both 3 and 5. In this case, the program prints 'FizzBuzz'.\n\n3. **Check if the number is divisible by 3:**\n   - `elif i % 3 == 0:` If the number is not divisible by both 3 and 5, the program checks if it is divisible by 3. If true, it prints 'Fizz'.\n\n4. **Check if the number is divisible by 5:**\n   - `elif i % 5 == 0:` If the number is not divisible by 3, the program checks if it is divisible by 5. If true, it prints 'Buzz'.\n\n5. **If none of the above conditions are met:**\n   - `else: print(i)` If the number is not divisible by 3 or 5, or both, the program simply prints the number.\n\n### The Result\n\nThe result of running this code is a sequence of numbers from 1 to 100, but with the following substitutions:\n- Numbers divisible by both 3 and 5 are replaced with 'FizzBuzz'.\n- Numbers divisible by 3 are replaced with 'Fizz'.\n- Numbers divisible by 5 are replaced with 'Buzz'.\n\nHere is the output:\n\n```\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n```\n\n### Thought-Provoking Questions\n\n1. How would you modify the code to print 'Foo' for numbers divisible by 7?\n2. Can you explain why the order of the `if-elif-else` statements is important in this code?\n3. What would happen if you changed the range from `range(1, 101)` to `range(1, 51)`? How would the output be different?\n\nFeel free to try these modifications and see how they affect the output!",
+            "error": null
+          },
+          "models": [
+            "local",
+            "chatgpt-4o-latest",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o1-mini",
+            "o1",
+            "o3-mini"
+          ],
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "380px",
+            "height": "906px"
+          },
+          "_lastLocalProvider": "llama-server"
+        },
+        "style": {
+          "width": "380px",
+          "height": "906px"
+        }
+      },
+      {
+        "id": "responseNode_c6badd8d-fa56-4865-a237-78642db2d835",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 2016,
+          "y": -160
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": "Certainly! Let's break down the FizzBuzz example in Python and understand how it works.\n\n### The Code\n\n```python\nfor i in range(1, 101):\n    if i % 3 == 0 and i % 5 == 0:\n        print('FizzBuzz')\n    elif i % 3 == 0:\n        print('Fizz')\n    elif i % 5 == 0:\n        print('Buzz')\n    else:\n        print(i)\n```\n\n### Explanation\n\n1. **Loop through numbers 1 to 100:**\n   - `for i in range(1, 101):` This line sets up a loop that will iterate over each number from 1 to 100, inclusive.\n\n2. **Check if the number is divisible by both 3 and 5:**\n   - `if i % 3 == 0 and i % 5 == 0:` The `%` operator is the modulus operator, which gives the remainder of a division. If `i % 3` equals 0 and `i % 5` equals 0, it means `i` is divisible by both 3 and 5. In this case, the program prints 'FizzBuzz'.\n\n3. **Check if the number is divisible by 3:**\n   - `elif i % 3 == 0:` If the number is not divisible by both 3 and 5, the program checks if it is divisible by 3. If true, it prints 'Fizz'.\n\n4. **Check if the number is divisible by 5:**\n   - `elif i % 5 == 0:` If the number is not divisible by 3, the program checks if it is divisible by 5. If true, it prints 'Buzz'.\n\n5. **If none of the above conditions are met:**\n   - `else: print(i)` If the number is not divisible by 3 or 5, or both, the program simply prints the number.\n\n### The Result\n\nThe result of running this code is a sequence of numbers from 1 to 100, but with the following substitutions:\n- Numbers divisible by both 3 and 5 are replaced with 'FizzBuzz'.\n- Numbers divisible by 3 are replaced with 'Fizz'.\n- Numbers divisible by 5 are replaced with 'Buzz'.\n\nHere is the output:\n\n```\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n```\n\n### Thought-Provoking Questions\n\n1. How would you modify the code to print 'Foo' for numbers divisible by 7?\n2. Can you explain why the order of the `if-elif-else` statements is important in this code?\n3. What would happen if you changed the range from `range(1, 101)` to `range(1, 51)`? How would the output be different?\n\nFeel free to try these modifications and see how they affect the output!"
+          },
+          "outputs": {
+            "result": {
+              "output": "Certainly! Let's break down the FizzBuzz example in Python and understand how it works.\n\n### The Code\n\n```python\nfor i in range(1, 101):\n    if i % 3 == 0 and i % 5 == 0:\n        print('FizzBuzz')\n    elif i % 3 == 0:\n        print('Fizz')\n    elif i % 5 == 0:\n        print('Buzz')\n    else:\n        print(i)\n```\n\n### Explanation\n\n1. **Loop through numbers 1 to 100:**\n   - `for i in range(1, 101):` This line sets up a loop that will iterate over each number from 1 to 100, inclusive.\n\n2. **Check if the number is divisible by both 3 and 5:**\n   - `if i % 3 == 0 and i % 5 == 0:` The `%` operator is the modulus operator, which gives the remainder of a division. If `i % 3` equals 0 and `i % 5` equals 0, it means `i` is divisible by both 3 and 5. In this case, the program prints 'FizzBuzz'.\n\n3. **Check if the number is divisible by 3:**\n   - `elif i % 3 == 0:` If the number is not divisible by both 3 and 5, the program checks if it is divisible by 3. If true, it prints 'Fizz'.\n\n4. **Check if the number is divisible by 5:**\n   - `elif i % 5 == 0:` If the number is not divisible by 3, the program checks if it is divisible by 5. If true, it prints 'Buzz'.\n\n5. **If none of the above conditions are met:**\n   - `else: print(i)` If the number is not divisible by 3 or 5, or both, the program simply prints the number.\n\n### The Result\n\nThe result of running this code is a sequence of numbers from 1 to 100, but with the following substitutions:\n- Numbers divisible by both 3 and 5 are replaced with 'FizzBuzz'.\n- Numbers divisible by 3 are replaced with 'Fizz'.\n- Numbers divisible by 5 are replaced with 'Buzz'.\n\nHere is the output:\n\n```\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n```\n\n### Thought-Provoking Questions\n\n1. How would you modify the code to print 'Foo' for numbers divisible by 7?\n2. Can you explain why the order of the `if-elif-else` statements is important in this code?\n3. What would happen if you changed the range from `range(1, 101)` to `range(1, 51)`? How would the output be different?\n\nFeel free to try these modifications and see how they affect the output!"
+            }
+          },
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "624px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "agentNode_8d37ee98-9da9-4617-a54d-2c5bcedd1ce1"
+          ]
+        },
+        "style": {
+          "width": "911px",
+          "height": "896px"
+        }
+      },
+      {
+        "id": "textNode_b4f9395d-c261-4e15-aa5c-5750f211a230",
+        "type": "textNode",
+        "initialized": false,
+        "position": {
+          "x": 2016,
+          "y": -464
+        },
+        "data": {
+          "type": "TextNode",
+          "labelStyle": {
+            "fontWeight": "bold",
+            "textAlign": "center",
+            "marginBottom": "10px",
+            "fontSize": "16px"
+          },
+          "style": {
+            "border": "1px solid var(--node-border-color)",
+            "borderRadius": "12px",
+            "backgroundColor": "var(--node-bg-color)",
+            "color": "var(--node-text-color)",
+            "padding": "10px",
+            "width": "undefinedpx",
+            "height": "undefinedpx"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "text": "write a fizz buzz example in python"
+          },
+          "outputs": {
+            "result": {
+              "output": "write a fizz buzz example in python"
+            }
+          }
+        },
+        "style": {
+          "width": "905px",
+          "height": "278px"
+        }
+      },
+      {
+        "id": "responseNode_7ba4273a-9f29-4006-bc44-b7f104c9bcb8",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": -352,
+          "y": 768
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": "write a fizz buzz example in python"
+          },
+          "outputs": {
+            "result": {
+              "output": "write a fizz buzz example in python"
+            }
+          },
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "624px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "textNode_b4f9395d-c261-4e15-aa5c-5750f211a230"
+          ]
+        },
+        "style": {
+          "width": "671px",
+          "height": "256px"
+        }
+      },
+      {
+        "id": "responseNode_78168f32-9d95-47e4-9f8a-35303e146f8d",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": -352,
+          "y": 1040
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n"
+          },
+          "outputs": {
+            "result": {
+              "output": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n"
+            }
+          },
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "624px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "textNode_d3fc710b-b0f0-4167-9c9a-f1410947bbe0"
+          ]
+        },
+        "style": {
+          "width": "671px",
+          "height": "256px"
+        }
+      },
+      {
+        "id": "noteNode_c63e7771-896b-4b3d-8a35-8cda95d67e13",
+        "type": "noteNode",
+        "initialized": false,
+        "position": {
+          "x": 2976,
+          "y": -448
+        },
+        "data": {
+          "type": "Notes",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": false,
+          "hasOutputs": false,
+          "inputs": {
+            "note": "Manifold supports three languages for sandboxed code execution.\n\nEXAMPLES\n_________\n\nPython:\n\nWrite a python script that prints the current date and time, and uses the requests library to fetch the HTTP status code of https://google.com.\n\n\nGo:\n\nCreate a Go program that prints 'Hello from Go' and uses github.com/shopspring/decimal to multiply two decimal values: 1.25 and 2.50.\n\n\nJavaScript (Node):\n\nWrite a short JavaScript snippet that logs 'Hello from JS' and uses axios to fetch data from https://api.github.com."
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #e8c547",
+            "borderRadius": "12px",
+            "backgroundColor": "#f7f3d7",
+            "color": "#333",
+            "width": "200px",
+            "height": "120px"
+          }
+        },
+        "style": {
+          "width": "616px",
+          "height": "504px"
+        }
+      },
+      {
+        "id": "codeRunnerNode_b1b43286-61d5-40dc-a176-818e433833e4",
+        "type": "codeRunnerNode",
+        "initialized": false,
+        "position": {
+          "x": 64,
+          "y": 128
+        },
+        "data": {
+          "style": {},
+          "labelStyle": {},
+          "type": "Code Runner",
+          "inputs": {
+            "command": "{\"language\":\"python\",\"code\":\"for i in range(1, 101):\\n    if i % 3 == 0 and i % 5 == 0:\\n        print('FizzBuzz')\\n    elif i % 3 == 0:\\n        print('Fizz')\\n    elif i % 5 == 0:\\n        print('Buzz')\\n    else:\\n        print(i)\",\"dependencies\":[]}"
+          },
+          "outputs": {
+            "result": {
+              "output": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n"
+            }
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputHandleColor": "#777",
+          "inputHandleShape": "50%",
+          "handleColor": "#777",
+          "outputHandleShape": "50%",
+          "connectedTo": [
+            "responseNode_2c8b5e4f-4a7b-448d-af30-4867fa3bb9cc"
+          ]
+        }
+      },
+      {
+        "id": "noteNode_d7dd6735-a572-4bb7-ad6b-f9346f58ae6b",
+        "type": "noteNode",
+        "initialized": false,
+        "position": {
+          "x": 2016,
+          "y": -608
+        },
+        "data": {
+          "type": "Notes",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": false,
+          "hasOutputs": false,
+          "inputs": {
+            "note": "Start here. This is the main user prompt."
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #e8c547",
+            "borderRadius": "12px",
+            "backgroundColor": "#f7f3d7",
+            "color": "#333",
+            "width": "200px",
+            "height": "120px"
+          }
+        },
+        "style": {
+          "width": "200px",
+          "height": "120px"
+        }
+      },
+      {
+        "id": "noteNode_0b2923e6-6c52-44e9-8047-3eecc914c484",
+        "type": "noteNode",
+        "initialized": false,
+        "position": {
+          "x": -608,
+          "y": 320
+        },
+        "data": {
+          "type": "Notes",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": false,
+          "hasOutputs": false,
+          "inputs": {
+            "note": "Make sure you select Code Execution Node system prompt!"
+          },
+          "outputs": {},
+          "style": {
+            "border": "1px solid #e8c547",
+            "borderRadius": "12px",
+            "backgroundColor": "#f7f3d7",
+            "color": "#333",
+            "width": "200px",
+            "height": "120px"
+          }
+        },
+        "style": {
+          "width": "200px",
+          "height": "120px"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-0.9662342489540908",
+        "type": "bezier",
+        "source": "agentNode_cb711648-501e-4649-a521-d5c14478d45b",
+        "target": "responseNode_2c8b5e4f-4a7b-448d-af30-4867fa3bb9cc",
+        "sourceHandle": null,
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 34.999581263430684,
+        "sourceY": 292.99949800546324,
+        "targetX": 57.00001084539591,
+        "targetY": -32.00013275638115,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.3320027553403673",
+        "type": "bezier",
+        "source": "agentNode_8d37ee98-9da9-4617-a54d-2c5bcedd1ce1",
+        "target": "responseNode_c6badd8d-fa56-4865-a237-78642db2d835",
+        "sourceHandle": null,
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 1154.9996160814524,
+        "sourceY": 292.99949800546324,
+        "targetX": 2008.999906391331,
+        "targetY": 287.99949083016537,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.2582563377649454",
+        "type": "bezier",
+        "source": "textNode_b4f9395d-c261-4e15-aa5c-5750f211a230",
+        "target": "responseNode_7ba4273a-9f29-4006-bc44-b7f104c9bcb8",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 2924.9989167528533,
+        "sourceY": -325.0001448251431,
+        "targetX": -359.0000239726257,
+        "targetY": 895.9998672436188,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.24676028150537188",
+        "type": "bezier",
+        "source": "responseNode_7ba4273a-9f29-4006-bc44-b7f104c9bcb8",
+        "target": "agentNode_cb711648-501e-4649-a521-d5c14478d45b",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 325.99923983289705,
+        "sourceY": 895.9998672436188,
+        "targetX": -359.0000239726257,
+        "targetY": 292.99949800546324,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.2163986946522768",
+        "type": "bezier",
+        "source": "responseNode_7ba4273a-9f29-4006-bc44-b7f104c9bcb8",
+        "target": "agentNode_8d37ee98-9da9-4617-a54d-2c5bcedd1ce1",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 325.99923983289705,
+        "sourceY": 895.9998672436188,
+        "targetX": 761.0000456634175,
+        "targetY": 292.99949800546324,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.4074810171984735",
+        "type": "bezier",
+        "source": "responseNode_2c8b5e4f-4a7b-448d-af30-4867fa3bb9cc",
+        "target": "agentNode_8d37ee98-9da9-4617-a54d-2c5bcedd1ce1",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 741.9992746509186,
+        "sourceY": -32.00013275638115,
+        "targetX": 761.0000456634175,
+        "targetY": 292.99949800546324,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.11080911914286884",
+        "type": "bezier",
+        "source": "textNode_d3fc710b-b0f0-4167-9c9a-f1410947bbe0",
+        "target": "responseNode_78168f32-9d95-47e4-9f8a-35303e146f8d",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 732.9993035170083,
+        "sourceY": 530.9997684116896,
+        "targetX": -359.0000239726257,
+        "targetY": 1167.9998672436188,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.63414702860267",
+        "type": "bezier",
+        "source": "responseNode_78168f32-9d95-47e4-9f8a-35303e146f8d",
+        "target": "agentNode_8d37ee98-9da9-4617-a54d-2c5bcedd1ce1",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 325.99923983289705,
+        "sourceY": 1167.9998672436188,
+        "targetX": 761.0000456634175,
+        "targetY": 292.99949800546324,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.7258136298735834",
+        "type": "bezier",
+        "source": "responseNode_2c8b5e4f-4a7b-448d-af30-4867fa3bb9cc",
+        "target": "codeRunnerNode_b1b43286-61d5-40dc-a176-818e433833e4",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 741.9992746509186,
+        "sourceY": -32.00013275638115,
+        "targetX": 57.00001084539591,
+        "targetY": 222.2498536283797,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.7709850953909844",
+        "type": "bezier",
+        "source": "codeRunnerNode_b1b43286-61d5-40dc-a176-818e433833e4",
+        "target": "textNode_d3fc710b-b0f0-4167-9c9a-f1410947bbe0",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 321.8435228216009,
+        "sourceY": 222.2498536283797,
+        "targetX": 60.000001223366006,
+        "targetY": 530.9997684116896,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      }
+    ],
+    "position": [
+      -709.6251592397857,
+      403.8360519387378
+    ],
+    "zoom": 0.6336705023506575,
+    "viewport": {
+      "x": -709.6251592397857,
+      "y": 403.8360519387378,
+      "zoom": 0.6336705023506575
+    }
+  }

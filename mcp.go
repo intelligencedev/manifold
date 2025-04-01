@@ -1608,10 +1608,11 @@ func callToolInServer(toolName, jsonArgs string) (string, error) {
 // agentHandler returns a closure that processes the agent query using a recursive planner+worker approach.
 func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error) {
 	return func(args AgentArgs) (*mcp.ToolResponse, error) {
-		var conversation []ChatCompletionMsg
 		// --- Step 0: Retrieve Available Tools ---
 		// Instead of trying to make HTTP requests, we'll build a static list of available tools
 		// This avoids the need for mcp.NewToolRequest and server.HandleToolRequest
+		var conversation []ChatCompletionMsg
+
 		toolsInfo := map[string]interface{}{
 			"tools": []map[string]interface{}{
 				{"name": "hello", "description": "Says hello to the provided name"},
@@ -1672,10 +1673,12 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 			planningPrompt := "Available Tools:\n" + toolsJSON + "\n\n" +
 				`You are a planning assistant for an autonomous agent.
 The current user query is: "` + args.Query + `".
-Produce a JSON array of tasks that will accomplish the query. 
+Produce a JSON array of tasks that will accomplish the query.
 Each task must be an object with two keys:
-  - "tool": the name of the tool to invoke (e.g., "read_file", "edit_file", "write_file", etc.)
+  - "tool": the name of the tool to invoke (e.g., "read_file", "git_status", "write_file", etc.)
   - "args": a JSON object with the arguments for that tool.
+
+**IMPORTANT**: For tools that operate on files or directories (like read_file, write_file, list_directory, git_status, etc.), you MUST extract the relevant file or directory path from the user query and include it as the "path" argument in the "args" object. For example, if the query mentions "/Users/art/Documents/code/manifold", the "args" for a git_status task should be { "path": "/Users/art/Documents/code/manifold" }.
 
 Always try to use one of the available tools from the provided list before searching the web if the tool will suffice.
 
@@ -1685,7 +1688,7 @@ For web-related actions, carefully follow these examples:
 - To fetch web content: { "tool": "web_content", "args": { "urls": ["https://example.com", "https://example.org"] } }
 
 Note that web_content requires an array of URLs, even if there's only one URL.
-ensure that the URLs are provided as a list, even if there's only one URL. For example, instead of "urls": "http://example.com", 
+ensure that the URLs are provided as a list, even if there's only one URL. For example, instead of "urls": "http://example.com",
 it should be "urls": ["http://example.com"]. This way, the system can correctly interpret the data as an array of strings.
 If you were unable to retrieve web content, never mention that.
 Always cite successful web content retrieval in the final summary.
@@ -1700,8 +1703,8 @@ To reference the output of a previous tool in your plan, use the format: "$TOOL_
 Do not include any task that calls the "agent" tool.
 Output only the JSON array. For example:
 [
-  { "tool": "web_search", "args": { "query": "golang tutorials" } },
-  { "tool": "web_content", "args": { "urls": ["$TOOL_RESULT[0]"] } }
+  { "tool": "git_status", "args": { "path": "/path/to/repo" } },
+  { "tool": "write_file", "args": { "path": "/path/to/output.txt", "content": "$TOOL_RESULT[0]" } }
 ]`
 
 			// Append planning prompt to conversation

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -623,10 +624,22 @@ func producePlan(config *Config, userQuery string) (*Plan, error) {
 
 	availableToolsStr := strings.Join(availableTools, ", ")
 
+	// Prepend the available tools to the query with two line breaks
+	queryWithTools := fmt.Sprintf("Available tools: %s\n\n%s", availableToolsStr, userQuery)
+
+	// Get detailed tool documentation
+	toolDocs := generateToolDocumentation()
+
+	systemPrompt := fmt.Sprintf(`You are a manager that plans multi-step tool usage. Output only the JSON plan.
+
+%s
+
+Only use tools from the provided list of available tools.`, toolDocs)
+
 	prompt := fmt.Sprintf(`
 You are a project manager. The user query is: %q
 
-IMPORTANT: ONLY use the following available tools: %s
+IMPORTANT: ONLY use the tools mentioned in the system prompt.
 
 Produce a JSON plan of steps in the format:
 {
@@ -640,10 +653,10 @@ Produce a JSON plan of steps in the format:
 }
 
 DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsRaw".
-`, userQuery, availableToolsStr)
+`, queryWithTools)
 
 	messages := []ChatCompletionMsg{
-		{Role: "system", Content: "You are a manager that plans multi-step tool usage. Output only the JSON plan. Only use tools from the provided list of available tools."},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}
 
@@ -676,6 +689,7 @@ DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsR
 
 // produceFinalAnswer calls the manager again, providing the step results, and asks for a final summary
 func produceFinalAnswer(config *Config, userQuery string, history []StepResult) (string, error) {
+
 	// Summarize the steps
 	var sb strings.Builder
 	for _, h := range history {
@@ -688,6 +702,8 @@ func produceFinalAnswer(config *Config, userQuery string, history []StepResult) 
 		sb.WriteString("\n")
 	}
 
+	systemPrompt := "You are a manager finalizing the user's answer. Be concise but thorough"
+
 	prompt := fmt.Sprintf(`
 User query: %q
 
@@ -698,7 +714,7 @@ Now provide a final human-readable answer to the user, summarizing or directly p
 `, userQuery, sb.String())
 
 	messages := []ChatCompletionMsg{
-		{Role: "system", Content: "You are a manager finalizing the user's answer. Be concise but thorough."},
+		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}
 
@@ -1526,4 +1542,61 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 
 	answer := completionResp.Choices[0].Message.Content
 	return answer, nil
+}
+
+// generateToolDocumentation returns a string describing all available tools and their parameters
+func generateToolDocumentation() string {
+	// Map of tool names to their parameter documentation
+	toolDocs := map[string]string{
+		"hello":                    "{ \"name\": \"string\" } - The name to say hello to",
+		"calculate":                "{ \"operation\": \"string\" (add|subtract|multiply|divide), \"a\": number, \"b\": number } - Perform basic math",
+		"time":                     "{ \"format\": \"string\" (optional) } - Get current time, optionally with specified format",
+		"get_weather":              "{ \"longitude\": number, \"latitude\": number } - Get weather forecast",
+		"read_file":                "{ \"path\": \"string\" } - Path to the file to read",
+		"write_file":               "{ \"path\": \"string\", \"content\": \"string\" } - Write content to specified file",
+		"list_directory":           "{ \"path\": \"string\" } - List files and directories at path",
+		"create_directory":         "{ \"path\": \"string\" } - Create a directory at path",
+		"move_file":                "{ \"source\": \"string\", \"destination\": \"string\" } - Move or rename a file/directory",
+		"git_init":                 "{ \"path\": \"string\" } - Initialize a new Git repository",
+		"git_status":               "{ \"path\": \"string\" } - Show Git status in repository at path",
+		"git_add":                  "{ \"path\": \"string\", \"fileList\": [\"string\", ...] } - Stage files for commit",
+		"git_commit":               "{ \"path\": \"string\", \"message\": \"string\" } - Commit staged changes",
+		"git_pull":                 "{ \"path\": \"string\" } - Pull changes from remote repository",
+		"git_push":                 "{ \"path\": \"string\" } - Push commits to remote repository",
+		"read_multiple_files":      "{ \"paths\": [\"string\", ...] } - Read multiple files at once",
+		"edit_file":                "{ \"path\": \"string\", \"search\": \"string\", \"replace\": \"string\" } - Replace text in a file",
+		"directory_tree":           "{ \"path\": \"string\", \"maxDepth\": number (optional) } - Show directory structure",
+		"search_files":             "{ \"path\": \"string\", \"pattern\": \"string\" } - Search for text pattern in files",
+		"get_file_info":            "{ \"path\": \"string\" } - Get file/directory metadata",
+		"list_allowed_directories": "{} - List directories allowed for access",
+		"delete_file":              "{ \"path\": \"string\", \"recursive\": boolean (optional) } - Delete a file or directory",
+		"copy_file":                "{ \"source\": \"string\", \"destination\": \"string\", \"recursive\": boolean (optional) } - Copy a file or directory",
+		"git_clone":                "{ \"repoUrl\": \"string\", \"path\": \"string\" } - Clone a Git repository",
+		"git_checkout":             "{ \"path\": \"string\", \"branch\": \"string\", \"createNew\": boolean (optional) } - Checkout or create a Git branch",
+		"git_diff":                 "{ \"path\": \"string\", \"fromRef\": \"string\" (optional), \"toRef\": \"string\" (optional) } - Show Git diff",
+		"run_shell_command":        "{ \"command\": [\"string\", ...], \"dir\": \"string\" } - Execute a shell command",
+		"go_build":                 "{ \"path\": \"string\" } - Build a Go module",
+		"go_test":                  "{ \"path\": \"string\" } - Run Go tests",
+		"format_go_code":           "{ \"path\": \"string\" } - Format Go code",
+		"lint_code":                "{ \"path\": \"string\", \"linterName\": \"string\" (optional) } - Lint code",
+		"web_search":               "{ \"query\": \"string\", \"result_size\": number (optional), \"search_backend\": \"string\" (optional) } - Perform web search",
+		"web_content":              "{ \"urls\": [\"string\", ...] } - Fetch web content",
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Available tools and their parameters:\n\n")
+
+	// Sort the tools by name for consistent output
+	toolNames := make([]string, 0, len(toolDocs))
+	for tool := range toolDocs {
+		toolNames = append(toolNames, tool)
+	}
+	sort.Strings(toolNames)
+
+	// Build the documentation string
+	for _, toolName := range toolNames {
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", toolName, toolDocs[toolName]))
+	}
+
+	return sb.String()
 }

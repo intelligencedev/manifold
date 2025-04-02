@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -20,6 +19,9 @@ import (
 	"github.com/metoro-io/mcp-golang/transport/stdio"
 )
 
+// RunMCP is the main entry point for running the MCP server with all registered tools.
+// We have refactored the "agent" tool to function like a manager + team. The manager
+// (LLM) plans multi-step workflows, which this code then executes step by step.
 func RunMCP(config *Config) {
 
 	// Create a transport for the server
@@ -31,6 +33,7 @@ func RunMCP(config *Config) {
 	// --------------------------
 	// Existing Tools
 	// --------------------------
+
 	if err := server.RegisterTool("hello", "Says hello to the provided name", func(args HelloArgs) (*mcp.ToolResponse, error) {
 		res, err := helloTool(args)
 		if err != nil {
@@ -183,9 +186,7 @@ func RunMCP(config *Config) {
 		panic(err)
 	}
 
-	// --------------------------
-	// Register New Tools
-	// --------------------------
+	// Additional Tools
 	if err := server.RegisterTool("read_multiple_files", "Reads the contents of multiple files", func(args ReadMultipleFilesArgs) (*mcp.ToolResponse, error) {
 		res, err := readMultipleFilesTool(args)
 		if err != nil {
@@ -347,9 +348,9 @@ func RunMCP(config *Config) {
 	}
 
 	// --------------------------
-	// Register our new "agent" tool:
+	// Register our new "agent" tool (manager + team approach)
 	// --------------------------
-	if err := server.RegisterTool("agent", "Agent that uses LLM to decide which tools to call", agentHandler(config)); err != nil {
+	if err := server.RegisterTool("agent", "Agent that orchestrates a multi-step plan and executes it step by step.", agentHandler(config)); err != nil {
 		panic(err)
 	}
 
@@ -365,117 +366,81 @@ func RunMCP(config *Config) {
 }
 
 // =====================
-// Existing Argument Types
+// Argument Types
 // =====================
 
-// HelloArgs represents the arguments for the hello tool
+// HelloArgs example
 type HelloArgs struct {
 	Name string `json:"name" jsonschema:"required,description=The name to say hello to"`
 }
 
-// CalculateArgs represents the arguments for the calculate tool
 type CalculateArgs struct {
 	Operation string  `json:"operation" jsonschema:"required,enum=add,enum=subtract,enum=multiply,enum=divide,description=The mathematical operation to perform"`
 	A         float64 `json:"a" jsonschema:"required,description=First number"`
 	B         float64 `json:"b" jsonschema:"required,description=Second number"`
 }
 
-// TimeArgs represents the arguments for the current time tool
 type TimeArgs struct {
 	Format string `json:"format,omitempty" jsonschema:"description=Optional time format (default: RFC3339)"`
 }
 
-// PromptArgs represents the arguments for custom prompts
-type PromptArgs struct {
-	Input string `json:"input" jsonschema:"required,description=The input text to process"`
-}
-
-// WeatherArgs represents the arguments for the weather tool
 type WeatherArgs struct {
-	Longitude float64 `json:"longitude" jsonschema:"required,description=The longitude of the location to get the weather for"`
-	Latitude  float64 `json:"latitude" jsonschema:"required,description=The latitude of the location to get the weather for"`
+	Longitude float64 `json:"longitude" jsonschema:"required,description=Longitude"`
+	Latitude  float64 `jsonschema:"required,description=Latitude" json:"latitude"`
 }
 
-// =====================
-// New File System Tools (Argument Types)
-// =====================
-
-// ReadFileArgs is used by the "read_file" tool.
+// FS Tools
 type ReadFileArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Path to the file to read"`
 }
-
-// WriteFileArgs is used by the "write_file" tool.
 type WriteFileArgs struct {
 	Path    string `json:"path" jsonschema:"required,description=Path to the file to write"`
 	Content string `json:"content" jsonschema:"required,description=Content to write into the file"`
 }
-
-// ListDirectoryArgs is used by the "list_directory" tool.
 type ListDirectoryArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory path to list"`
 }
-
-// CreateDirectoryArgs is used by the "create_directory" tool.
 type CreateDirectoryArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory path to create"`
 }
-
-// MoveFileArgs is used by the "move_file" tool.
 type MoveFileArgs struct {
-	Source      string `json:"source" jsonschema:"required,description=Source file/directory path"`
-	Destination string `json:"destination" jsonschema:"required,description=Destination file/directory path"`
+	Source      string `json:"source" jsonschema:"required,description=Source path"`
+	Destination string `json:"destination" jsonschema:"required,description=Destination path"`
 }
 
-// =====================
-// Git Tool Argument Types
-// =====================
-
-// GitInitArgs is used by the "git_init" tool.
+// Git Tools
 type GitInitArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory in which to initialize a Git repo"`
 }
-
-// GitRepoArgs is used by "git_status", "git_pull", "git_push".
 type GitRepoArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
 }
-
-// GitAddArgs is used by the "git_add" tool.
 type GitAddArgs struct {
 	Path     string   `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
-	FileList []string `json:"fileList" jsonschema:"required,description=List of files to add (or empty to add all)"`
+	FileList []string `json:"fileList" jsonschema:"required,description=List of files to add"`
 }
-
-// GitCommitArgs is used by the "git_commit" tool.
 type GitCommitArgs struct {
 	Path    string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
 	Message string `json:"message" jsonschema:"required,description=Commit message"`
 }
 
-// =====================
-// Agent Tool Argument Type
-// =====================
+// Agent
 type AgentArgs struct {
 	Query    string `json:"query" jsonschema:"required,description=User's query"`
-	MaxCalls int    `json:"maxCalls" jsonschema:"required,description=Number of maximum LLM calls allowed"`
+	MaxCalls int    `json:"maxCalls" jsonschema:"required,description=Maximum LLM calls allowed"`
 }
 
-// ChatCompletionRequest is used to marshal the body for OpenAI's chat completion request.
+// ChatCompletion structs for calling OpenAI
 type ChatCompletionRequest struct {
 	Model       string              `json:"model"`
 	Messages    []ChatCompletionMsg `json:"messages"`
 	MaxTokens   int                 `json:"max_tokens,omitempty"`
 	Temperature float64             `json:"temperature,omitempty"`
 }
-
-// ChatCompletionMsg represents a message with role and content for the Chat API.
 type ChatCompletionMsg struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
-
-// ChatCompletionResponse is used to unmarshal the OpenAI chat completion response.
 type ChatCompletionResponse struct {
 	Choices []struct {
 		Message struct {
@@ -485,119 +450,915 @@ type ChatCompletionResponse struct {
 	} `json:"choices"`
 }
 
-// =====================
-// New Tools: Additional Argument Types
-// =====================
-
-// ReadMultipleFilesArgs is used by the "read_multiple_files" tool.
+// Additional Tool Args
 type ReadMultipleFilesArgs struct {
 	Paths []string `json:"paths" jsonschema:"required,description=List of file paths to read"`
 }
-
-// EditFileArgs is used by the "edit_file" tool.
 type EditFileArgs struct {
-	Path         string `json:"path" jsonschema:"required,description=Path to the file to edit"`
-	Search       string `json:"search,omitempty" jsonschema:"description=Text to search for"`
-	Replace      string `json:"replace,omitempty" jsonschema:"description=Text to replace with"`
-	PatchContent string `json:"patchContent,omitempty" jsonschema:"description=A unified diff patch to apply to the file"`
+	Path         string `json:"path" jsonschema:"required,description=File path"`
+	Search       string `json:"search,omitempty" jsonschema:"description=Search text"`
+	Replace      string `json:"replace,omitempty" jsonschema:"description=Replace text"`
+	PatchContent string `json:"patchContent,omitempty" jsonschema:"description=Unified diff patch"`
 }
-
-// DirectoryTreeArgs is used by the "directory_tree" tool.
 type DirectoryTreeArgs struct {
-	Path     string `json:"path" jsonschema:"required,description=Root directory for the tree"`
-	MaxDepth int    `json:"maxDepth,omitempty" jsonschema:"description=Limit recursion depth (0 for unlimited)"`
+	Path     string `json:"path" jsonschema:"required,description=Root directory"`
+	MaxDepth int    `json:"maxDepth,omitempty" jsonschema:"description=Depth limit"`
 }
-
-// SearchFilesArgs is used by the "search_files" tool.
 type SearchFilesArgs struct {
-	Path    string `json:"path" jsonschema:"required,description=Base path to search"`
-	Pattern string `json:"pattern" jsonschema:"required,description=Text or regex pattern to find"`
+	Path    string `json:"path" jsonschema:"required,description=Base path"`
+	Pattern string `json:"pattern" jsonschema:"required,description=Text or regex pattern"`
 }
-
-// GetFileInfoArgs is used by the "get_file_info" tool.
 type GetFileInfoArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Path to the file or directory"`
+	Path string `json:"path" jsonschema:"required,description=Path to file or directory"`
 }
-
-// ListAllowedDirectoriesArgs is used by the "list_allowed_directories" tool.
 type ListAllowedDirectoriesArgs struct{}
-
-// DeleteFileArgs is used by the "delete_file" tool.
 type DeleteFileArgs struct {
-	Path      string `json:"path" jsonschema:"required,description=File or directory path to delete"`
-	Recursive bool   `json:"recursive,omitempty" jsonschema:"description=If true, delete recursively"`
+	Path      string `json:"path" jsonschema:"required,description=Path to delete"`
+	Recursive bool   `json:"recursive,omitempty" jsonschema:"description=Delete recursively"`
 }
-
-// CopyFileArgs is used by the "copy_file" tool.
 type CopyFileArgs struct {
 	Source      string `json:"source" jsonschema:"required"`
 	Destination string `json:"destination" jsonschema:"required"`
 	Recursive   bool   `json:"recursive,omitempty" jsonschema:"description=Copy directories recursively"`
 }
-
-// GitCloneArgs is used by the "git_clone" tool.
 type GitCloneArgs struct {
 	RepoURL string `json:"repoUrl" jsonschema:"required"`
-	Path    string `json:"path" jsonschema:"required,description=Local path to clone into"`
+	Path    string `json:"path" jsonschema:"required"`
 }
-
-// GitCheckoutArgs is used by the "git_checkout" tool.
 type GitCheckoutArgs struct {
 	Path      string `json:"path" jsonschema:"required"`
 	Branch    string `json:"branch" jsonschema:"required"`
-	CreateNew bool   `json:"createNew,omitempty" jsonschema:"description=Create a new branch if true"`
+	CreateNew bool   `json:"createNew,omitempty" jsonschema:"description=Create new branch?"`
 }
-
-// GitDiffArgs is used by the "git_diff" tool.
 type GitDiffArgs struct {
 	Path    string `json:"path" jsonschema:"required"`
-	FromRef string `json:"fromRef,omitempty" jsonschema:"description=Starting reference"`
-	ToRef   string `json:"toRef,omitempty" jsonschema:"description=Ending reference"`
+	FromRef string `json:"fromRef,omitempty"`
+	ToRef   string `json:"toRef,omitempty"`
 }
-
-// ShellCommandArgs is used by the "run_shell_command" tool.
 type ShellCommandArgs struct {
 	Command []string `json:"command" jsonschema:"required"`
 	Dir     string   `json:"dir" jsonschema:"required"`
 }
-
-// GoBuildArgs is used by the "go_build" tool.
 type GoBuildArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Directory of the Go module to build"`
+	Path string `json:"path" jsonschema:"required,description=Directory of Go module"`
 }
-
-// GoTestArgs is used by the "go_test" tool.
 type GoTestArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Directory of the Go module to test"`
+	Path string `json:"path" jsonschema:"required,description=Directory of Go tests"`
 }
-
-// FormatGoCodeArgs is used by the "format_go_code" tool.
 type FormatGoCodeArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Directory of the Go code to format"`
+	Path string `json:"path" jsonschema:"required,description=Directory of Go code to format"`
 }
-
-// LintCodeArgs is used by the "lint_code" tool.
 type LintCodeArgs struct {
-	Path       string `json:"path" jsonschema:"required,description=Directory or file to lint"`
-	LinterName string `json:"linterName,omitempty" jsonschema:"description=Name of the linter to use (optional)"`
+	Path       string `json:"path" jsonschema:"required,description=Dir or file to lint"`
+	LinterName string `json:"linterName,omitempty" jsonschema:"description=Optional linter name"`
 }
-
-// WebSearchArgs is used by the "web_search" tool.
 type WebSearchArgs struct {
-	Query         string `json:"query" jsonschema:"required,description=Search query text"`
-	ResultSize    int    `json:"result_size,omitempty" jsonschema:"description=Number of results to return (default: 3)"`
-	SearchBackend string `json:"search_backend,omitempty" jsonschema:"description=Search backend to use (default: ddg, alternative: sxng)"`
-	SxngURL       string `json:"sxng_url,omitempty" jsonschema:"description=URL of SearXNG instance when using sxng backend"`
+	Query         string `json:"query" jsonschema:"required"`
+	ResultSize    int    `json:"result_size,omitempty"`
+	SearchBackend string `json:"search_backend,omitempty"`
+	SxngURL       string `json:"sxng_url,omitempty"`
 }
-
-// WebContentArgs is used by the "web_content" tool.
 type WebContentArgs struct {
-	URLs []string `json:"urls" jsonschema:"required,description=List of URLs to fetch content from"`
+	URLs []string `json:"urls" jsonschema:"required,description=List of URLs"`
+}
+
+// callOpenAI is a helper that calls the completions endpoint
+func callOpenAI(config *Config, messages []ChatCompletionMsg) (string, error) {
+	requestBody := ChatCompletionRequest{
+		Model:       config.Completions.CompletionsModel,
+		Messages:    messages,
+		MaxTokens:   4096,
+		Temperature: 0.3,
+	}
+	jsonBytes, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+	req, err := http.NewRequest("POST", config.Completions.DefaultHost, bytes.NewBuffer(jsonBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("openai request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("openai API error, status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	var completionResp ChatCompletionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
+		return "", fmt.Errorf("failed to parse openai response: %w", err)
+	}
+	if len(completionResp.Choices) == 0 {
+		return "", fmt.Errorf("no completion returned by OpenAI")
+	}
+	return completionResp.Choices[0].Message.Content, nil
+}
+
+// agentHandler is our manager+team approach. The user calls "agent" with
+// { query: "...", maxCalls: N }, and we do the following:
+//
+// 1) Ask the manager LLM for a multi-step plan of tool calls (in JSON).
+// 2) Execute each step in code, saving outputs in a tool history.
+// 3) Ask the manager LLM for a final summary. Return that summary to the user.
+func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error) {
+	return func(args AgentArgs) (*mcp.ToolResponse, error) {
+		plan, err := producePlan(config, args.Query)
+		if err != nil {
+			return nil, fmt.Errorf("error producing plan: %w", err)
+		}
+
+		log.Default().Printf("Plan: %s", string(args.Query))
+
+		// Execute the plan
+		var history []StepResult
+		for idx, step := range plan.Steps {
+			res, toolErr := callToolInServer(step.ToolName, step.ArgsRaw)
+			sr := StepResult{
+				Index:    idx,
+				ToolName: step.ToolName,
+				Args:     step.ArgsRaw,
+				Output:   res,
+				Error:    "",
+			}
+			if toolErr != nil {
+				sr.Error = toolErr.Error()
+				history = append(history, sr)
+				log.Printf("Step %d result added to history: %+v", idx, sr)
+				// If a step fails, we short-circuit
+				return mcp.NewToolResponse(mcp.NewTextContent(
+					fmt.Sprintf("Plan step %d (%s) failed: %v", idx+1, step.ToolName, toolErr),
+				)), nil
+			}
+			history = append(history, sr)
+		}
+
+		// Summarize final answer
+		final, err := produceFinalAnswer(config, args.Query, history)
+		if err != nil {
+			return nil, fmt.Errorf("error producing final answer: %w", err)
+		}
+		return mcp.NewToolResponse(mcp.NewTextContent(final)), nil
+	}
+}
+
+// producePlan calls the manager LLM to get a multi-step plan in JSON
+func producePlan(config *Config, userQuery string) (*Plan, error) {
+	// List of all available tools
+	availableTools := []string{
+		"hello", "calculate", "time", "get_weather",
+		"read_file", "write_file", "list_directory", "create_directory", "move_file",
+		"git_init", "git_status", "git_add", "git_commit", "git_pull", "git_push",
+		"read_multiple_files", "edit_file", "directory_tree", "search_files",
+		"get_file_info", "list_allowed_directories", "delete_file", "copy_file",
+		"git_clone", "git_checkout", "git_diff", "run_shell_command",
+		"go_build", "go_test", "format_go_code", "lint_code", "web_search", "web_content",
+	}
+
+	availableToolsStr := strings.Join(availableTools, ", ")
+
+	prompt := fmt.Sprintf(`
+You are a project manager. The user query is: %q
+
+IMPORTANT: ONLY use the following available tools: %s
+
+Produce a JSON plan of steps in the format:
+{
+  "steps": [
+    {
+      "toolName": "<some_tool_name>",
+      "argsRaw": "<JSON string for the tool arguments>"
+    },
+    ...
+  ]
+}
+
+DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsRaw".
+`, userQuery, availableToolsStr)
+
+	messages := []ChatCompletionMsg{
+		{Role: "system", Content: "You are a manager that plans multi-step tool usage. Output only the JSON plan. Only use tools from the provided list of available tools."},
+		{Role: "user", Content: prompt},
+	}
+
+	llmOutput, err := callCompletionsEndpoint(config, messages)
+	if err != nil {
+		return nil, err
+	}
+
+	var plan Plan
+	if err := json.Unmarshal([]byte(llmOutput), &plan); err != nil {
+		return nil, fmt.Errorf("plan parse error: %w\nLLM output was: %s", err, llmOutput)
+	}
+
+	// Validate that all tools exist
+	for i, step := range plan.Steps {
+		toolExists := false
+		for _, tool := range availableTools {
+			if step.ToolName == tool {
+				toolExists = true
+				break
+			}
+		}
+		if !toolExists {
+			return nil, fmt.Errorf("step %d uses unknown tool: %s", i+1, step.ToolName)
+		}
+	}
+
+	return &plan, nil
+}
+
+// produceFinalAnswer calls the manager again, providing the step results, and asks for a final summary
+func produceFinalAnswer(config *Config, userQuery string, history []StepResult) (string, error) {
+	// Summarize the steps
+	var sb strings.Builder
+	for _, h := range history {
+		sb.WriteString(fmt.Sprintf("Step %d: Tool=%s\n", h.Index+1, h.ToolName))
+		if h.Error != "" {
+			sb.WriteString(fmt.Sprintf("Error: %s\n", h.Error))
+		} else {
+			sb.WriteString(fmt.Sprintf("Output:\n%s\n", h.Output))
+		}
+		sb.WriteString("\n")
+	}
+
+	prompt := fmt.Sprintf(`
+User query: %q
+
+We executed the following steps and got these results:
+%s
+
+Now provide a final human-readable answer to the user, summarizing or directly providing relevant tool outputs if the user requested them.
+`, userQuery, sb.String())
+
+	messages := []ChatCompletionMsg{
+		{Role: "system", Content: "You are a manager finalizing the user's answer. Be concise but thorough."},
+		{Role: "user", Content: prompt},
+	}
+
+	answer, err := callCompletionsEndpoint(config, messages)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(answer), nil
+}
+
+// -------------------
+// Data Structures
+// -------------------
+
+// Plan is the top-level structure we expect from the manager's plan JSON
+type Plan struct {
+	Steps []PlanStep `json:"steps"`
+}
+
+type PlanStep struct {
+	ToolName string `json:"toolName"`
+	ArgsRaw  string `json:"argsRaw"`
+}
+
+// StepResult records each tool call outcome
+type StepResult struct {
+	Index    int
+	ToolName string
+	Args     string
+	Output   string
+	Error    string
 }
 
 // --------------------------
-// Helper Functions for Git
+// callToolInServer dispatches a tool call. (Unchanged from original.)
 // --------------------------
+func callToolInServer(toolName, jsonArgs string) (string, error) {
+	switch toolName {
+	case "hello":
+		var args HelloArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return helloTool(args)
+	case "calculate":
+		var args CalculateArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return calculateTool(args)
+	case "time":
+		var args TimeArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return timeTool(args)
+	case "get_weather":
+		var args WeatherArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return getWeatherTool(args)
+	case "read_file":
+		var args ReadFileArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return readFileTool(args)
+	case "write_file":
+		var args WriteFileArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return writeFileTool(args)
+	case "list_directory":
+		var args ListDirectoryArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return listDirectoryTool(args)
+	case "create_directory":
+		var args CreateDirectoryArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return createDirectoryTool(args)
+	case "move_file":
+		var args MoveFileArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return moveFileTool(args)
+	case "git_init":
+		var args GitInitArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitInitTool(args)
+	case "git_status":
+		var args GitRepoArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitStatusTool(args)
+	case "git_add":
+		var args GitAddArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitAddTool(args)
+	case "git_commit":
+		var args GitCommitArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitCommitTool(args)
+	case "git_pull":
+		var args GitRepoArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitPullTool(args)
+	case "git_push":
+		var args GitRepoArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitPushTool(args)
+	case "read_multiple_files":
+		var args ReadMultipleFilesArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return readMultipleFilesTool(args)
+	case "edit_file":
+		var args EditFileArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return editFileTool(args)
+	case "directory_tree":
+		var args DirectoryTreeArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return directoryTreeTool(args)
+	case "search_files":
+		var args SearchFilesArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return searchFilesTool(args)
+	case "get_file_info":
+		var args GetFileInfoArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return getFileInfoTool(args)
+	case "list_allowed_directories":
+		var args ListAllowedDirectoriesArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return listAllowedDirectoriesTool(args)
+	case "delete_file":
+		var args DeleteFileArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return deleteFileTool(args)
+	case "copy_file":
+		var args CopyFileArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return copyFileTool(args)
+	case "git_clone":
+		var args GitCloneArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitCloneTool(args)
+	case "git_checkout":
+		var args GitCheckoutArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitCheckoutTool(args)
+	case "git_diff":
+		var args GitDiffArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return gitDiffTool(args)
+	case "run_shell_command":
+		var args ShellCommandArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return runShellCommandTool(args)
+	case "go_build":
+		var args GoBuildArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return goBuildTool(args)
+	case "go_test":
+		var args GoTestArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return goTestTool(args)
+	case "format_go_code":
+		var args FormatGoCodeArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return formatGoCodeTool(args)
+	case "lint_code":
+		var args LintCodeArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return lintCodeTool(args)
+	case "web_search":
+		var args WebSearchArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return webSearchTool(args)
+	case "web_content":
+		var args WebContentArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+		return webContentTool(args)
+	default:
+		return "", fmt.Errorf("unknown tool: %s", toolName)
+	}
+}
+
+// --------------
+// Original tool helpers below
+// (these remain the same as your existing code, e.g. helloTool, readFileTool, etc.)
+// --------------
+
+// hello tool
+func helloTool(args HelloArgs) (string, error) {
+	return fmt.Sprintf("Hello, %s!", args.Name), nil
+}
+
+// calculate tool
+func calculateTool(args CalculateArgs) (string, error) {
+	var result float64
+	switch args.Operation {
+	case "add":
+		result = args.A + args.B
+	case "subtract":
+		result = args.A - args.B
+	case "multiply":
+		result = args.A * args.B
+	case "divide":
+		if args.B == 0 {
+			return "", fmt.Errorf("division by zero")
+		}
+		result = args.A / args.B
+	default:
+		return "", fmt.Errorf("unknown operation: %s", args.Operation)
+	}
+	return fmt.Sprintf("Result of %s: %.2f", args.Operation, result), nil
+}
+
+// time tool
+func timeTool(args TimeArgs) (string, error) {
+	format := time.RFC3339
+	if args.Format != "" {
+		format = args.Format
+	}
+	return time.Now().Format(format), nil
+}
+
+// get_weather tool
+func getWeatherTool(args WeatherArgs) (string, error) {
+	url := fmt.Sprintf("https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current=temperature_2m,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m",
+		args.Latitude, args.Longitude)
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	output, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// read_file tool
+func readFileTool(args ReadFileArgs) (string, error) {
+	bytes, err := ioutil.ReadFile(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+	return string(bytes), nil
+}
+
+// write_file tool
+func writeFileTool(args WriteFileArgs) (string, error) {
+	err := ioutil.WriteFile(args.Path, []byte(args.Content), 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	return fmt.Sprintf("Wrote file: %s", args.Path), nil
+}
+
+// list_directory tool
+func listDirectoryTool(args ListDirectoryArgs) (string, error) {
+	entries, err := ioutil.ReadDir(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read directory: %w", err)
+	}
+	var lines []string
+	for _, e := range entries {
+		if e.IsDir() {
+			lines = append(lines, "[DIR]  "+e.Name())
+		} else {
+			lines = append(lines, "[FILE] "+e.Name())
+		}
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+// create_directory tool
+func createDirectoryTool(args CreateDirectoryArgs) (string, error) {
+	err := os.MkdirAll(args.Path, 0755)
+	if err != nil {
+		return "", fmt.Errorf("failed to create directory: %w", err)
+	}
+	return fmt.Sprintf("Directory created: %s", args.Path), nil
+}
+
+// move_file tool
+func moveFileTool(args MoveFileArgs) (string, error) {
+	if err := os.Rename(args.Source, args.Destination); err != nil {
+		return "", fmt.Errorf("failed to move file: %w", err)
+	}
+	return fmt.Sprintf("Moved '%s' to '%s'", args.Source, args.Destination), nil
+}
+
+// git_init tool
+func gitInitTool(args GitInitArgs) (string, error) {
+	info, err := os.Stat(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("cannot access path %q: %w", args.Path, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("path %q is not a directory", args.Path)
+	}
+	output, err := runGitCommand(args.Path, "init")
+	if err != nil {
+		return "", err
+	}
+	return output, nil
+}
+
+// git_status tool
+func gitStatusTool(args GitRepoArgs) (string, error) {
+	if err := checkGitRepo(args.Path); err != nil {
+		return "", err
+	}
+	return runGitCommand(args.Path, "status", "--short", "--branch")
+}
+
+// git_add tool
+func gitAddTool(args GitAddArgs) (string, error) {
+	if err := checkGitRepo(args.Path); err != nil {
+		return "", err
+	}
+	if len(args.FileList) == 0 {
+		args.FileList = []string{"."}
+	}
+	fullArgs := append([]string{"add"}, args.FileList...)
+	return runGitCommand(args.Path, fullArgs...)
+}
+
+// git_commit tool
+func gitCommitTool(args GitCommitArgs) (string, error) {
+	if err := checkGitRepo(args.Path); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(args.Message) == "" {
+		return "", fmt.Errorf("commit message cannot be empty")
+	}
+	return runGitCommand(args.Path, "commit", "-m", args.Message)
+}
+
+// git_pull tool
+func gitPullTool(args GitRepoArgs) (string, error) {
+	if err := checkGitRepo(args.Path); err != nil {
+		return "", err
+	}
+	return runGitCommand(args.Path, "pull", "--rebase")
+}
+
+// git_push tool
+func gitPushTool(args GitRepoArgs) (string, error) {
+	if err := checkGitRepo(args.Path); err != nil {
+		return "", err
+	}
+	return runGitCommand(args.Path, "push")
+}
+
+// read_multiple_files tool
+func readMultipleFilesTool(args ReadMultipleFilesArgs) (string, error) {
+	var sb strings.Builder
+	for _, path := range args.Paths {
+		data, err := ioutil.ReadFile(path)
+		if err != nil {
+			sb.WriteString(fmt.Sprintf("Error reading %s: %v\n", path, err))
+			continue
+		}
+		sb.WriteString(fmt.Sprintf("File: %s\n%s\n---\n", path, string(data)))
+	}
+	return sb.String(), nil
+}
+
+// edit_file tool
+func editFileTool(args EditFileArgs) (string, error) {
+	if args.PatchContent != "" {
+		return "", fmt.Errorf("patchContent not supported in this implementation")
+	}
+	if args.Search == "" {
+		return "", fmt.Errorf("must provide a search string for edit_file")
+	}
+	original, err := ioutil.ReadFile(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read file: %w", err)
+	}
+	edited := strings.ReplaceAll(string(original), args.Search, args.Replace)
+	if err := ioutil.WriteFile(args.Path, []byte(edited), 0644); err != nil {
+		return "", fmt.Errorf("failed to write file: %w", err)
+	}
+	return fmt.Sprintf("Edited file: %s", args.Path), nil
+}
+
+// directory_tree tool
+func directoryTreeTool(args DirectoryTreeArgs) (string, error) {
+	tree, err := buildDirectoryTree(args.Path, "", args.MaxDepth, 1)
+	if err != nil {
+		return "", err
+	}
+	return tree, nil
+}
+
+// search_files tool
+func searchFilesTool(args SearchFilesArgs) (string, error) {
+	matches, err := searchFilesRecursive(args.Path, args.Pattern)
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "No files found matching the pattern.", nil
+	}
+	return "Files matching:\n" + strings.Join(matches, "\n"), nil
+}
+
+// get_file_info tool
+func getFileInfoTool(args GetFileInfoArgs) (string, error) {
+	info, err := os.Stat(args.Path)
+	if err != nil {
+		return "", fmt.Errorf("stat error: %w", err)
+	}
+	return fmt.Sprintf("Name: %s\nSize: %d bytes\nMode: %s\nModified: %s\nIsDir: %t",
+		info.Name(), info.Size(), info.Mode().String(), info.ModTime().Format(time.RFC3339), info.IsDir()), nil
+}
+
+// list_allowed_directories tool
+func listAllowedDirectoriesTool(args ListAllowedDirectoriesArgs) (string, error) {
+	// For demonstration
+	return "All directories are allowed.", nil
+}
+
+// delete_file tool
+func deleteFileTool(args DeleteFileArgs) (string, error) {
+	if args.Recursive {
+		if err := os.RemoveAll(args.Path); err != nil {
+			return "", fmt.Errorf("removeAll error: %w", err)
+		}
+	} else {
+		if err := os.Remove(args.Path); err != nil {
+			return "", fmt.Errorf("remove error: %w", err)
+		}
+	}
+	return fmt.Sprintf("Deleted: %s", args.Path), nil
+}
+
+// copy_file tool
+func copyFileTool(args CopyFileArgs) (string, error) {
+	info, err := os.Stat(args.Source)
+	if err != nil {
+		return "", fmt.Errorf("access source error: %w", err)
+	}
+	if info.IsDir() {
+		if !args.Recursive {
+			return "", fmt.Errorf("source is directory, need recursive=true to copy directories")
+		}
+		if err := copyDir(args.Source, args.Destination); err != nil {
+			return "", fmt.Errorf("copyDir error: %w", err)
+		}
+	} else {
+		if err := copyFile(args.Source, args.Destination); err != nil {
+			return "", fmt.Errorf("copyFile error: %w", err)
+		}
+	}
+	return fmt.Sprintf("Copied %s to %s", args.Source, args.Destination), nil
+}
+
+// git_clone tool
+func gitCloneTool(args GitCloneArgs) (string, error) {
+	cmd := exec.Command("git", "clone", args.RepoURL, args.Path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git clone failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
+
+// git_checkout tool
+func gitCheckoutTool(args GitCheckoutArgs) (string, error) {
+	var cmdArgs []string
+	if args.CreateNew {
+		cmdArgs = []string{"checkout", "-b", args.Branch}
+	} else {
+		cmdArgs = []string{"checkout", args.Branch}
+	}
+	return runGitCommand(args.Path, cmdArgs...)
+}
+
+// git_diff tool
+func gitDiffTool(args GitDiffArgs) (string, error) {
+	cmdArgs := []string{"diff"}
+	if args.FromRef != "" && args.ToRef != "" {
+		cmdArgs = append(cmdArgs, args.FromRef, args.ToRef)
+	}
+	return runGitCommand(args.Path, cmdArgs...)
+}
+
+// run_shell_command tool
+func runShellCommandTool(args ShellCommandArgs) (string, error) {
+	if len(args.Command) == 0 {
+		return "", fmt.Errorf("empty command array")
+	}
+	cmd := exec.Command(args.Command[0], args.Command[1:]...)
+	cmd.Dir = args.Dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("shell command error: %w\nOutput: %s", err, output)
+	}
+	return string(output), nil
+}
+
+// go_build tool
+func goBuildTool(args GoBuildArgs) (string, error) {
+	cmd := exec.Command("go", "build")
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go build error: %w\nOutput: %s", err, output)
+	}
+	return string(output), nil
+}
+
+// go_test tool
+func goTestTool(args GoTestArgs) (string, error) {
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go test error: %w\nOutput: %s", err, output)
+	}
+	return string(output), nil
+}
+
+// format_go_code tool
+func formatGoCodeTool(args FormatGoCodeArgs) (string, error) {
+	cmd := exec.Command("go", "fmt", "./...")
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("go fmt error: %w\nOutput: %s", err, output)
+	}
+	return string(output), nil
+}
+
+// lint_code tool
+func lintCodeTool(args LintCodeArgs) (string, error) {
+	var cmd *exec.Cmd
+	if args.LinterName != "" {
+		cmd = exec.Command(args.LinterName, "run")
+	} else {
+		cmd = exec.Command("golangci-lint", "run")
+	}
+	cmd.Dir = args.Path
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("lint command error: %w\nOutput: %s", err, output)
+	}
+	return string(output), nil
+}
+
+// web_search tool
+func webSearchTool(args WebSearchArgs) (string, error) {
+	results := web.SearchDDG(args.Query)
+	if results == nil {
+		return "", fmt.Errorf("web search error: no results")
+	}
+	return strings.Join(results, "\n"), nil
+}
+
+// web_content tool
+func webContentTool(args WebContentArgs) (string, error) {
+	if len(args.URLs) == 0 {
+		return "", fmt.Errorf("no URLs provided")
+	}
+	var content strings.Builder
+	for _, urlStr := range args.URLs {
+		urlStr = strings.TrimSpace(urlStr)
+		if urlStr == "" {
+			continue
+		}
+		apiURL := "http://localhost:8080/api/web-content?urls=" + urlStr
+		resp, err := http.Get(apiURL)
+		if err != nil {
+			return "", fmt.Errorf("web content request: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			// ignoring details
+		}
+		bodyBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return "", fmt.Errorf("read response: %w", err)
+		}
+		content.WriteString(string(bodyBytes))
+		content.WriteString("\n")
+	}
+	return content.String(), nil
+}
+
+// runGitCommand + checkGitRepo + copyFile + copyDir + buildDirectoryTree + searchFilesRecursive remain the same
+// as in your existing code.  End of file.
+func runGitCommand(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git command failed: %w\nOutput: %s", err, string(output))
+	}
+	return string(output), nil
+}
 
 func checkGitRepo(repoPath string) error {
 	info, err := os.Stat(repoPath)
@@ -618,20 +1379,6 @@ func checkGitRepo(repoPath string) error {
 	}
 	return nil
 }
-
-func runGitCommand(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git command failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-// -------------------------
-// Helper Functions for File Copy and Directory Tree
-// -------------------------
 
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
@@ -728,9 +1475,8 @@ func searchFilesRecursive(root, pattern string) ([]string, error) {
 
 // -------------------------
 // callOpenAI is a helper for OpenAI API compatible completions endpoint
-// This function will invoke the default completios endpoint configured
-// in the config file, therefore the model and API key are not required
-// as arguments unless
+// This function will invoke the default completions endpoint configured
+// in the config file.
 // -------------------------
 func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (string, error) {
 	requestBody := ChatCompletionRequest{
@@ -745,7 +1491,6 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Using configuration values instead of hardcoded constants
 	endpoint := config.Completions.DefaultHost
 	apiKey := config.Completions.APIKey
 
@@ -781,1112 +1526,4 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 
 	answer := completionResp.Choices[0].Message.Content
 	return answer, nil
-}
-
-// ---------------------------------------------------------
-// Tool helper functions: each tool has a function that takes its
-// typed arguments and returns a string result. In addition, each
-// wrapper (callXXXTool) unmarshals JSON and calls the underlying
-// function.
-// ---------------------------------------------------------
-
-// hello tool
-func helloTool(args HelloArgs) (string, error) {
-	return fmt.Sprintf("Hello, %s!", args.Name), nil
-}
-
-func callHelloTool(jsonArgs string) (string, error) {
-	var args HelloArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return helloTool(args)
-}
-
-// calculate tool
-func calculateTool(args CalculateArgs) (string, error) {
-	var result float64
-	switch args.Operation {
-	case "add":
-		result = args.A + args.B
-	case "subtract":
-		result = args.A - args.B
-	case "multiply":
-		result = args.A * args.B
-	case "divide":
-		if args.B == 0 {
-			return "", fmt.Errorf("division by zero")
-		}
-		result = args.A / args.B
-	default:
-		return "", fmt.Errorf("unknown operation: %s", args.Operation)
-	}
-	return fmt.Sprintf("Result of %s: %.2f", args.Operation, result), nil
-}
-
-func callCalculateTool(jsonArgs string) (string, error) {
-	var args CalculateArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return calculateTool(args)
-}
-
-// time tool
-func timeTool(args TimeArgs) (string, error) {
-	format := time.RFC3339
-	if args.Format != "" {
-		format = args.Format
-	}
-	return time.Now().Format(format), nil
-}
-
-func callTimeTool(jsonArgs string) (string, error) {
-	var args TimeArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return timeTool(args)
-}
-
-// get_weather tool
-func getWeatherTool(args WeatherArgs) (string, error) {
-	url := fmt.Sprintf(
-		"https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current=temperature_2m,wind_speed_10m&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m",
-		args.Latitude, args.Longitude,
-	)
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	output, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
-}
-
-func callGetWeatherTool(jsonArgs string) (string, error) {
-	var args WeatherArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return getWeatherTool(args)
-}
-
-// read_file tool
-func readFileTool(args ReadFileArgs) (string, error) {
-	bytes, err := ioutil.ReadFile(args.Path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-	return string(bytes), nil
-}
-
-func callReadFileTool(jsonArgs string) (string, error) {
-	var args ReadFileArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return readFileTool(args)
-}
-
-// write_file tool
-func writeFileTool(args WriteFileArgs) (string, error) {
-	err := ioutil.WriteFile(args.Path, []byte(args.Content), 0644)
-	if err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-	return fmt.Sprintf("Wrote file: %s", args.Path), nil
-}
-
-func callWriteFileTool(jsonArgs string) (string, error) {
-	var args WriteFileArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return writeFileTool(args)
-}
-
-// list_directory tool
-func listDirectoryTool(args ListDirectoryArgs) (string, error) {
-	entries, err := ioutil.ReadDir(args.Path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read directory: %w", err)
-	}
-	var lines []string
-	for _, e := range entries {
-		if e.IsDir() {
-			lines = append(lines, "[DIR]  "+e.Name())
-		} else {
-			lines = append(lines, "[FILE] "+e.Name())
-		}
-	}
-	return strings.Join(lines, "\n"), nil
-}
-
-func callListDirectoryTool(jsonArgs string) (string, error) {
-	var args ListDirectoryArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return listDirectoryTool(args)
-}
-
-// create_directory tool
-func createDirectoryTool(args CreateDirectoryArgs) (string, error) {
-	err := os.MkdirAll(args.Path, 0755)
-	if err != nil {
-		return "", fmt.Errorf("failed to create directory: %w", err)
-	}
-	return fmt.Sprintf("Directory created: %s", args.Path), nil
-}
-
-func callCreateDirectoryTool(jsonArgs string) (string, error) {
-	var args CreateDirectoryArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return createDirectoryTool(args)
-}
-
-// move_file tool
-func moveFileTool(args MoveFileArgs) (string, error) {
-	err := os.Rename(args.Source, args.Destination)
-	if err != nil {
-		return "", fmt.Errorf("failed to move/rename: %w", err)
-	}
-	return fmt.Sprintf("Moved/renamed '%s' to '%s'", args.Source, args.Destination), nil
-}
-
-func callMoveFileTool(jsonArgs string) (string, error) {
-	var args MoveFileArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return moveFileTool(args)
-}
-
-// git_init tool
-func gitInitTool(args GitInitArgs) (string, error) {
-	info, err := os.Stat(args.Path)
-	if err != nil {
-		return "", fmt.Errorf("cannot access path %q: %w", args.Path, err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("path %q is not a directory", args.Path)
-	}
-	output, err := runGitCommand(args.Path, "init")
-	if err != nil {
-		return "", err
-	}
-	return output, nil
-}
-
-func callGitInitTool(jsonArgs string) (string, error) {
-	var args GitInitArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitInitTool(args)
-}
-
-// git_status tool
-func gitStatusTool(args GitRepoArgs) (string, error) {
-	if err := checkGitRepo(args.Path); err != nil {
-		return "", err
-	}
-	output, err := runGitCommand(args.Path, "status", "--short", "--branch")
-	if err != nil {
-		return "", err
-	}
-	return output, nil
-}
-
-func callGitStatusTool(jsonArgs string) (string, error) {
-	var args GitRepoArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitStatusTool(args)
-}
-
-// git_add tool
-func gitAddTool(args GitAddArgs) (string, error) {
-	if err := checkGitRepo(args.Path); err != nil {
-		return "", err
-	}
-	if len(args.FileList) == 0 {
-		args.FileList = []string{"."}
-	}
-	fullArgs := append([]string{"add"}, args.FileList...)
-	output, err := runGitCommand(args.Path, fullArgs...)
-	if err != nil {
-		return "", err
-	}
-	return output, nil
-}
-
-func callGitAddTool(jsonArgs string) (string, error) {
-	var args GitAddArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitAddTool(args)
-}
-
-// git_commit tool
-func gitCommitTool(args GitCommitArgs) (string, error) {
-	if err := checkGitRepo(args.Path); err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(args.Message) == "" {
-		return "", fmt.Errorf("commit message cannot be empty")
-	}
-	output, err := runGitCommand(args.Path, "commit", "-m", args.Message)
-	if err != nil {
-		return "", err
-	}
-	return output, nil
-}
-
-func callGitCommitTool(jsonArgs string) (string, error) {
-	var args GitCommitArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitCommitTool(args)
-}
-
-// git_pull tool
-func gitPullTool(args GitRepoArgs) (string, error) {
-	if err := checkGitRepo(args.Path); err != nil {
-		return "", err
-	}
-	output, err := runGitCommand(args.Path, "pull", "--rebase")
-	if err != nil {
-		return "", err
-	}
-	return output, nil
-}
-
-func callGitPullTool(jsonArgs string) (string, error) {
-	var args GitRepoArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitPullTool(args)
-}
-
-// git_push tool
-func gitPushTool(args GitRepoArgs) (string, error) {
-	if err := checkGitRepo(args.Path); err != nil {
-		return "", err
-	}
-	output, err := runGitCommand(args.Path, "push")
-	if err != nil {
-		return "", err
-	}
-	return output, nil
-}
-
-func callGitPushTool(jsonArgs string) (string, error) {
-	var args GitRepoArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitPushTool(args)
-}
-
-// -------------------------
-// New Tools Implementations
-// -------------------------
-
-// read_multiple_files tool
-func readMultipleFilesTool(args ReadMultipleFilesArgs) (string, error) {
-	var result strings.Builder
-	for _, path := range args.Paths {
-		data, err := ioutil.ReadFile(path)
-		if err != nil {
-			result.WriteString(fmt.Sprintf("Error reading %s: %v\n", path, err))
-		} else {
-			result.WriteString(fmt.Sprintf("File: %s\n%s\n------\n", path, string(data)))
-		}
-	}
-	return result.String(), nil
-}
-
-func callReadMultipleFilesTool(jsonArgs string) (string, error) {
-	var args ReadMultipleFilesArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return readMultipleFilesTool(args)
-}
-
-// edit_file tool
-func editFileTool(args EditFileArgs) (string, error) {
-	if args.PatchContent != "" {
-		return "", fmt.Errorf("patchContent not supported in this implementation")
-	}
-	if args.Search == "" {
-		return "", fmt.Errorf("must provide a search string for edit_file")
-	}
-	// Read file
-	original, err := ioutil.ReadFile(args.Path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-	edited := strings.ReplaceAll(string(original), args.Search, args.Replace)
-	err = ioutil.WriteFile(args.Path, []byte(edited), 0644)
-	if err != nil {
-		return "", fmt.Errorf("failed to write edited file: %w", err)
-	}
-	return fmt.Sprintf("Edited file: %s", args.Path), nil
-}
-
-func callEditFileTool(jsonArgs string) (string, error) {
-	var args EditFileArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return editFileTool(args)
-}
-
-// directory_tree tool
-func directoryTreeTool(args DirectoryTreeArgs) (string, error) {
-	tree, err := buildDirectoryTree(args.Path, "", args.MaxDepth, 1)
-	if err != nil {
-		return "", err
-	}
-	return tree, nil
-}
-
-func callDirectoryTreeTool(jsonArgs string) (string, error) {
-	var args DirectoryTreeArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return directoryTreeTool(args)
-}
-
-// search_files tool
-func searchFilesTool(args SearchFilesArgs) (string, error) {
-	matches, err := searchFilesRecursive(args.Path, args.Pattern)
-	if err != nil {
-		return "", err
-	}
-	if len(matches) == 0 {
-		return "No files found matching the pattern.", nil
-	}
-	return "Files matching pattern:\n" + strings.Join(matches, "\n"), nil
-}
-
-func callSearchFilesTool(jsonArgs string) (string, error) {
-	var args SearchFilesArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return searchFilesTool(args)
-}
-
-// get_file_info tool
-func getFileInfoTool(args GetFileInfoArgs) (string, error) {
-	info, err := os.Stat(args.Path)
-	if err != nil {
-		return "", fmt.Errorf("failed to stat file: %w", err)
-	}
-	return fmt.Sprintf("Name: %s\nSize: %d bytes\nMode: %s\nModified: %s\nIsDir: %t",
-		info.Name(), info.Size(), info.Mode().String(), info.ModTime().Format(time.RFC3339), info.IsDir()), nil
-}
-
-func callGetFileInfoTool(jsonArgs string) (string, error) {
-	var args GetFileInfoArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return getFileInfoTool(args)
-}
-
-// list_allowed_directories tool
-func listAllowedDirectoriesTool(args ListAllowedDirectoriesArgs) (string, error) {
-	// In a real system, this might pull from configuration.
-	return "All directories are allowed.", nil
-}
-
-func callListAllowedDirectoriesTool(jsonArgs string) (string, error) {
-	var args ListAllowedDirectoriesArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return listAllowedDirectoriesTool(args)
-}
-
-// delete_file tool
-func deleteFileTool(args DeleteFileArgs) (string, error) {
-	var err error
-	if args.Recursive {
-		err = os.RemoveAll(args.Path)
-	} else {
-		err = os.Remove(args.Path)
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to delete %s: %w", args.Path, err)
-	}
-	return fmt.Sprintf("Deleted: %s", args.Path), nil
-}
-
-func callDeleteFileTool(jsonArgs string) (string, error) {
-	var args DeleteFileArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return deleteFileTool(args)
-}
-
-// copy_file tool
-func copyFileTool(args CopyFileArgs) (string, error) {
-	info, err := os.Stat(args.Source)
-	if err != nil {
-		return "", fmt.Errorf("failed to access source: %w", err)
-	}
-	if info.IsDir() {
-		if !args.Recursive {
-			return "", fmt.Errorf("source is a directory, set recursive to true to copy directories")
-		}
-		err = copyDir(args.Source, args.Destination)
-	} else {
-		err = copyFile(args.Source, args.Destination)
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to copy: %w", err)
-	}
-	return fmt.Sprintf("Copied from %s to %s", args.Source, args.Destination), nil
-}
-
-func callCopyFileTool(jsonArgs string) (string, error) {
-	var args CopyFileArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return copyFileTool(args)
-}
-
-// git_clone tool
-func gitCloneTool(args GitCloneArgs) (string, error) {
-	cmd := exec.Command("git", "clone", args.RepoURL, args.Path)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git clone failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-func callGitCloneTool(jsonArgs string) (string, error) {
-	var args GitCloneArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitCloneTool(args)
-}
-
-// git_checkout tool
-func gitCheckoutTool(args GitCheckoutArgs) (string, error) {
-	var cmd *exec.Cmd
-	if args.CreateNew {
-		cmd = exec.Command("git", "checkout", "-b", args.Branch)
-	} else {
-		cmd = exec.Command("git", "checkout", args.Branch)
-	}
-	cmd.Dir = args.Path
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("git checkout failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-func callGitCheckoutTool(jsonArgs string) (string, error) {
-	var args GitCheckoutArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitCheckoutTool(args)
-}
-
-// git_diff tool
-func gitDiffTool(args GitDiffArgs) (string, error) {
-	var diffArgs []string
-	diffArgs = append(diffArgs, "diff")
-	if args.FromRef != "" && args.ToRef != "" {
-		diffArgs = append(diffArgs, args.FromRef, args.ToRef)
-	}
-	output, err := runGitCommand(args.Path, diffArgs...)
-	if err != nil {
-		return "", err
-	}
-	return output, nil
-}
-
-func callGitDiffTool(jsonArgs string) (string, error) {
-	var args GitDiffArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return gitDiffTool(args)
-}
-
-// run_shell_command tool
-func runShellCommandTool(args ShellCommandArgs) (string, error) {
-
-	// Handle either string or []string format for Command
-	cmdParts := args.Command
-
-	if len(cmdParts) == 0 {
-		return "", fmt.Errorf("empty command")
-	}
-
-	cmd := exec.Command(cmdParts[0], cmdParts[1:]...)
-	cmd.Dir = args.Dir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("shell command failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-func callShellCommandTool(jsonArgs string) (string, error) {
-	var args ShellCommandArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return runShellCommandTool(args)
-}
-
-// go_build tool
-func goBuildTool(args GoBuildArgs) (string, error) {
-	cmd := exec.Command("go", "build")
-	cmd.Dir = args.Path
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("go build failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-func callGoBuildTool(jsonArgs string) (string, error) {
-	var args GoBuildArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return goBuildTool(args)
-}
-
-// go_test tool
-func goTestTool(args GoTestArgs) (string, error) {
-	cmd := exec.Command("go", "test", "./...")
-	cmd.Dir = args.Path
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("go test failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-func callGoTestTool(jsonArgs string) (string, error) {
-	var args GoTestArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return goTestTool(args)
-}
-
-// format_go_code tool
-func formatGoCodeTool(args FormatGoCodeArgs) (string, error) {
-	cmd := exec.Command("go", "fmt", "./...")
-	cmd.Dir = args.Path
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("go fmt failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-func callFormatGoCodeTool(jsonArgs string) (string, error) {
-	var args FormatGoCodeArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return formatGoCodeTool(args)
-}
-
-// lint_code tool
-func lintCodeTool(args LintCodeArgs) (string, error) {
-	var cmd *exec.Cmd
-	if args.LinterName != "" {
-		cmd = exec.Command(args.LinterName, "run")
-	} else {
-		cmd = exec.Command("golangci-lint", "run")
-	}
-	cmd.Dir = args.Path
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("lint command failed: %w\nOutput: %s", err, string(output))
-	}
-	return string(output), nil
-}
-
-func callLintCodeTool(jsonArgs string) (string, error) {
-	var args LintCodeArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return lintCodeTool(args)
-}
-
-// web_search tool
-func webSearchTool(args WebSearchArgs) (string, error) {
-	results := web.SearchDDG(args.Query)
-	if results == nil {
-		return "", fmt.Errorf("error performing web search")
-	}
-
-	log.Printf("Web search results!!!!!!!!!!: %v", results)
-
-	return strings.Join(results, "\n"), nil
-}
-
-func callWebSearchTool(jsonArgs string) (string, error) {
-	var args WebSearchArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return webSearchTool(args)
-}
-
-// web_content tool
-func webContentTool(args WebContentArgs) (string, error) {
-	// Validate input
-	if len(args.URLs) == 0 {
-		return "", fmt.Errorf("error: no URLs provided. The web_content tool requires at least one URL in the 'urls' array")
-	}
-
-	log.Printf("Fetching content from URLs: %v", args.URLs)
-
-	// Split the URLs and fetch content from each
-	urls := strings.Join(args.URLs, "/\n")
-
-	var content strings.Builder
-
-	urlList := strings.Split(urls, "\n")
-	for _, urlStr := range urlList {
-		urlStr = strings.TrimSpace(urlStr)
-		if urlStr == "" {
-			continue
-		}
-
-		//log.Printf("Fetching content from URL: %s", urlStr)
-		apiURL := "http://localhost:8080/api/web-content?urls=" + urlStr
-
-		// Build URL with comma-separated URLs
-		// apiURL := "http://localhost:8080/api/web-content?urls=" + strings.Join(args.URLs, ",")
-
-		// Make the request
-		resp, err := http.Get(apiURL)
-
-		if err != nil {
-			return "", fmt.Errorf("web content request failed: %w", err)
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			// bodyBytes, _ := io.ReadAll(resp.Body)
-			//return "", fmt.Errorf("web content API error, status %d: %s", resp.StatusCode, string(bodyBytes))
-
-		}
-
-		bodyBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to read response: %w", err)
-		}
-
-		// Append the content to the result
-		content.WriteString(string(bodyBytes))
-
-	}
-
-	return content.String(), nil
-}
-
-func callWebContentTool(jsonArgs string) (string, error) {
-	var args WebContentArgs
-	if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
-		return "", err
-	}
-	return webContentTool(args)
-}
-
-// callToolInServer dispatches a tool call based on the tool name and JSON arguments.
-func callToolInServer(toolName, jsonArgs string) (string, error) {
-	switch toolName {
-	case "hello":
-		return callHelloTool(jsonArgs)
-	case "calculate":
-		return callCalculateTool(jsonArgs)
-	case "time":
-		return callTimeTool(jsonArgs)
-	case "get_weather":
-		return callGetWeatherTool(jsonArgs)
-	case "read_file":
-		return callReadFileTool(jsonArgs)
-	case "write_file":
-		return callWriteFileTool(jsonArgs)
-	case "list_directory":
-		return callListDirectoryTool(jsonArgs)
-	case "create_directory":
-		return callCreateDirectoryTool(jsonArgs)
-	case "move_file":
-		return callMoveFileTool(jsonArgs)
-	case "git_init":
-		return callGitInitTool(jsonArgs)
-	case "git_status":
-		return callGitStatusTool(jsonArgs)
-	case "git_add":
-		return callGitAddTool(jsonArgs)
-	case "git_commit":
-		return callGitCommitTool(jsonArgs)
-	case "git_pull":
-		return callGitPullTool(jsonArgs)
-	case "git_push":
-		return callGitPushTool(jsonArgs)
-	// New Tools
-	case "read_multiple_files":
-		return callReadMultipleFilesTool(jsonArgs)
-	case "edit_file":
-		return callEditFileTool(jsonArgs)
-	case "directory_tree":
-		return callDirectoryTreeTool(jsonArgs)
-	case "search_files":
-		return callSearchFilesTool(jsonArgs)
-	case "get_file_info":
-		return callGetFileInfoTool(jsonArgs)
-	case "list_allowed_directories":
-		return callListAllowedDirectoriesTool(jsonArgs)
-	case "delete_file":
-		return callDeleteFileTool(jsonArgs)
-	case "copy_file":
-		return callCopyFileTool(jsonArgs)
-	case "git_clone":
-		return callGitCloneTool(jsonArgs)
-	case "git_checkout":
-		return callGitCheckoutTool(jsonArgs)
-	case "git_diff":
-		return callGitDiffTool(jsonArgs)
-	case "run_shell_command":
-		return callShellCommandTool(jsonArgs)
-	case "go_build":
-		return callGoBuildTool(jsonArgs)
-	case "go_test":
-		return callGoTestTool(jsonArgs)
-	case "format_go_code":
-		return callFormatGoCodeTool(jsonArgs)
-	case "lint_code":
-		return callLintCodeTool(jsonArgs)
-	case "web_search":
-		return callWebSearchTool(jsonArgs)
-	case "web_content":
-		return callWebContentTool(jsonArgs)
-	case "agent":
-		// agent is handled separately below
-		return "", fmt.Errorf("agent tool should be handled separately")
-	default:
-		return "", fmt.Errorf("unknown tool: %s", toolName)
-	}
-}
-
-// agentHandler returns a closure that processes the agent query using a recursive planner+worker approach.
-func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error) {
-	return func(args AgentArgs) (*mcp.ToolResponse, error) {
-		// --- Step 0: Retrieve Available Tools ---
-		// Instead of trying to make HTTP requests, we'll build a static list of available tools
-		// This avoids the need for mcp.NewToolRequest and server.HandleToolRequest
-		var conversation []ChatCompletionMsg
-
-		toolsInfo := map[string]interface{}{
-			"tools": []map[string]interface{}{
-				{"name": "hello", "description": "Says hello to the provided name"},
-				{"name": "calculate", "description": "Performs basic mathematical operations"},
-				{"name": "time", "description": "Returns the current time"},
-				{"name": "get_weather", "description": "Get the weather forecast"},
-				{"name": "read_file", "description": "Reads the entire contents of a text file"},
-				{"name": "write_file", "description": "Writes text content to a file"},
-				{"name": "list_directory", "description": "Lists files and directories"},
-				{"name": "create_directory", "description": "Creates a directory"},
-				{"name": "move_file", "description": "Moves or renames a file/directory"},
-				{"name": "git_init", "description": "Initializes a new Git repository"},
-				{"name": "git_status", "description": "Shows Git status"},
-				{"name": "git_add", "description": "Stages file changes"},
-				{"name": "git_commit", "description": "Commits staged changes"},
-				{"name": "git_pull", "description": "Pulls changes"},
-				{"name": "git_push", "description": "Pushes commits"},
-				{"name": "read_multiple_files", "description": "Reads the contents of multiple files"},
-				{"name": "edit_file", "description": "Edits a file via search and replace"},
-				{"name": "directory_tree", "description": "Recursively lists the directory structure"},
-				{"name": "search_files", "description": "Searches for a text pattern in files"},
-				{"name": "get_file_info", "description": "Returns metadata for a file or directory"},
-				{"name": "list_allowed_directories", "description": "Lists directories allowed for access"},
-				{"name": "delete_file", "description": "Deletes a file or directory"},
-				{"name": "copy_file", "description": "Copies a file or directory"},
-				{"name": "git_clone", "description": "Clones a remote Git repository"},
-				{"name": "git_checkout", "description": "Switches or creates a new Git branch"},
-				{"name": "git_diff", "description": "Shows Git diff between references"},
-				{"name": "run_shell_command", "description": "Executes an arbitrary shell command"},
-				{"name": "go_build", "description": "Builds a Go module"},
-				{"name": "go_test", "description": "Runs Go tests"},
-				{"name": "format_go_code", "description": "Formats Go code using go fmt"},
-				{"name": "lint_code", "description": "Runs a code linter"},
-				{"name": "web_search", "description": "Performs a web search"},
-				{"name": "web_content", "description": "Fetches and extracts content from web URLs"},
-			},
-		}
-
-		toolsJSONBytes, err := json.MarshalIndent(toolsInfo, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal tools info: %v", err)
-		}
-		toolsJSON := string(toolsJSONBytes)
-
-		// --- Initialize conversation context ---
-		// The conversation will be built up over iterations.
-		conversation = []ChatCompletionMsg{
-			{Role: "system", Content: "You are an autonomous planning assistant. Use the provided tools list to decide which actions to perform. Never perform more actions than necessary to respond to the query or complete the task."},
-			{Role: "user", Content: args.Query},
-		}
-
-		// --- Track tool execution results for substitution ---
-		toolResults := make(map[string]string)
-
-		// Maximum number of iterations (recursive refinement)
-		for iteration := 0; iteration < args.MaxCalls; iteration++ {
-			// --- Phase 1: Planning ---
-			planningPrompt := "Available Tools:\n" + toolsJSON + "\n\n" +
-				`You are a planning assistant for an autonomous agent.
-The current user query is: "` + args.Query + `".
-Produce a JSON array of tasks that will accomplish the query.
-Each task must be an object with two keys:
-  - "tool": the name of the tool to invoke (e.g., "read_file", "git_status", "write_file", etc.)
-  - "args": a JSON object with the arguments for that tool.
-
-**IMPORTANT**: For tools that operate on files or directories (like read_file, write_file, list_directory, git_status, etc.), you MUST extract the relevant file or directory path from the user query and include it as the "path" argument in the "args" object. For example, if the query mentions "/Users/art/Documents/code/manifold", the "args" for a git_status task should be { "path": "/Users/art/Documents/code/manifold" }.
-
-Always try to use one of the available tools from the provided list before searching the web if the tool will suffice.
-
-For web-related actions, carefully follow these examples:
-- ALWAYS rewrite the query in the "args" section of the "web_search" tool as an optimized search query to improve search results.
-- To search the web: { "tool": "web_search", "args": { "query": "search query text" } }
-- To fetch web content: { "tool": "web_content", "args": { "urls": ["https://example.com", "https://example.org"] } }
-
-Note that web_content requires an array of URLs, even if there's only one URL.
-ensure that the URLs are provided as a list, even if there's only one URL. For example, instead of "urls": "http://example.com",
-it should be "urls": ["http://example.com"]. This way, the system can correctly interpret the data as an array of strings.
-If you were unable to retrieve web content, never mention that.
-Always cite successful web content retrieval in the final summary.
-
-When using the shell tool, you should ensure that the command is formatted as a list of strings. For example, if you're running a command like 'ls -l', you should format it as '["ls", "-l"]' instead of 'ls -l'.
-This way, each part of the command is treated as a separate string in the list, which is what the system expects.
-
-To reference the output of a previous tool in your plan, use the format: "$TOOL_RESULT[task_index]"
-  Example: { "tool": "write_file", "args": { "path": "weather.txt", "content": "$TOOL_RESULT[1]" } }
-  This would use the result from the 2nd task (index 1) as the content for the write_file tool.
-
-Do not include any task that calls the "agent" tool.
-Output only the JSON array. For example:
-[
-  { "tool": "git_status", "args": { "path": "/path/to/repo" } },
-  { "tool": "write_file", "args": { "path": "/path/to/output.txt", "content": "$TOOL_RESULT[0]" } }
-]`
-
-			// Append planning prompt to conversation
-			conversation = append(conversation, ChatCompletionMsg{Role: "user", Content: planningPrompt})
-			planOutput, err := callCompletionsEndpoint(config, conversation)
-			if err != nil {
-				return nil, fmt.Errorf("planning phase failed: %v", err)
-			}
-
-			// --- Phase 2: Clean and Parse the Plan ---
-			planOutput = strings.TrimSpace(planOutput)
-			// Remove markdown fences if present.
-			if strings.HasPrefix(planOutput, "```json") {
-				planOutput = strings.TrimPrefix(planOutput, "```json")
-				planOutput = strings.TrimSuffix(planOutput, "```")
-				planOutput = strings.TrimSpace(planOutput)
-			}
-
-			log.Printf("Plan Output: %s", planOutput)
-
-			type PlanTask struct {
-				Tool string          `json:"tool"`
-				Args json.RawMessage `json:"args"`
-			}
-			var tasks []PlanTask
-			if err := json.Unmarshal([]byte(planOutput), &tasks); err != nil {
-				return nil, fmt.Errorf("failed to parse plan JSON: %v\nPlan output was: %s", err, planOutput)
-			}
-			// Filter out tasks that reference the "agent" tool.
-			validTasks := []PlanTask{}
-			for _, task := range tasks {
-				if strings.ToLower(task.Tool) == "agent" {
-					continue
-				}
-				validTasks = append(validTasks, task)
-			}
-			if len(validTasks) == 0 {
-				return nil, fmt.Errorf("plan produced no valid tasks (all tasks were forbidden)")
-			}
-
-			for i, task := range validTasks {
-				log.Printf("Task %d: %s", i+1, task.Tool)
-			}
-
-			// --- Phase 3: Execution (Worker) ---
-			executionLog := []string{}
-			for i, task := range validTasks {
-				// Process the task args to substitute any references to previous tool results
-				processedArgs, processErr := processPreviousToolResults(string(task.Args), toolResults)
-				if processErr != nil {
-					logMsg := fmt.Sprintf("Task %d (%s) argument processing failed: %v", i+1, task.Tool, processErr)
-					executionLog = append(executionLog, logMsg)
-
-					// join the log messages and return immediately
-					return mcp.NewToolResponse(mcp.NewTextContent(strings.Join(executionLog, "\n"))), nil
-				}
-
-				// Call the tool with the processed arguments
-				out, toolErr := callToolInServer(task.Tool, processedArgs)
-				if toolErr != nil {
-					logMsg := fmt.Sprintf("Task %d (%s) failed: %v", i+1, task.Tool, toolErr)
-					executionLog = append(executionLog, logMsg)
-					log.Printf("Execution log so far: %v", executionLog)
-					// Don't append to conversation since we're returning immediately
-					return mcp.NewToolResponse(mcp.NewTextContent(logMsg)), nil
-				}
-
-				// Store the tool result for potential future reference
-				resultKey := fmt.Sprintf("%d", i)
-				toolResults[resultKey] = out
-
-				logMsg := fmt.Sprintf("Task %d (%s) succeeded: %s", i+1, task.Tool, out)
-				executionLog = append(executionLog, logMsg)
-				// Append tool response to conversation.
-				conversation = append(conversation, ChatCompletionMsg{Role: "assistant", Content: logMsg})
-			}
-			log.Printf("Final Execution Log: %v", executionLog)
-
-			// --- Phase 4: Finalization ---
-			finalPrompt := "Available Tools:\n" + toolsJSON + "\n\n" +
-				"The following tasks were executed in order:\n" + strings.Join(executionLog, "\n") +
-				"\nBased on these results, provide a final summary answer for the user's query: \"" + args.Query + "\". " +
-				"Output only the final summary. If the plan is not yet complete, include additional steps."
-			finalMessages := []ChatCompletionMsg{
-				{Role: "system", Content: "You are a finalizing assistant. Use the provided tools list and execution log to generate a final summary or further steps."},
-				{Role: "user", Content: finalPrompt},
-			}
-			finalAnswer, err := callCompletionsEndpoint(config, finalMessages)
-			if err != nil {
-				return nil, fmt.Errorf("finalization phase failed: %v", err)
-			}
-
-			// Check termination: if the final answer clearly states a final summary or does not instruct any further actions, then return it.
-			if isFinal(finalAnswer) {
-				return mcp.NewToolResponse(mcp.NewTextContent(finalAnswer)), nil
-			}
-			// Otherwise, append the final answer to conversation and iterate.
-			conversation = append(conversation, ChatCompletionMsg{Role: "assistant", Content: finalAnswer})
-		}
-		return mcp.NewToolResponse(mcp.NewTextContent("Insufficient context gathered to answer the query (max iterations reached).")), nil
-	}
-}
-
-// processPreviousToolResults processes the JSON args string and substitutes any references to previous tool results.
-// It looks for patterns like $TOOL_RESULT[index] and replaces them with the actual tool result.
-func processPreviousToolResults(argsJSON string, toolResults map[string]string) (string, error) {
-	// Define a regex pattern to match $TOOL_RESULT[index]
-	pattern := regexp.MustCompile(`\$TOOL_RESULT\[(\d+)\]`)
-
-	// First check if there are any matches to process
-	if !pattern.MatchString(argsJSON) {
-		return argsJSON, nil
-	}
-
-	// Parse the JSON to work with its structure
-	var argsMap map[string]interface{}
-	if err := json.Unmarshal([]byte(argsJSON), &argsMap); err != nil {
-		return "", fmt.Errorf("failed to parse args JSON for substitution: %v", err)
-	}
-
-	// Process all string values in the map
-	processJSONValue(argsMap, pattern, toolResults)
-
-	// Convert back to JSON
-	processedJSON, err := json.Marshal(argsMap)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal processed args: %v", err)
-	}
-
-	return string(processedJSON), nil
-}
-
-// processJSONValue recursively processes values in a map or slice to substitute tool results
-func processJSONValue(value interface{}, pattern *regexp.Regexp, toolResults map[string]string) interface{} {
-	switch v := value.(type) {
-	case map[string]interface{}:
-		// Process each key-value pair in the map
-		for key, val := range v {
-			v[key] = processJSONValue(val, pattern, toolResults)
-		}
-		return v
-	case []interface{}:
-		// Process each element in the slice
-		for i, val := range v {
-			v[i] = processJSONValue(val, pattern, toolResults)
-		}
-		return v
-	case string:
-		// Replace any $TOOL_RESULT[index] in the string
-		return pattern.ReplaceAllStringFunc(v, func(match string) string {
-			// Extract the index from the match
-			submatches := pattern.FindStringSubmatch(match)
-			if len(submatches) < 2 {
-				return match // Keep original if no index found
-			}
-			index := submatches[1]
-
-			// Get the result for the index
-			result, exists := toolResults[index]
-			if !exists {
-				log.Printf("Warning: Tool result for index %s not found", index)
-				return match // Keep original if result not found
-			}
-
-			return result
-		})
-	default:
-		// Return unchanged for other types
-		return v
-	}
-}
-
-// isFinal returns true if the final answer is considered complete.
-// For example, if it starts with "FINAL_ANSWER:" or does not mention further tool calls.
-func isFinal(answer string) bool {
-	lower := strings.ToLower(answer)
-	if strings.HasPrefix(lower, "final_answer:") {
-		return true
-	}
-	// If the answer does not contain any indication of further actions, consider it final.
-	if !strings.Contains(lower, "call_tool:") && !strings.Contains(lower, "next step") {
-		return true
-	}
-	return false
 }

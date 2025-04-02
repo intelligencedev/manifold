@@ -95,11 +95,12 @@ func executeMCPHandler(c echo.Context) error {
 		if !ok || toolName == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing tool name for execution"})
 		}
-		args, ok := payload["args"].(map[string]interface{})
+		argsRaw, ok := payload["args"]
 		if !ok {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing or invalid arguments for tool execution"})
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing args for tool execution"})
 		}
-		toolResp, err := client.CallTool(context.Background(), toolName, args)
+
+		toolResp, err := client.CallTool(context.Background(), toolName, argsRaw)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to call tool: %v", err)})
 		}

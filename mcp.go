@@ -567,7 +567,8 @@ func callOpenAI(config *Config, messages []ChatCompletionMsg) (string, error) {
 //
 // 1) Ask the manager LLM for a multi-step plan of tool calls (in JSON).
 // 2) Execute each step in code, saving outputs in a tool history.
-// 3) Ask the manager LLM for a final summary. Return that summary to the user.
+// 3) Validate the result of each step and decide whether to continue or adjust.
+// 4) Ask the manager LLM for a final summary. Return that summary to the user.
 func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error) {
 	return func(args AgentArgs) (*mcp.ToolResponse, error) {
 		plan, err := producePlan(config, args.Query)
@@ -590,7 +591,6 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 			}
 			if toolErr != nil {
 				sr.Error = toolErr.Error()
-				history = append(history, sr)
 				log.Printf("Step %d result added to history: %+v", idx, sr)
 				// If a step fails, we short-circuit
 				return mcp.NewToolResponse(mcp.NewTextContent(
@@ -598,6 +598,47 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 				)), nil
 			}
 			history = append(history, sr)
+
+			// Validate this step's result before proceeding
+			if idx < len(plan.Steps)-1 {
+				validation, validationErr := validateStepResult(config, args.Query, history, plan, idx+1)
+				if validationErr != nil {
+					log.Printf("Step validation error: %v", validationErr)
+					return mcp.NewToolResponse(mcp.NewTextContent(
+						fmt.Sprintf("Step validation after step %d (%s) failed: %v",
+							idx+1, step.ToolName, validationErr),
+					)), nil
+				}
+
+				// If validation suggests we should change course
+				if !validation.ContinueWithPlan {
+					log.Printf("Validation suggests changing course after step %d", idx+1)
+
+					if validation.AdditionalSteps != nil && len(validation.AdditionalSteps) > 0 {
+						// Add the new steps to our plan
+						insertPoint := idx + 1
+						newSteps := make([]PlanStep, 0, len(plan.Steps)+len(validation.AdditionalSteps))
+						newSteps = append(newSteps, plan.Steps[:insertPoint]...)
+						newSteps = append(newSteps, validation.AdditionalSteps...)
+						if insertPoint < len(plan.Steps) {
+							newSteps = append(newSteps, plan.Steps[insertPoint:]...)
+						}
+						plan.Steps = newSteps
+						log.Printf("Plan modified with %d additional steps", len(validation.AdditionalSteps))
+					}
+
+					if validation.ModifiedStep != nil {
+						// Next step will be this modified step instead
+						plan.Steps[idx+1] = *validation.ModifiedStep
+						log.Printf("Next step modified based on validation")
+					}
+
+					if validation.TerminatePlan {
+						log.Printf("Plan terminated early based on validation after step %d", idx+1)
+						break
+					}
+				}
+			}
 		}
 
 		// Summarize final answer
@@ -634,12 +675,17 @@ func producePlan(config *Config, userQuery string) (*Plan, error) {
 
 %s
 
-Only use tools from the provided list of available tools.`, toolDocs)
+Only use tools from the provided in the previous list of available tools.`, toolDocs)
 
 	prompt := fmt.Sprintf(`
 You are a project manager. The user query is: %q
 
 IMPORTANT: ONLY use the tools mentioned in the system prompt.
+
+You MUST break down the query into multiple smaller tasks and decide if a tool is available that will satisfy the task.
+If a tool is not available, you must end the conversation and inform the user that you cannot help.
+If you need to use multiple tools, you must break the query into multiple steps and provide a plan for each step.
+The query has more importance than your opinions, so if the query explicitly states to use a tool, you must use it.
 
 Produce a JSON plan of steps in the format:
 {
@@ -652,7 +698,7 @@ Produce a JSON plan of steps in the format:
   ]
 }
 
-DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsRaw".
+DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsRaw"
 `, queryWithTools)
 
 	messages := []ChatCompletionMsg{
@@ -669,6 +715,9 @@ DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsR
 	if err := json.Unmarshal([]byte(llmOutput), &plan); err != nil {
 		return nil, fmt.Errorf("plan parse error: %w\nLLM output was: %s", err, llmOutput)
 	}
+
+	// Log the plan
+	log.Printf("Plan produced: %s", string(llmOutput))
 
 	// Validate that all tools exist
 	for i, step := range plan.Steps {
@@ -746,6 +795,125 @@ type StepResult struct {
 	Args     string
 	Output   string
 	Error    string
+}
+
+// StepValidationResult contains the validation outcome from the manager
+type StepValidationResult struct {
+	ContinueWithPlan bool       // Whether to continue with the original plan
+	TerminatePlan    bool       // Whether to terminate the plan early
+	ModifiedStep     *PlanStep  // Optional modified version of the next step
+	AdditionalSteps  []PlanStep // Optional additional steps to insert
+}
+
+// validateStepResult asks the manager LLM to validate a step's result
+// and decide whether to continue with the plan or make adjustments
+// validateStepResult asks the manager LLM to validate a step's result
+// and decide whether to continue with the plan or make adjustments
+func validateStepResult(config *Config, userQuery string, history []StepResult, plan *Plan, nextStepIndex int) (*StepValidationResult, error) {
+	// Summarize the steps executed so far (keep existing code here)
+	var executedSteps strings.Builder
+	// ... (code to build executedSteps remains the same) ...
+	for _, h := range history {
+		executedSteps.WriteString(fmt.Sprintf("Step %d: Tool=%s\n", h.Index+1, h.ToolName))
+		// Limit output in prompt for brevity
+		outputSummary := h.Output
+		maxLen := 500 // Limit output length in prompt
+		if len(outputSummary) > maxLen {
+			outputSummary = outputSummary[:maxLen] + "... (truncated)"
+		}
+		executedSteps.WriteString(fmt.Sprintf("Args: %s\n", h.Args)) // Keep args concise if possible too
+		if h.Error != "" {
+			executedSteps.WriteString(fmt.Sprintf("Error: %s\n", h.Error))
+		} else {
+			executedSteps.WriteString(fmt.Sprintf("Output:\n%s\n", outputSummary)) // Use summary
+		}
+		executedSteps.WriteString("\n")
+	}
+
+	// Describe the next planned step (keep existing code here)
+	var nextStepDesc string
+	// ... (code to build nextStepDesc remains the same) ...
+	if nextStepIndex < len(plan.Steps) {
+		nextStep := plan.Steps[nextStepIndex]
+		nextStepDesc = fmt.Sprintf("The next planned step is Step %d: Tool='%s', Args='%s'", nextStepIndex+1, nextStep.ToolName, nextStep.ArgsRaw)
+	} else {
+		nextStepDesc = "This was the last step in the current plan."
+	}
+
+	// ***** MODIFIED PROMPT BELOW *****
+
+	// System Prompt focuses on the goal and JSON format
+	systemPrompt := `You are an execution validator AI. Review the history of executed steps and the next planned step in light of the **overall goal** stated in the original user query.
+Your primary task is to determine if the plan is still on track to meet the *entire* original request.
+Output *only* a valid JSON object with the following structure, no commentary:
+{
+  "ContinueWithPlan": boolean,
+  "TerminatePlan": boolean,
+  "ModifiedStep": { "toolName": "...", "argsRaw": "{...}" } | null,
+  "AdditionalSteps": [ { "toolName": "...", "argsRaw": "{...}" }, ... ] | []
+}`
+
+	// User Prompt emphasizes the conditions for termination and modification
+	prompt := fmt.Sprintf(`
+Original User Query: "%s"
+
+Execution History:
+%s
+%s
+
+Based on the history and the **entire original user query**, evaluate the plan's progress.
+
+**CRITICAL**: Set `+"`TerminatePlan: true`"+` **ONLY** if one of the following conditions is met:
+1.  The **entire original user query** has been fully satisfied by the execution history provided.
+2.  A step failed critically and the plan cannot recover or proceed meaningfully towards the original goal.
+3.  The current plan seems fundamentally flawed and cannot achieve the original goal even with modifications.
+
+If `+"`TerminatePlan`"+` is `+"`false`"+`, then decide:
+- Is the `+"`Next Planned Step`"+` still appropriate and sufficient to progress towards the goal? If YES, set `+"`ContinueWithPlan: true`"+` and leave `+"`ModifiedStep`"+`/`+"`AdditionalSteps`"+` as null/empty.
+- Does the `+"`Next Planned Step`"+` need different arguments based on the history? If YES, set `+"`ContinueWithPlan: false`"+`, provide the corrected step in `+"`ModifiedStep`"+`.
+- Are *new* steps needed *before* the `+"`Next Planned Step`"+` to correctly proceed? If YES, set `+"`ContinueWithPlan: false`"+`, provide the new steps in `+"`AdditionalSteps`"+`. `+"`ModifiedStep`"+` might be null if the original next step is still valid *after* the additions.
+
+Respond **only** with the JSON object.
+`, userQuery, executedSteps.String(), nextStepDesc) // Pass the summarized history
+
+	messages := []ChatCompletionMsg{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: prompt},
+	}
+
+	// Make the API call (Request JSON if possible)
+	// ***** IMPORTANT: Ensure callCompletionsEndpoint requests JSON format if supported *****
+	// You might need to modify callCompletionsEndpoint or pass a flag like:
+	// validationOutput, err := callCompletionsEndpoint(config, messages, true)
+	// Assuming your callCompletionsEndpoint handles JSON mode correctly:
+	validationOutput, err := callCompletionsEndpoint(config, messages /*, true */) // Add JSON flag if needed
+	if err != nil {
+		// Log the raw output attempt before parsing error
+		log.Printf("Raw validation output on API error: %s", validationOutput)
+		return nil, fmt.Errorf("validation API call error: %w", err)
+	}
+
+	var validationResult StepValidationResult
+	// Clean potential markdown fences if the LLM adds them despite instructions
+	validationOutput = strings.TrimSpace(validationOutput)
+	validationOutput = strings.TrimPrefix(validationOutput, "```json")
+	validationOutput = strings.TrimSuffix(validationOutput, "```")
+	validationOutput = strings.TrimSpace(validationOutput)
+
+	if err := json.Unmarshal([]byte(validationOutput), &validationResult); err != nil {
+		// Log the output that failed to parse
+		log.Printf("Raw validation output on parse error: %s", validationOutput)
+		return nil, fmt.Errorf("validation result parse error: %w\nLLM output was: %s", err, validationOutput)
+	}
+
+	// Log the validation decision (keep existing code here)
+	log.Printf("Step validation result: continue=%v, terminate=%v, modifiedStep=%v, additionalSteps=%d",
+		validationResult.ContinueWithPlan,
+		validationResult.TerminatePlan,
+		validationResult.ModifiedStep != nil,
+		len(validationResult.AdditionalSteps))
+
+	return &validationResult, nil
 }
 
 // --------------------------

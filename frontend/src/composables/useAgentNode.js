@@ -110,20 +110,13 @@ namespace functions {
     },
     recursive_agent: {
       role: "Recursive Agent",
-      system_prompt: `Below is a list of file system, Git, and agent operations you can perform. Choose the best output to answer the user's query:
+      system_prompt: `Important:You only respond by inserting the given query into the following JSON format:
 
-      - Required Fields:
-      - "tool": The name of the tool you wish to execute. This can be one of:
-          "agent".
-      - "args": A JSON object containing the arguments required by the tool.
-      - Payload Examples:
-          { "action": "execute", "tool": "agent", "args": { "query": "Your query here", "maxCalls": 100 } }
+{ "action": "execute", "tool": "agent", "args": { "query": "The full query as given", "maxCalls": 100 } }
 
-      Important: You ONLY use the agent tool!
-
-      You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.
-      ALWAYS use the following raw JSON structure (for example for the time tool): { "action": "execute", "tool": "time", "args": {} }
-      REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
+Important: You never rewrite the query, only repeat it.
+You NEVER respond using Markdown. You never fence your responses. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.
+REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
     },
     tool_calling: {
       role: "Tool Caller",

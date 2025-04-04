@@ -19,13 +19,6 @@ import (
 //go:embed frontend/dist
 var frontendDist embed.FS
 
-const (
-	service     = "api-gateway"
-	environment = "development"
-	id          = 1
-	imagePath   = "/Users/art/Documents/code/manifold/frontend/public/mlx_out.png"
-)
-
 func main() {
 	logger := pterm.DefaultLogger.WithLevel(pterm.LogLevelTrace)
 	config, err := LoadConfig("config.yaml")

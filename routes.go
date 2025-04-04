@@ -11,6 +11,8 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	// Serve static frontend files.
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
 
+	e.Static("/tmp", config.DataPath+"/tmp")
+
 	api := e.Group("/api")
 	api.GET("/config", configHandler)
 
@@ -37,7 +39,6 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	})
 
 	api.POST("/run-fmlx", runFMLXHandler)
-	e.GET("/mlx_out.png", imageHandler)
 	api.POST("/run-sd", runSDHandler)
 
 	api.POST("/repoconcat", repoconcatHandler)

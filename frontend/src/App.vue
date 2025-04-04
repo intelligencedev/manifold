@@ -158,6 +158,7 @@ import SpecialEdge from './components/SpecialEdge.vue';
 import { useConfigStore } from '@/stores/configStore';
 
 // Manifold custom components
+import { isNodeConnected } from './utils/nodeHelpers.js';
 import Header from './components/layout/Header.vue';
 import LayoutControls from './components/layout/LayoutControls.vue';
 import useDragAndDrop from './composables/useDnD.js';
@@ -249,6 +250,16 @@ interface UpdatedNodeWithDimensions {
   id: string;
   dimensions?: Dimensions;
 }
+
+// This is UI sugar, but helpful for debugging or user awareness.
+// use this in the node styles or class binding to visually differentiate them.
+nodes.value = nodes.value.map((node) => ({
+  ...node,
+  data: {
+    ...node.data,
+    disconnected: !isNodeConnected(node.id, edges.value)
+  }
+}));
 
 function updateNodeDimensions(updatedNode: UpdatedNodeWithDimensions): void {
   // Make sure each node's .dimensions is current
@@ -397,10 +408,12 @@ async function runWorkflowConcurrently() {
   // Track nodes that have been processed to prevent double execution
   const processed = new Set<string>();
 
-  // Initialize for each node
+  // Initialize only connected nodes
   for (const node of nodes.value) {
-    adj[node.id] = [];
-    inDegree[node.id] = 0;
+    if (isNodeConnected(node.id, edges.value)) {
+      adj[node.id] = [];
+      inDegree[node.id] = 0;
+    }
   }
 
   // Populate the adjacency list and in-degree counts.

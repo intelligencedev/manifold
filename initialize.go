@@ -465,6 +465,12 @@ func InitializeApplication(config *Config) error {
 			pterm.Success.Printf("Model directory '%s' created successfully.\n", dir)
 		}
 
+		// Create the temp directory
+		tempDir := filepath.Join(config.DataPath, "tmp")
+		if err := os.MkdirAll(tempDir, 0755); err != nil {
+			return fmt.Errorf("failed to create temp directory: %w", err)
+		}
+
 		// Use WaitGroup to wait for concurrent initialization tasks
 		var wg sync.WaitGroup
 		var initErrors []error

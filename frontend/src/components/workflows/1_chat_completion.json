@@ -1,118 +1,119 @@
 {
-    "nodes": [
-      {
-        "id": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
-        "type": "agentNode",
-        "initialized": false,
-        "position": {
-          "x": 480,
-          "y": 100
-        },
-        "data": {
-          "type": "AgentNode",
-          "labelStyle": {
-            "fontWeight": "normal"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "endpoint": "http://localhost:32186/v1/chat/completions",
-            "api_key": "",
-            "model": "local",
-            "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone.",
-            "user_prompt": "Write a haiku about manifolds.",
-            "max_completion_tokens": 8192,
-            "temperature": 0.6
-          },
-          "outputs": {
-            "response": ""
-          },
-          "models": [
-            "local",
-            "chatgpt-4o-latest",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "o1-mini",
-            "o1",
-            "o3-mini"
-          ],
-          "style": {
-            "border": "1px solid #666",
-            "borderRadius": "12px",
-            "backgroundColor": "#333",
-            "color": "#eee",
-            "width": "320px",
-            "height": "760px"
-          }
-        },
-        "style": {
-          "width": "380px",
-          "height": "760px"
-        }
+  "nodes": [
+    {
+      "id": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "type": "agentNode",
+      "initialized": false,
+      "position": {
+        "x": 480,
+        "y": 96
       },
-      {
-        "id": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
-        "type": "responseNode",
-        "initialized": false,
-        "position": {
-          "x": 880,
-          "y": 100
+      "data": {
+        "type": "AgentNode",
+        "labelStyle": {
+          "fontWeight": "normal"
         },
-        "data": {
-          "type": "ResponseNode",
-          "labelStyle": {
-            "fontWeight": "normal"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "response": ""
-          },
-          "outputs": {},
-          "style": {
-            "border": "1px solid #666",
-            "borderRadius": "12px",
-            "backgroundColor": "#333",
-            "color": "#eee",
-            "width": "350px",
-            "height": "400px"
-          },
-          "connectedTo": [
-            "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
-          ]
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "endpoint": "http://localhost:32186/v1/chat/completions",
+          "api_key": "",
+          "model": "local",
+          "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone.",
+          "user_prompt": "Write a haiku about manifolds.",
+          "max_completion_tokens": 8192,
+          "temperature": 0.6
         },
+        "outputs": {
+          "response": ""
+        },
+        "models": [
+          "local",
+          "chatgpt-4o-latest",
+          "gpt-4o",
+          "gpt-4o-mini",
+          "o1-mini",
+          "o1",
+          "o3-mini"
+        ],
         "style": {
-          "width": "880px",
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "320px",
           "height": "760px"
-        }
-      }
-    ],
-    "edges": [
-      {
-        "id": "edge-0.30367276511116714",
-        "type": "step",
-        "source": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
-        "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
-        "sourceHandle": null,
-        "targetHandle": "input",
-        "data": {
-          "label": "New Edge"
         },
-        "label": "",
-        "sourceX": 866.9985980042522,
-        "sourceY": 479.99864190793903,
-        "targetX": 873.0000050827072,
-        "targetY": 479.9998667730535
+        "selectedSystemPrompt": "friendly_assistant"
+      },
+      "style": {
+        "width": "380px",
+        "height": "906px"
       }
-    ],
-    "position": [
-      329.7069588422662,
-      51.48918074875451
-    ],
-    "zoom": 0.7180837984059478,
-    "viewport": {
-      "x": 329.7069588422662,
-      "y": 51.48918074875451,
-      "zoom": 0.7180837984059478
+    },
+    {
+      "id": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+      "type": "responseNode",
+      "initialized": false,
+      "position": {
+        "x": 880,
+        "y": 96
+      },
+      "data": {
+        "type": "ResponseNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "response": ""
+        },
+        "outputs": {},
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "350px",
+          "height": "400px"
+        },
+        "connectedTo": [
+          "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
+        ]
+      },
+      "style": {
+        "width": "880px",
+        "height": "760px"
+      }
     }
+  ],
+  "edges": [
+    {
+      "id": "edge-0.30367276511116714",
+      "type": "step",
+      "source": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+      "sourceHandle": null,
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge"
+      },
+      "label": "",
+      "sourceX": 867.0014026467054,
+      "sourceY": 549.0016790471993,
+      "targetX": 872.9999675133759,
+      "targetY": 475.99992184606015
+    }
+  ],
+  "position": [
+    -305.6240067616866,
+    -73.4019244347001
+  ],
+  "zoom": 0.9960044668205464,
+  "viewport": {
+    "x": -305.6240067616866,
+    "y": -73.4019244347001,
+    "zoom": 0.9960044668205464
   }
+}

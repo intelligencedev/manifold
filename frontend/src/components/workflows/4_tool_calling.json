@@ -1,0 +1,513 @@
+{
+    "nodes": [
+      {
+        "id": "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043",
+        "type": "agentNode",
+        "initialized": false,
+        "position": {
+          "x": 352,
+          "y": 96
+        },
+        "data": {
+          "type": "AgentNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "endpoint": "http://localhost:32186/v1/chat/completions",
+            "api_key": "",
+            "model": "gpt-4o-mini",
+            "system_prompt": "Below is a list of tools and agent operations you can perform. Choose the best tool to answer the user's query. For example:\n\n      - Required Fields:\n      - \"tool\": The name of the tool you wish to execute. This can be one of:\n          \"agent\".\n      - \"args\": A JSON object containing the arguments required by the tool.\n      - Payload Examples:\n          { \"action\": \"execute\", \"tool\": \"agent\", \"args\": { \"query\": \"Your query here\", \"maxCalls\": 15 } }\n\n      You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.\n      ALWAYS use the following raw JSON structure (for example for the time tool): { \"action\": \"execute\", \"tool\": \"time\", \"args\": {} }\n      REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.",
+            "user_prompt": "NEVER respond using markdown. ONLY return the raw json, never fence your code or use markdown, as per your system instructions for the following:\n\n",
+            "max_completion_tokens": 8192,
+            "temperature": 0.3
+          },
+          "outputs": {
+            "response": "```json\n{\n  \"action\": \"execute\",\n  \"tool\": \"time\",\n  \"args\": {}\n}\n```",
+            "error": null
+          },
+          "models": [
+            "local",
+            "chatgpt-4o-latest",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o1-mini",
+            "o1",
+            "o3-mini"
+          ],
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "380px",
+            "height": "906px"
+          },
+          "_lastLocalProvider": "llama-server",
+          "selectedSystemPrompt": "tool_calling"
+        },
+        "style": {
+          "width": "380px",
+          "height": "906px"
+        }
+      },
+      {
+        "id": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 880,
+          "y": 96
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": "```json\n{\n  \"action\": \"execute\",\n  \"tool\": \"time\",\n  \"args\": {}\n}\n```"
+          },
+          "outputs": {
+            "result": {
+              "output": "```json\n{\n  \"action\": \"execute\",\n  \"tool\": \"time\",\n  \"args\": {}\n}\n```"
+            }
+          },
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "624px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043"
+          ]
+        },
+        "style": {
+          "width": "671px",
+          "height": "256px"
+        }
+      },
+      {
+        "id": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
+        "type": "mcpClientNode",
+        "initialized": false,
+        "position": {
+          "x": 880,
+          "y": 368
+        },
+        "data": {
+          "style": {},
+          "type": "MCPClientNode",
+          "inputs": {
+            "command": ""
+          },
+          "outputs": {
+            "result": ""
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputHandleColor": "#777",
+          "outputHandleColor": "#777",
+          "connectedTo": [
+            "responseNode_3433e90b-151b-4488-80fb-834bb29a94de"
+          ]
+        }
+      },
+      {
+        "id": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
+        "type": "textNode",
+        "initialized": false,
+        "position": {
+          "x": 1232,
+          "y": 416
+        },
+        "data": {
+          "type": "TextNode",
+          "labelStyle": {
+            "fontWeight": "bold",
+            "textAlign": "center",
+            "marginBottom": "10px",
+            "fontSize": "16px"
+          },
+          "style": {
+            "border": "1px solid var(--node-border-color)",
+            "borderRadius": "12px",
+            "backgroundColor": "var(--node-bg-color)",
+            "color": "var(--node-text-color)",
+            "padding": "10px",
+            "width": "undefinedpx",
+            "height": "undefinedpx"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "text": ""
+          },
+          "outputs": {
+            "result": {
+              "output": ""
+            }
+          },
+          "connectedTo": [
+            "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274"
+          ]
+        },
+        "style": {
+          "width": "233px",
+          "height": "550px"
+        }
+      },
+      {
+        "id": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
+        "type": "agentNode",
+        "initialized": false,
+        "position": {
+          "x": 1584,
+          "y": 96
+        },
+        "data": {
+          "type": "AgentNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "endpoint": "http://localhost:32186/v1/chat/completions",
+            "api_key": "",
+            "model": "gpt-4o-mini",
+            "system_prompt": "You are a data analysis expert. When working with data, focus on identifying patterns and outliers, considering statistical significance, and exploring causal relationships vs. correlations. Present your analysis with a clear narrative structure that connects data points to insights. Use hypothetical data visualization descriptions when relevant. Consider alternative interpretations of data and potential confounding variables. Clearly communicate limitations and assumptions in any analysis.",
+            "user_prompt": "Below is a query and the results. Repeat them in a friendly conversational tone:\n\n",
+            "max_completion_tokens": 8192,
+            "temperature": 0.6
+          },
+          "outputs": {
+            "response": "Hey there! Let me check that for you... It’s currently 3:23 PM. 😊 \n\nIs there anything else I can help you with?",
+            "error": null
+          },
+          "models": [
+            "local",
+            "chatgpt-4o-latest",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "o1-mini",
+            "o1",
+            "o3-mini"
+          ],
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "380px",
+            "height": "906px"
+          },
+          "_lastLocalProvider": "llama-server",
+          "selectedSystemPrompt": "data_analyst"
+        },
+        "style": {
+          "width": "380px",
+          "height": "906px"
+        }
+      },
+      {
+        "id": "responseNode_98cd26db-8795-4207-bc86-353d0edda6e6",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": 2016,
+          "y": 112
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": "Hey there! Let me check that for you... It’s currently 3:23 PM. 😊 \n\nIs there anything else I can help you with?"
+          },
+          "outputs": {
+            "result": {
+              "output": "Hey there! Let me check that for you... It’s currently 3:23 PM. 😊 \n\nIs there anything else I can help you with?"
+            }
+          },
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "624px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8"
+          ]
+        },
+        "style": {
+          "width": "927px",
+          "height": "896px"
+        }
+      },
+      {
+        "id": "textNode_b8438edb-00ae-4772-898a-6073ae1ba442",
+        "type": "textNode",
+        "initialized": false,
+        "position": {
+          "x": 2016,
+          "y": -128
+        },
+        "data": {
+          "type": "TextNode",
+          "labelStyle": {
+            "fontWeight": "bold",
+            "textAlign": "center",
+            "marginBottom": "10px",
+            "fontSize": "16px"
+          },
+          "style": {
+            "border": "1px solid var(--node-border-color)",
+            "borderRadius": "12px",
+            "backgroundColor": "var(--node-bg-color)",
+            "color": "var(--node-text-color)",
+            "padding": "10px",
+            "width": "undefinedpx",
+            "height": "undefinedpx"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "text": "what time is it?"
+          },
+          "outputs": {
+            "result": {
+              "output": "what time is it?"
+            }
+          }
+        },
+        "style": {
+          "width": "921px",
+          "height": "230px"
+        }
+      },
+      {
+        "id": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+        "type": "responseNode",
+        "initialized": false,
+        "position": {
+          "x": -400,
+          "y": 256
+        },
+        "data": {
+          "type": "ResponseNode",
+          "labelStyle": {
+            "fontWeight": "normal"
+          },
+          "hasInputs": true,
+          "hasOutputs": true,
+          "inputs": {
+            "response": "what time is it?"
+          },
+          "outputs": {
+            "result": {
+              "output": "what time is it?"
+            }
+          },
+          "style": {
+            "border": "1px solid #666",
+            "borderRadius": "12px",
+            "backgroundColor": "#333",
+            "color": "#eee",
+            "width": "624px",
+            "height": "400px"
+          },
+          "connectedTo": [
+            "textNode_b8438edb-00ae-4772-898a-6073ae1ba442"
+          ]
+        },
+        "style": {
+          "width": "671px",
+          "height": "256px"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "edge-0.341026529148054",
+        "type": "step",
+        "source": "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043",
+        "target": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
+        "sourceHandle": null,
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 739.0002449015763,
+        "sourceY": 549.0003729576233,
+        "targetX": 873.0000102679915,
+        "targetY": 224.00009477378308,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.11407778161880944",
+        "type": "step",
+        "source": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
+        "target": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 1558.0005358316976,
+        "sourceY": 224.00009477378308,
+        "targetX": 873.0000102679915,
+        "targetY": 482.0938481557889,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.8802760444237966",
+        "type": "step",
+        "source": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
+        "target": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 1192.1174034050346,
+        "sourceY": 482.0938481557889,
+        "targetX": 1227.9999811162102,
+        "targetY": 691.000225662953,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.5652378592082774",
+        "type": "step",
+        "source": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
+        "target": "responseNode_98cd26db-8795-4207-bc86-353d0edda6e6",
+        "sourceHandle": null,
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 1971.0004181600718,
+        "sourceY": 549.0003729576233,
+        "targetX": 2009.0000102679915,
+        "targetY": 560.0003926675098,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.7383037995492431",
+        "type": "step",
+        "source": "textNode_b8438edb-00ae-4772-898a-6073ae1ba442",
+        "target": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+        "sourceHandle": "output",
+        "targetHandle": "input",
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 2941.000445781634,
+        "sourceY": -12.999923283910363,
+        "targetX": -406.99998973200854,
+        "targetY": 384.0000947737831,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.6345709164752011",
+        "type": "step",
+        "source": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+        "target": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 278.00057914632146,
+        "sourceY": 384.0000947737831,
+        "targetX": 1577.0000102679915,
+        "targetY": 549.0003729576233,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.6221092384721668",
+        "type": "step",
+        "source": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
+        "target": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 1469.0003164226832,
+        "sourceY": 691.000225662953,
+        "targetX": 1577.0000102679915,
+        "targetY": 549.0003729576233,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      },
+      {
+        "id": "edge-0.23764757571623452",
+        "type": "step",
+        "source": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+        "target": "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043",
+        "sourceHandle": "output",
+        "targetHandle": null,
+        "data": {
+          "label": "New Edge"
+        },
+        "label": "",
+        "sourceX": 278.00057914632146,
+        "sourceY": 384.0000947737831,
+        "targetX": 345.00001026799146,
+        "targetY": 549.0003729576233,
+        "animated": false,
+        "style": {
+          "strokeWidth": 1
+        }
+      }
+    ],
+    "position": [
+      277.5449672413299,
+      231.422265493227
+    ],
+    "zoom": 0.4514967466201428,
+    "viewport": {
+      "x": 277.5449672413299,
+      "y": 231.422265493227,
+      "zoom": 0.4514967466201428
+    }
+  }

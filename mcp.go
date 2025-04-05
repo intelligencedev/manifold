@@ -20,6 +20,17 @@ import (
 	"github.com/metoro-io/mcp-golang/transport/stdio"
 )
 
+type GenerateAndRunCodeArgs struct {
+	// A text specification describing what we want the code to do.
+	Spec string `json:"spec" jsonschema:"required,description=Description or purpose of the code to generate"`
+
+	// The language to generate. Allowed values: "python", "go", "javascript"
+	Language string `json:"language" jsonschema:"required,enum=python,enum=go,enum=javascript,description=Which language to generate and run"`
+
+	// An optional list of dependencies (e.g. Python pip packages, Go modules, or npm packages).
+	Dependencies []string `json:"dependencies,omitempty" jsonschema:"description=Optional list of dependencies for the chosen language"`
+}
+
 // RunMCP is the main entry point for running the MCP server with all registered tools.
 // We have refactored the "agent" tool to function like a manager + team. The manager
 // (LLM) plans multi-step workflows, which this code then executes step by step.
@@ -32,8 +43,16 @@ func RunMCP(config *Config) {
 	server := mcp.NewServer(serverTransport)
 
 	// --------------------------
-	// Existing Tools
+	// Register Tools
 	// --------------------------
+
+	if err := server.RegisterTool(
+		"generate_and_run_code",
+		"Generates code in a specified language from a spec, runs it in a container, and returns code + execution result.",
+		generateAndRunCodeHandler(config),
+	); err != nil {
+		panic(err)
+	}
 
 	if err := server.RegisterTool("hello", "Says hello to the provided name", func(args HelloArgs) (*mcp.ToolResponse, error) {
 		res, err := helloTool(args)
@@ -523,45 +542,6 @@ type WebContentArgs struct {
 	URLs []string `json:"urls" jsonschema:"required,description=List of URLs"`
 }
 
-// callOpenAI is a helper that calls the completions endpoint
-func callOpenAI(config *Config, messages []ChatCompletionMsg) (string, error) {
-	requestBody := ChatCompletionRequest{
-		Model:       config.Completions.CompletionsModel,
-		Messages:    messages,
-		MaxTokens:   4096,
-		Temperature: 0.3,
-	}
-	jsonBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-	req, err := http.NewRequest("POST", config.Completions.DefaultHost, bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("openai request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("openai API error, status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	var completionResp ChatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
-		return "", fmt.Errorf("failed to parse openai response: %w", err)
-	}
-	if len(completionResp.Choices) == 0 {
-		return "", fmt.Errorf("no completion returned by OpenAI")
-	}
-	return completionResp.Choices[0].Message.Content, nil
-}
-
 // agentHandler is our manager+team approach. The user calls "agent" with
 // { query: "...", maxCalls: N }, and we do the following:
 //
@@ -581,7 +561,7 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 		// Execute the plan
 		var history []StepResult
 		for idx, step := range plan.Steps {
-			res, toolErr := callToolInServer(step.ToolName, step.ArgsRaw)
+			res, toolErr := callToolInServer(config, step.ToolName, step.ArgsRaw)
 			sr := StepResult{
 				Index:    idx,
 				ToolName: step.ToolName,
@@ -661,6 +641,7 @@ func producePlan(config *Config, userQuery string) (*Plan, error) {
 		"get_file_info", "list_allowed_directories", "delete_file", "copy_file",
 		"git_clone", "git_checkout", "git_diff", "run_shell_command",
 		"go_build", "go_test", "format_go_code", "lint_code", "web_search", "web_content",
+		"generate_and_run_code",
 	}
 
 	availableToolsStr := strings.Join(availableTools, ", ")
@@ -687,7 +668,7 @@ If a tool is not available, you must end the conversation and inform the user th
 If you need to use multiple tools, you must break the query into multiple steps and provide a plan for each step.
 The query has more importance than your opinions, so if the query explicitly states to use a tool, you must use it.
 
-Produce a JSON plan of steps in the format:
+Produce a JSON plan of steps in the format, making sure to NEVER fence your output with triple backticks:
 {
   "steps": [
     {
@@ -699,6 +680,14 @@ Produce a JSON plan of steps in the format:
 }
 
 DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsRaw"
+
+Do not use Markdown formatting or syntax under any circumstance. Never wrap code blocks in triple backticks or indent them as Markdown code blocks. Always output code as raw, unfenced plain text.
+
+When returning JSON, escape all double quotes and ensure the output is valid as a JSON string. Do not format JSON as Markdown.
+
+Avoid all Markdown features including headers, bold, italics, bullet points, links, or images. Your output must be suitable for display in environments that do not support Markdown or rich text formatting.
+
+All responses must use plain text only, with no special characters or formatting used for styling or code representation.
 `, queryWithTools)
 
 	messages := []ChatCompletionMsg{
@@ -711,13 +700,13 @@ DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsR
 		return nil, err
 	}
 
+	// Log the plan
+	log.Printf("Plan produced: %s", string(llmOutput))
+
 	var plan Plan
 	if err := json.Unmarshal([]byte(llmOutput), &plan); err != nil {
 		return nil, fmt.Errorf("plan parse error: %w\nLLM output was: %s", err, llmOutput)
 	}
-
-	// Log the plan
-	log.Printf("Plan produced: %s", string(llmOutput))
 
 	// Validate that all tools exist
 	for i, step := range plan.Steps {
@@ -917,10 +906,49 @@ Respond **only** with the JSON object.
 }
 
 // --------------------------
-// callToolInServer dispatches a tool call. (Unchanged from original.)
+// callToolInServer dispatches a tool call.
 // --------------------------
-func callToolInServer(toolName, jsonArgs string) (string, error) {
+func generateAndRunCodeHandler(config *Config) func(args GenerateAndRunCodeArgs) (*mcp.ToolResponse, error) {
+	return func(args GenerateAndRunCodeArgs) (*mcp.ToolResponse, error) {
+		// 1) Ask LLM to generate the code
+		generatedCode, err := produceLanguageCode(config, args.Language, args.Spec)
+		if err != nil {
+			return nil, fmt.Errorf("error generating code: %w", err)
+		}
+
+		// 2) Execute the code in Docker
+		execOutput, execErr := runCodeInContainer(args.Language, generatedCode, args.Dependencies)
+		if execErr != nil {
+			return nil, fmt.Errorf("error running code: %w", execErr)
+		}
+
+		// 3) Return only the execution results
+		return mcp.NewToolResponse(mcp.NewTextContent(execOutput)), nil
+	}
+}
+
+func callToolInServer(config *Config, toolName, jsonArgs string) (string, error) {
 	switch toolName {
+	case "generate_and_run_code":
+		var args GenerateAndRunCodeArgs
+		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
+			return "", err
+		}
+
+		responseStr, err := generateAndRunCodeHandler(config)(args)
+		if err != nil {
+			return "", err
+		}
+
+		// Convert the response to a string
+		responseBytes, err := json.Marshal(responseStr)
+		if err != nil {
+			return "", err
+		}
+
+		log.Printf("Response from generate_and_run_code: %s", string(responseBytes))
+
+		return string(responseBytes), nil
 	case "hello":
 		var args HelloArgs
 		if err := json.Unmarshal([]byte(jsonArgs), &args); err != nil {
@@ -1662,16 +1690,18 @@ func searchFilesRecursive(root, pattern string) ([]string, error) {
 // This function will invoke the default completions endpoint configured
 // in the config file.
 // -------------------------
+
 func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (string, error) {
 	requestBody := ChatCompletionRequest{
 		Model:       config.Completions.CompletionsModel,
 		Messages:    messages,
 		MaxTokens:   16384,
-		Temperature: 0.3,
+		Temperature: 0.1,
 	}
 
 	jsonBytes, err := json.Marshal(requestBody)
 	if err != nil {
+		log.Printf("Failed to marshal request: %s", err)
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
@@ -1680,6 +1710,7 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBytes))
 	if err != nil {
+		log.Printf("Failed to create request: %s", err)
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -1690,32 +1721,37 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("openai request failed: %w", err)
+		log.Printf("Request failed: %s", err)
+		return "", fmt.Errorf("llm request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("openai API error, status %d: %s", resp.StatusCode, string(bodyBytes))
+		log.Printf("LLM error: %s", bodyBytes)
+		return "", fmt.Errorf("llm error, status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var completionResp ChatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
+		log.Printf("Failed to parse response: %s", err)
 		return "", fmt.Errorf("failed to parse openai response: %w", err)
 	}
 
 	if len(completionResp.Choices) == 0 {
-		return "", fmt.Errorf("no completion returned by OpenAI")
+		log.Printf("No completion returned by LLM")
+		return "", fmt.Errorf("no completion returned by LLM")
 	}
 
 	answer := completionResp.Choices[0].Message.Content
 	return answer, nil
 }
 
-// generateToolDocumentation returns a string describing all available tools and their parameters
+// generateToolDocumentation returns a string descri	bing all available tools and their parameters
 func generateToolDocumentation() string {
 	// Map of tool names to their parameter documentation
 	toolDocs := map[string]string{
+		"generate_and_run_code":    "{ \"spec\": \"string\", \"language\": \"string\" (python|go|javascript), \"dependencies\": [\"string\", ...] } - Generate code from the spec in the chosen language, run it, and return the code plus execution result",
 		"hello":                    "{ \"name\": \"string\" } - The name to say hello to",
 		"calculate":                "{ \"operation\": \"string\" (add|subtract|multiply|divide), \"a\": number, \"b\": number } - Perform basic math",
 		"time":                     "{ \"format\": \"string\" (optional) } - Get current time, optionally with specified format",
@@ -1767,4 +1803,72 @@ func generateToolDocumentation() string {
 	}
 
 	return sb.String()
+}
+
+func produceLanguageCode(config *Config, language, spec string) (string, error) {
+	systemMsg := fmt.Sprintf(`
+You are a coding assistant that produces correct, runnable %s code. 
+Output only the code. Do not wrap it in markdown fences or add commentary.
+`, language)
+
+	userMsg := fmt.Sprintf(`
+Generate a %s program to accomplish the following:
+%s
+`, language, spec)
+
+	messages := []ChatCompletionMsg{
+		{Role: "system", Content: systemMsg},
+		{Role: "user", Content: userMsg},
+	}
+
+	output, err := callCompletionsEndpoint(config, messages)
+	if err != nil {
+		return "", err
+	}
+
+	// Minimal cleanup in case the LLM includes triple backticks or extra text
+	code := strings.TrimSpace(output)
+	code = strings.TrimPrefix(code, "```"+language)
+	code = strings.TrimPrefix(code, "```")
+	code = strings.TrimSuffix(code, "```")
+	code = strings.TrimSpace(code)
+
+	return code, nil
+}
+
+func runCodeInContainer(language, code string, dependencies []string) (string, error) {
+	switch language {
+	case "python":
+		resp, err := runPythonInContainer(code, dependencies)
+		if err != nil {
+			return "", err
+		}
+		if resp.Error != "" {
+			return "", fmt.Errorf(resp.Error)
+		}
+		return resp.Result, nil
+
+	case "go":
+		resp, err := runGoInContainer(code, dependencies)
+		if err != nil {
+			return "", err
+		}
+		if resp.Error != "" {
+			return "", fmt.Errorf(resp.Error)
+		}
+		return resp.Result, nil
+
+	case "javascript":
+		resp, err := runNodeInContainer(code, dependencies)
+		if err != nil {
+			return "", err
+		}
+		if resp.Error != "" {
+			return "", fmt.Errorf(resp.Error)
+		}
+		return resp.Result, nil
+
+	default:
+		return "", fmt.Errorf("unsupported language: %s", language)
+	}
 }

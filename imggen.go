@@ -83,7 +83,7 @@ func runFMLXHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]string{"message": "FMLX command executed successfully"})
 }
 
-func imageHandler(c echo.Context) error {
+func imageHandler(c echo.Context, imagePath string) error {
 	file, err := os.Open(imagePath)
 	if err != nil {
 		if os.IsNotExist(err) {

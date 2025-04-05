@@ -542,45 +542,6 @@ type WebContentArgs struct {
 	URLs []string `json:"urls" jsonschema:"required,description=List of URLs"`
 }
 
-// callOpenAI is a helper that calls the completions endpoint
-func callOpenAI(config *Config, messages []ChatCompletionMsg) (string, error) {
-	requestBody := ChatCompletionRequest{
-		Model:       config.Completions.CompletionsModel,
-		Messages:    messages,
-		MaxTokens:   4096,
-		Temperature: 0.3,
-	}
-	jsonBytes, err := json.Marshal(requestBody)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-	req, err := http.NewRequest("POST", config.Completions.DefaultHost, bytes.NewBuffer(jsonBytes))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
-
-	client := &http.Client{Timeout: 30 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("openai request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("openai API error, status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-	var completionResp ChatCompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
-		return "", fmt.Errorf("failed to parse openai response: %w", err)
-	}
-	if len(completionResp.Choices) == 0 {
-		return "", fmt.Errorf("no completion returned by OpenAI")
-	}
-	return completionResp.Choices[0].Message.Content, nil
-}
-
 // agentHandler is our manager+team approach. The user calls "agent" with
 // { query: "...", maxCalls: N }, and we do the following:
 //
@@ -707,7 +668,7 @@ If a tool is not available, you must end the conversation and inform the user th
 If you need to use multiple tools, you must break the query into multiple steps and provide a plan for each step.
 The query has more importance than your opinions, so if the query explicitly states to use a tool, you must use it.
 
-Produce a JSON plan of steps in the format:
+Produce a JSON plan of steps in the format, making sure to NEVER fence your output with triple backticks:
 {
   "steps": [
     {
@@ -719,6 +680,14 @@ Produce a JSON plan of steps in the format:
 }
 
 DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsRaw"
+
+Do not use Markdown formatting or syntax under any circumstance. Never wrap code blocks in triple backticks or indent them as Markdown code blocks. Always output code as raw, unfenced plain text.
+
+When returning JSON, escape all double quotes and ensure the output is valid as a JSON string. Do not format JSON as Markdown.
+
+Avoid all Markdown features including headers, bold, italics, bullet points, links, or images. Your output must be suitable for display in environments that do not support Markdown or rich text formatting.
+
+All responses must use plain text only, with no special characters or formatting used for styling or code representation.
 `, queryWithTools)
 
 	messages := []ChatCompletionMsg{
@@ -731,13 +700,13 @@ DO NOT include extraneous commentary. Just valid JSON with "toolName" and "argsR
 		return nil, err
 	}
 
+	// Log the plan
+	log.Printf("Plan produced: %s", string(llmOutput))
+
 	var plan Plan
 	if err := json.Unmarshal([]byte(llmOutput), &plan); err != nil {
 		return nil, fmt.Errorf("plan parse error: %w\nLLM output was: %s", err, llmOutput)
 	}
-
-	// Log the plan
-	log.Printf("Plan produced: %s", string(llmOutput))
 
 	// Validate that all tools exist
 	for i, step := range plan.Steps {
@@ -1721,16 +1690,18 @@ func searchFilesRecursive(root, pattern string) ([]string, error) {
 // This function will invoke the default completions endpoint configured
 // in the config file.
 // -------------------------
+
 func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (string, error) {
 	requestBody := ChatCompletionRequest{
 		Model:       config.Completions.CompletionsModel,
 		Messages:    messages,
 		MaxTokens:   16384,
-		Temperature: 0.3,
+		Temperature: 0.1,
 	}
 
 	jsonBytes, err := json.Marshal(requestBody)
 	if err != nil {
+		log.Printf("Failed to marshal request: %s", err)
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
@@ -1739,6 +1710,7 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 
 	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBytes))
 	if err != nil {
+		log.Printf("Failed to create request: %s", err)
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -1749,22 +1721,26 @@ func callCompletionsEndpoint(config *Config, messages []ChatCompletionMsg) (stri
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("openai request failed: %w", err)
+		log.Printf("Request failed: %s", err)
+		return "", fmt.Errorf("llm request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("openai API error, status %d: %s", resp.StatusCode, string(bodyBytes))
+		log.Printf("LLM error: %s", bodyBytes)
+		return "", fmt.Errorf("llm error, status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
 	var completionResp ChatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&completionResp); err != nil {
+		log.Printf("Failed to parse response: %s", err)
 		return "", fmt.Errorf("failed to parse openai response: %w", err)
 	}
 
 	if len(completionResp.Choices) == 0 {
-		return "", fmt.Errorf("no completion returned by OpenAI")
+		log.Printf("No completion returned by LLM")
+		return "", fmt.Errorf("no completion returned by LLM")
 	}
 
 	answer := completionResp.Choices[0].Message.Content

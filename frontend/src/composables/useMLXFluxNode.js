@@ -76,6 +76,9 @@ export function useMLXFluxNode(props, vueFlow) {
   // Function to call the FMLX API (using a Go backend endpoint)
   async function callFMLXAPI(mlxNode) {
     const endpoint = '/api/run-fmlx' // Your Go backend endpoint
+    
+    // Clear the current image before running
+    imageSrc.value = ''
   
     const requestBody = {
       model: mlxNode.data.inputs.model,
@@ -102,13 +105,24 @@ export function useMLXFluxNode(props, vueFlow) {
   
       const result = await response.json()
       console.log('FMLX API response:', result)
+
+      // Get the current browser URL
+      const currentUrl = window.location.href
+      // Construct the full image URL using the input file name
+      const imageUrl = `${currentUrl}tmp/${mlxNode.data.inputs.output}`
+      console.log('Image URL:', imageUrl)
+
   
+      // Update the node data with the response
       updateNodeData(props.id, {
         ...props.data,
         outputs: {
-          response: result.image_url, // Update the output with the image URL
+          response: imageUrl,
         },
       })
+      
+      // Set the image source to display the generated image
+      imageSrc.value = imageUrl
   
       return { response: 'OK' }
     } catch (e) {
@@ -152,6 +166,11 @@ export function useMLXFluxNode(props, vueFlow) {
   // Lifecycle hooks
   onMounted(() => {
     props.data.run = run
+    
+    // If there's already a response URL stored in the node data, show it
+    if (props.data.outputs && props.data.outputs.response) {
+      imageSrc.value = props.data.outputs.response
+    }
   })
   
   // Watch for changes in the output response and update imageSrc accordingly

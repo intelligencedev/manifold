@@ -26,7 +26,7 @@ type ComfyProxyRequest struct {
 	Prompt         string `json:"prompt"`
 }
 
-func runFMLXHandler(c echo.Context) error {
+func runFMLXHandler(c echo.Context, dataPath string) error {
 	var req FMLXRequest
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -34,20 +34,18 @@ func runFMLXHandler(c echo.Context) error {
 	if req.Model == "" || req.Prompt == "" || req.Steps == 0 {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing required fields"})
 	}
-	if _, err := os.Stat(req.Output); err == nil {
-		if err := os.Remove(req.Output); err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to remove existing file"})
-		}
-	}
+
+	imgPath := fmt.Sprintf("%s/tmp/%s", dataPath, req.Output)
+
 	args := []string{
 		"--model", req.Model,
 		"--prompt", req.Prompt,
 		"--steps", fmt.Sprintf("%d", req.Steps),
 		"--seed", fmt.Sprintf("%d", req.Seed),
 		"-q", fmt.Sprintf("%d", req.Quality),
-		"--output", req.Output,
+		"--output", imgPath,
 	}
-	cmd := exec.Command("/Users/art/Documents/code/manifold/mflux/.venv/bin/mflux-generate", args...)
+	cmd := exec.Command("mflux-generate", args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stdout pipe"})
@@ -80,10 +78,13 @@ func runFMLXHandler(c echo.Context) error {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute mflux command: %v", err)})
 	}
 	wg.Wait()
-	return c.JSON(http.StatusOK, map[string]string{"message": "FMLX command executed successfully"})
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "FMLX command executed successfully",
+	})
 }
 
-func imageHandler(c echo.Context) error {
+func imageHandler(c echo.Context, imagePath string) error {
 	file, err := os.Open(imagePath)
 	if err != nil {
 		if os.IsNotExist(err) {

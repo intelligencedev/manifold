@@ -8,28 +8,16 @@
     <div class="input-field">
       <label for="mode-select" class="input-label">Mode:</label>
       <select id="mode-select" v-model="mode" class="input-select">
-        <option value="run_count">Run Count</option>
-        <option value="loopback">Loopback</option>
+        <option value="RunAllChildren">Run All Children</option>
+        <option value="JumpToNode">Jump To Node</option>
       </select>
     </div>
 
-    <!-- Conditional Input Field for Run Count -->
-    <div v-if="mode === 'run_count'">
+    <!-- Conditional Input Field for JumpToNode -->
+    <div v-if="mode === 'JumpToNode'">
       <div class="input-field">
-        <label :for="`${data.id}-runCount`" class="input-label">Run Count:</label>
-        <input :id="`${data.id}-runCount`" type="number" v-model.number="runCount" class="input-text" min="1" />
-      </div>
-    </div>
-    
-    <!-- Conditional Input Fields for Loopback -->
-    <div v-else-if="mode === 'loopback'">
-      <div class="input-field">
-        <label :for="`${data.id}-loopbackEnabled`" class="input-label">Enable Loopback:</label>
-        <input :id="`${data.id}-loopbackEnabled`" type="checkbox" v-model="loopbackEnabled" class="input-checkbox" />
-      </div>
-      <div class="input-field">
-        <label :for="`${data.id}-targetNode`" class="input-label">Target Node ID:</label>
-        <input :id="`${data.id}-targetNode`" type="text" v-model="targetNode" class="input-text" />
+        <label :for="`${data.id}-targetNodeId`" class="input-label">Target Node ID:</label>
+        <input :id="`${data.id}-targetNodeId`" type="text" v-model="targetNodeId" class="input-text" />
       </div>
     </div>
 
@@ -39,13 +27,13 @@
 
     <!-- NodeResizer -->
     <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-                 :line-style="resizeHandleStyle" :width="320" :height="240"
-                 :min-width="320" :min-height="240" :node-id="props.id" @resize="onResize" />
+                 :line-style="resizeHandleStyle" :width="320" :height="180"
+                 :min-width="320" :min-height="180" :node-id="props.id" @resize="onResize" />
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 
@@ -64,13 +52,12 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        mode: 'run_count',
-        runCount: 1,
-        targetNode: '',
-        loopbackEnabled: false,  // New loopback parameter
+        mode: 'RunAllChildren', // Default mode
+        targetNodeId: '',     // Target node for JumpToNode mode
       },
       outputs: {
-        result: { output: '' },
+        // Flow control nodes typically don't produce data output,
+        // but manage execution flow.
       },
       style: {
         border: '1px solid #666',
@@ -78,39 +65,49 @@ const props = defineProps({
         backgroundColor: '#333',
         color: '#eee',
         width: '320px',
-        height: '240px',
+        height: '180px', // Adjusted default height
       },
     }),
   },
 })
 
-const { getEdges, findNode } = useVueFlow()
+const emit = defineEmits(['resize', 'disable-zoom', 'enable-zoom'])
+
+const { findNode } = useVueFlow() // Removed getEdges as it's handled in App.vue
+
+// Initialize inputs if they don't exist
+if (!props.data.inputs) {
+  props.data.inputs = {
+    mode: 'RunAllChildren',
+    targetNodeId: ''
+  }
+}
+
+// Initialize outputs if they don't exist or ensure output structure is consistent
+if (!props.data.outputs) {
+  props.data.outputs = { result: { output: '' } }
+} else if (!props.data.outputs.result) {
+  props.data.outputs.result = { output: '' }
+} else if (!props.data.outputs.result.output) {
+  props.data.outputs.result.output = ''
+}
 
 // Computed properties for inputs
 const mode = computed({
-  get: () => props.data.inputs.mode,
+  get: () => props.data.inputs.mode || 'RunAllChildren', // Ensure default
   set: (value) => { props.data.inputs.mode = value },
 })
 
-const runCount = computed({
-  get: () => props.data.inputs.runCount || 1,
-  set: (value) => { props.data.inputs.runCount = value },
+const targetNodeId = computed({
+  get: () => props.data.inputs.targetNodeId || '',
+  set: (value) => { props.data.inputs.targetNodeId = value },
 })
 
-const targetNode = computed({
-  get: () => props.data.inputs.targetNode,
-  set: (value) => { props.data.inputs.targetNode = value },
-})
-
-const loopbackEnabled = computed({
-  get: () => props.data.inputs.loopbackEnabled,
-  set: (value) => { props.data.inputs.loopbackEnabled = value },
-})
-
+// --- UI State ---
 const isHovered = ref(false)
 const customStyle = ref({
-  width: '320px',
-  height: '240px',
+  width: props.data.style?.width || '320px',
+  height: props.data.style?.height || '180px',
 })
 
 const resizeHandleStyle = computed(() => ({
@@ -122,125 +119,145 @@ const resizeHandleStyle = computed(() => ({
 function onResize(event) {
   customStyle.value.width = `${event.width}px`
   customStyle.value.height = `${event.height}px`
+  emit('resize', event)
 }
+
+function handleTextareaMouseEnter() {
+  emit('disable-zoom')
+}
+
+function handleTextareaMouseLeave() {
+  emit('enable-zoom')
+}
+
+// --- Node Logic ---
 
 /**
  * The run() function for FlowControl.
  *
- * - In "run_count" mode, the node looks for a connected target node and runs its run() function
- *   the number of times specified by runCount.
+ * - In "RunAllChildren" mode, it does nothing special; the workflow runner
+ *   in App.vue will handle propagating execution to children.
  *
- * - In "loopback" mode, the function checks if loopback is enabled and if any connected source node
- *   outputs a TRUE value in outputs.result.output. If so, it cancels the current execution order
- *   and starts from the node ID provided in the targetNode input.
+ * - In "JumpToNode" mode, it returns a signal to the workflow runner
+ *   indicating which node ID to jump execution to next.
  */
 async function run() {
-  console.log('Running FlowControl node:', props.id)
+  console.log(`Running FlowControl node: ${props.id} in mode: ${mode.value}`);
 
-  if (mode.value === 'run_count') {
-    // Run Count mode: execute the connected target node runCount times.
-    const edge = getEdges.value.find(e => e.source === props.id && (!e.sourceHandle || e.sourceHandle === 'continue'))
-    if (edge) {
-      const target = findNode(edge.target)
-      if (target && target.data.run) {
-        for (let i = 0; i < runCount.value; i++) {
-          await target.data.run()
-        }
-      } else {
-        console.warn('Target node not found or run function missing for edge:', edge)
-      }
-    } else {
-      console.warn('No connected target node found for run_count mode.')
-    }
-  } else if (mode.value === 'loopback') {
-    // Loopback mode: only proceed if loopback is enabled.
-    if (!loopbackEnabled.value) {
-      console.warn('Loopback is disabled for this node.')
-      return;
+  props.data.outputs.result.output = ''; // Reset output
+
+  if (mode.value === 'RunAllChildren') {
+    // No special action needed here. The main workflow runner will
+    // process outgoing edges and continue execution concurrently.
+    console.log(`FlowControl (${props.id}): RunAllChildren mode finished.`);
+    return null; // Indicate normal completion, allowing propagation
+  } else if (mode.value === 'JumpToNode') {
+    const targetId = targetNodeId.value;
+    if (!targetId) {
+      console.warn(`FlowControl (${props.id}): JumpToNode mode selected, but no Target Node ID provided.`);
+      return { stopPropagation: true }; // Stop this execution path
     }
 
-    // Get connected source nodes
-    const connectedSources = getEdges.value
-      .filter(edge => edge.target === props.id)
-      .map(edge => edge.source)
-
-    let shouldLoopback = false;
-    for (const sourceId of connectedSources) {
-      const sourceNode = findNode(sourceId);
-      if (sourceNode && sourceNode.data.outputs && sourceNode.data.outputs.result) {
-        const output = sourceNode.data.outputs.result.output;
-        if (output === true || (typeof output === 'string' && output.toLowerCase() === 'true')) {
-          shouldLoopback = true;
-          break;
-        }
-      }
+    // Check if target node exists
+    const target = findNode(targetId);
+    if (!target) {
+      console.warn(`FlowControl (${props.id}): Target node ID "${targetId}" not found.`);
+      return { stopPropagation: true };
     }
 
-    if (shouldLoopback) {
-      const target = findNode(targetNode.value);
-      if (target && target.data.run) {
-        await target.data.run();
-      } else {
-        console.warn('Target node not found or run function missing for loopback mode.');
-      }
-    } else {
-      console.log('Loopback condition not met (source output is not TRUE).');
-    }
+    console.log(`FlowControl (${props.id}): JumpToNode mode signaling jump to -> ${targetId}`);
+    return { jumpTo: targetId }; // Signal the jump to the workflow runner
   }
+
+  // Default case (shouldn't happen with current modes)
+  return null;
 }
 
+// Ensure run function is assigned to node data
 onMounted(() => {
   if (!props.data.run) {
     props.data.run = run
   }
-})
+  // Initialize customStyle from potentially loaded data
+  customStyle.value.width = props.data.style?.width || '320px';
+  customStyle.value.height = props.data.style?.height || '180px';
+});
+
+// Watch for data changes if loaded from file, update internal state
+watch(() => props.data.inputs, (newInputs) => {
+  // This ensures computed props update if data is loaded externally
+}, { deep: true });
+
+watch(() => props.data.style, (newStyle) => {
+    customStyle.value.width = newStyle?.width || '320px';
+    customStyle.value.height = newStyle?.height || '180px';
+}, { deep: true });
+
 </script>
 
 <style scoped>
+/* Import or define styles */
+@import '@/assets/css/nodes.css'; /* Assuming common styles */
+
 .flow-control-node {
-  width: 100%;
-  height: 100%;
+  /* width: 100%; */ /* Handled by customStyle */
+  /* height: 100%; */ /* Handled by customStyle */
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background-color: var(--node-bg-color);
-  border: 1px solid var(--node-border-color);
-  border-radius: 4px;
-  color: var(--node-text-color);
-  padding: 10px;
+  background-color: var(--node-bg-color, #333);
+  border: 1px solid var(--node-border-color, #666);
+  border-radius: 12px; /* Match AgentNode */
+  color: var(--node-text-color, #eee);
+  padding: 15px; /* Match AgentNode */
 }
 
 .node-label {
-  color: var(--node-text-color);
-  font-size: 16px;
+  color: var(--node-text-color, #eee);
+  font-size: 14px; /* Standardize label size */
   text-align: center;
-  margin-bottom: 10px;
+  margin-bottom: 15px; /* More space */
   font-weight: bold;
 }
 
 .input-field {
   position: relative;
-  margin-bottom: 8px;
+  margin-bottom: 12px; /* More space */
+  text-align: left; /* Align labels left */
 }
 
 .input-label {
+  display: block; /* Ensure label is on its own line */
   font-size: 12px;
+  margin-bottom: 4px; /* Space between label and input */
+  color: #ccc; /* Lighter label color */
 }
 
 .input-select,
 .input-text {
-  margin-top: 5px;
-  margin-bottom: 5px;
-  background-color: #333;
-  border: 1px solid #666;
+  background-color: #222; /* Darker input background */
+  border: 1px solid #555; /* Slightly lighter border */
   color: #eee;
-  padding: 4px;
+  padding: 8px; /* More padding */
   font-size: 12px;
-  width: calc(100% - 8px);
+  width: 100%; /* Use full width */
   box-sizing: border-box;
+  border-radius: 4px; /* Rounded corners */
 }
 
-.input-checkbox {
-  margin-top: 5px;
+.input-select {
+  appearance: none; /* Custom dropdown arrow */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5' viewBox='0 0 10 5'%3E%3Cpath fill='%23ccc' d='M0 0l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 25px; /* Space for arrow */
+}
+
+/* Focus styles for accessibility */
+.input-select:focus,
+.input-text:focus {
+  outline: none;
+  border-color: #007bff; /* Highlight focus */
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 </style>

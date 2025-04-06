@@ -21,7 +21,11 @@ export function useAgentNode(props, emit) {
   })
   
   // Predefined system prompts
-  const selectedSystemPrompt = ref("friendly_assistant")
+  const selectedSystemPrompt = computed({
+    get: () => props.data.selectedSystemPrompt || "",
+    set: (val) => { props.data.selectedSystemPrompt = val },
+  });
+  
   const systemPromptOptions = {
     friendly_assistant: {
       role: "Friendly Assistant",
@@ -430,9 +434,10 @@ REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
   // Update system prompt when user picks a new predefined prompt
   watch(selectedSystemPrompt, (newKey) => {
     if (systemPromptOptions[newKey]) {
+      // Update only if dropdown was manually changed, not on restore
       system_prompt.value = systemPromptOptions[newKey].system_prompt;
     }
-  }, { immediate: true });
+  });
   
   return {
     // State

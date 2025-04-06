@@ -212,12 +212,19 @@ const configStore = useConfigStore();
 // Load configuration on startup
 onMounted(() => {
   configStore.fetchConfig();
-  // loadTemplate(); // Load the template on mount  <-- REMOVED THIS LINE
 });
 
 // Watchers for debugging
 watch(getNodes, (newNodes) => console.log('nodes changed', newNodes));
 watch(getEdges, (newEdges) => console.log('edges changed', newEdges));
+watch(
+  () => configStore.config,
+  (newConfig) => {
+    if (newConfig) {
+      console.log('DataPath:', newConfig.dataPath);
+    }
+  }
+);
 
 // --- CONTROLS ---
 const { onDragOver, onDrop, onDragLeave } = useDragAndDrop();
@@ -397,214 +404,288 @@ async function smoothlyFitViewToNode(node: GraphNode) {
   }
 }
 
-// Refactored sequential workflow execution using a queue
+// --- WORKFLOW EXECUTION ---
+
+// Helper to reset edge styles (call before starting workflow or after a jump)
+function resetEdgeStyles() {
+  edges.value = edges.value.map(edge => ({
+    ...edge,
+    animated: false,
+    // Reset stroke style, attempt to preserve original color if available, otherwise default
+    style: { 
+      ...(edge.style || {}), 
+      strokeWidth: 1, 
+      stroke: edge.data?.originalStroke || '#b1b1b7' 
+    }
+  }));
+}
+
+// Helper to change edge styles during execution
+function changeEdgeStyles(nodeId: string) {
+  const connectedEdges = edges.value.filter(
+    (edge) => edge.source === nodeId || edge.target === nodeId
+  );
+  
+  connectedEdges.forEach((edge) => {
+    // Store original stroke color if not already stored
+    if (!edge.data) edge.data = {};
+    if (!edge.data.originalStroke && edge.style) {
+      edge.data.originalStroke = typeof edge.style === 'object' ? edge.style.stroke || '#b1b1b7' : '#b1b1b7';
+    }
+
+    if (edge.target === nodeId) {
+      // Style for incoming edge to the currently running node (less emphasis)
+      edge.animated = false;
+      edge.style = { 
+        ...(typeof edge.style === 'object' ? edge.style : {}),
+        strokeWidth: 1, 
+        stroke: edge.data.originalStroke 
+      };
+    }
+    if (edge.source === nodeId) {
+      // Style for outgoing edge from the currently running node (highlight)
+      edge.animated = true;
+      edge.style = { 
+        ...(typeof edge.style === 'object' ? edge.style : {}),
+        strokeWidth: 4, 
+        stroke: 'darkorange' 
+      };
+    }
+  });
+  // Trigger reactivity by creating a new array
+  edges.value = [...edges.value];
+}
+
+// Refactored workflow execution using a queue and handling jumps
 async function runWorkflowConcurrently() {
-  // 1. Build an adjacency list that records outgoing edges with their sourceHandle,
-  // and compute in-degree for each node.
-  type ChildEdge = { target: string; handle: string };
+  console.log('Starting workflow execution...');
+  resetEdgeStyles(); // Reset styles at the beginning
+
+  // 1. Build adjacency list and compute in-degrees
+  type ChildEdge = { target: string; handle: string | null }; // handle might be null
   const adj: Record<string, ChildEdge[]> = {};
   const inDegree: Record<string, number> = {};
-  
-  // Track nodes that have been processed to prevent double execution
+  const allNodeIds = new Set(nodes.value.map(n => n.id));
+
+  // Initialize for all nodes
+  nodes.value.forEach(node => {
+    adj[node.id] = [];
+    inDegree[node.id] = 0;
+  });
+
+  // Populate adj list and in-degrees from edges
+  edges.value.forEach(edge => {
+    // Ensure source and target exist before processing edge
+    if (allNodeIds.has(edge.source) && allNodeIds.has(edge.target)) {
+        if (!adj[edge.source]) adj[edge.source] = []; // Ensure source entry exists
+        adj[edge.source].push({ target: edge.target, handle: edge.sourceHandle || null });
+
+        if (inDegree[edge.target] === undefined) inDegree[edge.target] = 0; // Ensure target entry exists
+        inDegree[edge.target]++;
+    } else {
+        console.warn(`Skipping edge ${edge.id} due to missing source/target node.`);
+    }
+  });
+
+  // 2. Initialize queue with nodes having in-degree 0
+  let queue = nodes.value
+    .filter(node => inDegree[node.id] === 0)
+    .map(node => node.id);
+
+  // 3. Set to track processed nodes in the current execution flow (cleared on jump)
   const processed = new Set<string>();
+  let executionLimit = nodes.value.length * 10; // Safety break for potential loops
+  let executionSteps = 0;
 
-  // Initialize only connected nodes
-  for (const node of nodes.value) {
-    if (isNodeConnected(node.id, edges.value)) {
-      adj[node.id] = [];
-      inDegree[node.id] = 0;
+  // Define node execution function to support concurrent execution
+  async function executeNode(nodeId: string) {
+    if (processed.has(nodeId)) {
+      return null; // Skip if already processed
     }
-  }
 
-  // Populate the adjacency list and in-degree counts.
-  // We use edge.sourceHandle to distinguish between "continue" and "loopback" edges.
-  for (const edge of edges.value) {
-    const handle = edge.sourceHandle || 'continue';
-    adj[edge.source].push({ target: edge.target, handle });
-    inDegree[edge.target]++;
-  }
-
-  // 2. Start with nodes that have in-degree 0.
-  let queue = nodes.value.filter((node) => inDegree[node.id] === 0).map((node) => node.id);
-
-  // 3. Process nodes sequentially.
-  while (queue.length > 0) {
-    const nodeId = queue.shift()!;
-    
-    // Skip if already processed
-    if (processed.has(nodeId)) continue;
-    
     const node = findNode(nodeId);
-    if (!node) continue;
-    
-    // Mark as processed
-    processed.add(nodeId);
+    if (!node || !node.data || typeof node.data.run !== 'function') {
+      console.warn(`Node ${nodeId} not found or has no run function. Skipping.`);
+      return null;
+    }
 
-    // Smoothly fit view to the node about to run
+    processed.add(nodeId); // Mark as processed for this sequence
+    console.log(`(${executionSteps}) Executing node: ${nodeId} (Type: ${node.type})`);
+
+    // --- Visual Feedback ---
     await smoothlyFitViewToNode(node);
+    changeEdgeStyles(nodeId); // Highlight outgoing edges
 
-    // Change edge styles for visual feedback
-    changeEdgeStyles(nodeId);
-
-    // Execute the node's logic
-    await node.data.run();
-
-    // Flag to indicate if we've handled edges in a special way
-    let edgesProcessed = false;
-
-    // If this is a FlowControl node, handle looping:
-    if (node.type === 'flowControlNode') {
-      edgesProcessed = true;  // Edges are handled, so flag
-      const loopCount = node.data.inputs.loopCount || 1;
-      // For each additional loop iteration:
-      for (let i = 1; i < loopCount; i++) {
-        // Execute each loopback branch.
-        const loopbackEdges = adj[nodeId].filter((edge) => edge.handle === 'loopback');
-        for (const edge of loopbackEdges) {
-          const childNode = findNode(edge.target);
-          if (childNode) {
-            await smoothlyFitViewToNode(childNode);
-            changeEdgeStyles(childNode.id);
-            await childNode.data.run();
-          }
-        }
-        // Re-run the FlowControl node to aggregate updated inputs.
-        await smoothlyFitViewToNode(node);
-        changeEdgeStyles(nodeId);
-        await node.data.run();
+    // --- Execute Node Logic ---
+    let result = null;
+    try {
+      result = await node.data.run();
+    } catch (error) {
+      console.error(`Error running node ${nodeId}:`, error);
+      // Update node state to show error
+      if (node.data) {
+        node.data.error = error instanceof Error ? error.message : String(error);
       }
-      // Process "continue" branches.
-      const continueEdges = adj[nodeId].filter((edge) => edge.handle === 'continue');
-      for (const edge of continueEdges) {
-        inDegree[edge.target]--;
-        if (inDegree[edge.target] === 0) {
-          queue.push(edge.target);
-        }
-      }
-    }
-    // Handle split text node connections - run them concurrently
-    else if (node.type === 'textSplitterNode') {
-      edgesProcessed = true; // Edges are handled, so flag
-      const outputEdges = adj[nodeId];
-      
-      // Execute all child nodes concurrently
-      await Promise.all(outputEdges.map(async (edge) => {
-        const childNodeId = edge.target;
-        
-        // Skip if already processed
-        if (processed.has(childNodeId)) return;
-        
-        const childNode = findNode(childNodeId);
-        if (!childNode) return;
-        
-        // Mark as processed to prevent future execution
-        processed.add(childNodeId);
-        
-        // Decrement in-degree for connected node
-        inDegree[childNodeId]--;
-        
-        // Execute the node
-        await smoothlyFitViewToNode(childNode);
-        changeEdgeStyles(childNodeId);
-        await childNode.data.run();
-        
-        // Process child node's children (add to queue)
-        const childEdges = adj[childNodeId];
-        for (const childEdge of childEdges) {
-          inDegree[childEdge.target]--;
-          if (inDegree[childEdge.target] === 0) {
-            queue.push(childEdge.target);
-          }
-        }
-      }));
-    }
-    // Handle text node connections - run them concurrently
-    else if (node.type === 'textNode') {
-      edgesProcessed = true; // Edges are handled, so flag
-      const outputEdges = adj[nodeId];
-      
-      // Execute all child nodes concurrently
-      await Promise.all(outputEdges.map(async (edge) => {
-        const childNodeId = edge.target;
-        
-        // Skip if already processed
-        if (processed.has(childNodeId)) return;
-        
-        const childNode = findNode(childNodeId);
-        if (!childNode) return;
-        
-        // Mark as processed to prevent future execution
-        processed.add(childNodeId);
-        
-        // Decrement in-degree for connected node
-        inDegree[childNodeId]--;
-        
-        // Execute the node
-        await smoothlyFitViewToNode(childNode);
-        changeEdgeStyles(childNodeId);
-        await childNode.data.run();
-        
-        // Process child node's children (add to queue)
-        const childEdges = adj[childNodeId];
-        for (const childEdge of childEdges) {
-          inDegree[childEdge.target]--;
-          if (inDegree[childEdge.target] === 0) {
-            queue.push(childEdge.target);
-          }
-        }
-      }));
+      return null; // Skip children processing for this errored node
     }
 
-    // Only process non-FlowControl/Splitter edges if we haven't handled them already
-    if (!edgesProcessed) {
-      // For non-FlowControl nodes, process all outgoing edges
-      for (const edge of adj[nodeId]) {
-        inDegree[edge.target]--;
-        if (inDegree[edge.target] === 0) {
-          queue.push(edge.target);
-        }
-      }
-    }
+    return { nodeId, node, result };
   }
+
+  // Process the queue with support for parallel execution
+  while (queue.length > 0 && executionSteps < executionLimit) {
+    executionSteps++;
+    const nodeId = queue.shift()!;
+
+    // Skip if already processed in this sequence
+    if (processed.has(nodeId)) {
+      continue;
+    }
+
+    const executionResult = await executeNode(nodeId);
+    if (!executionResult) {
+      continue; // Skip further processing if execution failed or node was skipped
+    }
+
+    const { node, result } = executionResult;
+
+    // --- Handle Flow Control Results ---
+    if (result && result.jumpTo) {
+      const jumpTargetId = result.jumpTo;
+      console.log(`Node ${nodeId} signaled jump to: ${jumpTargetId}`);
+      const targetNode = findNode(jumpTargetId);
+      if (targetNode) {
+        // Jump: Clear queue, reset processed set, add target
+        queue = [jumpTargetId];
+        processed.clear(); // Allow all nodes to run again after jump
+        resetEdgeStyles(); // Reset styles for the new flow sequence
+        console.log(`Queue reset. Next node: ${jumpTargetId}`);
+        continue; // Continue the while loop immediately with the new queue
+      } else {
+        console.warn(`Jump target node ${jumpTargetId} not found. Stopping this path.`);
+        continue; // Stop processing children of the jump node
+      }
+    } else if (result && result.stopPropagation) {
+      console.log(`Node ${nodeId} signaled stopPropagation. Stopping this path.`);
+      continue; // Stop processing children of this node
+    }
+
+    // --- Check if node is FlowControl with RunAllChildren mode ---
+    const isFlowControlWithConcurrency = 
+      node.type === 'flowControlNode' && 
+      node.data.inputs && 
+      node.data.inputs.mode === 'RunAllChildren';
+
+    // --- Normal Propagation (if no jump/stop occurred) ---
+    if (adj[nodeId]) {
+      // If this is a FlowControl node in RunAllChildren mode, run its children concurrently
+      if (isFlowControlWithConcurrency) {
+        console.log(`FlowControl node ${nodeId} in RunAllChildren mode - executing children concurrently`);
+        
+        // Gather all immediate children of this node
+        const childrenIds = adj[nodeId].map(edge => edge.target);
+        
+        if (childrenIds.length > 0) {
+          console.log(`Starting concurrent execution of ${childrenIds.length} children: ${childrenIds.join(', ')}`);
+          
+          // Execute all children in parallel using Promise.all
+          // We need to mark all children as processed before starting execution to prevent duplicate execution
+          childrenIds.forEach(id => processed.add(id));
+          
+          // Run all child nodes concurrently and wait for all to complete
+          await Promise.all(
+            childrenIds.map(async (childId) => {
+              processed.delete(childId); // Remove from processed to allow execution
+
+              // Execute the child node
+              const childExecResult = await executeNode(childId);
+              if (!childExecResult) return;
+              
+              // Now process the children of this node sequentially
+              const childNodeId = childExecResult.nodeId;
+              
+              // Process children of this child node normally
+              for (const edge of adj[childNodeId] || []) {
+                const targetId = edge.target;
+                if (inDegree[targetId] !== undefined) {
+                  inDegree[targetId]--;
+                  if (inDegree[targetId] === 0 && !processed.has(targetId)) {
+                    queue.push(targetId);
+                  }
+                }
+              }
+            })
+          );
+          
+          console.log(`Concurrent execution of children for ${nodeId} completed.`);
+          // After parallel execution of direct children completes, 
+          // continue with normal sequential execution for their descendants
+          continue;
+        }
+      }
+      
+      // Normal sequential propagation for non-FlowControl nodes
+      for (const edge of adj[nodeId]) {
+        const targetId = edge.target;
+        // Check if target exists before decrementing inDegree
+        if (inDegree[targetId] !== undefined) {
+            inDegree[targetId]--;
+            if (inDegree[targetId] === 0) {
+              queue.push(targetId);
+            } else if (inDegree[targetId] < 0) {
+                // This might happen if jump logic interferes, reset to 0
+                console.warn(`Node ${targetId} has negative inDegree (${inDegree[targetId]}). Resetting to 0.`);
+                inDegree[targetId] = 0;
+                // Check if it should be queued now that it's 0
+                if (!processed.has(targetId)) { // Avoid re-queueing if already processed in this jump sequence
+                    queue.push(targetId);
+                }
+            }
+        } else {
+            console.warn(`Target node ${targetId} for edge from ${nodeId} not found in inDegree map.`);
+        }
+      }
+    }
+  } // End while loop
+
+  if (executionSteps >= executionLimit) {
+    console.error("Workflow execution limit reached. Possible infinite loop detected.");
+  }
+
+  console.log('Workflow execution finished or stopped.');
 }
 
 async function runWorkflow() {
-  // Clear response nodes
+  // Clear response nodes (or other stateful nodes) before starting
   const responseNodes = nodes.value.filter((node) => node.type === 'responseNode');
   for (const node of responseNodes) {
-    node.data.inputs.response = '';
-    node.data.outputs = { result: { output: '' } };
+    if (node.data && node.data.inputs) {
+        node.data.inputs.response = ''; // Clear input display
+    }
+    if (node.data && node.data.outputs) {
+        node.data.outputs = { result: { output: '' } }; // Clear stored output
+    }
+    // Clear any previous error state
+    if (node.data?.error) {
+        delete node.data.error;
+    }
   }
+  
+  // Clear errors for all nodes
+  nodes.value.forEach(node => {
+    if (node.data?.error) {
+        delete node.data.error;
+    }
+  });
 
-  console.log('Running workflow with current nodes and edges:', nodes.value, edges.value);
-  await runWorkflowConcurrently();
+  console.log('Running workflow with current nodes and edges:', nodes.value.map(n=>n.id), edges.value.map(e=>e.id));
+  await runWorkflowConcurrently(); // Use the refactored execution logic
   console.log('Workflow execution complete.');
 }
 
 // Define custom edge types.
 const edgeTypes = {
   specialEdge: markRaw(SpecialEdge),
-};
-
-// Function each node runs during workflow to change edge styles.
-const changeEdgeStyles = (nodeId: string) => {
-  const connectedEdges = edges.value.filter(
-    (edge) => edge.source === nodeId || edge.target === nodeId
-  );
-  console.log('Connected edges:', connectedEdges);
-  connectedEdges.forEach((edge) => {
-    if (edge.target === nodeId) {
-      edge.animated = false;
-      edge.style = { strokeWidth: 1 };
-    }
-    if (edge.source === nodeId) {
-      edge.animated = true;
-      edge.style = { strokeWidth: 4, stroke: 'darkorange' };
-    }
-  });
-  edges.value = edges.value.map((edge) =>
-    connectedEdges.find((e) => e.id === edge.id) || edge
-  );
 };
 
 // Function to update the edge type.

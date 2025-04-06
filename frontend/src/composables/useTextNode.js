@@ -25,14 +25,29 @@ export default function useTextNode(props, emit) {
     }
   })
   
+  // Clear on run checkbox binding
+  const clearOnRun = computed({
+    get: () => props.data.clearOnRun || false,
+    set: (value) => {
+      props.data.clearOnRun = value
+      updateNodeData()
+    }
+  })
+  
   onMounted(() => {
     if (!props.data.run) {
       props.data.run = run
+    }
+    
+    // Initialize clearOnRun if not set
+    if (props.data.clearOnRun === undefined) {
+      props.data.clearOnRun = false
     }
   })
   
   // Execute the node's logic
   async function run() {
+    const originalText = props.data.inputs.text
     const connectedSources = getEdges.value
       .filter((edge) => edge.target === props.id)
       .map((edge) => edge.source)
@@ -40,15 +55,21 @@ export default function useTextNode(props, emit) {
     if (connectedSources.length > 0) {
       const sourceNode = findNode(connectedSources[0])
       if (sourceNode && sourceNode.data.outputs.result) {
-        props.data.inputs.text = sourceNode.data.outputs.result.output
+        props.data.inputs.text = props.data.inputs.text + sourceNode.data.outputs.result.output + "\n\n"
       }
     }
   
     // Set the output equal to the current text input
     props.data.outputs = {
       result: {
-        output: text.value
+        output: props.data.inputs.text
       }
+    }
+    
+    // If clearOnRun is enabled, clear the text after setting the output
+    if (props.data.clearOnRun) {
+      props.data.inputs.text = ''
+      updateNodeData()
     }
   }
   
@@ -57,7 +78,8 @@ export default function useTextNode(props, emit) {
     const updatedData = {
       ...props.data,
       inputs: { text: text.value },
-      outputs: props.data.outputs
+      outputs: props.data.outputs,
+      clearOnRun: clearOnRun.value
     }
     emit('update:data', { id: props.id, data: updatedData })
   }
@@ -75,6 +97,7 @@ export default function useTextNode(props, emit) {
   
   return {
     text,
+    clearOnRun,
     customStyle,
     isHovered,
     resizeHandleStyle,

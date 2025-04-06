@@ -580,6 +580,109 @@ async function runWorkflowConcurrently() {
         console.warn(`Jump target node ${jumpTargetId} not found. Stopping this path.`);
         continue; // Stop processing children of the jump node
       }
+    } else if (result && result.forEachJump) {
+      // --- Handle ForEachDelimited special signal ---
+      const jumpTargetId = result.forEachJump;
+      const parentId = result.parentId;
+      console.log(`ForEachDelimited: Node ${nodeId} triggered workflow execution from child: ${jumpTargetId}`);
+      
+      // Execute this branch of workflow completely
+      const targetNode = findNode(jumpTargetId);
+      if (targetNode) {
+        // Create a temporary queue and processed set for this sub-workflow execution
+        const subQueue = [jumpTargetId];
+        const subProcessed = new Set<string>();
+        
+        // Record the FlowControl node so we can return to it later
+        const flowControlNode = findNode(parentId);
+        
+        // Execute the sub-workflow
+        let subExecutionSteps = 0;
+        const subExecutionLimit = nodes.value.length * 5; // Smaller safety limit for sub-workflows
+        
+        console.log(`Starting sub-workflow execution from node ${jumpTargetId}`);
+        
+        // Inner execution loop for this branch
+        while (subQueue.length > 0 && subExecutionSteps < subExecutionLimit) {
+          subExecutionSteps++;
+          const subNodeId = subQueue.shift()!;
+          
+          // Skip if already processed in this sub-execution
+          if (subProcessed.has(subNodeId) || subNodeId === parentId) {
+            continue; // Skip the parent FlowControl node if we encounter it
+          }
+          
+          // Execute this node
+          const subNode = findNode(subNodeId);
+          if (!subNode || !subNode.data || typeof subNode.data.run !== 'function') {
+            console.warn(`Node ${subNodeId} in sub-workflow not found or has no run function. Skipping.`);
+            continue;
+          }
+          
+          subProcessed.add(subNodeId); // Mark as processed for this sub-execution
+          console.log(`(Sub ${subExecutionSteps}) Executing node: ${subNodeId} (Type: ${subNode.type})`);
+          
+          // Visual feedback for this node execution
+          await smoothlyFitViewToNode(subNode);
+          changeEdgeStyles(subNodeId);
+          
+          // Execute node and handle its result
+          let subResult = null;
+          try {
+            subResult = await subNode.data.run();
+          } catch (error) {
+            console.error(`Error in sub-workflow running node ${subNodeId}:`, error);
+            if (subNode.data) {
+              subNode.data.error = error instanceof Error ? error.message : String(error);
+            }
+            continue;
+          }
+          
+          // Handle result from this sub-workflow node
+          if (subResult && (subResult.jumpTo || subResult.forEachJump)) {
+            // Don't allow further jumps inside a sub-workflow - just log the attempt
+            console.warn(`Node ${subNodeId} attempted to signal jump/forEach which is not allowed in a sub-workflow.`);
+            // We'll ignore the jump and continue with normal propagation
+          } else if (subResult && subResult.stopPropagation) {
+            console.log(`Node ${subNodeId} signaled stopPropagation in sub-workflow. Stopping this path.`);
+            continue; // Skip processing children
+          }
+          
+          // Add this node's children to the sub-queue
+          if (adj[subNodeId]) {
+            for (const edge of adj[subNodeId]) {
+              // Don't include the parent FlowControl node in propagation
+              if (edge.target !== parentId) {
+                subQueue.push(edge.target);
+              }
+            }
+          }
+        }
+        
+        console.log(`Sub-workflow from ${jumpTargetId} completed in ${subExecutionSteps} steps.`);
+        
+        // After sub-workflow completes, return control to the FlowControl node
+        // to process the next item if there are more items to process
+        if (flowControlNode && flowControlNode.data) {
+          if (flowControlNode.data.forEachState && 
+              flowControlNode.data.forEachState.currentIndex < flowControlNode.data.forEachState.totalItems) {
+            // More items to process - re-run the flow control node
+            console.log(`ForEachDelimited: Re-running flow control node ${parentId} for next item. ` +
+                      `(${flowControlNode.data.forEachState.currentIndex}/${flowControlNode.data.forEachState.totalItems})`);
+            queue.unshift(parentId); // Add back to the front of the queue to process next item
+            processed.delete(parentId); // Allow the FlowControl node to run again
+          } else {
+            // All items processed or no state tracking - finish the loop
+            console.log(`ForEachDelimited: All items processed for flow control node ${parentId}.`);
+            // Don't add back to queue, effectively ending the loop
+          }
+        }
+        
+        continue; // Skip the normal child propagation
+      } else {
+        console.warn(`ForEachDelimited jump target ${jumpTargetId} not found. Skipping.`);
+        // Continue with normal execution
+      }
     } else if (result && result.stopPropagation) {
       console.log(`Node ${nodeId} signaled stopPropagation. Stopping this path.`);
       continue; // Stop processing children of this node

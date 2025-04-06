@@ -237,35 +237,49 @@ async function run() {
       return { stopPropagation: true };
     }
 
-    // Process each split text sequentially
-    for (let i = 0; i < splitTexts.length; i++) {
-      const splitText = splitTexts[i];
-      console.log(`FlowControl (${props.id}): Processing part ${i+1}/${splitTexts.length}: "${splitText}"`);
+    // Initialize or get the current iteration index from node data
+    if (!props.data.forEachState) {
+      props.data.forEachState = { currentIndex: 0, totalItems: splitTexts.length };
+    }
+
+    // Check if we've processed all items
+    if (props.data.forEachState.currentIndex >= props.data.forEachState.totalItems) {
+      // We've finished processing all items, reset state and stop
+      console.log(`FlowControl (${props.id}): Completed processing all ${props.data.forEachState.totalItems} items.`);
+      props.data.forEachState = null; // Clear the state
+      return { stopPropagation: true };
+    }
+
+    // Get the current item to process
+    const currentIndex = props.data.forEachState.currentIndex;
+    const splitText = splitTexts[currentIndex];
+    
+    console.log(`FlowControl (${props.id}): Processing part ${currentIndex+1}/${splitTexts.length}: "${splitText}"`);
+    
+    // Set the current split text as this node's output
+    props.data.outputs.result.output = splitText;
+    
+    // Increment the index for next iteration
+    props.data.forEachState.currentIndex++;
+    
+    // For each immediate child node, trigger execution
+    for (const childId of childNodeIds) {
+      // Create a special "jump" signal that will tell the workflow executor
+      // to execute from this child node, but prevent normal propagation after completion
+      console.log(`FlowControl (${props.id}): Executing workflow from child node ${childId} with input: "${splitText}"`);
       
-      // Set the current split text as this node's output
-      props.data.outputs.result.output = splitText;
-      
-      // For each child node, run its processing logic
-      for (const childId of childNodeIds) {
-        const childNode = findNode(childId);
-        if (childNode && childNode.data && typeof childNode.data.run === 'function') {
-          console.log(`FlowControl (${props.id}): Running child node ${childId} with input: "${splitText}"`);
-          
-          try {
-            // Run the child node and wait for it to complete
-            await childNode.data.run();
-          } catch (error) {
-            console.error(`FlowControl (${props.id}): Error running child node ${childId}:`, error);
-          }
-        } else {
-          console.warn(`FlowControl (${props.id}): Child node ${childId} not found or does not have a run method.`);
-        }
-      }
+      // This special signal tells App.vue to run the whole downstream workflow from this point
+      // and then return to this node to process the next item
+      return { 
+        forEachJump: childId, 
+        parentId: props.id,
+        currentIndex: currentIndex + 1,
+        totalItems: splitTexts.length
+      };
     }
     
-    // After processing all split texts, prevent normal propagation
-    // since we've manually run the child nodes for each split part
-    console.log(`FlowControl (${props.id}): ForEachDelimited mode finished processing all ${splitTexts.length} parts.`);
+    // This should not happen if there are child nodes (we checked earlier)
+    console.warn(`FlowControl (${props.id}): No children to execute for item ${currentIndex+1}.`);
     return { stopPropagation: true };
   }
 

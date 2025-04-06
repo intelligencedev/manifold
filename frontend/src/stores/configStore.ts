@@ -13,6 +13,7 @@ export const useConfigStore = defineStore('config', () => {
     try {
       const response = await axios.get('/api/config')
       config.value = response.data
+      console.log('Fetched config:', config.value) // Log the config to the console
     } catch (err) {
       error.value = 'Failed to load config'
     } finally {

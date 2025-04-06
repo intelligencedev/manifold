@@ -29,7 +29,7 @@
       <!-- Node Templates -->
       <template #node-noteNode="noteNodeProps">
         <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, noteNodeProps.id)" />
+          @node-resized="updateNodeDimensions" @contextmenu.prevent="showContextMenu($event, noteNodeProps.id)" />
       </template>
       <template #node-agentNode="agentNodeProps">
         <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"

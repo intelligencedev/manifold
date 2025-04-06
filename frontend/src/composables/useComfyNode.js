@@ -79,6 +79,13 @@ export function useComfyNode(props, emit, vueFlow) {
       generatedImage.value = imageUrl
       props.data.outputs.image = imageUrl
       
+      // Ensure the result output property exists and set it to the exact same image URL
+      // that is being used to render the image
+      if (!props.data.outputs.result) {
+        props.data.outputs.result = {};
+      }
+      props.data.outputs.result.output = imageUrl;
+      
     } catch (error) {
       console.error('Error in ComfyNode run:', error)
     }

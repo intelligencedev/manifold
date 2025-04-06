@@ -1,7 +1,6 @@
 <template>
   <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-       class="node-container flow-control-node tool-node"
-       @mouseenter="isHovered = true" @mouseleave="isHovered = false">
+    class="node-container flow-control-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
     <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
     <!-- Mode Selection Dropdown -->
@@ -10,6 +9,7 @@
       <select id="mode-select" v-model="mode" class="input-select">
         <option value="RunAllChildren">Run All Children</option>
         <option value="JumpToNode">Jump To Node</option>
+        <option value="ForEachDelimited">For Each Delimited</option>
       </select>
     </div>
 
@@ -21,14 +21,21 @@
       </div>
     </div>
 
+    <!-- Conditional Input Field for ForEachDelimited -->
+    <div v-if="mode === 'ForEachDelimited'">
+      <div class="input-field">
+        <label :for="`${data.id}-delimiter`" class="input-label">Delimiter:</label>
+        <input :id="`${data.id}-delimiter`" type="text" v-model="delimiter" class="input-text" placeholder="e.g. ," />
+      </div>
+    </div>
+
     <!-- Input/Output Handles -->
     <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
     <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
 
     <!-- NodeResizer -->
-    <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-                 :line-style="resizeHandleStyle" :width="320" :height="180"
-                 :min-width="320" :min-height="180" :node-id="props.id" @resize="onResize" />
+    <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle" :line-style="resizeHandleStyle"
+      :width="320" :height="180" :min-width="320" :min-height="180" :node-id="props.id" @resize="onResize" />
   </div>
 </template>
 
@@ -36,6 +43,9 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
+
+const { getEdges, findNode } = useVueFlow();
+
 
 const props = defineProps({
   id: {
@@ -54,6 +64,7 @@ const props = defineProps({
       inputs: {
         mode: 'RunAllChildren', // Default mode
         targetNodeId: '',     // Target node for JumpToNode mode
+        delimiter: '',        // Delimiter for ForEachDelimited mode
       },
       outputs: {
         // Flow control nodes typically don't produce data output,
@@ -73,13 +84,12 @@ const props = defineProps({
 
 const emit = defineEmits(['resize', 'disable-zoom', 'enable-zoom'])
 
-const { findNode } = useVueFlow() // Removed getEdges as it's handled in App.vue
-
 // Initialize inputs if they don't exist
 if (!props.data.inputs) {
   props.data.inputs = {
     mode: 'RunAllChildren',
-    targetNodeId: ''
+    targetNodeId: '',
+    delimiter: ''
   }
 }
 
@@ -101,6 +111,11 @@ const mode = computed({
 const targetNodeId = computed({
   get: () => props.data.inputs.targetNodeId || '',
   set: (value) => { props.data.inputs.targetNodeId = value },
+})
+
+const delimiter = computed({
+  get: () => props.data.inputs.delimiter || '',
+  set: (value) => { props.data.inputs.delimiter = value },
 })
 
 // --- UI State ---
@@ -140,11 +155,35 @@ function handleTextareaMouseLeave() {
  *
  * - In "JumpToNode" mode, it returns a signal to the workflow runner
  *   indicating which node ID to jump execution to next.
+ * 
+ * - In "ForEachDelimited" mode, it splits the input by a delimiter and
+ *   runs connected child nodes once for each split part.
  */
 async function run() {
   console.log(`Running FlowControl node: ${props.id} in mode: ${mode.value}`);
 
-  props.data.outputs.result.output = ''; // Reset output
+  props.data.outputs = {
+        result: {
+          output: ''
+        }
+      }
+
+  const connectedSources = getEdges.value
+    .filter((edge) => edge.target === props.id)
+    .map((edge) => edge.source);
+
+  console.log(`FlowControl (${props.id}): Connected sources: ${connectedSources}`);
+
+  if (connectedSources.length > 0) {
+    for (const sourceId of connectedSources) {
+      const sourceNode = findNode(sourceId);
+      if (sourceNode) {
+        props.data.outputs.result.output = sourceNode.data.outputs.result.output;
+
+        console.log(`FlowControl (${props.id}): Output from source node ${sourceId}: ${props.data.outputs.result.output}`);
+      }
+    }
+  }
 
   if (mode.value === 'RunAllChildren') {
     // No special action needed here. The main workflow runner will
@@ -167,6 +206,88 @@ async function run() {
 
     console.log(`FlowControl (${props.id}): JumpToNode mode signaling jump to -> ${targetId}`);
     return { jumpTo: targetId }; // Signal the jump to the workflow runner
+  } else if (mode.value === 'ForEachDelimited') {
+    // Handle For Each Delimited mode
+    const currentDelimiter = delimiter.value;
+    
+    if (!currentDelimiter) {
+      console.warn(`FlowControl (${props.id}): ForEachDelimited mode selected, but no delimiter provided.`);
+      return { stopPropagation: true };
+    }
+
+    // Get the input text from the source node
+    const inputText = props.data.outputs.result.output || '';
+    
+    if (!inputText) {
+      console.warn(`FlowControl (${props.id}): No input text available for splitting.`);
+      return { stopPropagation: true };
+    }
+
+    // Split the input text by the delimiter
+    const splitTexts = inputText.split(currentDelimiter).map(item => item.trim());
+    console.log(`FlowControl (${props.id}): Split text into ${splitTexts.length} parts using delimiter: "${currentDelimiter}"`);
+
+    // Get all immediate child nodes
+    const childNodeIds = getEdges.value
+      .filter(edge => edge.source === props.id)
+      .map(edge => edge.target);
+
+    if (childNodeIds.length === 0) {
+      console.warn(`FlowControl (${props.id}): No child nodes connected to process split text.`);
+      return { stopPropagation: true };
+    }
+
+    // Initialize or reset the state
+    // Always create a fresh state at the beginning of each workflow run
+    if (!props.data.forEachState || props.data.forEachState.reset || props.data.forEachState.completed) {
+      console.log(`FlowControl (${props.id}): Initializing fresh state with ${splitTexts.length} items`);
+      props.data.forEachState = { 
+        currentIndex: 0, 
+        totalItems: splitTexts.length,
+        reset: false,
+        completed: false
+      };
+    }
+
+    // Check if we've processed all items
+    if (props.data.forEachState.currentIndex >= props.data.forEachState.totalItems) {
+      // We've finished processing all items, mark as completed
+      console.log(`FlowControl (${props.id}): Completed processing all ${props.data.forEachState.totalItems} items.`);
+      props.data.forEachState.completed = true;
+      return { stopPropagation: true };
+    }
+
+    // Get the current item to process
+    const currentIndex = props.data.forEachState.currentIndex;
+    const splitText = splitTexts[currentIndex];
+    
+    console.log(`FlowControl (${props.id}): Processing part ${currentIndex+1}/${splitTexts.length}: "${splitText}"`);
+    
+    // Set the current split text as this node's output
+    props.data.outputs.result.output = splitText;
+    
+    // Increment the index for next iteration
+    props.data.forEachState.currentIndex++;
+    
+    // For each immediate child node, trigger execution
+    for (const childId of childNodeIds) {
+      // Create a special "jump" signal that will tell the workflow executor
+      // to execute from this child node, but prevent normal propagation after completion
+      console.log(`FlowControl (${props.id}): Executing workflow from child node ${childId} with input: "${splitText}"`);
+      
+      // This special signal tells App.vue to run the whole downstream workflow from this point
+      // and then return to this node to process the next item
+      return { 
+        forEachJump: childId, 
+        parentId: props.id,
+        currentIndex: currentIndex + 1,
+        totalItems: splitTexts.length
+      };
+    }
+    
+    // This should not happen if there are child nodes (we checked earlier)
+    console.warn(`FlowControl (${props.id}): No children to execute for item ${currentIndex+1}.`);
+    return { stopPropagation: true };
   }
 
   // Default case (shouldn't happen with current modes)
@@ -189,75 +310,95 @@ watch(() => props.data.inputs, (newInputs) => {
 }, { deep: true });
 
 watch(() => props.data.style, (newStyle) => {
-    customStyle.value.width = newStyle?.width || '320px';
-    customStyle.value.height = newStyle?.height || '180px';
+  customStyle.value.width = newStyle?.width || '320px';
+  customStyle.value.height = newStyle?.height || '180px';
 }, { deep: true });
 
 </script>
 
 <style scoped>
 /* Import or define styles */
-@import '@/assets/css/nodes.css'; /* Assuming common styles */
+@import '@/assets/css/nodes.css';
+/* Assuming common styles */
 
 .flow-control-node {
-  /* width: 100%; */ /* Handled by customStyle */
-  /* height: 100%; */ /* Handled by customStyle */
+  /* width: 100%; */
+  /* Handled by customStyle */
+  /* height: 100%; */
+  /* Handled by customStyle */
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   background-color: var(--node-bg-color, #333);
   border: 1px solid var(--node-border-color, #666);
-  border-radius: 12px; /* Match AgentNode */
+  border-radius: 12px;
+  /* Match AgentNode */
   color: var(--node-text-color, #eee);
-  padding: 15px; /* Match AgentNode */
+  padding: 15px;
+  /* Match AgentNode */
 }
 
 .node-label {
   color: var(--node-text-color, #eee);
-  font-size: 14px; /* Standardize label size */
+  font-size: 14px;
+  /* Standardize label size */
   text-align: center;
-  margin-bottom: 15px; /* More space */
+  margin-bottom: 15px;
+  /* More space */
   font-weight: bold;
 }
 
 .input-field {
   position: relative;
-  margin-bottom: 12px; /* More space */
-  text-align: left; /* Align labels left */
+  margin-bottom: 12px;
+  /* More space */
+  text-align: left;
+  /* Align labels left */
 }
 
 .input-label {
-  display: block; /* Ensure label is on its own line */
+  display: block;
+  /* Ensure label is on its own line */
   font-size: 12px;
-  margin-bottom: 4px; /* Space between label and input */
-  color: #ccc; /* Lighter label color */
+  margin-bottom: 4px;
+  /* Space between label and input */
+  color: #ccc;
+  /* Lighter label color */
 }
 
 .input-select,
 .input-text {
-  background-color: #222; /* Darker input background */
-  border: 1px solid #555; /* Slightly lighter border */
+  background-color: #222;
+  /* Darker input background */
+  border: 1px solid #555;
+  /* Slightly lighter border */
   color: #eee;
-  padding: 8px; /* More padding */
+  padding: 8px;
+  /* More padding */
   font-size: 12px;
-  width: 100%; /* Use full width */
+  width: 100%;
+  /* Use full width */
   box-sizing: border-box;
-  border-radius: 4px; /* Rounded corners */
+  border-radius: 4px;
+  /* Rounded corners */
 }
 
 .input-select {
-  appearance: none; /* Custom dropdown arrow */
+  appearance: none;
+  /* Custom dropdown arrow */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='5' viewBox='0 0 10 5'%3E%3Cpath fill='%23ccc' d='M0 0l5 5 5-5z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  padding-right: 25px; /* Space for arrow */
+  padding-right: 25px;
+  /* Space for arrow */
 }
 
 /* Focus styles for accessibility */
 .input-select:focus,
 .input-text:focus {
   outline: none;
-  border-color: #007bff; /* Highlight focus */
+  border-color: #007bff;
+  /* Highlight focus */
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 </style>

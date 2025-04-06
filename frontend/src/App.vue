@@ -5,6 +5,21 @@
     <NodePalette />
     <UtilityPalette />
 
+    <!-- Context Menu Component -->
+    <div 
+      v-if="contextMenu.show" 
+      class="context-menu"
+      :style="{
+        left: `${contextMenu.x}px`,
+        top: `${contextMenu.y}px`
+      }"
+      @click.stop
+    >
+      <div class="context-menu-item" @click="copyNodeId">
+        Copy Node ID
+      </div>
+    </div>
+
     <!-- VueFlow Component -->
     <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
       :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
@@ -14,88 +29,88 @@
       <!-- Node Templates -->
       <template #node-noteNode="noteNodeProps">
         <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
+          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, noteNodeProps.id)" />
       </template>
       <template #node-agentNode="agentNodeProps">
         <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
+          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, agentNodeProps.id)" />
       </template>
       <template #node-claudeNode="claudeNodeProps">
-        <ClaudeNode v-bind="claudeNodeProps" />
+        <ClaudeNode v-bind="claudeNodeProps" @contextmenu.native.prevent="showContextMenu($event, claudeNodeProps.id)" />
       </template>
       <template #node-responseNode="responseNodeProps">
         <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
+          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, responseNodeProps.id)" />
       </template>
       <template #node-geminiNode="geminiNodeProps">
-        <GeminiNode v-bind="geminiNodeProps" />
+        <GeminiNode v-bind="geminiNodeProps" @contextmenu.native.prevent="showContextMenu($event, geminiNodeProps.id)" />
       </template>
       <template #node-codeRunnerNode="codeRunnerNodeProps">
         <CodeRunnerNode v-bind="codeRunnerNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
+          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, codeRunnerNodeProps.id)" />
       </template>
       <template #node-webGLNode="webGLNodeProps">
-        <WebGLNode v-bind="webGLNodeProps" />
+        <WebGLNode v-bind="webGLNodeProps" @contextmenu.native.prevent="showContextMenu($event, webGLNodeProps.id)" />
       </template>
       <template #node-embeddingsNode="embeddingsNodeProps">
-        <EmbeddingsNode v-bind="embeddingsNodeProps" />
+        <EmbeddingsNode v-bind="embeddingsNodeProps" @contextmenu.native.prevent="showContextMenu($event, embeddingsNodeProps.id)" />
       </template>
       <template #node-webSearchNode="webSearchNodeProps">
-        <WebSearchNode v-bind="webSearchNodeProps" />
+        <WebSearchNode v-bind="webSearchNodeProps" @contextmenu.native.prevent="showContextMenu($event, webSearchNodeProps.id)" />
       </template>
       <template #node-webRetrievalNode="webRetrievalNodeProps">
-        <WebRetrievalNode v-bind="webRetrievalNodeProps" />
+        <WebRetrievalNode v-bind="webRetrievalNodeProps" @contextmenu.native.prevent="showContextMenu($event, webRetrievalNodeProps.id)" />
       </template>
       <template #node-textSplitterNode="textSplitterNodeProps">
-        <TextSplitterNode v-bind="textSplitterNodeProps" />
+        <TextSplitterNode v-bind="textSplitterNodeProps" @contextmenu.native.prevent="showContextMenu($event, textSplitterNodeProps.id)" />
       </template>
       <template #node-textNode="textNodeProps">
         <TextNode v-bind="textNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
+          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, textNodeProps.id)" />
       </template>
       <template #node-openFileNode="openFileNodeProps">
         <OpenFileNode v-bind="openFileNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
+          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, openFileNodeProps.id)" />
       </template>
       <template #node-saveTextNode="saveTextNodeProps">
-        <SaveTextNode v-bind="saveTextNodeProps" />
+        <SaveTextNode v-bind="saveTextNodeProps" @contextmenu.native.prevent="showContextMenu($event, saveTextNodeProps.id)" />
       </template>
       <template #node-datadogNode="datadogNodeProps">
-        <DatadogNode v-bind="datadogNodeProps" />
+        <DatadogNode v-bind="datadogNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogNodeProps.id)" />
       </template>
       <template #node-datadogGraphNode="datadogGraphNodeProps">
-        <DatadogGraphNode v-bind="datadogGraphNodeProps" />
+        <DatadogGraphNode v-bind="datadogGraphNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogGraphNodeProps.id)" />
       </template>
       <template #node-tokenCounterNode="tokenCounterNodeProps">
-        <TokenCounterNode v-bind="tokenCounterNodeProps" />
+        <TokenCounterNode v-bind="tokenCounterNodeProps" @contextmenu.native.prevent="showContextMenu($event, tokenCounterNodeProps.id)" />
       </template>
       <template #node-flowControlNode="flowControlNodeProps">
         <FlowControl v-bind="flowControlNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" />
+          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, flowControlNodeProps.id)" />
       </template>
       <template #node-repoConcatNode="repoConcatNodeProps">
-        <RepoConcat v-bind="repoConcatNodeProps" />
+        <RepoConcat v-bind="repoConcatNodeProps" @contextmenu.native.prevent="showContextMenu($event, repoConcatNodeProps.id)" />
       </template>
       <template #node-comfyNode="comfyNodeProps">
-        <ComfyNode v-bind="comfyNodeProps" />
+        <ComfyNode v-bind="comfyNodeProps" @contextmenu.native.prevent="showContextMenu($event, comfyNodeProps.id)" />
       </template>
       <template #node-mlxFluxNode="mlxFluxNodeProps">
-        <MLXFlux v-bind="mlxFluxNodeProps" />
+        <MLXFlux v-bind="mlxFluxNodeProps" @contextmenu.native.prevent="showContextMenu($event, mlxFluxNodeProps.id)" />
       </template>
       <template #node-documentsIngestNode="documentsIngestNodeProps">
-        <DocumentsIngest v-bind="documentsIngestNodeProps" />
+        <DocumentsIngest v-bind="documentsIngestNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsIngestNodeProps.id)" />
       </template>
       <template #node-documentsRetrieveNode="documentsRetrieveNodeProps">
-        <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" />
+        <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsRetrieveNodeProps.id)" />
       </template>
       <template #node-ttsNode="ttsNodeProps">
-        <ttsNode v-bind="ttsNodeProps" />
+        <ttsNode v-bind="ttsNodeProps" @contextmenu.native.prevent="showContextMenu($event, ttsNodeProps.id)" />
       </template>
       <template #node-mcpClientNode="mcpClientNodeProps">
-        <MCPClient v-bind="mcpClientNodeProps" />
+        <MCPClient v-bind="mcpClientNodeProps" @contextmenu.native.prevent="showContextMenu($event, mcpClientNodeProps.id)" />
       </template>
       <template #node-mermaidNode="mermaidNodeProps">
-        <Mermaid v-bind="mermaidNodeProps" />
+        <Mermaid v-bind="mermaidNodeProps" @contextmenu.native.prevent="showContextMenu($event, mermaidNodeProps.id)" />
       </template>
 
       <!-- <Controls :style="{ backgroundColor: '#222', color: '#eee' }" /> -->
@@ -712,6 +727,45 @@ function updateEdgeType(newEdgeType: string) {
 //     console.error('Error loading template:', error);
 //   }
 // }
+
+// --- CONTEXT MENU STATE ---
+const contextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  nodeId: null as string | null,
+});
+
+// Show context menu
+function showContextMenu(event: MouseEvent, nodeId: string) {
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    nodeId,
+  };
+}
+
+// Hide context menu
+function hideContextMenu() {
+  contextMenu.value.show = false;
+}
+
+// Copy node ID to clipboard
+async function copyNodeId() {
+  if (contextMenu.value.nodeId) {
+    try {
+      await navigator.clipboard.writeText(contextMenu.value.nodeId);
+      console.log(`Copied node ID: ${contextMenu.value.nodeId}`);
+    } catch (err) {
+      console.error('Failed to copy node ID:', err);
+    }
+  }
+  hideContextMenu();
+}
+
+// Hide context menu on click outside
+document.addEventListener('click', hideContextMenu);
 </script>
 
 <style>
@@ -913,5 +967,26 @@ input:checked+.slider:before {
   border-width: 5px;
   border-style: solid;
   border-color: rgba(255, 140, 0, 0.9) transparent transparent transparent;
+}
+
+/* Context Menu Styling */
+.context-menu {
+  position: absolute;
+  background-color: #333;
+  border: 1px solid #777;
+  border-radius: 8px;
+  padding: 8px;
+  z-index: 1000;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.context-menu-item {
+  color: white;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background-color: #555;
 }
 </style>

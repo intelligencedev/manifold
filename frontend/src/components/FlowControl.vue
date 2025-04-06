@@ -9,6 +9,7 @@
       <select id="mode-select" v-model="mode" class="input-select">
         <option value="RunAllChildren">Run All Children</option>
         <option value="JumpToNode">Jump To Node</option>
+        <option value="ForEachDelimited">For Each Delimited</option>
       </select>
     </div>
 
@@ -17,6 +18,14 @@
       <div class="input-field">
         <label :for="`${data.id}-targetNodeId`" class="input-label">Target Node ID:</label>
         <input :id="`${data.id}-targetNodeId`" type="text" v-model="targetNodeId" class="input-text" />
+      </div>
+    </div>
+
+    <!-- Conditional Input Field for ForEachDelimited -->
+    <div v-if="mode === 'ForEachDelimited'">
+      <div class="input-field">
+        <label :for="`${data.id}-delimiter`" class="input-label">Delimiter:</label>
+        <input :id="`${data.id}-delimiter`" type="text" v-model="delimiter" class="input-text" placeholder="e.g. ," />
       </div>
     </div>
 
@@ -35,6 +44,9 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 
+const { getEdges, findNode } = useVueFlow();
+
+
 const props = defineProps({
   id: {
     type: String,
@@ -52,6 +64,7 @@ const props = defineProps({
       inputs: {
         mode: 'RunAllChildren', // Default mode
         targetNodeId: '',     // Target node for JumpToNode mode
+        delimiter: '',        // Delimiter for ForEachDelimited mode
       },
       outputs: {
         // Flow control nodes typically don't produce data output,
@@ -71,13 +84,12 @@ const props = defineProps({
 
 const emit = defineEmits(['resize', 'disable-zoom', 'enable-zoom'])
 
-const { findNode } = useVueFlow() // Removed getEdges as it's handled in App.vue
-
 // Initialize inputs if they don't exist
 if (!props.data.inputs) {
   props.data.inputs = {
     mode: 'RunAllChildren',
-    targetNodeId: ''
+    targetNodeId: '',
+    delimiter: ''
   }
 }
 
@@ -99,6 +111,11 @@ const mode = computed({
 const targetNodeId = computed({
   get: () => props.data.inputs.targetNodeId || '',
   set: (value) => { props.data.inputs.targetNodeId = value },
+})
+
+const delimiter = computed({
+  get: () => props.data.inputs.delimiter || '',
+  set: (value) => { props.data.inputs.delimiter = value },
 })
 
 // --- UI State ---
@@ -138,25 +155,35 @@ function handleTextareaMouseLeave() {
  *
  * - In "JumpToNode" mode, it returns a signal to the workflow runner
  *   indicating which node ID to jump execution to next.
+ * 
+ * - In "ForEachDelimited" mode, it splits the input by a delimiter and
+ *   runs connected child nodes once for each split part.
  */
 async function run() {
   console.log(`Running FlowControl node: ${props.id} in mode: ${mode.value}`);
 
-  props.data.outputs.result.output = ''; // Reset output
-  const { getEdges, findNode } = props.vueFlowInstance;
+  props.data.outputs = {
+        result: {
+          output: ''
+        }
+      }
+
   const connectedSources = getEdges.value
     .filter((edge) => edge.target === props.id)
     .map((edge) => edge.source);
+
+  console.log(`FlowControl (${props.id}): Connected sources: ${connectedSources}`);
 
   if (connectedSources.length > 0) {
     for (const sourceId of connectedSources) {
       const sourceNode = findNode(sourceId);
       if (sourceNode) {
         props.data.outputs.result.output = sourceNode.data.outputs.result.output;
+
+        console.log(`FlowControl (${props.id}): Output from source node ${sourceId}: ${props.data.outputs.result.output}`);
       }
     }
   }
-
 
   if (mode.value === 'RunAllChildren') {
     // No special action needed here. The main workflow runner will
@@ -179,6 +206,67 @@ async function run() {
 
     console.log(`FlowControl (${props.id}): JumpToNode mode signaling jump to -> ${targetId}`);
     return { jumpTo: targetId }; // Signal the jump to the workflow runner
+  } else if (mode.value === 'ForEachDelimited') {
+    // Handle For Each Delimited mode
+    const currentDelimiter = delimiter.value;
+    
+    if (!currentDelimiter) {
+      console.warn(`FlowControl (${props.id}): ForEachDelimited mode selected, but no delimiter provided.`);
+      return { stopPropagation: true };
+    }
+
+    // Get the input text from the source node
+    const inputText = props.data.outputs.result.output || '';
+    
+    if (!inputText) {
+      console.warn(`FlowControl (${props.id}): No input text available for splitting.`);
+      return { stopPropagation: true };
+    }
+
+    // Split the input text by the delimiter
+    const splitTexts = inputText.split(currentDelimiter).map(item => item.trim());
+    console.log(`FlowControl (${props.id}): Split text into ${splitTexts.length} parts using delimiter: "${currentDelimiter}"`);
+
+    // Get all immediate child nodes
+    const childNodeIds = getEdges.value
+      .filter(edge => edge.source === props.id)
+      .map(edge => edge.target);
+
+    if (childNodeIds.length === 0) {
+      console.warn(`FlowControl (${props.id}): No child nodes connected to process split text.`);
+      return { stopPropagation: true };
+    }
+
+    // Process each split text sequentially
+    for (let i = 0; i < splitTexts.length; i++) {
+      const splitText = splitTexts[i];
+      console.log(`FlowControl (${props.id}): Processing part ${i+1}/${splitTexts.length}: "${splitText}"`);
+      
+      // Set the current split text as this node's output
+      props.data.outputs.result.output = splitText;
+      
+      // For each child node, run its processing logic
+      for (const childId of childNodeIds) {
+        const childNode = findNode(childId);
+        if (childNode && childNode.data && typeof childNode.data.run === 'function') {
+          console.log(`FlowControl (${props.id}): Running child node ${childId} with input: "${splitText}"`);
+          
+          try {
+            // Run the child node and wait for it to complete
+            await childNode.data.run();
+          } catch (error) {
+            console.error(`FlowControl (${props.id}): Error running child node ${childId}:`, error);
+          }
+        } else {
+          console.warn(`FlowControl (${props.id}): Child node ${childId} not found or does not have a run method.`);
+        }
+      }
+    }
+    
+    // After processing all split texts, prevent normal propagation
+    // since we've manually run the child nodes for each split part
+    console.log(`FlowControl (${props.id}): ForEachDelimited mode finished processing all ${splitTexts.length} parts.`);
+    return { stopPropagation: true };
   }
 
   // Default case (shouldn't happen with current modes)

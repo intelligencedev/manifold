@@ -789,7 +789,24 @@ async function runWorkflow() {
     }
   }
   
-  // Clear errors for all nodes
+  // Reset FlowControl nodes with ForEachDelimited mode before starting
+  const flowControlNodes = nodes.value.filter((node) => node.type === 'flowControlNode');
+  for (const node of flowControlNodes) {
+    if (node.data && node.data.inputs && node.data.inputs.mode === 'ForEachDelimited') {
+      // Reset the forEachState to make sure it starts fresh
+      if (node.data.forEachState) {
+        console.log(`Resetting state for FlowControl node ${node.id} before starting workflow`);
+        // Mark as needing reset, the node will reinitialize when it runs
+        node.data.forEachState = { reset: true };
+      }
+    }
+    // Clear any previous error state
+    if (node.data?.error) {
+        delete node.data.error;
+    }
+  }
+
+  // Clear errors for all other nodes
   nodes.value.forEach(node => {
     if (node.data?.error) {
         delete node.data.error;

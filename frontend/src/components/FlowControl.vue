@@ -237,16 +237,23 @@ async function run() {
       return { stopPropagation: true };
     }
 
-    // Initialize or get the current iteration index from node data
-    if (!props.data.forEachState) {
-      props.data.forEachState = { currentIndex: 0, totalItems: splitTexts.length };
+    // Initialize or reset the state
+    // Always create a fresh state at the beginning of each workflow run
+    if (!props.data.forEachState || props.data.forEachState.reset || props.data.forEachState.completed) {
+      console.log(`FlowControl (${props.id}): Initializing fresh state with ${splitTexts.length} items`);
+      props.data.forEachState = { 
+        currentIndex: 0, 
+        totalItems: splitTexts.length,
+        reset: false,
+        completed: false
+      };
     }
 
     // Check if we've processed all items
     if (props.data.forEachState.currentIndex >= props.data.forEachState.totalItems) {
-      // We've finished processing all items, reset state and stop
+      // We've finished processing all items, mark as completed
       console.log(`FlowControl (${props.id}): Completed processing all ${props.data.forEachState.totalItems} items.`);
-      props.data.forEachState = null; // Clear the state
+      props.data.forEachState.completed = true;
       return { stopPropagation: true };
     }
 

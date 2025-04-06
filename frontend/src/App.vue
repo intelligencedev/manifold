@@ -886,6 +886,12 @@ async function copyNodeId() {
 
 // Hide context menu on click outside
 document.addEventListener('click', hideContextMenu);
+
+// Remove event listener on component unmount
+import { onBeforeUnmount } from 'vue';
+onBeforeUnmount(() => {
+  document.removeEventListener('click', hideContextMenu);
+});
 </script>
 
 <style>

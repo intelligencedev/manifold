@@ -391,7 +391,7 @@ watch(selectedRenderMode, () => {
 
 watch(response, () => {
   nextTick(() => {
-    hljs.highlightAll();
+    document.querySelectorAll('pre code:not(.hljs)').forEach((block) => { hljs.highlightElement(block); });
   });
 });
 

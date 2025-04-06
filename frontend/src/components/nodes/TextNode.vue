@@ -17,6 +17,14 @@
       @mouseenter="$emit('disable-zoom')"
       @mouseleave="$emit('enable-zoom')"
     ></textarea>
+    
+    <!-- Clear on run checkbox -->
+    <div class="node-options">
+      <label class="checkbox-label">
+        <input type="checkbox" v-model="clearOnRun">
+        <span>Clear on run</span>
+      </label>
+    </div>
 
     <Handle
       style="width:12px; height:12px"
@@ -81,7 +89,8 @@ const props = defineProps({
       inputs: {
         text: ''
       },
-      outputs: {}
+      outputs: {},
+      clearOnRun: false
     })
   }
 })
@@ -91,6 +100,7 @@ const emit = defineEmits(['update:data', 'disable-zoom', 'enable-zoom', 'resize'
 // Use the composable to get all the reactive state and methods
 const {
   text,
+  clearOnRun,
   customStyle,
   isHovered,
   resizeHandleStyle,
@@ -139,5 +149,25 @@ const {
   resize: vertical;
   flex-grow: 1;
   margin: 10px 0;
+}
+
+/* Styling for node options */
+.node-options {
+  display: flex;
+  justify-content: flex-start;
+  width: calc(100% - 20px);
+  margin-bottom: 10px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  color: var(--node-text-color);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  margin-right: 5px;
 }
 </style>

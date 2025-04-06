@@ -3,47 +3,59 @@
     class="node-container mlxflux-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
     <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
 
-    <!-- Parameters Panel (no accordion) -->
-    <div class="parameters-panel">
-      <!-- Model Selection -->
-      <div class="input-field">
-        <label :for="`${data.id}-model`" class="input-label">Model:</label>
-        <BaseInput :id="`${data.id}-model`" v-model="model" class="input-text" />
-      </div>
+    <!-- Parameters Panel (using BaseAccordion) -->
+    <BaseAccordion title="Parameters" :initiallyOpen="true">
+      <div class="parameters-panel">
+        <!-- Model Selection -->
+        <div class="input-field">
+          <label :for="`${data.id}-model`" class="input-label">Model:</label>
+          <BaseInput :id="`${data.id}-model`" v-model="model" class="input-text" />
+        </div>
 
-      <!-- Prompt Input -->
-      <div class="input-field">
-        <label :for="`${data.id}-prompt`" class="input-label">Prompt:</label>
-        <BaseTextarea :id="`${data.id}-prompt`" v-model="prompt" class="input-textarea" />
-      </div>
+        <!-- Prompt Input -->
+        <div class="input-field">
+          <label :for="`${data.id}-prompt`" class="input-label">Prompt:</label>
+          <BaseTextarea :id="`${data.id}-prompt`" v-model="prompt" class="input-textarea" />
+        </div>
 
-      <!-- Steps Input -->
-      <div class="input-field">
-        <label :for="`${data.id}-steps`" class="input-label">Steps:</label>
-        <BaseInput :id="`${data.id}-steps`" v-model.number="steps" type="number" min="1" class="input-text" />
-      </div>
+        <!-- Steps Input -->
+        <div class="input-field">
+          <label :for="`${data.id}-steps`" class="input-label">Steps:</label>
+          <BaseInput :id="`${data.id}-steps`" v-model.number="steps" type="number" min="1" class="input-text" />
+        </div>
 
-      <!-- Seed Input -->
-      <div class="input-field">
-        <label :for="`${data.id}-seed`" class="input-label">Seed:</label>
-        <BaseInput :id="`${data.id}-seed`" v-model.number="seed" type="number" class="input-text" />
-      </div>
+        <!-- Seed Input -->
+        <div class="input-field">
+          <label :for="`${data.id}-seed`" class="input-label">Seed:</label>
+          <BaseInput :id="`${data.id}-seed`" v-model.number="seed" type="number" class="input-text" />
+        </div>
 
-      <!-- Quality Input -->
-      <div class="input-field">
-        <label :for="`${data.id}-quality`" class="input-label">Quality:</label>
-        <BaseInput :id="`${data.id}-quality`" v-model.number="quality" type="number" min="1" class="input-text" />
-      </div>
+        <!-- Quality Input with Radio Buttons -->
+        <div class="input-field">
+          <label class="input-label">Quality:</label>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" :name="`${data.id}-quality`" :value="4" v-model.number="quality" />
+              4bit
+            </label>
+            <label class="radio-label">
+              <input type="radio" :name="`${data.id}-quality`" :value="8" v-model.number="quality" />
+              8bit
+            </label>
+          </div>
+        </div>
 
-      <!-- Output Path Input -->
-      <div class="input-field">
-        <label :for="`${data.id}-output`" class="input-label">Output:</label>
-        <BaseInput :id="`${data.id}-output`" v-model="output" class="input-text" />
+        <!-- Output Path Input -->
+        <div class="input-field">
+          <label :for="`${data.id}-output`" class="input-label">File Name:</label>
+          <BaseInput :id="`${data.id}-output`" v-model="output" class="input-text" />
+        </div>
       </div>
-    </div>
+    </BaseAccordion>
 
-    <div class="image-preview" v-if="imageSrc">
-      <img :src="imageSrc" alt="Generated Image" style="max-width: 100%; max-height: 200px;" />
+    <!-- Generated Image Panel -->
+    <div class="generated-image-panel" v-if="imageSrc">
+      <img :src="imageSrc" alt="Generated Image" class="generated-image" />
     </div>
 
     <!-- Input/Output Handles -->
@@ -52,7 +64,7 @@
 
     <!-- NodeResizer -->
     <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle" :line-style="resizeHandleStyle"
-      :min-width="350" :min-height="560" :node-id="props.id" @resize="onResize" />
+      :min-width="350" :min-height="720" :node-id="props.id" @resize="onResize" />
   </div>
 </template>
 
@@ -61,6 +73,7 @@ import { Handle, useVueFlow } from '@vue-flow/core';
 import { NodeResizer } from '@vue-flow/node-resizer';
 import BaseInput from '@/components/base/BaseInput.vue';
 import BaseTextarea from '@/components/base/BaseTextarea.vue';
+import BaseAccordion from '@/components/base/BaseAccordion.vue';
 import { useMLXFluxNode } from '@/composables/useMLXFluxNode';
 
 const props = defineProps({
@@ -92,7 +105,7 @@ const props = defineProps({
         backgroundColor: '#333',
         color: '#eee',
         width: '350px',
-        height: '400px',
+        height: '1024px',
       },
     }),
   },
@@ -123,6 +136,8 @@ const {
 </script>
 
 <style scoped>
+@import '@/assets/css/nodes.css';
+
 .mlxflux-node {
   width: 100%;
   height: 100%;
@@ -138,35 +153,34 @@ const {
 .node-label {
   color: var(--node-text-color);
   font-size: 16px;
-  text-align: center;
+  text-align: left;
   margin-bottom: 10px;
   font-weight: bold;
+  padding-left: 10px;
 }
 
 .parameters-panel {
-  margin-bottom: 10px;
   padding: 5px;
-  border: 1px solid #666;
-  border-radius: 4px;
-  background-color: #444;
+  background-color: var(--accordion-bg-color, #444);
 }
 
 .input-field {
-  margin-bottom: 8px;
+  margin-bottom: 16px;
 }
 
 .input-label {
   font-size: 12px;
   margin-bottom: 4px;
   display: block;
+  text-align: left;
 }
 
 .input-text,
 .input-select,
 .input-textarea {
-  background-color: #333;
-  border: 1px solid #666;
-  color: #eee;
+  background-color: var(--input-bg-color, #333);
+  border: 1px solid var(--input-border-color, #666);
+  color: var(--input-text-color, #eee);
   padding: 4px;
   font-size: 12px;
   width: calc(100% - 8px);
@@ -175,10 +189,37 @@ const {
 
 .input-textarea {
   resize: vertical;
+  min-height: 80px;
 }
 
-.image-preview {
-  margin-top: 10px;
-  text-align: center;
+.radio-group {
+  display: flex;
+  gap: 12px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Generated Image Panel - Similar to ComfyNode */
+.generated-image-panel {
+  flex: 1 1 auto;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 20px;
+}
+
+.generated-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  display: block;
 }
 </style>

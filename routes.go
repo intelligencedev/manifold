@@ -38,7 +38,9 @@ func registerRoutes(e *echo.Echo, config *Config) {
 		return handleAnthropicMessages(c, config)
 	})
 
-	api.POST("/run-fmlx", runFMLXHandler)
+	api.POST("/run-fmlx", func(c echo.Context) error {
+		return runFMLXHandler(c, config.DataPath)
+	})
 	api.POST("/run-sd", runSDHandler)
 
 	api.POST("/repoconcat", repoconcatHandler)

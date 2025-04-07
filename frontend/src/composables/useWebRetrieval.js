@@ -2,7 +2,7 @@ import { computed, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 
 export function useWebRetrieval(props, emit) {
-  const { getEdges, getNodes } = useVueFlow()
+  const { getEdges, findNode } = useVueFlow()
 
   // ----- Reactivity for inputs -----
   const urls = computed({
@@ -22,9 +22,9 @@ export function useWebRetrieval(props, emit) {
 
   /**
    * The main "run" method:
-   * 1) Finds any connected incoming nodes (optional).
-   * 2) Splits the URLs from `props.data.inputs.url`.
-   * 3) Calls a hypothetical backend endpoint to retrieve content from each URL.
+   * 1) Finds any connected incoming nodes.
+   * 2) Updates input URL field if there's connected source data.
+   * 3) Calls backend endpoint to retrieve content from each URL.
    * 4) Stores results in `props.data.outputs.result.output`.
    */
   async function run() {
@@ -32,19 +32,18 @@ export function useWebRetrieval(props, emit) {
 
     // Check incoming edges
     const connectedEdges = getEdges.value.filter(e => e.target === props.id)
-    if (connectedEdges.length) {
-      console.log('Incoming edges:', connectedEdges)
-      // Get the connected nodes
-      const connectedNodes = getNodes.value.filter(n => n.id === connectedEdges[0].source)
-      if (connectedNodes.length) {
-        console.log('Connected nodes:', connectedNodes)
-        // Get the data from the connected node
-        const sourceNode = connectedNodes[0]
-        console.log('Connected node data:', sourceNode.data)
-        // update the URL input with the connected node's output
-        props.data.inputs.url = sourceNode.data.outputs.urls
-        // Update the node data
-        updateNodeData()
+    if (connectedEdges.length > 0) {
+      const connectedSourceIds = connectedEdges.map(edge => edge.source)
+      
+      if (connectedSourceIds.length > 0) {
+        const sourceNode = findNode(connectedSourceIds[0])
+        
+        if (sourceNode && sourceNode.data.outputs && sourceNode.data.outputs.result) {
+          console.log('Connected node data:', sourceNode.data)
+          // Update the URL input with the connected node's output
+          props.data.inputs.url = sourceNode.data.outputs.result.output
+          updateNodeData()
+        }
       }
     }
 
@@ -52,6 +51,13 @@ export function useWebRetrieval(props, emit) {
     const urlsToFetch = props.data.inputs.url || ''
     if (!urlsToFetch) {
       console.warn('No URLs provided in WebRetrievalNode.')
+      props.data.outputs = {
+        result: {
+          output: '',
+        },
+        error: 'No URLs provided.'
+      }
+      updateNodeData()
       return { error: 'No URLs provided.' }
     }
 
@@ -77,18 +83,25 @@ export function useWebRetrieval(props, emit) {
         }
       }
 
-      // Store the aggregated content in the node's output
+      // Store the aggregated content in the node's output using the consistent structure
       props.data.outputs = {
         result: {
           output: aggregatedWebContent,
         },
       }
 
-      console.log('Node-level run result:', props.data.outputs)
+      updateNodeData()
+      console.log('WebRetrievalNode run result:', props.data.outputs)
       return { response, result: props.data.outputs }
     } catch (error) {
       console.error('Error in WebRetrievalNode run:', error)
-      props.data.error = error.message
+      props.data.outputs = {
+        result: {
+          output: '',
+        },
+        error: error.message
+      }
+      updateNodeData()
       return { error: error.message }
     }
   }
@@ -104,6 +117,16 @@ export function useWebRetrieval(props, emit) {
 
   // Setup function to initialize the node
   const setup = () => {
+    // Initialize the outputs structure if it doesn't exist
+    if (!props.data.outputs) {
+      props.data.outputs = {
+        result: {
+          output: '',
+        },
+      }
+    }
+    
+    // Add the run function to the node data if it doesn't exist
     if (!props.data.run) {
       props.data.run = run
     }

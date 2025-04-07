@@ -23,14 +23,8 @@ export function useWebSearch(props, emit) {
       const targetEdge = connectedTargetEdges[0]
       console.log('Connected target edge:', targetEdge)
       
-      const sourceNode = findNode(targetEdge.source)
-      console.log('Source node:', sourceNode)
-      
-      const response = sourceNode.data.outputs.result.output
-      console.log('Response:', response)
-      
-      query.value = response
-      updateNodeData()
+      const sourceNode = findNode(targetEdge.source)  
+      query.value = sourceNode.data.outputs.result.output
     }
 
     updateNodeData()
@@ -57,10 +51,10 @@ export function useWebSearch(props, emit) {
       }
       
       webUrls = await response.json()
-      props.data.outputs = { urls: webUrls }
+      props.data.outputs.result.output = webUrls
       
-      console.log('WebSearchNode run result:', props.data.outputs)
-      return { response, result: props.data.outputs.result }
+      console.log('WebSearchNode run result:', props.data.outputs.result.output)
+      updateNodeData()
     } catch (error) {
       console.error('Error in WebSearchNode run:', error)
       props.data.error = error.message

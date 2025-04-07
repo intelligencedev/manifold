@@ -92,6 +92,9 @@ const props = defineProps({
       },
       outputs: {
         urls: [],
+        result: {
+          output: '',
+        }
       },
       hasInputs: true,
       hasOutputs: true,

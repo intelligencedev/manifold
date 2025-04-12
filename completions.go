@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -98,15 +99,53 @@ func completionsHandler(c echo.Context, config *Config) error {
 	// Check if this is a streaming request
 	var payload CompletionRequest
 
-	// Set the payload model to the default model if not provided
-	payload.Model = config.Completions.CompletionsModel
+	// Only set the default model if the endpoint is OpenAI's API
+	if strings.Contains(openAIURL, "api.openai.com") {
+		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error: ErrorData{
+					Message: "Invalid JSON in request: " + err.Error(),
+				},
+			})
+		}
 
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		return c.JSON(http.StatusBadRequest, ErrorResponse{
-			Error: ErrorData{
-				Message: "Invalid JSON in request: " + err.Error(),
-			},
-		})
+		// Set the model only if model is empty and we're using OpenAI
+		if payload.Model == "" {
+			payload.Model = config.Completions.CompletionsModel
+
+			// Re-marshal the body with the updated model
+			updatedBody, err := json.Marshal(payload)
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{
+					Error: ErrorData{
+						Message: "Error updating request body: " + err.Error(),
+					},
+				})
+			}
+
+			// Update the request with the new body
+			req, err = http.NewRequest("POST", openAIURL, bytes.NewBuffer(updatedBody))
+			if err != nil {
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{
+					Error: ErrorData{
+						Message: "Error creating updated request: " + err.Error(),
+					},
+				})
+			}
+
+			// Re-set the headers
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
+		}
+	} else {
+		// For non-OpenAI endpoints, just unmarshal to check if it's a streaming request
+		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+			return c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error: ErrorData{
+					Message: "Invalid JSON in request: " + err.Error(),
+				},
+			})
+		}
 	}
 
 	// Handle streaming differently than non-streaming

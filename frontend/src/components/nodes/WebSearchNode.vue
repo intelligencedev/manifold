@@ -5,7 +5,17 @@
     <!-- Query Input -->
     <div class="input-field">
       <label :for="`${data.id}-query`" class="input-label">Query:</label>
-      <input :id="`${data.id}-query`" type="text" v-model="query" @change="updateNodeData" class="input-text" />
+      <input 
+        :id="`${data.id}-query`" 
+        type="text" 
+        v-model="query" 
+        @change="updateNodeData" 
+        class="input-text"
+        @mousedown="onInputMouseDown"
+        @mouseup="onInputMouseUp"
+        @focus="onInputFocus"
+        @blur="onInputBlur"
+      />
     </div>
 
     <!-- Result Size Input -->
@@ -17,6 +27,10 @@
         v-model.number="resultSize"
         @change="updateNodeData"
         class="input-number"
+        @mousedown="onInputMouseDown"
+        @mouseup="onInputMouseUp"
+        @focus="onInputFocus"
+        @blur="onInputBlur"
       />
     </div>
 
@@ -28,6 +42,10 @@
         v-model="searchBackend"
         @change="updateNodeData"
         class="input-select"
+        @mousedown="onInputMouseDown"
+        @mouseup="onInputMouseUp"
+        @focus="onInputFocus"
+        @blur="onInputBlur"
       >
         <option value="ddg">DuckDuckGo</option>
         <option value="sxng">SearXNG</option>
@@ -43,6 +61,10 @@
         v-model="sxngUrl"
         @change="updateNodeData"
         class="input-text"
+        @mousedown="onInputMouseDown"
+        @mouseup="onInputMouseUp"
+        @focus="onInputFocus"
+        @blur="onInputBlur"
       />
     </div>
 
@@ -68,7 +90,7 @@
 
 <script setup>
 import { onMounted } from 'vue'
-import { Handle, Position } from '@vue-flow/core'
+import { Handle, Position, useVueFlow } from '@vue-flow/core'
 import { useWebSearch } from '../../composables/useWebSearch'
 
 const props = defineProps({
@@ -108,6 +130,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:data'])
 
+// Get the Vue Flow instance to control node dragging
+const { disableNodeDrag, enableNodeDrag } = useVueFlow()
+
 // Use the composable
 const {
   query,
@@ -122,6 +147,24 @@ const {
 onMounted(() => {
   setup()
 })
+
+// Disable node dragging when interacting with input fields
+const onInputMouseDown = (event) => {
+  event.stopPropagation()
+  disableNodeDrag(props.id)
+}
+
+const onInputMouseUp = () => {
+  enableNodeDrag(props.id)
+}
+
+const onInputFocus = () => {
+  disableNodeDrag(props.id)
+}
+
+const onInputBlur = () => {
+  enableNodeDrag(props.id)
+}
 </script>
 
 <style scoped>

@@ -28,17 +28,23 @@ export function useNoteNode(props, emit) {
   }))
 
   // Font size control
-  const currentFontSize = ref(14) // Default font size
   const minFontSize = 10
   const maxFontSize = 24
   const fontSizeStep = 2
   
+  // Initialize font size from saved data or default to 14
+  const currentFontSize = ref(props.data.fontSize !== undefined ? props.data.fontSize : 14)
+  
   const increaseFontSize = () => {
     currentFontSize.value = Math.min(currentFontSize.value + fontSizeStep, maxFontSize)
+    // Save the font size in the node data for persistence
+    props.data.fontSize = currentFontSize.value
   }
   
   const decreaseFontSize = () => {
     currentFontSize.value = Math.max(currentFontSize.value - fontSizeStep, minFontSize)
+    // Save the font size in the node data for persistence
+    props.data.fontSize = currentFontSize.value
   }
 
   // References to DOM elements
@@ -79,7 +85,15 @@ export function useNoteNode(props, emit) {
 
   // Define pastel colors for sticky note background
   const pastelColors = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF']
-  const currentColorIndex = ref(0)
+  
+  // Initialize colorIndex from saved data or default to 0
+  const currentColorIndex = ref(props.data.colorIndex !== undefined ? props.data.colorIndex : 0)
+  
+  // Initialize background color if it wasn't already set
+  if (!props.data.style.backgroundColor) {
+    props.data.style.backgroundColor = pastelColors[currentColorIndex.value]
+  }
+  
   const currentColor = computed(() => pastelColors[currentColorIndex.value])
   
   // Add computed properties for scroll bar colors based on current background color
@@ -91,6 +105,8 @@ export function useNoteNode(props, emit) {
     currentColorIndex.value = (currentColorIndex.value + 1) % pastelColors.length
     // Update the data style with the new color
     props.data.style.backgroundColor = currentColor.value
+    // Save the color index in the node data for persistence
+    props.data.colorIndex = currentColorIndex.value
   }
 
   // Basic run function

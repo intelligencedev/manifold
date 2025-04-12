@@ -274,12 +274,16 @@ REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
         provider: provider.value,
         endpoint: props.data.inputs.endpoint,
         api_key: props.data.inputs.api_key,
-        model: props.data.inputs.model,
+        temperature: props.data.inputs.temperature,
         system_prompt: props.data.inputs.system_prompt,
         max_completion_tokens: props.data.inputs.max_completion_tokens,
-        temperature: props.data.inputs.temperature,
         enableToolCalls: enableToolCalls.value
       };
+      
+      // Only include model when using OpenAI endpoint
+      if (props.data.inputs.endpoint && props.data.inputs.endpoint.includes('api.openai.com')) {
+        agentConfig.model = props.data.inputs.model;
+      }
       
       // Reset the response
       props.data.outputs.response = '';

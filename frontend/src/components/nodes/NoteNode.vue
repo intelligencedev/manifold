@@ -36,6 +36,10 @@
         class="note-textarea"
         placeholder="Enter your notes here..."
         :style="{ fontSize: `${currentFontSize}px` }"
+        @mousedown="onTextareaMouseDown"
+        @mouseup="onTextareaMouseUp"
+        @focus="onTextareaFocus"
+        @blur="onTextareaBlur"
       ></textarea>
     </div>
     <NodeResizer
@@ -55,6 +59,7 @@ import { watch, onMounted } from 'vue'
 import { Handle } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import { useNoteNode } from '@/composables/useNoteNode'
+import { useVueFlow } from '@vue-flow/core'
 
 const props = defineProps({
   id: {
@@ -95,6 +100,9 @@ const emit = defineEmits([
   'resize'
 ])
 
+// Get the Vue Flow instance to control node dragging
+const { disableNodeDrag, enableNodeDrag } = useVueFlow()
+
 // Use the note node composable
 const {
   noteText,
@@ -125,6 +133,24 @@ watch(
   },
   { deep: true }
 )
+
+// Disable node dragging when interacting with textarea
+const onTextareaMouseDown = (event) => {
+  event.stopPropagation()
+  disableNodeDrag(props.id)
+}
+
+const onTextareaMouseUp = () => {
+  enableNodeDrag(props.id)
+}
+
+const onTextareaFocus = () => {
+  disableNodeDrag(props.id)
+}
+
+const onTextareaBlur = () => {
+  enableNodeDrag(props.id)
+}
 </script>
 <style scoped>
 .node-container {

@@ -5,9 +5,10 @@ host: 'localhost'
 port: 8080
 
 # Manifold storage path: models, database files, etc
-data_path: '~/.manifold'
+data_path: '/Users/yourusername/.manifold' # REPLACE with your actual path
 
 # Set to true to automatically run llama-server instances for embeddings, reranker, and completions
+# This enables the http://localhost:32186/v1/chat/completions endpoint running the gemma-3-4b-it model
 single_node_instance: true
 
 # Database Configuration (PGVector)
@@ -15,7 +16,10 @@ database:
   connection_string: "postgres://pgadmin:yourpassword@localhost:5432/manifold?sslmode=disable"  # REPLACE with your actual credentials
 
 # HuggingFace Token
-hf_token: "..." 
+hf_token: "..."
+
+# Google Gemini API token
+google_gemini_key: "..."
 
 # Anthropic API token
 anthropic_key: "..."

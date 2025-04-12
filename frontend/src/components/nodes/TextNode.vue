@@ -16,6 +16,10 @@
       class="input-textarea"
       @mouseenter="$emit('disable-zoom')"
       @mouseleave="$emit('enable-zoom')"
+      @mousedown="onTextareaMouseDown"
+      @mouseup="onTextareaMouseUp"
+      @focus="onTextareaFocus"
+      @blur="onTextareaBlur"
     ></textarea>
     
     <!-- Clear on run checkbox -->
@@ -56,7 +60,7 @@
 </template>
 
 <script setup>
-import { Handle } from '@vue-flow/core'
+import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import useTextNode from '../../composables/useTextNode'
 
@@ -97,6 +101,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:data', 'disable-zoom', 'enable-zoom', 'resize'])
 
+// Get the Vue Flow instance to control node dragging
+const { disableNodeDrag, enableNodeDrag } = useVueFlow()
+
 // Use the composable to get all the reactive state and methods
 const {
   text,
@@ -107,6 +114,24 @@ const {
   updateNodeData,
   onResize
 } = useTextNode(props, emit)
+
+// Disable node dragging when interacting with textarea
+const onTextareaMouseDown = (event) => {
+  event.stopPropagation()
+  disableNodeDrag(props.id)
+}
+
+const onTextareaMouseUp = () => {
+  enableNodeDrag(props.id)
+}
+
+const onTextareaFocus = () => {
+  disableNodeDrag(props.id)
+}
+
+const onTextareaBlur = () => {
+  enableNodeDrag(props.id)
+}
 </script>
 
 <style scoped>

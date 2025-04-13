@@ -10,9 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"time"
 
@@ -26,18 +24,88 @@ type ComfyProxyRequest struct {
 	Prompt         string `json:"prompt"`
 }
 
+// runFMLXHandler handles FMLX image generation requests.
 func runFMLXHandler(c echo.Context, dataPath string) error {
 	var req FMLXRequest
 	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		return respondWithError(c, http.StatusBadRequest, "Invalid request body")
 	}
 	if req.Model == "" || req.Prompt == "" || req.Steps == 0 {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing required fields"})
+		return respondWithError(c, http.StatusBadRequest, "Missing required fields")
 	}
 
 	imgPath := fmt.Sprintf("%s/tmp/%s", dataPath, req.Output)
+	args := buildFMLXArgs(req, imgPath)
 
-	args := []string{
+	if err := executeCommand("mflux-generate", args); err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to execute mflux command: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "FMLX command executed successfully",
+	})
+}
+
+// runSDHandler handles Stable Diffusion image generation requests.
+func runSDHandler(c echo.Context) error {
+	var req SDRequest
+	if err := c.Bind(&req); err != nil {
+		return respondWithError(c, http.StatusBadRequest, "Invalid request body")
+	}
+	if !validateSDRequest(req) {
+		return respondWithError(c, http.StatusBadRequest, "Missing required fields")
+	}
+
+	args := buildSDArgs(req)
+	if err := executeCommand("./sd", args); err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to execute sd command: %v", err))
+	}
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "Stable Diffusion command executed successfully",
+	})
+}
+
+// comfyProxyHandler handles requests to the ComfyUI proxy.
+func comfyProxyHandler(c echo.Context) error {
+	var reqBody ComfyProxyRequest
+	if err := c.Bind(&reqBody); err != nil {
+		return respondWithError(c, http.StatusBadRequest, "Invalid request body")
+	}
+	if reqBody.TargetEndpoint == "" {
+		return respondWithError(c, http.StatusBadRequest, "TargetEndpoint is required")
+	}
+
+	templateData, err := parseComfyTemplate()
+	if err != nil {
+		return respondWithError(c, http.StatusInternalServerError, "Failed to unmarshal comfy template")
+	}
+
+	uuid := generateUUID()
+	if err := updateComfyTemplate(templateData, reqBody.Prompt, uuid); err != nil {
+		return respondWithError(c, http.StatusInternalServerError, err.Error())
+	}
+
+	jsonData, err := json.Marshal(map[string]interface{}{"prompt": templateData})
+	if err != nil {
+		return respondWithError(c, http.StatusInternalServerError, "Failed to marshal updated template")
+	}
+
+	if err := sendComfyRequest(reqBody.TargetEndpoint, jsonData, uuid, c); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Helper functions
+
+func respondWithError(c echo.Context, status int, message string) error {
+	return c.JSON(status, map[string]string{"error": message})
+}
+
+func buildFMLXArgs(req FMLXRequest, imgPath string) []string {
+	return []string{
 		"--model", req.Model,
 		"--prompt", req.Prompt,
 		"--steps", fmt.Sprintf("%d", req.Steps),
@@ -45,69 +113,9 @@ func runFMLXHandler(c echo.Context, dataPath string) error {
 		"-q", fmt.Sprintf("%d", req.Quality),
 		"--output", imgPath,
 	}
-	cmd := exec.Command("mflux-generate", args...)
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stdout pipe"})
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stderr pipe"})
-	}
-	if err := cmd.Start(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to start mflux command"})
-	}
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			log.Printf("[mflux stdout] %s", scanner.Text())
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			log.Printf("[mflux stderr] %s", scanner.Text())
-		}
-	}()
-	if err := cmd.Wait(); err != nil {
-		wg.Wait()
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute mflux command: %v", err)})
-	}
-	wg.Wait()
-
-	return c.JSON(http.StatusOK, map[string]string{
-		"message": "FMLX command executed successfully",
-	})
 }
 
-func imageHandler(c echo.Context, imagePath string) error {
-	file, err := os.Open(imagePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return c.String(http.StatusNotFound, "Image not found")
-		}
-		return c.String(http.StatusInternalServerError, "Error opening image")
-	}
-	defer file.Close()
-	c.Response().Header().Set(echo.HeaderContentType, "image/png")
-	if _, err := io.Copy(c.Response().Writer, file); err != nil {
-		log.Printf("Error copying image to response: %v", err)
-	}
-	return nil
-}
-
-func runSDHandler(c echo.Context) error {
-	var req SDRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-	}
-	if req.DiffusionModel == "" || req.Type == "" || req.ClipL == "" || req.T5xxl == "" || req.VAE == "" || req.Prompt == "" || req.Output == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing required fields"})
-	}
+func buildSDArgs(req SDRequest) []string {
 	args := []string{
 		"--diffusion-model", req.DiffusionModel,
 		"--type", req.Type,
@@ -150,41 +158,135 @@ func runSDHandler(c echo.Context) error {
 	if req.SkipLayerEnd > 0 {
 		args = append(args, "--skip-layer-end", fmt.Sprintf("%.3f", req.SkipLayerEnd))
 	}
-	cmd := exec.Command("./sd", args...)
-	cmd.Dir = "/Users/art/Downloads/sd-master--bin-Darwin-macOS-14.7.2-arm64/stable-diffusion.cpp/build/bin"
+	return args
+}
+
+func executeCommand(command string, args []string) error {
+	cmd := exec.Command(command, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stdout pipe"})
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create stderr pipe"})
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to start sd command"})
+		return fmt.Errorf("failed to start command: %w", err)
 	}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stdout)
-		for scanner.Scan() {
-			log.Printf("[sd stdout] %s", scanner.Text())
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		scanner := bufio.NewScanner(stderr)
-		for scanner.Scan() {
-			log.Printf("[sd stderr] %s", scanner.Text())
-		}
-	}()
+	go logOutput(stdout, "stdout", &wg)
+	go logOutput(stderr, "stderr", &wg)
+
 	if err := cmd.Wait(); err != nil {
 		wg.Wait()
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to execute sd command: %v", err)})
+		return fmt.Errorf("command execution failed: %w", err)
 	}
 	wg.Wait()
-	return c.JSON(http.StatusOK, map[string]string{"message": "Stable Diffusion command executed successfully"})
+	return nil
+}
+
+func logOutput(pipe io.ReadCloser, label string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		log.Printf("[%s] %s", label, scanner.Text())
+	}
+}
+
+func parseComfyTemplate() (map[string]interface{}, error) {
+	var templateData map[string]interface{}
+	if err := json.Unmarshal([]byte(comfyTemplate), &templateData); err != nil {
+		return nil, err
+	}
+	return templateData, nil
+}
+
+func updateComfyTemplate(templateData map[string]interface{}, prompt, uuid string) error {
+	if node9, ok := templateData["9"].(map[string]interface{}); ok {
+		if inputs, ok := node9["inputs"].(map[string]interface{}); ok {
+			inputs["filename_prefix"] = uuid
+		} else {
+			return fmt.Errorf("invalid template structure in node 9")
+		}
+	} else {
+		return fmt.Errorf("node 9 not found in template")
+	}
+
+	if node6, ok := templateData["6"].(map[string]interface{}); ok {
+		if inputs, ok := node6["inputs"].(map[string]interface{}); ok {
+			inputs["text"] = prompt
+		} else {
+			return fmt.Errorf("invalid template structure in node 6")
+		}
+	} else {
+		return fmt.Errorf("node 6 not found in template")
+	}
+
+	return nil
+}
+
+func sendComfyRequest(targetEndpoint string, jsonData []byte, uuid string, c echo.Context) error {
+	proxyReq, err := http.NewRequest("POST", targetEndpoint, bytes.NewReader(jsonData))
+	if err != nil {
+		return respondWithError(c, http.StatusInternalServerError, "Failed to create request to target endpoint")
+	}
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 300 * time.Second}
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Error making request to target endpoint: %v", err))
+	}
+	defer resp.Body.Close()
+
+	return waitForImage(targetEndpoint, uuid, c)
+}
+
+func waitForImage(baseURL, uuid string, c echo.Context) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	imageURL := fmt.Sprintf("%s/view?filename=%s_00001_.png&subfolder=&type=output", baseURL, uuid)
+	log.Printf("Waiting for image at %s", imageURL)
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return respondWithError(c, http.StatusGatewayTimeout, "Timeout waiting for image generation")
+		case <-ticker.C:
+			if err := checkImageAvailability(imageURL, c); err == nil {
+				return nil
+			}
+		}
+	}
+}
+
+func checkImageAvailability(imageURL string, c echo.Context) error {
+	imgResp, err := http.Get(imageURL)
+	if err != nil {
+		return err
+	}
+	defer imgResp.Body.Close()
+
+	if imgResp.StatusCode == http.StatusOK {
+		c.Response().Header().Set("Content-Type", imgResp.Header.Get("Content-Type"))
+		return c.Stream(http.StatusOK, imgResp.Header.Get("Content-Type"), imgResp.Body)
+	}
+	return fmt.Errorf("image not available")
+}
+
+func generateUUID() string {
+	return uuid.New().String()
+}
+
+func validateSDRequest(req SDRequest) bool {
+	return req.DiffusionModel != "" && req.Type != "" && req.ClipL != "" && req.T5xxl != "" && req.VAE != "" && req.Prompt != "" && req.Output != ""
 }
 
 var comfyTemplate = `{
@@ -378,138 +480,3 @@ var comfyTemplate = `{
     }
   }
 }`
-
-func comfyProxyHandler(c echo.Context) error {
-	var reqBody ComfyProxyRequest
-	if err := c.Bind(&reqBody); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
-	}
-	if reqBody.TargetEndpoint == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "TargetEndpoint is required"})
-	}
-
-	// Unmarshal the hardcoded template.
-	var templateData map[string]interface{}
-	if err := json.Unmarshal([]byte(comfyTemplate), &templateData); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to unmarshal comfy template"})
-	}
-
-	// seedNodes := []string{"109", "157", "248", "260"}
-
-	// // Generate a random number between 1 and 18446744073709519872
-	// seed := math.MaxUint64 * rand.Float64()
-
-	// log.Default().Printf("Using seed: %v", seed)
-
-	// for _, node := range seedNodes {
-	// 	if nodeData, ok := templateData[node].(map[string]interface{}); ok {
-	// 		if inputs, ok := nodeData["inputs"].(map[string]interface{}); ok {
-	// 			inputs["noise_seed"] = seed
-	// 		} else {
-	// 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid template structure in node " + node})
-	// 		}
-	// 	} else {
-	// 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Node " + node + " not found in template"})
-	// 	}
-	// }
-
-	// Generate UUID for the image filename
-	uuid := generateUUID()
-	if node9, ok := templateData["9"].(map[string]interface{}); ok {
-		if inputs, ok := node9["inputs"].(map[string]interface{}); ok {
-			inputs["filename_prefix"] = uuid
-		} else {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid template structure in node 9"})
-		}
-	} else {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Node 9 not found in template"})
-	}
-
-	// Update prompt nodes
-	if node6, ok := templateData["6"].(map[string]interface{}); ok {
-		if inputs, ok := node6["inputs"].(map[string]interface{}); ok {
-			inputs["text"] = reqBody.Prompt
-		} else {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid template structure in node 6"})
-		}
-	} else {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Node 6 not found in template"})
-	}
-
-	// if node106, ok := templateData["106"].(map[string]interface{}); ok {
-	// 	if inputs, ok := node106["inputs"].(map[string]interface{}); ok {
-	// 		inputs["clip_l"] = reqBody.Prompt
-	// 		inputs["t5xxl"] = reqBody.Prompt
-	// 	} else {
-	// 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid template structure in node 106"})
-	// 	}
-	// }
-
-	// if node189, ok := templateData["189"].(map[string]interface{}); ok {
-	// 	if inputs, ok := node189["inputs"].(map[string]interface{}); ok {
-	// 		inputs["text"] = reqBody.Prompt
-	// 	} else {
-	// 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Invalid template structure in node 189"})
-	// 	}
-	// }
-
-	payload := map[string]interface{}{
-		"prompt": templateData,
-	}
-
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to marshal updated template"})
-	}
-
-	// Send request to ComfyUI
-	proxyReq, err := http.NewRequest("POST", reqBody.TargetEndpoint, bytes.NewReader(jsonData))
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create request to target endpoint"})
-	}
-	proxyReq.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 300 * time.Second}
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Error making request to target endpoint: %v", err)})
-	}
-	defer resp.Body.Close()
-
-	// Set up timeout context
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	baseURL := reqBody.TargetEndpoint[:strings.LastIndex(reqBody.TargetEndpoint, "/")]
-	imageURL := fmt.Sprintf("%s/view?filename=%s_00001_.png&subfolder=&type=output", baseURL, uuid)
-
-	log.Default().Printf("Waiting for image at %s", imageURL)
-
-	// Keep checking for the image until timeout
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return c.JSON(http.StatusGatewayTimeout, map[string]string{"error": "Timeout waiting for image generation"})
-		case <-ticker.C:
-			imgResp, err := http.Get(imageURL)
-			if err != nil {
-				continue
-			}
-
-			if imgResp.StatusCode == http.StatusOK {
-				defer imgResp.Body.Close()
-				c.Response().Header().Set("Content-Type", imgResp.Header.Get("Content-Type"))
-
-				return c.Stream(http.StatusOK, imgResp.Header.Get("Content-Type"), imgResp.Body)
-			}
-			imgResp.Body.Close()
-		}
-	}
-}
-
-func generateUUID() string {
-	return uuid.New().String()
-}

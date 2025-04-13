@@ -10,8 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"manifold/internal/sefii"
 	"net/http"
 	"os"
 	"os/exec"
@@ -22,13 +20,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
 	"github.com/pterm/pterm"
+
+	"manifold/internal/sefii"
 )
 
 //go:embed sandbox/Dockerfile
 var sandboxDockerfile string
 
-// downloadModelFile downloads a file from a URL to a local filepath
-func downloadModelFile(url, filePath string) error {
+// downloadFile downloads a file from a URL to a local filepath.
+// It creates parent directories if they don't exist.
+func downloadFile(url, filePath string) error {
 	// Create all parent directories if they don't exist
 	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
 		return fmt.Errorf("failed to create directories: %w", err)
@@ -36,7 +37,7 @@ func downloadModelFile(url, filePath string) error {
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to download from %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
@@ -46,12 +47,16 @@ func downloadModelFile(url, filePath string) error {
 
 	out, err := os.Create(filePath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create file %s: %w", filePath, err)
 	}
 	defer out.Close()
 
 	_, err = io.Copy(out, resp.Body)
-	return err
+	if err != nil {
+		return fmt.Errorf("failed to write file %s: %w", filePath, err)
+	}
+
+	return nil
 }
 
 // downloadModels downloads required reranker and embedding models
@@ -74,7 +79,7 @@ func downloadModels(config *Config) error {
 		}
 
 		pterm.Info.Printf("Downloading model from %s\n", url)
-		if err := downloadModelFile(url, filePath); err != nil {
+		if err := downloadFile(url, filePath); err != nil {
 			return fmt.Errorf("failed to download model %s: %w", url, err)
 		}
 		pterm.Success.Printf("Successfully downloaded model to %s\n", filePath)
@@ -83,68 +88,53 @@ func downloadModels(config *Config) error {
 	return nil
 }
 
-// downloadLlamaBinary downloads a file from a URL to a local filepath
-func downloadLlamaBinary(url, filepath string) error {
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("bad status: %s", resp.Status)
-	}
-
-	out, err := os.Create(filepath)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, resp.Body)
-	return err
-}
-
-// unzipLlamaBinary extracts a zip archive to a destination directory
+// unzipLlamaBinary extracts a zip archive to a destination directory.
+// It ensures all paths are properly sanitized to prevent path traversal attacks.
 func unzipLlamaBinary(src, dest string) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open zip file: %w", err)
 	}
 	defer r.Close()
 
 	for _, f := range r.File {
-		// Ensure extracted path is within destination directory
+		// Ensure extracted path is within destination directory (prevent path traversal)
 		path := filepath.Join(dest, f.Name)
 		if !strings.HasPrefix(path, filepath.Clean(dest)+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path in zip: %s", f.Name)
 		}
 
+		// Create directory if needed
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(path, os.ModePerm)
+			if err := os.MkdirAll(path, os.ModePerm); err != nil {
+				return fmt.Errorf("failed to create directory: %w", err)
+			}
 			continue
 		}
 
+		// Create parent directories if needed
 		if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
-			return err
+			return fmt.Errorf("failed to create parent directory: %w", err)
 		}
 
+		// Create file
 		outFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create output file: %w", err)
 		}
 
+		// Extract content
 		rc, err := f.Open()
 		if err != nil {
 			outFile.Close()
-			return err
+			return fmt.Errorf("failed to open file in archive: %w", err)
 		}
 
 		_, err = io.Copy(outFile, rc)
 		outFile.Close()
 		rc.Close()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to extract file: %w", err)
 		}
 	}
 	return nil
@@ -306,7 +296,7 @@ func InitializeLlamaCpp(config *Config) error {
 
 	// Download and extract llama.cpp
 	llamaFilePath := filepath.Join(llamaCppDir, "llama.zip")
-	if err := downloadLlamaBinary(llamaDownloadURL, llamaFilePath); err != nil {
+	if err := downloadFile(llamaDownloadURL, llamaFilePath); err != nil {
 		return fmt.Errorf("failed to download llama.cpp: %w", err)
 	}
 
@@ -606,7 +596,7 @@ func ScanGGUFModels(modelsDir string) ([]LanguageModel, error) {
 			modelName := entry.Name()
 			modelDir := filepath.Join(ggufPath, modelName)
 
-			files, err := ioutil.ReadDir(modelDir)
+			files, err := os.ReadDir(modelDir)
 			if err != nil {
 				pterm.Error.Printf("Failed to read directory %s: %v\n", modelDir, err)
 				continue

@@ -217,7 +217,7 @@ const bgVariant = BackgroundVariant.Dots;
 // --- STATE ---
 
 // Destructure fitView along with other methods
-const { findNode, getNodes, getEdges, toObject, fromObject, fitView } = useVueFlow();
+const { findNode, getNodes, getEdges, toObject, fromObject, fitView, updateNodeData } = useVueFlow();
 const nodes = ref<GraphNode[]>([]);
 const edges = ref<GraphEdge[]>([]);
 const defaultEdgeType = ref<string>('bezier'); // Set the default edge type
@@ -337,25 +337,25 @@ function onConnect(params: Connection) {
 
   edges.value = addEdge(newEdge, edges.value) as GraphEdge[];
 
-  if (nodes.value) {
-    const targetNode = nodes.value.find((node) => node.id === params.target);
+  // Only update target node if target handle is 'input'
+  if (params.targetHandle === 'input') {
+    const targetNode = findNode(params.target);
     if (targetNode) {
-      if (params.targetHandle === 'input') {
-        let connectedTo = targetNode.data.connectedTo || [];
-        if (!Array.isArray(connectedTo)) {
-          connectedTo = [connectedTo];
-        }
-        if (!connectedTo.includes(params.source)) {
-          connectedTo.push(params.source);
-        }
-        targetNode.data = {
-          ...targetNode.data,
-          connectedTo,
-        };
-        nodes.value = nodes.value.map((node) =>
-          node.id === targetNode.id ? { ...node, data: { ...node.data } } : node
-        );
+      let connectedTo = targetNode.data?.connectedTo || [];
+      if (!Array.isArray(connectedTo)) {
+        connectedTo = [connectedTo];
       }
+      
+      // Only add source if not already connected
+      if (!connectedTo.includes(params.source)) {
+        connectedTo.push(params.source);
+      }
+      
+      // Use updateNodeData to update the node
+      updateNodeData(params.target, {
+        ...targetNode.data,
+        connectedTo
+      });
     }
   }
 }

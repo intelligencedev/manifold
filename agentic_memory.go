@@ -117,7 +117,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	}
 
 	// 4. Generate links for the new note.
-	relatedIDs, err := ae.generateLinks(ctx, newID, 5, config.Completions.DefaultHost, config.Completions.APIKey)
+	relatedIDs, err := ae.generateLinks(ctx, newID, 5)
 	if err != nil {
 		log.Printf("AgenticMemory: Failed to generate links: %v", err)
 	} else {
@@ -134,7 +134,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 
 // generateLinks performs a vector search to find candidate related memory notes.
 // In this example, we simply return the candidate IDs.
-func (ae *AgenticEngine) generateLinks(ctx context.Context, newMemoryID int64, k int, completionsHost, completionsAPIKey string) ([]int64, error) {
+func (ae *AgenticEngine) generateLinks(ctx context.Context, newMemoryID int64, k int) ([]int64, error) {
 	// Retrieve new note embedding and content.
 	var newEmbedding pgvector.Vector
 	var newContent string

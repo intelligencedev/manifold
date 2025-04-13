@@ -594,7 +594,7 @@ func agentHandler(config *Config) func(args AgentArgs) (*mcp.ToolResponse, error
 				if !validation.ContinueWithPlan {
 					log.Printf("Validation suggests changing course after step %d", idx+1)
 
-					if validation.AdditionalSteps != nil && len(validation.AdditionalSteps) > 0 {
+					if len(validation.AdditionalSteps) > 0 {
 						// Add the new steps to our plan
 						insertPoint := idx + 1
 						newSteps := make([]PlanStep, 0, len(plan.Steps)+len(validation.AdditionalSteps))
@@ -1388,7 +1388,7 @@ func getFileInfoTool(args GetFileInfoArgs) (string, error) {
 }
 
 // list_allowed_directories tool
-func listAllowedDirectoriesTool(args ListAllowedDirectoriesArgs) (string, error) {
+func listAllowedDirectoriesTool(_ ListAllowedDirectoriesArgs) (string, error) {
 	// For demonstration
 	return "All directories are allowed.", nil
 }

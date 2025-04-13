@@ -1,4 +1,4 @@
-// manifold/integrations.go
+// Package main provides the main entry point for the application and integrations with external services like Datadog.
 package main
 
 import (
@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// datadogHandler handles requests to interact with Datadog APIs.
 func datadogHandler(c echo.Context) error {
 	span := trace.SpanFromContext(c.Request().Context())
 	defer span.End()
@@ -34,40 +35,48 @@ func datadogHandler(c echo.Context) error {
 		"apiKeyAuth": {Key: reqBody.APIKey},
 		"appKeyAuth": {Key: reqBody.AppKey},
 	})
-	configDD := datadog.NewConfiguration()
-	configDD.SetUnstableOperationEnabled("v2.ListLogs", true)
-	configDD.SetUnstableOperationEnabled("v2.QueryTimeseriesData", true)
-	configDD.SetUnstableOperationEnabled("v2.ListIncidents", true)
-	if reqBody.Site != "" {
-		configDD.Servers = datadog.ServerConfigurations{{URL: "https://api." + reqBody.Site}}
-	}
+	configDD := configureDatadogClient(reqBody.Site)
 	ddClient := datadog.NewAPIClient(configDD)
 
-	var apiResponse interface{}
-	var err error
-	switch reqBody.Operation {
-	case "getLogs":
-		apiResponse, err = getLogs(ctxDD, ddClient, reqBody)
-	case "getMetrics":
-		apiResponse, err = getMetrics(ctxDD, ddClient, reqBody)
-	case "listMonitors":
-		apiResponse, err = listMonitors(ctxDD, ddClient)
-	case "listIncidents":
-		apiResponse, err = listIncidents(ctxDD, ddClient)
-	case "getEvents":
-		apiResponse, err = getEvents(ctxDD, ddClient, reqBody)
-	default:
-		err = fmt.Errorf("unsupported operation: %s", reqBody.Operation)
-	}
+	apiResponse, err := handleDatadogOperation(ctxDD, ddClient, reqBody)
 	if err != nil {
 		span.RecordError(err)
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Error calling Datadog API: %v", err)})
 	}
 
-	response := DatadogNodeResponse{}
-	response.Result.Output = apiResponse
+	response := DatadogNodeResponse{Result: struct {
+		Output interface{} `json:"output"`
+	}{Output: apiResponse}}
 	span.SetAttributes(attribute.String("datadog.operation", reqBody.Operation))
 	return c.JSON(http.StatusOK, response)
+}
+func configureDatadogClient(site string) *datadog.Configuration {
+	config := datadog.NewConfiguration()
+	config.SetUnstableOperationEnabled("v2.ListLogs", true)
+	config.SetUnstableOperationEnabled("v2.QueryTimeseriesData", true)
+	config.SetUnstableOperationEnabled("v2.ListIncidents", true)
+	if site != "" {
+		config.Servers = datadog.ServerConfigurations{{URL: "https://api." + site}}
+	}
+	return config
+}
+
+// handleDatadogOperation routes the operation to the appropriate handler function.
+func handleDatadogOperation(ctx context.Context, ddClient *datadog.APIClient, reqBody DatadogNodeRequest) (interface{}, error) {
+	switch reqBody.Operation {
+	case "getLogs":
+		return getLogs(ctx, ddClient, reqBody)
+	case "getMetrics":
+		return getMetrics(ctx, ddClient, reqBody)
+	case "listMonitors":
+		return listMonitors(ctx, ddClient)
+	case "listIncidents":
+		return listIncidents(ctx, ddClient)
+	case "getEvents":
+		return getEvents(ctx, ddClient, reqBody)
+	default:
+		return nil, fmt.Errorf("unsupported operation: %s", reqBody.Operation)
+	}
 }
 
 // getLogs fetches logs from Datadog based on the provided request parameters.
@@ -102,19 +111,19 @@ func getLogs(ctx context.Context, ddClient *datadog.APIClient, reqBody DatadogNo
 	return dedupedLogs, nil
 }
 
+// deduplicateLogs removes duplicate logs based on a combination of keys.
 func deduplicateLogs(logs []datadogV2.Log) []datadogV2.Log {
 	seen := make(map[string]bool)
-	deduped := []datadogV2.Log{}
+	var deduped []datadogV2.Log
 
 	for _, log := range logs {
-		// Create a unique key based on relevant fields
 		attributes, ok := log.GetAttributesOk()
 		if !ok {
-			continue // or handle the error appropriately
+			continue
 		}
 		message, ok := attributes.GetMessageOk()
 		if !ok {
-			continue // or handle the error appropriately
+			continue
 		}
 		host, ok := attributes.GetHostOk()
 		if !ok {
@@ -126,8 +135,7 @@ func deduplicateLogs(logs []datadogV2.Log) []datadogV2.Log {
 		}
 
 		key := *message + *host + *service
-
-		if _, ok := seen[key]; !ok {
+		if !seen[key] {
 			seen[key] = true
 			deduped = append(deduped, log)
 		}
@@ -172,9 +180,7 @@ func listMonitors(ctx context.Context, ddClient *datadog.APIClient) (interface{}
 }
 
 // listIncidents fetches incidents from Datadog.
-// Note: You need to implement this function based on Datadog's API for incidents.
 func listIncidents(ctx context.Context, ddClient *datadog.APIClient) (interface{}, error) {
-	// Example implementation (adjust based on actual API)
 	resp, r, err := datadogV2.NewIncidentsApi(ddClient).ListIncidents(ctx, *datadogV2.NewListIncidentsOptionalParameters())
 	if err != nil {
 		log.Printf("Error when calling `IncidentsApi.ListIncidents`: %v\n", err)
@@ -212,46 +218,35 @@ func getEvents(ctx context.Context, ddClient *datadog.APIClient, reqBody Datadog
 }
 
 // parseTimeframe parses the 'fromTime' and 'toTime' strings into time.Time objects.
-// Supports both relative (e.g., "now-15m") and absolute (ISO 8601) formats.
 func parseTimeframe(fromStr, toStr string) (time.Time, time.Time, error) {
 	now := time.Now()
 
-	// Parse 'fromTime'
-	var from time.Time
-	var err error
-	if strings.HasPrefix(fromStr, "now") {
-		from, err = parseRelativeTime(fromStr, now)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("invalid 'fromTime' timestamp: %v", err)
-		}
-	} else if fromStr != "" {
-		from, err = time.Parse(time.RFC3339, fromStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("invalid 'fromTime' timestamp: %v", err)
-		}
-	} else {
-		// Default 'fromTime' if not provided
-		from = now.Add(-15 * time.Minute)
+	from, err := parseTime(fromStr, now, -15*time.Minute)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid 'fromTime' timestamp: %v", err)
 	}
 
-	// Parse 'toTime'
-	var to time.Time
-	if strings.HasPrefix(toStr, "now") {
-		to, err = parseRelativeTime(toStr, now)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("invalid 'toTime' timestamp: %v", err)
-		}
-	} else if toStr != "" {
-		to, err = time.Parse(time.RFC3339, toStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("invalid 'toTime' timestamp: %v", err)
-		}
-	} else {
-		// Default 'toTime' if not provided
-		to = now
+	to, err := parseTime(toStr, now, 0)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid 'toTime' timestamp: %v", err)
 	}
 
 	return from, to, nil
+}
+
+// parseTime parses a single time string, supporting relative and absolute formats.
+func parseTime(timeStr string, now time.Time, defaultOffset time.Duration) (time.Time, error) {
+	if timeStr == "" {
+		return now.Add(defaultOffset), nil
+	}
+	if strings.HasPrefix(timeStr, "now") {
+		return parseRelativeTime(timeStr, now)
+	}
+	parsedTime, err := time.Parse(time.RFC3339, timeStr)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return parsedTime, nil
 }
 
 // parseRelativeTime parses relative time strings like "now-15m", "now-1h", etc.
@@ -264,7 +259,6 @@ func parseRelativeTime(relativeStr string, now time.Time) (time.Time, error) {
 	}
 
 	durationStr := relativeStr[4:]
-	// Extract the numeric value and the unit
 	var value int
 	var unit rune
 	_, err := fmt.Sscanf(durationStr, "%d%c", &value, &unit)

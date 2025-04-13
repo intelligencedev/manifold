@@ -1,3 +1,4 @@
+// Package main provides the main entry point for the application and defines handlers for SEFII operations.
 package main
 
 import (
@@ -7,18 +8,20 @@ import (
 	"fmt"
 	"net/http"
 
-	"manifold/internal/sefii"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
+
+	"manifold/internal/sefii"
 )
 
+// EmbeddingRequest represents a request to generate embeddings.
 type EmbeddingRequest struct {
 	Input          []string `json:"input"`
 	Model          string   `json:"model"`
 	EncodingFormat string   `json:"encoding_format"`
 }
 
+// EmbeddingResponse represents the response from an embedding generation request.
 type EmbeddingResponse struct {
 	Object string       `json:"object"`
 	Data   []Embedding  `json:"data"`
@@ -26,91 +29,90 @@ type EmbeddingResponse struct {
 	Usage  UsageMetrics `json:"usage"`
 }
 
+// Embedding represents a single embedding vector.
 type Embedding struct {
 	Object    string    `json:"object"`
 	Embedding []float64 `json:"embedding"`
 	Index     int       `json:"index"`
 }
 
+// UsageMetrics provides token usage statistics for an embedding request.
 type UsageMetrics struct {
 	PromptTokens int `json:"prompt_tokens"`
 	TotalTokens  int `json:"total_tokens"`
 }
 
+// SummarizeOutput represents the output of a summarization operation.
 type SummarizeOutput struct {
 	Summary  string   `json:"summary"`
 	Keywords []string `json:"keywords,omitempty"`
 }
 
-// Connect takes a connection string and returns a connection to the database
+// Connect establishes a connection to the database using the provided connection string.
 func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
 	conn, err := pgx.Connect(ctx, connStr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 	return conn, nil
 }
 
-// GenerateEmbeddings generates embeddings for a given text
-func GenerateEmbeddings(host string, apiKey string, chunks []string) ([][]float32, error) {
+// GenerateEmbeddings generates embeddings for the given text chunks.
+func GenerateEmbeddings(host, apiKey string, chunks []string) ([][]float32, error) {
 	embeddingRequest := EmbeddingRequest{
 		Input:          chunks,
 		Model:          "nomic-embed-text-v1.5.Q8_0",
 		EncodingFormat: "float",
 	}
 
-	embeddings, err := FetchEmbeddings(host, embeddingRequest, apiKey)
-	if err != nil {
-		panic(err)
-	}
-
-	return embeddings, nil
+	return FetchEmbeddings(host, embeddingRequest, apiKey)
 }
 
+// FetchEmbeddings sends a request to the embedding service and parses the response.
 func FetchEmbeddings(host string, request EmbeddingRequest, apiKey string) ([][]float32, error) {
 	b, err := json.Marshal(request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to marshal embedding request: %w", err)
 	}
-
-	// Print the request for debugging purposes.
-	fmt.Println(string(b))
 
 	req, err := http.NewRequest("POST", host, bytes.NewBuffer(b))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
-
 	req.Header.Add("Content-Type", "application/json")
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to execute HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("bad status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
-	var result map[string]interface{}
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	if err != nil {
-		return nil, err
+	var result struct {
+		Data []struct {
+			Embedding []float64 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	var embeddings [][]float32
-	for _, item := range result["data"].([]interface{}) {
+	for _, item := range result.Data {
 		var embedding []float32
-		for _, v := range item.(map[string]interface{})["embedding"].([]interface{}) {
-			embedding = append(embedding, float32(v.(float64)))
+		for _, v := range item.Embedding {
+			embedding = append(embedding, float32(v))
 		}
 		embeddings = append(embeddings, embedding)
 	}
 	return embeddings, nil
 }
 
+// sefiiIngestHandler handles document ingestion requests.
 func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req struct {
@@ -119,7 +121,7 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 			ChunkSize    int    `json:"chunk_size"`
 			ChunkOverlap int    `json:"chunk_overlap"`
 			FilePath     string `json:"file_path"`
-			DocTitle     string `json:"doc_title"` // new metadata
+			DocTitle     string `json:"doc_title"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -143,16 +145,15 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
 		}
 		defer conn.Close(ctx)
-		engine := sefii.NewEngine(conn)
 
-		// Ingest document with chunk-level summarization
+		engine := sefii.NewEngine(conn)
 		err = engine.IngestDocument(
 			ctx,
 			req.Text,
 			req.Language,
 			req.FilePath,
 			req.DocTitle,
-			[]string{req.FilePath}, // file path as first keyword
+			[]string{req.FilePath},
 			config.Embeddings.Host,
 			config.Embeddings.APIKey,
 			config.Completions.DefaultHost,
@@ -170,6 +171,7 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 	}
 }
 
+// sefiiSearchHandler handles search requests for document chunks.
 func sefiiSearchHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req struct {
@@ -186,6 +188,7 @@ func sefiiSearchHandler(config *Config) echo.HandlerFunc {
 		if req.Limit == 0 {
 			req.Limit = 10
 		}
+
 		ctx := c.Request().Context()
 		conn, err := Connect(ctx, config.Database.ConnectionString)
 		if err != nil {
@@ -194,7 +197,6 @@ func sefiiSearchHandler(config *Config) echo.HandlerFunc {
 		defer conn.Close(ctx)
 
 		engine := sefii.NewEngine(conn)
-
 		results, err := engine.SearchChunks(ctx, req.Query, req.FilePath, req.Limit, config.Embeddings.Host, config.Embeddings.APIKey)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to search chunks"})
@@ -204,6 +206,7 @@ func sefiiSearchHandler(config *Config) echo.HandlerFunc {
 	}
 }
 
+// sefiiCombinedRetrieveHandler handles combined retrieval requests for document chunks and full documents.
 func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req struct {
@@ -215,8 +218,8 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 			MergeMode        string  `json:"merge_mode"`
 			ReturnFullDocs   bool    `json:"return_full_docs"`
 			Rerank           bool    `json:"rerank"`
-			Alpha            float64 `json:"alpha"` // New param for vector weight
-			Beta             float64 `json:"beta"`  // New param for keyword weight
+			Alpha            float64 `json:"alpha"`
+			Beta             float64 `json:"beta"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -227,7 +230,6 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 		if req.MergeMode == "" {
 			req.MergeMode = "union"
 		}
-		// Set default alpha/beta if not provided
 		if req.Alpha == 0 {
 			req.Alpha = 0.7
 		}
@@ -241,26 +243,13 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
 		}
 		defer conn.Close(ctx)
-		engine := sefii.NewEngine(conn)
 
-		chunks, err := engine.SearchRelevantChunks(ctx,
-			req.Query,
-			req.FilePathFilter,
-			req.Limit,
-			req.UseInvertedIndex,
-			req.UseVectorSearch,
-			config.Embeddings.Host,
-			config.Embeddings.APIKey,
-			config.Embeddings.SearchPrefix,
-			req.MergeMode,
-			req.Alpha, // Pass alpha
-			req.Beta,  // Pass beta
-		)
+		engine := sefii.NewEngine(conn)
+		chunks, err := engine.SearchRelevantChunks(ctx, req.Query, req.FilePathFilter, req.Limit, req.UseInvertedIndex, req.UseVectorSearch, config.Embeddings.Host, config.Embeddings.APIKey, config.Embeddings.SearchPrefix, req.MergeMode, req.Alpha, req.Beta)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		}
 
-		// Rerank if requested
 		if req.Rerank {
 			chunks, _ = reRankChunks(ctx, config, req.Query, chunks)
 		}

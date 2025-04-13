@@ -71,6 +71,10 @@ export default function useTextNode(props, emit) {
       props.data.inputs.text = ''
       updateNodeData()
     }
+
+    // log the output
+    console.log('TextNode output:', props.data.outputs.result.output)
+    updateNodeData()
   }
   
   // Emit updated node data back to VueFlow

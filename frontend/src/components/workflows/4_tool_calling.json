@@ -1,513 +1,532 @@
 {
-    "nodes": [
-      {
-        "id": "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043",
-        "type": "agentNode",
-        "initialized": false,
-        "position": {
-          "x": 352,
-          "y": 96
-        },
-        "data": {
-          "type": "AgentNode",
-          "labelStyle": {
-            "fontWeight": "normal"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "endpoint": "http://localhost:32186/v1/chat/completions",
-            "api_key": "",
-            "model": "gpt-4o-mini",
-            "system_prompt": "Below is a list of tools and agent operations you can perform. Choose the best tool to answer the user's query. For example:\n\n      - Required Fields:\n      - \"tool\": The name of the tool you wish to execute. This can be one of:\n          \"agent\".\n      - \"args\": A JSON object containing the arguments required by the tool.\n      - Payload Examples:\n          { \"action\": \"execute\", \"tool\": \"agent\", \"args\": { \"query\": \"Your query here\", \"maxCalls\": 15 } }\n\n      You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.\n      ALWAYS use the following raw JSON structure (for example for the time tool): { \"action\": \"execute\", \"tool\": \"time\", \"args\": {} }\n      REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.",
-            "user_prompt": "NEVER respond using markdown. ONLY return the raw json, never fence your code or use markdown, as per your system instructions for the following:\n\n",
-            "max_completion_tokens": 8192,
-            "temperature": 0.3
-          },
-          "outputs": {
-            "response": "```json\n{\n  \"action\": \"execute\",\n  \"tool\": \"time\",\n  \"args\": {}\n}\n```",
-            "error": null
-          },
-          "models": [
-            "local",
-            "chatgpt-4o-latest",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "o1-mini",
-            "o1",
-            "o3-mini"
-          ],
-          "style": {
-            "border": "1px solid #666",
-            "borderRadius": "12px",
-            "backgroundColor": "#333",
-            "color": "#eee",
-            "width": "380px",
-            "height": "906px"
-          },
-          "_lastLocalProvider": "llama-server",
-          "selectedSystemPrompt": "tool_calling"
-        },
-        "style": {
-          "width": "380px",
-          "height": "906px"
-        }
+  "nodes": [
+    {
+      "id": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
+      "type": "responseNode",
+      "initialized": false,
+      "position": {
+        "x": 880,
+        "y": 96
       },
-      {
-        "id": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
-        "type": "responseNode",
-        "initialized": false,
-        "position": {
-          "x": 880,
-          "y": 96
+      "data": {
+        "type": "ResponseNode",
+        "labelStyle": {
+          "fontWeight": "normal"
         },
-        "data": {
-          "type": "ResponseNode",
-          "labelStyle": {
-            "fontWeight": "normal"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "response": "```json\n{\n  \"action\": \"execute\",\n  \"tool\": \"time\",\n  \"args\": {}\n}\n```"
-          },
-          "outputs": {
-            "result": {
-              "output": "```json\n{\n  \"action\": \"execute\",\n  \"tool\": \"time\",\n  \"args\": {}\n}\n```"
-            }
-          },
-          "style": {
-            "border": "1px solid #666",
-            "borderRadius": "12px",
-            "backgroundColor": "#333",
-            "color": "#eee",
-            "width": "624px",
-            "height": "400px"
-          },
-          "connectedTo": [
-            "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043"
-          ]
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "response": "{ \"action\": \"execute\", \"tool\": \"time\", \"args\": {} }"
         },
-        "style": {
-          "width": "671px",
-          "height": "256px"
-        }
-      },
-      {
-        "id": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
-        "type": "mcpClientNode",
-        "initialized": false,
-        "position": {
-          "x": 880,
-          "y": 368
-        },
-        "data": {
-          "style": {},
-          "type": "MCPClientNode",
-          "inputs": {
-            "command": ""
-          },
-          "outputs": {
-            "result": ""
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputHandleColor": "#777",
-          "outputHandleColor": "#777",
-          "connectedTo": [
-            "responseNode_3433e90b-151b-4488-80fb-834bb29a94de"
-          ]
-        }
-      },
-      {
-        "id": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
-        "type": "textNode",
-        "initialized": false,
-        "position": {
-          "x": 1232,
-          "y": 416
-        },
-        "data": {
-          "type": "TextNode",
-          "labelStyle": {
-            "fontWeight": "bold",
-            "textAlign": "center",
-            "marginBottom": "10px",
-            "fontSize": "16px"
-          },
-          "style": {
-            "border": "1px solid var(--node-border-color)",
-            "borderRadius": "12px",
-            "backgroundColor": "var(--node-bg-color)",
-            "color": "var(--node-text-color)",
-            "padding": "10px",
-            "width": "undefinedpx",
-            "height": "undefinedpx"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "text": ""
-          },
-          "outputs": {
-            "result": {
-              "output": ""
-            }
-          },
-          "connectedTo": [
-            "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274"
-          ]
-        },
-        "style": {
-          "width": "233px",
-          "height": "550px"
-        }
-      },
-      {
-        "id": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
-        "type": "agentNode",
-        "initialized": false,
-        "position": {
-          "x": 1584,
-          "y": 96
-        },
-        "data": {
-          "type": "AgentNode",
-          "labelStyle": {
-            "fontWeight": "normal"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "endpoint": "http://localhost:32186/v1/chat/completions",
-            "api_key": "",
-            "model": "gpt-4o-mini",
-            "system_prompt": "You are a data analysis expert. When working with data, focus on identifying patterns and outliers, considering statistical significance, and exploring causal relationships vs. correlations. Present your analysis with a clear narrative structure that connects data points to insights. Use hypothetical data visualization descriptions when relevant. Consider alternative interpretations of data and potential confounding variables. Clearly communicate limitations and assumptions in any analysis.",
-            "user_prompt": "Below is a query and the results. Repeat them in a friendly conversational tone:\n\n",
-            "max_completion_tokens": 8192,
-            "temperature": 0.6
-          },
-          "outputs": {
-            "response": "Hey there! Let me check that for you... It’s currently 3:23 PM. 😊 \n\nIs there anything else I can help you with?",
-            "error": null
-          },
-          "models": [
-            "local",
-            "chatgpt-4o-latest",
-            "gpt-4o",
-            "gpt-4o-mini",
-            "o1-mini",
-            "o1",
-            "o3-mini"
-          ],
-          "style": {
-            "border": "1px solid #666",
-            "borderRadius": "12px",
-            "backgroundColor": "#333",
-            "color": "#eee",
-            "width": "380px",
-            "height": "906px"
-          },
-          "_lastLocalProvider": "llama-server",
-          "selectedSystemPrompt": "data_analyst"
-        },
-        "style": {
-          "width": "380px",
-          "height": "906px"
-        }
-      },
-      {
-        "id": "responseNode_98cd26db-8795-4207-bc86-353d0edda6e6",
-        "type": "responseNode",
-        "initialized": false,
-        "position": {
-          "x": 2016,
-          "y": 112
-        },
-        "data": {
-          "type": "ResponseNode",
-          "labelStyle": {
-            "fontWeight": "normal"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "response": "Hey there! Let me check that for you... It’s currently 3:23 PM. 😊 \n\nIs there anything else I can help you with?"
-          },
-          "outputs": {
-            "result": {
-              "output": "Hey there! Let me check that for you... It’s currently 3:23 PM. 😊 \n\nIs there anything else I can help you with?"
-            }
-          },
-          "style": {
-            "border": "1px solid #666",
-            "borderRadius": "12px",
-            "backgroundColor": "#333",
-            "color": "#eee",
-            "width": "624px",
-            "height": "400px"
-          },
-          "connectedTo": [
-            "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8"
-          ]
-        },
-        "style": {
-          "width": "927px",
-          "height": "896px"
-        }
-      },
-      {
-        "id": "textNode_b8438edb-00ae-4772-898a-6073ae1ba442",
-        "type": "textNode",
-        "initialized": false,
-        "position": {
-          "x": 2016,
-          "y": -128
-        },
-        "data": {
-          "type": "TextNode",
-          "labelStyle": {
-            "fontWeight": "bold",
-            "textAlign": "center",
-            "marginBottom": "10px",
-            "fontSize": "16px"
-          },
-          "style": {
-            "border": "1px solid var(--node-border-color)",
-            "borderRadius": "12px",
-            "backgroundColor": "var(--node-bg-color)",
-            "color": "var(--node-text-color)",
-            "padding": "10px",
-            "width": "undefinedpx",
-            "height": "undefinedpx"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "text": "what time is it?"
-          },
-          "outputs": {
-            "result": {
-              "output": "what time is it?"
-            }
+        "outputs": {
+          "result": {
+            "output": "{ \"action\": \"execute\", \"tool\": \"time\", \"args\": {} }"
           }
         },
         "style": {
-          "width": "921px",
-          "height": "230px"
-        }
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "624px",
+          "height": "400px"
+        },
+        "connectedTo": [
+          "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043",
+          "agentNode_1f7067d9-1105-43a8-a68a-1cb82a4c625b"
+        ]
       },
-      {
-        "id": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
-        "type": "responseNode",
-        "initialized": false,
-        "position": {
-          "x": -400,
-          "y": 256
-        },
-        "data": {
-          "type": "ResponseNode",
-          "labelStyle": {
-            "fontWeight": "normal"
-          },
-          "hasInputs": true,
-          "hasOutputs": true,
-          "inputs": {
-            "response": "what time is it?"
-          },
-          "outputs": {
-            "result": {
-              "output": "what time is it?"
-            }
-          },
-          "style": {
-            "border": "1px solid #666",
-            "borderRadius": "12px",
-            "backgroundColor": "#333",
-            "color": "#eee",
-            "width": "624px",
-            "height": "400px"
-          },
-          "connectedTo": [
-            "textNode_b8438edb-00ae-4772-898a-6073ae1ba442"
-          ]
-        },
-        "style": {
-          "width": "671px",
-          "height": "256px"
-        }
+      "style": {
+        "width": "671px",
+        "height": "256px"
       }
-    ],
-    "edges": [
-      {
-        "id": "edge-0.341026529148054",
-        "type": "step",
-        "source": "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043",
-        "target": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
-        "sourceHandle": null,
-        "targetHandle": "input",
-        "data": {
-          "label": "New Edge"
-        },
-        "label": "",
-        "sourceX": 739.0002449015763,
-        "sourceY": 549.0003729576233,
-        "targetX": 873.0000102679915,
-        "targetY": 224.00009477378308,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
+    },
+    {
+      "id": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
+      "type": "mcpClientNode",
+      "initialized": false,
+      "position": {
+        "x": 880,
+        "y": 368
       },
-      {
-        "id": "edge-0.11407778161880944",
-        "type": "step",
-        "source": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
-        "target": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
-        "sourceHandle": "output",
-        "targetHandle": "input",
-        "data": {
-          "label": "New Edge"
+      "data": {
+        "style": {},
+        "type": "MCPClientNode",
+        "inputs": {
+          "command": "{\n  \"action\": \"execute\",\n  \"tool\": \"time\",\n  \"args\": {}\n}"
         },
-        "label": "",
-        "sourceX": 1558.0005358316976,
-        "sourceY": 224.00009477378308,
-        "targetX": 873.0000102679915,
-        "targetY": 482.0938481557889,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
-      },
-      {
-        "id": "edge-0.8802760444237966",
-        "type": "step",
-        "source": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
-        "target": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
-        "sourceHandle": "output",
-        "targetHandle": "input",
-        "data": {
-          "label": "New Edge"
+        "outputs": {
+          "result": {
+            "output": "{\n  \"content\": [\n    {\n      \"text\": \"2025-04-13T07:21:52-05:00\",\n      \"type\": \"text\"\n    }\n  ]\n}"
+          }
         },
-        "label": "",
-        "sourceX": 1192.1174034050346,
-        "sourceY": 482.0938481557889,
-        "targetX": 1227.9999811162102,
-        "targetY": 691.000225662953,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
-      },
-      {
-        "id": "edge-0.5652378592082774",
-        "type": "step",
-        "source": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
-        "target": "responseNode_98cd26db-8795-4207-bc86-353d0edda6e6",
-        "sourceHandle": null,
-        "targetHandle": "input",
-        "data": {
-          "label": "New Edge"
-        },
-        "label": "",
-        "sourceX": 1971.0004181600718,
-        "sourceY": 549.0003729576233,
-        "targetX": 2009.0000102679915,
-        "targetY": 560.0003926675098,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
-      },
-      {
-        "id": "edge-0.7383037995492431",
-        "type": "step",
-        "source": "textNode_b8438edb-00ae-4772-898a-6073ae1ba442",
-        "target": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
-        "sourceHandle": "output",
-        "targetHandle": "input",
-        "data": {
-          "label": "New Edge"
-        },
-        "label": "",
-        "sourceX": 2941.000445781634,
-        "sourceY": -12.999923283910363,
-        "targetX": -406.99998973200854,
-        "targetY": 384.0000947737831,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
-      },
-      {
-        "id": "edge-0.6345709164752011",
-        "type": "step",
-        "source": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
-        "target": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
-        "sourceHandle": "output",
-        "targetHandle": null,
-        "data": {
-          "label": "New Edge"
-        },
-        "label": "",
-        "sourceX": 278.00057914632146,
-        "sourceY": 384.0000947737831,
-        "targetX": 1577.0000102679915,
-        "targetY": 549.0003729576233,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
-      },
-      {
-        "id": "edge-0.6221092384721668",
-        "type": "step",
-        "source": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
-        "target": "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
-        "sourceHandle": "output",
-        "targetHandle": null,
-        "data": {
-          "label": "New Edge"
-        },
-        "label": "",
-        "sourceX": 1469.0003164226832,
-        "sourceY": 691.000225662953,
-        "targetX": 1577.0000102679915,
-        "targetY": 549.0003729576233,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
-      },
-      {
-        "id": "edge-0.23764757571623452",
-        "type": "step",
-        "source": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
-        "target": "agentNode_4f07d1b6-0787-46f8-8b54-4d8d2f8d6043",
-        "sourceHandle": "output",
-        "targetHandle": null,
-        "data": {
-          "label": "New Edge"
-        },
-        "label": "",
-        "sourceX": 278.00057914632146,
-        "sourceY": 384.0000947737831,
-        "targetX": 345.00001026799146,
-        "targetY": 549.0003729576233,
-        "animated": false,
-        "style": {
-          "strokeWidth": 1
-        }
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputHandleColor": "#777",
+        "outputHandleColor": "#777",
+        "connectedTo": [
+          "responseNode_3433e90b-151b-4488-80fb-834bb29a94de"
+        ]
       }
-    ],
-    "position": [
-      277.5449672413299,
-      231.422265493227
-    ],
-    "zoom": 0.4514967466201428,
-    "viewport": {
-      "x": 277.5449672413299,
-      "y": 231.422265493227,
-      "zoom": 0.4514967466201428
+    },
+    {
+      "id": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
+      "type": "textNode",
+      "initialized": false,
+      "position": {
+        "x": 1232,
+        "y": 416
+      },
+      "data": {
+        "type": "TextNode",
+        "labelStyle": {
+          "fontWeight": "bold",
+          "textAlign": "center",
+          "marginBottom": "10px",
+          "fontSize": "16px"
+        },
+        "style": {
+          "border": "1px solid var(--node-border-color)",
+          "borderRadius": "12px",
+          "backgroundColor": "var(--node-bg-color)",
+          "color": "var(--node-text-color)",
+          "padding": "10px",
+          "width": "undefinedpx",
+          "height": "undefinedpx"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "text": "{\n  \"tools\": [\n    {\n      \"description\": \"Agent that uses LLM to decide which tools to call\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxCalls\": {\n            \"description\": \"Maximum LLM calls allowed\",\n            \"type\": \"integer\"\n          },\n          \"query\": {\n            \"description\": \"User's query\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\",\n          \"maxCalls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"agent\"\n    },\n    {\n      \"description\": \"Performs basic mathematical operations\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"a\": {\n            \"description\": \"First number\",\n            \"type\": \"number\"\n          },\n          \"b\": {\n            \"description\": \"Second number\",\n            \"type\": \"number\"\n          },\n          \"operation\": {\n            \"description\": \"The mathematical operation to perform\",\n            \"enum\": [\n              \"add\",\n              \"subtract\",\n              \"multiply\",\n              \"divide\"\n            ],\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"operation\",\n          \"a\",\n          \"b\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"calculate\"\n    },\n    {\n      \"description\": \"Copies a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Copy directories recursively\",\n            \"type\": \"boolean\"\n          },\n          \"source\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"copy_file\"\n    },\n    {\n      \"description\": \"Creates a directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to create\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"create_directory\"\n    },\n    {\n      \"description\": \"Deletes a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to delete\",\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Delete recursively\",\n            \"type\": \"boolean\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_file\"\n    },\n    {\n      \"description\": \"Recursively lists the directory structure\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxDepth\": {\n            \"description\": \"Depth limit\",\n            \"type\": \"integer\"\n          },\n          \"path\": {\n            \"description\": \"Root directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"directory_tree\"\n    },\n    {\n      \"description\": \"Edits a file via search and replace\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"patchContent\": {\n            \"description\": \"Unified diff patch\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"File path\",\n            \"type\": \"string\"\n          },\n          \"replace\": {\n            \"description\": \"Replace text\",\n            \"type\": \"string\"\n          },\n          \"search\": {\n            \"description\": \"Search text\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"edit_file\"\n    },\n    {\n      \"description\": \"Formats Go code using go fmt\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go code to format\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"format_go_code\"\n    },\n    {\n      \"description\": \"Returns metadata for a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to file or directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_file_info\"\n    },\n    {\n      \"description\": \"Get the weather forecast\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"latitude\": {\n            \"description\": \"Latitude\",\n            \"type\": \"number\"\n          },\n          \"longitude\": {\n            \"description\": \"Longitude\",\n            \"type\": \"number\"\n          }\n        },\n        \"required\": [\n          \"longitude\",\n          \"latitude\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_weather\"\n    },\n    {\n      \"description\": \"Stages file changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fileList\": {\n            \"description\": \"List of files to add\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"fileList\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_add\"\n    },\n    {\n      \"description\": \"Switches or creates a new Git branch\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"branch\": {\n            \"type\": \"string\"\n          },\n          \"createNew\": {\n            \"description\": \"Create new branch?\",\n            \"type\": \"boolean\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"branch\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_checkout\"\n    },\n    {\n      \"description\": \"Clones a remote Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"repoUrl\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"repoUrl\",\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_clone\"\n    },\n    {\n      \"description\": \"Commits staged changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"message\": {\n            \"description\": \"Commit message\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"message\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_commit\"\n    },\n    {\n      \"description\": \"Shows Git diff between references\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fromRef\": {\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"toRef\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_diff\"\n    },\n    {\n      \"description\": \"Initializes a new Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory in which to initialize a Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_init\"\n    },\n    {\n      \"description\": \"Pulls changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_pull\"\n    },\n    {\n      \"description\": \"Pushes commits\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_push\"\n    },\n    {\n      \"description\": \"Shows Git status\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_status\"\n    },\n    {\n      \"description\": \"Builds a Go module\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go module\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_build\"\n    },\n    {\n      \"description\": \"Runs Go tests\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go tests\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_test\"\n    },\n    {\n      \"description\": \"Says hello to the provided name\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"name\": {\n            \"description\": \"The name to say hello to\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"name\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"hello\"\n    },\n    {\n      \"description\": \"Runs a code linter\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"linterName\": {\n            \"description\": \"Optional linter name\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Dir or file to lint\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"lint_code\"\n    },\n    {\n      \"description\": \"Lists directories allowed for access\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_allowed_directories\"\n    },\n    {\n      \"description\": \"Lists files and directories\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to list\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_directory\"\n    },\n    {\n      \"description\": \"Moves or renames a file/directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"description\": \"Destination path\",\n            \"type\": \"string\"\n          },\n          \"source\": {\n            \"description\": \"Source path\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"move_file\"\n    },\n    {\n      \"description\": \"Reads the entire contents of a text file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to the file to read\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_file\"\n    },\n    {\n      \"description\": \"Reads the contents of multiple files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"paths\": {\n            \"description\": \"List of file paths to read\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"paths\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_multiple_files\"\n    },\n    {\n      \"description\": \"Executes an arbitrary shell command\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"command\": {\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"dir\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"command\",\n          \"dir\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"run_shell_command\"\n    },\n    {\n      \"description\": \"Searches for a text pattern in files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Base path\",\n            \"type\": \"string\"\n          },\n          \"pattern\": {\n            \"description\": \"Text or regex pattern\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"pattern\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"search_files\"\n    },\n    {\n      \"description\": \"Returns the current time\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"format\": {\n            \"description\": \"Optional time format (default: RFC3339)\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"time\"\n    },\n    {\n      \"description\": \"Fetches and extracts content from web URLs\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"urls\": {\n            \"description\": \"List of URLs\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"urls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_content\"\n    },\n    {\n      \"description\": \"Performs a web search using selected backend\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"query\": {\n            \"type\": \"string\"\n          },\n          \"result_size\": {\n            \"type\": \"integer\"\n          },\n          \"search_backend\": {\n            \"type\": \"string\"\n          },\n          \"sxng_url\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_search\"\n    },\n    {\n      \"description\": \"Writes text content to a file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"content\": {\n            \"description\": \"Content to write into the file\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Path to the file to write\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"content\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"write_file\"\n    }\n  ]\n}\n\n{\n  \"tools\": [\n    {\n      \"description\": \"Agent that uses LLM to decide which tools to call\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxCalls\": {\n            \"description\": \"Maximum LLM calls allowed\",\n            \"type\": \"integer\"\n          },\n          \"query\": {\n            \"description\": \"User's query\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\",\n          \"maxCalls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"agent\"\n    },\n    {\n      \"description\": \"Performs basic mathematical operations\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"a\": {\n            \"description\": \"First number\",\n            \"type\": \"number\"\n          },\n          \"b\": {\n            \"description\": \"Second number\",\n            \"type\": \"number\"\n          },\n          \"operation\": {\n            \"description\": \"The mathematical operation to perform\",\n            \"enum\": [\n              \"add\",\n              \"subtract\",\n              \"multiply\",\n              \"divide\"\n            ],\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"operation\",\n          \"a\",\n          \"b\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"calculate\"\n    },\n    {\n      \"description\": \"Copies a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Copy directories recursively\",\n            \"type\": \"boolean\"\n          },\n          \"source\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"copy_file\"\n    },\n    {\n      \"description\": \"Creates a directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to create\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"create_directory\"\n    },\n    {\n      \"description\": \"Deletes a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to delete\",\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Delete recursively\",\n            \"type\": \"boolean\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_file\"\n    },\n    {\n      \"description\": \"Recursively lists the directory structure\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxDepth\": {\n            \"description\": \"Depth limit\",\n            \"type\": \"integer\"\n          },\n          \"path\": {\n            \"description\": \"Root directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"directory_tree\"\n    },\n    {\n      \"description\": \"Edits a file via search and replace\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"patchContent\": {\n            \"description\": \"Unified diff patch\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"File path\",\n            \"type\": \"string\"\n          },\n          \"replace\": {\n            \"description\": \"Replace text\",\n            \"type\": \"string\"\n          },\n          \"search\": {\n            \"description\": \"Search text\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"edit_file\"\n    },\n    {\n      \"description\": \"Formats Go code using go fmt\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go code to format\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"format_go_code\"\n    },\n    {\n      \"description\": \"Returns metadata for a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to file or directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_file_info\"\n    },\n    {\n      \"description\": \"Get the weather forecast\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"latitude\": {\n            \"description\": \"Latitude\",\n            \"type\": \"number\"\n          },\n          \"longitude\": {\n            \"description\": \"Longitude\",\n            \"type\": \"number\"\n          }\n        },\n        \"required\": [\n          \"longitude\",\n          \"latitude\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_weather\"\n    },\n    {\n      \"description\": \"Stages file changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fileList\": {\n            \"description\": \"List of files to add\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"fileList\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_add\"\n    },\n    {\n      \"description\": \"Switches or creates a new Git branch\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"branch\": {\n            \"type\": \"string\"\n          },\n          \"createNew\": {\n            \"description\": \"Create new branch?\",\n            \"type\": \"boolean\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"branch\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_checkout\"\n    },\n    {\n      \"description\": \"Clones a remote Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"repoUrl\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"repoUrl\",\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_clone\"\n    },\n    {\n      \"description\": \"Commits staged changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"message\": {\n            \"description\": \"Commit message\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"message\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_commit\"\n    },\n    {\n      \"description\": \"Shows Git diff between references\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fromRef\": {\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"toRef\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_diff\"\n    },\n    {\n      \"description\": \"Initializes a new Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory in which to initialize a Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_init\"\n    },\n    {\n      \"description\": \"Pulls changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_pull\"\n    },\n    {\n      \"description\": \"Pushes commits\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_push\"\n    },\n    {\n      \"description\": \"Shows Git status\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_status\"\n    },\n    {\n      \"description\": \"Builds a Go module\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go module\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_build\"\n    },\n    {\n      \"description\": \"Runs Go tests\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go tests\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_test\"\n    },\n    {\n      \"description\": \"Says hello to the provided name\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"name\": {\n            \"description\": \"The name to say hello to\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"name\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"hello\"\n    },\n    {\n      \"description\": \"Runs a code linter\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"linterName\": {\n            \"description\": \"Optional linter name\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Dir or file to lint\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"lint_code\"\n    },\n    {\n      \"description\": \"Lists directories allowed for access\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_allowed_directories\"\n    },\n    {\n      \"description\": \"Lists files and directories\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to list\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_directory\"\n    },\n    {\n      \"description\": \"Moves or renames a file/directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"description\": \"Destination path\",\n            \"type\": \"string\"\n          },\n          \"source\": {\n            \"description\": \"Source path\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"move_file\"\n    },\n    {\n      \"description\": \"Reads the entire contents of a text file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to the file to read\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_file\"\n    },\n    {\n      \"description\": \"Reads the contents of multiple files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"paths\": {\n            \"description\": \"List of file paths to read\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"paths\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_multiple_files\"\n    },\n    {\n      \"description\": \"Executes an arbitrary shell command\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"command\": {\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"dir\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"command\",\n          \"dir\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"run_shell_command\"\n    },\n    {\n      \"description\": \"Searches for a text pattern in files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Base path\",\n            \"type\": \"string\"\n          },\n          \"pattern\": {\n            \"description\": \"Text or regex pattern\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"pattern\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"search_files\"\n    },\n    {\n      \"description\": \"Returns the current time\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"format\": {\n            \"description\": \"Optional time format (default: RFC3339)\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"time\"\n    },\n    {\n      \"description\": \"Fetches and extracts content from web URLs\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"urls\": {\n            \"description\": \"List of URLs\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"urls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_content\"\n    },\n    {\n      \"description\": \"Performs a web search using selected backend\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"query\": {\n            \"type\": \"string\"\n          },\n          \"result_size\": {\n            \"type\": \"integer\"\n          },\n          \"search_backend\": {\n            \"type\": \"string\"\n          },\n          \"sxng_url\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_search\"\n    },\n    {\n      \"description\": \"Writes text content to a file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"content\": {\n            \"description\": \"Content to write into the file\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Path to the file to write\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"content\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"write_file\"\n    }\n  ]\n}\n\n{\n  \"content\": [\n    {\n      \"text\": \"2025-04-13T07:21:52-05:00\",\n      \"type\": \"text\"\n    }\n  ]\n}\n\n"
+        },
+        "outputs": {
+          "result": {
+            "output": "{\n  \"tools\": [\n    {\n      \"description\": \"Agent that uses LLM to decide which tools to call\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxCalls\": {\n            \"description\": \"Maximum LLM calls allowed\",\n            \"type\": \"integer\"\n          },\n          \"query\": {\n            \"description\": \"User's query\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\",\n          \"maxCalls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"agent\"\n    },\n    {\n      \"description\": \"Performs basic mathematical operations\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"a\": {\n            \"description\": \"First number\",\n            \"type\": \"number\"\n          },\n          \"b\": {\n            \"description\": \"Second number\",\n            \"type\": \"number\"\n          },\n          \"operation\": {\n            \"description\": \"The mathematical operation to perform\",\n            \"enum\": [\n              \"add\",\n              \"subtract\",\n              \"multiply\",\n              \"divide\"\n            ],\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"operation\",\n          \"a\",\n          \"b\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"calculate\"\n    },\n    {\n      \"description\": \"Copies a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Copy directories recursively\",\n            \"type\": \"boolean\"\n          },\n          \"source\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"copy_file\"\n    },\n    {\n      \"description\": \"Creates a directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to create\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"create_directory\"\n    },\n    {\n      \"description\": \"Deletes a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to delete\",\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Delete recursively\",\n            \"type\": \"boolean\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_file\"\n    },\n    {\n      \"description\": \"Recursively lists the directory structure\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxDepth\": {\n            \"description\": \"Depth limit\",\n            \"type\": \"integer\"\n          },\n          \"path\": {\n            \"description\": \"Root directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"directory_tree\"\n    },\n    {\n      \"description\": \"Edits a file via search and replace\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"patchContent\": {\n            \"description\": \"Unified diff patch\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"File path\",\n            \"type\": \"string\"\n          },\n          \"replace\": {\n            \"description\": \"Replace text\",\n            \"type\": \"string\"\n          },\n          \"search\": {\n            \"description\": \"Search text\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"edit_file\"\n    },\n    {\n      \"description\": \"Formats Go code using go fmt\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go code to format\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"format_go_code\"\n    },\n    {\n      \"description\": \"Returns metadata for a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to file or directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_file_info\"\n    },\n    {\n      \"description\": \"Get the weather forecast\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"latitude\": {\n            \"description\": \"Latitude\",\n            \"type\": \"number\"\n          },\n          \"longitude\": {\n            \"description\": \"Longitude\",\n            \"type\": \"number\"\n          }\n        },\n        \"required\": [\n          \"longitude\",\n          \"latitude\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_weather\"\n    },\n    {\n      \"description\": \"Stages file changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fileList\": {\n            \"description\": \"List of files to add\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"fileList\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_add\"\n    },\n    {\n      \"description\": \"Switches or creates a new Git branch\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"branch\": {\n            \"type\": \"string\"\n          },\n          \"createNew\": {\n            \"description\": \"Create new branch?\",\n            \"type\": \"boolean\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"branch\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_checkout\"\n    },\n    {\n      \"description\": \"Clones a remote Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"repoUrl\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"repoUrl\",\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_clone\"\n    },\n    {\n      \"description\": \"Commits staged changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"message\": {\n            \"description\": \"Commit message\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"message\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_commit\"\n    },\n    {\n      \"description\": \"Shows Git diff between references\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fromRef\": {\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"toRef\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_diff\"\n    },\n    {\n      \"description\": \"Initializes a new Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory in which to initialize a Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_init\"\n    },\n    {\n      \"description\": \"Pulls changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_pull\"\n    },\n    {\n      \"description\": \"Pushes commits\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_push\"\n    },\n    {\n      \"description\": \"Shows Git status\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_status\"\n    },\n    {\n      \"description\": \"Builds a Go module\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go module\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_build\"\n    },\n    {\n      \"description\": \"Runs Go tests\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go tests\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_test\"\n    },\n    {\n      \"description\": \"Says hello to the provided name\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"name\": {\n            \"description\": \"The name to say hello to\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"name\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"hello\"\n    },\n    {\n      \"description\": \"Runs a code linter\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"linterName\": {\n            \"description\": \"Optional linter name\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Dir or file to lint\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"lint_code\"\n    },\n    {\n      \"description\": \"Lists directories allowed for access\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_allowed_directories\"\n    },\n    {\n      \"description\": \"Lists files and directories\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to list\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_directory\"\n    },\n    {\n      \"description\": \"Moves or renames a file/directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"description\": \"Destination path\",\n            \"type\": \"string\"\n          },\n          \"source\": {\n            \"description\": \"Source path\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"move_file\"\n    },\n    {\n      \"description\": \"Reads the entire contents of a text file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to the file to read\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_file\"\n    },\n    {\n      \"description\": \"Reads the contents of multiple files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"paths\": {\n            \"description\": \"List of file paths to read\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"paths\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_multiple_files\"\n    },\n    {\n      \"description\": \"Executes an arbitrary shell command\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"command\": {\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"dir\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"command\",\n          \"dir\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"run_shell_command\"\n    },\n    {\n      \"description\": \"Searches for a text pattern in files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Base path\",\n            \"type\": \"string\"\n          },\n          \"pattern\": {\n            \"description\": \"Text or regex pattern\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"pattern\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"search_files\"\n    },\n    {\n      \"description\": \"Returns the current time\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"format\": {\n            \"description\": \"Optional time format (default: RFC3339)\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"time\"\n    },\n    {\n      \"description\": \"Fetches and extracts content from web URLs\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"urls\": {\n            \"description\": \"List of URLs\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"urls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_content\"\n    },\n    {\n      \"description\": \"Performs a web search using selected backend\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"query\": {\n            \"type\": \"string\"\n          },\n          \"result_size\": {\n            \"type\": \"integer\"\n          },\n          \"search_backend\": {\n            \"type\": \"string\"\n          },\n          \"sxng_url\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_search\"\n    },\n    {\n      \"description\": \"Writes text content to a file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"content\": {\n            \"description\": \"Content to write into the file\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Path to the file to write\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"content\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"write_file\"\n    }\n  ]\n}\n\n{\n  \"tools\": [\n    {\n      \"description\": \"Agent that uses LLM to decide which tools to call\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxCalls\": {\n            \"description\": \"Maximum LLM calls allowed\",\n            \"type\": \"integer\"\n          },\n          \"query\": {\n            \"description\": \"User's query\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\",\n          \"maxCalls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"agent\"\n    },\n    {\n      \"description\": \"Performs basic mathematical operations\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"a\": {\n            \"description\": \"First number\",\n            \"type\": \"number\"\n          },\n          \"b\": {\n            \"description\": \"Second number\",\n            \"type\": \"number\"\n          },\n          \"operation\": {\n            \"description\": \"The mathematical operation to perform\",\n            \"enum\": [\n              \"add\",\n              \"subtract\",\n              \"multiply\",\n              \"divide\"\n            ],\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"operation\",\n          \"a\",\n          \"b\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"calculate\"\n    },\n    {\n      \"description\": \"Copies a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Copy directories recursively\",\n            \"type\": \"boolean\"\n          },\n          \"source\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"copy_file\"\n    },\n    {\n      \"description\": \"Creates a directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to create\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"create_directory\"\n    },\n    {\n      \"description\": \"Deletes a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to delete\",\n            \"type\": \"string\"\n          },\n          \"recursive\": {\n            \"description\": \"Delete recursively\",\n            \"type\": \"boolean\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"delete_file\"\n    },\n    {\n      \"description\": \"Recursively lists the directory structure\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"maxDepth\": {\n            \"description\": \"Depth limit\",\n            \"type\": \"integer\"\n          },\n          \"path\": {\n            \"description\": \"Root directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"directory_tree\"\n    },\n    {\n      \"description\": \"Edits a file via search and replace\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"patchContent\": {\n            \"description\": \"Unified diff patch\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"File path\",\n            \"type\": \"string\"\n          },\n          \"replace\": {\n            \"description\": \"Replace text\",\n            \"type\": \"string\"\n          },\n          \"search\": {\n            \"description\": \"Search text\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"edit_file\"\n    },\n    {\n      \"description\": \"Formats Go code using go fmt\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go code to format\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"format_go_code\"\n    },\n    {\n      \"description\": \"Returns metadata for a file or directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to file or directory\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_file_info\"\n    },\n    {\n      \"description\": \"Get the weather forecast\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"latitude\": {\n            \"description\": \"Latitude\",\n            \"type\": \"number\"\n          },\n          \"longitude\": {\n            \"description\": \"Longitude\",\n            \"type\": \"number\"\n          }\n        },\n        \"required\": [\n          \"longitude\",\n          \"latitude\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"get_weather\"\n    },\n    {\n      \"description\": \"Stages file changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fileList\": {\n            \"description\": \"List of files to add\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"fileList\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_add\"\n    },\n    {\n      \"description\": \"Switches or creates a new Git branch\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"branch\": {\n            \"type\": \"string\"\n          },\n          \"createNew\": {\n            \"description\": \"Create new branch?\",\n            \"type\": \"boolean\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"branch\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_checkout\"\n    },\n    {\n      \"description\": \"Clones a remote Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"repoUrl\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"repoUrl\",\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_clone\"\n    },\n    {\n      \"description\": \"Commits staged changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"message\": {\n            \"description\": \"Commit message\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"message\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_commit\"\n    },\n    {\n      \"description\": \"Shows Git diff between references\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"fromRef\": {\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"type\": \"string\"\n          },\n          \"toRef\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_diff\"\n    },\n    {\n      \"description\": \"Initializes a new Git repository\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory in which to initialize a Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_init\"\n    },\n    {\n      \"description\": \"Pulls changes\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_pull\"\n    },\n    {\n      \"description\": \"Pushes commits\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_push\"\n    },\n    {\n      \"description\": \"Shows Git status\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Local path to an existing Git repo\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"git_status\"\n    },\n    {\n      \"description\": \"Builds a Go module\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go module\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_build\"\n    },\n    {\n      \"description\": \"Runs Go tests\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory of Go tests\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"go_test\"\n    },\n    {\n      \"description\": \"Says hello to the provided name\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"name\": {\n            \"description\": \"The name to say hello to\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"name\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"hello\"\n    },\n    {\n      \"description\": \"Runs a code linter\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"linterName\": {\n            \"description\": \"Optional linter name\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Dir or file to lint\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"lint_code\"\n    },\n    {\n      \"description\": \"Lists directories allowed for access\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {},\n        \"type\": \"object\"\n      },\n      \"name\": \"list_allowed_directories\"\n    },\n    {\n      \"description\": \"Lists files and directories\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Directory path to list\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"list_directory\"\n    },\n    {\n      \"description\": \"Moves or renames a file/directory\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"destination\": {\n            \"description\": \"Destination path\",\n            \"type\": \"string\"\n          },\n          \"source\": {\n            \"description\": \"Source path\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"source\",\n          \"destination\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"move_file\"\n    },\n    {\n      \"description\": \"Reads the entire contents of a text file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Path to the file to read\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_file\"\n    },\n    {\n      \"description\": \"Reads the contents of multiple files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"paths\": {\n            \"description\": \"List of file paths to read\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"paths\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"read_multiple_files\"\n    },\n    {\n      \"description\": \"Executes an arbitrary shell command\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"command\": {\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          },\n          \"dir\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"command\",\n          \"dir\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"run_shell_command\"\n    },\n    {\n      \"description\": \"Searches for a text pattern in files\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"path\": {\n            \"description\": \"Base path\",\n            \"type\": \"string\"\n          },\n          \"pattern\": {\n            \"description\": \"Text or regex pattern\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"pattern\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"search_files\"\n    },\n    {\n      \"description\": \"Returns the current time\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"format\": {\n            \"description\": \"Optional time format (default: RFC3339)\",\n            \"type\": \"string\"\n          }\n        },\n        \"type\": \"object\"\n      },\n      \"name\": \"time\"\n    },\n    {\n      \"description\": \"Fetches and extracts content from web URLs\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"urls\": {\n            \"description\": \"List of URLs\",\n            \"items\": {\n              \"type\": \"string\"\n            },\n            \"type\": \"array\"\n          }\n        },\n        \"required\": [\n          \"urls\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_content\"\n    },\n    {\n      \"description\": \"Performs a web search using selected backend\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"query\": {\n            \"type\": \"string\"\n          },\n          \"result_size\": {\n            \"type\": \"integer\"\n          },\n          \"search_backend\": {\n            \"type\": \"string\"\n          },\n          \"sxng_url\": {\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"query\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"web_search\"\n    },\n    {\n      \"description\": \"Writes text content to a file\",\n      \"inputSchema\": {\n        \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n        \"properties\": {\n          \"content\": {\n            \"description\": \"Content to write into the file\",\n            \"type\": \"string\"\n          },\n          \"path\": {\n            \"description\": \"Path to the file to write\",\n            \"type\": \"string\"\n          }\n        },\n        \"required\": [\n          \"path\",\n          \"content\"\n        ],\n        \"type\": \"object\"\n      },\n      \"name\": \"write_file\"\n    }\n  ]\n}\n\n{\n  \"content\": [\n    {\n      \"text\": \"2025-04-13T07:21:52-05:00\",\n      \"type\": \"text\"\n    }\n  ]\n}\n\n"
+          }
+        },
+        "connectedTo": [
+          "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274"
+        ],
+        "clearOnRun": false
+      },
+      "style": {
+        "width": "233px",
+        "height": "550px"
+      }
+    },
+    {
+      "id": "responseNode_98cd26db-8795-4207-bc86-353d0edda6e6",
+      "type": "responseNode",
+      "initialized": false,
+      "position": {
+        "x": 2016,
+        "y": 112
+      },
+      "data": {
+        "type": "ResponseNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "response": "Hey there! You asked, \"What time is it?\" and here's what I found for you:\n\nThe current time is **2025-04-13 at 07:21:52 AM** (in the time zone UTC-5). \n\nIf you need anything else, just let me know!"
+        },
+        "outputs": {
+          "result": {
+            "output": "Hey there! You asked, \"What time is it?\" and here's what I found for you:\n\nThe current time is **2025-04-13 at 07:21:52 AM** (in the time zone UTC-5). \n\nIf you need anything else, just let me know!"
+          }
+        },
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "624px",
+          "height": "400px"
+        },
+        "connectedTo": [
+          "agentNode_72a232b5-5788-47ed-8a20-b923f30679b8",
+          "agentNode_5820b029-e9be-4623-b07f-60b2db62758f"
+        ]
+      },
+      "style": {
+        "width": "927px",
+        "height": "896px"
+      }
+    },
+    {
+      "id": "textNode_b8438edb-00ae-4772-898a-6073ae1ba442",
+      "type": "textNode",
+      "initialized": false,
+      "position": {
+        "x": 2016,
+        "y": -128
+      },
+      "data": {
+        "type": "TextNode",
+        "labelStyle": {
+          "fontWeight": "bold",
+          "textAlign": "center",
+          "marginBottom": "10px",
+          "fontSize": "16px"
+        },
+        "style": {
+          "border": "1px solid var(--node-border-color)",
+          "borderRadius": "12px",
+          "backgroundColor": "var(--node-bg-color)",
+          "color": "var(--node-text-color)",
+          "padding": "10px",
+          "width": "undefinedpx",
+          "height": "undefinedpx"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "text": "what time is it?"
+        },
+        "outputs": {
+          "result": {
+            "output": "what time is it?"
+          }
+        },
+        "clearOnRun": false
+      },
+      "style": {
+        "width": "921px",
+        "height": "230px"
+      }
+    },
+    {
+      "id": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+      "type": "responseNode",
+      "initialized": false,
+      "position": {
+        "x": -400,
+        "y": 256
+      },
+      "data": {
+        "type": "ResponseNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "response": "what time is it?"
+        },
+        "outputs": {
+          "result": {
+            "output": "what time is it?"
+          }
+        },
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "624px",
+          "height": "400px"
+        },
+        "connectedTo": [
+          "textNode_b8438edb-00ae-4772-898a-6073ae1ba442"
+        ]
+      },
+      "style": {
+        "width": "671px",
+        "height": "256px"
+      }
+    },
+    {
+      "id": "agentNode_1f7067d9-1105-43a8-a68a-1cb82a4c625b",
+      "type": "agentNode",
+      "initialized": false,
+      "position": {
+        "x": 384,
+        "y": -16
+      },
+      "data": {
+        "type": "AgentNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "endpoint": "https://api.openai.com/v1/chat/completions",
+          "api_key": "",
+          "model": "gpt-4o-mini",
+          "system_prompt": "Below is a list of tools and agent operations you can perform. Choose the best tool to answer the user's query. For example:\n\n      - Required Fields:\n      - \"tool\": The name of the tool you wish to execute. This can be one of:\n          \"agent\".\n      - \"args\": A JSON object containing the arguments required by the tool.\n      - Payload Examples:\n          { \"action\": \"execute\", \"tool\": \"agent\", \"args\": { \"query\": \"Your query here\", \"maxCalls\": 15 } }\n\n      You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.\n      ALWAYS use the following raw JSON structure (for example for the time tool): { \"action\": \"execute\", \"tool\": \"time\", \"args\": {} }\n      REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.",
+          "user_prompt": "NEVER respond using markdown. ONLY return the raw json, never fence your code or use markdown, as per your system instructions for the following:\n\n",
+          "max_completion_tokens": 8192,
+          "temperature": 0.6
+        },
+        "outputs": {
+          "response": "{ \"action\": \"execute\", \"tool\": \"time\", \"args\": {} }",
+          "error": null
+        },
+        "models": [
+          "local",
+          "chatgpt-4o-latest",
+          "gpt-4o",
+          "gpt-4o-mini",
+          "o1-mini",
+          "o1",
+          "o3-mini"
+        ],
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "380px",
+          "height": "906px"
+        },
+        "selectedSystemPrompt": "tool_calling"
+      },
+      "style": {
+        "width": "380px",
+        "height": "906px"
+      }
+    },
+    {
+      "id": "agentNode_5820b029-e9be-4623-b07f-60b2db62758f",
+      "type": "agentNode",
+      "initialized": false,
+      "position": {
+        "x": 1584,
+        "y": 96
+      },
+      "data": {
+        "type": "AgentNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "endpoint": "https://api.openai.com/v1/chat/completions",
+          "api_key": "",
+          "model": "gpt-4o-mini",
+          "system_prompt": "You are a helpful assistant.",
+          "user_prompt": "Below is a query and the results. Repeat them in a friendly conversational tone:\n\n",
+          "max_completion_tokens": 8192,
+          "temperature": 0.6
+        },
+        "outputs": {
+          "response": "Hey there! You asked, \"What time is it?\" and here's what I found for you:\n\nThe current time is **2025-04-13 at 07:21:52 AM** (in the time zone UTC-5). \n\nIf you need anything else, just let me know!",
+          "error": null
+        },
+        "models": [
+          "local",
+          "chatgpt-4o-latest",
+          "gpt-4o",
+          "gpt-4o-mini",
+          "o1-mini",
+          "o1",
+          "o3-mini"
+        ],
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "380px",
+          "height": "906px"
+        }
+      },
+      "style": {
+        "width": "380px",
+        "height": "906px"
+      }
     }
+  ],
+  "edges": [
+    {
+      "id": "edge-0.11407778161880944",
+      "type": "step",
+      "source": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
+      "target": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
+      "sourceHandle": "output",
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 1557.999590788394,
+      "sourceY": 223.99992583699338,
+      "targetX": 873.0001741082997,
+      "targetY": 482.0936861758633,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.8802760444237966",
+      "type": "step",
+      "source": "mcpClientNode_173e0cc1-2194-44d4-97de-b0c4cf96d274",
+      "target": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
+      "sourceHandle": "output",
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 1192.117150331979,
+      "sourceY": 482.0936861758633,
+      "targetX": 1227.999906370502,
+      "targetY": 690.9999195298501,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.7383037995492431",
+      "type": "step",
+      "source": "textNode_b8438edb-00ae-4772-898a-6073ae1ba442",
+      "target": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+      "sourceHandle": "output",
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 2940.9993567233005,
+      "sourceY": -13.000074294946174,
+      "targetX": -406.999994871661,
+      "targetY": 383.9999258369934,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.25471914746225444",
+      "type": "smoothstep",
+      "source": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+      "target": "agentNode_1f7067d9-1105-43a8-a68a-1cb82a4c625b",
+      "sourceHandle": "output",
+      "targetHandle": null,
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 277.99965838037826,
+      "sourceY": 383.9999258369934,
+      "targetX": 377.000032083866,
+      "targetY": 436.99973180315834,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.23729728490685875",
+      "type": "smoothstep",
+      "source": "responseNode_1856e3af-282c-4f7b-b0d8-2ac1d1135bb8",
+      "target": "agentNode_5820b029-e9be-4623-b07f-60b2db62758f",
+      "sourceHandle": "output",
+      "targetHandle": null,
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 277.99965838037826,
+      "sourceY": 383.9999258369934,
+      "targetX": 1576.999984478666,
+      "targetY": 549.0000322779879,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.7793956219724485",
+      "type": "smoothstep",
+      "source": "textNode_2c1ca82f-438b-4378-9fe6-62d0aea0869f",
+      "target": "agentNode_5820b029-e9be-4623-b07f-60b2db62758f",
+      "sourceHandle": "output",
+      "targetHandle": null,
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 1469.0000152617292,
+      "sourceY": 690.9999195298501,
+      "targetX": 1576.999984478666,
+      "targetY": 549.0000322779879,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.42620332079638945",
+      "type": "smoothstep",
+      "source": "agentNode_5820b029-e9be-4623-b07f-60b2db62758f",
+      "target": "responseNode_98cd26db-8795-4207-bc86-353d0edda6e6",
+      "sourceHandle": null,
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 1970.9999454442338,
+      "sourceY": 549.0000322779879,
+      "targetX": 2008.9999037403627,
+      "targetY": 559.9997783026174,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.4628730848842042",
+      "type": "smoothstep",
+      "source": "agentNode_1f7067d9-1105-43a8-a68a-1cb82a4c625b",
+      "target": "responseNode_3433e90b-151b-4488-80fb-834bb29a94de",
+      "sourceHandle": null,
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 770.9998066602709,
+      "sourceY": 436.99973180315834,
+      "targetX": 873.0001741082997,
+      "targetY": 223.99992583699338,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    }
+  ],
+  "position": [
+    236.8619719999582,
+    162.0242349114701
+  ],
+  "zoom": 0.4732870972998748,
+  "viewport": {
+    "x": 236.8619719999582,
+    "y": 162.0242349114701,
+    "zoom": 0.4732870972998748
   }
+}

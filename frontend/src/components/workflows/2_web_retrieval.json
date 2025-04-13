@@ -1,57 +1,6 @@
 {
   "nodes": [
     {
-      "id": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
-      "type": "agentNode",
-      "initialized": false,
-      "position": {
-        "x": 512,
-        "y": 112
-      },
-      "data": {
-        "type": "AgentNode",
-        "labelStyle": {
-          "fontWeight": "normal"
-        },
-        "hasInputs": true,
-        "hasOutputs": true,
-        "inputs": {
-          "endpoint": "http://localhost:32186/v1/chat/completions",
-          "api_key": "",
-          "model": "local",
-          "system_prompt": "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation.",
-          "user_prompt": "What are the top AI news?",
-          "max_completion_tokens": 8192,
-          "temperature": 0.6
-        },
-        "outputs": {
-          "response": ""
-        },
-        "models": [
-          "local",
-          "chatgpt-4o-latest",
-          "gpt-4o",
-          "gpt-4o-mini",
-          "o1-mini",
-          "o1",
-          "o3-mini"
-        ],
-        "style": {
-          "border": "1px solid #666",
-          "borderRadius": "12px",
-          "backgroundColor": "#333",
-          "color": "#eee",
-          "width": "320px",
-          "height": "760px"
-        },
-        "selectedSystemPrompt": "research_analyst"
-      },
-      "style": {
-        "width": "380px",
-        "height": "906px"
-      }
-    },
-    {
       "id": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
       "type": "responseNode",
       "initialized": false,
@@ -83,7 +32,8 @@
           "height": "400px"
         },
         "connectedTo": [
-          "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
+          "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+          "agentNode_a4974c71-d7a9-4ee2-97b3-f34797a01a15"
         ]
       },
       "style": {
@@ -92,25 +42,30 @@
       }
     },
     {
-      "id": "webSearchNode_07958e25-4da1-41fd-a485-dc99c4fdee5a",
+      "id": "webSearchNode_fa217910-3e71-4e43-9b1f-de1199a0563f",
       "type": "webSearchNode",
       "initialized": false,
       "position": {
-        "x": 32,
-        "y": 400
+        "x": 176,
+        "y": 112
       },
       "data": {
         "type": "WebSearchNode",
         "labelStyle": {},
         "style": {},
         "inputs": {
-          "query": "top ai news march 2025",
-          "result_size": 6,
+          "query": "ai news this week",
+          "result_size": 1,
           "search_backend": "ddg",
           "sxng_url": "https://searx.be"
         },
         "outputs": {
-          "urls": []
+          "urls": [],
+          "result": {
+            "output": [
+              ""
+            ]
+          }
         },
         "hasInputs": true,
         "hasOutputs": true,
@@ -121,22 +76,24 @@
       }
     },
     {
-      "id": "webRetrievalNode_6ac0e031-67af-4d07-80ca-4ebd1041e3cc",
+      "id": "webRetrievalNode_8e06a7ee-c06b-45f8-b93f-312beb7b8d55",
       "type": "webRetrievalNode",
       "initialized": false,
       "position": {
-        "x": 32,
-        "y": 688
+        "x": 48,
+        "y": 352
       },
       "data": {
         "type": "WebRetrievalNode",
         "labelStyle": {},
         "style": {},
         "inputs": {
-          "url": []
+          "url": ""
         },
         "outputs": {
-          "result": {}
+          "result": {
+            "output": ""
+          }
         },
         "hasInputs": true,
         "hasOutputs": true,
@@ -145,81 +102,139 @@
         "handleColor": "#777",
         "outputHandleShape": "50%",
         "connectedTo": [
-          "webSearchNode_07958e25-4da1-41fd-a485-dc99c4fdee5a"
+          "webSearchNode_fa217910-3e71-4e43-9b1f-de1199a0563f"
         ]
+      }
+    },
+    {
+      "id": "agentNode_a4974c71-d7a9-4ee2-97b3-f34797a01a15",
+      "type": "agentNode",
+      "initialized": false,
+      "position": {
+        "x": 528,
+        "y": 80
+      },
+      "data": {
+        "type": "AgentNode",
+        "labelStyle": {
+          "fontWeight": "normal"
+        },
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputs": {
+          "endpoint": "https://api.openai.com/v1/chat/completions",
+          "api_key": "",
+          "model": "gpt-4o-mini",
+          "system_prompt": "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation.",
+          "user_prompt": "Summarize the top AI news this week:\n\n\n\n",
+          "max_completion_tokens": 8192,
+          "temperature": 0.6
+        },
+        "outputs": {
+          "response": "",
+          "error": null
+        },
+        "models": [
+          "local",
+          "chatgpt-4o-latest",
+          "gpt-4o",
+          "gpt-4o-mini",
+          "o1-mini",
+          "o1",
+          "o3-mini"
+        ],
+        "style": {
+          "border": "1px solid #666",
+          "borderRadius": "12px",
+          "backgroundColor": "#333",
+          "color": "#eee",
+          "width": "380px",
+          "height": "906px"
+        },
+        "selectedSystemPrompt": "research_analyst"
+      },
+      "style": {
+        "width": "380px",
+        "height": "906px"
       }
     }
   ],
   "edges": [
     {
-      "id": "edge-0.30367276511116714",
-      "type": "smoothstep",
-      "source": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "id": "edge-0.9757575578158744",
+      "type": "step",
+      "source": "webSearchNode_fa217910-3e71-4e43-9b1f-de1199a0563f",
+      "target": "webRetrievalNode_8e06a7ee-c06b-45f8-b93f-312beb7b8d55",
+      "sourceHandle": "output",
+      "targetHandle": "input",
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 441.85149160455137,
+      "sourceY": 221.50000022876878,
+      "targetX": 40.99996092629033,
+      "targetY": 436.25000226481103,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.5864998088593014",
+      "type": "step",
+      "source": "webRetrievalNode_8e06a7ee-c06b-45f8-b93f-312beb7b8d55",
+      "target": "agentNode_a4974c71-d7a9-4ee2-97b3-f34797a01a15",
+      "sourceHandle": "output",
+      "targetHandle": null,
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 448.9999440202766,
+      "sourceY": 436.25000226481103,
+      "targetX": 520.9999609262903,
+      "targetY": 533.0000231399633,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
+    },
+    {
+      "id": "edge-0.7743032837178829",
+      "type": "step",
+      "source": "agentNode_a4974c71-d7a9-4ee2-97b3-f34797a01a15",
       "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
       "sourceHandle": null,
       "targetHandle": "input",
       "data": {
-        "label": "New Edge"
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 898.9999373631047,
-      "sourceY": 565.0000052674014,
-      "targetX": 985.0000334239955,
-      "targetY": 476.00010766129776,
-      "animated": false,
+      "sourceX": 914.9999373631047,
+      "sourceY": 533.0000231399633,
+      "targetX": 984.9999609262903,
+      "targetY": 475.9999730567555,
+      "animated": true,
       "style": {
-        "strokeWidth": 1
-      }
-    },
-    {
-      "id": "edge-0.4966825949360296",
-      "type": "smoothstep",
-      "source": "webSearchNode_07958e25-4da1-41fd-a485-dc99c4fdee5a",
-      "target": "webRetrievalNode_6ac0e031-67af-4d07-80ca-4ebd1041e3cc",
-      "sourceHandle": "output",
-      "targetHandle": "input",
-      "data": {
-        "label": "New Edge"
-      },
-      "label": "",
-      "sourceX": 297.85165658109565,
-      "sourceY": 509.50003290827726,
-      "targetX": 24.99999792576754,
-      "targetY": 772.2500368363692,
-      "animated": false,
-      "style": {
-        "strokeWidth": 1
-      }
-    },
-    {
-      "id": "edge-0.6185593678347717",
-      "type": "smoothstep",
-      "source": "webRetrievalNode_6ac0e031-67af-4d07-80ca-4ebd1041e3cc",
-      "target": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
-      "sourceHandle": "output",
-      "targetHandle": null,
-      "data": {
-        "label": "New Edge"
-      },
-      "label": "",
-      "sourceX": 433.0001197465985,
-      "sourceY": 772.2500368363692,
-      "targetX": 504.9999609262903,
-      "targetY": 565.0000052674014,
-      "animated": false,
-      "style": {
-        "strokeWidth": 1
+        "strokeWidth": 4,
+        "stroke": "darkorange"
       }
     }
   ],
   "position": [
-    53.22529644268775,
-    -25.387351778656125
+    26.67530168782173,
+    -25.142642306385824
   ],
-  "zoom": 0.8537549407114624,
+  "zoom": 0.8513911078737038,
   "viewport": {
-    "x": 53.22529644268775,
-    "y": -25.387351778656125,
-    "zoom": 0.8537549407114624
+    "x": 26.67530168782173,
+    "y": -25.142642306385824,
+    "zoom": 0.8513911078737038
   }
 }

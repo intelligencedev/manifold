@@ -3,7 +3,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -81,14 +80,4 @@ func LoadConfig(filename string) (*Config, error) {
 
 	pterm.Success.Println("Configuration loaded successfully.")
 	return &config, nil
-}
-
-// printPrettyConfig marshals the config as pretty printed JSON and outputs it.
-func printPrettyConfig(config *Config) {
-	prettyJSON, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		pterm.Error.Printf("Failed to marshal config as pretty JSON: %v\n", err)
-		return
-	}
-	pterm.Info.Println(string(prettyJSON))
 }

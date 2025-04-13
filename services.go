@@ -15,7 +15,7 @@ import (
 	"github.com/pterm/pterm"
 )
 
-// LlamaService represents a running llama-server instance
+// LlamaService represents a running llama-server instance.
 type LlamaService struct {
 	Name         string
 	Process      *exec.Cmd
@@ -32,15 +32,13 @@ var (
 	services      = make(map[string]*LlamaService)
 )
 
-// StartLocalServices starts all required local services based on config
+// StartLocalServices initializes and starts all required local services based on the configuration.
 func StartLocalServices(config *Config) error {
-	// Only start local services if SingleNodeInstance is true
 	if !config.SingleNodeInstance {
 		pterm.Info.Println("SingleNodeInstance is false, not starting local services")
 		return nil
 	}
 
-	// First, make sure the llama-server binary is available
 	binaryPath, err := getLlamaServerBinaryPath(config)
 	if err != nil {
 		return fmt.Errorf("failed to get llama-server binary path: %w", err)
@@ -48,23 +46,18 @@ func StartLocalServices(config *Config) error {
 
 	pterm.Info.Printf("Using llama-server binary at: %s\n", binaryPath)
 
-	// In single node mode, we start local services regardless of host configuration
-	// Start embeddings service
-	if err := StartEmbeddingsService(config, binaryPath); err != nil {
+	if err := startService(StartEmbeddingsService, config, binaryPath); err != nil {
 		return fmt.Errorf("failed to start embeddings service: %v", err)
 	}
 
-	// Start reranker service
-	if err := StartRerankerService(config, binaryPath); err != nil {
+	if err := startService(StartRerankerService, config, binaryPath); err != nil {
 		return fmt.Errorf("failed to start reranker service: %v", err)
 	}
 
-	// Start completions service
-	if err := StartCompletionsService(config, binaryPath); err != nil {
+	if err := startService(StartCompletionsService, config, binaryPath); err != nil {
 		return fmt.Errorf("failed to start completions service: %v", err)
 	}
 
-	// Override any existing host configurations
 	config.Embeddings.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/embeddings", 32184)
 	config.Reranker.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/rerank", 32185)
 	config.Completions.DefaultHost = fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", 32186)
@@ -72,30 +65,14 @@ func StartLocalServices(config *Config) error {
 	return nil
 }
 
-// StartCompletionsService starts the local completions service using the Gemma model
+// startService is a helper function to start a specific service.
+func startService(startFunc func(*Config, string) error, config *Config, binaryPath string) error {
+	return startFunc(config, binaryPath)
+}
+
+// StartCompletionsService starts the local completions service using the Gemma model.
 func StartCompletionsService(config *Config, binaryPath string) error {
-	servicesMutex.Lock()
-	defer servicesMutex.Unlock()
-
-	// Check if service is already running
-	if _, exists := services["completions"]; exists {
-		return nil
-	}
-
-	// Default port for completions service
-	const completionsPort = 32186
-
-	modelPath := filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it-Q8_0.gguf")
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		return fmt.Errorf("completions model not found at %s", modelPath)
-	}
-
-	// Create context with cancellation for proper shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Log the full command we're about to execute with all the parameters from the example command
-	cmdArgs := []string{
-		"-m", modelPath,
+	return startLlamaService("completions", config, binaryPath, 32186, "completions", []string{
 		"--temp", "1.0",
 		"--ctx-size", "16384",
 		"--min-p", "0.01",
@@ -109,220 +86,105 @@ func StartCompletionsService(config *Config, binaryPath string) error {
 		"--ubatch-size", "512",
 		"--threads-http", "4",
 		"-fa",
-		"--host", "127.0.0.1",
-		"--port", fmt.Sprintf("%d", completionsPort),
 		"--props",
-	}
-	pterm.Debug.Printf("Starting completions service with command: %s %v\n", binaryPath, cmdArgs)
-
-	// Prepare command with all necessary arguments
-	cmd := exec.CommandContext(ctx, binaryPath, cmdArgs...)
-
-	// Capture stdout and stderr
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	// Start the process
-	pterm.Info.Printf("Starting completions service on port %d with model %s\n", completionsPort, modelPath)
-	if err := cmd.Start(); err != nil {
-		cancel() // Clean up the context if command fails to start
-		return fmt.Errorf("failed to start completions service: %w", err)
-	}
-
-	// Give some time for the server to initialize
-	time.Sleep(2 * time.Second)
-
-	// Verify the process is still running
-	if cmd.Process == nil {
-		cancel()
-		return fmt.Errorf("completions service process failed to start")
-	}
-
-	// Try to check if process is still alive
-	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
-		cancel()
-		return fmt.Errorf("completions service process died immediately after start: %v", err)
-	}
-
-	pterm.Success.Printf("Completions service started with PID %d\n", cmd.Process.Pid)
-
-	// Store service information
-	shutdownChan := make(chan struct{})
-	services["completions"] = &LlamaService{
-		Name:         "completions",
-		Process:      cmd,
-		ModelPath:    modelPath,
-		Port:         completionsPort,
-		Type:         "completions",
-		ShutdownChan: shutdownChan,
-		Ctx:          ctx,
-		Cancel:       cancel,
-	}
-
-	// Set up process monitoring
-	go monitorProcess("completions", cmd, shutdownChan)
-
-	// Update config to use local service
-	config.Completions.DefaultHost = fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", completionsPort)
-	return nil
+	})
 }
 
-// StartEmbeddingsService starts the local embeddings service
+// StartEmbeddingsService starts the local embeddings service.
 func StartEmbeddingsService(config *Config, binaryPath string) error {
-	servicesMutex.Lock()
-	defer servicesMutex.Unlock()
-
-	// Check if service is already running
-	if _, exists := services["embeddings"]; exists {
-		return nil
-	}
-
-	// Default port for embeddings service
-	const embeddingsPort = 32184
-
-	modelPath := filepath.Join(config.DataPath, "models", "embeddings", "nomic-embed-text-v1.5.Q8_0.gguf")
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		return fmt.Errorf("embeddings model not found at %s", modelPath)
-	}
-
-	// Create context with cancellation for proper shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Log the full command we're about to execute
-	cmdArgs := []string{
-		"-m", modelPath,
+	return startLlamaService("embeddings", config, binaryPath, 32184, "embeddings", []string{
 		"-c", "65536",
 		"-np", "8",
 		"-b", "8192",
 		"-ub", "8192",
 		"-fa",
-		"--host", "127.0.0.1",
-		"--port", fmt.Sprintf("%d", embeddingsPort),
 		"-lv", "1",
 		"--embedding",
-	}
-	pterm.Debug.Printf("Starting embeddings service with command: %s %v\n", binaryPath, cmdArgs)
-
-	// Prepare command with all necessary arguments
-	cmd := exec.CommandContext(ctx, binaryPath, cmdArgs...)
-
-	// Capture stdout and stderr
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	// Start the process
-	pterm.Info.Printf("Starting embeddings service on port %d with model %s\n", embeddingsPort, modelPath)
-	if err := cmd.Start(); err != nil {
-		cancel() // Clean up the context if command fails to start
-		return fmt.Errorf("failed to start embeddings service: %w", err)
-	}
-
-	// Give some time for the server to initialize
-	time.Sleep(2 * time.Second)
-
-	// Verify the process is still running
-	if cmd.Process == nil {
-		cancel()
-		return fmt.Errorf("embeddings service process failed to start")
-	}
-
-	// Try to check if process is still alive
-	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
-		cancel()
-		return fmt.Errorf("embeddings service process died immediately after start: %v", err)
-	}
-
-	pterm.Success.Printf("Embeddings service started with PID %d\n", cmd.Process.Pid)
-
-	// Store service information
-	shutdownChan := make(chan struct{})
-	services["embeddings"] = &LlamaService{
-		Name:         "embeddings",
-		Process:      cmd,
-		ModelPath:    modelPath,
-		Port:         embeddingsPort,
-		Type:         "embeddings",
-		ShutdownChan: shutdownChan,
-		Ctx:          ctx,
-		Cancel:       cancel,
-	}
-
-	// Set up process monitoring
-	go monitorProcess("embeddings", cmd, shutdownChan)
-
-	// Update config to use local service
-	config.Embeddings.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/embeddings", embeddingsPort)
-	return nil
+	})
 }
 
-// StartRerankerService starts the local reranker service
+// StartRerankerService starts the local reranker service.
 func StartRerankerService(config *Config, binaryPath string) error {
-	servicesMutex.Lock()
-	defer servicesMutex.Unlock()
-
-	// Check if service is already running
-	if _, exists := services["reranker"]; exists {
-		return nil
-	}
-
-	// Default port for reranker service
-	const rerankerPort = 32185
-
-	modelPath := filepath.Join(config.DataPath, "models", "rerankers", "slide-bge-reranker-v2-m3.Q4_K_M.gguf")
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		return fmt.Errorf("reranker model not found at %s", modelPath)
-	}
-
-	// Create context with cancellation for proper shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Prepare command with all necessary arguments
-	cmd := exec.CommandContext(ctx, binaryPath,
-		"-m", modelPath,
+	return startLlamaService("reranker", config, binaryPath, 32185, "reranker", []string{
 		"-c", "65536",
 		"-np", "8",
 		"-b", "8192",
 		"-ub", "8192",
 		"-fa",
-		"--host", "127.0.0.1",
-		"--port", fmt.Sprintf("%d", rerankerPort),
 		"-lv", "1",
 		"--reranking",
-		"--pooling", "rank")
+		"--pooling", "rank",
+	})
+}
 
-	// Capture stdout and stderr
+// startLlamaService is a generic function to start a LlamaService.
+func startLlamaService(name string, config *Config, binaryPath string, port int, serviceType string, additionalArgs []string) error {
+	servicesMutex.Lock()
+	defer servicesMutex.Unlock()
+
+	if _, exists := services[name]; exists {
+		return nil
+	}
+
+	modelPath := getModelPath(config, name)
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		return fmt.Errorf("%s model not found at %s", name, modelPath)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cmdArgs := append([]string{
+		"-m", modelPath,
+		"--host", "127.0.0.1",
+		"--port", fmt.Sprintf("%d", port),
+	}, additionalArgs...)
+
+	cmd := exec.CommandContext(ctx, binaryPath, cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	// Start the process
-	pterm.Info.Printf("Starting reranker service on port %d with model %s\n", rerankerPort, modelPath)
+	pterm.Info.Printf("Starting %s service on port %d with model %s\n", name, port, modelPath)
 	if err := cmd.Start(); err != nil {
-		cancel() // Clean up the context if command fails to start
-		return fmt.Errorf("failed to start reranker service: %w", err)
+		cancel()
+		return fmt.Errorf("failed to start %s service: %w", name, err)
 	}
 
-	// Give some time for the server to initialize
 	time.Sleep(2 * time.Second)
 
-	// Store service information
+	if cmd.Process == nil || cmd.Process.Signal(syscall.Signal(0)) != nil {
+		cancel()
+		return fmt.Errorf("%s service process failed to start", name)
+	}
+
+	pterm.Success.Printf("%s service started with PID %d\n", name, cmd.Process.Pid)
+
 	shutdownChan := make(chan struct{})
-	services["reranker"] = &LlamaService{
-		Name:         "reranker",
+	services[name] = &LlamaService{
+		Name:         name,
 		Process:      cmd,
 		ModelPath:    modelPath,
-		Port:         rerankerPort,
-		Type:         "reranker",
+		Port:         port,
+		Type:         serviceType,
 		ShutdownChan: shutdownChan,
 		Ctx:          ctx,
 		Cancel:       cancel,
 	}
 
-	// Set up process monitoring
-	go monitorProcess("reranker", cmd, shutdownChan)
-
-	// Update config to use local service
-	config.Reranker.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/rerank", rerankerPort)
+	go monitorProcess(name, cmd, shutdownChan)
 	return nil
+}
+
+// getModelPath returns the model path for a given service name.
+func getModelPath(config *Config, serviceName string) string {
+	switch serviceName {
+	case "completions":
+		return filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it-Q8_0.gguf")
+	case "embeddings":
+		return filepath.Join(config.DataPath, "models", "embeddings", "nomic-embed-text-v1.5.Q8_0.gguf")
+	case "reranker":
+		return filepath.Join(config.DataPath, "models", "rerankers", "slide-bge-reranker-v2-m3.Q4_K_M.gguf")
+	default:
+		return ""
+	}
 }
 
 // StopAllServices gracefully stops all running services

@@ -19,14 +19,6 @@ type FileData struct {
 	Content string `json:"content"` // Full file content.
 }
 
-// RepoConcatRequest represents the request body for the /api/repoconcat endpoint.
-type RepoConcatRequest struct {
-	Paths         []string `json:"paths"`
-	Types         []string `json:"types"`
-	Recursive     bool     `json:"recursive"`
-	IgnorePattern string   `json:"ignorePattern"`
-}
-
 // DatadogNodeRequest represents the structure of the incoming request from the frontend.
 type DatadogNodeRequest struct {
 	APIKey    string `json:"apiKey"`

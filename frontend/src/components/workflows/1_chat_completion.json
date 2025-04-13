@@ -16,16 +16,17 @@
         "hasInputs": true,
         "hasOutputs": true,
         "inputs": {
-          "endpoint": "http://localhost:32186/v1/chat/completions",
+          "endpoint": "https://api.openai.com/v1/chat/completions",
           "api_key": "",
-          "model": "local",
+          "model": "gpt-4o-mini",
           "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone.",
           "user_prompt": "Write a haiku about manifolds.",
           "max_completion_tokens": 8192,
           "temperature": 0.6
         },
         "outputs": {
-          "response": ""
+          "response": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place.",
+          "error": null
         },
         "models": [
           "local",
@@ -67,9 +68,13 @@
         "hasInputs": true,
         "hasOutputs": true,
         "inputs": {
-          "response": ""
+          "response": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place."
         },
-        "outputs": {},
+        "outputs": {
+          "result": {
+            "output": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place."
+          }
+        },
         "style": {
           "border": "1px solid #666",
           "borderRadius": "12px",
@@ -97,23 +102,29 @@
       "sourceHandle": null,
       "targetHandle": "input",
       "data": {
-        "label": "New Edge"
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 867.0014026467054,
-      "sourceY": 549.0016790471993,
-      "targetX": 872.9999675133759,
-      "targetY": 475.99992184606015
+      "sourceX": 867.0001215227142,
+      "sourceY": 549.0002115352362,
+      "targetX": 872.9999820297534,
+      "targetY": 476.0001904627493,
+      "animated": false,
+      "style": {
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
+      }
     }
   ],
   "position": [
-    -305.6240067616866,
-    -73.4019244347001
+    -260.63937387116175,
+    -54.92233594220329
   ],
-  "zoom": 0.9960044668205464,
+  "zoom": 0.94521372667068,
   "viewport": {
-    "x": -305.6240067616866,
-    "y": -73.4019244347001,
-    "zoom": 0.9960044668205464
+    "x": -260.63937387116175,
+    "y": -54.92233594220329,
+    "zoom": 0.94521372667068
   }
 }

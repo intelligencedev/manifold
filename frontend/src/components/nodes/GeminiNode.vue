@@ -294,7 +294,7 @@ const props = defineProps({
                 api_key: '',
                 model: 'gemini-2.0-flash', // Default to a Gemini model
                 system_prompt: '', // Optional system prompt
-                user_prompt: 'Summarize the following text:',
+                user_prompt: 'Write a haiku about manifolds.',
             },
             outputs: { response: '' },
             models: ['gemini-2.0-flash', 'gemini-2.0-pro-exp-02-05' , 'gemini-2.0-flash-lite-preview-02-05', 'gemini-2.0-flash-thinking-exp-01-21'],

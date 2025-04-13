@@ -1,3 +1,4 @@
+// Package main provides utilities for retrieving host system information, including OS, architecture, CPU, memory, and GPU details.
 package main
 
 import (
@@ -11,22 +12,28 @@ import (
 	"github.com/shirou/gopsutil/mem"
 )
 
+// HostInfo represents the system's host information, including OS, architecture, CPU, memory, and GPU details.
 type HostInfo struct {
-	OS     string `json:"os"`
-	Arch   string `json:"arch"`
-	CPUs   int    `json:"cpus"`
-	Memory struct {
-		Total uint64 `json:"total"`
-	} `json:"memory"`
-	GPUs []GPUInfo `json:"gpus"`
+	OS     string    `json:"os"`
+	Arch   string    `json:"arch"`
+	CPUs   int       `json:"cpus"`
+	Memory Memory    `json:"memory"`
+	GPUs   []GPUInfo `json:"gpus"`
 }
 
+// Memory represents the total memory available on the system.
+type Memory struct {
+	Total uint64 `json:"total"`
+}
+
+// GPUInfo represents information about a GPU, including its model, number of cores, and Metal support.
 type GPUInfo struct {
 	Model              string `json:"model"`
 	TotalNumberOfCores string `json:"total_number_of_cores"`
 	MetalSupport       string `json:"metal_support"`
 }
 
+// GetHostInfo retrieves information about the host system, including OS, architecture, CPU, memory, and GPU details.
 func GetHostInfo() (HostInfo, error) {
 	hostInfo := HostInfo{
 		OS:   runtime.GOOS,
@@ -34,62 +41,87 @@ func GetHostInfo() (HostInfo, error) {
 		CPUs: runtime.NumCPU(),
 	}
 
-	vmStat, _ := mem.VirtualMemory()
-	hostInfo.Memory.Total = vmStat.Total
+	if err := populateMemoryInfo(&hostInfo); err != nil {
+		return HostInfo{}, fmt.Errorf("failed to retrieve memory info: %w", err)
+	}
 
-	switch runtime.GOOS {
-	case "darwin":
-		gpus, err := getMacOSGPUInfo()
-		if err != nil {
-			fmt.Printf("Error getting GPU info: %v\n", err)
-		} else {
-			hostInfo.GPUs = append(hostInfo.GPUs, gpus)
-		}
-
-	case "linux", "windows":
-		gpu, err := ghw.GPU()
-		if err != nil {
-			fmt.Printf("Error getting GPU info: %v\n", err)
-		} else {
-			for _, card := range gpu.GraphicsCards {
-				gpuInfo := GPUInfo{
-					Model: card.DeviceInfo.Product.Name,
-				}
-				hostInfo.GPUs = append(hostInfo.GPUs, gpuInfo)
-			}
-		}
+	if err := populateGPUInfo(&hostInfo); err != nil {
+		return HostInfo{}, fmt.Errorf("failed to retrieve GPU info: %w", err)
 	}
 
 	return hostInfo, nil
 }
 
-func getMacOSGPUInfo() (GPUInfo, error) {
+// populateMemoryInfo populates the memory information in the HostInfo struct.
+func populateMemoryInfo(hostInfo *HostInfo) error {
+	vmStat, err := mem.VirtualMemory()
+	if err != nil {
+		return err
+	}
+	hostInfo.Memory = Memory{Total: vmStat.Total}
+	return nil
+}
+
+// populateGPUInfo populates the GPU information in the HostInfo struct.
+func populateGPUInfo(hostInfo *HostInfo) error {
+	switch runtime.GOOS {
+	case "darwin":
+		gpus, err := getMacOSGPUInfo()
+		if err != nil {
+			return fmt.Errorf("error getting macOS GPU info: %w", err)
+		}
+		hostInfo.GPUs = gpus
+
+	case "linux", "windows":
+		gpu, err := ghw.GPU()
+		if err != nil {
+			return fmt.Errorf("error getting GPU info: %w", err)
+		}
+		for _, card := range gpu.GraphicsCards {
+			hostInfo.GPUs = append(hostInfo.GPUs, GPUInfo{
+				Model: card.DeviceInfo.Product.Name,
+			})
+		}
+	}
+	return nil
+}
+
+// getMacOSGPUInfo retrieves GPU information specific to macOS systems.
+func getMacOSGPUInfo() ([]GPUInfo, error) {
 	cmd := exec.Command("system_profiler", "SPDisplaysDataType")
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
-	err := cmd.Run()
-	if err != nil {
-		return GPUInfo{}, err
+	if err := cmd.Run(); err != nil {
+		return nil, err
 	}
 
-	return parseGPUInfo(out.String())
+	return parseMacOSGPUInfo(out.String())
 }
 
-func parseGPUInfo(input string) (GPUInfo, error) {
-	gpuInfo := GPUInfo{}
+// parseMacOSGPUInfo parses the output of the macOS system_profiler command to extract GPU information.
+func parseMacOSGPUInfo(input string) ([]GPUInfo, error) {
+	var gpus []GPUInfo
+	var currentGPU GPUInfo
 
 	for _, line := range strings.Split(input, "\n") {
-		if strings.Contains(line, "Chipset Model") {
-			gpuInfo.Model = strings.TrimSpace(strings.Split(line, ":")[1])
-		}
-		if strings.Contains(line, "Total Number of Cores") {
-			gpuInfo.TotalNumberOfCores = strings.TrimSpace(strings.Split(line, ":")[1])
-		}
-		if strings.Contains(line, "Metal") {
-			gpuInfo.MetalSupport = strings.TrimSpace(strings.Split(line, ":")[1])
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Chipset Model") {
+			if currentGPU.Model != "" {
+				gpus = append(gpus, currentGPU)
+				currentGPU = GPUInfo{}
+			}
+			currentGPU.Model = strings.TrimSpace(strings.Split(line, ":")[1])
+		} else if strings.HasPrefix(line, "Total Number of Cores") {
+			currentGPU.TotalNumberOfCores = strings.TrimSpace(strings.Split(line, ":")[1])
+		} else if strings.HasPrefix(line, "Metal") {
+			currentGPU.MetalSupport = strings.TrimSpace(strings.Split(line, ":")[1])
 		}
 	}
 
-	return gpuInfo, nil
+	if currentGPU.Model != "" {
+		gpus = append(gpus, currentGPU)
+	}
+
+	return gpus, nil
 }

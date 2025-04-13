@@ -1,3 +1,4 @@
+// Package main provides the entry point for the application and defines HTTP handlers for various functionalities.
 package main
 
 import (
@@ -13,6 +14,7 @@ import (
 	"github.com/metoro-io/mcp-golang/transport/stdio"
 )
 
+// configHandler handles requests to fetch the application configuration.
 func configHandler(c echo.Context) error {
 	config, err := LoadConfig("config.yaml")
 	if err != nil {
@@ -21,6 +23,7 @@ func configHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, config)
 }
 
+// getFileSystem returns the file system for serving static files.
 func getFileSystem() http.FileSystem {
 	fsys, err := fs.Sub(frontendDist, "frontend/dist")
 	if err != nil {
@@ -31,86 +34,95 @@ func getFileSystem() http.FileSystem {
 
 // executeMCPHandler handles the MCP execution request using an MCP server.
 func executeMCPHandler(c echo.Context) error {
-	// Parse the JSON payload from the request.
-	var payload map[string]interface{}
-	if err := c.Bind(&payload); err != nil {
+	payload, err := parsePayload(c)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
 	}
 
-	log.Printf("Received MCP payload: %+v", payload)
-
-	// Determine the action specified in the payload.
-	action, ok := payload["action"].(string)
-	if !ok || action == "" {
-		action = "listTools"
-	}
-
-	// Load config for the MCP server
+	action := getAction(payload)
 	config, err := LoadConfig("config.yaml")
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load config"})
 	}
 
-	// Create paired pipes for client/server communication
-	clientReader, serverWriter := io.Pipe()
-	serverReader, clientWriter := io.Pipe()
+	client, server, err := setupMCPCommunication()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to setup MCP communication: %v", err)})
+	}
 
-	// Create a transport for the client
-	clientTransport := stdio.NewStdioServerTransportWithIO(clientReader, clientWriter)
-	client := mcp.NewClient(clientTransport)
-
-	// Create a transport for the server
-	serverTransport := stdio.NewStdioServerTransportWithIO(serverReader, serverWriter)
-	server := mcp.NewServer(serverTransport)
-
-	// Register all tools on the server
 	registerMCPTools(server, config)
+	go startMCPServer(server)
 
-	// Start the server in a goroutine
-	go func() {
-		if err := server.Serve(); err != nil {
-			log.Printf("MCP server error: %v", err)
-		}
-	}()
-
-	// Initialize the client
 	if _, err := client.Initialize(context.Background()); err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to initialize MCP client: %v", err)})
 	}
 
-	// Prepare a variable to hold the result
-	var result interface{}
+	result, err := handleAction(client, action, payload)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
 
-	// Choose action based on the payload
+	return c.JSON(http.StatusOK, result)
+}
+
+// parsePayload parses the JSON payload from the request.
+func parsePayload(c echo.Context) (map[string]interface{}, error) {
+	var payload map[string]interface{}
+	if err := c.Bind(&payload); err != nil {
+		return nil, err
+	}
+	log.Printf("Received MCP payload: %+v", payload)
+	return payload, nil
+}
+
+// getAction extracts the action from the payload or defaults to "listTools".
+func getAction(payload map[string]interface{}) string {
+	action, ok := payload["action"].(string)
+	if !ok || action == "" {
+		return "listTools"
+	}
+	return action
+}
+
+// setupMCPCommunication sets up the client and server communication for MCP.
+func setupMCPCommunication() (*mcp.Client, *mcp.Server, error) {
+	clientReader, serverWriter := io.Pipe()
+	serverReader, clientWriter := io.Pipe()
+
+	clientTransport := stdio.NewStdioServerTransportWithIO(clientReader, clientWriter)
+	serverTransport := stdio.NewStdioServerTransportWithIO(serverReader, serverWriter)
+
+	client := mcp.NewClient(clientTransport)
+	server := mcp.NewServer(serverTransport)
+
+	return client, server, nil
+}
+
+// startMCPServer starts the MCP server in a goroutine.
+func startMCPServer(server *mcp.Server) {
+	if err := server.Serve(); err != nil {
+		log.Printf("MCP server error: %v", err)
+	}
+}
+
+// handleAction processes the action specified in the payload.
+func handleAction(client *mcp.Client, action string, payload map[string]interface{}) (interface{}, error) {
 	switch action {
 	case "listTools":
-		tools, err := client.ListTools(context.Background(), nil)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to list tools: %v", err)})
-		}
-		result = tools
+		return client.ListTools(context.Background(), nil)
 	case "execute":
-		// Expect payload to include "tool" and "args"
 		toolName, ok := payload["tool"].(string)
 		if !ok || toolName == "" {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing tool name for execution"})
+			return nil, fmt.Errorf("missing tool name for execution")
 		}
 		argsRaw, ok := payload["args"]
 		if !ok {
-			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing args for tool execution"})
+			return nil, fmt.Errorf("missing args for tool execution")
 		}
-
-		toolResp, err := client.CallTool(context.Background(), toolName, argsRaw)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to call tool: %v", err)})
-		}
-		result = toolResp
+		return client.CallTool(context.Background(), toolName, argsRaw)
 	default:
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("Action '%s' not implemented", action)})
+		return nil, fmt.Errorf("action '%s' not implemented", action)
 	}
-
-	// Return the result as a JSON response
-	return c.JSON(http.StatusOK, result)
 }
 
 // registerMCPTools extracts the tool registration part from RunMCP function

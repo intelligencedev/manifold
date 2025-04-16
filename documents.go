@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -188,4 +189,125 @@ func webSearchHandler(c echo.Context) error {
 		results = results[:resultSize]
 	}
 	return c.JSON(http.StatusOK, results)
+}
+
+// fileUploadHandler handles file uploads to the /tmp directory
+func fileUploadHandler(c echo.Context, config *Config) error {
+	// Ensure that the tmp directory exists
+	tmpDir := filepath.Join(config.DataPath, "tmp")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create tmp directory: %v", err))
+	}
+
+	// Source file
+	file, err := c.FormFile("file")
+	if err != nil {
+		return respondWithError(c, http.StatusBadRequest, fmt.Sprintf("Failed to get uploaded file: %v", err))
+	}
+
+	// Generate a unique filename to prevent overwriting
+	filename := generateUniqueFilename(file.Filename)
+
+	// Destination
+	dst := filepath.Join(tmpDir, filename)
+
+	// Open source
+	src, err := file.Open()
+	if err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to open uploaded file: %v", err))
+	}
+	defer src.Close()
+
+	// Create destination file
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create destination file: %v", err))
+	}
+	defer dstFile.Close()
+
+	// Copy the uploaded file to the destination
+	if _, err = io.Copy(dstFile, src); err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to copy file: %v", err))
+	}
+
+	// Return the URL path to the uploaded file
+	return c.JSON(http.StatusOK, map[string]string{
+		"filename": filename,
+		"url":      "/tmp/" + filename,
+		"message":  "File uploaded successfully",
+	})
+}
+
+// fileUploadMultipleHandler handles multiple file uploads to the /tmp directory
+func fileUploadMultipleHandler(c echo.Context, config *Config) error {
+	// Ensure that the tmp directory exists
+	tmpDir := filepath.Join(config.DataPath, "tmp")
+	if err := os.MkdirAll(tmpDir, 0755); err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create tmp directory: %v", err))
+	}
+
+	// Get form data with multiple files
+	form, err := c.MultipartForm()
+	if err != nil {
+		return respondWithError(c, http.StatusBadRequest, fmt.Sprintf("Failed to get multipart form: %v", err))
+	}
+
+	// Get files from form
+	files := form.File["files"]
+	if len(files) == 0 {
+		return respondWithError(c, http.StatusBadRequest, "No files were uploaded")
+	}
+
+	results := make([]map[string]string, 0, len(files))
+
+	// Process each file
+	for _, file := range files {
+		// Generate a unique filename to prevent overwriting
+		filename := generateUniqueFilename(file.Filename)
+
+		// Destination
+		dst := filepath.Join(tmpDir, filename)
+
+		// Open source
+		src, err := file.Open()
+		if err != nil {
+			return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to open uploaded file: %v", err))
+		}
+
+		// Create destination file
+		dstFile, err := os.Create(dst)
+		if err != nil {
+			src.Close()
+			return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create destination file: %v", err))
+		}
+
+		// Copy the uploaded file to the destination
+		if _, err = io.Copy(dstFile, src); err != nil {
+			src.Close()
+			dstFile.Close()
+			return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to copy file: %v", err))
+		}
+
+		src.Close()
+		dstFile.Close()
+
+		// Add result for this file
+		results = append(results, map[string]string{
+			"filename": filename,
+			"url":      "/tmp/" + filename,
+		})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"files":   results,
+		"message": "Files uploaded successfully",
+	})
+}
+
+// generateUniqueFilename creates a unique filename to prevent overwriting existing files
+func generateUniqueFilename(originalName string) string {
+	ext := filepath.Ext(originalName)
+	name := strings.TrimSuffix(originalName, ext)
+	timestamp := time.Now().Format("20060102-150405")
+	return fmt.Sprintf("%s_%s%s", name, timestamp, ext)
 }

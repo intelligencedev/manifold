@@ -35,6 +35,14 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// Anthropic endpoints.
 	registerAnthropicEndpoints(api, config)
 
+	// File upload endpoints
+	api.POST("/upload", func(c echo.Context) error {
+		return fileUploadHandler(c, config)
+	})
+	api.POST("/upload-multiple", func(c echo.Context) error {
+		return fileUploadMultipleHandler(c, config)
+	})
+
 	// Miscellaneous endpoints.
 	api.POST("/run-fmlx", func(c echo.Context) error {
 		return runFMLXHandler(c, config.DataPath)

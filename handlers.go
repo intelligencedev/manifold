@@ -1,4 +1,18 @@
-// Package main provides the entry point for the application and defines HTTP handlers for various functionalities.
+// handlers.go
+//
+// Unified MCP handler that merges our **internal tools** with the public
+// GitHub MCP‑Server tools so they can all be invoked from a single endpoint.
+//
+//   • Internal tools are registered exactly as before.
+//   • All external tools are discovered at runtime, then re‑registered in the
+//     same server under a “gh_” prefix (e.g. “gh_list_directory”).
+//   • The single /mcp endpoint now understands the full, merged tool‑set.
+//
+// NOTE: any router setup (main.go, etc.) should point POST /mcp to
+//       executeMCPCombinedHandler.
+//
+// ---------------------------------------------------------------------------
+
 package main
 
 import (
@@ -8,99 +22,263 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"os/exec"
 
 	"github.com/labstack/echo/v4"
 	mcp "github.com/metoro-io/mcp-golang"
 	"github.com/metoro-io/mcp-golang/transport/stdio"
 )
 
-// configHandler handles requests to fetch the application configuration.
+// ---------------------------------------------------------------------------
+// Static assets &  basic config endpoint
+// ---------------------------------------------------------------------------
+
+// configHandler returns the parsed config.yaml.
 func configHandler(c echo.Context) error {
-	config, err := LoadConfig("config.yaml")
+	cfg, err := LoadConfig("config.yaml")
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load config"})
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("config load: %v", err)})
 	}
-	return c.JSON(http.StatusOK, config)
+	return c.JSON(http.StatusOK, cfg)
 }
 
-// getFileSystem returns the file system for serving static files.
+// getFileSystem serves the SPA bundle embedded via //go:embed in frontendDist.
 func getFileSystem() http.FileSystem {
-	fsys, err := fs.Sub(frontendDist, "frontend/dist")
+	sub, err := fs.Sub(frontendDist, "frontend/dist")
 	if err != nil {
-		log.Fatalf("Failed to get file system: %v", err)
+		log.Fatalf("embed FS error: %v", err)
 	}
-	return http.FS(fsys)
+	return http.FS(sub)
 }
 
-// executeMCPHandler handles the MCP execution request using an MCP server.
-func executeMCPHandler(c echo.Context) error {
+// ---------------------------------------------------------------------------
+// External (GitHub) MCP server helpers
+// ---------------------------------------------------------------------------
+
+const githubMCPImage = "ghcr.io/github/github-mcp-server:latest"
+
+// startExternalMCP launches the GitHub MCP server in Docker and returns
+// a *mcp.Client wired to its stdio plus a cleanup func.
+func startExternalMCP(ctx context.Context) (*mcp.Client, func() error, error) {
+	githubPAT := os.Getenv("GITHUB_PERSONAL_ACCESS_TOKEN")
+	if githubPAT == "" {
+		return nil, nil, fmt.Errorf("env GITHUB_PERSONAL_ACCESS_TOKEN not set")
+	}
+
+	args := []string{
+		"run", "-i", "--rm",
+		"-e", "GITHUB_PERSONAL_ACCESS_TOKEN=" + githubPAT,
+		githubMCPImage,
+	}
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, nil, fmt.Errorf("docker start: %w", err)
+	}
+
+	cleanup := func() error { return cmd.Process.Kill() }
+
+	tr := stdio.NewStdioServerTransportWithIO(stdout, stdin)
+	client := mcp.NewClient(tr)
+
+	if _, err := client.Initialize(ctx); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("ext‑client init: %w", err)
+	}
+
+	tools, err := client.ListTools(ctx, nil) // trigger tool discovery
+	if err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("ext‑client list tools: %w", err)
+	}
+	if len(tools.Tools) == 0 {
+		cleanup()
+		return nil, nil, fmt.Errorf("ext‑client no tools found")
+	}
+	log.Printf("External MCP tools: %v", tools.Tools)
+
+	return client, cleanup, nil
+}
+
+// proxyArgs wraps an untyped map so MCP can auto‐generate a JSON schema.
+type proxyArgs struct {
+	// The external tool's arguments.
+	Args map[string]interface{} `json:"args"`
+}
+
+// mergeExternalTools registers every tool from the GitHub MCP server
+// under a “gh_<toolName>” prefix.  The handler simply forwards the
+// incoming map[string]interface{} to ext.CallTool.
+func mergeExternalTools(ctx context.Context, server *mcp.Server, ext *mcp.Client) error {
+	resp, err := ext.ListTools(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("list external tools: %w", err)
+	}
+
+	type ProxyArgs struct {
+		Args map[string]interface{} `json:"args"`
+	}
+
+	for _, t := range resp.Tools {
+		name := t.Name
+		shadow := "gh_" + name
+		desc := fmt.Sprintf("proxy to GitHub MCP tool %q", name)
+		inputSchema := t.InputSchema
+
+		// Print the argument names and types
+		log.Printf("Tool %s: %v", name, inputSchema)
+
+		inputSchemaMap, ok := inputSchema.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid input schema format for tool %s", name)
+		}
+		properties, ok := inputSchemaMap["properties"].(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("invalid properties in input schema for tool %s", name)
+		}
+		for propName, propValue := range properties {
+			propMap, ok := propValue.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("invalid property format for tool %s", name)
+			}
+			propDesc, _ := propMap["description"].(string)
+			propType, _ := propMap["type"].(string)
+			log.Printf("Tool %s property: %s (%s) - %s", name, propName, propType, propDesc)
+		}
+
+		// Register the tool with a handler that takes ProxyArgs
+		toolHandler := func(args ProxyArgs) (*mcp.ToolResponse, error) {
+			res, err := ext.CallTool(ctx, name, args.Args)
+			if err != nil {
+				return nil, fmt.Errorf("call external tool %s: %w", name, err)
+			}
+			return res, nil
+		}
+
+		if err := server.RegisterTool(
+			shadow,
+			desc,
+			toolHandler,
+		); err != nil {
+			return fmt.Errorf("register external tool %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Unified MCP HTTP handler
+// ---------------------------------------------------------------------------
+
+// executeMCPCombinedHandler sets up:
+//
+//  1. our in‑process MCP server (+ tools)
+//  2. the external GitHub MCP client
+//  3. proxies external tools into our server
+//  4. executes the requested MCP action
+//
+// All of this occurs for *one* HTTP request.  The external Docker
+// process is torn down afterwards; you may cache it if desired.
+func executeMCPCombinedHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	// ---- payload & config --------------------------------------------------
 	payload, err := parsePayload(c)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid payload"})
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid JSON payload"})
 	}
-
 	action := getAction(payload)
-	config, err := LoadConfig("config.yaml")
+
+	cfg, err := LoadConfig("config.yaml")
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to load config"})
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("config load: %v", err)})
 	}
 
+	// ---- wire internal client/server --------------------------------------
 	client, server, err := setupMCPCommunication()
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to setup MCP communication: %v", err)})
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("setup comms: %v", err)})
+	}
+	registerMCPTools(server, cfg)
+
+	// ---- launch & merge external tools ------------------------------------
+	extClient, cleanup, err := startExternalMCP(ctx)
+	if err != nil {
+		log.Printf("⚠️  external MCP unavailable: %v (continuing with internal tools only)", err)
+	} else {
+		defer cleanup()
+		if err := mergeExternalTools(ctx, server, extClient); err != nil {
+			log.Printf("merge external tools: %v", err)
+		}
 	}
 
-	registerMCPTools(server, config)
+	// ---- start server + initialize client ---------------------------------
 	go startMCPServer(server)
 
-	if _, err := client.Initialize(context.Background()); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to initialize MCP client: %v", err)})
+	if _, err := client.Initialize(ctx); err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("client init: %v", err)})
 	}
 
+	// ---- execute action ----------------------------------------------------
 	result, err := handleAction(client, action, payload)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
 	}
-
 	return c.JSON(http.StatusOK, result)
 }
 
-// parsePayload parses the JSON payload from the request.
+// ---------------------------------------------------------------------------
+// The helper functions below are unchanged from the original handlers.go
+// ---------------------------------------------------------------------------
+
+// parsePayload parses arbitrary JSON into map[string]interface{}.
 func parsePayload(c echo.Context) (map[string]interface{}, error) {
 	var payload map[string]interface{}
 	if err := c.Bind(&payload); err != nil {
 		return nil, err
 	}
-	log.Printf("Received MCP payload: %+v", payload)
+	log.Printf("MCP payload: %+v", payload)
 	return payload, nil
 }
 
-// getAction extracts the action from the payload or defaults to "listTools".
-func getAction(payload map[string]interface{}) string {
-	action, ok := payload["action"].(string)
-	if !ok || action == "" {
-		return "listTools"
+// getAction extracts the "action" key (defaults to "listTools").
+func getAction(p map[string]interface{}) string {
+	if a, ok := p["action"].(string); ok && a != "" {
+		return a
 	}
-	return action
+	return "listTools"
 }
 
-// setupMCPCommunication sets up the client and server communication for MCP.
+// setupMCPCommunication builds an in‑memory pipe between client & server.
 func setupMCPCommunication() (*mcp.Client, *mcp.Server, error) {
-	clientReader, serverWriter := io.Pipe()
-	serverReader, clientWriter := io.Pipe()
+	cR, sW := io.Pipe() // client reads / server writes
+	sR, cW := io.Pipe() // server reads / client writes
 
-	clientTransport := stdio.NewStdioServerTransportWithIO(clientReader, clientWriter)
-	serverTransport := stdio.NewStdioServerTransportWithIO(serverReader, serverWriter)
+	clientTr := stdio.NewStdioServerTransportWithIO(cR, cW)
+	serverTr := stdio.NewStdioServerTransportWithIO(sR, sW)
 
-	client := mcp.NewClient(clientTransport)
-	server := mcp.NewServer(serverTransport)
-
-	return client, server, nil
+	return mcp.NewClient(clientTr), mcp.NewServer(serverTr), nil
 }
 
-// startMCPServer starts the MCP server in a goroutine.
-func startMCPServer(server *mcp.Server) {
-	if err := server.Serve(); err != nil {
+// startMCPServer runs the server in a goroutine.
+func startMCPServer(s *mcp.Server) {
+	if err := s.Serve(); err != nil {
 		log.Printf("MCP server error: %v", err)
 	}
 }

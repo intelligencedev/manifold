@@ -77,7 +77,7 @@ export function useMCPClient(props, emit, vueFlow) {
       }
 
       // POST the payload to the MCP execution endpoint.
-      const response = await fetch('http://localhost:8080/api/executeMCP', {
+      const response = await fetch('http://localhost:8080/api/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)

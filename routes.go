@@ -55,7 +55,7 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/code/eval", evaluateCodeHandler)
-	api.POST("/executeMCP", executeMCPHandler)
+	api.POST("/mcp", executeMCPCombinedHandler)
 	api.POST("/datadog", datadogHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
 

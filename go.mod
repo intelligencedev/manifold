@@ -1,6 +1,6 @@
 module manifold
 
-go 1.23.0
+go 1.23.4
 
 toolchain go1.23.6
 
@@ -14,7 +14,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/jaypipes/ghw v0.15.0
 	github.com/labstack/echo/v4 v4.13.3
-	github.com/metoro-io/mcp-golang v0.8.0
+	github.com/metoro-io/mcp-golang v0.9.0
 	github.com/pgvector/pgvector-go v0.2.3
 	github.com/pterm/pterm v0.12.80
 	github.com/shirou/gopsutil v3.21.11+incompatible
@@ -44,14 +44,14 @@ require (
 	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/gookit/color v1.5.4 // indirect
-	github.com/invopop/jsonschema v0.12.0 // indirect
+	github.com/invopop/jsonschema v0.13.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jaypipes/pcidb v1.0.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/lithammer/fuzzysearch v1.1.8 // indirect
-	github.com/mailru/easyjson v0.7.7 // indirect
+	github.com/mailru/easyjson v0.9.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -27,6 +28,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// SEFII endpoints.
 	registerSEFIIEndpoints(api, config)
+
+	// MCP endpoints
+	registerMCPEndpoints(api, config)
 
 	// Git-related endpoints.
 	api.GET("/git-files", gitFilesHandler)
@@ -55,12 +59,43 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/code/eval", evaluateCodeHandler)
-	api.POST("/mcp", executeMCPCombinedHandler)
 	api.POST("/datadog", datadogHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
 
 	// Agentic Memory endpoints.
 	registerAgenticMemoryEndpoints(api, config)
+}
+
+// registerMCPEndpoints registers all MCP-related routes.
+func registerMCPEndpoints(api *echo.Group, config *Config) {
+	// Main combined MCP endpoint (internal + external GitHub tools)
+	api.POST("/mcp", executeMCPCombinedHandler)
+
+	// Create an MCP subgroup for more specific endpoints
+	mcpGroup := api.Group("/mcp")
+
+	// Internal MCP tools only
+	mcpGroup.POST("/internal", executeMCPInternalHandler)
+
+	// External GitHub MCP tools only
+	mcpGroup.POST("/github", executeMCPGitHubHandler)
+
+	// List available tools endpoints
+	mcpGroup.GET("/tools", listMCPToolsHandler)
+	mcpGroup.GET("/tools/internal", listInternalMCPToolsHandler)
+	mcpGroup.GET("/tools/github", listGitHubMCPToolsHandler)
+
+	// Tool-specific endpoints for direct execution
+	mcpGroup.POST("/tools/:toolName", executeMCPToolHandler)
+
+	// Set up the internal MCP handler with server management
+	internalMCPHandler, err := NewInternalMCPHandler(config)
+	if err != nil {
+		log.Printf("Error creating internal MCP handler: %v", err)
+	} else {
+		// Register internal MCP server routes under /api/mcp/internal/
+		internalMCPHandler.RegisterRoutes(mcpGroup.Group("/internal"))
+	}
 }
 
 // registerCompletionsEndpoints registers routes for completions-related functionality.

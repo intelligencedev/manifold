@@ -4,7 +4,7 @@ frontend/scripts/*
 frontend/tools_plan.md
 frontend/src/system_templates.yaml
 deploy/.DS_Store
-dist/manifold
+dist/*
 config.yaml
 models
 mflux

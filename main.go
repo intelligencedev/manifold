@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"embed"
+	"flag"
 	"fmt"
 	"net/http"
 	"os"
@@ -21,7 +22,11 @@ var frontendDist embed.FS
 
 func main() {
 	logger := pterm.DefaultLogger.WithLevel(pterm.LogLevelTrace)
-	config, err := LoadConfig("config.yaml")
+	configPath := flag.String("config", "config.yaml", "Path to config file")
+	flag.Parse()
+
+	// Initialize configuration
+	config, err := LoadConfig(*configPath)
 	if err != nil {
 		logger.Fatal(fmt.Sprintf("Failed to load configuration: %v", err))
 	}
@@ -31,9 +36,10 @@ func main() {
 		logger.Fatal(fmt.Sprintf("Failed to initialize application: %v", err))
 	}
 
-	// Create Echo instance with middleware.
+	// Create a new Echo instance
 	e := echo.New()
-	// Use pterm for logging
+
+	// Configure middleware
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${time_rfc3339} ${method} ${uri} ${status}\n",
 		Output: pterm.DefaultLogger.Writer,
@@ -44,10 +50,17 @@ func main() {
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, "X-File-Path"},
 	}))
 
-	// Register all routes.
+	// Register routes
 	registerRoutes(e, config)
 
-	// Start server.
+	// Create InternalMCPHandler for proper cleanup
+	internalMCPHandler, err := NewInternalMCPHandler(config)
+	if err != nil {
+		logger.Warn(fmt.Sprintf("Failed to initialize MCP handler: %v", err))
+		// Continue anyway, as MCP functionality is optional
+	}
+
+	// Start server in a goroutine
 	go func() {
 		port := fmt.Sprintf(":%d", config.Port)
 		if err := e.Start(port); err != nil && err != http.ErrServerClosed {
@@ -56,12 +69,22 @@ func main() {
 		logger.Info(fmt.Sprintf("Server started on port: %d", config.Port))
 	}()
 
-	// Graceful shutdown.
+	// Set up graceful shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
 	logger.Warn("Received shutdown signal")
+
+	// Perform cleanup
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Close MCP handler if it was successfully created
+	if internalMCPHandler != nil {
+		logger.Info("Shutting down MCP handler...")
+		internalMCPHandler.Close()
+	}
 
 	// First, stop all local services
 	logger.Info("Shutting down local services...")
@@ -75,10 +98,8 @@ func main() {
 		logger.Info("PGVector container stopped successfully")
 	}
 
-	// Then, shut down the HTTP server
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := e.Shutdown(shutdownCtx); err != nil {
+	// Shutdown Echo server
+	if err := e.Shutdown(ctx); err != nil {
 		logger.Fatal(fmt.Sprintf("Error shutting down server: %v", err))
 	}
 

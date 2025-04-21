@@ -68,34 +68,21 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 // registerMCPEndpoints registers all MCP-related routes.
 func registerMCPEndpoints(api *echo.Group, config *Config) {
-	// Main combined MCP endpoint (internal + external GitHub tools)
-	api.POST("/mcp", executeMCPCombinedHandler)
-
-	// Create an MCP subgroup for more specific endpoints
+	// Create an MCP subgroup for all MCP-related endpoints
 	mcpGroup := api.Group("/mcp")
-
-	// Internal MCP tools only
-	mcpGroup.POST("/internal", executeMCPInternalHandler)
-
-	// External GitHub MCP tools only
-	mcpGroup.POST("/github", executeMCPGitHubHandler)
-
-	// List available tools endpoints
-	mcpGroup.GET("/tools", listMCPToolsHandler)
-	mcpGroup.GET("/tools/internal", listInternalMCPToolsHandler)
-	mcpGroup.GET("/tools/github", listGitHubMCPToolsHandler)
-
-	// Tool-specific endpoints for direct execution
-	mcpGroup.POST("/tools/:toolName", executeMCPToolHandler)
 
 	// Set up the internal MCP handler with server management
 	internalMCPHandler, err := NewInternalMCPHandler(config)
 	if err != nil {
 		log.Printf("Error creating internal MCP handler: %v", err)
-	} else {
-		// Register internal MCP server routes under /api/mcp/internal/
-		internalMCPHandler.RegisterRoutes(mcpGroup.Group("/internal"))
+		return
 	}
+
+	// Register routes to interact with the configured MCP servers
+	// This gives access to our new mcp-manifold server through the Manager
+	mcpGroup.GET("/servers", internalMCPHandler.listServersHandler)
+	mcpGroup.GET("/servers/:name/tools", internalMCPHandler.listServerToolsHandler)
+	mcpGroup.POST("/servers/:name/tools/:tool", internalMCPHandler.callServerToolHandler)
 }
 
 // registerCompletionsEndpoints registers routes for completions-related functionality.

@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -24,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	mcp "github.com/metoro-io/mcp-golang"
@@ -226,6 +228,23 @@ func executeMCPCombinedHandler(c echo.Context) error {
 		}
 	}
 
+	extTools, err := extClient.ListTools(ctx, nil) // trigger tool discovery
+	if err != nil {
+		log.Printf("ext client list tools: %v", err)
+	} else {
+		// Convert tools to JSON for complete data representation
+		toolsJSON, jsonErr := json.MarshalIndent(extTools.Tools, "", "  ")
+		if jsonErr != nil {
+			log.Printf("Failed to convert external tools to JSON: %v", jsonErr)
+
+			// log the toolsJSON as a string
+			toolsJSONStr := fmt.Sprintf("%v", extTools.Tools)
+			log.Printf("External MCP tools (JSON):\n%s", toolsJSONStr)
+		} else {
+			log.Printf("External MCP tools (JSON):\n%s", string(toolsJSON))
+		}
+	}
+
 	// ---- start server + initialize client ---------------------------------
 	go startMCPServer(server)
 
@@ -241,6 +260,299 @@ func executeMCPCombinedHandler(c echo.Context) error {
 			map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, result)
+}
+
+// ------------------------------------------------------------------
+// MCP-specific handler functions
+// ------------------------------------------------------------------
+
+// executeMCPInternalHandler runs only the internal MCP tools.
+func executeMCPInternalHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	// Parse the incoming payload
+	payload, err := parsePayload(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid JSON payload"})
+	}
+	action := getAction(payload)
+
+	// Load configuration
+	cfg, err := LoadConfig("config.yaml")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("config load: %v", err)})
+	}
+
+	// Set up client/server communication
+	client, server, err := setupMCPCommunication()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("setup comms: %v", err)})
+	}
+
+	// Register only internal tools
+	registerMCPTools(server, cfg)
+
+	// Start server and initialize client
+	go startMCPServer(server)
+
+	if _, err := client.Initialize(ctx); err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("client init: %v", err)})
+	}
+
+	// Execute the requested action
+	result, err := handleAction(client, action, payload)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, result)
+}
+
+// executeMCPGitHubHandler runs only the GitHub external MCP tools.
+func executeMCPGitHubHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	// Parse the incoming payload
+	payload, err := parsePayload(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid JSON payload"})
+	}
+
+	// For GitHub MCP, we only support tool execution, not listing
+	if toolName, ok := payload["tool"].(string); !ok || toolName == "" {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "missing 'tool' field in payload"})
+	}
+
+	// Get arguments from payload
+	argsRaw, ok := payload["args"]
+	if !ok {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "missing 'args' field in payload"})
+	}
+
+	// Start the external GitHub MCP server
+	extClient, cleanup, err := startExternalMCP(ctx)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("failed to start GitHub MCP: %v", err)})
+	}
+	defer cleanup()
+
+	// Execute the tool directly
+	toolName := payload["tool"].(string)
+	result, err := extClient.CallTool(ctx, toolName, argsRaw)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("GitHub MCP tool execution failed: %v", err)})
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+// listMCPToolsHandler returns a list of all available MCP tools (both internal and GitHub).
+func listMCPToolsHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+	var tools struct {
+		Internal []string `json:"internal"`
+		GitHub   []string `json:"github"`
+	}
+
+	// Set up internal MCP server to get internal tools
+	cfg, err := LoadConfig("config.yaml")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("config load: %v", err)})
+	}
+
+	client, server, err := setupMCPCommunication()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("setup comms: %v", err)})
+	}
+	registerMCPTools(server, cfg)
+	go startMCPServer(server)
+
+	if _, err := client.Initialize(ctx); err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("client init: %v", err)})
+	}
+
+	// Get internal tools
+	internalResp, err := client.ListTools(ctx, nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("listing internal tools: %v", err)})
+	}
+
+	for _, tool := range internalResp.Tools {
+		tools.Internal = append(tools.Internal, tool.Name)
+	}
+
+	// Get GitHub MCP tools if possible
+	extClient, cleanup, err := startExternalMCP(ctx)
+	if err != nil {
+		// Return just the internal tools if GitHub MCP is unavailable
+		log.Printf("GitHub MCP unavailable: %v", err)
+	} else {
+		defer cleanup()
+		extResp, err := extClient.ListTools(ctx, nil)
+		if err != nil {
+			log.Printf("Failed to list GitHub tools: %v", err)
+		} else {
+			for _, tool := range extResp.Tools {
+				tools.GitHub = append(tools.GitHub, tool.Name)
+			}
+		}
+	}
+
+	return c.JSON(http.StatusOK, tools)
+}
+
+// listInternalMCPToolsHandler returns only the internal MCP tools.
+func listInternalMCPToolsHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	// Load configuration
+	cfg, err := LoadConfig("config.yaml")
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("config load: %v", err)})
+	}
+
+	// Set up client/server
+	client, server, err := setupMCPCommunication()
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("setup comms: %v", err)})
+	}
+
+	// Register only internal tools
+	registerMCPTools(server, cfg)
+
+	// Start server and initialize client
+	go startMCPServer(server)
+	if _, err := client.Initialize(ctx); err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("client init: %v", err)})
+	}
+
+	// Get tools list
+	resp, err := client.ListTools(ctx, nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("listing internal tools: %v", err)})
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// listGitHubMCPToolsHandler returns only the GitHub external MCP tools.
+func listGitHubMCPToolsHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+
+	// Start the external GitHub MCP server
+	extClient, cleanup, err := startExternalMCP(ctx)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("failed to start GitHub MCP: %v", err)})
+	}
+	defer cleanup()
+
+	// Get tools list
+	resp, err := extClient.ListTools(ctx, nil)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError,
+			map[string]string{"error": fmt.Sprintf("listing GitHub tools: %v", err)})
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// executeMCPToolHandler executes a specific MCP tool by name, whether internal or GitHub.
+func executeMCPToolHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+	toolName := c.Param("toolName")
+	if toolName == "" {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "missing tool name parameter"})
+	}
+
+	// Parse payload for tool arguments
+	payload, err := parsePayload(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "invalid JSON payload"})
+	}
+
+	// Get tool arguments from the payload
+	args, ok := payload["args"]
+	if !ok {
+		return c.JSON(http.StatusBadRequest,
+			map[string]string{"error": "missing 'args' field in payload"})
+	}
+
+	// Determine if this is a GitHub tool (starts with "gh_")
+	if strings.HasPrefix(toolName, "gh_") {
+		// For GitHub tools, remove the "gh_" prefix and use the GitHub client
+		githubToolName := strings.TrimPrefix(toolName, "gh_")
+
+		// Start the external GitHub MCP server
+		extClient, cleanup, err := startExternalMCP(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": fmt.Sprintf("failed to start GitHub MCP: %v", err)})
+		}
+		defer cleanup()
+
+		// Execute the tool
+		result, err := extClient.CallTool(ctx, githubToolName, args)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": fmt.Sprintf("GitHub MCP tool execution failed: %v", err)})
+		}
+
+		return c.JSON(http.StatusOK, result)
+	} else {
+		// This is an internal tool
+		// Load configuration
+		cfg, err := LoadConfig("config.yaml")
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": fmt.Sprintf("config load: %v", err)})
+		}
+
+		// Set up client/server
+		client, server, err := setupMCPCommunication()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": fmt.Sprintf("setup comms: %v", err)})
+		}
+
+		// Register only internal tools
+		registerMCPTools(server, cfg)
+
+		// Start server and initialize client
+		go startMCPServer(server)
+		if _, err := client.Initialize(ctx); err != nil {
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": fmt.Sprintf("client init: %v", err)})
+		}
+
+		// Execute the tool
+		result, err := client.CallTool(ctx, toolName, args)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError,
+				map[string]string{"error": fmt.Sprintf("internal MCP tool execution failed: %v", err)})
+		}
+
+		return c.JSON(http.StatusOK, result)
+	}
 }
 
 // ---------------------------------------------------------------------------

@@ -36,13 +36,6 @@ func NewInternalMCPHandler(config *Config) (*InternalMCPHandler, error) {
 	}, nil
 }
 
-// RegisterRoutes registers all internal MCP-related routes with the given Echo group.
-func (h *InternalMCPHandler) RegisterRoutes(g *echo.Group) {
-	g.GET("/servers", h.listServersHandler)
-	g.GET("/servers/:name/tools", h.listServerToolsHandler)
-	g.POST("/servers/:name/tools/:tool", h.callServerToolHandler)
-}
-
 // listServersHandler returns a list of configured MCP servers.
 func (h *InternalMCPHandler) listServersHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string][]string{
@@ -103,5 +96,7 @@ func (h *InternalMCPHandler) callServerToolHandler(c echo.Context) error {
 
 // Close cleans up resources when the server is shutting down.
 func (h *InternalMCPHandler) Close() {
-	h.mcpMgr.Close()
+	if h.mcpMgr != nil {
+		h.mcpMgr.Close()
+	}
 }

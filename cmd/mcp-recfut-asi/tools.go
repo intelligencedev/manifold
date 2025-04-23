@@ -1,17 +1,29 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
+	"time"
 
 	"gopkg.in/yaml.v2"
 )
+
+// APIClient defines the interface for making requests to external APIs
+type APIClient interface {
+	Request(ctx context.Context, method, path string, body interface{}) ([]byte, error)
+}
+
+// ConfigLoader defines the interface for loading configuration
+type ConfigLoader interface {
+	LoadConfig() (*Config, error)
+	GetSecurityTrailsAPIKey() (string, error)
+}
 
 // Config represents the structure of our config.yaml file
 type Config struct {
@@ -25,7 +37,42 @@ type MCPServerConfig struct {
 	Env     map[string]string `yaml:"env"`
 }
 
-// API Base URL
+// SecurityTrailsClient is a client for interacting with the SecurityTrails API
+type SecurityTrailsClient struct {
+	baseURL    string
+	apiKey     string
+	httpClient HTTPClient
+}
+
+// HTTPClient interface allows mocking of http.Client for testing
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// DefaultHTTPClient wraps the standard http.Client to implement the HTTPClient interface
+type DefaultHTTPClient struct {
+	Client *http.Client
+}
+
+// Do implements the HTTPClient interface for DefaultHTTPClient
+func (c *DefaultHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	return c.Client.Do(req)
+}
+
+// NewSecurityTrailsClient creates a new client for SecurityTrails API
+func NewSecurityTrailsClient(apiKey string) *SecurityTrailsClient {
+	return &SecurityTrailsClient{
+		baseURL: "https://api.securitytrails.com",
+		apiKey:  apiKey,
+		httpClient: &DefaultHTTPClient{
+			Client: &http.Client{
+				Timeout: 30 * time.Second,
+			},
+		},
+	}
+}
+
+// API Base URL constants
 const (
 	SecurityTrailsBaseURL = "https://api.securitytrails.com"
 	SecurityTrailsV1URL   = SecurityTrailsBaseURL + "/v1"
@@ -176,52 +223,69 @@ type PingResponse struct {
 }
 
 // =====================
-// Tool Implementations
+// Configuration & Client
 // =====================
 
+// APIError represents an error response from the SecurityTrails API
+type APIError struct {
+	StatusCode int
+	Message    string
+	Details    map[string]interface{}
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("API Error (HTTP %d): %s", e.StatusCode, e.Message)
+}
+
+// DefaultConfigLoader implements the ConfigLoader interface
+type DefaultConfigLoader struct{}
+
 // LoadConfig loads the configuration from the config.yaml file
-func LoadConfig() (*Config, error) {
-	// First, try to find the config.yaml in the same directory as the executable
+func (l *DefaultConfigLoader) LoadConfig() (*Config, error) {
+	// Try to find config in different locations
+	configPaths := []string{}
+
+	// 1. Try executable directory
 	execPath, err := os.Executable()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get executable path: %w", err)
+	if err == nil {
+		configPaths = append(configPaths, filepath.Join(filepath.Dir(execPath), "config.yaml"))
 	}
 
-	execDir := filepath.Dir(execPath)
-	configPath := filepath.Join(execDir, "config.yaml")
+	// 2. Try current working directory
+	workDir, err := os.Getwd()
+	if err == nil {
+		configPaths = append(configPaths, filepath.Join(workDir, "config.yaml"))
+		configPaths = append(configPaths, filepath.Join(workDir, "dist", "config.yaml"))
+	}
 
-	// Check if the config file exists at the executable directory
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		// If not, try to find it in the current working directory
-		workDir, err := os.Getwd()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get current working directory: %w", err)
-		}
-		configPath = filepath.Join(workDir, "config.yaml")
+	// Try each config path
+	var configData []byte
+	var configPath string
 
-		// If still not found, try looking in the dist directory
-		if _, err := os.Stat(configPath); os.IsNotExist(err) {
-			configPath = filepath.Join(workDir, "dist", "config.yaml")
+	for _, path := range configPaths {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			configData = data
+			configPath = path
+			break
 		}
 	}
 
-	// Read the config file
-	configData, err := ioutil.ReadFile(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
+	if configData == nil {
+		return nil, fmt.Errorf("could not find config.yaml in any of the expected locations")
 	}
 
 	// Parse the config file
 	var config Config
 	if err := yaml.Unmarshal(configData, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config file %s: %w", configPath, err)
 	}
 
 	return &config, nil
 }
 
 // GetSecurityTrailsAPIKey extracts the SecurityTrails API key from the environment variable or config
-func GetSecurityTrailsAPIKey() (string, error) {
+func (l *DefaultConfigLoader) GetSecurityTrailsAPIKey() (string, error) {
 	// First, check if the API key is available as an environment variable
 	apiKey := os.Getenv("SECURITYTRAILS_API_KEY")
 	if apiKey != "" {
@@ -229,7 +293,7 @@ func GetSecurityTrailsAPIKey() (string, error) {
 	}
 
 	// If not found in environment, try to load from config
-	config, err := LoadConfig()
+	config, err := l.LoadConfig()
 	if err != nil {
 		return "", fmt.Errorf("failed to load config: %w", err)
 	}
@@ -248,79 +312,138 @@ func GetSecurityTrailsAPIKey() (string, error) {
 	return apiKey, nil
 }
 
-// makeSecurityTrailsRequest makes a request to the SecurityTrails API
-func makeSecurityTrailsRequest(method, endpoint string, body io.Reader) (*http.Response, error) {
-	// Get the API key
-	apiKey, err := GetSecurityTrailsAPIKey()
+// getSecurityTrailsClient returns a client for interacting with the SecurityTrails API
+// This is a convenience function that uses the DefaultConfigLoader
+func getSecurityTrailsClient() (*SecurityTrailsClient, error) {
+	loader := &DefaultConfigLoader{}
+	apiKey, err := loader.GetSecurityTrailsAPIKey()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get SecurityTrails API key: %w", err)
+		return nil, err
+	}
+	return NewSecurityTrailsClient(apiKey), nil
+}
+
+// Request makes a request to the SecurityTrails API
+func (c *SecurityTrailsClient) Request(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
+	var bodyReader io.Reader
+
+	// Prepare request body if provided
+	if body != nil {
+		bodyBytes, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
 	// Create the HTTP request
-	req, err := http.NewRequest(method, endpoint, body)
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Add headers
-	req.Header.Add("accept", "application/json")
-	req.Header.Add("content-type", "application/json")
-	req.Header.Add("apikey", apiKey)
+	req.Header.Set("Accept", "application/json")
+	if bodyReader != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("Apikey", c.apiKey)
 
 	// Make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
-	}
-
-	return resp, nil
-}
-
-// pingTool implements the ping endpoint for SecurityTrails API
-func pingTool(_ PingArgs) (string, error) {
-	// Get the API key
-	apiKey, err := GetSecurityTrailsAPIKey()
-	if err != nil {
-		return "", fmt.Errorf("failed to get SecurityTrails API key: %w", err)
-	}
-
-	// Create the HTTP request
-	url := SecurityTrailsV1URL + "/ping"
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Add query parameter for API key
-	q := req.URL.Query()
-	q.Add("apikey", apiKey)
-	req.URL.RawQuery = q.Encode()
-
-	// Add headers
-	req.Header.Add("accept", "application/json")
-
-	// Make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Read the response body
-	body, err := ioutil.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Parse the response
-	var pingResp PingResponse
-	if err := json.Unmarshal(body, &pingResp); err != nil {
+	// Handle non-OK response codes
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var errorDetails map[string]interface{}
+		if err := json.Unmarshal(respBody, &errorDetails); err != nil {
+			errorDetails = map[string]interface{}{
+				"raw_response": string(respBody),
+			}
+		}
+
+		errMsg := fmt.Sprintf("API returned HTTP %d", resp.StatusCode)
+		if msg, ok := errorDetails["message"].(string); ok {
+			errMsg = msg
+		}
+
+		return nil, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    errMsg,
+			Details:    errorDetails,
+		}
+	}
+
+	return respBody, nil
+}
+
+// FormatResponse formats API responses for display
+func FormatResponse(data []byte) (string, error) {
+	var result map[string]interface{}
+	if err := json.Unmarshal(data, &result); err != nil {
 		return "", fmt.Errorf("failed to parse response body: %w", err)
 	}
 
-	// Return a formatted response
+	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to prettify JSON: %w", err)
+	}
+
+	return string(prettifiedJSON), nil
+}
+
+// addQueryParams adds query parameters to a URL from a map
+func addQueryParams(req *http.Request, params map[string][]string) {
+	q := req.URL.Query()
+	for key, values := range params {
+		for _, value := range values {
+			q.Add(key, value)
+		}
+	}
+	req.URL.RawQuery = q.Encode()
+}
+
+// =====================
+// Tool Implementations
+// =====================
+
+// ToolDependencies defines the dependencies for tool implementations
+type ToolDependencies struct {
+	Client APIClient
+}
+
+// pingTool implements the ping endpoint for SecurityTrails API
+func pingTool(deps ToolDependencies, args PingArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, "/v1/ping", nil)
+	if err != nil {
+		return "", fmt.Errorf("ping request failed: %w", err)
+	}
+
+	var pingResp PingResponse
+	if err := json.Unmarshal(data, &pingResp); err != nil {
+		return "", fmt.Errorf("failed to parse ping response: %w", err)
+	}
+
 	response := fmt.Sprintf("SecurityTrails API Ping Response:\nSuccess: %t\nMessage: %s",
 		pingResp.Success, pingResp.Message)
 
@@ -328,710 +451,514 @@ func pingTool(_ PingArgs) (string, error) {
 }
 
 // listProjectsTool implements the list projects endpoint
-func listProjectsTool(_ ListProjectsArgs) (string, error) {
-	url := SecurityTrailsV2URL + "/projects"
-	resp, err := makeSecurityTrailsRequest("GET", url, nil)
+func listProjectsTool(deps ToolDependencies, args ListProjectsArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, "/v2/projects", nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to list projects: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to list projects: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("list projects request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // searchAssetsTool implements the search assets endpoint
-func searchAssetsTool(args SearchAssetsArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/assets/_search", SecurityTrailsV2URL, args.ProjectID)
+func searchAssetsTool(deps ToolDependencies, args SearchAssetsArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	requestBody, err := json.Marshal(map[string]interface{}{
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Prepare request body
+	requestBody := map[string]interface{}{
 		"filter":      args.Filter,
 		"enrichments": args.Enrichments,
 		"pagination": map[string]interface{}{
 			"limit":  args.Limit,
 			"cursor": args.Cursor,
 		},
-	})
+	}
+
+	path := fmt.Sprintf("/v2/projects/%s/assets/_search", args.ProjectID)
+	data, err := deps.Client.Request(ctx, http.MethodPost, path, requestBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request body: %w", err)
+		return "", fmt.Errorf("search assets request failed: %w", err)
 	}
 
-	resp, err := makeSecurityTrailsRequest("POST", url, strings.NewReader(string(requestBody)))
-	if err != nil {
-		return "", fmt.Errorf("failed to search assets: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to search assets: HTTP %d", resp.StatusCode)
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // findAssetsTool implements the find assets endpoint (GET version)
-func findAssetsTool(args FindAssetsArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/assets", SecurityTrailsV2URL, args.ProjectID)
+func findAssetsTool(deps ToolDependencies, args FindAssetsArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Prepare the URL and build query parameters
+	path := fmt.Sprintf("/v2/projects/%s/assets", args.ProjectID)
 
 	// Build query parameters
-	q := make(map[string][]string)
+	queryParams := make(map[string][]string)
 
-	if args.Cursor != "" {
-		q["cursor"] = []string{args.Cursor}
+	// Helper function to add non-empty string params
+	addStringParam := func(key, value string) {
+		if value != "" {
+			queryParams[key] = []string{value}
+		}
 	}
-	if args.Limit > 0 {
-		q["limit"] = []string{fmt.Sprintf("%d", args.Limit)}
+
+	// Helper function to add non-zero int params
+	addIntParam := func(key string, value int) {
+		if value > 0 {
+			queryParams[key] = []string{fmt.Sprintf("%d", value)}
+		}
 	}
-	if args.SortBy != "" {
-		q["sort_by"] = []string{args.SortBy}
+
+	// Helper function to add bool pointer params
+	addBoolParam := func(key string, value *bool) {
+		if value != nil {
+			queryParams[key] = []string{fmt.Sprintf("%t", *value)}
+		}
 	}
-	if args.AssetType != "" {
-		q["asset_type"] = []string{args.AssetType}
-	}
-	if args.CustomTags != "" {
-		q["custom_tags"] = []string{args.CustomTags}
-	}
-	if args.CustomTagsStrict != "" {
-		q["custom_tags_strict"] = []string{args.CustomTagsStrict}
-	}
-	if args.AddedToProjectBefore != "" {
-		q["added_to_project_before"] = []string{args.AddedToProjectBefore}
-	}
-	if args.AddedToProjectAfter != "" {
-		q["added_to_project_after"] = []string{args.AddedToProjectAfter}
-	}
-	if args.DiscoveredBefore != "" {
-		q["discovered_before"] = []string{args.DiscoveredBefore}
-	}
-	if args.DiscoveredAfter != "" {
-		q["discovered_after"] = []string{args.DiscoveredAfter}
-	}
-	if args.Apex != "" {
-		q["apex"] = []string{args.Apex}
-	}
-	if args.ReferencedIP != "" {
-		q["referenced_ip"] = []string{args.ReferencedIP}
-	}
-	if args.ReferencedIPBefore != "" {
-		q["referenced_ip_before"] = []string{args.ReferencedIPBefore}
-	}
-	if args.ReferencedIPAfter != "" {
-		q["referenced_ip_after"] = []string{args.ReferencedIPAfter}
-	}
-	if args.HasDNSRecordType != "" {
-		q["has_dns_record_type"] = []string{args.HasDNSRecordType}
-	}
-	if args.DNSResolves != nil {
-		q["dns_resolves"] = []string{fmt.Sprintf("%t", *args.DNSResolves)}
-	}
-	if args.ASN > 0 {
-		q["asn"] = []string{fmt.Sprintf("%d", args.ASN)}
-	}
-	if args.CNAMEReference != "" {
-		q["cname_reference"] = []string{args.CNAMEReference}
-	}
-	if args.GeoCountryISO != "" {
-		q["geo_country_iso"] = []string{args.GeoCountryISO}
-	}
-	if args.IPOwner != "" {
-		q["ip_owner"] = []string{args.IPOwner}
-	}
-	if args.WHOISEmail != "" {
-		q["whois_email"] = []string{args.WHOISEmail}
-	}
-	if args.WHOISEmailCurrent != "" {
-		q["whois_email_current"] = []string{args.WHOISEmailCurrent}
-	}
-	if args.OpenPortNumber > 0 {
-		q["open_port_number"] = []string{fmt.Sprintf("%d", args.OpenPortNumber)}
-	}
-	if args.OpenPortProtocol != "" {
-		q["open_port_protocol"] = []string{args.OpenPortProtocol}
-	}
-	if args.OpenPortService != "" {
-		q["open_port_service"] = []string{args.OpenPortService}
-	}
-	if args.OpenPortTechnology != "" {
-		q["open_port_technology"] = []string{args.OpenPortTechnology}
-	}
-	if args.TechnologyName != "" {
-		q["technology_name"] = []string{args.TechnologyName}
-	}
-	if args.WebTechnologyName != "" {
-		q["web_technology_name"] = []string{args.WebTechnologyName}
-	}
-	if args.CertificateIssuer != "" {
-		q["certificate_issuer"] = []string{args.CertificateIssuer}
-	}
-	if args.CertificateExpBefore != "" {
-		q["certificate_expires_before"] = []string{args.CertificateExpBefore}
-	}
-	if args.CertificateExpAfter != "" {
-		q["certificate_expires_after"] = []string{args.CertificateExpAfter}
-	}
-	if args.CertificateIssBefore != "" {
-		q["certificate_issued_before"] = []string{args.CertificateIssBefore}
-	}
-	if args.CertificateIssAfter != "" {
-		q["certificate_issued_after"] = []string{args.CertificateIssAfter}
-	}
-	if args.CertificateSubject != "" {
-		q["certificate_subject"] = []string{args.CertificateSubject}
-	}
-	if args.CertificateSubAltName != "" {
-		q["certificate_subject_alt_name"] = []string{args.CertificateSubAltName}
-	}
-	if args.CertificateSHA256 != "" {
-		q["certificate_sha256"] = []string{args.CertificateSHA256}
-	}
-	if args.CertificateCoversDomain != "" {
-		q["certificate_covers_domain"] = []string{args.CertificateCoversDomain}
-	}
-	if args.WAFDetected != nil {
-		q["waf_detected"] = []string{fmt.Sprintf("%t", *args.WAFDetected)}
-	}
-	if args.WAFName != "" {
-		q["waf_name"] = []string{args.WAFName}
-	}
-	if args.ExposureScoreGTE > 0 {
-		q["exposure_score_gte"] = []string{fmt.Sprintf("%d", args.ExposureScoreGTE)}
-	}
-	if args.ExposureScoreLTE > 0 {
-		q["exposure_score_lte"] = []string{fmt.Sprintf("%d", args.ExposureScoreLTE)}
-	}
-	if args.ExposureSeverity != "" {
-		q["exposure_severity"] = []string{args.ExposureSeverity}
-	}
-	if args.ExposureID != "" {
-		q["exposure_id"] = []string{args.ExposureID}
-	}
+
+	// Add all query parameters
+	addStringParam("cursor", args.Cursor)
+	addIntParam("limit", args.Limit)
+	addStringParam("sort_by", args.SortBy)
+	addStringParam("asset_type", args.AssetType)
+	addStringParam("custom_tags", args.CustomTags)
+	addStringParam("custom_tags_strict", args.CustomTagsStrict)
+	addStringParam("added_to_project_before", args.AddedToProjectBefore)
+	addStringParam("added_to_project_after", args.AddedToProjectAfter)
+	addStringParam("discovered_before", args.DiscoveredBefore)
+	addStringParam("discovered_after", args.DiscoveredAfter)
+	addStringParam("apex", args.Apex)
+	addStringParam("referenced_ip", args.ReferencedIP)
+	addStringParam("referenced_ip_before", args.ReferencedIPBefore)
+	addStringParam("referenced_ip_after", args.ReferencedIPAfter)
+	addStringParam("has_dns_record_type", args.HasDNSRecordType)
+	addBoolParam("dns_resolves", args.DNSResolves)
+	addIntParam("asn", args.ASN)
+	addStringParam("cname_reference", args.CNAMEReference)
+	addStringParam("geo_country_iso", args.GeoCountryISO)
+	addStringParam("ip_owner", args.IPOwner)
+	addStringParam("whois_email", args.WHOISEmail)
+	addStringParam("whois_email_current", args.WHOISEmailCurrent)
+	addIntParam("open_port_number", args.OpenPortNumber)
+	addStringParam("open_port_protocol", args.OpenPortProtocol)
+	addStringParam("open_port_service", args.OpenPortService)
+	addStringParam("open_port_technology", args.OpenPortTechnology)
+	addStringParam("technology_name", args.TechnologyName)
+	addStringParam("web_technology_name", args.WebTechnologyName)
+	addStringParam("certificate_issuer", args.CertificateIssuer)
+	addStringParam("certificate_expires_before", args.CertificateExpBefore)
+	addStringParam("certificate_expires_after", args.CertificateExpAfter)
+	addStringParam("certificate_issued_before", args.CertificateIssBefore)
+	addStringParam("certificate_issued_after", args.CertificateIssAfter)
+	addStringParam("certificate_subject", args.CertificateSubject)
+	addStringParam("certificate_subject_alt_name", args.CertificateSubAltName)
+	addStringParam("certificate_sha256", args.CertificateSHA256)
+	addStringParam("certificate_covers_domain", args.CertificateCoversDomain)
+	addBoolParam("waf_detected", args.WAFDetected)
+	addStringParam("waf_name", args.WAFName)
+	addIntParam("exposure_score_gte", args.ExposureScoreGTE)
+	addIntParam("exposure_score_lte", args.ExposureScoreLTE)
+	addStringParam("exposure_severity", args.ExposureSeverity)
+	addStringParam("exposure_id", args.ExposureID)
+
+	// Add additional fields as array params
 	if len(args.AdditionalFields) > 0 {
-		q["additional_fields"] = args.AdditionalFields
+		queryParams["additional_fields"] = args.AdditionalFields
 	}
 
-	// Construct the request
-	req, err := http.NewRequest("GET", url, nil)
+	// Create a request to build the URL with query parameters
+	req, err := http.NewRequest(http.MethodGet, "https://api.securitytrails.com"+path, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add query parameters
-	query := req.URL.Query()
-	for k, vs := range q {
-		for _, v := range vs {
-			query.Add(k, v)
-		}
-	}
-	req.URL.RawQuery = query.Encode()
+	addQueryParams(req, queryParams)
 
-	// Add headers
-	apiKey, err := GetSecurityTrailsAPIKey()
+	// Extract the path with query parameters
+	fullPath := path + "?" + req.URL.RawQuery
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, fullPath, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get SecurityTrails API key: %w", err)
-	}
-	req.Header.Add("accept", "application/json")
-	req.Header.Add("apikey", apiKey)
-
-	// Make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to find assets: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("find assets request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // readAssetTool implements the read asset endpoint
-func readAssetTool(args ReadAssetArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/assets/%s", SecurityTrailsV2URL, args.ProjectID, args.AssetID)
+func readAssetTool(deps ToolDependencies, args ReadAssetArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	// Build query parameters
-	req, err := http.NewRequest("GET", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Prepare the URL and build query parameters
+	path := fmt.Sprintf("/v2/projects/%s/assets/%s", args.ProjectID, args.AssetID)
+
+	// Add additional fields if specified
+	queryParams := make(map[string][]string)
+	if len(args.AdditionalFields) > 0 {
+		queryParams["additional_fields"] = args.AdditionalFields
+	}
+
+	// Create a request to build the URL with query parameters
+	req, err := http.NewRequest(http.MethodGet, "https://api.securitytrails.com"+path, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add additional fields if specified
-	if len(args.AdditionalFields) > 0 {
-		q := req.URL.Query()
-		for _, field := range args.AdditionalFields {
-			q.Add("additional_fields", field)
-		}
-		req.URL.RawQuery = q.Encode()
+	addQueryParams(req, queryParams)
+
+	// Extract the path with query parameters
+	fullPath := path
+	if len(req.URL.RawQuery) > 0 {
+		fullPath += "?" + req.URL.RawQuery
 	}
 
-	// Add headers
-	apiKey, err := GetSecurityTrailsAPIKey()
+	data, err := deps.Client.Request(ctx, http.MethodGet, fullPath, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get SecurityTrails API key: %w", err)
-	}
-	req.Header.Add("accept", "application/json")
-	req.Header.Add("apikey", apiKey)
-
-	// Make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to read asset: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("read asset request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // listAssetExposuresTool implements the list asset exposures endpoint
-func listAssetExposuresTool(args ListAssetExposuresArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/assets/%s/exposures", SecurityTrailsV2URL, args.ProjectID, args.AssetID)
+func listAssetExposuresTool(deps ToolDependencies, args ListAssetExposuresArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	resp, err := makeSecurityTrailsRequest("GET", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/assets/%s/exposures", args.ProjectID, args.AssetID)
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to list asset exposures: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to list asset exposures: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("list asset exposures request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // getFiltersTool implements the get filters endpoint
-func getFiltersTool(args GetFiltersArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/filters", SecurityTrailsV2URL, args.ProjectID)
+func getFiltersTool(deps ToolDependencies, args GetFiltersArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	resp, err := makeSecurityTrailsRequest("GET", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/filters", args.ProjectID)
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get filters: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get filters: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("get filters request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // applyTagToAssetTool implements the apply tag to asset endpoint
-func applyTagToAssetTool(args TagArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/assets/%s/tags/%s", SecurityTrailsV2URL, args.ProjectID, args.AssetID, args.TagName)
+func applyTagToAssetTool(deps ToolDependencies, args TagArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	resp, err := makeSecurityTrailsRequest("PUT", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/assets/%s/tags/%s", args.ProjectID, args.AssetID, args.TagName)
+
+	data, err := deps.Client.Request(ctx, http.MethodPut, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to apply tag to asset: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to apply tag to asset: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("apply tag request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // removeTagFromAssetTool implements the remove tag from asset endpoint
-func removeTagFromAssetTool(args TagArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/assets/%s/tags/%s", SecurityTrailsV2URL, args.ProjectID, args.AssetID, args.TagName)
+func removeTagFromAssetTool(deps ToolDependencies, args TagArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	resp, err := makeSecurityTrailsRequest("DELETE", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/assets/%s/tags/%s", args.ProjectID, args.AssetID, args.TagName)
+
+	data, err := deps.Client.Request(ctx, http.MethodDelete, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to remove tag from asset: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to remove tag from asset: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("remove tag request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // bulkAddRemoveAssetTagsTool implements the bulk add remove asset tags endpoint
-func bulkAddRemoveAssetTagsTool(args BulkTagAssetsArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/tags/_bulk_tag_assets", SecurityTrailsV2URL, args.ProjectID)
+func bulkAddRemoveAssetTagsTool(deps ToolDependencies, args BulkTagAssetsArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/tags/_bulk_tag_assets", args.ProjectID)
 
 	// Create the request body
-	requestBody, err := json.Marshal(map[string]interface{}{
+	requestBody := map[string]interface{}{
 		"asset_tags": args.AssetTags,
-	})
+	}
+
+	data, err := deps.Client.Request(ctx, http.MethodPost, path, requestBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request body: %w", err)
+		return "", fmt.Errorf("bulk tag assets request failed: %w", err)
 	}
 
-	resp, err := makeSecurityTrailsRequest("POST", url, strings.NewReader(string(requestBody)))
-	if err != nil {
-		return "", fmt.Errorf("failed to bulk add/remove asset tags: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to bulk add/remove asset tags: HTTP %d", resp.StatusCode)
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // getTagsTool implements the get tags endpoint
-func getTagsTool(args GetTagsArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/tags", SecurityTrailsV2URL, args.ProjectID)
+func getTagsTool(deps ToolDependencies, args GetTagsArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	resp, err := makeSecurityTrailsRequest("GET", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/tags", args.ProjectID)
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get tags: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get tags: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("get tags request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // getTagStatusTool implements the get tag status endpoint
-func getTagStatusTool(args GetTagStatusArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/tags/_task_status/%s", SecurityTrailsV2URL, args.ProjectID, args.TaskID)
+func getTagStatusTool(deps ToolDependencies, args GetTagStatusArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	resp, err := makeSecurityTrailsRequest("GET", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/tags/_task_status/%s", args.ProjectID, args.TaskID)
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get tag status: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get tag status: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("get tag status request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // addTagTool implements the add tag endpoint
-func addTagTool(args AddTagArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/tags/%s", SecurityTrailsV2URL, args.ProjectID, args.TagName)
+func addTagTool(deps ToolDependencies, args AddTagArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
 
-	resp, err := makeSecurityTrailsRequest("POST", url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	path := fmt.Sprintf("/v2/projects/%s/tags/%s", args.ProjectID, args.TagName)
+
+	data, err := deps.Client.Request(ctx, http.MethodPost, path, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to add tag: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to add tag: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("add tag request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // listExposuresTool implements the list exposures endpoint
-func listExposuresTool(args ListExposuresArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/exposures", SecurityTrailsV2URL, args.ProjectID)
+func listExposuresTool(deps ToolDependencies, args ListExposuresArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Prepare the URL and build query parameters
+	path := fmt.Sprintf("/v2/projects/%s/exposures", args.ProjectID)
 
 	// Build query parameters
-	req, err := http.NewRequest("GET", url, nil)
+	queryParams := make(map[string][]string)
+
+	// Helper function to add non-empty string params
+	addStringParam := func(key, value string) {
+		if value != "" {
+			queryParams[key] = []string{value}
+		}
+	}
+
+	// Helper function to add non-zero int params
+	addIntParam := func(key string, value int) {
+		if value > 0 {
+			queryParams[key] = []string{fmt.Sprintf("%d", value)}
+		}
+	}
+
+	addStringParam("cursor", args.Cursor)
+	addIntParam("limit", args.Limit)
+	addStringParam("filter_cve_id", args.FilterCVEID)
+	addStringParam("filter_severity", args.FilterSeverity)
+
+	// Create a request to build the URL with query parameters
+	req, err := http.NewRequest(http.MethodGet, "https://api.securitytrails.com"+path, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	q := req.URL.Query()
-	if args.Cursor != "" {
-		q.Add("cursor", args.Cursor)
-	}
-	if args.Limit > 0 {
-		q.Add("limit", fmt.Sprintf("%d", args.Limit))
-	}
-	if args.FilterCVEID != "" {
-		q.Add("filter_cve_id", args.FilterCVEID)
-	}
-	if args.FilterSeverity != "" {
-		q.Add("filter_severity", args.FilterSeverity)
-	}
-	req.URL.RawQuery = q.Encode()
+	addQueryParams(req, queryParams)
 
-	// Add headers
-	apiKey, err := GetSecurityTrailsAPIKey()
+	// Extract the path with query parameters
+	fullPath := path
+	if len(req.URL.RawQuery) > 0 {
+		fullPath += "?" + req.URL.RawQuery
+	}
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, fullPath, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get SecurityTrails API key: %w", err)
-	}
-	req.Header.Add("accept", "application/json")
-	req.Header.Add("apikey", apiKey)
-
-	// Make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to list exposures: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("list exposures request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }
 
 // getExposureAssetsTool implements the get exposure assets endpoint
-func getExposureAssetsTool(args GetExposureAssetsArgs) (string, error) {
-	url := fmt.Sprintf("%s/projects/%s/exposures/%s", SecurityTrailsV2URL, args.ProjectID, args.SignatureID)
+func getExposureAssetsTool(deps ToolDependencies, args GetExposureAssetsArgs) (string, error) {
+	if deps.Client == nil {
+		client, err := getSecurityTrailsClient()
+		if err != nil {
+			return "", fmt.Errorf("failed to get SecurityTrails client: %w", err)
+		}
+		deps.Client = client
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Prepare the URL and build query parameters
+	path := fmt.Sprintf("/v2/projects/%s/exposures/%s", args.ProjectID, args.SignatureID)
 
 	// Build query parameters
-	req, err := http.NewRequest("GET", url, nil)
+	queryParams := make(map[string][]string)
+
+	// Helper function to add non-empty string params
+	addStringParam := func(key, value string) {
+		if value != "" {
+			queryParams[key] = []string{value}
+		}
+	}
+
+	// Helper function to add non-zero int params
+	addIntParam := func(key string, value int) {
+		if value > 0 {
+			queryParams[key] = []string{fmt.Sprintf("%d", value)}
+		}
+	}
+
+	addStringParam("cursor", args.Cursor)
+	addIntParam("limit", args.Limit)
+
+	// Create a request to build the URL with query parameters
+	req, err := http.NewRequest(http.MethodGet, "https://api.securitytrails.com"+path, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	q := req.URL.Query()
-	if args.Cursor != "" {
-		q.Add("cursor", args.Cursor)
-	}
-	if args.Limit > 0 {
-		q.Add("limit", fmt.Sprintf("%d", args.Limit))
-	}
-	req.URL.RawQuery = q.Encode()
+	addQueryParams(req, queryParams)
 
-	// Add headers
-	apiKey, err := GetSecurityTrailsAPIKey()
+	// Extract the path with query parameters
+	fullPath := path
+	if len(req.URL.RawQuery) > 0 {
+		fullPath += "?" + req.URL.RawQuery
+	}
+
+	data, err := deps.Client.Request(ctx, http.MethodGet, fullPath, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to get SecurityTrails API key: %w", err)
-	}
-	req.Header.Add("accept", "application/json")
-	req.Header.Add("apikey", apiKey)
-
-	// Make the request
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to get exposure assets: HTTP %d", resp.StatusCode)
+		return "", fmt.Errorf("get exposure assets request failed: %w", err)
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	var result map[string]interface{}
-	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to parse response body: %w", err)
-	}
-
-	prettifiedJSON, err := json.MarshalIndent(result, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to prettify JSON: %w", err)
-	}
-
-	return string(prettifiedJSON), nil
+	return FormatResponse(data)
 }

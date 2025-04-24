@@ -389,10 +389,20 @@ func TestSearchAssetsTool(t *testing.T) {
 
 	// Test data
 	projectID := "test-project"
-	filter := map[string]interface{}{"type": "domain"}
+
+	// Create test arguments using the new nested structure
 	args := SearchAssetsArgs{
-		ProjectID:   projectID,
-		Filter:      filter,
+		ProjectID: projectID,
+		AssetProperties: map[string]interface{}{
+			"asset_id": map[string]interface{}{
+				"eq": "example.com",
+			},
+		},
+		TechnologyProperties: map[string]interface{}{
+			"waf_detected": map[string]interface{}{
+				"eq": true,
+			},
+		},
 		Enrichments: []string{"dns"},
 		Limit:       100,
 		Cursor:      "next-page",
@@ -407,13 +417,48 @@ func TestSearchAssetsTool(t *testing.T) {
 		http.MethodPost,
 		"/v2/projects/test-project/assets/_search",
 		mock.MatchedBy(func(body interface{}) bool {
-			// This is a simple matcher that checks the body has the expected structure
-			// In a real test, you might want to do more detailed validation
+			// Validate the request body has the expected structure
 			m, ok := body.(map[string]interface{})
 			if !ok {
 				return false
 			}
-			return m["filter"] != nil && m["pagination"] != nil
+
+			// Check filter structure
+			filter, filterOk := m["filter"].(map[string]interface{})
+			if !filterOk {
+				return false
+			}
+
+			// Check asset_properties exists in filter
+			assetProps, assetPropsOk := filter["asset_properties"].(map[string]interface{})
+			if !assetPropsOk {
+				return false
+			}
+
+			// Check technology_properties exists in filter
+			techProps, techPropsOk := filter["technology_properties"].(map[string]interface{})
+			if !techPropsOk {
+				return false
+			}
+
+			// Check pagination structure
+			pagination, paginationOk := m["pagination"].(map[string]interface{})
+			if !paginationOk {
+				return false
+			}
+
+			// Verify specific values
+			assetIdFilter, assetIdOk := assetProps["asset_id"].(map[string]interface{})
+			if !assetIdOk || assetIdFilter["eq"] != "example.com" {
+				return false
+			}
+
+			wafDetected, wafOk := techProps["waf_detected"].(map[string]interface{})
+			if !wafOk || wafDetected["eq"] != true {
+				return false
+			}
+
+			return pagination["limit"] == float64(100) && pagination["cursor"] == "next-page"
 		})).
 		Return(mockResponse, nil)
 
@@ -431,6 +476,91 @@ func TestSearchAssetsTool(t *testing.T) {
 	// Check the result
 	require.NoError(t, err, "searchAssetsTool should not return an error")
 	assert.Contains(t, result, "example.com", "Result should contain the asset ID")
+}
+
+// Additional test for the raw filter option
+func TestSearchAssetsWithRawFilterTool(t *testing.T) {
+	// Create a mock API client
+	mockAPIClient := new(MockAPIClient)
+
+	// Test data with raw filter
+	projectID := "test-project"
+
+	rawFilter := map[string]interface{}{
+		"asset_properties": map[string]interface{}{
+			"asset_id": map[string]interface{}{
+				"eq": "1.1.1.1",
+			},
+		},
+		"technology_properties": map[string]interface{}{
+			"waf_detected": map[string]interface{}{
+				"eq": true,
+			},
+		},
+	}
+
+	args := SearchAssetsArgs{
+		ProjectID: projectID,
+		FilterRaw: rawFilter,
+		Limit:     50,
+	}
+
+	// Expected response from the API
+	mockResponse := []byte(`{"assets": [{"id": "1.1.1.1", "type": "ip"}]}`)
+
+	// Set up the mock call and response
+	mockAPIClient.On("Request",
+		mock.Anything,
+		http.MethodPost,
+		"/v2/projects/test-project/assets/_search",
+		mock.MatchedBy(func(body interface{}) bool {
+			// Validate the request body has the expected structure
+			m, ok := body.(map[string]interface{})
+			if !ok {
+				return false
+			}
+
+			// Check filter structure matches our raw filter
+			filter, filterOk := m["filter"].(map[string]interface{})
+			if !filterOk {
+				return false
+			}
+
+			// Should have our exact raw filter
+			assetProps, assetPropsOk := filter["asset_properties"].(map[string]interface{})
+			if !assetPropsOk {
+				return false
+			}
+
+			assetIdFilter, assetIdOk := assetProps["asset_id"].(map[string]interface{})
+			if !assetIdOk || assetIdFilter["eq"] != "1.1.1.1" {
+				return false
+			}
+
+			// Check pagination has limit 50
+			pagination, paginationOk := m["pagination"].(map[string]interface{})
+			if !paginationOk || pagination["limit"] != float64(50) {
+				return false
+			}
+
+			return true
+		})).
+		Return(mockResponse, nil)
+
+	// Create the dependencies with our mock API client
+	deps := ToolDependencies{
+		Client: mockAPIClient,
+	}
+
+	// Call the function under test
+	result, err := searchAssetsTool(deps, args)
+
+	// Verify the mock was called
+	mockAPIClient.AssertExpectations(t)
+
+	// Check the result
+	require.NoError(t, err, "searchAssetsTool should not return an error")
+	assert.Contains(t, result, "1.1.1.1", "Result should contain the asset ID")
 }
 
 // TestFindAssetsTool tests the findAssetsTool function

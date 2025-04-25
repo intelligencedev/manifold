@@ -1,8 +1,48 @@
 package main
 
 import (
+	"encoding/json"
 	"time"
 )
+
+// CustomTime is a custom time type that can parse timestamps without timezone information
+type CustomTime struct {
+	time.Time
+}
+
+// UnmarshalJSON implements the json.Unmarshaler interface
+func (ct *CustomTime) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	if s == "" || s == "null" {
+		ct.Time = time.Time{}
+		return nil
+	}
+
+	// Try parsing with timezone
+	t, err := time.Parse(time.RFC3339, s)
+	if err == nil {
+		ct.Time = t
+		return nil
+	}
+
+	// Try parsing without timezone (assume UTC)
+	layouts := []string{
+		"2006-01-02T15:04:05",     // No timezone
+		"2006-01-02T15:04:05.999", // With milliseconds, no timezone
+	}
+
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			ct.Time = t.UTC() // Assume UTC timezone if none specified
+			return nil
+		}
+	}
+
+	return err // Return the original error if all parsing attempts fail
+}
 
 // ApiCount represents the count information in API responses.
 type ApiCount struct {
@@ -27,12 +67,12 @@ type ApiMeta struct {
 
 // Project represents a project within the ASI system.
 type Project struct {
-	ID               string     `json:"id"` // UUID format
-	Title            string     `json:"title"`
-	ScanningEnabled  *bool      `json:"scanning_enabled,omitempty"`   // Is scanning enabled for this project?
-	LastScannedAt    *time.Time `json:"last_scanned_at,omitempty"`    // Format: date-time
-	InsertedAt       *time.Time `json:"inserted_at,omitempty"`        // Format: date-time, When the project was created
-	MaxExposureScore *int       `json:"max_exposure_score,omitempty"` // Highest exposure score among assets in the project
+	ID               string      `json:"id"` // UUID format
+	Title            string      `json:"title"`
+	ScanningEnabled  *bool       `json:"scanning_enabled,omitempty"`   // Is scanning enabled for this project?
+	LastScannedAt    *CustomTime `json:"last_scanned_at,omitempty"`    // Format: date-time
+	InsertedAt       *CustomTime `json:"inserted_at,omitempty"`        // Format: date-time, When the project was created
+	MaxExposureScore *int        `json:"max_exposure_score,omitempty"` // Highest exposure score among assets in the project
 }
 
 // ProjectListResponse is the response structure for listing projects.
@@ -269,9 +309,9 @@ type DNSValue struct {
 	// Sources from where this record was seen (optional).
 	SeenFrom []string `json:"seen_from,omitempty"`
 	// Timestamp when this specific value was first seen (optional). Format: date-time.
-	FirstSeenAt *time.Time `json:"first_seen_at,omitempty"`
+	FirstSeenAt *CustomTime `json:"first_seen_at,omitempty"`
 	// Timestamp when this specific value was last resolved/seen. Format: date-time.
-	LastResolvedAt *time.Time `json:"last_resolved_at"` // Required, but schema allows null
+	LastResolvedAt *CustomTime `json:"last_resolved_at"` // Required, but schema allows null
 }
 
 // DNSRecord represents a DNS record associated with an asset.
@@ -298,11 +338,11 @@ type WHOISRecord struct {
 	// Registrar of the domain.
 	Registrar *string `json:"registrar,omitempty"`
 	// Expiration date of the domain. Format: date-time.
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
+	ExpiresAt *CustomTime `json:"expires_at,omitempty"`
 	// Last updated date of the domain. Format: date-time.
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	UpdatedAt *CustomTime `json:"updated_at,omitempty"`
 	// Creation date of the domain. Format: date-time.
-	CreatedAt *time.Time `json:"created_at,omitempty"`
+	CreatedAt *CustomTime `json:"created_at,omitempty"`
 	// Is the domain registration private?
 	IsPrivate *bool `json:"is_private,omitempty"`
 	// Is this WHOIS record from the parent domain? Default: false.

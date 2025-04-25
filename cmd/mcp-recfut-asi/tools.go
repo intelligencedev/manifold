@@ -821,19 +821,35 @@ func removeTagFromAssetTool(deps ToolDependencies, args TagArgs) (string, error)
 }
 
 func bulkAddRemoveAssetTagsTool(deps ToolDependencies, args BulkTagAssetsArgs) (string, error) {
+	// Create a properly formatted request body for bulk tagging
 	body := map[string]interface{}{"asset_tags": args.AssetTags}
+
+	// Debug log for examining the request payload
+	jsonBody, _ := json.MarshalIndent(body, "", "  ")
+	log.Printf("Bulk Tag Assets Request JSON Payload: %s", string(jsonBody))
+
 	return tagBulkMutation(deps, args.Endpoint, body,
 		fmt.Sprintf("/v2/projects/%s/tags/_bulk_tag_assets", args.ProjectID))
 }
 
 func bulkAddRemoveSingleAssetTagsTool(deps ToolDependencies, args BulkAddRemoveSingleAssetTagsArgs) (string, error) {
+	// Create a properly formatted request body
 	body := map[string]interface{}{}
+
+	// Handle add_tags property - ensure it's properly formatted
 	if len(args.AddTags) > 0 {
 		body["add_tags"] = args.AddTags
 	}
+
+	// Handle remove_tags property - ensure it's properly formatted
 	if len(args.RemoveTags) > 0 {
 		body["remove_tags"] = args.RemoveTags
 	}
+
+	// Debug log for examining the request payload
+	jsonBody, _ := json.MarshalIndent(body, "", "  ")
+	log.Printf("Tag Assets Request JSON Payload: %s", string(jsonBody))
+
 	return tagBulkMutation(deps, args.Endpoint, body,
 		fmt.Sprintf("/v2/projects/%s/assets/%s/tags", args.ProjectID, args.AssetID))
 }

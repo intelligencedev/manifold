@@ -218,7 +218,7 @@ func readFileTool(args ReadFileArgs) (string, error) {
 
 // write_file tool
 func writeFileTool(args WriteFileArgs) (string, error) {
-	err := ioutil.WriteFile(args.Path, []byte(args.Content), 0644)
+	err := os.WriteFile(args.Path, []byte(args.Content), 0644)
 	if err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}

@@ -55,7 +55,7 @@ export default function useTextNode(props, emit) {
     if (connectedSources.length > 0) {
       const sourceNode = findNode(connectedSources[0])
       if (sourceNode && sourceNode.data.outputs.result) {
-        props.data.inputs.text = props.data.inputs.text + sourceNode.data.outputs.result.output + "\n\n"
+        props.data.inputs.text = props.data.inputs.text + sourceNode.data.outputs.result.output
       }
     }
   

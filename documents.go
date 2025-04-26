@@ -95,7 +95,14 @@ func saveFileHandler(c echo.Context) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create directory '%s': %v", dir, err))
 	}
-	if err := os.WriteFile(req.Filepath, []byte(req.Content), 0644); err != nil {
+
+	// Append a new line to the content
+	content := req.Content
+	// if !strings.HasSuffix(content, "\n") {
+	// 	content += "\n"
+	// }
+
+	if err := os.WriteFile(req.Filepath, []byte(content), 0644); err != nil {
 		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to save file '%s': %v", req.Filepath, err))
 	}
 	return c.JSON(http.StatusOK, map[string]string{"message": "File saved successfully"})

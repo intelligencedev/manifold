@@ -509,7 +509,7 @@ async function runWorkflowConcurrently() {
 
   // 3. Set to track processed nodes in the current execution flow (cleared on jump)
   const processed = new Set<string>();
-  let executionLimit = nodes.value.length * 10; // Safety break for potential loops
+  let executionLimit = nodes.value.length * 9999; // Safety break for potential loops
   let executionSteps = 0;
 
   // Define node execution function to support concurrent execution
@@ -598,7 +598,7 @@ async function runWorkflowConcurrently() {
         
         // Execute the sub-workflow
         let subExecutionSteps = 0;
-        const subExecutionLimit = nodes.value.length * 5; // Smaller safety limit for sub-workflows
+        const subExecutionLimit = nodes.value.length * 9999; // Smaller safety limit for sub-workflows
         
         console.log(`Starting sub-workflow execution from node ${jumpTargetId}`);
         

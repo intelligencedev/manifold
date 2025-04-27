@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 
+	"manifold/internal/agent"
+
 	"github.com/labstack/echo/v4"
 )
 
@@ -17,6 +19,9 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	// API group for all API endpoints.
 	api := e.Group("/api")
 	registerAPIEndpoints(api, config)
+
+	// Agent endpoints (Planner / Executor / Critic / Full‐run)
+	registerAgentEndpoints(api, config)
 }
 
 // registerAPIEndpoints registers all API-related routes.
@@ -114,4 +119,21 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
+}
+
+// registerAgentEndpoints registers routes for agent-related functionality.
+func registerAgentEndpoints(api *echo.Group, config *Config) {
+	agentGroup := api.Group("/agent")
+
+	handler, err := agent.NewInternalAgentHandler(config)
+	if err != nil {
+		log.Printf("Error creating internal agent handler: %v", err)
+		return
+	}
+
+	// Register all endpoints as POST to be consistent
+	agentGroup.POST("/plan", handler.PlanHandler)
+	agentGroup.POST("/run", handler.RunHandler)
+	agentGroup.POST("/execute", handler.ExecuteHandler)
+	agentGroup.POST("/critique", handler.CritiqueHandler)
 }

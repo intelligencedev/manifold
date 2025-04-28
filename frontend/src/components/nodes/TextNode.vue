@@ -9,7 +9,18 @@
       {{ data.type }}
     </div>
 
-    <!-- Text input area with zoom disabled on mouse enter -->
+    <!-- Mode selector dropdown -->
+    <div class="node-options mode-selector">
+      <label class="select-label">
+        <span>Mode:</span>
+        <select v-model="mode" @change="updateNodeData" class="mode-select">
+          <option value="text">Text</option>
+          <option value="template">Template</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- Text input area -->
     <textarea
       v-model="text"
       @change="updateNodeData"
@@ -20,12 +31,24 @@
       @mouseup="onTextareaMouseUp"
       @focus="onTextareaFocus"
       @blur="onTextareaBlur"
+      :placeholder="mode === 'template'
+        ? `Paste template + values blocks, e.g.:
+
+--- template:profile ---
+Hello {{USER}}, you are {{AGE}} years old.
+--- endtemplate ---
+
+--- values:profile ---
+USER=Alice
+AGE=23
+--- endvalues ---`
+        : 'Enter text...'"
     ></textarea>
-    
+
     <!-- Clear on run checkbox -->
     <div class="node-options">
       <label class="checkbox-label">
-        <input type="checkbox" v-model="clearOnRun">
+        <input type="checkbox" v-model="clearOnRun" />
         <span>Clear on run</span>
       </label>
     </div>
@@ -45,14 +68,14 @@
       id="output"
     />
 
-    <!-- Node resizer for adjusting the node dimensions -->
+    <!-- Node resizer -->
     <NodeResizer
       :is-resizable="true"
       :color="'#666'"
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle"
-      :min-width="200"
-      :min-height="150"
+      :min-width="380"
+      :min-height="380"
       :node-id="id"
       @resize="onResize"
     />
@@ -94,20 +117,20 @@ const props = defineProps({
         text: ''
       },
       outputs: {},
-      clearOnRun: false
+      clearOnRun: false,
+      mode: 'text'
     })
   }
 })
 
 const emit = defineEmits(['update:data', 'disable-zoom', 'enable-zoom', 'resize'])
 
-// Get the Vue Flow instance to control node dragging
 const { disableNodeDrag, enableNodeDrag } = useVueFlow()
 
-// Use the composable to get all the reactive state and methods
 const {
   text,
   clearOnRun,
+  mode,
   customStyle,
   isHovered,
   resizeHandleStyle,
@@ -116,22 +139,13 @@ const {
 } = useTextNode(props, emit)
 
 // Disable node dragging when interacting with textarea
-const onTextareaMouseDown = (event) => {
-  event.stopPropagation()
+const onTextareaMouseDown = (e) => {
+  e.stopPropagation()
   disableNodeDrag(props.id)
 }
-
-const onTextareaMouseUp = () => {
-  enableNodeDrag(props.id)
-}
-
-const onTextareaFocus = () => {
-  disableNodeDrag(props.id)
-}
-
-const onTextareaBlur = () => {
-  enableNodeDrag(props.id)
-}
+const onTextareaMouseUp = () => enableNodeDrag(props.id)
+const onTextareaFocus   = () => disableNodeDrag(props.id)
+const onTextareaBlur    = () => enableNodeDrag(props.id)
 </script>
 
 <style scoped>
@@ -162,7 +176,29 @@ const onTextareaBlur = () => {
   font-weight: bold;
 }
 
-/* Consistent styling for input elements */
+.mode-selector {
+  margin-bottom: 10px;
+  width: calc(100% - 20px);
+}
+
+.select-label {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+}
+
+.select-label span { margin-right: 10px; }
+
+.mode-select {
+  background-color: #333;
+  border: 1px solid #666;
+  color: #eee;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .input-textarea {
   background-color: #333;
   border: 1px solid #666;
@@ -176,7 +212,6 @@ const onTextareaBlur = () => {
   margin: 10px 0;
 }
 
-/* Styling for node options */
 .node-options {
   display: flex;
   justify-content: flex-start;
@@ -187,12 +222,9 @@ const onTextareaBlur = () => {
 .checkbox-label {
   display: flex;
   align-items: center;
-  color: var(--node-text-color);
   font-size: 12px;
   cursor: pointer;
 }
 
-.checkbox-label input {
-  margin-right: 5px;
-}
+.checkbox-label input { margin-right: 5px; }
 </style>

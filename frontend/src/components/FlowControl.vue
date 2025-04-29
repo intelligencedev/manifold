@@ -39,6 +39,23 @@
       </div>
     </div>
 
+    <!-- Conditional Input Field for Combine -->
+    <div v-if="mode === 'Combine'">
+      <div class="input-field">
+        <label class="input-label">Combine Mode:</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" v-model="combineMode" value="newline" />
+            <span>Newline</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" v-model="combineMode" value="continuous" />
+            <span>Continuous</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
     <!-- Input/Output Handles -->
     <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
     <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
@@ -138,6 +155,11 @@ const delimiter = computed({
 const waitTime = computed({
   get: () => props.data.inputs.waitTime || 5,
   set: (value) => { props.data.inputs.waitTime = parseInt(value) || 5 },
+})
+
+const combineMode = computed({
+  get: () => props.data.inputs.combineMode || 'newline',
+  set: (value) => { props.data.inputs.combineMode = value },
 })
 
 // --- UI State ---
@@ -347,12 +369,16 @@ async function run() {
     for (const sourceId of connectedSources) {
       const sourceNode = findNode(sourceId);
       if (sourceNode && sourceNode.data.outputs.result.output) {
-        combinedOutput += `${sourceNode.data.outputs.result.output}\n`;
+        combinedOutput += combineMode.value === 'newline'
+          ? `${sourceNode.data.outputs.result.output}\n`
+          : sourceNode.data.outputs.result.output;
       }
     }
 
-    // Remove trailing newline
-    combinedOutput = combinedOutput.trim();
+    // Remove trailing newline for newline mode
+    if (combineMode.value === 'newline') {
+      combinedOutput = combinedOutput.trim();
+    }
 
     console.log(`FlowControl (${props.id}): Combined output: "${combinedOutput}"`);
     props.data.outputs.result.output = combinedOutput;
@@ -461,6 +487,19 @@ watch(() => props.data.style, (newStyle) => {
   background-position: right 8px center;
   padding-right: 25px;
   /* Space for arrow */
+}
+
+.radio-group {
+  display: flex;
+  gap: 10px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #ccc;
 }
 
 /* Focus styles for accessibility */

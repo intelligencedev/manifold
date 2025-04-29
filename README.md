@@ -4,7 +4,7 @@
 
 </div>
 
-![Manifold](docs/manifold_splash.jpg)
+![Manifold](docs/manifold_chat.jpg)
 
 Manifold is a powerful platform designed for workflow automation using AI models. It supports text generation, image generation, and retrieval-augmented generation, integrating seamlessly with popular AI endpoints including OpenAI, llama.cpp, Apple's MLX LM, Google Gemini, Anthropic Claude, ComfyUI, and MFlux. Additionally, Manifold provides robust semantic search capabilities using PGVector combined with the SEFII (Semantic Embedding Forest with Inverted Index) engine.
 

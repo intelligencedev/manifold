@@ -9,34 +9,36 @@
 # ----------------------------
 # Environment variables are automatically mapped to YAML paths using this convention:
 #
-# 1. Prefix all variables with "MANIFOLD_"
-# 2. Use UPPERCASE for all letters
-# 3. Use underscore (_) to represent nesting in the YAML hierarchy
+# 1. Prefix all variables with "MANIFOLD__"
+# 2. Use UPPERCASE for all letters 
+# 3. Use DOUBLE underscore (__) to separate YAML hierarchy levels
+# 4. Use SINGLE underscore (_) for keys containing underscores
 #
 # Examples:
-#   MANIFOLD_HOST=api.example.com             → host: 'api.example.com'
-#   MANIFOLD_PORT=9000                        → port: 9000
-#   MANIFOLD_DATABASE_CONNECTION_STRING=...   → database.connection_string: '...'
-#   MANIFOLD_MCPSERVERS_GITHUB_COMMAND=docker → mcpservers.github.command: 'docker'
+#   MANIFOLD__HOST=api.example.com                    → host: 'api.example.com'
+#   MANIFOLD__PORT=9000                               → port: 9000
+#   MANIFOLD__DATABASE__CONNECTION_STRING=...         → database.connection_string: '...'
+#   MANIFOLD__MCPSERVERS__GITHUB__COMMAND=docker      → mcpServers.github.command: 'docker'
+#   MANIFOLD__COMPLETIONS__DEFAULT_HOST=http://...    → completions.default_host: 'http://...'
 #
 # VALUE TYPES:
 # -----------
 # Different value types are automatically handled as below:
 #
-# - Numbers:     MANIFOLD_PORT=8080                   → port: 8080
-# - Booleans:    MANIFOLD_SINGLE_NODE_INSTANCE=false  → single_node_instance: false
-# - Strings:     MANIFOLD_HOST=localhost              → host: 'localhost'
-# - Null:        MANIFOLD_HF_TOKEN=null               → hf_token: null
-# - JSON arrays: MANIFOLD_MCPSERVERS_GITHUB_ARGS='["run","--rm"]' 
+# - Numbers:     MANIFOLD__PORT=8080                   → port: 8080
+# - Booleans:    MANIFOLD__SINGLE_NODE_INSTANCE=false  → single_node_instance: false
+# - Strings:     MANIFOLD__HOST=localhost              → host: 'localhost'
+# - Null:        MANIFOLD__HF_TOKEN=null               → hf_token: null
+# - JSON arrays: MANIFOLD__MCPSERVERS__GITHUB__ARGS='["run","--rm"]' 
 #                → mcpservers.github.args: ["run","--rm"]
-# - JSON objects: MANIFOLD_SOME_CONFIG='{"key":"value"}' 
+# - JSON objects: MANIFOLD__SOME__CONFIG='{"key":"value"}' 
 #                → some.config: {"key":"value"}
 #
 # HOW IT WORKS:
 # ------------
 # At container startup, the process_config.sh script:
 # 1. Copies this file to config.yaml
-# 2. Finds all MANIFOLD_* environment variables
+# 2. Finds all MANIFOLD__* environment variables
 # 3. Maps them to their corresponding YAML paths
 # 4. Updates the config.yaml file accordingly
 #

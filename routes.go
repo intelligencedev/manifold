@@ -2,7 +2,10 @@
 package main
 
 import (
+	"log"
 	"net/http"
+
+	"manifold/internal/agent"
 
 	"github.com/labstack/echo/v4"
 )
@@ -16,6 +19,9 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	// API group for all API endpoints.
 	api := e.Group("/api")
 	registerAPIEndpoints(api, config)
+
+	// Agent endpoints (Planner / Executor / Critic / Full‐run)
+	registerAgentEndpoints(api, config)
 }
 
 // registerAPIEndpoints registers all API-related routes.
@@ -28,12 +34,23 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// SEFII endpoints.
 	registerSEFIIEndpoints(api, config)
 
+	// MCP endpoints
+	registerMCPEndpoints(api, config)
+
 	// Git-related endpoints.
 	api.GET("/git-files", gitFilesHandler)
 	api.POST("/git-files/ingest", gitFilesIngestHandler(config))
 
 	// Anthropic endpoints.
 	registerAnthropicEndpoints(api, config)
+
+	// File upload endpoints
+	api.POST("/upload", func(c echo.Context) error {
+		return fileUploadHandler(c, config)
+	})
+	api.POST("/upload-multiple", func(c echo.Context) error {
+		return fileUploadMultipleHandler(c, config)
+	})
 
 	// Miscellaneous endpoints.
 	api.POST("/run-fmlx", func(c echo.Context) error {
@@ -47,12 +64,30 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/code/eval", evaluateCodeHandler)
-	api.POST("/executeMCP", executeMCPHandler)
 	api.POST("/datadog", datadogHandler)
 	api.POST("/comfy-proxy", comfyProxyHandler)
 
 	// Agentic Memory endpoints.
 	registerAgenticMemoryEndpoints(api, config)
+}
+
+// registerMCPEndpoints registers all MCP-related routes.
+func registerMCPEndpoints(api *echo.Group, config *Config) {
+	// Create an MCP subgroup for all MCP-related endpoints
+	mcpGroup := api.Group("/mcp")
+
+	// Set up the internal MCP handler with server management
+	internalMCPHandler, err := NewInternalMCPHandler(config)
+	if err != nil {
+		log.Printf("Error creating internal MCP handler: %v", err)
+		return
+	}
+
+	// Register routes to interact with the configured MCP servers
+	// This gives access to our new mcp-manifold server through the Manager
+	mcpGroup.GET("/servers", internalMCPHandler.listServersHandler)
+	mcpGroup.GET("/servers/:name/tools", internalMCPHandler.listServerToolsHandler)
+	mcpGroup.POST("/servers/:name/tools/:tool", internalMCPHandler.callServerToolHandler)
 }
 
 // registerCompletionsEndpoints registers routes for completions-related functionality.
@@ -84,4 +119,21 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
+}
+
+// registerAgentEndpoints registers routes for agent-related functionality.
+func registerAgentEndpoints(api *echo.Group, config *Config) {
+	agentGroup := api.Group("/agent")
+
+	handler, err := agent.NewInternalAgentHandler(config)
+	if err != nil {
+		log.Printf("Error creating internal agent handler: %v", err)
+		return
+	}
+
+	// Register all endpoints as POST to be consistent
+	agentGroup.POST("/plan", handler.PlanHandler)
+	agentGroup.POST("/run", handler.RunHandler)
+	agentGroup.POST("/execute", handler.ExecuteHandler)
+	agentGroup.POST("/critique", handler.CritiqueHandler)
 }

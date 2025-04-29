@@ -10,6 +10,8 @@
         <option value="RunAllChildren">Run All Children</option>
         <option value="JumpToNode">Jump To Node</option>
         <option value="ForEachDelimited">For Each Delimited</option>
+        <option value="Wait">Wait</option>
+        <option value="Combine">Combine</option>
       </select>
     </div>
 
@@ -26,6 +28,31 @@
       <div class="input-field">
         <label :for="`${data.id}-delimiter`" class="input-label">Delimiter:</label>
         <input :id="`${data.id}-delimiter`" type="text" v-model="delimiter" class="input-text" placeholder="e.g. ," />
+      </div>
+    </div>
+
+    <!-- Conditional Input Field for Wait -->
+    <div v-if="mode === 'Wait'">
+      <div class="input-field">
+        <label :for="`${data.id}-waitTime`" class="input-label">Wait Time (seconds):</label>
+        <input :id="`${data.id}-waitTime`" type="number" v-model="waitTime" class="input-text" min="1" />
+      </div>
+    </div>
+
+    <!-- Conditional Input Field for Combine -->
+    <div v-if="mode === 'Combine'">
+      <div class="input-field">
+        <label class="input-label">Combine Mode:</label>
+        <div class="radio-group">
+          <label class="radio-label">
+            <input type="radio" v-model="combineMode" value="newline" />
+            <span>Newline</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" v-model="combineMode" value="continuous" />
+            <span>Continuous</span>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -65,6 +92,7 @@ const props = defineProps({
         mode: 'RunAllChildren', // Default mode
         targetNodeId: '',     // Target node for JumpToNode mode
         delimiter: '',        // Delimiter for ForEachDelimited mode
+        waitTime: 5,          // Wait time in seconds for Wait mode
       },
       outputs: {
         // Flow control nodes typically don't produce data output,
@@ -89,8 +117,14 @@ if (!props.data.inputs) {
   props.data.inputs = {
     mode: 'RunAllChildren',
     targetNodeId: '',
-    delimiter: ''
+    delimiter: '',
+    waitTime: 5
   }
+}
+
+// Ensure waitTime is initialized if not present
+if (props.data.inputs.waitTime === undefined) {
+  props.data.inputs.waitTime = 5;
 }
 
 // Initialize outputs if they don't exist or ensure output structure is consistent
@@ -116,6 +150,16 @@ const targetNodeId = computed({
 const delimiter = computed({
   get: () => props.data.inputs.delimiter || '',
   set: (value) => { props.data.inputs.delimiter = value },
+})
+
+const waitTime = computed({
+  get: () => props.data.inputs.waitTime || 5,
+  set: (value) => { props.data.inputs.waitTime = parseInt(value) || 5 },
+})
+
+const combineMode = computed({
+  get: () => props.data.inputs.combineMode || 'newline',
+  set: (value) => { props.data.inputs.combineMode = value },
 })
 
 // --- UI State ---
@@ -158,6 +202,12 @@ function handleTextareaMouseLeave() {
  * 
  * - In "ForEachDelimited" mode, it splits the input by a delimiter and
  *   runs connected child nodes once for each split part.
+ * 
+ * - In "Wait" mode, it waits for the specified number of seconds before
+ *   continuing execution.
+ * 
+ * - In "Combine" mode, it aggregates outputs from connected source nodes
+ *   into a single string with line breaks.
  */
 async function run() {
   console.log(`Running FlowControl node: ${props.id} in mode: ${mode.value}`);
@@ -206,6 +256,21 @@ async function run() {
 
     console.log(`FlowControl (${props.id}): JumpToNode mode signaling jump to -> ${targetId}`);
     return { jumpTo: targetId }; // Signal the jump to the workflow runner
+  } else if (mode.value === 'Wait') {
+    const seconds = waitTime.value;
+    
+    if (!seconds || seconds <= 0) {
+      console.warn(`FlowControl (${props.id}): Wait mode selected, but invalid wait time provided: ${seconds}`);
+      return null; // Continue execution if invalid time
+    }
+    
+    console.log(`FlowControl (${props.id}): Waiting for ${seconds} seconds...`);
+    
+    // Use a promise to wait for the specified time
+    await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+    
+    console.log(`FlowControl (${props.id}): Wait complete after ${seconds} seconds.`);
+    return null; // Continue normal execution after waiting
   } else if (mode.value === 'ForEachDelimited') {
     // Handle For Each Delimited mode
     const currentDelimiter = delimiter.value;
@@ -288,6 +353,37 @@ async function run() {
     // This should not happen if there are child nodes (we checked earlier)
     console.warn(`FlowControl (${props.id}): No children to execute for item ${currentIndex+1}.`);
     return { stopPropagation: true };
+  } else if (mode.value === 'Combine') {
+    console.log(`FlowControl (${props.id}): Combine mode activated.`);
+
+    const connectedSources = getEdges.value
+      .filter((edge) => edge.target === props.id)
+      .map((edge) => edge.source);
+
+    if (connectedSources.length === 0) {
+      console.warn(`FlowControl (${props.id}): No connected source nodes to combine.`);
+      return { stopPropagation: true };
+    }
+
+    let combinedOutput = '';
+    for (const sourceId of connectedSources) {
+      const sourceNode = findNode(sourceId);
+      if (sourceNode && sourceNode.data.outputs.result.output) {
+        combinedOutput += combineMode.value === 'newline'
+          ? `${sourceNode.data.outputs.result.output}\n`
+          : sourceNode.data.outputs.result.output;
+      }
+    }
+
+    // Remove trailing newline for newline mode
+    if (combineMode.value === 'newline') {
+      combinedOutput = combinedOutput.trim();
+    }
+
+    console.log(`FlowControl (${props.id}): Combined output: "${combinedOutput}"`);
+    props.data.outputs.result.output = combinedOutput;
+
+    return null; // Continue normal execution
   }
 
   // Default case (shouldn't happen with current modes)
@@ -391,6 +487,19 @@ watch(() => props.data.style, (newStyle) => {
   background-position: right 8px center;
   padding-right: 25px;
   /* Space for arrow */
+}
+
+.radio-group {
+  display: flex;
+  gap: 10px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #ccc;
 }
 
 /* Focus styles for accessibility */

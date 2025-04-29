@@ -1,5 +1,5 @@
 <template>
-  <div :style="data.style" class="node-container tool-node">
+  <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }" class="node-container tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
     <div class="node-label">
       <div>Code Runner</div>
     </div>
@@ -30,13 +30,25 @@
       position="right"
       id="output"
     />
+    <!-- Node resizer for adjusting the node dimensions -->
+    <NodeResizer
+      :is-resizable="true"
+      :color="'#666'"
+      :handle-style="resizeHandleStyle"
+      :line-style="resizeHandleStyle"
+      :min-width="200"
+      :min-height="150"
+      :node-id="id"
+      @resize="onResize"
+    />
   </div>
 </template>
 
 <script setup>
 import { Handle } from '@vue-flow/core'
-import { onMounted } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useCodeRunner } from '@/composables/useCodeRunner'
+import { NodeResizer } from '@vue-flow/node-resizer'
 
 const props = defineProps({
   id: {
@@ -66,16 +78,37 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:data'])
+const emit = defineEmits(['update:data', 'resize'])
 
 // Use the new CodeRunner composable
 const { command, updateNodeData, run } = useCodeRunner(props, emit)
+
+// Styles for resizing
+const customStyle = ref({})
+const isHovered = ref(false)
+const resizeHandleStyle = computed(() => ({
+  visibility: isHovered.value ? 'visible' : 'hidden',
+  width: '12px',
+  height: '12px'
+}))
+
+// Handle resize events
+function onResize(event) {
+  customStyle.value.width = `${event.width}px`
+  customStyle.value.height = `${event.height}px`
+  props.data.style.width = `${event.width}px`
+  props.data.style.height = `${event.height}px`
+  updateNodeData()
+  emit('resize', { id: props.id, width: event.width, height: event.height })
+}
 
 // Assign run() function once component is mounted
 onMounted(() => {
   if (!props.data.run) {
     props.data.run = run
   }
+  // Initialize default style if missing
+  if (!props.data.style) props.data.style = {}
 })
 </script>
 
@@ -84,6 +117,11 @@ onMounted(() => {
   --node-border-color: #777 !important;
   --node-bg-color: #1e1e1e !important;
   --node-text-color: #eee;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-sizing: border-box;
+  padding: 10px;
 }
 
 .node-label {
@@ -96,6 +134,10 @@ onMounted(() => {
 
 .input-field {
   margin-bottom: 8px;
+  width: 100%;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .input-text-area {
@@ -105,8 +147,9 @@ onMounted(() => {
   padding: 4px;
   font-size: 12px;
   width: calc(100% - 8px);
-  height: auto;
+  height: 100%;
   box-sizing: border-box;
   resize: vertical;
+  flex-grow: 1;
 }
 </style>

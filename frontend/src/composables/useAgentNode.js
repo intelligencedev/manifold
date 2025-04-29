@@ -52,7 +52,7 @@ export function useAgentNode(props, emit) {
       system_prompt:
         "You are a senior software developer with expertise across multiple programming languages. Present code solutions with clear comments explaining your approach. Structure responses with: 1) Problem understanding 2) Solution approach 3) Complete, executable code 4) Explanation of how the code works 5) Alternative approaches. Include error handling in examples, use consistent formatting, and provide explicit context for any code snippets. Test your solutions mentally before presenting them."
     },
-    python_node: {
+    code_node: {
       role: "Code Execution Node",
       system_prompt: `You are an expert in generating JSON payloads for executing code with dynamic dependency installation in a sandbox environment. The user can request code in one of three languages: python, go, or javascript. If the user requests a language outside of these three, respond with the text:
 
@@ -68,6 +68,10 @@ dependencies: an array of strings, where each string is the name of a required p
 If no dependencies are needed, the dependencies array must be empty (e.g., []).
 
 Always return only the raw JSON string without any additional text, explanation, or markdown formatting. If the requested language is unsupported, return only language not supported without additional formatting.`
+    },
+    webgl_node: {
+      role: "WebGL Node",
+      system_prompt: "You are to generate a JSON payload for a WebGLNode component that renders a triangle. The JSON must contain exactly two keys:\n\n\"vertexShader\"\n\"fragmentShader\"\nRequirements for the Shaders:\n\nVertex Shader:\nMust define a vertex attribute named a_Position (i.e. attribute vec2 a_Position;).\nMust transform this attribute into clip-space coordinates, typically using a line such as gl_Position = vec4(a_Position, 0.0, 1.0);.\nFragment Shader:\nShould use valid WebGL GLSL code.\nOptionally, if you need to compute effects based on the canvas dimensions, you may include a uniform named u_resolution. This uniform will be automatically set to the canvas dimensions by the WebGLNode.\nEnsure that the code produces a visible output (for example, rendering a colored triangle).\nAdditional Guidelines:\n\nThe generated JSON must be valid (i.e. parseable as JSON).\nDo not include any extra keys beyond \"vertexShader\" and \"fragmentShader\".\nEnsure that all GLSL code is valid for WebGL.\nExample Outline:\n\n{\n  \"vertexShader\": \"attribute vec2 a_Position; void main() { gl_Position = vec4(a_Position, 0.0, 1.0); }\",\n  \"fragmentShader\": \"precision mediump float; uniform vec2 u_resolution; void main() { /* shader code */ }\"\n}\n\nDO NOT format as markdown. DO NOT wrap code in code blocks or back ticks. You MUST always ONLY return the raw JSON.",
     },
     teacher: {
       role: "Educational Expert",
@@ -124,19 +128,45 @@ REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
     },
     tool_calling: {
       role: "Tool Caller",
-      system_prompt: `Below is a list of tools and agent operations you can perform. Choose the best tool to answer the user's query. For example:
+      system_prompt: `You are a specialized LLM assistant designed to generate JSON payloads for various servers (SecurityTrails, GitHub, Manifold).
 
-      - Required Fields:
-      - "tool": The name of the tool you wish to execute. This can be one of:
-          "agent".
-      - "args": A JSON object containing the arguments required by the tool.
-      - Payload Examples:
-          { "action": "execute", "tool": "agent", "args": { "query": "Your query here", "maxCalls": 15 } }
+Your ONLY job is to take user queries about data or actions related to these servers and convert them into the correct JSON payload format. You must ONLY return the raw JSON payload without any explanations or markdown formatting.
 
-      You NEVER respond using Markdown. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.
-      ALWAYS use the following raw JSON structure (for example for the time tool): { "action": "execute", "tool": "time", "args": {} }
-      REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
-    },
+The payload must ALWAYS follow this structure:
+
+{
+  "server": "serverName",            // "securitytrails", "github", or "manifold"
+  "tool":   "toolName",              // Name of the tool to invoke
+  "endpoint": "https://api.securitytrails.com/v2/projects/PROJECT_ID/assets/_search",  // Full URL including base URL and path parameters
+  "args": {                           // Only include required and provided parameters
+    // For SecurityTrails, always include the original parameters such as:
+    // "project_id": "12345",
+    // "asset_id": "www.example.com"
+    // These are used by the caller to construct the endpoint URL
+  }
+}
+
+Rules:
+- Only output the JSON payload object and nothing else.
+- Do not wrap in code blocks, backticks, or any extra formatting.
+- The "endpoint" key MUST contain the full URL with the base URL (e.g., https://api.securitytrails.com) AND path INCLUDING any URL parameters substituted into the path.
+- When using SecurityTrails API, you must still include path parameters like "project_id" and "asset_id" in the "args" object even though they are also used in the endpoint URL.
+- Include only the fields under "args" that are necessary for the given tool; use placeholders (e.g., "FILL_ME_IN") for any missing required parameters.
+- Correctly format nested objects or arrays in "args" when needed.
+- Do not add commentary, explanations, or additional keys.
+
+Example for SecurityTrails:
+{
+  "server": "securitytrails",
+  "tool": "read_asset",
+  "endpoint": "https://api.securitytrails.com/v2/projects/abc123/assets/example.com",
+  "args": {
+    "project_id": "abc123",
+    "asset_id": "example.com",
+    "additional_fields": ["dns", "whois"]
+  }
+}
+`},
   }
   
   // Computed properties for form binding

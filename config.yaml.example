@@ -2,7 +2,7 @@
 # Manifold Configuration with Environment Variable Support
 # ===================================================================
 #
-# This configuration file contains default values for the Manifold application.
+# This configuration file contains default values for Manifold.
 # All settings can be overridden at runtime using environment variables.
 #
 # ENVIRONMENT VARIABLE MAPPING:
@@ -21,7 +21,7 @@
 #
 # VALUE TYPES:
 # -----------
-# The script automatically handles different value types:
+# Different value types are automatically handled as below:
 #
 # - Numbers:     MANIFOLD_PORT=8080                   → port: 8080
 # - Booleans:    MANIFOLD_SINGLE_NODE_INSTANCE=false  → single_node_instance: false
@@ -101,7 +101,6 @@ completions:
 
 # Embeddings Service Configuration
 # Manages the creation of vector representations for text data
-# NOTE: nomic-embed-text-1.5 will be spun up automatically by default with the settings below
 embeddings:
   # OpenAI-compatible API endpoint
   host: "http://127.0.0.1:32184/v1/embeddings"

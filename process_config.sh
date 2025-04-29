@@ -25,16 +25,16 @@ for var in $(env | grep ^MANIFOLD_ | cut -d= -f1); do
     # Special handling for arrays/objects
     if [[ "$value" == \[* ]] || [[ "$value" == \{* ]]; then
         # Handle as JSON - assumed to be valid JSON
-        echo "$yaml_path: $value" | yq -i eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$CONFIG_OUTPUT" -
+        yq -i ".${yaml_path} = ${value}" "$CONFIG_OUTPUT"
     else
         # Handle as scalar value
         # Properly quote strings if needed
         if [[ "$value" =~ ^[0-9]+$ ]] || [[ "$value" == "true" ]] || [[ "$value" == "false" ]] || [[ "$value" == "null" ]]; then
             # Numeric or boolean values don't need quotes
-            echo "$yaml_path: $value" | yq -i eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$CONFIG_OUTPUT" -
+            yq -i ".${yaml_path} = ${value}" "$CONFIG_OUTPUT"
         else
             # String values need quotes
-            echo "$yaml_path: '$value'" | yq -i eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' "$CONFIG_OUTPUT" -
+            yq -i ".${yaml_path} = \"${value}\"" "$CONFIG_OUTPUT"
         fi
     fi
 done

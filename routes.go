@@ -125,7 +125,13 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 func registerAgentEndpoints(api *echo.Group, config *Config) {
 	agentGroup := api.Group("/agent")
 
-	handler, err := agent.NewInternalAgentHandler(config)
+	// Create an agent.Config from our main config
+	agentConfig := &agent.Config{}
+	agentConfig.Completions.APIKey = config.Completions.APIKey
+	agentConfig.Completions.Provider = "openai" // Assuming OpenAI is the default
+	agentConfig.Completions.DefaultHost = config.Completions.DefaultHost
+
+	handler, err := agent.NewInternalAgentHandler(agentConfig)
 	if err != nil {
 		log.Printf("Error creating internal agent handler: %v", err)
 		return

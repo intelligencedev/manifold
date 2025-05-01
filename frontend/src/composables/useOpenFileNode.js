@@ -51,26 +51,45 @@ export function useOpenFileNode(props, emit) {
     let payload;
 
     if (connectedSources.length > 0 && updateFromSource.value) {
-      // Source node might produce JSON
-      const sourceData = findNode(connectedSources[0]).data.outputs.result.output;
+      const sourceNode = findNode(connectedSources[0]);
+      if (!sourceNode || !sourceNode.data || !sourceNode.data.outputs) {
+        console.error('Connected source node data is invalid');
+        props.data.outputs.result = {
+          error: 'Invalid source node data',
+        };
+        return { error: 'Invalid source node data' };
+      }
+
+      // Safely get the source output data
+      const sourceData = sourceNode.data.outputs.result?.output;
       console.log('Connected source data:', sourceData);
 
+      if (!sourceData) {
+        console.error('No valid output from connected node');
+        props.data.outputs.result = {
+          error: 'No valid output from connected node',
+        };
+        return { error: 'No valid output from connected node' };
+      }
+
       // Update the input field with the connected source data
+      filepath.value = sourceData;
       props.data.inputs.filepath = sourceData;
 
-      // Attempt to parse JSON
-      try {
-        payload = JSON.parse(sourceData);
-      } catch (err) {
-        console.error('Error parsing JSON from connected node:', err);
-        props.data.outputs.result = {
-          error: 'Invalid JSON from connected node',
-        };
-        return { error: 'Invalid JSON from connected node' };
+      // If the source data is JSON, try to parse it
+      if (typeof sourceData === 'string' && sourceData.trim().startsWith('{')) {
+        try {
+          payload = JSON.parse(sourceData);
+        } catch (err) {
+          console.error('Error parsing JSON from connected node:', err);
+          payload = { filepath: sourceData };
+        }
+      } else {
+        payload = { filepath: sourceData };
       }
     } else {
-      // No connected nodes or updateFromSource is false => user typed something in the textarea
-      payload = { filepath: props.data.inputs.filepath };
+      // No connected nodes or updateFromSource is false => use the input field value
+      payload = { filepath: filepath.value };
     }
 
     try {
@@ -90,9 +109,9 @@ export function useOpenFileNode(props, emit) {
         props.data.outputs.result = {
           error: errorData.error,
         };
-        return { error: errorData.error }; // Return error object
+        return { error: errorData.error };
       } else {
-        const fileContent = await response.text(); // Get as text
+        const fileContent = await response.text();
         console.log('File content:', fileContent);
         props.data.outputs = {
           result: {
@@ -105,7 +124,7 @@ export function useOpenFileNode(props, emit) {
       props.data.outputs.result = {
         error: error.message,
       };
-      return { error: error.message }; // Return error object
+      return { error: error.message };
     }
 
     updateNodeData(); // Update data after processing

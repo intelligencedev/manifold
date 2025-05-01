@@ -648,7 +648,84 @@ async function runWorkflowConcurrently() {
             continue; // Skip processing children
           }
           
-          // Add this node's children to the sub-queue
+          // Check if this is a FlowControl node with RunAllChildren mode
+          const isFlowControlWithConcurrency = 
+            subNode.type === 'flowControlNode' && 
+            subNode.data.inputs && 
+            subNode.data.inputs.mode === 'RunAllChildren';
+
+          // Handle nodes that need concurrency within the sub-workflow
+          if (isFlowControlWithConcurrency) {
+            console.log(`Sub-workflow: FlowControl node ${subNodeId} in RunAllChildren mode - executing children concurrently`);
+            
+            // Gather all immediate children of this node
+            const childrenIds = adj[subNodeId]
+              ? adj[subNodeId]
+                .filter(edge => edge.target !== parentId) // Don't include parent node
+                .map(edge => edge.target)
+              : [];
+            
+            if (childrenIds.length > 0) {
+              console.log(`Sub-workflow: Starting concurrent execution of ${childrenIds.length} children: ${childrenIds.join(', ')}`);
+              
+              // Execute all children in parallel
+              await Promise.all(
+                childrenIds.map(async (childId) => {
+                  // Skip if already processed or is parent
+                  if (subProcessed.has(childId) || childId === parentId) {
+                    return;
+                  }
+                  
+                  // Mark as processed and execute
+                  subProcessed.add(childId);
+                  
+                  const childNode = findNode(childId);
+                  if (!childNode || !childNode.data || typeof childNode.data.run !== 'function') {
+                    console.warn(`Node ${childId} in sub-workflow not found or has no run function. Skipping.`);
+                    return;
+                  }
+                  
+                  console.log(`(Sub ${subExecutionSteps}) Executing child node concurrently: ${childId} (Type: ${childNode.type})`);
+                  
+                  // Visual feedback
+                  await smoothlyFitViewToNode(childNode);
+                  changeEdgeStyles(childId);
+                  
+                  // Execute node
+                  try {
+                    const childResult = await childNode.data.run();
+                    
+                    // Handle child result (no jumps allowed)
+                    if (childResult && (childResult.jumpTo || childResult.forEachJump)) {
+                      console.warn(`Child node ${childId} attempted to signal jump/forEach which is not allowed in a sub-workflow.`);
+                    } else if (childResult && childResult.stopPropagation) {
+                      console.log(`Child node ${childId} signaled stopPropagation in sub-workflow.`);
+                      return; // Skip adding this node's children
+                    }
+                    
+                    // Add this child's children to the queue
+                    if (adj[childId]) {
+                      for (const edge of adj[childId]) {
+                        if (edge.target !== parentId && !subProcessed.has(edge.target)) {
+                          subQueue.push(edge.target);
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    console.error(`Error in sub-workflow running child node ${childId}:`, error);
+                    if (childNode.data) {
+                      childNode.data.error = error instanceof Error ? error.message : String(error);
+                    }
+                  }
+                })
+              );
+              
+              console.log(`Sub-workflow: Concurrent execution of children for ${subNodeId} completed.`);
+              continue; // Skip normal child processing
+            }
+          }
+          
+          // Add this node's children to the sub-queue (normal sequential processing)
           if (adj[subNodeId]) {
             for (const edge of adj[subNodeId]) {
               // Don't include the parent FlowControl node in propagation

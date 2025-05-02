@@ -13,6 +13,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/jaypipes/ghw v0.15.0
+	github.com/kohkimakimoto/echo-openapidocs v0.2.0
 	github.com/labstack/echo/v4 v4.13.3
 	github.com/metoro-io/mcp-golang v0.9.0
 	github.com/pgvector/pgvector-go v0.2.3

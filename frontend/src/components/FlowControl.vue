@@ -254,8 +254,31 @@ async function run() {
       return { stopPropagation: true };
     }
 
+    // Set up the output data to be passed to the target node
+    const outputToPass = props.data.outputs.result.output || '';
+    
+    // Store our output in the target node's data so it can use it as input
+    // This creates a virtual source connection from this flow control node to the target
+    if (target.data) {
+      // Check if the target node has a virtualSources object already, create it if not
+      if (!target.data.virtualSources) {
+        target.data.virtualSources = {};
+      }
+      
+      // Store the current flow control node as a virtual source for the target
+      target.data.virtualSources[props.id] = {
+        output: outputToPass,
+        timestamp: Date.now()
+      };
+      
+      console.log(`FlowControl (${props.id}): Set as virtual source for ${targetId} with output: "${outputToPass.substring(0, 50)}${outputToPass.length > 50 ? '...' : ''}"`);
+    }
+
     console.log(`FlowControl (${props.id}): JumpToNode mode signaling jump to -> ${targetId}`);
-    return { jumpTo: targetId }; // Signal the jump to the workflow runner
+    return { 
+      jumpTo: targetId,
+      virtualSourceId: props.id // Include this flow control node's ID as the virtual source
+    }; // Signal the jump to the workflow runner
   } else if (mode.value === 'Wait') {
     const seconds = waitTime.value;
     

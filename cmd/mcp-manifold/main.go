@@ -136,6 +136,20 @@ func registerFileSystemTools(server *mcp.Server) {
 			}
 			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
 		}},
+		{"read_file_chunk", "Reads a byte range of a file", func(args ReadFileChunkArgs) (*mcp.ToolResponse, error) {
+			res, err := readFileChunkTool(args)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+		}},
+		{"summarize_file", "Returns a short heuristic summary of a file", func(args SummarizeFileArgs) (*mcp.ToolResponse, error) {
+			res, err := summarizeFileTool(args)
+			if err != nil {
+				return nil, err
+			}
+			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+		}},
 		{"write_file", "Writes text content to a file", func(args WriteFileArgs) (*mcp.ToolResponse, error) {
 			res, err := writeFileTool(args)
 			if err != nil {

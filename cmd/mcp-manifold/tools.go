@@ -20,25 +20,35 @@ import (
 type HelloArgs struct {
 	Name string `json:"name" jsonschema:"required,description=The name to say hello to"`
 }
-
 type CalculateArgs struct {
 	Operation string  `json:"operation" jsonschema:"required,enum=add,enum=subtract,enum=multiply,enum=divide,description=The mathematical operation to perform"`
 	A         float64 `json:"a" jsonschema:"required,description=First number"`
 	B         float64 `json:"b" jsonschema:"required,description=Second number"`
 }
-
 type TimeArgs struct {
 	Format string `json:"format,omitempty" jsonschema:"description=Optional time format (default: RFC3339)"`
 }
-
 type WeatherArgs struct {
 	Longitude float64 `json:"longitude" jsonschema:"required,description=Longitude"`
 	Latitude  float64 `json:"required,description=Latitude" json:"latitude"`
 }
 
 // FS Tools
+type ListAllowedDirectoriesArgs struct{}
 type ReadFileArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Path to the file to read"`
+}
+
+// Add to argument section
+type ReadFileChunkArgs struct {
+	Path  string `json:"path" jsonschema:"required,description=File to read"`
+	Start int64  `json:"start" jsonschema:"required,description=Byte offset (inclusive)"`
+	End   int64  `json:"end" jsonschema:"required,description=Byte offset (exclusive)"`
+}
+type SummarizeFileArgs struct {
+	Path string `json:"path" jsonschema:"required"`
+	// style could be "code", "markdown", etc. – for future NLP tweaks
+	Style string `json:"style,omitempty"`
 }
 type WriteFileArgs struct {
 	Path    string `json:"path" jsonschema:"required,description=Path to the file to write"`
@@ -54,24 +64,6 @@ type MoveFileArgs struct {
 	Source      string `json:"source" jsonschema:"required,description=Source path"`
 	Destination string `json:"destination" jsonschema:"required,description=Destination path"`
 }
-
-// Git Tools
-type GitInitArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Directory in which to initialize a Git repo"`
-}
-type GitRepoArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
-}
-type GitAddArgs struct {
-	Path     string   `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
-	FileList []string `json:"fileList" jsonschema:"required,description=List of files to add"`
-}
-type GitCommitArgs struct {
-	Path    string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
-	Message string `json:"message" jsonschema:"required,description=Commit message"`
-}
-
-// Additional Tool Args
 type ReadMultipleFilesArgs struct {
 	Paths []string `json:"paths" jsonschema:"required,description=List of file paths to read"`
 }
@@ -92,7 +84,24 @@ type SearchFilesArgs struct {
 type GetFileInfoArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Path to file or directory"`
 }
-type ListAllowedDirectoriesArgs struct{}
+
+// Git Tools
+type GitInitArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Directory in which to initialize a Git repo"`
+}
+type GitRepoArgs struct {
+	Path string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
+}
+type GitAddArgs struct {
+	Path     string   `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
+	FileList []string `json:"fileList" jsonschema:"required,description=List of files to add"`
+}
+type GitCommitArgs struct {
+	Path    string `json:"path" jsonschema:"required,description=Local path to an existing Git repo"`
+	Message string `json:"message" jsonschema:"required,description=Commit message"`
+}
+
+// Git Tools
 type DeleteFileArgs struct {
 	Path      string `json:"path" jsonschema:"required,description=Path to delete"`
 	Recursive bool   `json:"recursive,omitempty" jsonschema:"description=Delete recursively"`
@@ -216,6 +225,43 @@ func readFileTool(args ReadFileArgs) (string, error) {
 	return string(bytes), nil
 }
 
+// read_file_chunk tool
+func readFileChunkTool(args ReadFileChunkArgs) (string, error) {
+	if args.End <= args.Start {
+		return "", fmt.Errorf("end must be greater than start")
+	}
+	f, err := os.Open(args.Path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	buf := make([]byte, args.End-args.Start)
+	_, err = f.ReadAt(buf, args.Start)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// summarize_file tool (naïve LLM-agnostic version using heuristics)
+func summarizeFileTool(args SummarizeFileArgs) (string, error) {
+	data, err := os.ReadFile(args.Path)
+	if err != nil {
+		return "", err
+	}
+	// Cheap heuristic: first 40 and last 20 lines + size
+	lines := strings.Split(string(data), "\n")
+	head := lines
+	if len(lines) > 60 {
+		head = append(lines[:40], append([]string{"…"}, lines[len(lines)-20:]...)...)
+	}
+	return fmt.Sprintf(
+		"Summary of %s (%d lines, %d bytes):\n%s",
+		args.Path, len(lines), len(data), strings.Join(head, "\n"),
+	), nil
+}
+
 // write_file tool
 func writeFileTool(args WriteFileArgs) (string, error) {
 	err := os.WriteFile(args.Path, []byte(args.Content), 0644)
@@ -336,23 +382,44 @@ func readMultipleFilesTool(args ReadMultipleFilesArgs) (string, error) {
 	return sb.String(), nil
 }
 
-// edit_file tool
+// edit_file tool – now accepts unified diff in PatchContent
 func editFileTool(args EditFileArgs) (string, error) {
-	if args.PatchContent != "" {
-		return "", fmt.Errorf("patchContent not supported in this implementation")
+	switch {
+	case args.PatchContent != "":
+		tmp, err := os.CreateTemp("", "agent_patch_*.diff")
+		if err != nil {
+			return "", err
+		}
+		defer os.Remove(tmp.Name())
+
+		if _, err := tmp.WriteString(args.PatchContent); err != nil {
+			return "", err
+		}
+		if err := tmp.Close(); err != nil {
+			return "", err
+		}
+
+		cmd := exec.Command("patch", "-u", args.Path, "-i", tmp.Name())
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("patch failed: %w\n%s", err, out)
+		}
+		return fmt.Sprintf("Patched %s\n%s", args.Path, out), nil
+
+	case args.Search != "":
+		orig, err := os.ReadFile(args.Path)
+		if err != nil {
+			return "", err
+		}
+		edited := strings.ReplaceAll(string(orig), args.Search, args.Replace)
+		if err := os.WriteFile(args.Path, []byte(edited), 0644); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Replaced text in %s", args.Path), nil
+
+	default:
+		return "", fmt.Errorf("provide either patchContent or search/replace")
 	}
-	if args.Search == "" {
-		return "", fmt.Errorf("must provide a search string for edit_file")
-	}
-	original, err := ioutil.ReadFile(args.Path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-	edited := strings.ReplaceAll(string(original), args.Search, args.Replace)
-	if err := ioutil.WriteFile(args.Path, []byte(edited), 0644); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-	return fmt.Sprintf("Edited file: %s", args.Path), nil
 }
 
 // directory_tree tool

@@ -530,6 +530,50 @@ async function runWorkflowConcurrently() {
     // --- Visual Feedback ---
     await smoothlyFitViewToNode(node);
     changeEdgeStyles(nodeId); // Highlight outgoing edges
+    
+    // --- Check for virtualSources before executing ---
+    // When a FlowControl node uses "Jump To Node" mode, it sets itself as a virtual source
+    // This allows the target node to receive the FlowControl node's output as input
+    if (node.data.virtualSources) {
+      const virtualSourceEntries = Object.entries(node.data.virtualSources);
+      if (virtualSourceEntries.length > 0) {
+        console.log(`Node ${nodeId} has ${virtualSourceEntries.length} virtual source(s)`);
+        
+        // If we have a virtual source, use its output from most recently connected FlowControl node
+        // Sort by timestamp to get the most recent virtual source if multiple exist
+        const [sourceId, sourceData] = virtualSourceEntries
+          .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0))[0];
+          
+        console.log(`Using virtual source: ${sourceId} for node ${nodeId}`);
+        
+        // If the node has inputs, set the input from the virtual source
+        if (node.data.inputs && sourceData.output) {
+          if (typeof node.data.inputs === 'object') {
+            // Different node types might have different input property names
+            // For text nodes it's usually 'text', for agents it's 'user_prompt', etc.
+            // Try common property names for inputs
+            const inputKeys = ['text', 'user_prompt', 'prompt', 'command', 'input', 'response'];
+            const nodeInputKeys = Object.keys(node.data.inputs);
+            
+            // Find a suitable input property
+            let targetInputKey = null;
+            for (const key of inputKeys) {
+              if (nodeInputKeys.includes(key)) {
+                targetInputKey = key;
+                break;
+              }
+            }
+            
+            if (targetInputKey) {
+              console.log(`Setting ${nodeId}'s input.${targetInputKey} from virtual source ${sourceId}`);
+              node.data.inputs[targetInputKey] = sourceData.output;
+            } else {
+              console.log(`Couldn't find a suitable input property for ${nodeId}`);
+            }
+          }
+        }
+      }
+    }
 
     // --- Execute Node Logic ---
     let result = null;
@@ -567,7 +611,9 @@ async function runWorkflowConcurrently() {
     // --- Handle Flow Control Results ---
     if (result && result.jumpTo) {
       const jumpTargetId = result.jumpTo;
-      console.log(`Node ${nodeId} signaled jump to: ${jumpTargetId}`);
+      const virtualSourceId = result.virtualSourceId;
+      console.log(`Node ${nodeId} signaled jump to: ${jumpTargetId}${virtualSourceId ? ' with virtual source: ' + virtualSourceId : ''}`);
+      
       const targetNode = findNode(jumpTargetId);
       if (targetNode) {
         // Jump: Clear queue, reset processed set, add target

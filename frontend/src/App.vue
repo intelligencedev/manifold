@@ -112,6 +112,9 @@
       <template #node-mermaidNode="mermaidNodeProps">
         <Mermaid v-bind="mermaidNodeProps" @contextmenu.native.prevent="showContextMenu($event, mermaidNodeProps.id)" />
       </template>
+      <template #node-messageBusNode="messageBusNodeProps">
+        <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
+      </template>
 
       <!-- <Controls :style="{ backgroundColor: '#222', color: '#eee' }" /> -->
       <!-- <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
@@ -205,6 +208,7 @@ import DocumentsRetrieve from './components/nodes/DocumentsRetrieveNode.vue';
 import ttsNode from './components/nodes/ttsNode.vue';
 import MCPClient from './components/nodes/MCPClient.vue';
 import Mermaid from './components/nodes/Mermaid.vue';
+import MessageBusNode from './components/MessageBusNode.vue';
 
 // --- SETUP ---
 interface BgColorInterface {

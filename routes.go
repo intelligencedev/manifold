@@ -123,5 +123,6 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 // registerAgentEndpoints registers all routes for the ReAct / advanced agentic system.
 func registerAgentEndpoints(api *echo.Group, config *Config) {
 	agents := api.Group("/agents")
-	agents.POST("/react", runReActAgentHandler(config)) // Kick‑off a new ReAct session and run to completion
+	agents.POST("/react", runReActAgentHandler(config))              // Kick‑off a new ReAct session and run to completion
+	agents.POST("/react/stream", runReActAgentStreamHandler(config)) // Streaming endpoint for real-time thoughts
 }

@@ -277,33 +277,42 @@ marked.setOptions({
 // ADDED: Reactive key to force re-render
 const reRenderKey = ref(0);
 
-// Computed property to convert markdown to HTML
+// Modified computed property to properly render markdown and also handle <think> tags
 const markdownToHtml = computed(() => {
     // Access reRenderKey to force re-evaluation
     reRenderKey.value;
-    return marked(response.value);
+    
+    // First extract and save any <think> blocks so they won't be parsed as markdown
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    const thinks = [];
+    let withPlaceholders = response.value.replace(thinkRegex, (match, content) => {
+        thinks.push(content);
+        return `THINK_PLACEHOLDER_${thinks.length - 1}`;
+    });
+    
+    // Convert the remaining content to markdown
+    let html = marked(withPlaceholders);
+    
+    // Replace the placeholders with properly formatted think blocks
+    thinks.forEach((content, i) => {
+        html = html.replace(`THINK_PLACEHOLDER_${i}`, `<think>${content}</think>`);
+    });
+    
+    return html;
 });
 
-// Add computed property for sanitized HTML
+// Define the response computed property that was missing
+const response = computed(() => props.data.inputs.response || '');
+
+// Fix the sanitizedHtml computed property
 const sanitizedHtml = computed(() => {
     return DOMPurify.sanitize(response.value, {
-        ALLOWED_TAGS: ['p', 'div', 'span', 'a', 'ul', 'ol', 'li', 'b', 'i', 'strong', 'em', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+        ALLOWED_TAGS: ['p', 'div', 'span', 'a', 'ul', 'ol', 'li', 'b', 'i', 'strong', 'em', 
+                      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'img', 'table', 
+                      'thead', 'tbody', 'tr', 'th', 'td', 'think'],
         ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'id', 'style']
     });
 });
-
-// ----- Computed properties -----
-const response = computed({
-    get: () => props.data.inputs.response,
-    set: (value) => {
-        props.data.inputs.response = value
-    },
-})
-
-// Emit updates to parent components
-const emitUpdate = () => {
-    emit("update:data", { id: props.id, data: { ...props.data } });
-};
 
 // Function to scroll to the bottom of the text container
 const scrollToBottom = () => {
@@ -609,5 +618,17 @@ select {
     & th {
         background-color: #444;
     }
+}
+
+/* Styling for agent thinking blocks */
+:deep(.markdown-text think), :deep(.raw-text think), :deep(.html-content think) {
+    display: block;
+    font-style: italic;
+    color: #aaa;
+    background-color: #2a2a2a;
+    padding: 10px;
+    border-left: 3px solid #555;
+    margin-bottom: 10px;
+    white-space: pre-line;
 }
 </style>

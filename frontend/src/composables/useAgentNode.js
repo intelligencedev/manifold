@@ -34,6 +34,22 @@ export function useAgentNode(props, emit) {
     }
     return res.json(); // { session_id, trace, result, completed }
   }
+
+  // Helper function to create an event stream splitter
+  function createEventStreamSplitter() {
+    let buffer = '';
+    return new TransformStream({
+      transform(chunk, controller) {
+        buffer += chunk;
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const event = buffer.slice(0, idx).replace(/^data:\s*/gm,'').trim();
+          controller.enqueue(event);
+          buffer = buffer.slice(idx + 2);
+        }
+      }
+    });
+  }
   
   // Predefined system prompts
   const selectedSystemPrompt = computed({
@@ -391,21 +407,55 @@ Example for SecurityTrails:
       let result;
       
       if (agentMode.value) {
-        // --- ReAct agent call ---
-        const agentEndpoint = '/api/agents/react';     // same origin; change if needed
-        const agentResp = await callAgentAPI({
-          endpoint: agentEndpoint,
-          objective: finalPrompt,          // the whole merged prompt becomes the objective
-          model: provider.value === 'openai' ? model.value : '',
-          maxSteps: 30,                    // or expose another field
+        // --- ReAct agent call with streaming ---
+        // Use the streaming endpoint when agent mode is on
+        const sseResp = await fetch('/api/agents/react/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json', 
+            'Accept': 'text/event-stream'
+          },
+          body: JSON.stringify({ 
+            objective: finalPrompt, 
+            max_steps: 30, 
+            model: provider.value === 'openai' ? props.data.inputs.model : '' 
+          })
         });
-        result = { content: agentResp.result };
-        // stream-style update (simple)
-        onResponseUpdate(agentResp.result, agentResp.result);
+        
+        if (!sseResp.ok) {
+          throw new Error(`SSE ${sseResp.status}`);
+        }
+
+        const reader = sseResp.body
+              .pipeThrough(new TextDecoderStream())
+              .pipeThrough(createEventStreamSplitter())
+              .getReader();
+
+        let accumulatedThinks = '';  // ONE growing <think>… tag
+        
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value === '[[EOF]]') continue;  // finished
+          
+          accumulatedThinks += '\n' + value.replace(/^<think>|<\/think>$/g,'');
+          const merged = `<think>${accumulatedThinks}</think>`;
+          onResponseUpdate(merged, merged);  // stream to UI
+        }
+        
+        result = { content: accumulatedThinks };
       } else {
         // --- plain completions ---
         result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
       }
+
+      // Store result in outputs structure for downstream nodes
+      props.data.outputs = {
+        ...props.data.outputs,
+        result: {
+          output: result.content || result.error || props.data.outputs.response
+        }
+      };
 
       // Handle error in result
       if (result.error) {
@@ -544,6 +594,7 @@ Example for SecurityTrails:
   // Optional: preset the agent endpoint when toggling agent mode
   watch(agentMode, (on) => {
     if (on && !props.data.inputs.endpoint?.includes('/api/agents/react')) {
+      // Set the regular endpoint - the stream endpoint will be used internally
       props.data.inputs.endpoint = 'http://localhost:8080/api/agents/react';
     }
   });

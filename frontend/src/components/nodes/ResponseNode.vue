@@ -362,10 +362,8 @@ const htmlOutsideThinking = computed(() =>
 );
 
 // ---------------- toggle handler --------------
-function toggleThink(idx, ev) {
-    // ignore clicks on links / code etc.
-    if (ev.target.closest('.think-toggle'))
-        thinkingBlocks.value[idx].collapsed = !thinkingBlocks.value[idx].collapsed;
+function toggleThink(idx) {
+    thinkingBlocks.value[idx].collapsed = !thinkingBlocks.value[idx].collapsed;
 }
 
 // Define the response computed property

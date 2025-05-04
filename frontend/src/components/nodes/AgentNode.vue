@@ -63,6 +63,12 @@
         max="2"
       />
 
+      <!-- NEW - Agent mode checkbox -->
+      <BaseCheckbox
+        label="Agent mode (use /api/agents/react)"
+        v-model="agentMode"
+      />
+
       <!-- Toggle for Tool/Function Calling -->
       <BaseCheckbox 
         label="Enable Tool/Function Calls" 
@@ -199,6 +205,7 @@ const {
   // State
   showApiKey,
   enableToolCalls,
+  agentMode,
   selectedSystemPrompt,
   isHovered,
   

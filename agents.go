@@ -1,4 +1,4 @@
-// agents.go — ReAct engine (MCP-only version)
+// agents.go — ReAct engine w/ MCP, code_eval and robust path & tool-schema handling
 package main
 
 import (
@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
@@ -20,9 +23,7 @@ import (
 	"manifold/internal/mcp"
 )
 
-/*──────────────────────────────
-   Public payloads
-──────────────────────────────*/
+/*──────────────────────── public ───────────────────────*/
 
 type ReActRequest struct {
 	Objective string `json:"objective"`
@@ -37,9 +38,7 @@ type ReActResponse struct {
 	Completed bool        `json:"completed"`
 }
 
-/*──────────────────────────────
-   Internal structs
-──────────────────────────────*/
+/*──────────────────────── internal ─────────────────────*/
 
 type AgentStep struct {
 	Index       int    `json:"index"`
@@ -58,9 +57,7 @@ type AgentSession struct {
 	Created   time.Time   `json:"created"`
 }
 
-/*──────────────────────────────
-   Engine definition
-──────────────────────────────*/
+/*──────────────────────── engine ───────────────────────*/
 
 type AgentEngine struct {
 	Config       *Config
@@ -69,12 +66,10 @@ type AgentEngine struct {
 	HTTPClient   *http.Client
 
 	mcpMgr   *mcp.Manager
-	mcpTools map[string]struct{} // set of server::tool names
+	mcpTools map[string]struct{}
 }
 
-/*──────────────────────────────
-   HTTP handlers
-──────────────────────────────*/
+/*──────────────────────── route ───────────────────────*/
 
 func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
@@ -87,7 +82,7 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 			return c.JSON(400, map[string]string{"error": "objective required"})
 		}
 		if req.MaxSteps <= 0 {
-			req.MaxSteps = 10
+			req.MaxSteps = 14
 		}
 
 		ctx := c.Request().Context()
@@ -113,9 +108,7 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 		if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
-		if err := engine.discoverMCPTools(ctx); err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
-		}
+		_ = engine.discoverMCPTools(ctx)
 
 		session, err := engine.RunSession(ctx, req)
 		if err != nil {
@@ -130,21 +123,18 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 	}
 }
 
-/*──────────────────────────────
-   MCP discovery
-──────────────────────────────*/
+/*────────────────────── MCP discovery ─────────────────*/
 
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
-	for _, server := range ae.mcpMgr.List() {
-		tools, err := ae.mcpMgr.ListTools(ctx, server)
+	for _, srv := range ae.mcpMgr.List() {
+		ts, err := ae.mcpMgr.ListTools(ctx, srv)
 		if err != nil {
-			log.Printf("list tools %s: %v", server, err)
+			log.Printf("list tools %s: %v", srv, err)
 			continue
 		}
-		for _, t := range tools {
-			name := extractToolName(t)
-			if name != "" {
-				ae.mcpTools[fmt.Sprintf("%s::%s", server, name)] = struct{}{}
+		for _, t := range ts {
+			if n := extractToolName(t); n != "" {
+				ae.mcpTools[fmt.Sprintf("%s::%s", srv, n)] = struct{}{}
 			}
 		}
 	}
@@ -152,11 +142,11 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 }
 
 func extractToolName(v interface{}) string {
-	switch s := v.(type) {
+	switch vt := v.(type) {
 	case string:
-		return s
+		return vt
 	case fmt.Stringer:
-		return s.String()
+		return vt.String()
 	}
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Struct {
@@ -168,25 +158,51 @@ func extractToolName(v interface{}) string {
 	return ""
 }
 
-/*──────────────────────────────
-   Execution loop
-──────────────────────────────*/
+/*────────────────────── main loop ─────────────────────*/
 
 func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
-	// Build prompt
-	var toolsDesc []string
-	for name := range ae.mcpTools {
-		toolsDesc = append(toolsDesc, "- "+name)
+	var td []string
+	for n := range ae.mcpTools {
+		td = append(td, "- "+n)
 	}
-	toolsDesc = append(toolsDesc, "- finish (include the FINAL answer text in Action Input)")
+	td = append(td,
+		"- stage_path   • copy host src into tmp area; returns JSON {host_path,sandbox_path,path}",
+		"- code_eval    • run code in sandbox",
+		"- finish       • end and output final answer",
+	)
+	// Explicit guidance for web_content
+	td = append(td, `NOTE → "manifold::web_content" needs {"urls":["https://example.com", "..."]}`)
 
-	sysPrompt := fmt.Sprintf(
-		"You are ReAct-Agent.\nObjective: %s\n"+
-			"Use this loop:\nThought: <reasoning>\nAction: <tool>\nAction Input: <JSON or text>\n"+
-			"Available MCP tools:\n%s",
-		req.Objective, strings.Join(toolsDesc, "\n"))
+	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
+Objective: %s
+
+◆ Need host files?
+   1. stage_path {"src":"/abs/host/path"}            (optional "dest")
+   2. Use returned "path" with file-system tools.
+   3. Inside code_eval use "sandbox_path".
+
+◆ Fetching a web page?
+   Use manifold::web_content with JSON {"urls":[<link1>, ...]}.
+
+► Prefer to answer directly (with Thought + finish) for narrative tasks
+  such as writing, explaining, or summarising natural-language text.
+  Only fall back to a tool for *computational* or *programmatic*
+  work (e.g. data transformation, heavy math, file parsing).
+
+★ NEVER omit the three headers below – the server will error out:
+  Thought: …
+  Action: …
+  Action Input: …
+
+Format for every turn:
+Thought: <reasoning>
+Action:  <tool>
+Action Input: <JSON | text>
+
+Tools:
+%s`, req.Objective, strings.Join(td, "\n"))
 
 	model := req.Model
 	if model == "" {
@@ -194,22 +210,54 @@ func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*Agent
 	}
 
 	for i := 0; i < req.MaxSteps; i++ {
-		msgs := []Message{{Role: "system", Content: sysPrompt}}
+		var msgs []Message
+		msgs = append(msgs, Message{Role: "system", Content: sysPrompt})
+		// ❶ pull top-N memories
+		mems, _ := ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 5)
+
+		// ❷ graft them into the system prompt (or a separate “memory” message)
+		if len(mems) > 0 {
+			var memBuf strings.Builder
+			memBuf.WriteString("🔎 **Session memory snippets**\n")
+			for i, m := range mems {
+				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
+			}
+			msgs = append(msgs, Message{Role: "system", Content: memBuf.String()})
+		}
+
+		// build convo
 		for _, st := range sess.Steps {
-			msgs = append(msgs, Message{Role: "assistant",
-				Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s\nObservation: %s",
-					st.Thought, st.Action, st.ActionInput, st.Observation)})
+			msgs = append(msgs,
+				Message{Role: "assistant",
+					Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s\nObservation: %s",
+						st.Thought, st.Action, st.ActionInput, st.Observation)})
 		}
 		msgs = append(msgs, Message{Role: "user", Content: "Next step?"})
 
-		resp, err := ae.callLLM(ctx, model, msgs)
+		out, err := ae.callLLM(ctx, model, msgs)
 		if err != nil {
 			return nil, err
 		}
-		thought, action, input := parseReAct(resp)
+		thought, action, input := parseReAct(out)
+
+		/*──── graceful fallback ────*/
 		if action == "" {
-			return nil, fmt.Errorf("LLM returned no Action:\n%s", resp)
+			// treat entire reply as the final answer
+			step := AgentStep{
+				Index:       len(sess.Steps) + 1,
+				Thought:     "LLM reply lacked proper headers; treating as final answer.",
+				Action:      "finish",
+				ActionInput: strings.TrimSpace(out),
+				Observation: "",
+			}
+			sess.Steps = append(sess.Steps, step)
+			_ = ae.persistStep(ctx, sess.ID, step)
+
+			sess.Result = strings.TrimSpace(out)
+			sess.Completed = true
+			break
 		}
+		/*──────────────────────────*/
 
 		obs, err := ae.execTool(ctx, action, input)
 		if err != nil {
@@ -218,10 +266,10 @@ func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*Agent
 
 		step := AgentStep{Index: len(sess.Steps) + 1, Thought: thought, Action: action, ActionInput: input, Observation: obs}
 		sess.Steps = append(sess.Steps, step)
-		_ = ae.persistStep(ctx, step)
+		_ = ae.persistStep(ctx, sess.ID, step)
 
 		if strings.EqualFold(action, "finish") {
-			if step.ActionInput == "" { // safety net
+			if step.ActionInput == "" {
 				sess.Result = thought
 			} else {
 				sess.Result = step.ActionInput
@@ -236,13 +284,11 @@ func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*Agent
 	return sess, nil
 }
 
-/*──────────────────────────────
-   LLM wrapper
-──────────────────────────────*/
+/*────────────────────── LLM helper ────────────────────*/
 
 func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message) (string, error) {
-	reqBody, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: 1024, Temperature: 0.2})
-	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(reqBody))
+	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: 1024, Temperature: 0.2})
+	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
 
@@ -260,18 +306,16 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message
 		return "", err
 	}
 	if len(cr.Choices) == 0 {
-		return "", fmt.Errorf("empty LLM response")
+		return "", fmt.Errorf("no choices")
 	}
 	return strings.TrimSpace(cr.Choices[0].Message.Content), nil
 }
 
-/*──────────────────────────────
-   Parse LLM output
-──────────────────────────────*/
+/*────────────────────── parse helper ─────────────────*/
 
 func parseReAct(s string) (thought, action, input string) {
-	for _, line := range strings.Split(s, "\n") {
-		l := strings.TrimSpace(line)
+	for _, ln := range strings.Split(s, "\n") {
+		l := strings.TrimSpace(ln)
 		switch {
 		case strings.HasPrefix(strings.ToLower(l), "thought:"):
 			thought = strings.TrimSpace(l[len("thought:"):])
@@ -279,45 +323,202 @@ func parseReAct(s string) (thought, action, input string) {
 			action = strings.TrimSpace(l[len("action:"):])
 		case strings.HasPrefix(strings.ToLower(l), "action input:"):
 			input = strings.TrimSpace(l[len("action input:"):])
+			if strings.HasPrefix(input, "```") {
+				input = strings.Trim(input, "` \n")
+				if strings.HasPrefix(strings.ToLower(input), "json") {
+					input = strings.TrimSpace(input[4:])
+				}
+			}
 		}
 	}
 	return
 }
 
-/*──────────────────────────────
-   Tool execution (only MCP + finish)
-──────────────────────────────*/
+/*────────────────────── dispatcher ───────────────────*/
 
 func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, error) {
-	if strings.EqualFold(name, "finish") {
+	switch strings.ToLower(name) {
+	case "finish":
 		return arg, nil
-	}
-	if _, ok := ae.mcpTools[name]; !ok {
+	case "code_eval":
+		return ae.runCodeEval(ctx, arg)
+	case "stage_path":
+		return ae.stagePath(arg)
+	default:
+		if _, ok := ae.mcpTools[name]; ok {
+			// special-case: fix web_content when the LLM passes a bare string
+			if strings.HasSuffix(name, "::web_content") && !json.Valid([]byte(arg)) {
+				arg = fmt.Sprintf(`{"urls":["%s"]}`, strings.TrimSpace(arg))
+			}
+			norm, err := ae.normalizeMCPArg(arg)
+			if err != nil {
+				return "", err
+			}
+			return ae.callMCP(ctx, name, norm)
+		}
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
-	parts := strings.SplitN(name, "::", 2)
+}
+
+/*────────────────────── arg normalizer ───────────────*/
+
+func (ae *AgentEngine) normalizeMCPArg(arg string) (string, error) {
+	hostPrefix := filepath.Join(ae.Config.DataPath, "tmp") + "/"
+	sandboxPrefix := "/mnt/tmp/"
+
+	if !json.Valid([]byte(arg)) { // plain text payload
+		return strings.ReplaceAll(arg, sandboxPrefix, hostPrefix), nil
+	}
+
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(arg), &m); err != nil {
+		return "", err
+	}
+	for k, v := range m {
+		if s, ok := v.(string); ok && strings.HasPrefix(s, sandboxPrefix) {
+			m[k] = strings.Replace(s, sandboxPrefix, hostPrefix, 1)
+		}
+	}
+	if _, ok := m["path"]; !ok { // convenience alias
+		if hp, ok := m["host_path"]; ok {
+			m["path"] = hp
+		}
+	}
+	b, _ := json.Marshal(m)
+	return string(b), nil
+}
+
+/*────────────────────── stage_path ───────────────────*/
+
+func (ae *AgentEngine) stagePath(arg string) (string, error) {
+	var p struct {
+		Src  string `json:"src"`
+		Dest string `json:"dest,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(arg), &p); err != nil {
+		return "", fmt.Errorf("stage_path expects JSON {src,dest?}: %v", err)
+	}
+	if !filepath.IsAbs(p.Src) {
+		return "", fmt.Errorf("src must be absolute")
+	}
+	if p.Dest == "" {
+		p.Dest = filepath.Base(p.Src)
+	}
+
+	hostDst := filepath.Join(ae.Config.DataPath, "tmp", p.Dest)
+	_ = os.RemoveAll(hostDst)
+
+	if err := copyRecursive(p.Src, hostDst); err != nil {
+		return "", err
+	}
+	resp := map[string]string{
+		"host_path":    hostDst,
+		"sandbox_path": "/mnt/tmp/" + p.Dest,
+		"path":         hostDst,
+	}
+	b, _ := json.Marshal(resp)
+	return string(b), nil
+}
+
+func copyRecursive(src, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			rel, _ := filepath.Rel(src, p)
+			target := filepath.Join(dst, rel)
+			if d.IsDir() {
+				return os.MkdirAll(target, 0755)
+			}
+			return copyFile(p, target)
+		})
+	}
+	return copyFile(src, dst)
+}
+
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0644)
+}
+
+/*────────────────────── code_eval ────────────────────*/
+
+func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error) {
+	var req CodeEvalRequest
+	if err := json.Unmarshal([]byte(arg), &req); err != nil {
+		return "", fmt.Errorf("code_eval expects JSON {language, code, dependencies}: %v", err)
+	}
+	var (
+		resp *CodeEvalResponse
+		err  error
+	)
+	switch strings.ToLower(strings.TrimSpace(req.Language)) {
+	case "python":
+		resp, err = runPythonInContainer(req.Code, req.Dependencies)
+	case "go":
+		resp, err = runGoInContainer(req.Code, req.Dependencies)
+	case "javascript":
+		resp, err = runNodeInContainer(req.Code, req.Dependencies)
+	default:
+		return "", fmt.Errorf("unsupported language: %s", req.Language)
+	}
+	if err != nil {
+		return "", err
+	}
+	if resp.Error != "" {
+		return "", fmt.Errorf(resp.Error)
+	}
+	return resp.Result, nil
+}
+
+/*────────────────────── MCP call ─────────────────────*/
+
+func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, error) {
+	parts := strings.SplitN(fq, "::", 2)
 	if len(parts) != 2 {
-		return "", fmt.Errorf("tool must be server::tool format")
+		return "", fmt.Errorf("invalid MCP tool name")
 	}
 	var params interface{}
-	if err := json.Unmarshal([]byte(arg), &params); err != nil {
-		params = arg // treat as raw string
+	if json.Valid([]byte(arg)) {
+		_ = json.Unmarshal([]byte(arg), &params)
+	} else {
+		params = arg
 	}
 	resp, err := ae.mcpMgr.CallTool(ctx, parts[0], parts[1], params)
 	if err != nil {
 		return "", err
 	}
-	out, _ := json.Marshal(resp)
-	return string(out), nil
+	b, _ := json.Marshal(resp)
+	return string(b), nil
 }
 
-/*──────────────────────────────
-   Memory persistence
-──────────────────────────────*/
+/*────────────────────── memory ───────────────────────*/
 
-func (ae *AgentEngine) persistStep(ctx context.Context, st AgentStep) error {
-	text := fmt.Sprintf("Thought: %s\nAction: %s\nInput: %s\nObs: %s",
+func (ae *AgentEngine) persistStep(ctx context.Context, workflowID uuid.UUID, st AgentStep) error {
+	txt := fmt.Sprintf("Thought: %s\nAction: %s\nInput: %s\nObs: %s",
 		st.Thought, st.Action, st.ActionInput, st.Observation)
-	_, err := ae.MemoryEngine.IngestAgenticMemory(ctx, ae.Config, text, "react_step")
+
+	_, err := ae.MemoryEngine.IngestAgenticMemory(ctx, ae.Config, txt, workflowID)
+	if err != nil {
+		log.Printf("persist step: %v", err)
+	}
 	return err
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

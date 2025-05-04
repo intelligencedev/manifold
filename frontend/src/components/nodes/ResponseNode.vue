@@ -54,13 +54,48 @@
             </div>
         </div>
 
-        <div class="text-container" ref="textContainer" @scroll="handleScroll" @mouseenter="$emit('disable-zoom')"
-            @mouseleave="$emit('enable-zoom')" @wheel.stop :style="{ fontSize: `${currentFontSize}px` }">
-            <div v-if="selectedRenderMode === 'raw'" class="raw-text">
-                {{ response }}
-            </div>
-            <div v-else-if="selectedRenderMode === 'markdown'" class="markdown-text" v-html="markdownToHtml"></div>
-            <div v-else-if="selectedRenderMode === 'html'" class="html-content" v-html="sanitizedHtml"></div>
+        <div
+            class="text-container"
+            ref="textContainer"
+            @scroll="handleScroll"
+            @mouseenter="$emit('disable-zoom')"
+            @mouseleave="$emit('enable-zoom')"
+            @wheel.stop
+            :style="{ fontSize: `${currentFontSize}px` }"
+        >
+            <!-- thinking blocks ---------------------------------------------------- -->
+            <template v-for="(t, idx) in thinkingBlocks" :key="idx">
+                <div
+                    class="think-wrapper"
+                    :data-collapsed="t.collapsed"
+                    @click="toggleThink(idx)"
+                >
+                    <div class="think-header">
+                        <span class="think-icon">💭</span>
+                        <span class="think-title">Agent Thinking</span>
+                    </div>
+
+                    <!-- collapsed preview -->
+                    <pre v-if="t.collapsed" class="think-preview">{{ t.preview }}</pre>
+
+                    <!-- full text -->
+                    <pre v-else class="think-content">{{ t.content }}</pre>
+
+                    <div v-if="t.hasMore" class="think-toggle">
+                        <span v-if="t.collapsed" class="chevron-down">▼</span>
+                        <span v-else class="chevron-up">▲</span>
+                    </div>
+                </div>
+            </template>
+
+            <!-- everything **outside** any <think> tag -------------------------- -->
+            <div
+                v-if="selectedRenderMode === 'markdown'"
+                class="markdown-text"
+                v-html="markdownOutsideThinking"
+            />
+            <pre v-else-if="selectedRenderMode === 'raw'" class="raw-text">{{ outsideThinkingRaw }}</pre>
+            <div v-else-if="selectedRenderMode === 'html'" class="html-content" v-html="htmlOutsideThinking" />
         </div>
 
         <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
@@ -78,7 +113,7 @@ import { marked } from "marked";
 import { NodeResizer } from "@vue-flow/node-resizer";
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
-// Don't import themes here - we'll load them dynamically
+
 
 const { getEdges, findNode, updateNodeData } = useVueFlow()
 
@@ -86,6 +121,14 @@ const { getEdges, findNode, updateNodeData } = useVueFlow()
 const selectedTheme = ref('atom-one-dark');
 const selectedModelType = ref('openai');
 let currentThemeLink = null;
+
+/**
+ * @typedef {Object} ThinkingBlock
+ * @property {string} content - Full untrimmed content
+ * @property {string} preview - Last two lines of content
+ * @property {boolean} hasMore - Whether there are more than two lines
+ * @property {boolean} collapsed - Current collapsed state
+ */
 
 // Model type label computed property
 const modelTypeLabel = computed(() => {
@@ -277,42 +320,56 @@ marked.setOptions({
 // ADDED: Reactive key to force re-render
 const reRenderKey = ref(0);
 
-// Modified computed property to properly render markdown and also handle <think> tags
-const markdownToHtml = computed(() => {
-    // Access reRenderKey to force re-evaluation
-    reRenderKey.value;
-    
-    // First extract and save any <think> blocks so they won't be parsed as markdown
-    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
-    const thinks = [];
-    let withPlaceholders = response.value.replace(thinkRegex, (match, content) => {
-        thinks.push(content);
-        return `THINK_PLACEHOLDER_${thinks.length - 1}`;
-    });
-    
-    // Convert the remaining content to markdown
-    let html = marked(withPlaceholders);
-    
-    // Replace the placeholders with properly formatted think blocks
-    thinks.forEach((content, i) => {
-        html = html.replace(`THINK_PLACEHOLDER_${i}`, `<think>${content}</think>`);
-    });
-    
-    return html;
-});
+// ---------------- reactive state --------------
+const thinkingBlocks = ref([]);
 
-// Define the response computed property that was missing
+// text *outside* any <think> tag
+const outsideThinkingRaw = ref('');
+
+// ---------------- parser ----------------------
+function parseResponse(txt) {
+    const blocks = [];
+    const outside = [];
+    const regex = /<(?:think|thinking)>([\s\S]*?)(?:<\/(?:think|thinking)>|$)/gi;
+    let lastIndex = 0;
+    let match;
+    while ((match = regex.exec(txt)) !== null) {
+        // text before this block
+        if (match.index > lastIndex) {
+            outside.push(txt.slice(lastIndex, match.index));
+        }
+        const full = match[1].trimEnd();
+        const lines = full.split('\n');
+        const preview = lines.slice(-2).join('\n');
+        blocks.push({ content: full, preview, hasMore: lines.length > 2, collapsed: true });
+        lastIndex = match.index + match[0].length;
+    }
+    // trailing text
+    if (lastIndex < txt.length) {
+        outside.push(txt.slice(lastIndex));
+    }
+    thinkingBlocks.value = blocks;
+    outsideThinkingRaw.value = outside.join('');
+}
+
+// ---------------- derived HTML ----------------
+const markdownOutsideThinking = computed(() =>
+    marked(outsideThinkingRaw.value)
+);
+
+const htmlOutsideThinking = computed(() =>
+    DOMPurify.sanitize(outsideThinkingRaw.value)
+);
+
+// ---------------- toggle handler --------------
+function toggleThink(idx, ev) {
+    // ignore clicks on links / code etc.
+    if (ev.target.closest('.think-toggle'))
+        thinkingBlocks.value[idx].collapsed = !thinkingBlocks.value[idx].collapsed;
+}
+
+// Define the response computed property
 const response = computed(() => props.data.inputs.response || '');
-
-// Fix the sanitizedHtml computed property
-const sanitizedHtml = computed(() => {
-    return DOMPurify.sanitize(response.value, {
-        ALLOWED_TAGS: ['p', 'div', 'span', 'a', 'ul', 'ol', 'li', 'b', 'i', 'strong', 'em', 
-                      'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'br', 'img', 'table', 
-                      'thead', 'tbody', 'tr', 'th', 'td', 'think'],
-        ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'id', 'style']
-    });
-});
 
 // Function to scroll to the bottom of the text container
 const scrollToBottom = () => {
@@ -397,6 +454,18 @@ watch(selectedRenderMode, () => {
         }
     });
 });
+
+// ---------------- watch the stream ------------
+watch(
+    () => props.data.inputs.response,
+    (txt) => {
+        parseResponse(txt || '');
+        nextTick(() => {
+            if (isAutoScrollEnabled.value) scrollToBottom();
+        });
+    },
+    { immediate: true }
+);
 
 watch(response, () => {
   nextTick(() => {
@@ -620,15 +689,49 @@ select {
     }
 }
 
-/* Styling for agent thinking blocks */
-:deep(.markdown-text think), :deep(.raw-text think), :deep(.html-content think) {
-    display: block;
-    font-style: italic;
-    color: #aaa;
-    background-color: #2a2a2a;
-    padding: 10px;
-    border-left: 3px solid #555;
-    margin-bottom: 10px;
-    white-space: pre-line;
+/* -------- thinking block -------- */
+.think-wrapper {
+  font-style: italic;
+  color: #d8d0e8;
+  background: rgba(73,49,99,.25);
+  border-left: 3px solid #8a70b5;
+  margin: 12px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+.think-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(138,112,181,.3);
+}
+.think-title { font-weight: 600; color:#b899e0; }
+.think-preview, .think-content {
+  white-space: pre-wrap;
+  padding: 10px;
+  background: rgba(40,30,55,.2);
+  margin: 0;
+}
+.think-content { background: rgba(45,35,65,.3); }
+.think-toggle {
+  text-align: center;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 0 5px;
+  background: rgba(73,49,99,.3);
+  user-select: none;
+}
+.think-wrapper[data-collapsed="false"] .think-preview { display:none; }
+.think-wrapper[data-collapsed="true"]  .think-content { display:none; }
+
+/* -------- thinking block preview line clamping -------- */
+.think-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-height: calc(1.2em * 2); /* ensures exactly 2 lines based on line-height */
 }
 </style>

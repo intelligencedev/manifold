@@ -408,7 +408,6 @@ Example for SecurityTrails:
       
       if (agentMode.value) {
         // --- ReAct agent call with streaming ---
-        // Use the streaming endpoint when agent mode is on
         const sseResp = await fetch('/api/agents/react/stream', {
           method: 'POST',
           headers: {
@@ -431,21 +430,19 @@ Example for SecurityTrails:
               .pipeThrough(createEventStreamSplitter())
               .getReader();
 
-        let accumulatedThinks = '';  // ONE growing <think>… tag
-        
+        let responseBuffer = '';  // accumulate raw SSE data
+
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
-          if (value === '[[EOF]]') continue;  // finished
-          
-          accumulatedThinks += '\n' + value.replace(/^<think>|<\/think>$/g,'');
-          const merged = `<think>${accumulatedThinks}</think>`;
-          onResponseUpdate(merged, merged);  // stream to UI
+          if (value === '[[EOF]]') continue;
+          // accumulate raw incoming events (they already include <think> tags)
+          responseBuffer += value;
+          onResponseUpdate(responseBuffer, responseBuffer);
         }
         
-        result = { content: accumulatedThinks };
+        result = { content: responseBuffer };
       } else {
-        // --- plain completions ---
         result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
       }
 

@@ -255,7 +255,7 @@ func SummarizeChunk(ctx context.Context, content string, endpoint string, apiKey
     `
 
 	reqPayload := map[string]interface{}{
-		"model": "local",
+		"model": "gpt-4.1-nano",
 		"messages": []map[string]string{
 			{"role": "system", "content": summaryInstructions},
 			{"role": "user", "content": "Please summarize:\n" + content},
@@ -325,7 +325,7 @@ func extractKeywords(ctx context.Context, summary string, endpoint string, apiKe
 	keywordInstructions := `You are a specialized keyword extractor. Given the summary text of a code snippet, extract the most relevant keywords that represent the core concepts and functionality. Return the keywords as a comma-delimited list with no additional text.`
 
 	reqPayload := map[string]interface{}{
-		"model": "local",
+		"model": "gpt-4.1-nano",
 		"messages": []map[string]string{
 			{"role": "system", "content": keywordInstructions},
 			{"role": "user", "content": "Please extract keywords from the following summary:\n" + summary},

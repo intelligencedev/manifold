@@ -234,7 +234,7 @@ func tokenize(text string) []string {
 }
 
 // summarizeChunk sends the chunk content to the /v1/chat/completions endpoint to obtain a summary.
-func SummarizeChunk(ctx context.Context, content string, endpoint string, apiKey string) (SummarizeOutput, error) {
+func SummarizeChunk(ctx context.Context, content string, endpoint string, model string, apiKey string) (SummarizeOutput, error) {
 	summaryInstructions := `You are an expert text summarizer designed to create concise, informative summaries of document chunks for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the RAG system's effectiveness by enabling it to retrieve the most relevant text chunks based on user queries.
 
 **Instructions:**
@@ -255,7 +255,7 @@ func SummarizeChunk(ctx context.Context, content string, endpoint string, apiKey
     `
 
 	reqPayload := map[string]interface{}{
-		"model": "gpt-4.1-nano",
+		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": summaryInstructions},
 			{"role": "user", "content": "Please summarize:\n" + content},
@@ -308,7 +308,7 @@ func SummarizeChunk(ctx context.Context, content string, endpoint string, apiKey
 	log.Printf("Summary: %s", summaryText)
 
 	// Call the keyword extraction function to retrieve a comma-delimited list of keywords.
-	keywords, err := extractKeywords(ctx, summaryText, endpoint, apiKey)
+	keywords, err := extractKeywords(ctx, summaryText, endpoint, model, apiKey)
 	if err != nil {
 		return SummarizeOutput{}, err
 	}
@@ -321,11 +321,11 @@ func SummarizeChunk(ctx context.Context, content string, endpoint string, apiKey
 
 // extractKeywords calls the LLM with a tuned system prompt to extract keywords.
 // The LLM should return a comma delimited list of keywords which we then parse.
-func extractKeywords(ctx context.Context, summary string, endpoint string, apiKey string) ([]string, error) {
+func extractKeywords(ctx context.Context, summary string, endpoint string, model string, apiKey string) ([]string, error) {
 	keywordInstructions := `You are a specialized keyword extractor. Given the summary text of a code snippet, extract the most relevant keywords that represent the core concepts and functionality. Return the keywords as a comma-delimited list with no additional text.`
 
 	reqPayload := map[string]interface{}{
-		"model": "gpt-4.1-nano",
+		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": keywordInstructions},
 			{"role": "user", "content": "Please extract keywords from the following summary:\n" + summary},
@@ -393,7 +393,7 @@ func (e *Engine) IngestDocument(
 	ctx context.Context,
 	text, languageStr, filePath, docTitle string,
 	keywords []string,
-	embeddingsHost, apiKey, completionsHost, completionsAPIKey string,
+	embeddingsHost, model, apiKey, completionsHost, completionsAPIKey string,
 	chunkSize int, chunkOverlap int, embeddingDims int,
 	embedPrefix string,
 ) error {
@@ -468,40 +468,9 @@ func (e *Engine) IngestDocument(
 			"docTitle": docTitle,
 		}
 
-		// // Add summary to metadata if available
-		// if chunkSummary != "" {
-		// 	chunkMetadata["summary"] = chunkSummary
-		// }
-
-		// // Use chunk-specific keywords if available, otherwise fall back to document keywords
-		// var keywordsToUse []string
-		// if len(chunkKeywords) > 0 {
-		// 	keywordsToUse = chunkKeywords
-		// } else if len(keywords) > 0 {
-		// 	keywordsToUse = keywords
-		// }
-
-		// if len(keywordsToUse) > 0 {
-		// 	chunkMetadata["keywords"] = strings.Join(keywordsToUse, ",")
-		// }
-
-		// mdBytes, _ := json.Marshal(chunkMetadata)
-
-		// Prepare content - prepend summary if available
-		// finalChunkContent := chunkContent
-		// if chunkSummary != "" {
-		// 	finalChunkContent = fmt.Sprintf("%s\n\n---\n\n%s", chunkSummary, chunkContent)
-		// }
-
-		// Prepend metadata to chunkContent
-		// finalChunkContent := chunkContent
-		// if chunkMetadata != "" {
-		// 	finalChunkContent = fmt.Sprintf("%s\n\n---\n\n%s", chunkSummary, chunkMetadata)
-		// }
-
 		var keywords []string
 		if len(strings.TrimSpace(chunkContent)) > 10 {
-			keywords, err = extractKeywords(ctx, chunkContent, completionsHost, completionsAPIKey)
+			keywords, err = extractKeywords(ctx, chunkContent, completionsHost, model, completionsAPIKey)
 			if err != nil {
 				// Log error but continue rather than failing
 				log.Printf("Warning: Failed to extract keywords: %v", err)

@@ -14,11 +14,26 @@ export function useAgentNode(props, emit) {
   // State variables
   const showApiKey = ref(false)
   const enableToolCalls = ref(false)
+  const agentMode = ref(false)
   const isHovered = ref(false)
   const customStyle = ref({
     width: '380px',
     height: '760px'
   })
+  
+  // Helper function for calling the agent API
+  async function callAgentAPI({ endpoint, objective, model, maxSteps = 30 }) {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objective, max_steps: maxSteps, model }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Agent API ${res.status}: ${errText}`);
+    }
+    return res.json(); // { session_id, trace, result, completed }
+  }
   
   // Predefined system prompts
   const selectedSystemPrompt = computed({
@@ -372,8 +387,25 @@ Example for SecurityTrails:
         }
       };
       
-      // Call the API
-      const result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
+      // Call the API based on the mode
+      let result;
+      
+      if (agentMode.value) {
+        // --- ReAct agent call ---
+        const agentEndpoint = '/api/agents/react';     // same origin; change if needed
+        const agentResp = await callAgentAPI({
+          endpoint: agentEndpoint,
+          objective: finalPrompt,          // the whole merged prompt becomes the objective
+          model: provider.value === 'openai' ? model.value : '',
+          maxSteps: 30,                    // or expose another field
+        });
+        result = { content: agentResp.result };
+        // stream-style update (simple)
+        onResponseUpdate(agentResp.result, agentResp.result);
+      } else {
+        // --- plain completions ---
+        result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
+      }
 
       // Handle error in result
       if (result.error) {
@@ -509,10 +541,18 @@ Example for SecurityTrails:
     }
   });
   
+  // Optional: preset the agent endpoint when toggling agent mode
+  watch(agentMode, (on) => {
+    if (on && !props.data.inputs.endpoint?.includes('/api/agents/react')) {
+      props.data.inputs.endpoint = 'http://localhost:8080/api/agents/react';
+    }
+  });
+  
   return {
     // State
     showApiKey,
     enableToolCalls,
+    agentMode,
     selectedSystemPrompt,
     isHovered,
     

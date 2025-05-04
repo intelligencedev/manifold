@@ -1,0 +1,91 @@
+//go:build !test
+// +build !test
+
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
+	"manifold/internal/mcp"
+
+	"github.com/labstack/echo/v4"
+)
+
+// runReActAgentStreamHandler handles POST /api/agents/react/stream.
+func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var req ReActRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		req.Objective = strings.TrimSpace(req.Objective)
+		if req.Objective == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "objective required"})
+		}
+		if req.MaxSteps <= 0 {
+			req.MaxSteps = 14
+		}
+
+		// ensure SSE headers
+		c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
+		c.Response().Header().Set("Cache-Control", "no-cache")
+		c.Response().Header().Set("Connection", "keep-alive")
+		flusher, ok := c.Response().Writer.(http.Flusher)
+		if !ok {
+			return c.String(http.StatusInternalServerError, "Streaming unsupported")
+		}
+
+		ctx := c.Request().Context()
+		conn, err := Connect(ctx, cfg.Database.ConnectionString)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+		defer conn.Close(ctx)
+
+		mgr, err := mcp.NewManager(ctx, "config.yaml")
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+
+		engine := &AgentEngine{
+			Config:       cfg,
+			DB:           conn,
+			MemoryEngine: NewAgenticEngine(conn),
+			HTTPClient:   &http.Client{Timeout: 180 * time.Second},
+			mcpMgr:       mgr,
+			mcpTools:     make(map[string]struct{}),
+		}
+		if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
+		_ = engine.discoverMCPTools(ctx)
+
+		// helper to write one SSE data frame
+		write := func(data string) {
+			// each line must start with "data: "
+			for _, ln := range strings.Split(data, "\n") {
+				fmt.Fprintf(c.Response(), "data: %s\n", ln)
+			}
+			fmt.Fprint(c.Response(), "\n")
+			flusher.Flush()
+		}
+
+		// kick-off the agent in a goroutine so we can stream thoughts
+		go func() {
+			_, _ = engine.RunSessionWithHook(ctx, req, func(st AgentStep) {
+				// send only the thought, wrapped as requested
+				payload := fmt.Sprintf("<think>%s</think>", st.Thought)
+				write(payload)
+			})
+			// signal completion
+			write("[[EOF]]")
+		}()
+
+		// keep connection alive until client closes
+		<-ctx.Done()
+		return nil
+	}
+}

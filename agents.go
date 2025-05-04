@@ -40,6 +40,9 @@ type ReActResponse struct {
 
 /*──────────────────────── internal ─────────────────────*/
 
+// StepHook is a callback function that's called whenever a new step is produced
+type StepHook func(step AgentStep)
+
 type AgentStep struct {
 	Index       int    `json:"index"`
 	Thought     string `json:"thought"`
@@ -161,6 +164,10 @@ func extractToolName(v interface{}) string {
 /*────────────────────── main loop ─────────────────────*/
 
 func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*AgentSession, error) {
+	return ae.RunSessionWithHook(ctx, req, nil)
+}
+
+func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest, hook StepHook) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
 	var td []string
@@ -253,6 +260,10 @@ Tools:
 			sess.Steps = append(sess.Steps, step)
 			_ = ae.persistStep(ctx, sess.ID, step)
 
+			if hook != nil {
+				hook(step)
+			}
+
 			sess.Result = strings.TrimSpace(out)
 			sess.Completed = true
 			break
@@ -267,6 +278,10 @@ Tools:
 		step := AgentStep{Index: len(sess.Steps) + 1, Thought: thought, Action: action, ActionInput: input, Observation: obs}
 		sess.Steps = append(sess.Steps, step)
 		_ = ae.persistStep(ctx, sess.ID, step)
+
+		if hook != nil {
+			hook(step)
+		}
 
 		if strings.EqualFold(action, "finish") {
 			if step.ActionInput == "" {

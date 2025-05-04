@@ -5,8 +5,6 @@ import (
 	"log"
 	"net/http"
 
-	"manifold/internal/agent"
-
 	"github.com/labstack/echo/v4"
 )
 
@@ -20,8 +18,6 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api := e.Group("/api")
 	registerAPIEndpoints(api, config)
 
-	// Agent endpoints (Planner / Executor / Critic / Full‐run)
-	registerAgentEndpoints(api, config)
 }
 
 // registerAPIEndpoints registers all API-related routes.
@@ -69,6 +65,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// Agentic Memory endpoints.
 	registerAgenticMemoryEndpoints(api, config)
+
+	// ===== ReAct Agentic System endpoints =====
+	registerAgentEndpoints(api, config)
 }
 
 // registerMCPEndpoints registers all MCP-related routes.
@@ -121,25 +120,8 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
 }
 
-// registerAgentEndpoints registers routes for agent-related functionality.
+// registerAgentEndpoints registers all routes for the ReAct / advanced agentic system.
 func registerAgentEndpoints(api *echo.Group, config *Config) {
-	agentGroup := api.Group("/agent")
-
-	// Create an agent.Config from our main config
-	agentConfig := &agent.Config{}
-	agentConfig.Completions.APIKey = config.Completions.APIKey
-	agentConfig.Completions.Provider = "openai" // Assuming OpenAI is the default
-	agentConfig.Completions.DefaultHost = config.Completions.DefaultHost
-
-	handler, err := agent.NewInternalAgentHandler(agentConfig)
-	if err != nil {
-		log.Printf("Error creating internal agent handler: %v", err)
-		return
-	}
-
-	// Register all endpoints as POST to be consistent
-	agentGroup.POST("/plan", handler.PlanHandler)
-	agentGroup.POST("/run", handler.RunHandler)
-	agentGroup.POST("/execute", handler.ExecuteHandler)
-	agentGroup.POST("/critique", handler.CritiqueHandler)
+	agents := api.Group("/agents")
+	agents.POST("/react", runReActAgentHandler(config)) // Kick‑off a new ReAct session and run to completion
 }

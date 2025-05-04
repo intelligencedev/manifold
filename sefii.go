@@ -155,6 +155,7 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 			req.DocTitle,
 			[]string{req.FilePath},
 			config.Embeddings.Host,
+			config.Completions.CompletionsModel,
 			config.Embeddings.APIKey,
 			config.Completions.DefaultHost,
 			config.Completions.APIKey,

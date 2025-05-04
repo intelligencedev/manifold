@@ -78,7 +78,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	log.Println("Ingesting agentic memory note...")
 	log.Println(content)
 	// 1. Use an LLM (or completions endpoint) to generate note context, keywords, and tags.
-	summaryOutput, err := sefii.SummarizeChunk(ctx, content, config.Completions.DefaultHost, config.Completions.APIKey)
+	summaryOutput, err := sefii.SummarizeChunk(ctx, content, config.Completions.DefaultHost, config.Completions.CompletionsModel, config.Completions.APIKey)
 	if err != nil {
 		log.Printf("AgenticMemory: Failed to summarize content: %v", err)
 		// If summarization fails, proceed with empty context.

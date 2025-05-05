@@ -498,8 +498,8 @@ func StopPGVectorContainer() error {
 // parseConnectionString attempts to extract username, password and database name from a connection string
 func parseConnectionString(connStr string) (username, password, dbname string, ok bool) {
 	// Default values
-	username = "cloudadmin"
-	password = "peanut732688"
+	username = "postgres"
+	password = "postgres"
 	dbname = "manifold"
 
 	// Very basic parsing - this won't handle all formats but should work for simple cases

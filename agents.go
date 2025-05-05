@@ -188,20 +188,25 @@ Objective: %s
 IMPORTANT: ALL tool calls should be generated as a single line
 with no line breaks, and JSON should be formatted as a single line.
 
-◆ Need host files?
+- When writing files, prefer using python and the code_eval tool.
+- You are only allowed to modify files in the host_path directory.
+- If the user asks for you to modify a file outside of the host_path, you must copy it to the host_path first.
+- You can use the stage_path tool to copy files from the host to the sandbox.
+- You can use the code_eval tool to run code in a sandbox environment. Always use python for this.
+- Need host files?
    1. stage_path {"src":"/abs/host/path"}            (optional "dest")
    2. Use returned "path" with file-system tools.
    3. Inside code_eval use "sandbox_path".
 
-◆ Fetching a web page?
+- Fetching a web page?
    Use manifold::web_content with JSON {"urls":[<link1>, ...]}.
 
-► Prefer to answer directly (with Thought + finish) for narrative tasks
+- Prefer to answer directly (with Thought + finish) for narrative tasks
   such as writing, explaining, or summarising natural-language text.
   Only fall back to a tool for *computational* or *programmatic*
   work (e.g. data transformation, heavy math, file parsing).
 
-★ NEVER omit the three headers below – the server will error out:
+- NEVER omit the three headers below – the server will error out:
   Thought: …
   Action: …
   Action Input: …
@@ -332,21 +337,45 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message
 /*────────────────────── parse helper ─────────────────*/
 
 func parseReAct(s string) (thought, action, input string) {
+	var grab bool
+	var buf []string
 	for _, ln := range strings.Split(s, "\n") {
 		l := strings.TrimSpace(ln)
+
 		switch {
 		case strings.HasPrefix(strings.ToLower(l), "thought:"):
 			thought = strings.TrimSpace(l[len("thought:"):])
+			grab = false
 		case strings.HasPrefix(strings.ToLower(l), "action:"):
 			action = strings.TrimSpace(l[len("action:"):])
+			grab = false
 		case strings.HasPrefix(strings.ToLower(l), "action input:"):
-			input = strings.TrimSpace(l[len("action input:"):])
-			if strings.HasPrefix(input, "```") {
-				input = strings.Trim(input, "` \n")
-				if strings.HasPrefix(strings.ToLower(input), "json") {
-					input = strings.TrimSpace(input[4:])
-				}
+			grab = true
+			line := strings.TrimSpace(l[len("action input:"):])
+			if line != "" {
+				buf = append(buf, line)
 			}
+		default:
+			if grab {
+				low := strings.ToLower(l)
+				// stop if we reach the next header
+				if strings.HasPrefix(low, "thought:") ||
+					strings.HasPrefix(low, "action:") ||
+					strings.HasPrefix(low, "observation:") {
+					grab = false
+					continue
+				}
+				buf = append(buf, l)
+			}
+		}
+	}
+	input = strings.Join(buf, "\n")
+
+	// strip ```json fences if present
+	if strings.HasPrefix(input, "```") {
+		input = strings.Trim(input, "` \n")
+		if strings.HasPrefix(strings.ToLower(input), "json") {
+			input = strings.TrimSpace(input[4:])
 		}
 	}
 	return
@@ -385,6 +414,17 @@ func (ae *AgentEngine) normalizeMCPArg(arg string) (string, error) {
 	sandboxPrefix := "/mnt/tmp/"
 
 	if !json.Valid([]byte(arg)) { // plain text payload
+		if !json.Valid([]byte(arg)) && strings.Contains(arg, "{") && strings.Contains(arg, "}") {
+			// attempt salvage: grab everything between the first '{' and *last* '}'
+			if start := strings.Index(arg, "{"); start >= 0 {
+				if end := strings.LastIndex(arg, "}"); end > start {
+					candidate := arg[start : end+1]
+					if json.Valid([]byte(candidate)) {
+						arg = candidate
+					}
+				}
+			}
+		}
 		return strings.ReplaceAll(arg, sandboxPrefix, hostPrefix), nil
 	}
 

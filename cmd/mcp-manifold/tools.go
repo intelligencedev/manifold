@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -29,8 +30,8 @@ type TimeArgs struct {
 	Format string `json:"format,omitempty" jsonschema:"description=Optional time format (default: RFC3339)"`
 }
 type WeatherArgs struct {
-	Longitude float64 `json:"longitude" jsonschema:"required,description=Longitude"`
-	Latitude  float64 `json:"required,description=Latitude" json:"latitude"`
+	Longitude float64 `json:"longitude" jsonschema:"required,description=Longitude in decimal degrees"`
+	Latitude  float64 `json:"latitude"  jsonschema:"required,description=Latitude in decimal degrees"`
 }
 
 // FS Tools
@@ -51,8 +52,8 @@ type SummarizeFileArgs struct {
 	Style string `json:"style,omitempty"`
 }
 type WriteFileArgs struct {
-	Path    string `json:"path" jsonschema:"required,description=Path to the file to write"`
-	Content string `json:"content" jsonschema:"required,description=Content to write into the file"`
+	Path    string `json:"path" jsonschema:"required,description=Absolute or relative file path"`
+	Content string `json:"content" jsonschema:"required,format=byte,description=Base64-encoded file contents"`
 }
 type ListDirectoryArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory path to list"`
@@ -61,8 +62,8 @@ type CreateDirectoryArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory path to create"`
 }
 type MoveFileArgs struct {
-	Source      string `json:"source" jsonschema:"required,description=Source path"`
-	Destination string `json:"destination" jsonschema:"required,description=Destination path"`
+	Source      string `json:"source" jsonschema:"required,description='Source path'"`
+	Destination string `json:"destination" jsonschema:"required,description='Destination path'"`
 }
 type ReadMultipleFilesArgs struct {
 	Paths []string `json:"paths" jsonschema:"required,description=List of file paths to read"`
@@ -71,7 +72,7 @@ type EditFileArgs struct {
 	Path         string `json:"path" jsonschema:"required,description=File path"`
 	Search       string `json:"search,omitempty" jsonschema:"description=Search text"`
 	Replace      string `json:"replace,omitempty" jsonschema:"description=Replace text"`
-	PatchContent string `json:"patchContent,omitempty" jsonschema:"description=Unified diff patch"`
+	PatchContent string `json:"patchContent,omitempty" jsonschema:"format=byte,description=Base64-encoded unified diff patch"`
 }
 type DirectoryTreeArgs struct {
 	Path     string `json:"path" jsonschema:"required,description=Root directory"`
@@ -79,10 +80,10 @@ type DirectoryTreeArgs struct {
 }
 type SearchFilesArgs struct {
 	Path    string `json:"path" jsonschema:"required,description=Base path"`
-	Pattern string `json:"pattern" jsonschema:"required,description=Text or regex pattern"`
+	Pattern string `json:"pattern" jsonschema:"required,description='Text or regex pattern'"`
 }
 type GetFileInfoArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Path to file or directory"`
+	Path string `json:"path" jsonschema:"required,description='Path to file or directory'"`
 }
 
 // Git Tools
@@ -264,8 +265,11 @@ func summarizeFileTool(args SummarizeFileArgs) (string, error) {
 
 // write_file tool
 func writeFileTool(args WriteFileArgs) (string, error) {
-	err := os.WriteFile(args.Path, []byte(args.Content), 0644)
-	if err != nil {
+	data, err := base64.StdEncoding.DecodeString(args.Content)
+	if err != nil { // was not base64 – treat as raw text
+		data = []byte(args.Content)
+	}
+	if err := os.WriteFile(args.Path, data, 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 	return fmt.Sprintf("Wrote file: %s", args.Path), nil
@@ -638,7 +642,7 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func copyDir(src string, dst string) error {
+func copyDir(src, dst string) error {
 	entries, err := ioutil.ReadDir(src)
 	if err != nil {
 		return err

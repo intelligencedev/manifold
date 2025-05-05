@@ -398,7 +398,7 @@ Example for SecurityTrails:
           
           if (responseNode) {
             responseNode.data.inputs.response = fullResponse;
-            //responseNode.run();
+            // Don't run the next node for every token update, we'll trigger it at the end
           }
         }
       };
@@ -411,13 +411,13 @@ Example for SecurityTrails:
         const sseResp = await fetch('/api/agents/react/stream', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json', 
+            'Content-Type': 'application/json',
             'Accept': 'text/event-stream'
           },
-          body: JSON.stringify({ 
-            objective: finalPrompt, 
-            max_steps: 30, 
-            model: provider.value === 'openai' ? props.data.inputs.model : '' 
+          body: JSON.stringify({
+            objective: finalPrompt,
+            max_steps: 30,
+            model: provider.value === 'openai' ? props.data.inputs.model : ''
           })
         });
         
@@ -433,46 +433,71 @@ Example for SecurityTrails:
         let accumulatedThoughts = '';  // accumulate just the thought content
         let finalResult = '';          // store the final result separately
 
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          if (value === '[[EOF]]') continue;
-          
-          // Extract content from <think> tags
-          const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/);
-          if (thinkMatch) {
-            // This is a thought chunk, add to accumulated thoughts
-            accumulatedThoughts += thinkMatch[1] + '\n';
-          } else {
-            // This is non-thought content, it's the final result/summary
-            finalResult = value;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value === '[[EOF]]') {
+              // tell the stream we're done
+              await reader.cancel();
+              break;
+            }
+            // Extract content from <think> tags
+            const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/);
+            if (thinkMatch) {
+              accumulatedThoughts += thinkMatch[1] + '\n';
+            } else {
+              finalResult = value;
+            }
+            const combinedResponse = 
+              (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
+              (finalResult ? `\n${finalResult}` : '');
+            onResponseUpdate(combinedResponse, combinedResponse);
           }
-          
-          // Combine into a response with a think block + any final result
-          const combinedResponse = 
-            (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
-            (finalResult ? `\n${finalResult}` : '');
-            
-          onResponseUpdate(combinedResponse, combinedResponse);
+        } catch (e) {
+          // ignore stream errors
         }
-        
+
         // Set the final result with proper formatting
         const finalResponse = 
           (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
           (finalResult ? `\n${finalResult}` : '');
           
         result = { content: finalResponse };
+        
+        // Update the required outputs.result.output structure for workflow compatibility
+        props.data.outputs = {
+          ...props.data.outputs,
+          result: {
+            output: finalResponse
+          }
+        };
+        
+        // Now that the agent has completed, trigger the next node in the workflow
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = finalResponse;
+          }
+
+          return result;
+        }
       } else {
         result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
       }
 
       // Store result in outputs structure for downstream nodes
-      props.data.outputs = {
-        ...props.data.outputs,
-        result: {
-          output: result.content || result.error || props.data.outputs.response
-        }
-      };
+      if (!agentMode.value) {
+        props.data.outputs = {
+          ...props.data.outputs,
+          result: {
+            output: result.content || result.error || props.data.outputs.response
+          }
+        };
+      }
 
       // Handle error in result
       if (result.error) {

@@ -68,7 +68,7 @@
                 <div
                     class="think-wrapper"
                     :data-collapsed="t.collapsed"
-                    @click="toggleThink(idx)"
+                    @click.stop="toggleThink(idx)"
                 >
                     <div class="think-header">
                         <span class="think-icon">💭</span>
@@ -697,6 +697,7 @@ select {
   border-radius: 8px;
   overflow: hidden;
   position: relative;
+  cursor: pointer; /* Add cursor pointer to indicate clickable */
 }
 .think-header {
   display: flex;

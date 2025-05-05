@@ -75,11 +75,17 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 
 		// kick-off the agent in a goroutine so we can stream thoughts
 		go func() {
-			_, _ = engine.RunSessionWithHook(ctx, req, func(st AgentStep) {
+			session, err := engine.RunSessionWithHook(ctx, req, func(st AgentStep) {
 				// send only the thought, wrapped as requested
 				payload := fmt.Sprintf("<think>%s</think>", st.Thought)
 				write(payload)
 			})
+
+			// After all steps are complete, send the final summary/result as plain text
+			if err == nil && session != nil && session.Completed {
+				write(session.Result)
+			}
+
 			// signal completion
 			write("[[EOF]]")
 		}()

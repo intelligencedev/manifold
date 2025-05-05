@@ -431,34 +431,36 @@ Example for SecurityTrails:
               .getReader();
 
         let accumulatedThoughts = '';  // accumulate just the thought content
-        let nonThoughtContent = '';    // store any non-thought content
+        let finalResult = '';          // store the final result separately
 
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           if (value === '[[EOF]]') continue;
           
-          // Extract content from <think> tags and accumulate it
-          // Also preserve any non-<think> content
+          // Extract content from <think> tags
           const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/);
           if (thinkMatch) {
             // This is a thought chunk, add to accumulated thoughts
             accumulatedThoughts += thinkMatch[1] + '\n';
           } else {
-            // This is non-thought content, preserve it
-            nonThoughtContent += value;
+            // This is non-thought content, it's the final result/summary
+            finalResult = value;
           }
           
-          // Combine into a response with a single think block + any other content
-          const combinedResponse = nonThoughtContent + 
-            (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '');
+          // Combine into a response with a think block + any final result
+          const combinedResponse = 
+            (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
+            (finalResult ? `\n${finalResult}` : '');
             
           onResponseUpdate(combinedResponse, combinedResponse);
         }
         
-        // Final result with single accumulated think block
-        const finalResponse = nonThoughtContent + 
-          (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '');
+        // Set the final result with proper formatting
+        const finalResponse = 
+          (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
+          (finalResult ? `\n${finalResult}` : '');
+          
         result = { content: finalResponse };
       } else {
         result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);

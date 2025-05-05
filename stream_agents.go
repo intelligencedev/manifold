@@ -82,8 +82,13 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 			})
 
 			// After all steps are complete, send the final summary/result as plain text
+			// Remove any surrounding quotes that might come from the JSON serialization
 			if err == nil && session != nil && session.Completed {
-				write(session.Result)
+				finalResult := session.Result
+				// Remove surrounding quotes if they exist
+				finalResult = strings.TrimPrefix(finalResult, "\"")
+				finalResult = strings.TrimSuffix(finalResult, "\"")
+				write(finalResult)
 			}
 
 			// signal completion

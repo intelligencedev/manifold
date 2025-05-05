@@ -185,6 +185,9 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
 Objective: %s
 
+IMPORTANT: ALL tool calls should be generated as a single line
+with no line breaks, and JSON should be formatted as a single line.
+
 ◆ Need host files?
    1. stage_path {"src":"/abs/host/path"}            (optional "dest")
    2. Use returned "path" with file-system tools.

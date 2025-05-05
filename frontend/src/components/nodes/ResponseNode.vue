@@ -328,26 +328,47 @@ const outsideThinkingRaw = ref('');
 
 // ---------------- parser ----------------------
 function parseResponse(txt) {
+    // Store previous collapsed states to maintain them during updates
+    const previousStates = thinkingBlocks.value.map(block => block.collapsed);
+    
     const blocks = [];
     const outside = [];
     const regex = /<(?:think|thinking)>([\s\S]*?)(?:<\/(?:think|thinking)>|$)/gi;
     let lastIndex = 0;
     let match;
+    let blockIndex = 0;
+    
     while ((match = regex.exec(txt)) !== null) {
         // text before this block
         if (match.index > lastIndex) {
             outside.push(txt.slice(lastIndex, match.index));
         }
+        
         const full = match[1].trimEnd();
         const lines = full.split('\n');
         const preview = lines.slice(-2).join('\n');
-        blocks.push({ content: full, preview, hasMore: lines.length > 2, collapsed: true });
+        
+        // Use previous collapsed state if available, otherwise default to collapsed
+        const wasCollapsed = blockIndex < previousStates.length ? 
+                            previousStates[blockIndex] : 
+                            true;
+        
+        blocks.push({ 
+            content: full, 
+            preview, 
+            hasMore: lines.length > 2, 
+            collapsed: wasCollapsed  // Preserve previous state
+        });
+        
         lastIndex = match.index + match[0].length;
+        blockIndex++;
     }
+    
     // trailing text
     if (lastIndex < txt.length) {
         outside.push(txt.slice(lastIndex));
     }
+    
     thinkingBlocks.value = blocks;
     outsideThinkingRaw.value = outside.join('');
 }

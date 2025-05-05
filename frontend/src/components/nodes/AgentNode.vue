@@ -101,6 +101,13 @@
       @mouseleave="handleTextareaMouseLeave"
     />
 
+    <!-- 
+      Response Display:
+      - Renders <think> tags in a special format (handled by CSS)
+      - For models with built-in <think> tags, the backend extracts them 
+      - Final answers appear as regular text outside the think tags
+    -->
+
     <!-- Send to Code Editor button - only visible when there's response content -->
     <button 
       v-if="data.outputs && data.outputs.response" 
@@ -239,6 +246,18 @@ const {
 /* Additional component-specific styles */
 .input-wrapper {
   position: relative;
+}
+
+/* Add styling for the think tags that may come from LLMs or our ReAct agent */
+:deep(think), :deep(think) {
+  display: block;
+  background-color: rgba(30, 30, 30, 0.7);
+  border-left: 3px solid #666;
+  padding: 8px;
+  margin: 8px 0;
+  font-family: monospace;
+  white-space: pre-wrap;
+  color: #aaa;
 }
 
 /* Code Editor Button Styles */

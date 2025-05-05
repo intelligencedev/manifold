@@ -1,6 +1,3 @@
-//go:build !test
-// +build !test
-
 package main
 
 import (
@@ -73,30 +70,27 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 			flusher.Flush()
 		}
 
-		// kick-off the agent in a goroutine so we can stream thoughts
-		go func() {
-			session, err := engine.RunSessionWithHook(ctx, req, func(st AgentStep) {
-				// send only the thought, wrapped as requested
-				payload := fmt.Sprintf("<think>%s</think>", st.Thought)
-				write(payload)
-			})
+		// Stream agent steps synchronously in the handler
+		session, err := engine.RunSessionWithHook(ctx, req, func(st AgentStep) {
+			// send each thought wrapped as requested
+			payload := fmt.Sprintf("<think>%s</think>", st.Thought)
+			write(payload)
+		})
+		if err != nil {
+			return c.String(http.StatusInternalServerError, err.Error())
+		}
 
-			// After all steps are complete, send the final summary/result as plain text
-			// Remove any surrounding quotes that might come from the JSON serialization
-			if err == nil && session != nil && session.Completed {
-				finalResult := session.Result
-				// Remove surrounding quotes if they exist
-				finalResult = strings.TrimPrefix(finalResult, "\"")
-				finalResult = strings.TrimSuffix(finalResult, "\"")
-				write(finalResult)
-			}
+		// send final summary/result
+		if session != nil && session.Completed {
+			finalResult := session.Result
+			// remove surrounding quotes if present
+			finalResult = strings.TrimPrefix(finalResult, "\"")
+			finalResult = strings.TrimSuffix(finalResult, "\"")
+			write(finalResult)
+		}
 
-			// signal completion
-			write("[[EOF]]")
-		}()
-
-		// keep connection alive until client closes
-		<-ctx.Done()
+		// signal completion and close
+		write("[[EOF]]")
 		return nil
 	}
 }

@@ -430,18 +430,36 @@ Example for SecurityTrails:
               .pipeThrough(createEventStreamSplitter())
               .getReader();
 
-        let responseBuffer = '';  // accumulate raw SSE data
+        let accumulatedThoughts = '';  // accumulate just the thought content
+        let nonThoughtContent = '';    // store any non-thought content
 
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           if (value === '[[EOF]]') continue;
-          // accumulate raw incoming events (they already include <think> tags)
-          responseBuffer += value;
-          onResponseUpdate(responseBuffer, responseBuffer);
+          
+          // Extract content from <think> tags and accumulate it
+          // Also preserve any non-<think> content
+          const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/);
+          if (thinkMatch) {
+            // This is a thought chunk, add to accumulated thoughts
+            accumulatedThoughts += thinkMatch[1] + '\n';
+          } else {
+            // This is non-thought content, preserve it
+            nonThoughtContent += value;
+          }
+          
+          // Combine into a response with a single think block + any other content
+          const combinedResponse = nonThoughtContent + 
+            (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '');
+            
+          onResponseUpdate(combinedResponse, combinedResponse);
         }
         
-        result = { content: responseBuffer };
+        // Final result with single accumulated think block
+        const finalResponse = nonThoughtContent + 
+          (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '');
+        result = { content: finalResponse };
       } else {
         result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
       }

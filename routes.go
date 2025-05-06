@@ -33,6 +33,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// MCP endpoints
 	registerMCPEndpoints(api, config)
 
+	// Session management endpoints
+	registerSessionEndpoints(api)
+
 	// Git-related endpoints.
 	api.GET("/git-files", gitFilesHandler)
 	api.POST("/git-files/ingest", gitFilesIngestHandler(config))
@@ -68,6 +71,14 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// ===== ReAct Agentic System endpoints =====
 	registerAgentEndpoints(api, config)
+}
+
+// registerSessionEndpoints registers routes for session management.
+func registerSessionEndpoints(api *echo.Group) {
+	sessionGroup := api.Group("/session")
+	sessionGroup.POST("/create", createSessionHandler)
+	sessionGroup.GET("/current", getSessionHandler)
+	sessionGroup.DELETE("/destroy", destroySessionHandler)
 }
 
 // registerMCPEndpoints registers all MCP-related routes.

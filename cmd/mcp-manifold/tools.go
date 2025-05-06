@@ -144,13 +144,11 @@ type LintCodeArgs struct {
 	LinterName string `json:"linterName,omitempty" jsonschema:"description=Optional linter name"`
 }
 type WebSearchArgs struct {
-	Query         string `json:"query" jsonschema:"required"`
-	ResultSize    int    `json:"result_size,omitempty"`
-	SearchBackend string `json:"search_backend,omitempty"`
-	SxngURL       string `json:"sxng_url,omitempty"`
+	Query      string `json:"query" jsonschema:"required"`
+	ResultSize int    `json:"result_size,omitempty"` // default 5, max 10
 }
 type WebContentArgs struct {
-	URLs []string `json:"urls" jsonschema:"required,description=List of URLs"`
+	URLs string `json:"urls" jsonschema:"required,description=Comma separated list of URLs"`
 }
 type GenerateAndRunCodeArgs struct {
 	Spec         string   `json:"spec" jsonschema:"required,description=Description or purpose of the code to generate"`
@@ -589,39 +587,6 @@ func lintCodeTool(args LintCodeArgs) (string, error) {
 		return "", fmt.Errorf("lint command error: %w\nOutput: %s", err, output)
 	}
 	return string(output), nil
-}
-
-// web_search tool
-func webSearchTool(args WebSearchArgs) (string, error) {
-	// This is a simplified implementation
-	return fmt.Sprintf("Search results for: %s", args.Query), nil
-}
-
-// web_content tool
-func webContentTool(args WebContentArgs) (string, error) {
-	if len(args.URLs) == 0 {
-		return "", fmt.Errorf("no URLs provided")
-	}
-
-	var content strings.Builder
-	for _, url := range args.URLs {
-		resp, err := http.Get(url)
-		if err != nil {
-			content.WriteString(fmt.Sprintf("Error fetching %s: %v\n", url, err))
-			continue
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			content.WriteString(fmt.Sprintf("Error reading response from %s: %v\n", url, err))
-			continue
-		}
-
-		content.WriteString(fmt.Sprintf("Content from %s:\n%s\n\n", url, string(body)))
-	}
-
-	return content.String(), nil
 }
 
 // Helper functions

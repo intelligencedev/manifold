@@ -1,4 +1,4 @@
-package web
+package main
 
 import (
 	"bytes"
@@ -67,39 +67,8 @@ type WebPageContent struct {
 	Source  string
 }
 
-// CheckRobotsTxt checks if the target website allows scraping by "et-bot".
-func checkRobotsTxt(ctx context.Context, u string) bool {
-	baseURL, err := url.Parse(u)
-	if err != nil {
-		log.Printf("Failed to parse baseURL: %v", err)
-		return false
-	}
-
-	robotsUrl := url.URL{Scheme: baseURL.Scheme, Host: baseURL.Host, Path: "/robots.txt"}
-	resp, err := http.Get(robotsUrl.String())
-	if err != nil {
-		log.Printf("Failed to fetch robots.txt for %s: %v", baseURL.String(), err)
-		return false
-	}
-	defer resp.Body.Close()
-
-	// Check if the status code is 200
-	if resp.StatusCode != 200 {
-		log.Printf("Failed to fetch robots.txt for %s: %v", baseURL.String(), err)
-		// We assume it's allowed if not found
-		return true
-	}
-
-	log.Printf("URL: %s\n", robotsUrl.String())
-	return true
-}
-
-// WebGetHandler retrieves the reader view content of a given URL.
-func WebGetHandler(address string) (*WebPageContent, error) {
-	if !checkRobotsTxt(context.Background(), address) {
-		return nil, errors.New("scraping not allowed according to robots.txt")
-	}
-
+// webGetHandler retrieves the reader view content of a given URL.
+func webGetHandler(address string) (*WebPageContent, error) {
 	htmlContent, err := fetchHTML(address)
 	if err != nil {
 		return nil, err
@@ -133,7 +102,7 @@ func fetchHTML(address string) (string, error) {
 		chromedp.Navigate(address),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			headers := map[string]interface{}{
-				"User-Agent":      "et-bot", // Set user agent to et-bot
+				"User-Agent":      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36", // Set user agent to et-bot
 				"Referer":         "https://www.duckduckgo.com/",
 				"Accept-Language": "en-US,en;q=0.9",
 				"X-Forwarded-For": "203.0.113.195",
@@ -374,12 +343,12 @@ func removeEmptyRows(input string) string {
 	return strings.Join(filteredLines, "\n")
 }
 
-// --- The remaining functions (ExtractURLs, RemoveUrl, cleanURL, SearchDDG, GetSearchResults,
-// RemoveUnwantedURLs, GetPageScreen, RemoveUrls, postRequest, extractURLsFromHTML, GetSearXNGResults)
+// --- The remaining functions (extractURLs, removeUrl, cleanURL, searchDDG, getSearchResults,
+// removeUnwantedURLs, getPageScreen, removeUrls, postRequest, extractURLsFromHTML, GetSearXNGResults)
 // remain largely unchanged. ---
 
-// ExtractURLs extracts URLs from the input string.
-func ExtractURLs(input string) []string {
+// extractURLs extracts URLs from the input string.
+func extractURLs(input string) []string {
 	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
 	re := regexp.MustCompile(urlRegex)
 	matches := re.FindAllString(input, -1)
@@ -391,8 +360,8 @@ func ExtractURLs(input string) []string {
 	return cleanedURLs
 }
 
-// RemoveUrl removes URLs from each string in the input slice.
-func RemoveUrl(input []string) []string {
+// removeUrl removes URLs from each string in the input slice.
+func removeUrl(input []string) []string {
 	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
 	re := regexp.MustCompile(urlRegex)
 	for i, str := range input {
@@ -415,8 +384,8 @@ func cleanURL(urlStr string) string {
 	return urlStr
 }
 
-// SearchDDG performs a search on DuckDuckGo and returns the result URLs.
-func SearchDDG(query string) []string {
+// searchDDG performs a search on DuckDuckGo and returns the result URLs.
+func searchDDG(query string) []string {
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(),
 		append(chromedp.DefaultExecAllocatorOptions[:],
 			chromedp.Flag("headless", true),
@@ -455,7 +424,7 @@ func SearchDDG(query string) []string {
 		urls = append(urls, u)
 	}
 
-	resultURLs = RemoveUnwantedURLs(urls)
+	resultURLs = removeUnwantedURLs(urls)
 	// If resultURLs contains cnn.com, replace the URL with https://lite.cnn.com
 	for i, u := range resultURLs {
 		if strings.Contains(u, "https://www.cnn.com") {
@@ -466,11 +435,11 @@ func SearchDDG(query string) []string {
 	return resultURLs
 }
 
-// GetSearchResults retrieves the content of multiple URLs and returns it as a concatenated string.
-func GetSearchResults(urls []string) string {
+// getSearchResults retrieves the content of multiple URLs and returns it as a concatenated string.
+func getSearchResults(urls []string) string {
 	var result strings.Builder
 	for _, u := range urls {
-		content, err := WebGetHandler(u)
+		content, err := webGetHandler(u)
 		if err != nil {
 			log.Printf("Error getting search result for URL %s: %v", u, err)
 			continue
@@ -485,8 +454,8 @@ func GetSearchResults(urls []string) string {
 	return result.String()
 }
 
-// RemoveUnwantedURLs filters out unwanted URLs from the given list.
-func RemoveUnwantedURLs(urls []string) []string {
+// removeUnwantedURLs filters out unwanted URLs from the given list.
+func removeUnwantedURLs(urls []string) []string {
 	var filteredURLs []string
 	for _, u := range urls {
 		log.Printf("Checking URL: %s", u)
@@ -506,8 +475,8 @@ func RemoveUnwantedURLs(urls []string) []string {
 	return filteredURLs
 }
 
-// GetPageScreen captures a screenshot of a webpage and saves it as a PNG file.
-func GetPageScreen(chromeUrl string, pageAddress string) string {
+// getPageScreen captures a screenshot of a webpage and saves it as a PNG file.
+func getPageScreen(chromeUrl string, pageAddress string) string {
 	instanceUrl := chromeUrl
 	allocatorCtx, cancel := chromedp.NewRemoteAllocator(context.Background(), instanceUrl)
 	defer cancel()
@@ -536,8 +505,8 @@ func GetPageScreen(chromeUrl string, pageAddress string) string {
 	return filename
 }
 
-// RemoveUrls removes URLs from the input string.
-func RemoveUrls(input string) string {
+// removeUrls removes URLs from the input string.
+func removeUrls(input string) string {
 	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
 	re := regexp.MustCompile(urlRegex)
 	matches := re.FindAllString(input, -1)
@@ -596,26 +565,4 @@ func extractURLsFromHTML(htmlContent string) ([]string, error) {
 	}
 	f(doc)
 	return urls, nil
-}
-
-// GetSearXNGResults performs a search on a SearXNG instance and returns the result URLs.
-func GetSearXNGResults(endpoint string, query string) []string {
-	htmlContent, err := postRequest(endpoint, query)
-	if err != nil {
-		log.Printf("Error: %v\n", err)
-		return nil
-	}
-	urls, err := extractURLsFromHTML(htmlContent)
-	if err != nil {
-		log.Printf("Error extracting URLs: %v\n", err)
-		return nil
-	}
-	// Remove unwanted URLs
-	urls = RemoveUnwantedURLs(urls)
-	for i, u := range resultURLs {
-		if strings.Contains(u, "https://www.cnn.com") {
-			resultURLs[i] = strings.Replace(u, "https://www.cnn.com", "https://lite.cnn.com", 1)
-		}
-	}
-	return urls
 }

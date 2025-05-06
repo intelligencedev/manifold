@@ -1,11 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	mcp "github.com/metoro-io/mcp-golang"
 	"github.com/metoro-io/mcp-golang/transport/stdio"
@@ -100,18 +104,72 @@ func registerBasicTools(server *mcp.Server) {
 			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
 		}},
 		{"web_search", "Performs a web search using selected backend", func(args WebSearchArgs) (*mcp.ToolResponse, error) {
-			res, err := webSearchTool(args)
-			if err != nil {
-				return nil, err
+			res := searchDDG(args.Query)
+
+			// Convert the go slice to a string
+			resStr := strings.Join(res, "\n")
+			if len(resStr) == 0 {
+				resStr = "No results found."
 			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+
+			// return the result
+			return mcp.NewToolResponse(mcp.NewTextContent(resStr)), nil
 		}},
 		{"web_content", "Fetches and extracts content from web URLs", func(args WebContentArgs) (*mcp.ToolResponse, error) {
-			res, err := webContentTool(args)
-			if err != nil {
-				return nil, err
+			urlsParam := args.URLs
+
+			if urlsParam == "" {
+				return nil, fmt.Errorf("URLs are required")
 			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
+			// Split the URLs by comma
+
+			urls := strings.Split(urlsParam, ",")
+			var wg sync.WaitGroup
+			var mu sync.Mutex
+			results := make(map[string]interface{})
+
+			resultChan := make(chan *mcp.ToolResponse)
+			errChan := make(chan error)
+
+			go func() {
+				for _, pageURL := range urls {
+					wg.Add(1)
+					go func(url string) {
+						defer wg.Done()
+						content, err := webGetHandler(url)
+						mu.Lock()
+						defer mu.Unlock()
+						if err != nil {
+							results[url] = map[string]string{"error": fmt.Sprintf("Error extracting web content: %v", err)}
+						} else {
+							results[url] = content
+						}
+					}(pageURL)
+				}
+
+				wg.Wait()
+
+				jsonResult, err := json.Marshal(results)
+				if err != nil {
+					errChan <- fmt.Errorf("error marshaling results: %w", err)
+					return
+				}
+				resultChan <- mcp.NewToolResponse(mcp.NewTextContent(string(jsonResult)))
+			}()
+
+			// Wait for result or timeout
+			select {
+			case result := <-resultChan:
+				return result, nil
+			case err := <-errChan:
+				return nil, err
+			case <-time.After(60 * time.Second):
+				jsonResult, err := json.Marshal(results)
+				if err != nil {
+					return nil, fmt.Errorf("error marshaling results after timeout: %w", err)
+				}
+				return mcp.NewToolResponse(mcp.NewTextContent(string(jsonResult))), nil
+			}
 		}},
 	}
 

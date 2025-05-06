@@ -188,11 +188,8 @@ Objective: %s
 IMPORTANT: ALL tool calls should be generated as a single line
 with no line breaks, and JSON should be formatted as a single line.
 
-- When writing files, prefer using python and the code_eval tool.
-- You are only allowed to modify files in the host_path directory.
-- If the user asks for you to modify a file outside of the host_path, you must copy it to the host_path first.
-- You can use the stage_path tool to copy files from the host to the sandbox.
 - You can use the code_eval tool to run code in a sandbox environment. Always use python for this.
+
 - Need host files?
    1. stage_path {"src":"/abs/host/path"}            (optional "dest")
    2. Use returned "path" with file-system tools.

@@ -85,7 +85,7 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 			return c.JSON(400, map[string]string{"error": "objective required"})
 		}
 		if req.MaxSteps <= 0 {
-			req.MaxSteps = 14
+			req.MaxSteps = 100
 		}
 
 		ctx := c.Request().Context()
@@ -188,22 +188,42 @@ Objective: %s
 IMPORTANT: ALL tool calls should be generated as a single line
 with no line breaks, and JSON should be formatted as a single line.
 
-- You can use the code_eval tool to run code in a sandbox environment. Always use python for this.
-
 - Need host files?
    1. stage_path {"src":"/abs/host/path"}            (optional "dest")
    2. Use returned "path" with file-system tools.
    3. Inside code_eval use "sandbox_path".
 
-- Fetching a web page?
-   Use manifold::web_content with JSON {"urls":[<link1>, ...]}.
+- Need to search the web?
+   1. Call manifold::web_search with JSON {"query":"<keywords>","result_size":5}
+      • It returns **only** a comma-delimited list of up to 5 URLs.
+   2. Immediately fetch those pages via manifold::web_content:
+      {"urls":"<url1>,<url2>,..."}   // comma delimited string
+	  
+- Fetching a web page? URLs are passed as comma delimited string
+   Use manifold::web_content with JSON {"urls":"<link1>, ..."}.
 
 - Prefer to answer directly (with Thought + finish) for narrative tasks
   such as writing, explaining, or summarising natural-language text.
   Only fall back to a tool for *computational* or *programmatic*
   work (e.g. data transformation, heavy math, file parsing).
 
-- NEVER omit the three headers below – the server will error out:
+Always consider using the tools first. If no tool is available that can be used to complete the task, make your own.
+
+You can use the code_eval tool with python to successfully complete the task if no other tool is suitable. 
+The code_eval tool supports third-party libraries, so you can include them in the dependencies array. 
+The code should be valid and executable in Python. The code should always return a string with the result of the execution, 
+so that it can be used for the next task. 
+
+If no dependencies are needed, the dependencies array must be empty (e.g., []).
+
+The json object should be formatted in a single line as follows:
+{"language":"python","code":"<python code>","dependencies":["<dependency1>","<dependency2>"]}
+
+For example (using third party libraries):
+
+{"language":"python","code":"import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__ == '__main__':\n    main()","dependencies":["requests","beautifulsoup4","markdownify"]}
+
+IMPORTANT: NEVER omit the three headers below – the server will error out:
   Thought: …
   Action: …
   Action Input: …
@@ -307,7 +327,7 @@ Tools:
 /*────────────────────── LLM helper ────────────────────*/
 
 func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message) (string, error) {
-	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: 1024, Temperature: 0.2})
+	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: 16000, Temperature: 0.15})
 	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)

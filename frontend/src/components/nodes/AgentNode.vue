@@ -183,7 +183,7 @@ const props = defineProps({
         temperature: 0.6,
       },
       outputs: { response: '' },
-      models: ['local', 'chatgpt-4o-latest', 'gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o1', 'o3-mini'],
+      models: ['local', 'chatgpt-4o-latest', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o4-mini', 'o1', 'o1-pro', 'gpt-4.5-preview'],
       style: {
         border: '1px solid #666',
         borderRadius: '12px',

@@ -22,7 +22,7 @@ export function useAgentNode(props, emit) {
   })
   
   // Helper function for calling the agent API
-  async function callAgentAPI({ endpoint, objective, model, maxSteps = 30 }) {
+  async function callAgentAPI({ endpoint, objective, model, maxSteps = 100 }) {
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

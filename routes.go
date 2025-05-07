@@ -10,14 +10,28 @@ import (
 
 // registerRoutes sets up all the routes for the application.
 func registerRoutes(e *echo.Echo, config *Config) {
+	// Authentication routes - publicly accessible
+	e.POST("/api/auth/login", loginHandler)
+	e.POST("/api/auth/register", registerHandler)
+
 	// Serve static frontend files.
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
 	e.Static("/tmp", config.DataPath+"/tmp")
 
 	// API group for all API endpoints.
 	api := e.Group("/api")
-	registerAPIEndpoints(api, config)
 
+	// Authentication protected routes
+	restricted := api.Group("/restricted")
+	// Apply JWT middleware to protected routes
+	restricted.Use(configureJWTMiddleware(config))
+	restricted.GET("", restrictedHandler) // Sample protected route
+	restricted.GET("/user", getUserInfoHandler)
+	restricted.POST("/logout", logoutHandler)
+	restricted.POST("/change-password", changePasswordHandler) // New endpoint for changing password
+
+	// Register other API endpoints
+	registerAPIEndpoints(api, config)
 }
 
 // registerAPIEndpoints registers all API-related routes.

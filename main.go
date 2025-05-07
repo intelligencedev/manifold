@@ -38,8 +38,25 @@ func main() {
 		logger.Fatal(fmt.Sprintf("Failed to initialize application: %v", err))
 	}
 
+	// Initialize user database
+	if err := initUserDB(config); err != nil {
+		logger.Fatal(fmt.Sprintf("Failed to initialize user database: %v", err))
+	}
+	defer userDB.Close()
+
+	// Create default admin user if it doesn't exist
+	createDefaultAdmin(config)
+
 	// Create a new Echo instance
 	e := echo.New()
+
+	// Make config accessible via context
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("config", config)
+			return next(c)
+		}
+	})
 
 	// Configure middleware
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
@@ -53,8 +70,7 @@ func main() {
 	}))
 
 	// Configure session middleware with cookie store
-	store := sessions.NewCookieStore([]byte("manifold-secret-key"))
-	// Configure session cookie
+	store := sessions.NewCookieStore([]byte(config.Auth.SecretKey))
 	store.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days
@@ -116,4 +132,37 @@ func main() {
 	}
 
 	logger.Info("Server gracefully stopped")
+}
+
+// createDefaultAdmin creates a default admin user if it doesn't exist
+func createDefaultAdmin(config *Config) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Check if admin user exists
+	_, err := userDB.GetUserByUsername(ctx, "admin")
+
+	// If admin doesn't exist, create it with a default password
+	if err != nil {
+		pterm.Info.Println("Creating default admin user...")
+
+		// Default admin password - in production, this should be changed immediately after first login
+		defaultPassword := "admin123" // This is just for demonstration, not secure!
+
+		user, err := userDB.CreateUser(ctx, "admin", defaultPassword, "", "Administrator")
+		if err != nil {
+			pterm.Error.Printf("Failed to create default admin user: %v\n", err)
+			return
+		}
+
+		// Update user role to admin in database
+		_, err = userDB.db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = $1", user.ID)
+		if err != nil {
+			pterm.Error.Printf("Failed to set admin role: %v\n", err)
+			return
+		}
+
+		pterm.Success.Println("Default admin user created successfully.")
+		pterm.Warning.Println("Please change the default admin password after first login!")
+	}
 }

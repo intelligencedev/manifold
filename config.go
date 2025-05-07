@@ -47,6 +47,11 @@ type RerankerConfig struct {
 	Host string `yaml:"host"`
 }
 
+type AuthConfig struct {
+	SecretKey   string `yaml:"secret_key"`
+	TokenExpiry int    `yaml:"token_expiry"` // Token expiry in hours
+}
+
 type Config struct {
 	Host                      string            `yaml:"host"`
 	Port                      int               `yaml:"port"`
@@ -61,6 +66,7 @@ type Config struct {
 	Completions               CompletionsConfig `yaml:"completions"`
 	Embeddings                EmbeddingsConfig  `yaml:"embeddings"`
 	Reranker                  RerankerConfig    `yaml:"reranker"`
+	Auth                      AuthConfig        `yaml:"auth"`
 }
 
 // LoadConfig reads the configuration from a YAML file, unmarshals it into a Config struct,
@@ -77,6 +83,17 @@ func LoadConfig(filename string) (*Config, error) {
 	if err != nil {
 		pterm.Error.Printf("Error unmarshaling config: %v\n", err)
 		return nil, fmt.Errorf("error unmarshaling config: %w", err)
+	}
+
+	// Set default values for Auth if not provided
+	if config.Auth.SecretKey == "" {
+		config.Auth.SecretKey = "your-secret-key" // Default fallback (should be changed in production)
+		pterm.Warning.Println("No JWT secret key provided in config, using default (insecure).")
+	}
+
+	if config.Auth.TokenExpiry <= 0 {
+		config.Auth.TokenExpiry = 72 // Default to 72 hours
+		pterm.Info.Println("No token expiry specified, using default (72 hours).")
 	}
 
 	pterm.Success.Println("Configuration loaded successfully.")

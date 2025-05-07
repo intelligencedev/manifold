@@ -1,11 +1,26 @@
 <template>
   <header class="header">
+    <div class="header-section">
+      <!-- Left section - empty for centering logo -->
+    </div>
     <div class="logo">
       <img src="/assets/manifold.svg" alt="Manifold Logo" height="32" />
       <span class="title">Manifold</span>
     </div>
     <div class="controls">
       <input type="file" ref="fileInput" style="display:none" @change="onFileSelected" accept=".json" />
+      <div class="templates-dropdown">
+        <button class="control-btn templates-btn" @click="toggleTemplatesMenu">
+          <i class="fa fa-file-text"></i>
+          Templates
+          <i class="fa fa-caret-down"></i>
+        </button>
+        <div v-if="showTemplatesMenu" class="dropdown-content">
+          <button v-for="(template, index) in templates" :key="index" @click="loadTemplate(template)">
+            {{ template.name }}
+          </button>
+        </div>
+      </div>
       <button class="control-btn" @click="openFile">
         <i class="fa fa-folder-open"></i>
         Open
@@ -36,9 +51,17 @@ import { ref, onMounted } from 'vue';
 import UserSettings from '@/components/UserSettings.vue';
 
 const fileInput = ref<HTMLElement | null>(null);
-const emit = defineEmits(['save', 'restore', 'logout']);
+const emit = defineEmits(['save', 'restore', 'logout', 'load-template']);
 const showUserMenu = ref(false);
+const showTemplatesMenu = ref(false);
 const username = ref('User');
+
+const templates = [
+  { name: 'Simple Text Flow', template: 'simple-text' },
+  { name: 'Text + Images Flow', template: 'text-images' },
+  { name: 'Research Assistant', template: 'research' },
+  { name: 'Code Helper', template: 'code-helper' }
+];
 
 // Get the username on component mount
 onMounted(() => {
@@ -102,6 +125,21 @@ function onFileSelected(event: Event) {
 
 function toggleUserMenu() {
   showUserMenu.value = !showUserMenu.value;
+  if (showUserMenu.value) {
+    showTemplatesMenu.value = false;
+  }
+}
+
+function toggleTemplatesMenu() {
+  showTemplatesMenu.value = !showTemplatesMenu.value;
+  if (showTemplatesMenu.value) {
+    showUserMenu.value = false;
+  }
+}
+
+function loadTemplate(template: { name: string, template: string }) {
+  emit('load-template', template.template);
+  showTemplatesMenu.value = false;
 }
 
 function logout() {
@@ -121,9 +159,16 @@ function logout() {
   color: white;
 }
 
+.header-section {
+  flex: 1;
+}
+
 .logo {
   display: flex;
   align-items: center;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .title {
@@ -136,6 +181,8 @@ function logout() {
   display: flex;
   gap: 10px;
   align-items: center;
+  flex: 1;
+  justify-content: flex-end;
 }
 
 .control-btn {
@@ -160,18 +207,47 @@ function logout() {
   font-size: 1rem;
 }
 
-.user-menu {
+.user-menu, .templates-dropdown {
   position: relative;
 }
 
-.user-btn {
+.user-btn, .templates-btn {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.user-btn i:last-child {
+.user-btn i:last-child, .templates-btn i:last-child {
   font-size: 0.8rem;
   margin-left: 2px;
+}
+
+.dropdown-content {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1000;
+  background-color: #333;
+  min-width: 200px;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.dropdown-content button {
+  background-color: transparent;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.dropdown-content button:hover {
+  background-color: #444;
 }
 </style>

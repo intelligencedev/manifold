@@ -5,7 +5,7 @@
     
     <!-- Show main app content when authenticated -->
     <template v-else>
-      <Header @save="onSave" @restore="onRestore" @logout="handleLogout" />
+      <Header @save="onSave" @restore="onRestore" @logout="handleLogout" @load-template="loadTemplate" />
       <NodePalette />
       <UtilityPalette />
 

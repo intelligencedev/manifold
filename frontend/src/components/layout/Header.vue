@@ -19,6 +19,7 @@
           <button v-for="(template, index) in templates" :key="index" @click="loadTemplate(template)">
             {{ template.name }}
           </button>
+          <div v-if="templates.length === 0" class="no-templates">No templates available</div>
         </div>
       </div>
       <button class="control-btn" @click="openFile">
@@ -56,14 +57,10 @@ const showUserMenu = ref(false);
 const showTemplatesMenu = ref(false);
 const username = ref('User');
 
-const templates = [
-  { name: 'Simple Text Flow', template: 'simple-text' },
-  { name: 'Text + Images Flow', template: 'text-images' },
-  { name: 'Research Assistant', template: 'research' },
-  { name: 'Code Helper', template: 'code-helper' }
-];
+// Will be populated dynamically from the server
+const templates = ref<Array<{ name: string, template: string }>>([]);
 
-// Get the username on component mount
+// Get the username and templates on component mount
 onMounted(() => {
   // Try to get username from localStorage or session
   const token = localStorage.getItem('jwt_token');
@@ -87,7 +84,41 @@ onMounted(() => {
       console.error('Error fetching user info:', error);
     });
   }
+  
+  // Fetch available templates
+  fetchTemplates();
 });
+
+// Function to fetch available templates from the server
+function fetchTemplates() {
+  fetch('/api/workflows/templates')
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      }
+      throw new Error('Failed to get templates');
+    })
+    .then(data => {
+      templates.value = data.map((template: any) => ({
+        name: formatTemplateName(template.name),
+        template: template.id
+      }));
+    })
+    .catch(error => {
+      console.error('Error fetching templates:', error);
+    });
+}
+
+// Format template names for display (removes numbers and underscores, capitalizes words)
+function formatTemplateName(filename: string): string {
+  // Remove any leading numbers and underscores (like "1_" in "1_chat_completion")
+  const nameWithoutPrefix = filename.replace(/^\d+_/, '');
+  
+  // Replace underscores with spaces and capitalize each word
+  return nameWithoutPrefix
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase());
+}
 
 function saveFlow() {
   emit('save');
@@ -249,5 +280,11 @@ function logout() {
 
 .dropdown-content button:hover {
   background-color: #444;
+}
+
+.no-templates {
+  padding: 10px 15px;
+  color: #aaa;
+  text-align: center;
 }
 </style>

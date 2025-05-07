@@ -10,16 +10,41 @@ const fileInput = ref(null);
 const templates = ref([]);
 const selectedTemplate = ref("");
 
-// Use Vite's import.meta.glob to get all JSON files in the workflows directory
-const workflowModules = import.meta.glob("../../components/workflows/*.json");
-
 onMounted(async () => {
-  // Process the paths to get template names without extensions
-  templates.value = Object.keys(workflowModules).map(path => {
-    const filename = path.split('/').pop();
-    return filename.replace(/\.json$/, '');
-  }).sort(); // Sort templates alphabetically
+  // Fetch templates from the backend API
+  await fetchTemplates();
 });
+
+// Function to fetch available templates from the server
+async function fetchTemplates() {
+  try {
+    const response = await fetch('/api/workflows/templates');
+    if (!response.ok) {
+      throw new Error('Failed to fetch templates');
+    }
+    
+    const data = await response.json();
+    // Process templates for display
+    templates.value = data.map(template => ({
+      id: template.id, 
+      name: formatTemplateName(template.name)
+    }));
+  } catch (error) {
+    console.error('Error fetching workflow templates:', error);
+    templates.value = []; // Set empty array on error
+  }
+}
+
+// Format template names for display (removes numbers and underscores, capitalizes words)
+function formatTemplateName(filename) {
+  // Remove any leading numbers and underscores (like "1_" in "1_chat_completion")
+  const nameWithoutPrefix = filename.replace(/^\d+_/, '');
+  
+  // Replace underscores with spaces and capitalize each word
+  return nameWithoutPrefix
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, letter => letter.toUpperCase());
+}
 
 function onSave() {
   emit("save");
@@ -55,29 +80,32 @@ function onFileSelected(event) {
 async function onTemplateSelected() {
   if (!selectedTemplate.value) return;
 
-  // Find the module path for the selected template
-  const templatePath = Object.keys(workflowModules).find(path =>
-    path.includes(`/${selectedTemplate.value}.json`) // Be more specific with path matching
-  );
-
-  if (templatePath) {
-    try {
-      // Dynamically import the selected template file
-      const module = await workflowModules[templatePath]();
-      // Handle both default export and direct export
-      const flow = module.default || module;
-      // Deep clone the template object to avoid modifying the original module cache
-      emit("restore", JSON.parse(JSON.stringify(flow)));
-      // Reset dropdown after loading
-      selectedTemplate.value = "";
-    } catch (error) {
-      console.error("Error loading template:", error);
-      alert(`Error loading template: ${selectedTemplate.value}`);
+  try {
+    // Find the selected template from our templates array
+    const template = templates.value.find(t => t.name === selectedTemplate.value);
+    
+    if (!template) {
+      throw new Error(`Template not found: ${selectedTemplate.value}`);
     }
-  } else {
-      console.error(`Template path not found for: ${selectedTemplate.value}`);
-      alert(`Could not find template file for: ${selectedTemplate.value}`);
-      selectedTemplate.value = ""; // Reset if path is invalid
+    
+    // Fetch the selected template from the backend
+    const response = await fetch(`/api/workflows/templates/${template.id}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch template: ${selectedTemplate.value}`);
+    }
+    
+    // Get the flow data from the response
+    const flow = await response.json();
+    
+    // Emit the restore event with the flow data
+    emit("restore", flow);
+    
+    // Reset the dropdown selection
+    selectedTemplate.value = "";
+  } catch (error) {
+    console.error("Error loading template:", error);
+    alert(`Error loading template: ${error.message}`);
+    selectedTemplate.value = "";
   }
 }
 </script>
@@ -101,8 +129,8 @@ async function onTemplateSelected() {
       >
         <!-- Use a disabled option for the placeholder -->
         <option disabled value="">Templates</option>
-        <option v-for="template in templates" :key="template" :value="template">
-          {{ template }}
+        <option v-for="template in templates" :key="template.id" :value="template.name">
+          {{ template.name }}
         </option>
       </select>
     </div>

@@ -473,6 +473,24 @@ function onRestore(flow: Flow) {
   }
 }
 
+// Function to load a template when selected from the dropdown
+async function loadTemplate(templateId) {
+  try {
+    // Fetch the selected template from the backend API
+    const response = await fetch(`/api/workflows/templates/${templateId}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch template: ${response.statusText}`);
+    }
+    
+    const flowData = await response.json();
+    // Use the existing restore function to load the template
+    onRestore(flowData);
+  } catch (error) {
+    console.error('Error loading template:', error);
+    alert(`Failed to load template: ${error.message}`);
+  }
+}
+
 // Auto-pan toggle
 const autoPanEnabled = ref(false);
 

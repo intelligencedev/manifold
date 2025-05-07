@@ -2,8 +2,12 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -49,6 +53,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// Session management endpoints
 	registerSessionEndpoints(api)
+
+	// Workflow templates endpoints
+	registerWorkflowEndpoints(api, config)
 
 	// Git-related endpoints.
 	api.GET("/git-files", gitFilesHandler)
@@ -150,4 +157,91 @@ func registerAgentEndpoints(api *echo.Group, config *Config) {
 	agents := api.Group("/agents")
 	agents.POST("/react", runReActAgentHandler(config))              // Kick‑off a new ReAct session and run to completion
 	agents.POST("/react/stream", runReActAgentStreamHandler(config)) // Streaming endpoint for real-time thoughts
+}
+
+// registerWorkflowEndpoints registers routes for workflow templates.
+func registerWorkflowEndpoints(api *echo.Group, config *Config) {
+	workflowGroup := api.Group("/workflows")
+	workflowGroup.GET("/templates", listWorkflowTemplatesHandler(config))
+	workflowGroup.GET("/templates/:id", getWorkflowTemplateHandler(config))
+}
+
+// WorkflowTemplate represents a workflow template with its metadata
+type WorkflowTemplate struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// listWorkflowTemplatesHandler returns a list of available workflow templates
+func listWorkflowTemplatesHandler(config *Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		// Get templates directory from config
+		templatesDir := config.DataPath + "/workflows/default"
+
+		// Read the directory for template files
+		files, err := os.ReadDir(templatesDir)
+		if err != nil {
+			log.Printf("Error reading workflow templates directory: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to read templates directory",
+			})
+		}
+
+		// Build the list of templates
+		templates := []WorkflowTemplate{}
+		for _, file := range files {
+			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
+				// Extract base filename without extension
+				name := strings.TrimSuffix(file.Name(), ".json")
+				templates = append(templates, WorkflowTemplate{
+					ID:   file.Name(),
+					Name: name,
+				})
+			}
+		}
+
+		return c.JSON(http.StatusOK, templates)
+	}
+}
+
+// getWorkflowTemplateHandler returns the content of a specific workflow template
+func getWorkflowTemplateHandler(config *Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		templateID := c.Param("id")
+		if templateID == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Template ID is required",
+			})
+		}
+
+		// Validate the template ID to prevent directory traversal
+		if strings.Contains(templateID, "..") || strings.Contains(templateID, "/") {
+			return c.JSON(http.StatusBadRequest, map[string]string{
+				"error": "Invalid template ID",
+			})
+		}
+
+		// Get the full path to the template
+		templatePath := filepath.Join(config.DataPath, "workflows", "default", templateID)
+
+		// Read the template file
+		data, err := os.ReadFile(templatePath)
+		if err != nil {
+			log.Printf("Error reading workflow template: %v", err)
+			return c.JSON(http.StatusNotFound, map[string]string{
+				"error": "Template not found",
+			})
+		}
+
+		// Parse the JSON data
+		var templateData map[string]interface{}
+		if err := json.Unmarshal(data, &templateData); err != nil {
+			log.Printf("Error parsing workflow template JSON: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"error": "Failed to parse template data",
+			})
+		}
+
+		return c.JSON(http.StatusOK, templateData)
+	}
 }

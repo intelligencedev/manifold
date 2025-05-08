@@ -254,6 +254,7 @@ Always return only the raw JSON string without any additional text, explanation,
       }
       
       let result;
+      
       if (agentMode.value) {
         // --- ReAct agent call with streaming ---
         const sseResp = await fetch('/api/agents/react/stream', {
@@ -333,10 +334,67 @@ Always return only the raw JSON string without any additional text, explanation,
 
           return result;
         }
+      } else {
+        // --- Regular API call (non-agent mode) ---
+        const requestBody = {
+          model: props.data.inputs.model,
+          messages: [
+            {
+              role: "system",
+              content: props.data.inputs.system_prompt
+            },
+            {
+              role: "user",
+              content: finalPrompt
+            }
+          ],
+          max_tokens: props.data.inputs.max_completion_tokens || 1000,
+          temperature: props.data.inputs.temperature || 0.7
+        };
+
+        const response = await fetch(props.data.inputs.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${props.data.inputs.api_key}`
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API error (${response.status}): ${errorText}`);
+        }
+
+        const responseData = await response.json();
+        const responseText = responseData.choices && responseData.choices[0]?.message?.content;
+        
+        // Update the outputs with the result
+        props.data.outputs = {
+          ...props.data.outputs,
+          response: responseText,
+          result: {
+            output: responseText
+          }
+        };
+
+        // Update connected response nodes
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = responseText;
+          }
+        }
+
+        result = { content: responseText };
+        return result;
       }
 
-      // Handle error in result
-      if (result.error) {
+      // Handle error in result (this is now only for agent mode since we return earlier for regular API calls)
+      if (result && result.error) {
         props.data.outputs.error = result.error;
         props.data.outputs.response = JSON.stringify({ error: result.error }, null, 2);
         

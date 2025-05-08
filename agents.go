@@ -66,7 +66,7 @@ type AgentSession struct {
 type AgentEngine struct {
 	Config       *Config
 	DB           *pgx.Conn
-	MemoryEngine *AgenticEngine
+	MemoryEngine MemoryEngine
 	HTTPClient   *http.Client
 
 	mcpMgr   *mcp.Manager
@@ -108,16 +108,24 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 		}
 
 		engine := &AgentEngine{
-			Config:       cfg,
-			DB:           conn,
-			MemoryEngine: NewAgenticEngine(conn),
-			HTTPClient:   &http.Client{Timeout: 180 * time.Second},
-			mcpMgr:       mgr,
-			mcpTools:     make(map[string]struct{}),
+			Config:     cfg,
+			DB:         conn,
+			HTTPClient: &http.Client{Timeout: 180 * time.Second},
+			mcpMgr:     mgr,
+			mcpTools:   make(map[string]struct{}),
 		}
-		if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
+
+		// Configure memory engine based on config
+		if cfg.AgenticMemory.Enabled {
+			engine.MemoryEngine = NewAgenticEngine(conn)
+			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+		} else {
+			// Use the no-op implementation when agentic memory is disabled
+			engine.MemoryEngine = &NilMemoryEngine{}
 		}
+
 		_ = engine.discoverMCPTools(ctx)
 
 		session, err := engine.RunSession(ctx, req)
@@ -251,10 +259,14 @@ Tools:
 	for i := 0; i < req.MaxSteps; i++ {
 		var msgs []Message
 		msgs = append(msgs, Message{Role: "system", Content: sysPrompt})
-		// ❶ pull top-N memories
-		mems, _ := ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 5)
 
-		// ❷ graft them into the system prompt (or a separate “memory” message)
+		// Only query memories if agentic memory is enabled
+		var mems []AgenticMemory
+		if ae.Config.AgenticMemory.Enabled && ae.MemoryEngine != nil {
+			mems, _ = ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 5)
+		}
+
+		// Add memories to the prompt if any were found
 		if len(mems) > 0 {
 			var memBuf strings.Builder
 			memBuf.WriteString("🔎 **Session memory snippets**\n")
@@ -588,6 +600,11 @@ func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, err
 /*────────────────────── memory ───────────────────────*/
 
 func (ae *AgentEngine) persistStep(ctx context.Context, workflowID uuid.UUID, st AgentStep) error {
+	// Check if agentic memory is enabled in configuration
+	if !ae.Config.AgenticMemory.Enabled {
+		return nil
+	}
+
 	txt := fmt.Sprintf("Thought: %s\nAction: %s\nInput: %s\nObs: %s",
 		st.Thought, st.Action, st.ActionInput, st.Observation)
 

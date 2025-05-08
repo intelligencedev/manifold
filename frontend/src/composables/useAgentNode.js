@@ -40,6 +40,29 @@ export function useAgentNode(props, emit) {
     });
   }
   
+  // Function to update response in real-time as agent thoughts come in
+  function onResponseUpdate(content, fullResponse) {
+    // Update the UI with the streamed response
+    props.data.outputs = {
+      ...props.data.outputs,
+      response: content,
+      result: {
+        output: fullResponse
+      }
+    };
+    
+    // Also update any connected response nodes
+    if (props.vueFlowInstance) {
+      const { getEdges, findNode } = props.vueFlowInstance;
+      const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+      const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+      
+      if (responseNode) {
+        responseNode.data.inputs.response = content;
+      }
+    }
+  }
+  
   // Predefined system prompts
   const selectedSystemPrompt = computed({
     get: () => props.data.selectedSystemPrompt || "",

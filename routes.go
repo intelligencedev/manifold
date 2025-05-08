@@ -176,12 +176,16 @@ type WorkflowTemplate struct {
 func listWorkflowTemplatesHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Get templates directory from config
-		templatesDir := config.DataPath + "/workflows/default"
+		templatesDir := filepath.Join(config.DataPath, "workflows")
 
 		// Read the directory for template files
 		files, err := os.ReadDir(templatesDir)
 		if err != nil {
 			log.Printf("Error reading workflow templates directory: %v", err)
+			// Return empty array if directory doesn't exist instead of error
+			if os.IsNotExist(err) {
+				return c.JSON(http.StatusOK, []WorkflowTemplate{})
+			}
 			return c.JSON(http.StatusInternalServerError, map[string]string{
 				"error": "Failed to read templates directory",
 			})
@@ -193,15 +197,42 @@ func listWorkflowTemplatesHandler(config *Config) echo.HandlerFunc {
 			if !file.IsDir() && strings.HasSuffix(file.Name(), ".json") {
 				// Extract base filename without extension
 				name := strings.TrimSuffix(file.Name(), ".json")
+
+				// Format the name for display (remove numbers and underscores, capitalize words)
+				displayName := formatTemplateName(name)
+
 				templates = append(templates, WorkflowTemplate{
 					ID:   file.Name(),
-					Name: name,
+					Name: displayName,
 				})
 			}
 		}
 
 		return c.JSON(http.StatusOK, templates)
 	}
+}
+
+// formatTemplateName formats the template filename for display by removing
+// leading numbers and formatting underscores as spaces with capitalization
+func formatTemplateName(filename string) string {
+	// Remove any leading numbers and underscores (like "1_" in "1_chat_completion")
+	nameWithoutPrefix := strings.Replace(filename, ".json", "", 1)
+	nameWithoutPrefix = strings.TrimPrefix(nameWithoutPrefix, "1_")
+	nameWithoutPrefix = strings.TrimPrefix(nameWithoutPrefix, "2_")
+	nameWithoutPrefix = strings.TrimPrefix(nameWithoutPrefix, "3_")
+
+	// Replace underscores with spaces
+	nameWithSpaces := strings.ReplaceAll(nameWithoutPrefix, "_", " ")
+
+	// Capitalize each word
+	words := strings.Fields(nameWithSpaces)
+	for i, word := range words {
+		if len(word) > 0 {
+			words[i] = strings.ToUpper(word[0:1]) + word[1:]
+		}
+	}
+
+	return strings.Join(words, " ")
 }
 
 // getWorkflowTemplateHandler returns the content of a specific workflow template
@@ -222,7 +253,7 @@ func getWorkflowTemplateHandler(config *Config) echo.HandlerFunc {
 		}
 
 		// Get the full path to the template
-		templatePath := filepath.Join(config.DataPath, "workflows", "default", templateID)
+		templatePath := filepath.Join(config.DataPath, "workflows", templateID)
 
 		// Read the template file
 		data, err := os.ReadFile(templatePath)
@@ -233,7 +264,7 @@ func getWorkflowTemplateHandler(config *Config) echo.HandlerFunc {
 			})
 		}
 
-		// Parse the JSON data
+		// Parse the JSON data to verify it's valid
 		var templateData map[string]interface{}
 		if err := json.Unmarshal(data, &templateData); err != nil {
 			log.Printf("Error parsing workflow template JSON: %v", err)

@@ -6,10 +6,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"embed"
 	_ "embed" // Required for go:embed
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -26,6 +28,9 @@ import (
 
 //go:embed sandbox/Dockerfile
 var sandboxDockerfile string
+
+//go:embed workflows
+var workflowsFS embed.FS
 
 // downloadFile downloads a file from a URL to a local filepath.
 // It creates parent directories if they don't exist.
@@ -83,6 +88,66 @@ func downloadModels(config *Config) error {
 			return fmt.Errorf("failed to download model %s: %w", url, err)
 		}
 		pterm.Success.Printf("Successfully downloaded model to %s\n", filePath)
+	}
+
+	return nil
+}
+
+// extractAndCopyWorkflows extracts the embedded workflows data and copies it to the target directory
+func extractAndCopyWorkflows(config *Config) error {
+	if config.DataPath == "" {
+		return fmt.Errorf("data path not configured")
+	}
+
+	workflowsDir := filepath.Join(config.DataPath, "workflows")
+	if err := os.MkdirAll(workflowsDir, 0755); err != nil {
+		return fmt.Errorf("failed to create workflows directory: %w", err)
+	}
+
+	// Walk through the embedded workflows directory and copy each file
+	err := fs.WalkDir(workflowsFS, "workflows", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip the root directory itself
+		if path == "workflows" {
+			return nil
+		}
+
+		// Get the relative path from the workflows directory
+		relPath, err := filepath.Rel("workflows", path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
+		}
+
+		// Create the destination path
+		destPath := filepath.Join(workflowsDir, relPath)
+
+		// If it's a directory, create it
+		if d.IsDir() {
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", destPath, err)
+			}
+			return nil
+		}
+
+		// If it's a file, copy its contents
+		data, err := workflowsFS.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("failed to read file %s: %w", path, err)
+		}
+
+		if err := os.WriteFile(destPath, data, 0644); err != nil {
+			return fmt.Errorf("failed to write file %s: %w", destPath, err)
+		}
+
+		pterm.Success.Printf("Copied workflow file to %s\n", destPath)
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to extract workflows: %w", err)
 	}
 
 	return nil
@@ -512,6 +577,16 @@ func InitializeApplication(config *Config) error {
 			if err := downloadModels(config); err != nil {
 				addError(fmt.Errorf("model download error: %w", err))
 				pterm.Warning.Printf("Failed to download models: %v\n", err)
+			}
+		}()
+
+		// Extract and copy workflows
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := extractAndCopyWorkflows(config); err != nil {
+				addError(fmt.Errorf("workflow extraction error: %w", err))
+				pterm.Warning.Printf("Failed to extract and copy workflows: %v\n", err)
 			}
 		}()
 

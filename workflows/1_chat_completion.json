@@ -18,7 +18,7 @@
         "inputs": {
           "endpoint": "https://api.openai.com/v1/chat/completions",
           "api_key": "",
-          "model": "gpt-4o-mini",
+          "model": "gpt-4.1-nano",
           "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone.",
           "user_prompt": "Write a haiku about manifolds.",
           "max_completion_tokens": 8192,
@@ -31,11 +31,10 @@
         "models": [
           "local",
           "chatgpt-4o-latest",
-          "gpt-4o",
-          "gpt-4o-mini",
-          "o1-mini",
+          "gpt-4.1-mini",
+          "gpt-4.1-nano",
           "o1",
-          "o3-mini"
+          "o4-mini"
         ],
         "style": {
           "border": "1px solid #666",

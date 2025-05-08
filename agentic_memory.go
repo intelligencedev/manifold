@@ -118,6 +118,20 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	}
 	noteContext := summaryOutput.Summary
 	keywords := summaryOutput.Keywords
+
+	// if the keywords contain 'encoded data, encrypted text, unreadable content' then immediately return
+	if len(keywords) == 0 {
+		log.Printf("AgenticMemory: No keywords found in summary output")
+		return 0, fmt.Errorf("no keywords found in summary output")
+	}
+	// If the keywords contain 'encoded data, encrypted text, unreadable content' then immediately return
+	if strings.Contains(strings.Join(keywords, " "), "encoded data") ||
+		strings.Contains(strings.Join(keywords, " "), "encrypted text") ||
+		strings.Contains(strings.Join(keywords, " "), "unreadable content") {
+		log.Printf("AgenticMemory: Keywords contain unreadable content")
+		return 0, fmt.Errorf("keywords contain unreadable content")
+	}
+
 	// For tags, here we simply reuse keywords. Adjust as needed.
 	tags := keywords
 

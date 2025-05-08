@@ -187,6 +187,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 
 	var td []string
 	for n := range ae.mcpTools {
+		log.Printf("MCP tool: %s", n)
 		td = append(td, "- "+n)
 	}
 	td = append(td,
@@ -263,17 +264,21 @@ Tools:
 		// Only query memories if agentic memory is enabled
 		var mems []AgenticMemory
 		if ae.Config.AgenticMemory.Enabled && ae.MemoryEngine != nil {
+			log.Printf("Searching for memories...")
 			mems, _ = ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 5)
 		}
 
 		// Add memories to the prompt if any were found
 		if len(mems) > 0 {
+			log.Printf("Found %d memories", len(mems))
 			var memBuf strings.Builder
 			memBuf.WriteString("🔎 **Session memory snippets**\n")
 			for i, m := range mems {
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
 			msgs = append(msgs, Message{Role: "system", Content: memBuf.String()})
+		} else {
+			log.Printf("No memories found")
 		}
 
 		// build convo

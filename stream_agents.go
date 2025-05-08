@@ -23,7 +23,11 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "objective required"})
 		}
 		if req.MaxSteps <= 0 {
-			req.MaxSteps = 14
+			// use default max steps from config
+			req.MaxSteps = cfg.Completions.ReactAgentConfig.MaxSteps
+			if req.MaxSteps <= 0 {
+				req.MaxSteps = 100
+			}
 		}
 
 		// ensure SSE headers

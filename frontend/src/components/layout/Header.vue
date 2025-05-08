@@ -4,7 +4,6 @@
       <!-- Left section - empty for centering logo -->
     </div>
     <div class="logo">
-      <img src="/assets/manifold.svg" alt="Manifold Logo" height="32" />
       <span class="title">Manifold</span>
     </div>
     <div class="controls">

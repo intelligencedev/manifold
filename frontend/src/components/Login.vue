@@ -1,7 +1,7 @@
 <template>
   <div class="login-container">
     <div class="login-box">
-      <h1>Manifold Login</h1>
+      <h1>Manifold</h1>
       <div class="form-group">
         <label for="username">Username</label>
         <input 

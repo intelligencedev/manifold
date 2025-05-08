@@ -5,7 +5,12 @@
     
     <!-- Show main app content when authenticated -->
     <template v-else>
-      <Header @save="onSave" @restore="onRestore" @logout="handleLogout" @load-template="loadTemplate" />
+      <Header 
+        @save="onSave" 
+        @restore="onRestore" 
+        @logout="handleLogout"
+        @load-template="handleLoadTemplate"
+      />
       <NodePalette />
       <UtilityPalette />
 
@@ -474,7 +479,7 @@ function onRestore(flow: Flow) {
 }
 
 // Function to load a template when selected from the dropdown
-async function loadTemplate(templateId) {
+async function handleLoadTemplate(templateId) {
   try {
     // Fetch the selected template from the backend API
     const response = await fetch(`/api/workflows/templates/${templateId}`);

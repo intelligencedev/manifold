@@ -180,7 +180,18 @@ Launch your browser and navigate to:
 http://localhost:8080
 ```
 
-> Replace `8080` if you customized your port in `config.yaml`.
+> Replace the host configuration if you customized it in `config.yaml`.
+
+### Default Authentication Credentials
+
+When you first access Manifold, use these default credentials to log in:
+
+```
+Username: admin
+Password: M@nif0ld@dminStr0ngP@ssw0rd
+```
+
+> **⚠️ IMPORTANT SECURITY WARNING:** These are publicly known default credentials. Immediately after logging in, change your password by clicking on your account name in the top right corner and selecting "Change Password".
 
 ---
 

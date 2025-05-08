@@ -147,7 +147,7 @@ func createDefaultAdmin(config *Config) {
 		pterm.Info.Println("Creating default admin user...")
 
 		// Default admin password - in production, this should be changed immediately after first login
-		defaultPassword := "admin123" // This is just for demonstration, not secure!
+		defaultPassword := "M@nif0ld@dminStr0ngP@ssw0rd"
 
 		user, err := userDB.CreateUser(ctx, "admin", defaultPassword, "", "Administrator")
 		if err != nil {

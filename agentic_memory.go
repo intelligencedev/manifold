@@ -11,15 +11,26 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	"github.com/pgvector/pgvector-go"
 
 	"manifold/internal/sefii"
 )
 
-// AgenticMemory represents a single memory note.
+// MemoryRequest defines the structure of a request to store a memory
+type MemoryRequest struct {
+	WorkflowID  string   `json:"workflow_id"`
+	Content     string   `json:"content"`
+	NoteContext string   `json:"note_context"`
+	Keywords    []string `json:"keywords"`
+	Tags        []string `json:"tags"`
+	Links       []int64  `json:"links"`
+}
+
+// Memory represents a memory entry in the database
 type AgenticMemory struct {
-	ID          int64           `json:"id"`
+	WorkflowID  string          `json:"workflow_id"`
 	Content     string          `json:"content"`
 	NoteContext string          `json:"note_context"`
 	Keywords    []string        `json:"keywords"`
@@ -28,6 +39,18 @@ type AgenticMemory struct {
 	Embedding   pgvector.Vector `json:"embedding"`
 	Links       []int64         `json:"links"`
 }
+
+// AgenticMemory represents a single memory note.
+// type AgenticMemory struct {
+// 	ID          int64           `json:"id"`
+// 	Content     string          `json:"content"`
+// 	NoteContext string          `json:"note_context"`
+// 	Keywords    []string        `json:"keywords"`
+// 	Tags        []string        `json:"tags"`
+// 	Timestamp   time.Time       `json:"timestamp"`
+// 	Embedding   pgvector.Vector `json:"embedding"`
+// 	Links       []int64         `json:"links"`
+// }
 
 // MemoryEngine defines the interface for memory operations
 type MemoryEngine interface {
@@ -213,7 +236,7 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Conf
 		var mem AgenticMemory
 		var kwStr, tagStr string
 		var ts time.Time
-		err := rows.Scan(&mem.ID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
+		err := rows.Scan(&mem.WorkflowID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
 		if err != nil {
 			return nil, err
 		}
@@ -273,12 +296,21 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 		} // If empty, it will be the zero UUID (represents global memory)
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
 		}
-		defer conn.Close(ctx)
-		engine := NewAgenticEngine(conn)
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		engine := NewAgenticEngine(conn.Conn())
 		if err := engine.EnsureAgenticMemoryTable(ctx, config.Embeddings.Dimensions); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to ensure agentic memory table: %v", err)})
 		}
@@ -313,13 +345,23 @@ func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
 		if req.Limit == 0 {
 			req.Limit = 10
 		}
+
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
 		}
-		defer conn.Close(ctx)
-		engine := NewAgenticEngine(conn)
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		engine := NewAgenticEngine(conn.Conn())
 
 		searchQuery := fmt.Sprintf("%s%s", config.Embeddings.SearchPrefix, req.Query)
 
@@ -360,7 +402,7 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 	var memories []AgenticMemory
 	for rows.Next() {
 		var am AgenticMemory
-		if err := rows.Scan(&am.ID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
+		if err := rows.Scan(&am.WorkflowID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
 			return nil, err
 		}
 		memories = append(memories, am)
@@ -369,4 +411,103 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 		return nil, err
 	}
 	return memories, nil
+}
+
+// storeMemoryHandler handles requests to store a new memory
+func storeMemoryHandler(c echo.Context) error {
+	config := c.Get("config").(*Config)
+	if !config.AgenticMemory.Enabled {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Agentic Memory is disabled"})
+	}
+
+	var req MemoryRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+	}
+
+	if req.Content == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Content is required"})
+	}
+
+	ctx := c.Request().Context()
+
+	// Use the connection pool instead of creating a new connection
+	if config.DBPool == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+	}
+
+	// Get a connection from the pool
+	conn, err := config.DBPool.Acquire(ctx)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+	}
+	// Return the connection to the pool when done
+	defer conn.Release()
+
+	// Process and store the memory
+	memory := AgenticMemory{
+		WorkflowID:  req.WorkflowID,
+		Content:     req.Content,
+		NoteContext: req.NoteContext,
+		Keywords:    req.Keywords,
+		Tags:        req.Tags,
+		Timestamp:   time.Now(),
+		Links:       req.Links,
+	}
+
+	// Generate embeddings for the content
+	embeddings, err := generateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, memory.Content)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	memory.Embedding = embeddings
+
+	// Insert the memory into the database
+	memoryID, err := insertMemory(ctx, conn, memory)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{"id": memoryID})
+}
+
+// generateEmbeddings generates embeddings for memory content
+func generateEmbeddings(host, apiKey, content string) (pgvector.Vector, error) {
+	embeds, err := GenerateEmbeddings(host, apiKey, []string{content})
+	if err != nil || len(embeds) == 0 {
+		return pgvector.Vector{}, fmt.Errorf("failed to generate embeddings: %w", err)
+	}
+	return pgvector.NewVector(embeds[0]), nil
+}
+
+// insertMemory inserts a memory into the database
+func insertMemory(ctx context.Context, conn *pgxpool.Conn, memory AgenticMemory) (int64, error) {
+	var newID int64
+	insertQuery := `
+        INSERT INTO agentic_memories
+            (workflow_id, content, note_context, keywords, tags, timestamp, embedding, links)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        RETURNING id`
+
+	workflowUUID, err := uuid.Parse(memory.WorkflowID)
+	if err != nil {
+		// Use empty UUID if parsing fails
+		workflowUUID = uuid.Nil
+	}
+
+	err = conn.Conn().QueryRow(ctx, insertQuery,
+		workflowUUID,
+		memory.Content,
+		memory.NoteContext,
+		memory.Keywords,
+		memory.Tags,
+		memory.Timestamp,
+		memory.Embedding,
+		memory.Links).Scan(&newID)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert memory: %w", err)
+	}
+
+	return newID, nil
 }

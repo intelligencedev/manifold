@@ -603,25 +603,52 @@ func InitializeApplication(config *Config) error {
 		}
 	}
 
+	// Use the existing connection pool rather than creating a new connection
 	ctx := context.Background()
-	db, err := Connect(ctx, config.Database.ConnectionString)
-	if err != nil {
-		pterm.Fatal.Println(err)
-	}
-	defer db.Close(ctx)
 
-	_, err = db.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-	if err != nil {
-		panic(err)
-	}
-	err = pgxvector.RegisterTypes(ctx, db)
-	if err != nil {
-		panic(err)
-	}
+	// We'll use the pool that was already created in main.go
+	if config.DBPool == nil {
+		// If the pool doesn't exist yet (which shouldn't happen), create a backup connection temporarily
+		pterm.Warning.Println("Database pool not initialized, creating a temporary connection")
+		db, err := Connect(ctx, config.Database.ConnectionString)
+		if err != nil {
+			pterm.Fatal.Println(err)
+		}
+		defer db.Close(ctx)
 
-	engine := sefii.NewEngine(db)
-	engine.EnsureTable(ctx, config.Embeddings.Dimensions)
-	engine.EnsureInvertedIndexTable(ctx)
+		_, err = db.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
+		if err != nil {
+			panic(err)
+		}
+		err = pgxvector.RegisterTypes(ctx, db)
+		if err != nil {
+			panic(err)
+		}
+
+		engine := sefii.NewEngine(db)
+		engine.EnsureTable(ctx, config.Embeddings.Dimensions)
+		engine.EnsureInvertedIndexTable(ctx)
+	} else {
+		// Use the existing connection pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			pterm.Fatal.Println("Failed to acquire connection from pool:", err)
+		}
+		defer conn.Release()
+
+		_, err = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
+		if err != nil {
+			panic(err)
+		}
+		err = pgxvector.RegisterTypes(ctx, conn.Conn())
+		if err != nil {
+			panic(err)
+		}
+
+		engine := sefii.NewEngine(conn.Conn())
+		engine.EnsureTable(ctx, config.Embeddings.Dimensions)
+		engine.EnsureInvertedIndexTable(ctx)
+	}
 
 	// Start local services if SingleNodeInstance is true
 	if config.SingleNodeInstance {

@@ -140,13 +140,21 @@ func sefiiIngestHandler(config *Config) echo.HandlerFunc {
 		}
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
-		}
-		defer conn.Close(ctx)
 
-		engine := sefii.NewEngine(conn)
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		engine := sefii.NewEngine(conn.Conn())
 		err = engine.IngestDocument(
 			ctx,
 			req.Text,
@@ -191,13 +199,21 @@ func sefiiSearchHandler(config *Config) echo.HandlerFunc {
 		}
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
-		}
-		defer conn.Close(ctx)
 
-		engine := sefii.NewEngine(conn)
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		engine := sefii.NewEngine(conn.Conn())
 		results, err := engine.SearchChunks(ctx, req.Query, req.FilePath, req.Limit, config.Embeddings.Host, config.Embeddings.APIKey)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to search chunks"})
@@ -239,13 +255,21 @@ func sefiiCombinedRetrieveHandler(config *Config) echo.HandlerFunc {
 		}
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
-		}
-		defer conn.Close(ctx)
 
-		engine := sefii.NewEngine(conn)
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		engine := sefii.NewEngine(conn.Conn())
 		chunks, err := engine.SearchRelevantChunks(ctx, req.Query, req.FilePathFilter, req.Limit, req.UseInvertedIndex, req.UseVectorSearch, config.Embeddings.Host, config.Embeddings.APIKey, config.Embeddings.SearchPrefix, req.MergeMode, req.Alpha, req.Beta)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})

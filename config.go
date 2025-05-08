@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pterm/pterm"
 	"gopkg.in/yaml.v2"
 )
@@ -73,6 +74,7 @@ type Config struct {
 	GoogleGeminiKey           string              `yaml:"google_gemini_key,omitempty"`
 	HuggingFaceToken          string              `yaml:"hf_token,omitempty"`
 	Database                  DatabaseConfig      `yaml:"database"`
+	DBPool                    *pgxpool.Pool       `yaml:"-"` // Connection pool, not serialized
 	Completions               CompletionsConfig   `yaml:"completions"`
 	Embeddings                EmbeddingsConfig    `yaml:"embeddings"`
 	Reranker                  RerankerConfig      `yaml:"reranker"`

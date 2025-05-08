@@ -41,6 +41,10 @@ completions:
   default_host: "http://127.0.0.1:32186/v1/chat/completions" # or https://api.openai.com/v1/chat/completions
   completions_model: 'gpt-4o' # ignored if using local endpoint
   api_key: "" # Used with OpenAI API if configured as default host
+  # Agent configuration for ReAct framework
+  agent:
+    max_steps: 100  # Maximum number of steps the agent will take before terminating
+    memory: false   # Legacy memory setting (will be deprecated)
 
 # Example CLI command for running the embeddings service manually:
 # llama-server -m <data_path>/models/embeddings/nomic-embed-text-v1.5.Q8_0.gguf -c 65536 -np 8 -b 8192 -ub 8192 -fa --host 127.0.0.1 --port 32184 -lv 1 --embedding
@@ -63,6 +67,14 @@ embeddings:
 # The initialize process will automatically download and start the model at port 32185
 reranker:
   host: "http://127.0.0.1:32185/v1/rerank"
+
+# Agentic Memory Configuration
+# Controls the long-term memory capabilities of the Manifold agent
+agentic_memory:
+  enabled: false  # Set to true to enable long-term memory across agent sessions
+                  # When enabled, agents can recall past reasoning, actions, and observations
+                  # This improves consistency and continuity in multi-turn interactions
+                  # Requires PostgreSQL with pgvector extension for vector storage
 
 # List of external MCP servers
 # Example GitHub MCP server

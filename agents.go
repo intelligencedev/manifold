@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
+	"github.com/pterm/pterm"
 
 	"manifold/internal/mcp"
 )
@@ -85,7 +86,13 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 			return c.JSON(400, map[string]string{"error": "objective required"})
 		}
 		if req.MaxSteps <= 0 {
-			req.MaxSteps = 100
+			// use default max steps from config
+			req.MaxSteps = cfg.Completions.ReactAgentConfig.MaxSteps
+			log.Printf("max_steps not set in config, using default %d", req.MaxSteps)
+			if req.MaxSteps <= 0 {
+				pterm.Debug.Println("max_steps not set in config, using default 100")
+				req.MaxSteps = 100
+			}
 		}
 
 		ctx := c.Request().Context()
@@ -221,7 +228,7 @@ The json object should be formatted in a single line as follows:
 
 For example (using third party libraries):
 
-{"language":"python","code":"import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__ == '__main__':\n    main()","dependencies":["requests","beautifulsoup4","markdownify"]}
+{"language":"python","code":"import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__':\n    main()","dependencies":["requests","beautifulsoup4","markdownify"]}
 
 IMPORTANT: NEVER omit the three headers below – the server will error out:
   Thought: …

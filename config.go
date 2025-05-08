@@ -29,10 +29,15 @@ type DatabaseConfig struct {
 	ConnectionString string `yaml:"connection_string"`
 }
 
+type ReactAgentConfig struct {
+	MaxSteps int `yaml:"max_steps"`
+}
+
 type CompletionsConfig struct {
-	DefaultHost      string `yaml:"default_host"`
-	CompletionsModel string `yaml:"completions_model"`
-	APIKey           string `yaml:"api_key"`
+	DefaultHost      string           `yaml:"default_host"`
+	CompletionsModel string           `yaml:"completions_model"`
+	APIKey           string           `yaml:"api_key"`
+	ReactAgentConfig ReactAgentConfig `yaml:"agent"`
 }
 
 type EmbeddingsConfig struct {

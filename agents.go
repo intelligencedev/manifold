@@ -21,6 +21,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
 
+	"manifold/internal/documents"
 	"manifold/internal/mcp"
 )
 
@@ -187,6 +188,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 
 	var td []string
 	for n := range ae.mcpTools {
+		log.Printf("MCP tool: %s", n)
 		td = append(td, "- "+n)
 	}
 	td = append(td,
@@ -263,17 +265,21 @@ Tools:
 		// Only query memories if agentic memory is enabled
 		var mems []AgenticMemory
 		if ae.Config.AgenticMemory.Enabled && ae.MemoryEngine != nil {
+			log.Printf("Searching for memories...")
 			mems, _ = ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 5)
 		}
 
 		// Add memories to the prompt if any were found
 		if len(mems) > 0 {
+			log.Printf("Found %d memories", len(mems))
 			var memBuf strings.Builder
 			memBuf.WriteString("🔎 **Session memory snippets**\n")
 			for i, m := range mems {
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
 			msgs = append(msgs, Message{Role: "system", Content: memBuf.String()})
+		} else {
+			log.Printf("No memories found")
 		}
 
 		// build convo
@@ -284,6 +290,18 @@ Tools:
 						st.Thought, st.Action, st.ActionInput, st.Observation)})
 		}
 		msgs = append(msgs, Message{Role: "user", Content: "Next step?"})
+
+		// Print the prompt for debugging
+		log.Println("=====================================")
+		log.Println("Prompt:")
+		for _, m := range msgs {
+			if m.Role == "user" {
+				log.Printf("User: %s", m.Content)
+			} else {
+				log.Printf("Assistant: %s", m.Content)
+			}
+		}
+		log.Println("=====================================")
 
 		out, err := ae.callLLM(ctx, model, msgs)
 		if err != nil {
@@ -319,6 +337,37 @@ Tools:
 			obs = "error: " + err.Error()
 		}
 
+		// if obs > config.Embeddings.Dimensions, split it before ingesting
+		if ae.Config.AgenticMemory.Enabled && ae.MemoryEngine != nil {
+			// check if the observation is too long
+			if len(obs) > 500 {
+				// split the observation into chunks
+				chunks := documents.SplitTextByCount(obs, 500)
+				// ingest each chunk separately
+				for _, chunk := range chunks {
+					_, err := ae.MemoryEngine.IngestAgenticMemory(ctx, ae.Config, chunk, sess.ID)
+					if err != nil {
+						log.Printf("persist step: %v", err)
+						// imediately exit the chunk for loop
+						break
+					}
+				}
+
+				// Search for similar memories to the objective
+				mems, _ = ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 30)
+
+				if len(mems) > 0 {
+					obs = ""
+					var memBuf strings.Builder
+					memBuf.WriteString("🔎 **Similar memory chunks**\n")
+					for i, m := range mems {
+						fmt.Fprintf(&memBuf, "%d. %s\n", i+1, m.NoteContext)
+					}
+					obs += "\n\n" + memBuf.String()
+				}
+			}
+		}
+
 		step := AgentStep{Index: len(sess.Steps) + 1, Thought: thought, Action: action, ActionInput: input, Observation: obs}
 		sess.Steps = append(sess.Steps, step)
 		_ = ae.persistStep(ctx, sess.ID, step)
@@ -346,7 +395,7 @@ Tools:
 /*────────────────────── LLM helper ────────────────────*/
 
 func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message) (string, error) {
-	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: 16000, Temperature: 0.15})
+	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: 1024, Temperature: 0.15})
 	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
@@ -431,6 +480,7 @@ func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, 
 		if _, ok := ae.mcpTools[name]; ok {
 			// special-case: fix web_content when the LLM passes a bare string
 			if strings.HasSuffix(name, "::web_content") && !json.Valid([]byte(arg)) {
+
 				arg = fmt.Sprintf(`{"urls":["%s"]}`, strings.TrimSpace(arg))
 			}
 			norm, err := ae.normalizeMCPArg(arg)

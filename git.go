@@ -51,13 +51,21 @@ func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 		setDefaultChunkValues(&req)
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
-		}
-		defer conn.Close(ctx)
 
-		successFiles, err := processGitFiles(ctx, req, config, conn)
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		successFiles, err := processGitFiles(ctx, req, config, conn.Conn())
 		if err != nil {
 			log.Printf("Error processing Git files: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to process Git files"})

@@ -17,9 +17,19 @@ import (
 	"manifold/internal/sefii"
 )
 
-// AgenticMemory represents a single memory note.
+// MemoryRequest defines the structure of a request to store a memory
+type MemoryRequest struct {
+	WorkflowID  string   `json:"workflow_id"`
+	Content     string   `json:"content"`
+	NoteContext string   `json:"note_context"`
+	Keywords    []string `json:"keywords"`
+	Tags        []string `json:"tags"`
+	Links       []int64  `json:"links"`
+}
+
+// Memory represents a memory entry in the database
 type AgenticMemory struct {
-	ID          int64           `json:"id"`
+	WorkflowID  string          `json:"workflow_id"`
 	Content     string          `json:"content"`
 	NoteContext string          `json:"note_context"`
 	Keywords    []string        `json:"keywords"`
@@ -108,6 +118,20 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	}
 	noteContext := summaryOutput.Summary
 	keywords := summaryOutput.Keywords
+
+	// if the keywords contain 'encoded data, encrypted text, unreadable content' then immediately return
+	if len(keywords) == 0 {
+		log.Printf("AgenticMemory: No keywords found in summary output")
+		return 0, fmt.Errorf("no keywords found in summary output")
+	}
+	// If the keywords contain 'encoded data, encrypted text, unreadable content' then immediately return
+	if strings.Contains(strings.Join(keywords, " "), "encoded data") ||
+		strings.Contains(strings.Join(keywords, " "), "encrypted text") ||
+		strings.Contains(strings.Join(keywords, " "), "unreadable content") {
+		log.Printf("AgenticMemory: Keywords contain unreadable content")
+		return 0, fmt.Errorf("keywords contain unreadable content")
+	}
+
 	// For tags, here we simply reuse keywords. Adjust as needed.
 	tags := keywords
 
@@ -213,7 +237,7 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Conf
 		var mem AgenticMemory
 		var kwStr, tagStr string
 		var ts time.Time
-		err := rows.Scan(&mem.ID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
+		err := rows.Scan(&mem.WorkflowID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
 		if err != nil {
 			return nil, err
 		}
@@ -273,12 +297,21 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 		} // If empty, it will be the zero UUID (represents global memory)
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
 		}
-		defer conn.Close(ctx)
-		engine := NewAgenticEngine(conn)
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		engine := NewAgenticEngine(conn.Conn())
 		if err := engine.EnsureAgenticMemoryTable(ctx, config.Embeddings.Dimensions); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to ensure agentic memory table: %v", err)})
 		}
@@ -313,13 +346,23 @@ func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
 		if req.Limit == 0 {
 			req.Limit = 10
 		}
+
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})
+
+		// Use the connection pool instead of creating a new connection
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
 		}
-		defer conn.Close(ctx)
-		engine := NewAgenticEngine(conn)
+
+		// Get a connection from the pool
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		// Return the connection to the pool when done
+		defer conn.Release()
+
+		engine := NewAgenticEngine(conn.Conn())
 
 		searchQuery := fmt.Sprintf("%s%s", config.Embeddings.SearchPrefix, req.Query)
 
@@ -360,7 +403,7 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 	var memories []AgenticMemory
 	for rows.Next() {
 		var am AgenticMemory
-		if err := rows.Scan(&am.ID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
+		if err := rows.Scan(&am.WorkflowID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
 			return nil, err
 		}
 		memories = append(memories, am)

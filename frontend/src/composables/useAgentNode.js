@@ -339,7 +339,7 @@ Always return only the raw JSON string without any additional text, explanation,
         }
       } else {
         // --- Regular API call (non-agent mode) ---
-        const requestBody = {
+        let requestBody = {
           model: props.data.inputs.model,
           messages: [
             {
@@ -351,9 +351,20 @@ Always return only the raw JSON string without any additional text, explanation,
               content: finalPrompt
             }
           ],
-          max_tokens: props.data.inputs.max_completion_tokens || 1000,
           temperature: props.data.inputs.temperature || 0.7
         };
+        
+        // Special handling for different model types
+        const modelName = props.data.inputs.model.toLowerCase();
+        
+        if (modelName.startsWith('o') && /^o[0-9]/.test(modelName)) {
+          // OpenAI o-series models use different parameter names
+          requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
+          requestBody.reasoning_effort = 'high';
+        } else {
+          // Standard parameter for most models
+          requestBody.max_tokens = props.data.inputs.max_completion_tokens || 1000;
+        }
 
         const response = await fetch(props.data.inputs.endpoint, {
           method: 'POST',

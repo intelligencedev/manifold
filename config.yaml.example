@@ -75,6 +75,17 @@ database:
   connection_string: ""
 
 # ===================================================================
+# Authentication
+# ===================================================================
+
+auth:
+  # Generate a secure random key with: openssl rand -hex 32
+  # Or use: head -c 32 /dev/urandom | base64
+  secret_key: ""
+  # Token expiry in hours
+  token_expiry: 72
+
+# ===================================================================
 # API TOKENS
 # ===================================================================
 
@@ -91,30 +102,21 @@ anthropic_key: ""
 # LLM SERVICES CONFIGURATION
 # ===================================================================
 
-# Completions Service Configuration
-# Handles generation of text completions based on input prompts
+# The completions endpoint for the proxy routes as well as agent mode.
+# When agent mode is enabled, the endpoint configured in the frontend
+# will be overriden by this.
+# Due to CORS issues with some public endpoints, setting the completions
+# endpoint in the frontend to the manifold host:port/v1/chat/completions
+# will proxy the request to the endpoint configured below.
 completions:
-  default_host: "http://127.0.0.1:32186/v1/chat/completions" # or https://api.openai.com/v1/chat/completions
-  completions_model: 'gpt-4o' # ignored if using local endpoint
+  # Any OpenAI compatible completions endpoint, local or remote
+  default_host: "http://127.0.0.1:32186/v1/chat/completions"
+  completions_model: 'gpt-4.1-mini' # ignored if using local endpoint
   api_key: "" # Used with OpenAI API if configured as default host
-  # Agent configuration for ReAct framework
-  agent:
-    max_steps: 100  # Maximum number of steps the agent will take before terminating
-    memory: false   # Legacy memory setting (will be deprecated)
 
 # Example CLI command for running the embeddings service manually:
 # llama-server -m <data_path>/models/embeddings/nomic-embed-text-v1.5.Q8_0.gguf -c 65536 -np 8 -b 8192 -ub 8192 -fa --host 127.0.0.1 --port 32184 -lv 1 --embedding
 #
-# Embeddings API Configuration
-# Using local nomic-embed-text-v1.5
-# The initialize process will automatically download and start the model at port 32184
-embeddings:
-  host: "http://127.0.0.1:32184/v1/embeddings"
-  # OpenAI API compatible API key, not required for local servers unless configured on that server
-  api_key: ""
-
-# Embeddings Service Configuration
-# Manages the creation of vector representations for text data
 embeddings:
   # OpenAI-compatible API endpoint
   host: "http://127.0.0.1:32184/v1/embeddings"
@@ -146,9 +148,10 @@ agentic_memory:
 mcpServers:
   # Manifold's built-in MCP server
   manifold:
-    command: ./cmd/mcp-manifold/mcp-manifold
+    command: ./mcp-manifold
     args: []
-    env: {}
+    env:
+      DATA_PATH: "~/.manifold"
 
   # Example GitHub MCP server (commented by default)
   # github:

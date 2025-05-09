@@ -29,6 +29,28 @@ type AgenticMemory struct {
 	Links       []int64         `json:"links"`
 }
 
+// MemoryEngine defines the interface for memory operations
+type MemoryEngine interface {
+	IngestAgenticMemory(ctx context.Context, cfg *Config, txt string, wf uuid.UUID) (int64, error)
+	SearchWithinWorkflow(ctx context.Context, cfg *Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error)
+	EnsureAgenticMemoryTable(ctx context.Context, embeddingDim int) error
+}
+
+// NilMemoryEngine is a no-op implementation of MemoryEngine
+type NilMemoryEngine struct{}
+
+func (n *NilMemoryEngine) IngestAgenticMemory(ctx context.Context, cfg *Config, txt string, wf uuid.UUID) (int64, error) {
+	return 0, nil
+}
+
+func (n *NilMemoryEngine) SearchWithinWorkflow(ctx context.Context, cfg *Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error) {
+	return nil, nil
+}
+
+func (n *NilMemoryEngine) EnsureAgenticMemoryTable(ctx context.Context, embeddingDim int) error {
+	return nil
+}
+
 // AgenticEngine handles agentic memory operations.
 type AgenticEngine struct {
 	DB *pgx.Conn
@@ -219,6 +241,11 @@ func parseTextArray(input string) []string {
 // agenticMemoryIngestHandler handles POST /api/agentic-memory/ingest.
 func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// Check if agentic memory is enabled
+		if !config.AgenticMemory.Enabled {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Agentic memory is disabled in configuration"})
+		}
+
 		var req struct {
 			Content           string `json:"content"`
 			WorkflowID        string `json:"workflow_id"` // New parameter for workflow ID
@@ -266,6 +293,11 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 // agenticMemorySearchHandler handles POST /api/agentic-memory/search.
 func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
+		// Check if agentic memory is enabled
+		if !config.AgenticMemory.Enabled {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Agentic memory is disabled in configuration"})
+		}
+
 		var req struct {
 			Query            string `json:"query"`
 			Limit            int    `json:"limit"`

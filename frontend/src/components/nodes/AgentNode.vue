@@ -69,12 +69,6 @@
         v-model="agentMode"
       />
 
-      <!-- Toggle for Tool/Function Calling -->
-      <BaseCheckbox 
-        label="Enable Tool/Function Calls" 
-        v-model="enableToolCalls" 
-      />
-
       <!-- Predefined System Prompt Dropdown -->
       <BaseSelect 
         label="Predefined System Prompt" 

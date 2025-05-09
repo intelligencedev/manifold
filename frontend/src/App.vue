@@ -1,153 +1,160 @@
 <template>
   <div id="app">
-    <!-- Update Header to include save/restore handlers -->
-    <Header @save="onSave" @restore="onRestore" />
-    <NodePalette />
-    <UtilityPalette />
+    <!-- Show Login component if not authenticated -->
+    <Login v-if="!isAuthenticated" @login-success="handleLoginSuccess" />
+    
+    <!-- Show main app content when authenticated -->
+    <template v-else>
+      <Header 
+        @save="onSave" 
+        @restore="onRestore" 
+        @logout="handleLogout"
+        @load-template="handleLoadTemplate"
+      />
+      <NodePalette />
+      <UtilityPalette />
 
-    <!-- Context Menu Component -->
-    <div 
-      v-if="contextMenu.show" 
-      class="context-menu"
-      :style="{
-        left: `${contextMenu.x}px`,
-        top: `${contextMenu.y}px`
-      }"
-      @click.stop
-    >
-      <div class="context-menu-item" @click="copyNodeId">
-        Copy Node ID
+      <!-- Context Menu Component -->
+      <div 
+        v-if="contextMenu.show" 
+        class="context-menu"
+        :style="{
+          left: `${contextMenu.x}px`,
+          top: `${contextMenu.y}px`
+        }"
+        @click.stop
+      >
+        <div class="context-menu-item" @click="copyNodeId">
+          Copy Node ID
+        </div>
       </div>
-    </div>
 
-    <!-- VueFlow Component -->
-    <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
-      :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
-      @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
-      :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[16, 16]"
-      :default-viewport="{ x: 0, y: 0, zoom: 1 }">
-      <!-- Node Templates -->
-      <template #node-noteNode="noteNodeProps">
-        <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.prevent="showContextMenu($event, noteNodeProps.id)" />
-      </template>
-      <template #node-agentNode="agentNodeProps">
-        <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, agentNodeProps.id)" />
-      </template>
-      <template #node-claudeNode="claudeNodeProps">
-        <ClaudeNode v-bind="claudeNodeProps" @contextmenu.native.prevent="showContextMenu($event, claudeNodeProps.id)" />
-      </template>
-      <template #node-responseNode="responseNodeProps">
-        <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, responseNodeProps.id)" />
-      </template>
-      <template #node-geminiNode="geminiNodeProps">
-        <GeminiNode v-bind="geminiNodeProps" @contextmenu.native.prevent="showContextMenu($event, geminiNodeProps.id)" />
-      </template>
-      <template #node-codeRunnerNode="codeRunnerNodeProps">
-        <CodeRunnerNode v-bind="codeRunnerNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, codeRunnerNodeProps.id)" />
-      </template>
-      <template #node-webGLNode="webGLNodeProps">
-        <WebGLNode v-bind="webGLNodeProps" @contextmenu.native.prevent="showContextMenu($event, webGLNodeProps.id)" />
-      </template>
-      <template #node-embeddingsNode="embeddingsNodeProps">
-        <EmbeddingsNode v-bind="embeddingsNodeProps" @contextmenu.native.prevent="showContextMenu($event, embeddingsNodeProps.id)" />
-      </template>
-      <template #node-webSearchNode="webSearchNodeProps">
-        <WebSearchNode v-bind="webSearchNodeProps" @contextmenu.native.prevent="showContextMenu($event, webSearchNodeProps.id)" />
-      </template>
-      <template #node-webRetrievalNode="webRetrievalNodeProps">
-        <WebRetrievalNode v-bind="webRetrievalNodeProps" @contextmenu.native.prevent="showContextMenu($event, webRetrievalNodeProps.id)" />
-      </template>
-      <template #node-textSplitterNode="textSplitterNodeProps">
-        <TextSplitterNode v-bind="textSplitterNodeProps" @contextmenu.native.prevent="showContextMenu($event, textSplitterNodeProps.id)" />
-      </template>
-      <template #node-textNode="textNodeProps">
-        <TextNode v-bind="textNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, textNodeProps.id)" />
-      </template>
-      <template #node-openFileNode="openFileNodeProps">
-        <OpenFileNode v-bind="openFileNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, openFileNodeProps.id)" />
-      </template>
-      <template #node-saveTextNode="saveTextNodeProps">
-        <SaveTextNode v-bind="saveTextNodeProps" @contextmenu.native.prevent="showContextMenu($event, saveTextNodeProps.id)" />
-      </template>
-      <template #node-datadogNode="datadogNodeProps">
-        <DatadogNode v-bind="datadogNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogNodeProps.id)" />
-      </template>
-      <template #node-datadogGraphNode="datadogGraphNodeProps">
-        <DatadogGraphNode v-bind="datadogGraphNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogGraphNodeProps.id)" />
-      </template>
-      <template #node-tokenCounterNode="tokenCounterNodeProps">
-        <TokenCounterNode v-bind="tokenCounterNodeProps" @contextmenu.native.prevent="showContextMenu($event, tokenCounterNodeProps.id)" />
-      </template>
-      <template #node-flowControlNode="flowControlNodeProps">
-        <FlowControl v-bind="flowControlNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-          @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, flowControlNodeProps.id)" />
-      </template>
-      <template #node-repoConcatNode="repoConcatNodeProps">
-        <RepoConcat v-bind="repoConcatNodeProps" @contextmenu.native.prevent="showContextMenu($event, repoConcatNodeProps.id)" />
-      </template>
-      <template #node-comfyNode="comfyNodeProps">
-        <ComfyNode v-bind="comfyNodeProps" @contextmenu.native.prevent="showContextMenu($event, comfyNodeProps.id)" />
-      </template>
-      <template #node-mlxFluxNode="mlxFluxNodeProps">
-        <MLXFlux v-bind="mlxFluxNodeProps" @contextmenu.native.prevent="showContextMenu($event, mlxFluxNodeProps.id)" />
-      </template>
-      <template #node-documentsIngestNode="documentsIngestNodeProps">
-        <DocumentsIngest v-bind="documentsIngestNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsIngestNodeProps.id)" />
-      </template>
-      <template #node-documentsRetrieveNode="documentsRetrieveNodeProps">
-        <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsRetrieveNodeProps.id)" />
-      </template>
-      <template #node-ttsNode="ttsNodeProps">
-        <ttsNode v-bind="ttsNodeProps" @contextmenu.native.prevent="showContextMenu($event, ttsNodeProps.id)" />
-      </template>
-      <template #node-mcpClientNode="mcpClientNodeProps">
-        <MCPClient v-bind="mcpClientNodeProps" @contextmenu.native.prevent="showContextMenu($event, mcpClientNodeProps.id)" />
-      </template>
-      <template #node-mermaidNode="mermaidNodeProps">
-        <Mermaid v-bind="mermaidNodeProps" @contextmenu.native.prevent="showContextMenu($event, mermaidNodeProps.id)" />
-      </template>
-      <template #node-messageBusNode="messageBusNodeProps">
-        <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
-      </template>
+      <!-- VueFlow Component -->
+      <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
+        :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
+        @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
+        :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[16, 16]"
+        :default-viewport="{ x: 0, y: 0, zoom: 1 }">
+        <!-- Node Templates -->
+        <template #node-noteNode="noteNodeProps">
+          <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.prevent="showContextMenu($event, noteNodeProps.id)" />
+        </template>
+        <template #node-agentNode="agentNodeProps">
+          <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, agentNodeProps.id)" />
+        </template>
+        <template #node-claudeNode="claudeNodeProps">
+          <ClaudeNode v-bind="claudeNodeProps" @contextmenu.native.prevent="showContextMenu($event, claudeNodeProps.id)" />
+        </template>
+        <template #node-responseNode="responseNodeProps">
+          <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, responseNodeProps.id)" />
+        </template>
+        <template #node-geminiNode="geminiNodeProps">
+          <GeminiNode v-bind="geminiNodeProps" @contextmenu.native.prevent="showContextMenu($event, geminiNodeProps.id)" />
+        </template>
+        <template #node-codeRunnerNode="codeRunnerNodeProps">
+          <CodeRunnerNode v-bind="codeRunnerNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, codeRunnerNodeProps.id)" />
+        </template>
+        <template #node-webGLNode="webGLNodeProps">
+          <WebGLNode v-bind="webGLNodeProps" @contextmenu.native.prevent="showContextMenu($event, webGLNodeProps.id)" />
+        </template>
+        <template #node-embeddingsNode="embeddingsNodeProps">
+          <EmbeddingsNode v-bind="embeddingsNodeProps" @contextmenu.native.prevent="showContextMenu($event, embeddingsNodeProps.id)" />
+        </template>
+        <template #node-webSearchNode="webSearchNodeProps">
+          <WebSearchNode v-bind="webSearchNodeProps" @contextmenu.native.prevent="showContextMenu($event, webSearchNodeProps.id)" />
+        </template>
+        <template #node-webRetrievalNode="webRetrievalNodeProps">
+          <WebRetrievalNode v-bind="webRetrievalNodeProps" @contextmenu.native.prevent="showContextMenu($event, webRetrievalNodeProps.id)" />
+        </template>
+        <template #node-textSplitterNode="textSplitterNodeProps">
+          <TextSplitterNode v-bind="textSplitterNodeProps" @contextmenu.native.prevent="showContextMenu($event, textSplitterNodeProps.id)" />
+        </template>
+        <template #node-textNode="textNodeProps">
+          <TextNode v-bind="textNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, textNodeProps.id)" />
+        </template>
+        <template #node-openFileNode="openFileNodeProps">
+          <OpenFileNode v-bind="openFileNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, openFileNodeProps.id)" />
+        </template>
+        <template #node-saveTextNode="saveTextNodeProps">
+          <SaveTextNode v-bind="saveTextNodeProps" @contextmenu.native.prevent="showContextMenu($event, saveTextNodeProps.id)" />
+        </template>
+        <template #node-datadogNode="datadogNodeProps">
+          <DatadogNode v-bind="datadogNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogNodeProps.id)" />
+        </template>
+        <template #node-datadogGraphNode="datadogGraphNodeProps">
+          <DatadogGraphNode v-bind="datadogGraphNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogGraphNodeProps.id)" />
+        </template>
+        <template #node-tokenCounterNode="tokenCounterNodeProps">
+          <TokenCounterNode v-bind="tokenCounterNodeProps" @contextmenu.native.prevent="showContextMenu($event, tokenCounterNodeProps.id)" />
+        </template>
+        <template #node-flowControlNode="flowControlNodeProps">
+          <FlowControl v-bind="flowControlNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, flowControlNodeProps.id)" />
+        </template>
+        <template #node-repoConcatNode="repoConcatNodeProps">
+          <RepoConcat v-bind="repoConcatNodeProps" @contextmenu.native.prevent="showContextMenu($event, repoConcatNodeProps.id)" />
+        </template>
+        <template #node-comfyNode="comfyNodeProps">
+          <ComfyNode v-bind="comfyNodeProps" @contextmenu.native.prevent="showContextMenu($event, comfyNodeProps.id)" />
+        </template>
+        <template #node-mlxFluxNode="mlxFluxNodeProps">
+          <MLXFlux v-bind="mlxFluxNodeProps" @contextmenu.native.prevent="showContextMenu($event, mlxFluxNodeProps.id)" />
+        </template>
+        <template #node-documentsIngestNode="documentsIngestNodeProps">
+          <DocumentsIngest v-bind="documentsIngestNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsIngestNodeProps.id)" />
+        </template>
+        <template #node-documentsRetrieveNode="documentsRetrieveNodeProps">
+          <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsRetrieveNodeProps.id)" />
+        </template>
+        <template #node-ttsNode="ttsNodeProps">
+          <ttsNode v-bind="ttsNodeProps" @contextmenu.native.prevent="showContextMenu($event, ttsNodeProps.id)" />
+        </template>
+        <template #node-mcpClientNode="mcpClientNodeProps">
+          <MCPClient v-bind="mcpClientNodeProps" @contextmenu.native.prevent="showContextMenu($event, mcpClientNodeProps.id)" />
+        </template>
+        <template #node-mermaidNode="mermaidNodeProps">
+          <Mermaid v-bind="mermaidNodeProps" @contextmenu.native.prevent="showContextMenu($event, mermaidNodeProps.id)" />
+        </template>
+        <template #node-messageBusNode="messageBusNodeProps">
+          <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
+        </template>
 
-      <!-- <Controls :style="{ backgroundColor: '#222', color: '#eee' }" /> -->
-      <!-- <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
-        :mask-color="'rgba(40, 40, 40, 0.8)'" /> -->
-      <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
+        <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
 
-      <!-- Run Workflow Button -->
-      <div class="bottom-bar">
-        <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
-        <div class="bottom-toolbar">
-          <!-- three divs -->
-          <div style="flex: 1; display: flex; justify-content: center;">
-            <!-- Toggle Switch -->
-            <div class="tooltip-container" style="display: flex; align-items: center;">
-              <label class="switch">
-                <input type="checkbox" v-model="autoPanEnabled">
-                <span class="slider round"></span>
-              </label>
-              <span style="color: white; margin-left: 5px; font-size: 14px;">Auto-Pan</span>
-              <span class="tooltip">When enabled, the view will automatically pan to follow node execution</span>
+        <!-- Run Workflow Button -->
+        <div class="bottom-bar">
+          <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
+          <div class="bottom-toolbar">
+            <!-- three divs -->
+            <div style="flex: 1; display: flex; justify-content: center;">
+              <!-- Toggle Switch -->
+              <div class="tooltip-container" style="display: flex; align-items: center;">
+                <label class="switch">
+                  <input type="checkbox" v-model="autoPanEnabled">
+                  <span class="slider round"></span>
+                </label>
+                <span style="color: white; margin-left: 5px; font-size: 14px;">Auto-Pan</span>
+                <span class="tooltip">When enabled, the view will automatically pan to follow node execution</span>
+              </div>
+            </div>
+            <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
+              <button class="run-button" @click="runWorkflow">Run</button>
+            </div>
+            <div style="flex: 1; display: flex; justify-content: center;">
+              <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }"
+                @update-edge-type="updateEdgeType" />
             </div>
           </div>
-          <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
-            <button class="run-button" @click="runWorkflow">Run</button>
-          </div>
-          <div style="flex: 1; display: flex; justify-content: center;">
-            <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }"
-              @update-edge-type="updateEdgeType" />
-          </div>
+          <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
         </div>
-        <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
-      </div>
-    </VueFlow>
+      </VueFlow>
+    </template>
   </div>
 </template>
 
@@ -174,6 +181,9 @@ import {
 } from '@vue-flow/additional-components';
 import SpecialEdge from './components/SpecialEdge.vue';
 import { useConfigStore } from '@/stores/configStore';
+
+// Import Login component
+import Login from './components/Login.vue';
 
 // Manifold custom components
 import { isNodeConnected } from './utils/nodeHelpers.js';
@@ -220,6 +230,10 @@ const bgVariant = BackgroundVariant.Dots;
 
 // --- STATE ---
 
+// Authentication state
+const isAuthenticated = ref(false);
+const authToken = ref('');
+
 // Destructure fitView along with other methods
 const { findNode, getNodes, getEdges, toObject, fromObject, fitView, updateNodeData } = useVueFlow();
 const nodes = ref<GraphNode[]>([]);
@@ -228,10 +242,75 @@ const defaultEdgeType = ref<string>('bezier'); // Set the default edge type
 
 const configStore = useConfigStore();
 
-// Load configuration on startup
+// Load configuration and check authentication on startup
 onMounted(() => {
   configStore.fetchConfig();
+  checkAuthentication();
 });
+
+// Check if the user is already authenticated
+function checkAuthentication() {
+  // Check localStorage for token
+  const token = localStorage.getItem('jwt_token');
+  
+  if (token) {
+    // Validate token by making a request to the backend
+    fetch('/api/restricted/user', {
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    })
+    .then(response => {
+      if (response.ok) {
+        // Token is valid
+        authToken.value = token;
+        isAuthenticated.value = true;
+        return response.json();
+      } else {
+        // Token is invalid or expired
+        localStorage.removeItem('jwt_token');
+        isAuthenticated.value = false;
+        throw new Error('Invalid token');
+      }
+    })
+    .then(userData => {
+      console.log('Authenticated as:', userData.username);
+    })
+    .catch(error => {
+      console.error('Authentication check failed:', error);
+      isAuthenticated.value = false;
+    });
+  } else {
+    isAuthenticated.value = false;
+  }
+}
+
+// Handle successful login
+function handleLoginSuccess(data) {
+  authToken.value = data.token;
+  isAuthenticated.value = true;
+  console.log('Login successful');
+}
+
+// Handle logout
+async function handleLogout() {
+  try {
+    // Call logout API
+    await fetch('/api/restricted/logout', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${authToken.value}`
+      }
+    });
+    
+    // Clear local token and auth state
+    localStorage.removeItem('jwt_token');
+    authToken.value = '';
+    isAuthenticated.value = false;
+  } catch (error) {
+    console.error('Logout error:', error);
+  }
+}
 
 // Watchers for debugging
 watch(getNodes, (newNodes) => console.log('nodes changed', newNodes));
@@ -399,15 +478,23 @@ function onRestore(flow: Flow) {
   }
 }
 
-/**
- * Refactored workflow execution.
- *
- * We build an adjacency list that records, for each node, its children along with the
- * output handle ("continue" vs. "loopback"). When a FlowControl node is executed,
- * its loopback branch is run repeatedly (based on loopCount) and after each loopback run,
- * the FlowControl node is re-run to aggregate updated inputs (e.g. from a ResponseNode).
- * Only after looping does the FlowControl node propagate its "continue" branch.
- */
+// Function to load a template when selected from the dropdown
+async function handleLoadTemplate(templateId) {
+  try {
+    // Fetch the selected template from the backend API
+    const response = await fetch(`/api/workflows/templates/${templateId}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch template: ${response.statusText}`);
+    }
+    
+    const flowData = await response.json();
+    // Use the existing restore function to load the template
+    onRestore(flowData);
+  } catch (error) {
+    console.error('Error loading template:', error);
+    alert(`Failed to load template: ${error.message}`);
+  }
+}
 
 // Auto-pan toggle
 const autoPanEnabled = ref(false);
@@ -958,22 +1045,6 @@ function updateEdgeType(newEdgeType: string) {
     type: newEdgeType,
   }));
 }
-
-// REMOVED loadTemplate function
-// async function loadTemplate() {
-//   try {
-//     const host = window.location.hostname;
-//     const port = window.location.port;
-//     const response = await fetch(`http://${host}:${port}/templates/basic_completions.json`);
-//     if (!response.ok) {
-//       throw new Error(`Failed to load template: ${response.statusText}`);
-//     }
-//     const flowData = await response.json();
-//     onRestore(flowData);
-//   } catch (error) {
-//     console.error('Error loading template:', error);
-//   }
-// }
 
 // --- CONTEXT MENU STATE ---
 const contextMenu = ref({

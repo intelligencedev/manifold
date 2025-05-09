@@ -209,14 +209,30 @@ export function useOpenFileNode(props, emit) {
         
         try {
           const imageData = await loadImage(currentFilePath);
-          
-          // Store both the base64 data for output and data URL for display
-          props.data.outputs = {
-            result: {
-              output: imageData.base64,  // Raw base64 without the data URL prefix
-              dataUrl: imageData.dataUrl, // Complete data URL for <img> tag
-            },
-          };
+          const { base64, dataUrl } = imageData;
+          // Pan-and-scan: slice into max 768px height segments if needed
+          const img = new Image(); img.src = dataUrl;
+          await new Promise((res) => { img.onload = res; });
+          if (img.height > 768) {
+            const slices = [];
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            let y = 0;
+            while (y < img.height) {
+              const h = Math.min(768, img.height - y);
+              canvas.height = h;
+              const ctx = canvas.getContext('2d');
+              ctx.clearRect(0,0,canvas.width,canvas.height);
+              ctx.drawImage(img, 0, y, img.width, h, 0, 0, img.width, h);
+              const sliceDataUrl = canvas.toDataURL();
+              const sliceBase64 = sliceDataUrl.split(',')[1];
+              slices.push({ base64: sliceBase64, dataUrl: sliceDataUrl });
+              y += h;
+            }
+            props.data.outputs = { result: { slices } };
+          } else {
+            props.data.outputs = { result: { output: base64, dataUrl } };
+          }
           
           console.log('Image loaded successfully');
         } catch (imageError) {

@@ -112,6 +112,9 @@
       <template #node-mermaidNode="mermaidNodeProps">
         <Mermaid v-bind="mermaidNodeProps" @contextmenu.native.prevent="showContextMenu($event, mermaidNodeProps.id)" />
       </template>
+      <template #node-messageBusNode="messageBusNodeProps">
+        <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
+      </template>
 
       <!-- <Controls :style="{ backgroundColor: '#222', color: '#eee' }" /> -->
       <!-- <MiniMap :background-color="bgColor" :node-color="'#333'" :node-stroke-color="'#555'" :node-stroke-width="2"
@@ -205,6 +208,7 @@ import DocumentsRetrieve from './components/nodes/DocumentsRetrieveNode.vue';
 import ttsNode from './components/nodes/ttsNode.vue';
 import MCPClient from './components/nodes/MCPClient.vue';
 import Mermaid from './components/nodes/Mermaid.vue';
+import MessageBusNode from './components/MessageBusNode.vue';
 
 // --- SETUP ---
 interface BgColorInterface {
@@ -530,6 +534,50 @@ async function runWorkflowConcurrently() {
     // --- Visual Feedback ---
     await smoothlyFitViewToNode(node);
     changeEdgeStyles(nodeId); // Highlight outgoing edges
+    
+    // --- Check for virtualSources before executing ---
+    // When a FlowControl node uses "Jump To Node" mode, it sets itself as a virtual source
+    // This allows the target node to receive the FlowControl node's output as input
+    if (node.data.virtualSources) {
+      const virtualSourceEntries = Object.entries(node.data.virtualSources);
+      if (virtualSourceEntries.length > 0) {
+        console.log(`Node ${nodeId} has ${virtualSourceEntries.length} virtual source(s)`);
+        
+        // If we have a virtual source, use its output from most recently connected FlowControl node
+        // Sort by timestamp to get the most recent virtual source if multiple exist
+        const [sourceId, sourceData] = virtualSourceEntries
+          .sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0))[0];
+          
+        console.log(`Using virtual source: ${sourceId} for node ${nodeId}`);
+        
+        // If the node has inputs, set the input from the virtual source
+        if (node.data.inputs && sourceData.output) {
+          if (typeof node.data.inputs === 'object') {
+            // Different node types might have different input property names
+            // For text nodes it's usually 'text', for agents it's 'user_prompt', etc.
+            // Try common property names for inputs
+            const inputKeys = ['text', 'user_prompt', 'prompt', 'command', 'input', 'response'];
+            const nodeInputKeys = Object.keys(node.data.inputs);
+            
+            // Find a suitable input property
+            let targetInputKey = null;
+            for (const key of inputKeys) {
+              if (nodeInputKeys.includes(key)) {
+                targetInputKey = key;
+                break;
+              }
+            }
+            
+            if (targetInputKey) {
+              console.log(`Setting ${nodeId}'s input.${targetInputKey} from virtual source ${sourceId}`);
+              node.data.inputs[targetInputKey] = sourceData.output;
+            } else {
+              console.log(`Couldn't find a suitable input property for ${nodeId}`);
+            }
+          }
+        }
+      }
+    }
 
     // --- Execute Node Logic ---
     let result = null;
@@ -567,7 +615,9 @@ async function runWorkflowConcurrently() {
     // --- Handle Flow Control Results ---
     if (result && result.jumpTo) {
       const jumpTargetId = result.jumpTo;
-      console.log(`Node ${nodeId} signaled jump to: ${jumpTargetId}`);
+      const virtualSourceId = result.virtualSourceId;
+      console.log(`Node ${nodeId} signaled jump to: ${jumpTargetId}${virtualSourceId ? ' with virtual source: ' + virtualSourceId : ''}`);
+      
       const targetNode = findNode(jumpTargetId);
       if (targetNode) {
         // Jump: Clear queue, reset processed set, add target
@@ -648,7 +698,84 @@ async function runWorkflowConcurrently() {
             continue; // Skip processing children
           }
           
-          // Add this node's children to the sub-queue
+          // Check if this is a FlowControl node with RunAllChildren mode
+          const isFlowControlWithConcurrency = 
+            subNode.type === 'flowControlNode' && 
+            subNode.data.inputs && 
+            subNode.data.inputs.mode === 'RunAllChildren';
+
+          // Handle nodes that need concurrency within the sub-workflow
+          if (isFlowControlWithConcurrency) {
+            console.log(`Sub-workflow: FlowControl node ${subNodeId} in RunAllChildren mode - executing children concurrently`);
+            
+            // Gather all immediate children of this node
+            const childrenIds = adj[subNodeId]
+              ? adj[subNodeId]
+                .filter(edge => edge.target !== parentId) // Don't include parent node
+                .map(edge => edge.target)
+              : [];
+            
+            if (childrenIds.length > 0) {
+              console.log(`Sub-workflow: Starting concurrent execution of ${childrenIds.length} children: ${childrenIds.join(', ')}`);
+              
+              // Execute all children in parallel
+              await Promise.all(
+                childrenIds.map(async (childId) => {
+                  // Skip if already processed or is parent
+                  if (subProcessed.has(childId) || childId === parentId) {
+                    return;
+                  }
+                  
+                  // Mark as processed and execute
+                  subProcessed.add(childId);
+                  
+                  const childNode = findNode(childId);
+                  if (!childNode || !childNode.data || typeof childNode.data.run !== 'function') {
+                    console.warn(`Node ${childId} in sub-workflow not found or has no run function. Skipping.`);
+                    return;
+                  }
+                  
+                  console.log(`(Sub ${subExecutionSteps}) Executing child node concurrently: ${childId} (Type: ${childNode.type})`);
+                  
+                  // Visual feedback
+                  await smoothlyFitViewToNode(childNode);
+                  changeEdgeStyles(childId);
+                  
+                  // Execute node
+                  try {
+                    const childResult = await childNode.data.run();
+                    
+                    // Handle child result (no jumps allowed)
+                    if (childResult && (childResult.jumpTo || childResult.forEachJump)) {
+                      console.warn(`Child node ${childId} attempted to signal jump/forEach which is not allowed in a sub-workflow.`);
+                    } else if (childResult && childResult.stopPropagation) {
+                      console.log(`Child node ${childId} signaled stopPropagation in sub-workflow.`);
+                      return; // Skip adding this node's children
+                    }
+                    
+                    // Add this child's children to the queue
+                    if (adj[childId]) {
+                      for (const edge of adj[childId]) {
+                        if (edge.target !== parentId && !subProcessed.has(edge.target)) {
+                          subQueue.push(edge.target);
+                        }
+                      }
+                    }
+                  } catch (error) {
+                    console.error(`Error in sub-workflow running child node ${childId}:`, error);
+                    if (childNode.data) {
+                      childNode.data.error = error instanceof Error ? error.message : String(error);
+                    }
+                  }
+                })
+              );
+              
+              console.log(`Sub-workflow: Concurrent execution of children for ${subNodeId} completed.`);
+              continue; // Skip normal child processing
+            }
+          }
+          
+          // Add this node's children to the sub-queue (normal sequential processing)
           if (adj[subNodeId]) {
             for (const edge of adj[subNodeId]) {
               // Don't include the parent FlowControl node in propagation

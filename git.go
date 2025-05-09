@@ -112,6 +112,7 @@ func processGitFiles(ctx context.Context, req struct {
 			filepath.Base(file.Path),
 			[]string{file.Path},
 			config.Embeddings.Host,
+			config.Completions.CompletionsModel,
 			config.Embeddings.APIKey,
 			config.Completions.DefaultHost,
 			config.Completions.APIKey,

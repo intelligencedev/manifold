@@ -14,11 +14,42 @@ export function useAgentNode(props, emit) {
   // State variables
   const showApiKey = ref(false)
   const enableToolCalls = ref(false)
+  const agentMode = ref(false)
   const isHovered = ref(false)
   const customStyle = ref({
     width: '380px',
     height: '760px'
   })
+  
+  // Helper function for calling the agent API
+  async function callAgentAPI({ endpoint, objective, model, maxSteps = 100 }) {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ objective, max_steps: maxSteps, model }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Agent API ${res.status}: ${errText}`);
+    }
+    return res.json(); // { session_id, trace, result, completed }
+  }
+
+  // Helper function to create an event stream splitter
+  function createEventStreamSplitter() {
+    let buffer = '';
+    return new TransformStream({
+      transform(chunk, controller) {
+        buffer += chunk;
+        let idx;
+        while ((idx = buffer.indexOf("\n\n")) !== -1) {
+          const event = buffer.slice(0, idx).replace(/^data:\s*/gm,'').trim();
+          controller.enqueue(event);
+          buffer = buffer.slice(idx + 2);
+        }
+      }
+    });
+  }
   
   // Predefined system prompts
   const selectedSystemPrompt = computed({
@@ -116,15 +147,51 @@ namespace functions {
 }
 `
     },
-    recursive_agent: {
-      role: "Recursive Agent",
-      system_prompt: `Important:You only respond by inserting the given query into the following JSON format:
+    planning_agent: {
+      role: "Planning Agent",
+      system_prompt: `You are **Planner-Agent**.  
+Your job is to break the user’s request into an ordered list of executable steps for the MCP client.
 
-{ "action": "execute", "tool": "agent", "args": { "query": "The full query as given", "maxCalls": 100 } }
+────────────────────────────────────────────────────────
+STEP TYPES
+────────────────────────────────────────────────────────
 
-Important: You never rewrite the query, only repeat it.
-You NEVER respond using Markdown. You never fence your responses. You ALWAYS respond using raw JSON choosing the best tool to answer the user's query.
-REMEMBER TO NEVER use markdown formatting and ONLY use raw JSON.`
+1. **Tool call** – one line containing **only** a raw JSON object with these keys in this order:
+
+{
+  "server":   "<serverName>",
+  "tool":     "<toolName>",          // must exist in the provided tool list
+  "endpoint": "<fullURL or empty>",  // not required for all tools, ensure to follow proper schema
+  "args": { … }                      // only the parameters that tool accepts
+}
+
+• If any required argument value is unknown, use the placeholder string \`"FILL_ME_IN"\`.  
+• Do **not** invent keys that are not defined in the tool’s schema.
+
+2. **Reasoning / summarisation step** – a short imperative sentence (e.g. \`Summarise TODOs and determine length flags\`).  
+  *These steps are purely for the executor’s information; they do not call a tool.*
+
+────────────────────────────────────────────────────────
+OUTPUT FORMAT
+────────────────────────────────────────────────────────
+
+* Produce **one line total**, where steps are separated by the delimiter \`|||\`:  
+  \`step 1, step 2, step 3, …\`
+* No markdown, no code fences, no commentary before or after.
+* Each step may include internal spaces; the \`|||\` alone delimit the steps.
+* Generate only the minimal sequence needed to satisfy the user’s query.
+* Assume an EXECUTOR agent will process one step at a time; you do **not** execute tools yourself.
+
+────────────────────────────────────────────────────────
+EXAMPLE
+────────────────────────────────────────────────────────
+
+{"path":"/tmp","maxDepth":10,"server":"manifold","tool":"directory_tree"}|||
+Summarise TODO comments and flag any over 80 characters
+
+────────────────────────────────────────────────────────
+Follow these rules **exactly** for every plan you produce.
+`
     },
     tool_calling: {
       role: "Tool Caller",
@@ -331,13 +398,106 @@ Example for SecurityTrails:
           
           if (responseNode) {
             responseNode.data.inputs.response = fullResponse;
-            //responseNode.run();
+            // Don't run the next node for every token update, we'll trigger it at the end
           }
         }
       };
       
-      // Call the API
-      const result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
+      // Call the API based on the mode
+      let result;
+      
+      if (agentMode.value) {
+        // --- ReAct agent call with streaming ---
+        const sseResp = await fetch('/api/agents/react/stream', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream'
+          },
+          body: JSON.stringify({
+            objective: finalPrompt,
+            max_steps: 30,
+            model: provider.value === 'openai' ? props.data.inputs.model : ''
+          })
+        });
+        
+        if (!sseResp.ok) {
+          throw new Error(`SSE ${sseResp.status}`);
+        }
+
+        const reader = sseResp.body
+              .pipeThrough(new TextDecoderStream())
+              .pipeThrough(createEventStreamSplitter())
+              .getReader();
+
+        let accumulatedThoughts = '';  // accumulate just the thought content
+        let finalResult = '';          // store the final result separately
+
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (value === '[[EOF]]') {
+              // tell the stream we're done
+              await reader.cancel();
+              break;
+            }
+            // Extract content from <think> tags
+            const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/);
+            if (thinkMatch) {
+              accumulatedThoughts += thinkMatch[1] + '\n';
+            } else {
+              finalResult = value;
+            }
+            const combinedResponse = 
+              (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
+              (finalResult ? `\n${finalResult}` : '');
+            onResponseUpdate(combinedResponse, combinedResponse);
+          }
+        } catch (e) {
+          // ignore stream errors
+        }
+
+        // Set the final result with proper formatting
+        const finalResponse = 
+          (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
+          (finalResult ? `\n${finalResult}` : '');
+          
+        result = { content: finalResponse };
+        
+        // Update the required outputs.result.output structure for workflow compatibility
+        props.data.outputs = {
+          ...props.data.outputs,
+          result: {
+            output: finalResponse
+          }
+        };
+        
+        // Now that the agent has completed, trigger the next node in the workflow
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = finalResponse;
+          }
+
+          return result;
+        }
+      } else {
+        result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
+      }
+
+      // Store result in outputs structure for downstream nodes
+      if (!agentMode.value) {
+        props.data.outputs = {
+          ...props.data.outputs,
+          result: {
+            output: result.content || result.error || props.data.outputs.response
+          }
+        };
+      }
 
       // Handle error in result
       if (result.error) {
@@ -473,10 +633,19 @@ Example for SecurityTrails:
     }
   });
   
+  // Optional: preset the agent endpoint when toggling agent mode
+  watch(agentMode, (on) => {
+    if (on && !props.data.inputs.endpoint?.includes('/api/agents/react')) {
+      // Set the regular endpoint - the stream endpoint will be used internally
+      props.data.inputs.endpoint = 'http://localhost:8080/api/agents/react';
+    }
+  });
+  
   return {
     // State
     showApiKey,
     enableToolCalls,
+    agentMode,
     selectedSystemPrompt,
     isHovered,
     

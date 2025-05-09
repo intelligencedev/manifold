@@ -1,17 +1,44 @@
+# Build artifacts
+dist
 frontend/dist/*
+
+# OS specific files
+.DS_Store
+deploy/.DS_Store
+
+# Config files that may contain sensitive information
+**/config.yaml
+!config.yaml.example
+config.yaml
+
+# Dependency directories
+/node_modules/
 frontend/node_modules/*
+
+# Build outputs
+/bin/
+/build/
 frontend/scripts/*
 frontend/tools_plan.md
 frontend/src/system_templates.yaml
-deploy/.DS_Store
-dist/*
-config.yaml
+
+# Go specific
+*.exe
+*.test
+*.out
+/vendor/
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
 models
 mflux
 prompt.md
 embed_examples.md
 sample/*
-.DS_Store
 pgvec.sh
 mcp/mcpenv
 scripts/*

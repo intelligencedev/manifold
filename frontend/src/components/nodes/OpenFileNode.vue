@@ -29,12 +29,27 @@
 
     <!-- Image Preview (shown only when an image is loaded) -->
     <div v-if="isImage || data.isImage" class="image-preview">
-      <div v-if="data.outputs?.result?.dataUrl" class="image-container">
-        <img :src="data.outputs.result.dataUrl" alt="Image preview" />
-      </div>
-      <div v-else class="empty-image-container">
-        Image will appear here when loaded
-      </div>
+      <!-- Pan-and-scan slices -->
+      <template v-if="data.outputs?.result?.slices">
+        <div
+          v-for="(slice, index) in data.outputs.result.slices"
+          :key="index"
+          class="image-container"
+        >
+          <img :src="slice.dataUrl" :alt="`Image slice ${index + 1}`" />
+        </div>
+      </template>
+      <!-- Single image -->
+      <template v-else-if="data.outputs?.result?.dataUrl">
+        <div class="image-container">
+          <img :src="data.outputs.result.dataUrl" alt="Image preview" />
+        </div>
+      </template>
+      <template v-else>
+        <div class="empty-image-container">
+          Image will appear here when loaded
+        </div>
+      </template>
     </div>
 
     <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />

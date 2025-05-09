@@ -140,71 +140,7 @@ Note that Manifold builds the frontend and embeds it in its binary. When buildin
 
 Create or update your configuration based on the provided `config.yaml.example` in the repository. Manifold uses a flexible configuration system that supports both YAML files and environment variables.
 
-```yaml
-# Server Configuration
-host: 'localhost'
-port: 8080
-data_path: './data'
-
-# Runtime Configuration
-single_node_instance: true  # Auto-manages llama-server instances for embeddings, reranking, and completions
-
-# Database Configuration
-database:
-  # PostgreSQL connection string with PGVector extension
-  connection_string: "postgres://myuser:changeme@localhost:5432/manifold?sslmode=disable"
-
-# API Tokens (for optional integrations)
-hf_token: ""            # HuggingFace API token for accessing gated models
-google_gemini_key: ""   # Google Gemini API token
-anthropic_key: ""       # Anthropic API token (Claude models)
-
-# LLM Services Configuration
-completions:
-  default_host: "http://127.0.0.1:32186/v1/chat/completions"  # Default: local llama-server
-  completions_model: 'gpt-4o'  # Ignored if using local endpoint
-  api_key: ""  # Required for OpenAI API
-
-embeddings:
-  host: "http://127.0.0.1:32184/v1/embeddings"  # Default: local llama-server
-  api_key: ""
-  dimensions: 768
-  embed_prefix: "search_document: "
-  search_prefix: "search_query: "
-
-reranker:
-  host: "http://127.0.0.1:32185/v1/rerank"  # Default: local llama-server
-
-agentic_memory:
-  enabled: false  # When true, enables long-term memory across agent sessions
-                  # Requires PostgreSQL with pgvector extension
-```
-
-#### Environment Variable Support
-
-All configuration settings can be overridden using environment variables, following this convention:
-
-1. Prefix all variables with `MANIFOLD__`
-2. Use UPPERCASE for all letters
-3. Use DOUBLE underscore (`__`) to separate YAML hierarchy levels
-4. Use SINGLE underscore (`_`) for keys containing underscores
-
-**Examples:**
-```
-MANIFOLD__HOST=api.example.com                    → host: 'api.example.com'
-MANIFOLD__PORT=9000                               → port: 9000
-MANIFOLD__DATABASE__CONNECTION_STRING=...         → database.connection_string: '...'
-MANIFOLD__COMPLETIONS__DEFAULT_HOST=http://...    → completions.default_host: 'http://...'
-MANIFOLD__SINGLE_NODE_INSTANCE=false              → single_node_instance: false
-```
-
-Different value types are automatically handled:
-- Numbers: `MANIFOLD__PORT=8080` → `port: 8080`
-- Booleans: `MANIFOLD__SINGLE_NODE_INSTANCE=false` → `single_node_instance: false`
-- Strings: `MANIFOLD__HOST=localhost` → `host: 'localhost'`
-- Null: `MANIFOLD__HF_TOKEN=null` → `hf_token: null`
-- JSON arrays: `MANIFOLD__MCPSERVERS__GITHUB__ARGS='["run","--rm"]'` → `mcpservers.github.args: ["run","--rm"]`
-- JSON objects: `MANIFOLD__SOME__CONFIG='{"key":"value"}'` → `some.config: {"key":"value"}`
+Ensure you rename the file or create a new `config.yaml` with your unique configuration, and the file is present in the same path as the Manifold binary.
 
 **Crucial Points:**
 
@@ -244,6 +180,7 @@ Manifold is compatible with OpenAI-compatible endpoints:
 - [llama.cpp Server](https://github.com/ggerganov/llama.cpp/tree/master/examples/server)
 - [Apple MLX LM Server](https://github.com/ml-explore/mlx-examples/blob/main/llms/mlx_lm/SERVER.md)
 
+Any inference engine that serves the standard completions endpoints will work such as vLLM, etc.
 ---
 
 ## Troubleshooting Common Issues

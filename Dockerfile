@@ -37,17 +37,34 @@ RUN go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
 FROM debian:bullseye-slim
 
 ENV JAEGER_ENDPOINT=http://0.0.0.0:16686
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Install necessary certificates
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install necessary packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        curl \
+        wget && \
+    # Install yq for YAML processing
+    # yq is used to process the config file
+    wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 && \
+    chmod +x /usr/local/bin/yq && \
+    # Cleanup
+    apt-get autoremove -y && \
+    apt-get clean
 
 WORKDIR /app
 
 # Copy the built binary from stage 2
 COPY --from=backend-builder /manifold/dist/manifold /app/
 
-COPY config.yaml /app/
+# Copy the tokenized config file and processor script
+COPY config.yaml.example /app/
+COPY process_config.sh /app/
+RUN chmod +x /app/process_config.sh
 
 EXPOSE 8080
 
-CMD ["/app/manifold"]
+# Process config and start the application
+CMD ["/bin/bash", "-c", "/app/process_config.sh && /app/manifold"]

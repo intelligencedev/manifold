@@ -28,6 +28,7 @@ import ttsNode from '../components/nodes/ttsNode.vue'
 import MCPClientNode from '../components/nodes/MCPClient.vue'
 import Mermaid from '../components/nodes/Mermaid.vue'
 import CodeRunnerNode from '../components/nodes/CodeRunnerNode.vue'
+import MessageBusNode from '@/components/MessageBusNode.vue'
 
 let id = 0
 
@@ -193,6 +194,9 @@ export default function useDragAndDrop() {
         break;
       case 'mermaidNode':
         component = Mermaid;
+        break;
+      case 'messageBusNode':
+        component = MessageBusNode;
         break;
       default:
         console.error(`Unknown node type: ${draggedType.value}`);

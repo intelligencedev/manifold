@@ -5,8 +5,6 @@ import (
 	"log"
 	"net/http"
 
-	"manifold/internal/agent"
-
 	"github.com/labstack/echo/v4"
 )
 
@@ -20,8 +18,6 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	api := e.Group("/api")
 	registerAPIEndpoints(api, config)
 
-	// Agent endpoints (Planner / Executor / Critic / Full‐run)
-	registerAgentEndpoints(api, config)
 }
 
 // registerAPIEndpoints registers all API-related routes.
@@ -36,6 +32,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// MCP endpoints
 	registerMCPEndpoints(api, config)
+
+	// Session management endpoints
+	registerSessionEndpoints(api)
 
 	// Git-related endpoints.
 	api.GET("/git-files", gitFilesHandler)
@@ -69,6 +68,17 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// Agentic Memory endpoints.
 	registerAgenticMemoryEndpoints(api, config)
+
+	// ===== ReAct Agentic System endpoints =====
+	registerAgentEndpoints(api, config)
+}
+
+// registerSessionEndpoints registers routes for session management.
+func registerSessionEndpoints(api *echo.Group) {
+	sessionGroup := api.Group("/session")
+	sessionGroup.POST("/create", createSessionHandler)
+	sessionGroup.GET("/current", getSessionHandler)
+	sessionGroup.DELETE("/destroy", destroySessionHandler)
 }
 
 // registerMCPEndpoints registers all MCP-related routes.
@@ -121,19 +131,9 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
 }
 
-// registerAgentEndpoints registers routes for agent-related functionality.
+// registerAgentEndpoints registers all routes for the ReAct / advanced agentic system.
 func registerAgentEndpoints(api *echo.Group, config *Config) {
-	agentGroup := api.Group("/agent")
-
-	handler, err := agent.NewInternalAgentHandler(config)
-	if err != nil {
-		log.Printf("Error creating internal agent handler: %v", err)
-		return
-	}
-
-	// Register all endpoints as POST to be consistent
-	agentGroup.POST("/plan", handler.PlanHandler)
-	agentGroup.POST("/run", handler.RunHandler)
-	agentGroup.POST("/execute", handler.ExecuteHandler)
-	agentGroup.POST("/critique", handler.CritiqueHandler)
+	agents := api.Group("/agents")
+	agents.POST("/react", runReActAgentHandler(config))              // Kick‑off a new ReAct session and run to completion
+	agents.POST("/react/stream", runReActAgentStreamHandler(config)) // Streaming endpoint for real-time thoughts
 }

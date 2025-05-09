@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pgvector/pgvector-go"
@@ -38,38 +39,32 @@ func NewAgenticEngine(db *pgx.Conn) *AgenticEngine {
 	return &AgenticEngine{DB: db}
 }
 
-// EnsureAgenticMemoryTable creates the table if it does not exist.
+// EnsureAgenticMemoryTable creates the table if it does not exist *or* patches it
 func (ae *AgenticEngine) EnsureAgenticMemoryTable(ctx context.Context, embeddingDim int) error {
-	var tableName *string
-	err := ae.DB.QueryRow(ctx, "SELECT to_regclass('public.agentic_memories')").Scan(&tableName)
+	// 1) create if missing
+	_, err := ae.DB.Exec(ctx, fmt.Sprintf(`
+        CREATE TABLE IF NOT EXISTS agentic_memories (
+            id           SERIAL PRIMARY KEY,
+            workflow_id  UUID,                       -- <<< NEW
+            content      TEXT        NOT NULL,
+            note_context TEXT,
+            keywords     TEXT[],
+            tags         TEXT[],
+            timestamp    TIMESTAMP,
+            embedding    vector(%d) NOT NULL,
+            links        INTEGER[]
+        );`, embeddingDim))
 	if err != nil {
-		return fmt.Errorf("failed to check for agentic_memories table: %w", err)
+		return err
 	}
-	if tableName == nil || *tableName == "" {
-		createTableQuery := fmt.Sprintf(`
-			CREATE TABLE agentic_memories (
-				id SERIAL PRIMARY KEY,
-				content TEXT NOT NULL,
-				note_context TEXT,
-				keywords TEXT[],
-				tags TEXT[],
-				timestamp TIMESTAMP,
-				embedding vector(%d) NOT NULL,
-				links INTEGER[]
-			)
-		`, embeddingDim)
-		if _, err := ae.DB.Exec(ctx, createTableQuery); err != nil {
-			return fmt.Errorf("failed to create agentic_memories table: %w", err)
-		}
-		// Create a vector index for similarity search.
-		indexQuery := `
-			CREATE INDEX IF NOT EXISTS agentic_memories_embedding_idx
-			ON agentic_memories USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
-		`
-		if _, err := ae.DB.Exec(ctx, indexQuery); err != nil {
-			return fmt.Errorf("failed to create ivfflat index on agentic_memories.embedding: %w", err)
-		}
-	}
+
+	// 2) patch older deployments that don’t have workflow_id yet
+	_, _ = ae.DB.Exec(ctx, `ALTER TABLE agentic_memories
+                            ADD COLUMN IF NOT EXISTS workflow_id UUID;`)
+	// 3) index for fast “same-session” look-ups
+	_, _ = ae.DB.Exec(ctx, `
+        CREATE INDEX IF NOT EXISTS agentic_memories_workflow_ts_idx
+        ON agentic_memories (workflow_id, timestamp DESC);`)
 	return nil
 }
 
@@ -78,12 +73,12 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	ctx context.Context,
 	config *Config,
 	content string,
-	docTitle string,
+	workflowID uuid.UUID,
 ) (int64, error) {
 	log.Println("Ingesting agentic memory note...")
 	log.Println(content)
 	// 1. Use an LLM (or completions endpoint) to generate note context, keywords, and tags.
-	summaryOutput, err := sefii.SummarizeChunk(ctx, content, config.Completions.DefaultHost, config.Completions.APIKey)
+	summaryOutput, err := sefii.SummarizeChunk(ctx, content, config.Completions.DefaultHost, config.Completions.CompletionsModel, config.Completions.APIKey)
 	if err != nil {
 		log.Printf("AgenticMemory: Failed to summarize content: %v", err)
 		// If summarization fails, proceed with empty context.
@@ -106,12 +101,12 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	currentTime := time.Now()
 	var newID int64
 	insertQuery := `
-        INSERT INTO agentic_memories (content, note_context, keywords, tags, timestamp, embedding, links)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id
-    `
+        INSERT INTO agentic_memories
+            (workflow_id, content, note_context, keywords, tags, timestamp, embedding, links)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        RETURNING id`
 	emptyLinks := []int64{}
-	err = ae.DB.QueryRow(ctx, insertQuery, content, noteContext, keywords, tags, currentTime, vec, emptyLinks).Scan(&newID)
+	err = ae.DB.QueryRow(ctx, insertQuery, workflowID, content, noteContext, keywords, tags, currentTime, vec, emptyLinks).Scan(&newID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert agentic memory note: %w", err)
 	}
@@ -226,6 +221,7 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req struct {
 			Content           string `json:"content"`
+			WorkflowID        string `json:"workflow_id"` // New parameter for workflow ID
 			DocTitle          string `json:"doc_title"`
 			CompletionsHost   string `json:"completions_host"`
 			CompletionsAPIKey string `json:"completions_api_key"`
@@ -238,6 +234,17 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 		if req.Content == "" {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Content is required"})
 		}
+
+		// Parse workflow ID if provided
+		var workflowID uuid.UUID
+		var err error
+		if req.WorkflowID != "" {
+			workflowID, err = uuid.Parse(req.WorkflowID)
+			if err != nil {
+				return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid workflow_id format"})
+			}
+		} // If empty, it will be the zero UUID (represents global memory)
+
 		ctx := c.Request().Context()
 		conn, err := Connect(ctx, config.Database.ConnectionString)
 		if err != nil {
@@ -248,7 +255,7 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 		if err := engine.EnsureAgenticMemoryTable(ctx, config.Embeddings.Dimensions); err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to ensure agentic memory table: %v", err)})
 		}
-		newID, err := engine.IngestAgenticMemory(ctx, config, req.Content, req.DocTitle)
+		newID, err := engine.IngestAgenticMemory(ctx, config, req.Content, workflowID)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to ingest agentic memory: %v", err)})
 		}
@@ -290,4 +297,44 @@ func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
 		}
 		return c.JSON(http.StatusOK, map[string]interface{}{"results": results})
 	}
+}
+
+// SearchWithinWorkflow finds memories for the same workflow only.
+func (ae *AgenticEngine) SearchWithinWorkflow(
+	ctx context.Context,
+	cfg *Config,
+	workflowID uuid.UUID,
+	query string,
+	k int,
+) ([]AgenticMemory, error) {
+
+	embeds, err := GenerateEmbeddings(cfg.Embeddings.Host, cfg.Embeddings.APIKey, []string{query})
+	if err != nil || len(embeds) == 0 {
+		return nil, err
+	}
+
+	qvec := pgvector.NewVector(embeds[0])
+	rows, err := ae.DB.Query(ctx, `
+        SELECT id, content, note_context, timestamp
+        FROM agentic_memories
+        WHERE workflow_id = $1
+        ORDER BY embedding <-> $2
+        LIMIT $3`,
+		workflowID, qvec, k)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var memories []AgenticMemory
+	for rows.Next() {
+		var am AgenticMemory
+		if err := rows.Scan(&am.ID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
+			return nil, err
+		}
+		memories = append(memories, am)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return memories, nil
 }

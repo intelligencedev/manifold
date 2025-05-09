@@ -63,6 +63,12 @@
         max="2"
       />
 
+      <!-- NEW - Agent mode checkbox -->
+      <BaseCheckbox
+        label="Agent mode (use /api/agents/react)"
+        v-model="agentMode"
+      />
+
       <!-- Toggle for Tool/Function Calling -->
       <BaseCheckbox 
         label="Enable Tool/Function Calls" 
@@ -94,6 +100,13 @@
       @mouseenter="handleTextareaMouseEnter" 
       @mouseleave="handleTextareaMouseLeave"
     />
+
+    <!-- 
+      Response Display:
+      - Renders <think> tags in a special format (handled by CSS)
+      - For models with built-in <think> tags, the backend extracts them 
+      - Final answers appear as regular text outside the think tags
+    -->
 
     <!-- Send to Code Editor button - only visible when there's response content -->
     <button 
@@ -170,7 +183,7 @@ const props = defineProps({
         temperature: 0.6,
       },
       outputs: { response: '' },
-      models: ['local', 'chatgpt-4o-latest', 'gpt-4o', 'gpt-4o-mini', 'o1-mini', 'o1', 'o3-mini'],
+      models: ['local', 'chatgpt-4o-latest', 'gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o4-mini', 'o1', 'o1-pro', 'gpt-4.5-preview'],
       style: {
         border: '1px solid #666',
         borderRadius: '12px',
@@ -199,6 +212,7 @@ const {
   // State
   showApiKey,
   enableToolCalls,
+  agentMode,
   selectedSystemPrompt,
   isHovered,
   
@@ -232,6 +246,18 @@ const {
 /* Additional component-specific styles */
 .input-wrapper {
   position: relative;
+}
+
+/* Add styling for the think tags that may come from LLMs or our ReAct agent */
+:deep(think), :deep(think) {
+  display: block;
+  background-color: rgba(30, 30, 30, 0.7);
+  border-left: 3px solid #666;
+  padding: 8px;
+  margin: 8px 0;
+  font-family: monospace;
+  white-space: pre-wrap;
+  color: #aaa;
 }
 
 /* Code Editor Button Styles */

@@ -106,6 +106,12 @@ func runPythonInContainer(code string, dependencies []string) (*CodeEvalResponse
 		}
 	}
 
+	// Get the data path from config
+	config, err := LoadConfig("config.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
 	// Redirect pip install output to /dev/null (only show errors if they occur).
 	// Then run the user code normally (output captured).
 	cmdStr := `
@@ -117,6 +123,7 @@ python3 user_code.py
 	dockerArgs := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
+		"-v", fmt.Sprintf("%s:/mnt", config.DataPath),
 		"code-sandbox",
 		"/bin/bash", "-c", cmdStr,
 	}
@@ -144,6 +151,12 @@ func runGoInContainer(code string, dependencies []string) (*CodeEvalResponse, er
 		return nil, fmt.Errorf("failed to write go code: %w", err)
 	}
 
+	// Get the data path from config
+	config, err := LoadConfig("config.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
 	// If dependencies are given, run 'go get' quietly; otherwise just run 'go run'.
 	var installLines []string
 	if len(dependencies) > 0 {
@@ -165,6 +178,7 @@ func runGoInContainer(code string, dependencies []string) (*CodeEvalResponse, er
 	dockerArgs := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
+		"-v", fmt.Sprintf("%s:/mnt", config.DataPath),
 		"code-sandbox",
 		"/bin/sh", "-c", cmdStr,
 	}
@@ -192,6 +206,12 @@ func runNodeInContainer(code string, dependencies []string) (*CodeEvalResponse, 
 		return nil, fmt.Errorf("failed to write javascript code: %w", err)
 	}
 
+	// Get the data path from config
+	config, err := LoadConfig("config.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
 	// If dependencies exist, init and install them quietly (redirect to /dev/null).
 	var installLines []string
 	if len(dependencies) > 0 {
@@ -212,6 +232,7 @@ func runNodeInContainer(code string, dependencies []string) (*CodeEvalResponse, 
 	dockerArgs := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
+		"-v", fmt.Sprintf("%s:/mnt", config.DataPath),
 		"code-sandbox",
 		"/bin/sh", "-c", cmdStr,
 	}

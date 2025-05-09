@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -20,29 +21,39 @@ import (
 type HelloArgs struct {
 	Name string `json:"name" jsonschema:"required,description=The name to say hello to"`
 }
-
 type CalculateArgs struct {
 	Operation string  `json:"operation" jsonschema:"required,enum=add,enum=subtract,enum=multiply,enum=divide,description=The mathematical operation to perform"`
 	A         float64 `json:"a" jsonschema:"required,description=First number"`
 	B         float64 `json:"b" jsonschema:"required,description=Second number"`
 }
-
 type TimeArgs struct {
 	Format string `json:"format,omitempty" jsonschema:"description=Optional time format (default: RFC3339)"`
 }
-
 type WeatherArgs struct {
-	Longitude float64 `json:"longitude" jsonschema:"required,description=Longitude"`
-	Latitude  float64 `json:"required,description=Latitude" json:"latitude"`
+	Longitude float64 `json:"longitude" jsonschema:"required,description=Longitude in decimal degrees"`
+	Latitude  float64 `json:"latitude"  jsonschema:"required,description=Latitude in decimal degrees"`
 }
 
 // FS Tools
+type ListAllowedDirectoriesArgs struct{}
 type ReadFileArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Path to the file to read"`
 }
+
+// Add to argument section
+type ReadFileChunkArgs struct {
+	Path  string `json:"path" jsonschema:"required,description=File to read"`
+	Start int64  `json:"start" jsonschema:"required,description=Byte offset (inclusive)"`
+	End   int64  `json:"end" jsonschema:"required,description=Byte offset (exclusive)"`
+}
+type SummarizeFileArgs struct {
+	Path string `json:"path" jsonschema:"required"`
+	// style could be "code", "markdown", etc. – for future NLP tweaks
+	Style string `json:"style,omitempty"`
+}
 type WriteFileArgs struct {
-	Path    string `json:"path" jsonschema:"required,description=Path to the file to write"`
-	Content string `json:"content" jsonschema:"required,description=Content to write into the file"`
+	Path    string `json:"path" jsonschema:"required,description=Absolute or relative file path"`
+	Content string `json:"content" jsonschema:"required,format=byte,description=Base64-encoded file contents"`
 }
 type ListDirectoryArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory path to list"`
@@ -51,8 +62,28 @@ type CreateDirectoryArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory path to create"`
 }
 type MoveFileArgs struct {
-	Source      string `json:"source" jsonschema:"required,description=Source path"`
-	Destination string `json:"destination" jsonschema:"required,description=Destination path"`
+	Source      string `json:"source" jsonschema:"required,description='Source path'"`
+	Destination string `json:"destination" jsonschema:"required,description='Destination path'"`
+}
+type ReadMultipleFilesArgs struct {
+	Paths []string `json:"paths" jsonschema:"required,description=List of file paths to read"`
+}
+type EditFileArgs struct {
+	Path         string `json:"path" jsonschema:"required,description=File path"`
+	Search       string `json:"search,omitempty" jsonschema:"description=Search text"`
+	Replace      string `json:"replace,omitempty" jsonschema:"description=Replace text"`
+	PatchContent string `json:"patchContent,omitempty" jsonschema:"format=byte,description=Base64-encoded unified diff patch"`
+}
+type DirectoryTreeArgs struct {
+	Path     string `json:"path" jsonschema:"required,description=Root directory"`
+	MaxDepth int    `json:"maxDepth,omitempty" jsonschema:"description=Depth limit"`
+}
+type SearchFilesArgs struct {
+	Path    string `json:"path" jsonschema:"required,description=Base path"`
+	Pattern string `json:"pattern" jsonschema:"required,description='Text or regex pattern'"`
+}
+type GetFileInfoArgs struct {
+	Path string `json:"path" jsonschema:"required,description='Path to file or directory'"`
 }
 
 // Git Tools
@@ -71,28 +102,7 @@ type GitCommitArgs struct {
 	Message string `json:"message" jsonschema:"required,description=Commit message"`
 }
 
-// Additional Tool Args
-type ReadMultipleFilesArgs struct {
-	Paths []string `json:"paths" jsonschema:"required,description=List of file paths to read"`
-}
-type EditFileArgs struct {
-	Path         string `json:"path" jsonschema:"required,description=File path"`
-	Search       string `json:"search,omitempty" jsonschema:"description=Search text"`
-	Replace      string `json:"replace,omitempty" jsonschema:"description=Replace text"`
-	PatchContent string `json:"patchContent,omitempty" jsonschema:"description=Unified diff patch"`
-}
-type DirectoryTreeArgs struct {
-	Path     string `json:"path" jsonschema:"required,description=Root directory"`
-	MaxDepth int    `json:"maxDepth,omitempty" jsonschema:"description=Depth limit"`
-}
-type SearchFilesArgs struct {
-	Path    string `json:"path" jsonschema:"required,description=Base path"`
-	Pattern string `json:"pattern" jsonschema:"required,description=Text or regex pattern"`
-}
-type GetFileInfoArgs struct {
-	Path string `json:"path" jsonschema:"required,description=Path to file or directory"`
-}
-type ListAllowedDirectoriesArgs struct{}
+// Git Tools
 type DeleteFileArgs struct {
 	Path      string `json:"path" jsonschema:"required,description=Path to delete"`
 	Recursive bool   `json:"recursive,omitempty" jsonschema:"description=Delete recursively"`
@@ -134,13 +144,11 @@ type LintCodeArgs struct {
 	LinterName string `json:"linterName,omitempty" jsonschema:"description=Optional linter name"`
 }
 type WebSearchArgs struct {
-	Query         string `json:"query" jsonschema:"required"`
-	ResultSize    int    `json:"result_size,omitempty"`
-	SearchBackend string `json:"search_backend,omitempty"`
-	SxngURL       string `json:"sxng_url,omitempty"`
+	Query      string `json:"query" jsonschema:"required"`
+	ResultSize int    `json:"result_size,omitempty"` // default 5, max 10
 }
 type WebContentArgs struct {
-	URLs []string `json:"urls" jsonschema:"required,description=List of URLs"`
+	URLs string `json:"urls" jsonschema:"required,description=Comma separated list of URLs"`
 }
 type GenerateAndRunCodeArgs struct {
 	Spec         string   `json:"spec" jsonschema:"required,description=Description or purpose of the code to generate"`
@@ -216,10 +224,50 @@ func readFileTool(args ReadFileArgs) (string, error) {
 	return string(bytes), nil
 }
 
+// read_file_chunk tool
+func readFileChunkTool(args ReadFileChunkArgs) (string, error) {
+	if args.End <= args.Start {
+		return "", fmt.Errorf("end must be greater than start")
+	}
+	f, err := os.Open(args.Path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	buf := make([]byte, args.End-args.Start)
+	_, err = f.ReadAt(buf, args.Start)
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// summarize_file tool (naïve LLM-agnostic version using heuristics)
+func summarizeFileTool(args SummarizeFileArgs) (string, error) {
+	data, err := os.ReadFile(args.Path)
+	if err != nil {
+		return "", err
+	}
+	// Cheap heuristic: first 40 and last 20 lines + size
+	lines := strings.Split(string(data), "\n")
+	head := lines
+	if len(lines) > 60 {
+		head = append(lines[:40], append([]string{"…"}, lines[len(lines)-20:]...)...)
+	}
+	return fmt.Sprintf(
+		"Summary of %s (%d lines, %d bytes):\n%s",
+		args.Path, len(lines), len(data), strings.Join(head, "\n"),
+	), nil
+}
+
 // write_file tool
 func writeFileTool(args WriteFileArgs) (string, error) {
-	err := os.WriteFile(args.Path, []byte(args.Content), 0644)
-	if err != nil {
+	data, err := base64.StdEncoding.DecodeString(args.Content)
+	if err != nil { // was not base64 – treat as raw text
+		data = []byte(args.Content)
+	}
+	if err := os.WriteFile(args.Path, data, 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 	return fmt.Sprintf("Wrote file: %s", args.Path), nil
@@ -336,23 +384,44 @@ func readMultipleFilesTool(args ReadMultipleFilesArgs) (string, error) {
 	return sb.String(), nil
 }
 
-// edit_file tool
+// edit_file tool – now accepts unified diff in PatchContent
 func editFileTool(args EditFileArgs) (string, error) {
-	if args.PatchContent != "" {
-		return "", fmt.Errorf("patchContent not supported in this implementation")
+	switch {
+	case args.PatchContent != "":
+		tmp, err := os.CreateTemp("", "agent_patch_*.diff")
+		if err != nil {
+			return "", err
+		}
+		defer os.Remove(tmp.Name())
+
+		if _, err := tmp.WriteString(args.PatchContent); err != nil {
+			return "", err
+		}
+		if err := tmp.Close(); err != nil {
+			return "", err
+		}
+
+		cmd := exec.Command("patch", "-u", args.Path, "-i", tmp.Name())
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("patch failed: %w\n%s", err, out)
+		}
+		return fmt.Sprintf("Patched %s\n%s", args.Path, out), nil
+
+	case args.Search != "":
+		orig, err := os.ReadFile(args.Path)
+		if err != nil {
+			return "", err
+		}
+		edited := strings.ReplaceAll(string(orig), args.Search, args.Replace)
+		if err := os.WriteFile(args.Path, []byte(edited), 0644); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Replaced text in %s", args.Path), nil
+
+	default:
+		return "", fmt.Errorf("provide either patchContent or search/replace")
 	}
-	if args.Search == "" {
-		return "", fmt.Errorf("must provide a search string for edit_file")
-	}
-	original, err := ioutil.ReadFile(args.Path)
-	if err != nil {
-		return "", fmt.Errorf("failed to read file: %w", err)
-	}
-	edited := strings.ReplaceAll(string(original), args.Search, args.Replace)
-	if err := ioutil.WriteFile(args.Path, []byte(edited), 0644); err != nil {
-		return "", fmt.Errorf("failed to write file: %w", err)
-	}
-	return fmt.Sprintf("Edited file: %s", args.Path), nil
 }
 
 // directory_tree tool
@@ -520,39 +589,6 @@ func lintCodeTool(args LintCodeArgs) (string, error) {
 	return string(output), nil
 }
 
-// web_search tool
-func webSearchTool(args WebSearchArgs) (string, error) {
-	// This is a simplified implementation
-	return fmt.Sprintf("Search results for: %s", args.Query), nil
-}
-
-// web_content tool
-func webContentTool(args WebContentArgs) (string, error) {
-	if len(args.URLs) == 0 {
-		return "", fmt.Errorf("no URLs provided")
-	}
-
-	var content strings.Builder
-	for _, url := range args.URLs {
-		resp, err := http.Get(url)
-		if err != nil {
-			content.WriteString(fmt.Sprintf("Error fetching %s: %v\n", url, err))
-			continue
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			content.WriteString(fmt.Sprintf("Error reading response from %s: %v\n", url, err))
-			continue
-		}
-
-		content.WriteString(fmt.Sprintf("Content from %s:\n%s\n\n", url, string(body)))
-	}
-
-	return content.String(), nil
-}
-
 // Helper functions
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
@@ -571,7 +607,7 @@ func copyFile(src, dst string) error {
 	return out.Close()
 }
 
-func copyDir(src string, dst string) error {
+func copyDir(src, dst string) error {
 	entries, err := ioutil.ReadDir(src)
 	if err != nil {
 		return err

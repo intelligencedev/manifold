@@ -94,6 +94,7 @@ const nodeCategories = {
   "Experimental": {
     "mcpClientNode": null,
     "flowControlNode": null,
+    "messageBusNode": null,
   },
 }
 

@@ -113,16 +113,22 @@ export default function useTextNode(props, emit) {
 
     const templates = Object.create(null);
     const valuesMap = Object.create(null);
+    const templateBlocks = [];
 
     let mode = null;      // 'template' | 'values' | null
     let current = '';     // section name
     let buf = [];
+    let currentBlock = null;
 
     function flush() {
       if (!mode) return;
       const content = buf.join('\n').trim();
+      
       if (mode === 'template') {
         templates[current] = content;
+        if (currentBlock) {
+          currentBlock.templateContent = content;
+        }
       } else {
         const kv = Object.create(null);
         content.split(/\r?\n/).forEach(line => {
@@ -134,27 +140,84 @@ export default function useTextNode(props, emit) {
           }
         });
         valuesMap[current] = kv;
+        if (currentBlock && currentBlock.name === current) {
+          currentBlock.values = kv;
+        }
       }
       buf = [];
     }
 
-    src.split(/\r?\n/).forEach(line => {
+    const lines = src.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       let m;
-      if ((m = line.match(tmplStart))) { flush(); mode = 'template'; current = m[1]; return; }
-      if ((m = line.match(valStart)))  { flush(); mode = 'values';   current = m[1]; return; }
-      if (tmplEnd.test(line) || valEnd.test(line)) { flush(); mode = null; current = ''; return; }
+      
+      if ((m = line.match(tmplStart))) { 
+        flush(); 
+        mode = 'template'; 
+        current = m[1]; 
+        currentBlock = { 
+          name: current, 
+          templateHeader: line,
+          templateContent: '',
+          templateFooter: '',
+          values: {}
+        };
+        templateBlocks.push(currentBlock);
+        continue;
+      }
+      
+      if ((m = line.match(valStart))) { 
+        flush(); 
+        mode = 'values'; 
+        current = m[1]; 
+        
+        // Find corresponding template block
+        if (!currentBlock || currentBlock.name !== current) {
+          const existingBlock = templateBlocks.find(b => b.name === current);
+          if (existingBlock) {
+            currentBlock = existingBlock;
+          }
+        }
+        continue;
+      }
+      
+      if (tmplEnd.test(line)) { 
+        flush(); 
+        mode = null; 
+        if (currentBlock) {
+          currentBlock.templateFooter = line;
+        }
+        continue;
+      }
+      
+      if (valEnd.test(line)) { 
+        flush(); 
+        mode = null;
+        continue;
+      }
+      
       if (mode) { buf.push(line); }
-    });
+    }
     flush(); // final flush
 
-    // Render each template
-    return Object.keys(templates).map(name => {
-      const tpl  = templates[name];
-      const vals = valuesMap[name] || {};
-      return tpl.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (_, key) =>
-        Object.prototype.hasOwnProperty.call(vals, key) ? vals[key] : ''
+    // Render each template block, excluding values blocks
+    return templateBlocks.map(block => {
+      const tpl = block.templateContent;
+      const vals = block.values || {};
+      
+      // Process template content, preserving unmatched variables
+      const processedContent = tpl.replace(/\{\{([A-Za-z0-9_]+)\}\}/g, (match, key) =>
+        Object.prototype.hasOwnProperty.call(vals, key) ? vals[key] : match
       );
-    }).join('\n\n---\n\n');
+      
+      // Only include the template sections, not the values sections
+      return [
+        block.templateHeader,
+        processedContent,
+        block.templateFooter
+      ].filter(Boolean).join('\n');
+    }).join('\n\n');
   }
   
   // Emit updated node data back to VueFlow

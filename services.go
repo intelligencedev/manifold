@@ -373,24 +373,14 @@ func StartPGVectorContainer(config *Config) error {
 	// Wait for the database to be ready
 	pterm.Info.Println("Waiting for PGVector database to initialize...")
 
-	// Use parsed credentials or defaults for connection check
-	username := "postgres"
-	password := "postgres"
-	dbname := "manifold"
-
+	// Use full connection string from config if available
+	connStr := "postgres://postgres:postgres@localhost:5432/manifold" // Default connection string
 	if config != nil && config.Database.ConnectionString != "" {
-		if u, p, db, ok := parseConnectionString(config.Database.ConnectionString); ok {
-			username = u
-			password = p
-			dbname = db
-		}
+		connStr = config.Database.ConnectionString
 	}
 
-	// Create a connection string for verification
-	connStr := fmt.Sprintf("postgres://%s:%s@localhost:5432/%s", username, password, dbname)
-
 	// Try to connect to the database with timeout
-	if err := waitForDatabaseReady(connStr, 30*time.Second); err != nil {
+	if err := waitForDatabaseReady(connStr, 60*time.Second); err != nil {
 		pterm.Warning.Printf("Database container started but connection check failed: %v\n", err)
 		pterm.Warning.Println("Proceeding anyway, but database might not be fully initialized")
 	} else {
@@ -410,7 +400,7 @@ func waitForDatabaseReady(connStr string, timeout time.Duration) error {
 
 	for time.Now().Before(deadline) {
 		// Use a short timeout for each connection attempt
-		attemptCtx, attemptCancel := context.WithTimeout(ctx, 2*time.Second)
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, 3*time.Second)
 
 		// Try to connect
 		conn, err := pgx.Connect(attemptCtx, connStr)
@@ -430,7 +420,7 @@ func waitForDatabaseReady(connStr string, timeout time.Duration) error {
 		default:
 			// Wait a bit before trying again
 			pterm.Info.Println("Waiting for database to be ready...")
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 		}
 	}
 
@@ -471,7 +461,7 @@ func StopPGVectorContainer() error {
 		// Check if the container is still running
 		checkCmd := exec.Command("docker", "ps", "-q", "--filter", "name="+containerName)
 		output, err := checkCmd.Output()
-		if err != nil || len(output) == 0 {
+		if err == nil && len(output) == 0 {
 			// Container is no longer running
 			pterm.Success.Printf("PGVector container '%s' gracefully stopped\n", containerName)
 			return nil
@@ -498,8 +488,8 @@ func StopPGVectorContainer() error {
 // parseConnectionString attempts to extract username, password and database name from a connection string
 func parseConnectionString(connStr string) (username, password, dbname string, ok bool) {
 	// Default values
-	username = "cloudadmin"
-	password = "peanut732688"
+	username = "postgres"
+	password = "postgres"
 	dbname = "manifold"
 
 	// Very basic parsing - this won't handle all formats but should work for simple cases

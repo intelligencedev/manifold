@@ -164,9 +164,6 @@ completions:
   default_host: "http://127.0.0.1:32186/v1/chat/completions"  # Default: local llama-server
   completions_model: 'gpt-4o'  # Ignored if using local endpoint
   api_key: ""  # Required for OpenAI API
-  agent:
-    max_steps: 100  # Maximum steps for the ReAct framework agent
-    memory: false   # Legacy memory setting (will be deprecated)
 
 embeddings:
   host: "http://127.0.0.1:32184/v1/embeddings"  # Default: local llama-server

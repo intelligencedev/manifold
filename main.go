@@ -9,10 +9,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
 	"github.com/gorilla/sessions"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -37,6 +39,33 @@ func main() {
 	if err := InitializeApplication(config); err != nil {
 		logger.Fatal(fmt.Sprintf("Failed to initialize application: %v", err))
 	}
+
+	// Initialize the database connection pool with CPU-based sizing
+	ctx := context.Background()
+	poolConfig, err := pgxpool.ParseConfig(config.Database.ConnectionString)
+	if err != nil {
+		logger.Fatal(fmt.Sprintf("Failed to parse database connection string: %v", err))
+	}
+
+	// Set max connections to 2x CPU cores for optimal performance
+	poolConfig.MaxConns = int32(runtime.NumCPU() * 2)
+	logger.Info(fmt.Sprintf("Setting database pool max connections to %d (2 × CPU cores)", poolConfig.MaxConns))
+
+	dbpool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	if err != nil {
+		logger.Fatal(fmt.Sprintf("Failed to create database connection pool: %v", err))
+	}
+	defer dbpool.Close()
+
+	// Store the connection pool in the config for use throughout the application
+	config.DBPool = dbpool
+	logger.Info("Database connection pool initialized successfully")
+
+	// Test the database connection
+	if err := dbpool.Ping(ctx); err != nil {
+		logger.Fatal(fmt.Sprintf("Failed to connect to database: %v", err))
+	}
+	logger.Info("Successfully connected to database")
 
 	// Initialize user database
 	if err := initUserDB(config); err != nil {

@@ -19,6 +19,9 @@ export function useAgentNode(props, emit) {
     height: '760px'
   })
   
+  // Store the original endpoint when toggling agent mode
+  const originalEndpoint = ref('')
+  
   // Computed property for agent max steps
   const agentMaxSteps = computed(() => 
     configStore.config?.Completions?.Agent?.MaxSteps || 30
@@ -527,11 +530,26 @@ Always return only the raw JSON string without any additional text, explanation,
     }
   });
   
-  // Optional: preset the agent endpoint when toggling agent mode
+  // Handle endpoint management when toggling agent mode
   watch(agentMode, (on) => {
-    if (on && !props.data.inputs.endpoint?.includes('/api/agents/react')) {
-      // Set the regular endpoint - the stream endpoint will be used internally
+    if (on) {
+      // Save original endpoint before switching to agent endpoint
+      originalEndpoint.value = props.data.inputs.endpoint;
+      
+      // Set the endpoint to the agent endpoint
       props.data.inputs.endpoint = 'http://localhost:8080/api/agents/react';
+    } else {
+      // When turning off agent mode, restore the original endpoint
+      if (originalEndpoint.value) {
+        props.data.inputs.endpoint = originalEndpoint.value;
+      } else {
+        // If no original endpoint stored, set to default based on provider
+        if (provider.value === 'openai') {
+          props.data.inputs.endpoint = 'https://api.openai.com/v1/chat/completions';
+        } else {
+          props.data.inputs.endpoint = configStore.config?.Completions?.DefaultHost || 'http://localhost:32186/v1/chat/completions';
+        }
+      }
     }
   });
   

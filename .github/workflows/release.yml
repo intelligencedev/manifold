@@ -29,6 +29,9 @@ jobs:
       with:
         submodules: 'recursive'
 
+    - name: Clean submodule references
+      run: git submodule deinit -f dist || true
+
     - name: Set up Go
       uses: actions/setup-go@v5
       with:

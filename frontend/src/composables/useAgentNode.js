@@ -339,30 +339,51 @@ Always return only the raw JSON string without any additional text, explanation,
         }
       } else {
         // --- Regular API call (non-agent mode) ---
-        let requestBody = {
-          model: props.data.inputs.model,
-          messages: [
-            {
-              role: "system",
-              content: props.data.inputs.system_prompt
-            },
-            {
-              role: "user",
-              content: finalPrompt
-            }
-          ],
-          temperature: props.data.inputs.temperature || 0.7
-        };
-        
+        // Vision support: detect image inputs from connected nodes
+        let visionContent = null;
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const imageSources = getEdges.value
+            .filter((edge) => edge.target === props.id)
+            .map((edge) => findNode(edge.source))
+            .filter((node) => node?.data?.isImage && node.data.outputs?.result?.dataUrl);
+          if (imageSources.length > 0) {
+            // Build mixed content array: text prompt + image URLs
+            visionContent = [{ type: 'text', text: props.data.inputs.user_prompt }];
+            imageSources.forEach((node) => {
+              visionContent.push({
+                type: 'image_url',
+                image_url: { url: node.data.outputs.result.dataUrl }
+              });
+            });
+          }
+        }
+        let requestBody;
+        if (visionContent) {
+          requestBody = {
+            model: props.data.inputs.model,
+            messages: [
+              { role: 'system', content: props.data.inputs.system_prompt },
+              { role: 'user', content: visionContent }
+            ],
+            temperature: props.data.inputs.temperature || 0.7
+          };
+        } else {
+          requestBody = {
+            model: props.data.inputs.model,
+            messages: [
+              { role: 'system', content: props.data.inputs.system_prompt },
+              { role: 'user', content: finalPrompt }
+            ],
+            temperature: props.data.inputs.temperature || 0.7
+          };
+        }
         // Special handling for different model types
         const modelName = props.data.inputs.model.toLowerCase();
-        
         if (modelName.startsWith('o') && /^o[0-9]/.test(modelName)) {
-          // OpenAI o-series models use different parameter names
           requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
           requestBody.reasoning_effort = 'high';
         } else {
-          // Standard parameter for most models
           requestBody.max_tokens = props.data.inputs.max_completion_tokens || 1000;
         }
 

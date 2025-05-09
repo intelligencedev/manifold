@@ -1,6 +1,5 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useConfigStore } from '@/stores/configStore'
-import { useCompletionsApi } from './useCompletionsApi'
 import { useCodeEditor } from './useCodeEditor'
 
 /**
@@ -8,7 +7,6 @@ import { useCodeEditor } from './useCodeEditor'
  */
 export function useAgentNode(props, emit) {
   const configStore = useConfigStore()
-  const { callCompletionsAPI } = useCompletionsApi()
   const { setEditorCode } = useCodeEditor()
   
   // State variables
@@ -21,19 +19,10 @@ export function useAgentNode(props, emit) {
     height: '760px'
   })
   
-  // Helper function for calling the agent API
-  async function callAgentAPI({ endpoint, objective, model, maxSteps = 100 }) {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ objective, max_steps: maxSteps, model }),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Agent API ${res.status}: ${errText}`);
-    }
-    return res.json(); // { session_id, trace, result, completed }
-  }
+  // Computed property for agent max steps
+  const agentMaxSteps = computed(() => 
+    configStore.config?.Completions?.Agent?.MaxSteps || 30
+  )
 
   // Helper function to create an event stream splitter
   function createEventStreamSplitter() {
@@ -49,6 +38,29 @@ export function useAgentNode(props, emit) {
         }
       }
     });
+  }
+  
+  // Function to update response in real-time as agent thoughts come in
+  function onResponseUpdate(content, fullResponse) {
+    // Update the UI with the streamed response
+    props.data.outputs = {
+      ...props.data.outputs,
+      response: content,
+      result: {
+        output: fullResponse
+      }
+    };
+    
+    // Also update any connected response nodes
+    if (props.vueFlowInstance) {
+      const { getEdges, findNode } = props.vueFlowInstance;
+      const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+      const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+      
+      if (responseNode) {
+        responseNode.data.inputs.response = content;
+      }
+    }
   }
   
   // Predefined system prompts
@@ -104,136 +116,11 @@ Always return only the raw JSON string without any additional text, explanation,
       role: "WebGL Node",
       system_prompt: "You are to generate a JSON payload for a WebGLNode component that renders a triangle. The JSON must contain exactly two keys:\n\n\"vertexShader\"\n\"fragmentShader\"\nRequirements for the Shaders:\n\nVertex Shader:\nMust define a vertex attribute named a_Position (i.e. attribute vec2 a_Position;).\nMust transform this attribute into clip-space coordinates, typically using a line such as gl_Position = vec4(a_Position, 0.0, 1.0);.\nFragment Shader:\nShould use valid WebGL GLSL code.\nOptionally, if you need to compute effects based on the canvas dimensions, you may include a uniform named u_resolution. This uniform will be automatically set to the canvas dimensions by the WebGLNode.\nEnsure that the code produces a visible output (for example, rendering a colored triangle).\nAdditional Guidelines:\n\nThe generated JSON must be valid (i.e. parseable as JSON).\nDo not include any extra keys beyond \"vertexShader\" and \"fragmentShader\".\nEnsure that all GLSL code is valid for WebGL.\nExample Outline:\n\n{\n  \"vertexShader\": \"attribute vec2 a_Position; void main() { gl_Position = vec4(a_Position, 0.0, 1.0); }\",\n  \"fragmentShader\": \"precision mediump float; uniform vec2 u_resolution; void main() { /* shader code */ }\"\n}\n\nDO NOT format as markdown. DO NOT wrap code in code blocks or back ticks. You MUST always ONLY return the raw JSON.",
     },
-    teacher: {
-      role: "Educational Expert",
-      system_prompt:
-        "You are an experienced teacher skilled at explaining complex concepts. Present information in a structured, progressive manner from foundational to advanced. Use analogies and examples to connect new concepts to familiar ones. Break down complex ideas into smaller components. Incorporate multiple formats (definitions, examples, diagrams described in text) to accommodate different learning styles. Ask thought-provoking questions to deepen understanding. Anticipate common misconceptions and address them proactively."
-    },
     data_analyst: {
       role: "Data Analysis Expert",
       system_prompt:
         "You are a data analysis expert. When working with data, focus on identifying patterns and outliers, considering statistical significance, and exploring causal relationships vs. correlations. Present your analysis with a clear narrative structure that connects data points to insights. Use hypothetical data visualization descriptions when relevant. Consider alternative interpretations of data and potential confounding variables. Clearly communicate limitations and assumptions in any analysis."
     },
-    retrieval_assistant: {
-      role: "Retrieval Assistant",
-      system_prompt: `You are capable of executing available function(s) and should always use them.
-Always ask for the required input to: recipient==all.
-Use JSON for function arguments.
-Respond using the following format:
->>>\${recipient}
-\${content}
-
-Available functions:
-namespace functions {
-  // retrieves documents related to the topic
-  type combined_retrieve = (_: {
-    query: string,
-    file_path_filter?: string,
-    limit?: number,
-    use_inverted_index?: boolean,
-    use_vector_search?: boolean,
-    merge_mode?: string,
-    return_full_docs?: boolean,
-    rerank?: boolean,
-    alpha?: number,
-    beta?: number
-  }) => any;
-  
-  // remembers previous chats
-  type agentic_retrieve = (_: {
-    query: string,
-    limit?: number
-  }) => any;
-}
-`
-    },
-    planning_agent: {
-      role: "Planning Agent",
-      system_prompt: `You are **Planner-Agent**.  
-Your job is to break the user’s request into an ordered list of executable steps for the MCP client.
-
-────────────────────────────────────────────────────────
-STEP TYPES
-────────────────────────────────────────────────────────
-
-1. **Tool call** – one line containing **only** a raw JSON object with these keys in this order:
-
-{
-  "server":   "<serverName>",
-  "tool":     "<toolName>",          // must exist in the provided tool list
-  "endpoint": "<fullURL or empty>",  // not required for all tools, ensure to follow proper schema
-  "args": { … }                      // only the parameters that tool accepts
-}
-
-• If any required argument value is unknown, use the placeholder string \`"FILL_ME_IN"\`.  
-• Do **not** invent keys that are not defined in the tool’s schema.
-
-2. **Reasoning / summarisation step** – a short imperative sentence (e.g. \`Summarise TODOs and determine length flags\`).  
-  *These steps are purely for the executor’s information; they do not call a tool.*
-
-────────────────────────────────────────────────────────
-OUTPUT FORMAT
-────────────────────────────────────────────────────────
-
-* Produce **one line total**, where steps are separated by the delimiter \`|||\`:  
-  \`step 1, step 2, step 3, …\`
-* No markdown, no code fences, no commentary before or after.
-* Each step may include internal spaces; the \`|||\` alone delimit the steps.
-* Generate only the minimal sequence needed to satisfy the user’s query.
-* Assume an EXECUTOR agent will process one step at a time; you do **not** execute tools yourself.
-
-────────────────────────────────────────────────────────
-EXAMPLE
-────────────────────────────────────────────────────────
-
-{"path":"/tmp","maxDepth":10,"server":"manifold","tool":"directory_tree"}|||
-Summarise TODO comments and flag any over 80 characters
-
-────────────────────────────────────────────────────────
-Follow these rules **exactly** for every plan you produce.
-`
-    },
-    tool_calling: {
-      role: "Tool Caller",
-      system_prompt: `You are a specialized LLM assistant designed to generate JSON payloads for various servers (SecurityTrails, GitHub, Manifold).
-
-Your ONLY job is to take user queries about data or actions related to these servers and convert them into the correct JSON payload format. You must ONLY return the raw JSON payload without any explanations or markdown formatting.
-
-The payload must ALWAYS follow this structure:
-
-{
-  "server": "serverName",            // "securitytrails", "github", or "manifold"
-  "tool":   "toolName",              // Name of the tool to invoke
-  "endpoint": "https://api.securitytrails.com/v2/projects/PROJECT_ID/assets/_search",  // Full URL including base URL and path parameters
-  "args": {                           // Only include required and provided parameters
-    // For SecurityTrails, always include the original parameters such as:
-    // "project_id": "12345",
-    // "asset_id": "www.example.com"
-    // These are used by the caller to construct the endpoint URL
-  }
-}
-
-Rules:
-- Only output the JSON payload object and nothing else.
-- Do not wrap in code blocks, backticks, or any extra formatting.
-- The "endpoint" key MUST contain the full URL with the base URL (e.g., https://api.securitytrails.com) AND path INCLUDING any URL parameters substituted into the path.
-- When using SecurityTrails API, you must still include path parameters like "project_id" and "asset_id" in the "args" object even though they are also used in the endpoint URL.
-- Include only the fields under "args" that are necessary for the given tool; use placeholders (e.g., "FILL_ME_IN") for any missing required parameters.
-- Correctly format nested objects or arrays in "args" when needed.
-- Do not add commentary, explanations, or additional keys.
-
-Example for SecurityTrails:
-{
-  "server": "securitytrails",
-  "tool": "read_asset",
-  "endpoint": "https://api.securitytrails.com/v2/projects/abc123/assets/example.com",
-  "args": {
-    "project_id": "abc123",
-    "asset_id": "example.com",
-    "additional_fields": ["dns", "whois"]
-  }
-}
-`},
   }
   
   // Computed properties for form binding
@@ -366,44 +253,6 @@ Example for SecurityTrails:
         }
       }
       
-      // Configuration for the API call
-      const agentConfig = {
-        provider: provider.value,
-        endpoint: props.data.inputs.endpoint,
-        api_key: props.data.inputs.api_key,
-        temperature: props.data.inputs.temperature,
-        system_prompt: props.data.inputs.system_prompt,
-        max_completion_tokens: props.data.inputs.max_completion_tokens,
-        enableToolCalls: enableToolCalls.value
-      };
-      
-      // Only include model when using OpenAI endpoint
-      if (props.data.inputs.endpoint && props.data.inputs.endpoint.includes('api.openai.com')) {
-        agentConfig.model = props.data.inputs.model;
-      }
-      
-      // Reset the response
-      props.data.outputs.response = '';
-      props.data.outputs.error = null;
-      
-      // Handle response updates
-      const onResponseUpdate = (tokenContent, fullResponse) => {
-        props.data.outputs.response = fullResponse;
-        
-        // Update connected output nodes if any
-        if (props.vueFlowInstance) {
-          const { getEdges, findNode } = props.vueFlowInstance;
-          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
-          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
-          
-          if (responseNode) {
-            responseNode.data.inputs.response = fullResponse;
-            // Don't run the next node for every token update, we'll trigger it at the end
-          }
-        }
-      };
-      
-      // Call the API based on the mode
       let result;
       
       if (agentMode.value) {
@@ -416,7 +265,7 @@ Example for SecurityTrails:
           },
           body: JSON.stringify({
             objective: finalPrompt,
-            max_steps: 30,
+            max_steps: agentMaxSteps.value,
             model: provider.value === 'openai' ? props.data.inputs.model : ''
           })
         });
@@ -486,21 +335,66 @@ Example for SecurityTrails:
           return result;
         }
       } else {
-        result = await callCompletionsAPI(agentConfig, finalPrompt, onResponseUpdate);
-      }
+        // --- Regular API call (non-agent mode) ---
+        const requestBody = {
+          model: props.data.inputs.model,
+          messages: [
+            {
+              role: "system",
+              content: props.data.inputs.system_prompt
+            },
+            {
+              role: "user",
+              content: finalPrompt
+            }
+          ],
+          max_tokens: props.data.inputs.max_completion_tokens || 1000,
+          temperature: props.data.inputs.temperature || 0.7
+        };
 
-      // Store result in outputs structure for downstream nodes
-      if (!agentMode.value) {
+        const response = await fetch(props.data.inputs.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${props.data.inputs.api_key}`
+          },
+          body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API error (${response.status}): ${errorText}`);
+        }
+
+        const responseData = await response.json();
+        const responseText = responseData.choices && responseData.choices[0]?.message?.content;
+        
+        // Update the outputs with the result
         props.data.outputs = {
           ...props.data.outputs,
+          response: responseText,
           result: {
-            output: result.content || result.error || props.data.outputs.response
+            output: responseText
           }
         };
+
+        // Update connected response nodes
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = responseText;
+          }
+        }
+
+        result = { content: responseText };
+        return result;
       }
 
-      // Handle error in result
-      if (result.error) {
+      // Handle error in result (this is now only for agent mode since we return earlier for regular API calls)
+      if (result && result.error) {
         props.data.outputs.error = result.error;
         props.data.outputs.response = JSON.stringify({ error: result.error }, null, 2);
         
@@ -665,6 +559,7 @@ Example for SecurityTrails:
     user_prompt,
     resizeHandleStyle,
     computedContainerStyle,
+    agentMaxSteps,
     
     // Methods
     run,

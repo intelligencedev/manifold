@@ -23,7 +23,11 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "objective required"})
 		}
 		if req.MaxSteps <= 0 {
-			req.MaxSteps = 14
+			// use default max steps from config
+			req.MaxSteps = cfg.Completions.ReactAgentConfig.MaxSteps
+			if req.MaxSteps <= 0 {
+				req.MaxSteps = 100
+			}
 		}
 
 		// ensure SSE headers
@@ -48,16 +52,24 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 		}
 
 		engine := &AgentEngine{
-			Config:       cfg,
-			DB:           conn,
-			MemoryEngine: NewAgenticEngine(conn),
-			HTTPClient:   &http.Client{Timeout: 180 * time.Second},
-			mcpMgr:       mgr,
-			mcpTools:     make(map[string]struct{}),
+			Config:     cfg,
+			DB:         conn,
+			HTTPClient: &http.Client{Timeout: 180 * time.Second},
+			mcpMgr:     mgr,
+			mcpTools:   make(map[string]struct{}),
 		}
-		if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
+
+		// Configure memory engine based on config
+		if cfg.AgenticMemory.Enabled {
+			engine.MemoryEngine = NewAgenticEngine(conn)
+			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
+				return c.String(http.StatusInternalServerError, err.Error())
+			}
+		} else {
+			// Use the no-op implementation when agentic memory is disabled
+			engine.MemoryEngine = &NilMemoryEngine{}
 		}
+
 		_ = engine.discoverMCPTools(ctx)
 
 		// helper to write one SSE data frame
@@ -71,10 +83,14 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 		}
 
 		// Stream agent steps synchronously in the handler
+		// Use a dedicated hook function to send each thought immediately as it happens
 		session, err := engine.RunSessionWithHook(ctx, req, func(st AgentStep) {
-			// send each thought wrapped as requested
+			// Each thought is immediately sent as it's produced
 			payload := fmt.Sprintf("<think>%s</think>", st.Thought)
 			write(payload)
+
+			// Flush to ensure client receives it immediately
+			flusher.Flush()
 		})
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())

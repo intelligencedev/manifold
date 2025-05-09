@@ -399,7 +399,7 @@
         "inputs": {
           "endpoint": "https://api.openai.com/v1/chat/completions",
           "api_key": "",
-          "model": "gpt-4o-mini",
+          "model": "gpt-4.1-mini",
           "system_prompt": "You are an expert in generating JSON payloads for executing code with dynamic dependency installation in a sandbox environment. The user can request code in one of three languages: python, go, or javascript. If the user requests a language outside of these three, respond with the text:\n\n'language not supported'\nOtherwise, produce a valid JSON object with the following structure:\n\nlanguage: a string with the value \"python\", \"go\", or \"javascript\".\n\ncode: a string containing the code that should be run in the specified language.\n\ndependencies: an array of strings, where each string is the name of a required package or library.\n\nIf no dependencies are needed, the dependencies array must be empty (e.g., []).\n\nAlways return only the raw JSON string without any additional text, explanation, or markdown formatting. If the requested language is unsupported, return only language not supported without additional formatting.",
           "user_prompt": "Write a haiku about manifolds.",
           "max_completion_tokens": 8192,
@@ -412,11 +412,10 @@
         "models": [
           "local",
           "chatgpt-4o-latest",
-          "gpt-4o",
-          "gpt-4o-mini",
-          "o1-mini",
+          "gpt-4.1-mini",
+          "gpt-4.1-nano",
           "o1",
-          "o3-mini"
+          "o4-mini"
         ],
         "style": {
           "border": "1px solid #666",

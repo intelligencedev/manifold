@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
+	"github.com/pterm/pterm"
 
 	"manifold/internal/mcp"
 )
@@ -65,7 +66,7 @@ type AgentSession struct {
 type AgentEngine struct {
 	Config       *Config
 	DB           *pgx.Conn
-	MemoryEngine *AgenticEngine
+	MemoryEngine MemoryEngine
 	HTTPClient   *http.Client
 
 	mcpMgr   *mcp.Manager
@@ -85,7 +86,13 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 			return c.JSON(400, map[string]string{"error": "objective required"})
 		}
 		if req.MaxSteps <= 0 {
-			req.MaxSteps = 100
+			// use default max steps from config
+			req.MaxSteps = cfg.Completions.ReactAgentConfig.MaxSteps
+			log.Printf("max_steps not set in config, using default %d", req.MaxSteps)
+			if req.MaxSteps <= 0 {
+				pterm.Debug.Println("max_steps not set in config, using default 100")
+				req.MaxSteps = 100
+			}
 		}
 
 		ctx := c.Request().Context()
@@ -101,16 +108,24 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 		}
 
 		engine := &AgentEngine{
-			Config:       cfg,
-			DB:           conn,
-			MemoryEngine: NewAgenticEngine(conn),
-			HTTPClient:   &http.Client{Timeout: 180 * time.Second},
-			mcpMgr:       mgr,
-			mcpTools:     make(map[string]struct{}),
+			Config:     cfg,
+			DB:         conn,
+			HTTPClient: &http.Client{Timeout: 180 * time.Second},
+			mcpMgr:     mgr,
+			mcpTools:   make(map[string]struct{}),
 		}
-		if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
+
+		// Configure memory engine based on config
+		if cfg.AgenticMemory.Enabled {
+			engine.MemoryEngine = NewAgenticEngine(conn)
+			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
+				return c.JSON(500, map[string]string{"error": err.Error()})
+			}
+		} else {
+			// Use the no-op implementation when agentic memory is disabled
+			engine.MemoryEngine = &NilMemoryEngine{}
 		}
+
 		_ = engine.discoverMCPTools(ctx)
 
 		session, err := engine.RunSession(ctx, req)
@@ -221,7 +236,7 @@ The json object should be formatted in a single line as follows:
 
 For example (using third party libraries):
 
-{"language":"python","code":"import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__ == '__main__':\n    main()","dependencies":["requests","beautifulsoup4","markdownify"]}
+{"language":"python","code":"import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__':\n    main()","dependencies":["requests","beautifulsoup4","markdownify"]}
 
 IMPORTANT: NEVER omit the three headers below – the server will error out:
   Thought: …
@@ -244,10 +259,14 @@ Tools:
 	for i := 0; i < req.MaxSteps; i++ {
 		var msgs []Message
 		msgs = append(msgs, Message{Role: "system", Content: sysPrompt})
-		// ❶ pull top-N memories
-		mems, _ := ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 5)
 
-		// ❷ graft them into the system prompt (or a separate “memory” message)
+		// Only query memories if agentic memory is enabled
+		var mems []AgenticMemory
+		if ae.Config.AgenticMemory.Enabled && ae.MemoryEngine != nil {
+			mems, _ = ae.MemoryEngine.SearchWithinWorkflow(ctx, ae.Config, sess.ID, req.Objective, 5)
+		}
+
+		// Add memories to the prompt if any were found
 		if len(mems) > 0 {
 			var memBuf strings.Builder
 			memBuf.WriteString("🔎 **Session memory snippets**\n")
@@ -581,6 +600,11 @@ func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, err
 /*────────────────────── memory ───────────────────────*/
 
 func (ae *AgentEngine) persistStep(ctx context.Context, workflowID uuid.UUID, st AgentStep) error {
+	// Check if agentic memory is enabled in configuration
+	if !ae.Config.AgenticMemory.Enabled {
+		return nil
+	}
+
 	txt := fmt.Sprintf("Thought: %s\nAction: %s\nInput: %s\nObs: %s",
 		st.Thought, st.Action, st.ActionInput, st.Observation)
 

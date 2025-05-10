@@ -27,6 +27,31 @@
         </label>
     </div>
 
+    <!-- Image Preview (shown only when an image is loaded) -->
+    <div v-if="isImage || data.isImage" class="image-preview">
+      <!-- Pan-and-scan slices -->
+      <template v-if="data.outputs?.result?.slices">
+        <div
+          v-for="(slice, index) in data.outputs.result.slices"
+          :key="index"
+          class="image-container"
+        >
+          <img :src="slice.dataUrl" :alt="`Image slice ${index + 1}`" />
+        </div>
+      </template>
+      <!-- Single image -->
+      <template v-else-if="data.outputs?.result?.dataUrl">
+        <div class="image-container">
+          <img :src="data.outputs.result.dataUrl" alt="Image preview" />
+        </div>
+      </template>
+      <template v-else>
+        <div class="empty-image-container">
+          Image will appear here when loaded
+        </div>
+      </template>
+    </div>
+
     <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
     <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
   </div>
@@ -63,6 +88,7 @@ const props = defineProps({
       outputHandleShape: '50%',
       handleColor: '#777',
       updateFromSource: true,
+      isImage: false,
     }),
   },
 });
@@ -70,7 +96,7 @@ const props = defineProps({
 const emit = defineEmits(['update:data']);
 
 // Use the open file node composable
-const { filepath, updateFromSource, updateNodeData, run } = useOpenFileNode(props, emit);
+const { filepath, updateFromSource, updateNodeData, run, isImage } = useOpenFileNode(props, emit);
 
 watch(
   () => props.data,
@@ -132,5 +158,38 @@ onMounted(() => {
   height: 12px;
   border: none;
   background-color: #777;
+}
+
+.image-preview {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #666;
+  padding: 5px;
+  background-color: #333;
+  border-radius: 4px;
+  overflow: hidden;
+  min-height: 100px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-container {
+  width: 100%;
+  text-align: center;
+}
+
+.image-container img {
+  max-width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+}
+
+.empty-image-container {
+  color: #999;
+  font-style: italic;
+  text-align: center;
 }
 </style>

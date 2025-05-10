@@ -208,36 +208,32 @@ export function useOpenFileNode(props, emit) {
         console.log('Loading image from:', currentFilePath);
         
         try {
-          const imageData = await loadImage(currentFilePath);
-          const { base64, dataUrl } = imageData;
-          // Pan-and-scan: slice into max 768px height segments if needed
-          const img = new Image(); img.src = dataUrl;
-          await new Promise((res) => { img.onload = res; });
-          if (img.height > 768) {
-            const slices = [];
+          // load and prepare image
+          let { base64, dataUrl } = await loadImage(currentFilePath);
+          const img = new Image();
+          await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+            img.src = dataUrl;
+          });
+          // resize to 256×256 (stretch to fit)
+          // This is a basic way of saving tokens
+          // TODO: Implement pan and scan method that stays
+          // within local model ctx limits,  32768 tokens
+          const TARGET_WIDTH = 256, TARGET_HEIGHT = 256;
+          if (img.width !== TARGET_WIDTH || img.height !== TARGET_HEIGHT) {
+            console.log(`Resizing image from ${img.width}×${img.height} to ${TARGET_WIDTH}×${TARGET_HEIGHT}`);
             const canvas = document.createElement('canvas');
-            canvas.width = img.width;
-            let y = 0;
-            while (y < img.height) {
-              const h = Math.min(768, img.height - y);
-              canvas.height = h;
-              const ctx = canvas.getContext('2d');
-              ctx.clearRect(0,0,canvas.width,canvas.height);
-              ctx.drawImage(img, 0, y, img.width, h, 0, 0, img.width, h);
-              const sliceDataUrl = canvas.toDataURL();
-              const sliceBase64 = sliceDataUrl.split(',')[1];
-              slices.push({ base64: sliceBase64, dataUrl: sliceDataUrl });
-              y += h;
-            }
-            props.data.outputs = { result: { slices } };
-          } else {
-            props.data.outputs = { result: { output: base64, dataUrl } };
+            canvas.width = TARGET_WIDTH;
+            canvas.height = TARGET_HEIGHT;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, TARGET_WIDTH, TARGET_HEIGHT);
+            dataUrl = canvas.toDataURL(getContentType(currentFilePath));
+            base64 = dataUrl.split(',')[1];
           }
-          
-          console.log('Image loaded successfully');
+          props.data.outputs = { result: { output: base64, dataUrl } };
         } catch (imageError) {
           console.error('Failed to load image:', imageError);
-          
           // Fall back to the API if direct loading fails
           console.log('Falling back to API for image loading');
           

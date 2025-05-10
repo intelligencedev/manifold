@@ -56,7 +56,7 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 			DB:         conn,
 			HTTPClient: &http.Client{Timeout: 180 * time.Second},
 			mcpMgr:     mgr,
-			mcpTools:   make(map[string]struct{}),
+			mcpTools:   make(map[string]ToolInfo),
 		}
 
 		// Configure memory engine based on config

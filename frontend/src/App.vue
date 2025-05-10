@@ -44,9 +44,9 @@
           <ReactAgent v-bind="reactAgentProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
             @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, reactAgentProps.id)" />
         </template>
-        <template #node-agentNode="agentNodeProps">
-          <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, agentNodeProps.id)" />
+        <template #node-completions="completionsProps">
+          <AgentNode v-bind="completionsProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, completionsProps.id)" />
         </template>
         <template #node-claudeNode="claudeNodeProps">
           <ClaudeNode v-bind="claudeNodeProps" @contextmenu.native.prevent="showContextMenu($event, claudeNodeProps.id)" />

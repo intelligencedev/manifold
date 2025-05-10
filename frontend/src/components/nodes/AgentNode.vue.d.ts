@@ -3,7 +3,7 @@ import type { Ref } from 'vue';
 
 // Define the shape of the input prop:
 interface AgentNodeData {
-    type: 'AgentNode';
+    type: 'Completions';
     labelStyle: {
         fontWeight: string;
     };

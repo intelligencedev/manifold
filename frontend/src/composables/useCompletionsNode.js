@@ -1,28 +1,30 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { useConfigStore } from '@/stores/configStore'
 import { useCodeEditor } from './useCodeEditor'
-import { useVueFlow } from '@vue-flow/core'
 
 /**
  * Composable for managing AgentNode state and functionality
  */
 export function useAgentNode(props, emit) {
-  // Access VueFlow API for node updates
-  const { getEdges, findNode, updateNodeData } = useVueFlow();
   const configStore = useConfigStore()
   const { setEditorCode } = useCodeEditor()
   
   // State variables
   const showApiKey = ref(false)
   const enableToolCalls = ref(false)
+  const agentMode = ref(false)
   const isHovered = ref(false)
   const customStyle = ref({
     width: '380px',
-    height: '760px' // Default height, matches NodeResizer minHeight
+    height: '760px'
   })
+  
+  // Computed property for agent max steps
+  const agentMaxSteps = computed(() => 
+    configStore.config?.Completions?.Agent?.MaxSteps || 30
+  )
 
   // Helper function to create an event stream splitter
-  // This is suitable for SSE format where events are `data: <payload>\n\n`
   function createEventStreamSplitter() {
     let buffer = '';
     return new TransformStream({
@@ -31,14 +33,11 @@ export function useAgentNode(props, emit) {
         let idx;
         while ((idx = buffer.indexOf("\n\n")) !== -1) {
           const event = buffer.slice(0, idx).replace(/^data:\s*/gm,'').trim();
-          if (event) { // Ensure non-empty event after processing
-            controller.enqueue(event);
-          }
+          controller.enqueue(event);
           buffer = buffer.slice(idx + 2);
         }
       },
       flush(controller) {
-        // Handle any remaining data in the buffer when the stream closes
         if (buffer.trim()) {
           const event = buffer.replace(/^data:\s*/gm,'').trim();
           if (event) {
@@ -49,30 +48,27 @@ export function useAgentNode(props, emit) {
     });
   }
   
-  // Function to update response in real-time as stream content comes in
+  // Function to update response in real-time as agent thoughts come in
   function onResponseUpdate(content, fullResponse) {
     // Update the UI with the streamed response
     props.data.outputs = {
       ...props.data.outputs,
       response: content,
-      result: { // Keep result.output consistent with the latest full content
-        output: fullResponse 
+      result: {
+        output: fullResponse
       }
     };
     
-    // Also propagate updates to connected ResponseNode components
-    const edges = getEdges.value.filter(edge => edge.source === props.id)
-    edges.forEach(edge => {
-      const targetId = edge.target
-      const node = findNode(targetId)
-      if (node && node.data?.inputs) {
-        const updated = {
-          ...node.data,
-          inputs: { ...node.data.inputs, response: content }
-        }
-        updateNodeData(targetId, updated)
+    // Also update any connected response nodes
+    if (props.vueFlowInstance) {
+      const { getEdges, findNode } = props.vueFlowInstance;
+      const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+      const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+      
+      if (responseNode) {
+        responseNode.data.inputs.response = content;
       }
-    })
+    }
   }
   
   // Predefined system prompts
@@ -199,28 +195,32 @@ Always return only the raw JSON string without any additional text, explanation,
         }
       }
       
+      // Custom local endpoint case - check for localhost or common patterns
       if (props.data.inputs.endpoint?.includes('localhost') ||
           props.data.inputs.endpoint?.includes('127.0.0.1')) {
+        // Maintain the last selected local provider or default to llama-server
         if (props.data._lastLocalProvider === 'mlx_lm.server') {
           return 'mlx_lm.server';
         }
-        return 'llama-server'; // Default local to llama-server
-      }
-      // Default to openai if endpoint looks like openai, otherwise llama-server as a general default
-      return props.data.inputs.endpoint?.includes('openai.com') ? 'openai' : 'llama-server';
-    },
-    set: (value) => {
-      if (value !== 'openai') {
-        props.data._lastLocalProvider = value; // Store for custom local endpoints
+        return 'llama-server';
       }
       
+      return 'llama-server';
+    },
+    set: (value) => {
+      // Store the last selected local provider for reference
+      if (value !== 'openai') {
+        props.data._lastLocalProvider = value;
+      }
+      
+      // Only change the endpoint when switching to OpenAI
       if (value === 'openai') {
         props.data.inputs.endpoint = 'https://api.openai.com/v1/chat/completions';
       } else if (!props.data.inputs.endpoint || props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
-        // If current endpoint is empty or OpenAI, set to default local
+        // Only set the default local endpoint if current endpoint is empty or OpenAI endpoint
         props.data.inputs.endpoint = configStore.config?.Completions?.DefaultHost || 'http://localhost:32186/v1/chat/completions';
       }
-      // Otherwise, keep user's custom endpoint
+      // Otherwise, keep the user's custom endpoint
     }
   });
   
@@ -234,140 +234,139 @@ Always return only the raw JSON string without any additional text, explanation,
   const computedContainerStyle = computed(() => ({
     ...props.data.style,
     ...customStyle.value,
-    width: '100%', // Ensure it fills the resizer
-    height: '100%' // Ensure it fills the resizer
+    width: '100%',
+    height: '100%'
   }))
   
   // Node functionality
   async function run() {
     console.log('Running AgentNode:', props.id);
-    props.data.outputs.error = null;
-    props.data.outputs.response = ''; 
-    onResponseUpdate('', ''); // Clear connected nodes too
-
-    let result = { content: '' };
-
     try {
       let finalPrompt = props.data.inputs.user_prompt;
-
-      // --- aggregate text from all connected source nodes ---
-      const incomingEdges = getEdges.value.filter(edge => edge.target === props.id);
-      for (const edge of incomingEdges) {
-        const sourceNode = findNode(edge.source);
-        if (sourceNode?.data?.outputs?.result?.output) {
-          finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
+      
+      // Collect input from connected nodes if any
+      if (props.vueFlowInstance) {
+        const { getEdges, findNode } = props.vueFlowInstance;
+        const connectedSources = getEdges.value
+          .filter((edge) => edge.target === props.id)
+          .map((edge) => edge.source);
+  
+        if (connectedSources.length > 0) {
+          for (const sourceId of connectedSources) {
+            const sourceNode = findNode(sourceId);
+            if (sourceNode) {
+              finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
+            }
+          }
         }
       }
-
-      // --- Regular API call with streaming ---
-      let visionContent = null;
-      const imageDataUrls = getEdges.value
-        .filter(edge => edge.target === props.id)
-        .map(edge => findNode(edge.source))
-        .filter(node => node?.data?.isImage && node.data.outputs?.result?.dataUrl)
-        .map(node => node.data.outputs.result.dataUrl);
-
-      if (imageDataUrls.length) {
-        visionContent = [{ type: 'text', text: finalPrompt }];
-        imageDataUrls.forEach(url => {
-          visionContent.push({ type: 'image_url', image_url: { url } });
-        });
-      }
-
-      let requestBody = {
-        model: props.data.inputs.model,
-        messages: [
-          { role: 'system', content: props.data.inputs.system_prompt },
-          { role: 'user', content: visionContent ? visionContent : finalPrompt }
-        ],
-        temperature: props.data.inputs.temperature ?? 0.7,
-      };
-
-      const modelName = props.data.inputs.model.toLowerCase();
-      if (modelName.startsWith('o') && /^o[0-9]/.test(modelName)) {
-        requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
-        requestBody.reasoning_effort = 'high';
-      } else {
-        requestBody.max_tokens = props.data.inputs.max_completion_tokens || 1000;
-      }
-
-      const currentProvider = provider.value;
-      const canStream = currentProvider === 'openai' || currentProvider === 'llama-server' || currentProvider === 'mlx_lm.server';
-
-      if (canStream) {
-        requestBody.stream = true;
-        
-        const headers = {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream'
-        };
-        if (currentProvider === 'openai' && props.data.inputs.api_key) {
-          headers['Authorization'] = `Bearer ${props.data.inputs.api_key}`;
-        }
-
-        const sseResp = await fetch(props.data.inputs.endpoint, {
+      
+      let result;
+      
+      if (agentMode.value) {
+        // --- ReAct agent call with streaming ---
+        const sseResp = await fetch('/api/agents/react/stream', {
           method: 'POST',
-          headers: headers,
-          body: JSON.stringify(requestBody)
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream'
+          },
+          body: JSON.stringify({
+            objective: finalPrompt,
+            max_steps: agentMaxSteps.value,
+            model: provider.value === 'openai' ? props.data.inputs.model : ''
+          })
         });
-
+        
         if (!sseResp.ok) {
-          const errorText = await sseResp.text();
-          throw new Error(`API error (${sseResp.status}): ${errorText}`);
+          throw new Error(`SSE ${sseResp.status}`);
         }
 
         const reader = sseResp.body
-            .pipeThrough(new TextDecoderStream())
-            .pipeThrough(createEventStreamSplitter())
-            .getReader();
+              .pipeThrough(new TextDecoderStream())
+              .pipeThrough(createEventStreamSplitter())
+              .getReader();
 
-        let accumulatedContent = '';
+        let accumulatedThoughts = '';  // accumulate just the thought content
+        let finalResult = '';          // store the final result separately
+
         try {
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
-
-            if (value.trim() === '[DONE]') { 
-              await reader.cancel(); 
+            if (value === '[[EOF]]') {
+              // tell the stream we're done
+              await reader.cancel();
               break;
             }
-            
-            try {
-              const chunkData = JSON.parse(value);
-              let deltaContent = '';
-              if (chunkData.choices && chunkData.choices[0] && chunkData.choices[0].delta) {
-                deltaContent = chunkData.choices[0].delta.content || '';
-              }
-              
-              if (deltaContent) {
-                accumulatedContent += deltaContent;
-                onResponseUpdate(accumulatedContent, accumulatedContent);
-              }
-            } catch (e) {
-              console.warn('Failed to parse stream chunk as JSON:', value, e.message);
+            // Extract content from <think> tags
+            const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/);
+            if (thinkMatch) {
+              accumulatedThoughts += thinkMatch[1] + '\n';
+            } else {
+              finalResult = value;
             }
+            const combinedResponse = 
+              (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
+              (finalResult ? `\n${finalResult}` : '');
+            onResponseUpdate(combinedResponse, combinedResponse);
           }
         } catch (e) {
-           console.error('Error reading chat completion stream:', e.message);
-           throw e; 
+          // ignore stream errors
         }
-        
-        props.data.outputs = {
-            ...props.data.outputs,
-            response: accumulatedContent,
-            result: { output: accumulatedContent }
-        };
-        result = { content: accumulatedContent };
 
+        // Set the final result with proper formatting
+        const finalResponse = 
+          (accumulatedThoughts ? `<think>${accumulatedThoughts}</think>` : '') + 
+          (finalResult ? `\n${finalResult}` : '');
+          
+        result = { content: finalResponse };
+        
+        // Update the required outputs.result.output structure for workflow compatibility
+        props.data.outputs = {
+          ...props.data.outputs,
+          result: {
+            output: finalResponse
+          }
+        };
+        
+        // Now that the agent has completed, trigger the next node in the workflow
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = finalResponse;
+          }
+
+          return result;
+        }
       } else {
-        // --- Fallback to non-streaming for other providers ---
+        // --- Regular API call (non-agent mode) ---
+        const requestBody = {
+          model: props.data.inputs.model,
+          messages: [
+            {
+              role: "system",
+              content: props.data.inputs.system_prompt
+            },
+            {
+              role: "user",
+              content: finalPrompt
+            }
+          ],
+          max_tokens: props.data.inputs.max_completion_tokens || 1000,
+          temperature: props.data.inputs.temperature || 0.7
+        };
+
         const response = await fetch(props.data.inputs.endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${props.data.inputs.api_key}` 
+            'Authorization': `Bearer ${props.data.inputs.api_key}`
           },
-          body: JSON.stringify(requestBody) 
+          body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {
@@ -376,58 +375,99 @@ Always return only the raw JSON string without any additional text, explanation,
         }
 
         const responseData = await response.json();
-        const responseText = responseData.choices && responseData.choices[0]?.message?.content || '';
+        const responseText = responseData.choices && responseData.choices[0]?.message?.content;
         
+        // Update the outputs with the result
         props.data.outputs = {
           ...props.data.outputs,
           response: responseText,
-          result: { output: responseText }
+          result: {
+            output: responseText
+          }
         };
-        onResponseUpdate(responseText, responseText); 
-        result = { content: responseText };
-      }
-      return result;
 
+        // Update connected response nodes
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = responseText;
+          }
+        }
+
+        result = { content: responseText };
+        return result;
+      }
+
+      // Handle error in result (this is now only for agent mode since we return earlier for regular API calls)
+      if (result && result.error) {
+        props.data.outputs.error = result.error;
+        props.data.outputs.response = JSON.stringify({ error: result.error }, null, 2);
+        
+        // Also update connected response nodes with the error
+        if (props.vueFlowInstance) {
+          const { getEdges, findNode } = props.vueFlowInstance;
+          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+          
+          if (responseNode) {
+            responseNode.data.inputs.response = props.data.outputs.response;
+            responseNode.run();
+          }
+        }
+      }
+      
+      return result;
     } catch (error) {
-      console.error('Error in AgentNode run:', props.id, error);
+      console.error('Error in AgentNode run:', error);
       const errorMessage = error.message || "Unknown error occurred";
       
+      // Store error in outputs
       props.data.outputs.error = errorMessage;
-      const errorResponse = JSON.stringify({ 
-        error: errorMessage,
-        details: error.cause ? String(error.cause) : undefined,
-        partialResponse: props.data.outputs.response 
-      }, null, 2);
-      props.data.outputs.response = errorResponse;
+      props.data.outputs.response = JSON.stringify({ error: errorMessage }, null, 2);
       
-      const targetEdges = getEdges.value.filter(edge => edge.source === props.id);
-      targetEdges.forEach(edge => {
-          const connectedNode = findNode(edge.target);
-          if (connectedNode && connectedNode.data && connectedNode.data.inputs) {
-              connectedNode.data.inputs.response = errorResponse;
-          }
-      });
-      return { error: errorMessage, content: props.data.outputs.response }; 
+      // Update connected response nodes with the error
+      if (props.vueFlowInstance) {
+        const { getEdges, findNode } = props.vueFlowInstance;
+        const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
+        const responseNode = responseNodeId ? findNode(responseNodeId) : null;
+        
+        if (responseNode) {
+          responseNode.data.inputs.response = props.data.outputs.response;
+          responseNode.run();
+        }
+      }
+      
+      return { error: errorMessage };
     }
   }
   
   /**
    * Sends code to the code editor
+   * Extracts code from node output and sends it to the editor
    */
   function sendToCodeEditor() {
     if (props.data.outputs && props.data.outputs.response) {
-      const responseText = props.data.outputs.response;
-      const codeBlockRegex = /```(?:javascript|js|python|go|typescript|ts|html|css|json|yaml|sh|bash)?\s*([\s\S]*?)```/gi;
-      let allCode = "";
-      let match;
-      while((match = codeBlockRegex.exec(responseText)) !== null) {
-        allCode += match[1].trim() + "\n\n";
-      }
-
-      if (allCode.trim()) {
-        setEditorCode(allCode.trim());
+      // Check for code blocks with ```js or ```javascript delimiters
+      const codeBlockRegex = /```(?:js|javascript)\s*([\s\S]*?)```/g;
+      const matches = [...props.data.outputs.response.matchAll(codeBlockRegex)];
+      
+      if (matches.length > 0) {
+        // Use the first JavaScript code block found
+        setEditorCode(matches[0][1].trim());
       } else {
-        setEditorCode(responseText); 
+        // If no specific code blocks are found, check for any code blocks
+        const anyCodeBlockRegex = /```([\s\S]*?)```/g;
+        const anyMatches = [...props.data.outputs.response.matchAll(anyCodeBlockRegex)];
+        
+        if (anyMatches.length > 0) {
+          setEditorCode(anyMatches[0][1].trim());
+        } else {
+          // If no code blocks at all, send the entire output
+          setEditorCode(props.data.outputs.response);
+        }
       }
     }
   }
@@ -436,15 +476,25 @@ Always return only the raw JSON string without any additional text, explanation,
   function onResize(event) {
     customStyle.value.width = `${event.width}px`;
     customStyle.value.height = `${event.height}px`;
-    emit('resize', { id: props.id, width: event.width, height: event.height });
+    emit('resize', event);
   }
   
   function handleTextareaMouseEnter() {
     emit('disable-zoom');
+    if (props.vueFlowInstance) {
+      const { zoomIn, zoomOut } = props.vueFlowInstance;
+      zoomIn(0);
+      zoomOut(0);
+    }
   }
   
   function handleTextareaMouseLeave() {
     emit('enable-zoom');
+    if (props.vueFlowInstance) {
+      const { zoomIn, zoomOut } = props.vueFlowInstance;
+      zoomIn(1);
+      zoomOut(1);
+    }
   }
   
   // Lifecycle hooks and watchers
@@ -452,60 +502,61 @@ Always return only the raw JSON string without any additional text, explanation,
     if (!props.data.run) {
       props.data.run = run;
     }
-    if (props.data.style) {
-        customStyle.value.width = props.data.style.width || '380px';
-        customStyle.value.height = props.data.style.height || '906px'; 
-    }
   })
   
+  // Use config for default key & endpoint
   watch(
     () => configStore.config,
     (newConfig) => {
       if (newConfig && newConfig.Completions) {
-        if (!props.data.inputs.api_key && newConfig.Completions.APIKey) {
+        if (!props.data.inputs.api_key) {
           props.data.inputs.api_key = newConfig.Completions.APIKey;
         }
-        if (!props.data.inputs.endpoint && newConfig.Completions.DefaultHost) {
+        if (!props.data.inputs.endpoint) {
           props.data.inputs.endpoint = newConfig.Completions.DefaultHost;
         }
       }
     },
-    { immediate: true, deep: true }
+    { immediate: true }
   )
   
+  // If the store's provider changes, reset endpoint
   watch(() => configStore.config?.Completions?.Provider, (newProvider) => {
-    if (newProvider && provider.value !== 'openai') { 
+    if (newProvider && provider.value !== 'openai') {
       props.data.inputs.endpoint = configStore.config.Completions.DefaultHost;
     }
   }, { immediate: true });
   
+  // Update system prompt when user picks a new predefined prompt
   watch(selectedSystemPrompt, (newKey) => {
     if (systemPromptOptions[newKey]) {
+      // Update only if dropdown was manually changed, not on restore
       system_prompt.value = systemPromptOptions[newKey].system_prompt;
     }
   });
-
-  if (!props.data.style) {
-    props.data.style = {
-        border: '1px solid #666',
-        borderRadius: '12px',
-        backgroundColor: '#333',
-        color: '#eee',
-        width: '380px',
-        height: '906px', 
-    };
-  }
-  customStyle.value.width = props.data.style.width || '380px';
-  customStyle.value.height = props.data.style.height || '906px';
+  
+  // Optional: preset the agent endpoint when toggling agent mode
+  watch(agentMode, (on) => {
+    if (on && !props.data.inputs.endpoint?.includes('/api/agents/react')) {
+      // Set the regular endpoint - the stream endpoint will be used internally
+      props.data.inputs.endpoint = 'http://localhost:8080/api/agents/react';
+    }
+  });
   
   return {
+    // State
     showApiKey,
     enableToolCalls,
-    agentMode: ref(false), // Keep this ref but set to false always
+    agentMode,
     selectedSystemPrompt,
     isHovered,
+    
+    // Options
+    systemPromptOptions,
     systemPromptOptionsList,
     providerOptions,
+    
+    // Computed properties
     provider,
     endpoint,
     api_key,
@@ -516,6 +567,9 @@ Always return only the raw JSON string without any additional text, explanation,
     user_prompt,
     resizeHandleStyle,
     computedContainerStyle,
+    agentMaxSteps,
+    
+    // Methods
     run,
     onResize,
     handleTextareaMouseEnter,

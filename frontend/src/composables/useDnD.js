@@ -4,6 +4,7 @@ import { ref, watch, nextTick } from 'vue'
 import NoteNode from '../components/nodes/NoteNode.vue'
 import PythonRunner from '../components/nodes/CodeRunnerNode.vue'
 import WebGLNode from '../components/nodes/WebGLNode.vue'
+import CompletionsNode from '../components/nodes/CompletionsNode.vue'
 import AgentNode from '../components/nodes/AgentNode.vue'
 import ClaudeNode from '../components/nodes/ClaudeNode.vue'
 import ResponseNode from '../components/nodes/ResponseNode.vue'
@@ -125,6 +126,9 @@ export default function useDragAndDrop() {
         break;
       case 'webGLNode':
         component = WebGLNode;
+        break;
+      case 'completionsNode':
+        component = CompletionsNode;
         break;
       case 'agentNode':
         component = AgentNode;

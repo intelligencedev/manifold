@@ -10,6 +10,7 @@
     <!-- Provider -->
     <BaseSelect label="Provider" v-model="provider" :options="providerOptions" />
 
+    <!-- Parameters -->
     <BaseAccordion title="Parameters">
       <BaseInput label="Endpoint" v-model="endpoint" />
 
@@ -29,7 +30,7 @@
         :id="`${data.id}-max_tokens`"
         label="Max Tokens"
         type="number"
-        v-model.number="max_tokens"
+        v-model.number="max_completion_tokens"
         min="1"
       />
       <BaseInput
@@ -41,8 +42,6 @@
         min="0"
         max="2"
       />
-
-      <BaseCheckbox label="Agent mode (/api/agents/react)" v-model="agentMode" />
 
       <BaseSelect
         label="Predefined System Prompt"
@@ -136,7 +135,7 @@ const emit = defineEmits(['update:data','resize','disable-zoom','enable-zoom'])
 const {
   showApiKey, agentMode, selectedSystemPrompt, isHovered,
   providerOptions, systemPromptOptionsList,
-  provider, endpoint, api_key, model, max_tokens, temperature,
+  provider, endpoint, api_key, model, max_completion_tokens, temperature,
   system_prompt, user_prompt,
   resizeHandleStyle, computedContainerStyle,
   onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor

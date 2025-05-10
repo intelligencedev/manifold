@@ -53,6 +53,9 @@ jobs:
       if: matrix.platform == 'darwin' && matrix.arch == 'arm64'
       shell: bash
       run: |
+        # Extract version without 'v' prefix
+        VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
+        
         # Build arm64 binaries
         GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold .
         
@@ -63,13 +66,16 @@ jobs:
         cd dist
         # Create distribution with correctly named binaries and config.yaml
         cp ../config.yaml.example ./config.yaml.example
-        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold mcp-manifold config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}-${VERSION}.zip manifold mcp-manifold config.yaml.example
         cd ..
 
     - name: Build for Linux
       if: matrix.platform == 'linux'
       shell: bash
       run: |
+        # Extract version without 'v' prefix
+        VERSION=$(echo ${{ github.ref_name }} | sed 's/^v//')
+        
         GOOS=${{ matrix.platform }} GOARCH=${{ matrix.arch }} go build -ldflags="-s -w -X main.version=${{ github.ref_name }}" -trimpath -o ./dist/manifold .
         
         # Build mcp-manifold binary
@@ -78,14 +84,14 @@ jobs:
         cd dist
         # Create distribution with correctly named binaries and config.yaml
         cp ../config.yaml.example ./config.yaml.example
-        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}.zip manifold mcp-manifold config.yaml.example
+        zip -r manifold-${{ matrix.platform }}-${{ matrix.arch }}-${VERSION}.zip manifold mcp-manifold config.yaml.example
         cd ..
 
     - name: Upload build artifact
       uses: actions/upload-artifact@v4
       with:
         name: manifold-${{ matrix.platform }}-${{ matrix.arch }}
-        path: dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}*
+        path: dist/manifold-${{ matrix.platform }}-${{ matrix.arch }}-*
 
   release:
     name: Create Release

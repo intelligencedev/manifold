@@ -477,10 +477,17 @@ watch(selectedRenderMode, () => {
 // ---------------- watch the stream ------------
 watch(
     () => props.data.inputs.response,
-    (txt) => {
-        parseResponse(txt || '');
+    (newResponseText, oldResponseText) => {
+        console.log(
+            'ResponseNode PROPS WATCHER: data.inputs.response changed.',
+            'New length:', newResponseText?.length,
+            'New text (last 50 chars):', newResponseText ? newResponseText.slice(-50) : '(empty)'
+        );
+        parseResponse(newResponseText || '');
         nextTick(() => {
-            if (isAutoScrollEnabled.value) scrollToBottom();
+            if (isAutoScrollEnabled.value) {
+                scrollToBottom();
+            }
         });
     },
     { immediate: true }

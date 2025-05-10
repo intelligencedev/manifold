@@ -40,9 +40,9 @@
           <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
             @node-resized="updateNodeDimensions" @contextmenu.prevent="showContextMenu($event, noteNodeProps.id)" />
         </template>
-        <template #node-completionsNode="completionsNodeProps">
-          <CompletionsNode v-bind="completionsNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, completionsNodeProps.id)" />
+        <template #node-reactAgent="reactAgentProps">
+          <ReactAgent v-bind="reactAgentProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, reactAgentProps.id)" />
         </template>
         <template #node-agentNode="agentNodeProps">
           <AgentNode v-bind="agentNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
@@ -197,7 +197,7 @@ import useDragAndDrop from './composables/useDnD.js';
 import NodePalette from './components/NodePalette.vue';
 import UtilityPalette from './components/UtilityPalette.vue';
 import NoteNode from './components/nodes/NoteNode.vue';
-import CompletionsNode from './components/nodes/CompletionsNode.vue';
+import ReactAgent from './components/nodes/ReactAgentNode.vue';
 import AgentNode from './components/nodes/AgentNode.vue';
 import ClaudeNode from './components/nodes/ClaudeNode.vue';
 import ResponseNode from './components/nodes/ResponseNode.vue';

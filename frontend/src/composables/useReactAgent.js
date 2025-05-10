@@ -1,16 +1,13 @@
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useConfigStore } from '@/stores/configStore'
-import { useCodeEditor } from './useCodeEditor'
 
 /**
  * Composable for managing AgentNode state and functionality
  */
-export function useAgentNode(props, emit) {
+export function useReactAgent(props, emit) {
   const configStore = useConfigStore()
-  const { setEditorCode } = useCodeEditor()
   
   // State variables
-  const showApiKey = ref(false)
   const isHovered = ref(false)
   const customStyle = ref({
     width: '380px',
@@ -79,11 +76,6 @@ export function useAgentNode(props, emit) {
     set: () => { /* no-op - endpoint is fixed */ }
   })
   
-  const api_key = computed({
-    get: () => props.data.inputs.api_key,
-    set: (value) => { props.data.inputs.api_key = value },
-  })
-  
   const user_prompt = computed({
     get: () => props.data.inputs.user_prompt,
     set: (value) => { props.data.inputs.user_prompt = value },
@@ -105,7 +97,7 @@ export function useAgentNode(props, emit) {
   
   // Node functionality
   async function run() {
-    console.log('Running AgentNode:', props.id);
+    console.log('Running ReactAgent:', props.id);
     try {
       let finalPrompt = props.data.inputs.user_prompt;
       
@@ -207,27 +199,8 @@ export function useAgentNode(props, emit) {
 
       return result;
 
-      // Handle error in result
-      if (result && result.error) {
-        props.data.outputs.error = result.error;
-        props.data.outputs.response = JSON.stringify({ error: result.error }, null, 2);
-        
-        // Also update connected response nodes with the error
-        if (props.vueFlowInstance) {
-          const { getEdges, findNode } = props.vueFlowInstance;
-          const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
-          const responseNode = responseNodeId ? findNode(responseNodeId) : null;
-          
-          if (responseNode) {
-            responseNode.data.inputs.response = props.data.outputs.response;
-            responseNode.run();
-          }
-        }
-      }
-      
-      return result;
     } catch (error) {
-      console.error('Error in AgentNode run:', error);
+      console.error('Error in ReactAgent run:', error);
       const errorMessage = error.message || "Unknown error occurred";
       
       // Store error in outputs
@@ -247,34 +220,6 @@ export function useAgentNode(props, emit) {
       }
       
       return { error: errorMessage };
-    }
-  }
-  
-  /**
-   * Sends code to the code editor
-   * Extracts code from node output and sends it to the editor
-   */
-  function sendToCodeEditor() {
-    if (props.data.outputs && props.data.outputs.response) {
-      // Check for code blocks with ```js or ```javascript delimiters
-      const codeBlockRegex = /```(?:js|javascript)\s*([\s\S]*?)```/g;
-      const matches = [...props.data.outputs.response.matchAll(codeBlockRegex)];
-      
-      if (matches.length > 0) {
-        // Use the first JavaScript code block found
-        setEditorCode(matches[0][1].trim());
-      } else {
-        // If no specific code blocks are found, check for any code blocks
-        const anyCodeBlockRegex = /```([\s\S]*?)```/g;
-        const anyMatches = [...props.data.outputs.response.matchAll(anyCodeBlockRegex)];
-        
-        if (anyMatches.length > 0) {
-          setEditorCode(anyMatches[0][1].trim());
-        } else {
-          // If no code blocks at all, send the entire output
-          setEditorCode(props.data.outputs.response);
-        }
-      }
     }
   }
 
@@ -312,27 +257,12 @@ export function useAgentNode(props, emit) {
     props.data.inputs.endpoint = '/api/agents/react';
   })
   
-  // Use config for default key
-  watch(
-    () => configStore.config,
-    (newConfig) => {
-      if (newConfig && newConfig.Completions) {
-        if (!props.data.inputs.api_key) {
-          props.data.inputs.api_key = newConfig.Completions.APIKey;
-        }
-      }
-    },
-    { immediate: true }
-  )
-  
   return {
     // State
-    showApiKey,
     isHovered,
     
     // Computed properties
     endpoint,
-    api_key,
     user_prompt,
     resizeHandleStyle,
     computedContainerStyle,
@@ -342,6 +272,5 @@ export function useAgentNode(props, emit) {
     onResize,
     handleTextareaMouseEnter,
     handleTextareaMouseLeave,
-    sendToCodeEditor
   }
 }

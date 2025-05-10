@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 
@@ -71,7 +70,7 @@ type AgentEngine struct {
 	HTTPClient   *http.Client
 
 	mcpMgr   *mcp.Manager
-	mcpTools map[string]struct{}
+	mcpTools map[string]ToolInfo
 }
 
 /*──────────────────────── route ───────────────────────*/
@@ -113,7 +112,7 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 			DB:         conn,
 			HTTPClient: &http.Client{Timeout: 180 * time.Second},
 			mcpMgr:     mgr,
-			mcpTools:   make(map[string]struct{}),
+			mcpTools:   make(map[string]ToolInfo),
 		}
 
 		// Configure memory engine based on config
@@ -144,6 +143,16 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 
 /*────────────────────── MCP discovery ─────────────────*/
 
+// ToolInfo holds metadata about an MCP tool.
+type ToolInfo struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"input_schema"`
+}
+
+// Update AgentEngine to use map[string]ToolInfo for mcpTools
+// (You must also update the AgentEngine struct definition above to: mcpTools map[string]ToolInfo)
+
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	for _, srv := range ae.mcpMgr.List() {
 		ts, err := ae.mcpMgr.ListTools(ctx, srv)
@@ -151,30 +160,40 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 			log.Printf("list tools %s: %v", srv, err)
 			continue
 		}
-		for _, t := range ts {
-			if n := extractToolName(t); n != "" {
-				ae.mcpTools[fmt.Sprintf("%s::%s", srv, n)] = struct{}{}
+
+		// Convert the returned JSON to a string
+		b, _ := json.Marshal(ts)
+		var tools []map[string]interface{}
+		if err := json.Unmarshal(b, &tools); err != nil {
+			log.Printf("unmarshal tools %s: %v", srv, err)
+			continue
+		}
+
+		// Process all tool data
+		for _, t := range tools {
+			name, _ := t["name"].(string)
+			desc, _ := t["description"].(string)
+
+			// Try both "input_schema" and "inputSchema" keys for compatibility
+			var inputSchema map[string]interface{}
+			if schema, ok := t["input_schema"].(map[string]interface{}); ok {
+				inputSchema = schema
+			} else if schema, ok := t["inputSchema"].(map[string]interface{}); ok {
+				inputSchema = schema
 			}
+
+			toolName := fmt.Sprintf("%s::%s", srv, name)
+			ae.mcpTools[toolName] = ToolInfo{
+				Name:        toolName,
+				Description: desc,
+				InputSchema: inputSchema,
+			}
+
+			log.Printf("Added MCP tool: %s | Description: %s | Schema: %+v \n\n",
+				toolName, desc, inputSchema)
 		}
 	}
 	return nil
-}
-
-func extractToolName(v interface{}) string {
-	switch vt := v.(type) {
-	case string:
-		return vt
-	case fmt.Stringer:
-		return vt.String()
-	}
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Struct {
-		f := rv.FieldByName("Name")
-		if f.IsValid() && f.Kind() == reflect.String {
-			return f.String()
-		}
-	}
-	return ""
 }
 
 /*────────────────────── main loop ─────────────────────*/
@@ -188,8 +207,12 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 
 	var td []string
 	for n := range ae.mcpTools {
-		log.Printf("MCP tool: %s", n)
-		td = append(td, "- "+n)
+		// Convert input schema to JSON string
+		schema, err := json.Marshal(ae.mcpTools[n].InputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal input schema: %v", err)
+		}
+		td = append(td, fmt.Sprintf("- %s • %s", n, ae.mcpTools[n].Description), string(schema))
 	}
 	td = append(td,
 		"- stage_path   • copy host src into tmp area; returns JSON {host_path,sandbox_path,path}",
@@ -256,9 +279,17 @@ Tools:
 		model = ae.Config.Completions.CompletionsModel
 	}
 
+	// Store conversation history across turns
+	var conversationHistory []Message
+
+	// Add system prompt only once at the beginning
+	conversationHistory = append(conversationHistory, Message{Role: "system", Content: sysPrompt})
+
 	for i := 0; i < req.MaxSteps; i++ {
-		var msgs []Message
-		msgs = append(msgs, Message{Role: "system", Content: sysPrompt})
+		var currentMessages []Message
+
+		// Start with the existing conversation history
+		currentMessages = append(currentMessages, conversationHistory...)
 
 		// Only query memories if agentic memory is enabled
 		var mems []AgenticMemory
@@ -275,24 +306,19 @@ Tools:
 			for i, m := range mems {
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
-			msgs = append(msgs, Message{Role: "system", Content: memBuf.String()})
+			// Add memory as a separate system message for this turn
+			currentMessages = append(currentMessages, Message{Role: "system", Content: memBuf.String()})
 		} else {
 			log.Printf("No memories found")
 		}
 
-		// build convo
-		for _, st := range sess.Steps {
-			msgs = append(msgs,
-				Message{Role: "assistant",
-					Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s\nObservation: %s",
-						st.Thought, st.Action, st.ActionInput, st.Observation)})
-		}
-		msgs = append(msgs, Message{Role: "user", Content: "Next step?"})
+		// For the current turn, add the user message
+		currentMessages = append(currentMessages, Message{Role: "user", Content: "Next step?"})
 
 		// Print the prompt for debugging
 		log.Println("=====================================")
 		log.Println("Prompt:")
-		for _, m := range msgs {
+		for _, m := range currentMessages {
 			if m.Role == "user" {
 				log.Printf("User: %s", m.Content)
 			} else {
@@ -301,7 +327,7 @@ Tools:
 		}
 		log.Println("=====================================")
 
-		out, err := ae.callLLM(ctx, model, msgs)
+		out, err := ae.callLLM(ctx, model, currentMessages)
 		if err != nil {
 			return nil, err
 		}
@@ -366,6 +392,8 @@ Tools:
 			}
 		}
 
+		//obs = truncate(obs, 500)
+
 		step := AgentStep{Index: len(sess.Steps) + 1, Thought: thought, Action: action, ActionInput: input, Observation: obs}
 		sess.Steps = append(sess.Steps, step)
 		_ = ae.persistStep(ctx, sess.ID, step)
@@ -373,6 +401,21 @@ Tools:
 		if hook != nil {
 			hook(step)
 		}
+
+		// Add the assistant's response to conversation history
+		assistantMessage := Message{
+			Role: "assistant",
+			Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s",
+				thought, action, input),
+		}
+		conversationHistory = append(conversationHistory, assistantMessage)
+
+		// Add the observation as a user message in the conversation history
+		userMessage := Message{
+			Role:    "user",
+			Content: fmt.Sprintf("Observation: %s\n\nNext step?", obs),
+		}
+		conversationHistory = append(conversationHistory, userMessage)
 
 		if strings.EqualFold(action, "finish") {
 			if step.ActionInput == "" {
@@ -393,7 +436,19 @@ Tools:
 /*────────────────────── LLM helper ────────────────────*/
 
 func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message) (string, error) {
-	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: 1024, Temperature: 0.15})
+	// Calculate input token count (approximate)
+	var promptTokens int
+	for _, msg := range msgs {
+		promptTokens += len(strings.Split(msg.Content, " ")) // Simple approximation
+	}
+
+	// Get model context size (default to 4096 if unknown)
+	modelCtx := 32768 // default context size
+
+	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
+	maxTokens := max(modelCtx-promptTokens-1024, 128)
+
+	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
 	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
@@ -414,7 +469,10 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message
 	if len(cr.Choices) == 0 {
 		return "", fmt.Errorf("no choices")
 	}
-	return strings.TrimSpace(cr.Choices[0].Message.Content), nil
+	// Remove <think> and </think> tags
+	response := strings.ReplaceAll(cr.Choices[0].Message.Content, "<think>", "")
+	response = strings.ReplaceAll(response, "</think>", "")
+	return strings.TrimSpace(response), nil
 }
 
 /*────────────────────── parse helper ─────────────────*/

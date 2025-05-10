@@ -12,6 +12,12 @@ Manifold is a powerful platform designed for workflow automation using AI models
 
 ---
 
+## Vision Support - Local Models + OpenAI Compatible
+
+![Manifold](docs/vision.jpg)
+
+---
+
 ## Web Search and Retrieval
 
 ![Manifold](docs/web.jpg)

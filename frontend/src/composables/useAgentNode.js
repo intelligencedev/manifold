@@ -250,30 +250,24 @@ Always return only the raw JSON string without any additional text, explanation,
   // Node functionality
   async function run() {
     console.log('Running AgentNode:', props.id);
-    // Clear previous error/response before new run
     props.data.outputs.error = null;
     props.data.outputs.response = ''; 
     onResponseUpdate('', ''); // Clear connected nodes too
 
-    let result = { content: '' }; // Initialize result
+    let result = { content: '' };
 
     try {
       let finalPrompt = props.data.inputs.user_prompt;
-      
-      if (props.vueFlowInstance) {
-        const { getEdges, findNode } = props.vueFlowInstance;
-        const connectedSources = getEdges.value
-          .filter((edge) => edge.target === props.id)
-          .map((edge) => edge.source);
-  
-        for (const sourceId of connectedSources) {
-          const sourceNode = findNode(sourceId);
-          if (sourceNode && sourceNode.data.outputs && sourceNode.data.outputs.result && sourceNode.data.outputs.result.output) {
-            finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
-          }
+
+      // --- aggregate text from all connected source nodes ---
+      const incomingEdges = getEdges.value.filter(edge => edge.target === props.id);
+      for (const edge of incomingEdges) {
+        const sourceNode = findNode(edge.source);
+        if (sourceNode?.data?.outputs?.result?.output) {
+          finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
         }
       }
-      
+
       if (agentMode.value) {
         // --- ReAct agent call with streaming ---
         const sseResp = await fetch(props.data.inputs.endpoint, { // Endpoint is now /api/agents/react/stream
@@ -339,22 +333,20 @@ Always return only the raw JSON string without any additional text, explanation,
 
       } else {
         // --- Regular API call (non-agent mode) with streaming ---
+        
+        // build visionContent using top-level getEdges/findNode
         let visionContent = null;
-        if (props.vueFlowInstance) {
-          const { getEdges, findNode } = props.vueFlowInstance;
-          const imageSources = getEdges.value
-            .filter((edge) => edge.target === props.id)
-            .map((edge) => findNode(edge.source))
-            .filter((node) => node?.data?.isImage && node.data.outputs?.result?.dataUrl);
-          if (imageSources.length > 0) {
-            visionContent = [{ type: 'text', text: finalPrompt }]; // Use finalPrompt for text part
-            imageSources.forEach((node) => {
-              visionContent.push({
-                type: 'image_url',
-                image_url: { url: node.data.outputs.result.dataUrl }
-              });
-            });
-          }
+        const imageDataUrls = getEdges.value
+          .filter(edge => edge.target === props.id)
+          .map(edge => findNode(edge.source))
+          .filter(node => node?.data?.isImage && node.data.outputs?.result?.dataUrl)
+          .map(node => node.data.outputs.result.dataUrl);
+
+        if (imageDataUrls.length) {
+          visionContent = [{ type: 'text', text: finalPrompt }];
+          imageDataUrls.forEach(url => {
+            visionContent.push({ type: 'image_url', image_url: { url } });
+          });
         }
 
         let requestBody = {
@@ -363,9 +355,9 @@ Always return only the raw JSON string without any additional text, explanation,
             { role: 'system', content: props.data.inputs.system_prompt },
             { role: 'user', content: visionContent ? visionContent : finalPrompt }
           ],
-          temperature: props.data.inputs.temperature !== undefined ? props.data.inputs.temperature : 0.7,
+          temperature: props.data.inputs.temperature ?? 0.7,
         };
-        
+
         const modelName = props.data.inputs.model.toLowerCase();
         if (modelName.startsWith('o') && /^o[0-9]/.test(modelName)) {
           requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
@@ -495,16 +487,13 @@ Always return only the raw JSON string without any additional text, explanation,
       props.data.outputs.response = errorResponse;
       
       // Update connected response nodes with the error
-      if (props.vueFlowInstance) {
-        const { getEdges, findNode } = props.vueFlowInstance;
-        const targetEdges = getEdges.value.filter(edge => edge.source === props.id);
-        targetEdges.forEach(edge => {
-            const connectedNode = findNode(edge.target);
-            if (connectedNode && connectedNode.data && connectedNode.data.inputs) {
-                connectedNode.data.inputs.response = errorResponse;
-            }
-        });
-      }
+      const targetEdges = getEdges.value.filter(edge => edge.source === props.id);
+      targetEdges.forEach(edge => {
+          const connectedNode = findNode(edge.target);
+          if (connectedNode && connectedNode.data && connectedNode.data.inputs) {
+              connectedNode.data.inputs.response = errorResponse;
+          }
+      });
       return { error: errorMessage, content: props.data.outputs.response }; // Return error object for workflow
     }
   }

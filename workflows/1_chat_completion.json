@@ -1,15 +1,15 @@
 {
   "nodes": [
     {
-      "id": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
-      "type": "agentNode",
+      "id": "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "type": "completions",
       "initialized": false,
       "position": {
         "x": 480,
         "y": 96
       },
       "data": {
-        "type": "AgentNode",
+        "type": "completions",
         "labelStyle": {
           "fontWeight": "normal"
         },
@@ -83,7 +83,7 @@
           "height": "400px"
         },
         "connectedTo": [
-          "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
+          "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
         ]
       },
       "style": {
@@ -96,7 +96,7 @@
     {
       "id": "edge-0.30367276511116714",
       "type": "step",
-      "source": "agentNode_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "source": "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
       "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
       "sourceHandle": null,
       "targetHandle": "input",

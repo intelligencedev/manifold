@@ -30,7 +30,6 @@ import MCPClientNode from '../components/nodes/MCPClient.vue'
 import Mermaid from '../components/nodes/Mermaid.vue'
 import CodeRunnerNode from '../components/nodes/CodeRunnerNode.vue'
 import MessageBusNode from '@/components/MessageBusNode.vue'
-import ReactAgentNode from '../components/nodes/ReactAgentNode.vue'
 
 let id = 0
 
@@ -131,7 +130,7 @@ export default function useDragAndDrop() {
       case 'reactAgent':
         component = ReactAgent;
         break;
-      case 'agentNode':
+      case 'completions':
         component = AgentNode;
         break;
       case 'claudeNode':

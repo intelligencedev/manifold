@@ -196,8 +196,6 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 		"- code_eval    • run code in sandbox",
 		"- finish       • end and output final answer",
 	)
-	// Explicit guidance for web_content
-	td = append(td, `NOTE → "manifold::web_content" needs {"urls":["https://example.com", "..."]}`)
 
 	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
 Objective: %s

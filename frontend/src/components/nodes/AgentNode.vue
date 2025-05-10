@@ -105,11 +105,11 @@ import BaseAccordion from '@/components/base/BaseAccordion.vue'
 import { useAgentNode } from '@/composables/useAgentNode'
 
 const props = defineProps({
-  id: { type:String, required:true, default:'Agent_0' },
+  id: { type:String, required:true, default:'Completions_0' },
   data:{
     type:Object,
     default:()=>({
-      type:'AgentNode', labelStyle:{ fontWeight:'normal' },
+      type:'Completions', labelStyle:{ fontWeight:'normal' },
       hasInputs:true, hasOutputs:true,
       inputs:{
         endpoint:'',

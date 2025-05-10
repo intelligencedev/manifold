@@ -4,6 +4,7 @@ import { ref, watch, nextTick } from 'vue'
 import NoteNode from '../components/nodes/NoteNode.vue'
 import PythonRunner from '../components/nodes/CodeRunnerNode.vue'
 import WebGLNode from '../components/nodes/WebGLNode.vue'
+import ReactAgent from '../components/nodes/ReactAgentNode.vue'
 import AgentNode from '../components/nodes/AgentNode.vue'
 import ClaudeNode from '../components/nodes/ClaudeNode.vue'
 import ResponseNode from '../components/nodes/ResponseNode.vue'
@@ -29,6 +30,7 @@ import MCPClientNode from '../components/nodes/MCPClient.vue'
 import Mermaid from '../components/nodes/Mermaid.vue'
 import CodeRunnerNode from '../components/nodes/CodeRunnerNode.vue'
 import MessageBusNode from '@/components/MessageBusNode.vue'
+import ReactAgentNode from '../components/nodes/ReactAgentNode.vue'
 
 let id = 0
 
@@ -125,6 +127,9 @@ export default function useDragAndDrop() {
         break;
       case 'webGLNode':
         component = WebGLNode;
+        break;
+      case 'reactAgent':
+        component = ReactAgent;
         break;
       case 'agentNode':
         component = AgentNode;

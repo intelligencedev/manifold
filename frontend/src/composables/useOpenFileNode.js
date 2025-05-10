@@ -208,19 +208,19 @@ export function useOpenFileNode(props, emit) {
         console.log('Loading image from:', currentFilePath);
         
         try {
-          // load and prepare image
-          let { base64, dataUrl } = await loadImage(currentFilePath);
+          // load original image
+          const { base64: origBase64, dataUrl: origDataUrl } = await loadImage(currentFilePath);
           const img = new Image();
           await new Promise((resolve, reject) => {
             img.onload = resolve;
             img.onerror = reject;
-            img.src = dataUrl;
+            img.src = origDataUrl;
           });
+
           // resize to 256×256 (stretch to fit)
-          // This is a basic way of saving tokens
-          // TODO: Implement pan and scan method that stays
-          // within local model ctx limits,  32768 tokens
           const TARGET_WIDTH = 256, TARGET_HEIGHT = 256;
+          let resizedDataUrl = origDataUrl;
+          let resizedBase64 = origBase64;
           if (img.width !== TARGET_WIDTH || img.height !== TARGET_HEIGHT) {
             console.log(`Resizing image from ${img.width}×${img.height} to ${TARGET_WIDTH}×${TARGET_HEIGHT}`);
             const canvas = document.createElement('canvas');
@@ -228,10 +228,17 @@ export function useOpenFileNode(props, emit) {
             canvas.height = TARGET_HEIGHT;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, TARGET_WIDTH, TARGET_HEIGHT);
-            dataUrl = canvas.toDataURL(getContentType(currentFilePath));
-            base64 = dataUrl.split(',')[1];
+            resizedDataUrl = canvas.toDataURL(getContentType(currentFilePath));
+            resizedBase64 = resizedDataUrl.split(',')[1];
           }
-          props.data.outputs = { result: { output: base64, dataUrl } };
+          // original image for display, processedDataUrl for processing
+          props.data.outputs = {
+            result: {
+              output: resizedBase64,
+              dataUrl: origDataUrl,
+              processedDataUrl: resizedDataUrl
+            }
+          };
         } catch (imageError) {
           console.error('Failed to load image:', imageError);
           // Fall back to the API if direct loading fails

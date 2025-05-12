@@ -18,7 +18,7 @@ require (
 	github.com/labstack/echo-contrib v0.17.3
 	github.com/labstack/echo-jwt/v4 v4.3.1
 	github.com/labstack/echo/v4 v4.13.3
-	github.com/metoro-io/mcp-golang v0.9.0
+	github.com/metoro-io/mcp-golang v0.12.0
 	github.com/pgvector/pgvector-go v0.2.3
 	github.com/pterm/pterm v0.12.80
 	github.com/shirou/gopsutil v3.21.11+incompatible

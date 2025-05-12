@@ -478,11 +478,6 @@ watch(selectedRenderMode, () => {
 watch(
     () => props.data.inputs.response,
     (newResponseText, oldResponseText) => {
-        console.log(
-            'ResponseNode PROPS WATCHER: data.inputs.response changed.',
-            'New length:', newResponseText?.length,
-            'New text (last 50 chars):', newResponseText ? newResponseText.slice(-50) : '(empty)'
-        );
         parseResponse(newResponseText || '');
         nextTick(() => {
             if (isAutoScrollEnabled.value) {

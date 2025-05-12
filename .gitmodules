@@ -4,3 +4,6 @@
 [submodule "external/pgvector"]
 	path = external/pgvector
 	url = https://github.com/pgvector/pgvector.git
+[submodule "external/tools"]
+	path = external/tools
+	url = https://go.googlesource.com/tools

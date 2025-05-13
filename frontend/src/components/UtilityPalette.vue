@@ -65,7 +65,11 @@
           </div>
           <pre v-if="selectedLanguage !== 'html'" ref="outputRef" class="output-content">{{ output }}</pre>
           <div v-else class="html-preview-container">
-            <iframe ref="htmlPreviewRef" class="html-preview-iframe" sandbox="allow-scripts"></iframe>
+            <iframe
+              :key="htmlPreviewKey"
+              ref="htmlPreviewRef"
+              class="html-preview-iframe"
+            ></iframe>
           </div>
         </div>
     
@@ -102,6 +106,7 @@ const outputRef = ref<HTMLPreElement | null>(null);
 const htmlPreviewRef = ref<HTMLIFrameElement | null>(null);
 const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
 const selectedLanguage = ref<'javascript' | 'python' | 'html'>('javascript');
+const htmlPreviewKey   = ref<number>(0);
 // Heights for resizable panels
 const editorHeightPercent = ref<number>(50); // Default split at 50%
 const htmlCode = ref<string>(`<!DOCTYPE html>
@@ -221,19 +226,11 @@ function togglePalette() {
 }
 
 // Handle language switching
-const handleLanguageChange = () => {
-  // Store current code in the appropriate language store
-  codeStore[selectedLanguage.value] = code.value;
-  
-  // Load code for the newly selected language
-  code.value = codeStore[selectedLanguage.value];
-  
-  // When switching to HTML, render the preview
-  if (selectedLanguage.value === 'html') {
-    nextTick(() => {
-      renderHtml();
-    });
-  }
+const handleLanguageChange = (evt: Event) => {
+  const oldLang = (evt.target as HTMLSelectElement).value as keyof typeof codeStore;
+  codeStore[oldLang] = code.value;                  // keep outgoing buffer
+  code.value = codeStore[selectedLanguage.value];   // load incoming buffer
+  if (selectedLanguage.value === 'html') renderHtml(true);
 };
 
 // Watch for language changes to update the placeholder and editor
@@ -244,9 +241,23 @@ watch(selectedLanguage, (newLang) => {
   }
 });
 
+watch(htmlPreviewRef, (newIframe) => {
+  console.log(`[${new Date().toISOString()}] htmlPreviewRef watcher triggered. New value: ${newIframe ? 'iframe element' : newIframe}`);
+  // Only render if the iframe just became available AND we are in HTML mode
+  if (newIframe && selectedLanguage.value === 'html') {
+    console.log(`[${new Date().toISOString()}] Ref became available while in HTML mode. Triggering renderHtml.`);
+    // Optional: Debounce or add a small delay if needed
+    // Use nextTick to ensure any related state updates are processed
+    nextTick(() => {
+        renderHtml();
+    });
+  }
+});
+
 // HTML rendering function
-const renderHtml = () => {
-  const iframe = htmlPreviewRef.value as HTMLIFrameElement;
+const renderHtml = (force = false) => {
+  if (force) htmlPreviewKey.value += 1;             // guarantees reload
+  const iframe = htmlPreviewRef.value;
   if (!iframe) return;
   
   try {
@@ -297,10 +308,10 @@ const refreshPreview = () => {
   }
 };
 
-const runCode = () => {
-  // If HTML mode, render the HTML instead of running code
+const runCode = async () => {
   if (selectedLanguage.value === 'html') {
-    renderHtml();
+    await nextTick();      // wait for last keystroke commit
+    renderHtml(true);
     return;
   }
   

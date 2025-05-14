@@ -275,7 +275,7 @@ Always return only the raw JSON string without any additional text, explanation,
       }
 
       let requestBody = {
-        model: props.data.inputs.model,
+        //model: props.data.inputs.model,
         messages: [
           { role: 'system', content: props.data.inputs.system_prompt },
           { role: 'user', content: visionContent ? visionContent : finalPrompt }
@@ -288,7 +288,8 @@ Always return only the raw JSON string without any additional text, explanation,
         requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
         requestBody.reasoning_effort = 'high';
       } else {
-        requestBody.max_tokens = props.data.inputs.max_completion_tokens || 1000;
+        delete requestBody.model;
+        requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
       }
 
       const currentProvider = provider.value;

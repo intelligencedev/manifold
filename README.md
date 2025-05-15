@@ -202,7 +202,7 @@ To build the Docker image:
 $ cd manifold
 
 # Build the Docker image with the intelligencedev/manifold:latest tag
-$ docker build -t intelligencedev/manifold:latest -f manifold-mcp.Dockerfile .
+$ docker build -t intelligencedev/manifold-mcp:latest -f manifold-mcp.Dockerfile .
 ```
 
 Once built, you can configure the MCP server in your `config.yaml`:

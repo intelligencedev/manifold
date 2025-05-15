@@ -117,7 +117,7 @@ const props = defineProps({
         model:'local',
         system_prompt:'You are a helpful assistant.',
         user_prompt:'Write a haiku about manifolds.',
-        max_tokens:8192,
+        max_completion_tokens:8192,
         temperature:0.6
       },
       outputs:{ response:'' },

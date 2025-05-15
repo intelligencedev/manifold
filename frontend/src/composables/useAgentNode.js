@@ -275,7 +275,6 @@ Always return only the raw JSON string without any additional text, explanation,
       }
 
       let requestBody = {
-        model: props.data.inputs.model,
         messages: [
           { role: 'system', content: props.data.inputs.system_prompt },
           { role: 'user', content: visionContent ? visionContent : finalPrompt }
@@ -284,14 +283,23 @@ Always return only the raw JSON string without any additional text, explanation,
       };
 
       const modelName = props.data.inputs.model.toLowerCase();
-      if (modelName.startsWith('o') && /^o[0-9]/.test(modelName)) {
-        requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
-        requestBody.reasoning_effort = 'high';
+      const currentProvider = provider.value;
+      
+      // Only include model parameter for OpenAI provider
+      if (currentProvider === 'openai') {
+        requestBody.model = props.data.inputs.model;
+        
+        if (modelName.startsWith('o') && /^o[0-9]/.test(modelName)) {
+          requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
+          requestBody.reasoning_effort = 'high';
+        } else {
+          requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
+        }
       } else {
-        requestBody.max_tokens = props.data.inputs.max_completion_tokens || 1000;
+        // For non-OpenAI providers
+        requestBody.max_completion_tokens = props.data.inputs.max_completion_tokens || 1000;
       }
 
-      const currentProvider = provider.value;
       const canStream = currentProvider === 'openai' || currentProvider === 'llama-server' || currentProvider === 'mlx_lm.server';
 
       if (canStream) {

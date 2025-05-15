@@ -36,10 +36,10 @@ RUN mkdir -p /home/manifold/.ssh && \
     chown -R manifold:manifold /home/manifold/.ssh && \
     chmod 700 /home/manifold/.ssh
 
-# Add SSH config to avoid strict host key checking for GitHub
-RUN echo "Host github.com\n\tStrictHostKeyChecking no\n\tIdentityFile /home/manifold/.ssh/id_rsa\n" >> /home/manifold/.ssh/config && \
-    chown manifold:manifold /home/manifold/.ssh/config && \
-    chmod 600 /home/manifold/.ssh/config
+# Add GitHub's public key to known_hosts to ensure secure SSH connections
+RUN ssh-keyscan -t rsa github.com >> /home/manifold/.ssh/known_hosts && \
+    chown manifold:manifold /home/manifold/.ssh/known_hosts && \
+    chmod 600 /home/manifold/.ssh/known_hosts
 
 # Make sure manifold user owns the app directory
 RUN chown -R manifold:manifold /app

@@ -189,6 +189,45 @@ Manifold is compatible with OpenAI-compatible endpoints:
 Any inference engine that serves the standard completions endpoints will work such as vLLM, etc.
 ---
 
+## Docker Images
+
+### Building the Manifold MCP Docker Image
+
+Manifold provides a Docker image for the Model Context Protocol (MCP) server component, allowing you to run the MCP server in containerized environments.
+
+To build the Docker image:
+
+```bash
+# Navigate to the manifold root directory
+$ cd manifold
+
+# Build the Docker image with the intelligencedev/manifold:latest tag
+$ docker build -t intelligencedev/manifold:latest -f manifold-mcp.Dockerfile .
+```
+
+Once built, you can configure the MCP server in your `config.yaml`:
+
+```yaml
+mcpServers:
+  manifold:
+    command: docker
+    args:
+      - run
+      - --rm
+      - -e
+      - DATA_PATH=/app/projects
+      - -i
+      - --volume
+      - /Users/$USER/.manifold/tmp:/app/projects
+      - --volume
+      - /Users/$USER/.ssh:/home/manifold/.ssh:ro
+      - -e
+      - GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -i /home/manifold/.ssh/id_rsa"
+      - intelligencedev/manifold-mcp
+```
+
+---
+
 ## Troubleshooting Common Issues
 
 - **Port Conflict:** If port 8080 is occupied, either terminate conflicting processes or choose a new port in `config.yaml`.
@@ -196,32 +235,6 @@ Any inference engine that serves the standard completions endpoints will work su
 - **Missing Config File:** Ensure `config.yaml` exists in the correct directory. Manifold will not launch without it.
 
 ---
-
-## Run in Development Mode
-
-Ensure `config.yaml` is present at the root of the project by using the provided `config.yaml.example` template and configuring your values.
-
-Run the Go backend:
-```
-$ go mod tidy
-$ go run .
-```
-
-Run the frontend:
-```
-$ cd frontend
-$ nvm use 20
-$ npm install
-$ npm run dev
-```
-
-## Release Process
-
-Manifold uses GitHub Actions to automatically build and publish releases. To create a new release:
-
-1. Update version references in the codebase as needed
-2. Create and push a new tag with the version number (e.g., `v0.1.0`)
-3. GitHub Actions will automatically build binaries for all supported platforms and publish them as a GitHub release
 
 ## Contributing
 

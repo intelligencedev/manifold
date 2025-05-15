@@ -56,9 +56,6 @@ func registerAllTools(server *mcp.Server) {
 	// Basic tools
 	registerBasicTools(server)
 
-	// File system tools
-	registerFileSystemTools(server)
-
 	// Git tools
 	registerGitTools(server)
 
@@ -75,13 +72,6 @@ func registerBasicTools(server *mcp.Server) {
 		description string
 		handler     interface{}
 	}{
-		{"hello", "Says hello to the provided name", func(args HelloArgs) (*mcp.ToolResponse, error) {
-			res, err := helloTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
 		{"calculate", "Performs basic mathematical operations", func(args CalculateArgs) (*mcp.ToolResponse, error) {
 			res, err := calculateTool(args)
 			if err != nil {
@@ -180,162 +170,14 @@ func registerBasicTools(server *mcp.Server) {
 	}
 }
 
-// registerFileSystemTools registers tools related to file system operations
-func registerFileSystemTools(server *mcp.Server) {
-	tools := []struct {
-		name        string
-		description string
-		handler     interface{}
-	}{
-		{"read_file", "Reads the entire contents of a text file", func(args ReadFileArgs) (*mcp.ToolResponse, error) {
-			res, err := readFileTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"read_file_chunk", "Reads a byte range of a file", func(args ReadFileChunkArgs) (*mcp.ToolResponse, error) {
-			res, err := readFileChunkTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"summarize_file", "Returns a short heuristic summary of a file", func(args SummarizeFileArgs) (*mcp.ToolResponse, error) {
-			res, err := summarizeFileTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"write_file", "Writes text content to a file", func(args WriteFileArgs) (*mcp.ToolResponse, error) {
-			res, err := writeFileTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"list_directory", "Lists files and directories", func(args ListDirectoryArgs) (*mcp.ToolResponse, error) {
-			res, err := listDirectoryTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"create_directory", "Creates a directory", func(args CreateDirectoryArgs) (*mcp.ToolResponse, error) {
-			res, err := createDirectoryTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"move_file", "Moves or renames a file/directory", func(args MoveFileArgs) (*mcp.ToolResponse, error) {
-			res, err := moveFileTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"read_multiple_files", "Reads the contents of multiple files", func(args ReadMultipleFilesArgs) (*mcp.ToolResponse, error) {
-			res, err := readMultipleFilesTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"edit_file", "Edits a file via search and replace", func(args EditFileArgs) (*mcp.ToolResponse, error) {
-			res, err := editFileTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"directory_tree", "Recursively lists the directory structure", func(args DirectoryTreeArgs) (*mcp.ToolResponse, error) {
-			res, err := directoryTreeTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"search_files", "Searches for a text pattern in files", func(args SearchFilesArgs) (*mcp.ToolResponse, error) {
-			res, err := searchFilesTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"get_file_info", "Returns metadata for a file or directory", func(args GetFileInfoArgs) (*mcp.ToolResponse, error) {
-			res, err := getFileInfoTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"list_allowed_directories", "Lists directories allowed for access", func(args ListAllowedDirectoriesArgs) (*mcp.ToolResponse, error) {
-			res, err := listAllowedDirectoriesTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"delete_file", "Deletes a file or directory", func(args DeleteFileArgs) (*mcp.ToolResponse, error) {
-			res, err := deleteFileTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"copy_file", "Copies a file or directory", func(args CopyFileArgs) (*mcp.ToolResponse, error) {
-			res, err := copyFileTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-	}
-
-	for _, tool := range tools {
-		if err := server.RegisterTool(tool.name, tool.description, tool.handler); err != nil {
-			log.Printf("Error registering %s tool: %v", tool.name, err)
-		}
-	}
-}
-
 // registerGitTools registers tools related to git operations
+// These tools are missing in other git MCP servers tested
 func registerGitTools(server *mcp.Server) {
 	tools := []struct {
 		name        string
 		description string
 		handler     interface{}
 	}{
-		{"git_init", "Initializes a new Git repository", func(args GitInitArgs) (*mcp.ToolResponse, error) {
-			res, err := gitInitTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"git_status", "Shows Git status", func(args GitRepoArgs) (*mcp.ToolResponse, error) {
-			res, err := gitStatusTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"git_add", "Stages file changes", func(args GitAddArgs) (*mcp.ToolResponse, error) {
-			res, err := gitAddTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"git_commit", "Commits staged changes", func(args GitCommitArgs) (*mcp.ToolResponse, error) {
-			res, err := gitCommitTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
 		{"git_pull", "Pulls changes", func(args GitRepoArgs) (*mcp.ToolResponse, error) {
 			res, err := gitPullTool(args)
 			if err != nil {
@@ -352,20 +194,6 @@ func registerGitTools(server *mcp.Server) {
 		}},
 		{"git_clone", "Clones a remote Git repository", func(args GitCloneArgs) (*mcp.ToolResponse, error) {
 			res, err := gitCloneTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"git_checkout", "Switches or creates a new Git branch", func(args GitCheckoutArgs) (*mcp.ToolResponse, error) {
-			res, err := gitCheckoutTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"git_diff", "Shows Git diff between references", func(args GitDiffArgs) (*mcp.ToolResponse, error) {
-			res, err := gitDiffTool(args)
 			if err != nil {
 				return nil, err
 			}

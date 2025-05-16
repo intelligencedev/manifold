@@ -49,3 +49,9 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// lookup handler, invoke, build JSONRPCResponse
 	// marshal + write back
 }
+
+type Task struct {
+	ID string
+	Status string
+	Params map[string]interface{}
+}

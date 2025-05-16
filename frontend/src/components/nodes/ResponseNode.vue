@@ -238,6 +238,54 @@ async function run() {
     }
 }
 
+// Function to process and extract text content from Claude's streaming responses
+function processClaudeStreamingResponse(input) {
+  // Early return if the input doesn't match expected format
+  if (!input.includes('event:')) {
+    return input;
+  }
+
+  // Extracted text content
+  let extractedText = '';
+  
+  // Split the input by lines to process each event
+  const lines = input.split('\n');
+  let i = 0;
+  
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    
+    // Process content_block_delta events to extract text
+    if (line.startsWith('event: content_block_delta')) {
+      // The next line should contain the data
+      if (i + 1 < lines.length) {
+        const dataLine = lines[i + 1];
+        if (dataLine.startsWith('data:')) {
+          try {
+            // Extract the JSON data
+            const jsonStr = dataLine.substring(dataLine.indexOf('{'));
+            const data = JSON.parse(jsonStr);
+            
+            // Check if it's a text delta and extract the text
+            if (data.type === 'content_block_delta' && 
+                data.delta && 
+                data.delta.type === 'text_delta' &&
+                data.delta.text) {
+              extractedText += data.delta.text;
+            }
+          } catch (e) {
+            console.error('Error parsing Claude SSE JSON:', e);
+          }
+        }
+      }
+    }
+    
+    i++;
+  }
+  
+  return extractedText;
+}
+
 // Define props and emits
 const props = defineProps({
     id: {
@@ -330,6 +378,54 @@ const outsideThinkingRaw = ref('');
 function parseResponse(txt) {
     // Store previous collapsed states to maintain them during updates
     const previousStates = thinkingBlocks.value.map(block => block.collapsed);
+    
+    // Special handling for Claude messages if selectedModelType is claude
+    if (selectedModelType.value === 'claude' && txt.includes('event:')) {
+        const processedText = processClaudeStreamingResponse(txt);
+        
+        // Now continue with normal parsing using the processed text
+        const blocks = [];
+        const outside = [];
+        const regex = /<(?:think|thinking)>([\s\S]*?)(?:<\/(?:think|thinking)>|$)/gi;
+        let lastIndex = 0;
+        let match;
+        let blockIndex = 0;
+        
+        while ((match = regex.exec(processedText)) !== null) {
+            // text before this block
+            if (match.index > lastIndex) {
+                outside.push(processedText.slice(lastIndex, match.index));
+            }
+            
+            const full = match[1].trimEnd();
+            const lines = full.split('\n');
+            const preview = lines.slice(-2).join('\n');
+            
+            // Use previous collapsed state if available, otherwise default to collapsed
+            const wasCollapsed = blockIndex < previousStates.length ? 
+                                previousStates[blockIndex] : 
+                                true;
+            
+            blocks.push({ 
+                content: full, 
+                preview, 
+                hasMore: lines.length > 2, 
+                collapsed: wasCollapsed  // Preserve previous state
+            });
+            
+            lastIndex = match.index + match[0].length;
+            blockIndex++;
+        }
+        
+        // trailing text
+        if (lastIndex < processedText.length) {
+            outside.push(processedText.slice(lastIndex));
+        }
+        
+        thinkingBlocks.value = blocks;
+        outsideThinkingRaw.value = outside.join('');
+        return;
+    }
     
     const blocks = [];
     const outside = [];

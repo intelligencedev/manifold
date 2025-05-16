@@ -455,31 +455,28 @@ func (s *Server) handleResubscribe(ctx context.Context, params json.RawMessage) 
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
-		for {
-			select {
-			case <-ticker.C:
-				// Get the latest task state
-				latestTask, err := s.store.Get(context.Background(), req.TaskID)
-				if err != nil {
-					// Task not found, close the stream
-					sseWriter.Close()
-					return
-				}
+		for range ticker.C {
+			// Get the latest task state
+			latestTask, err := s.store.Get(context.Background(), req.TaskID)
+			if err != nil {
+				// Task not found, close the stream
+				sseWriter.Close()
+				return
+			}
 
-				// Send the latest state
-				updateResponse := rpc.JSONRPCResponse{
-					JSONRPC: "2.0",
-					Result: map[string]interface{}{
-						"task": latestTask,
-					},
-				}
-				sseWriter.Send(updateResponse)
+			// Send the latest state
+			updateResponse := rpc.JSONRPCResponse{
+				JSONRPC: "2.0",
+				Result: map[string]interface{}{
+					"task": latestTask,
+				},
+			}
+			sseWriter.Send(updateResponse)
 
-				// If the task is done, close the stream
-				if latestTask.Status == TaskStatusCompleted || latestTask.Status == TaskStatusFailed || latestTask.Status == TaskStatusCanceled {
-					sseWriter.Close()
-					return
-				}
+			// If the task is done, close the stream
+			if latestTask.Status == TaskStatusCompleted || latestTask.Status == TaskStatusFailed || latestTask.Status == TaskStatusCanceled {
+				sseWriter.Close()
+				return
 			}
 		}
 	}()

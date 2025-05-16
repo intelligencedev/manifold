@@ -111,11 +111,17 @@ func parseMacOSGPUInfo(input string) ([]GPUInfo, error) {
 				gpus = append(gpus, currentGPU)
 				currentGPU = GPUInfo{}
 			}
-			currentGPU.Model = strings.TrimSpace(strings.Split(line, ":")[1])
+			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+				currentGPU.Model = strings.TrimSpace(parts[1])
+			}
 		} else if strings.HasPrefix(line, "Total Number of Cores") {
-			currentGPU.TotalNumberOfCores = strings.TrimSpace(strings.Split(line, ":")[1])
+			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+				currentGPU.TotalNumberOfCores = strings.TrimSpace(parts[1])
+			}
 		} else if strings.HasPrefix(line, "Metal") {
-			currentGPU.MetalSupport = strings.TrimSpace(strings.Split(line, ":")[1])
+			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+				currentGPU.MetalSupport = strings.TrimSpace(parts[1])
+			}
 		}
 	}
 

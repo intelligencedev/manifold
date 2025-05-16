@@ -226,20 +226,6 @@ Objective: %s
 IMPORTANT: ALL tool calls should be generated as a single line
 with no line breaks, and JSON should be formatted as a single line.
 
-- Need host files?
-   1. stage_path {"src":"/abs/host/path"}            (optional "dest")
-   2. Use returned "path" with file-system tools.
-   3. Inside code_eval use "sandbox_path".
-
-- Need to search the web?
-   1. Call manifold::web_search with JSON {"query":"<keywords>","result_size":5}
-      • It returns **only** a comma-delimited list of up to 5 URLs.
-   2. Immediately fetch those pages via manifold::web_content:
-      {"urls":"<url1>,<url2>,..."}   // comma delimited string
-	  
-- Fetching a web page? URLs are passed as comma delimited string
-   Use manifold::web_content with JSON {"urls":"<link1>, ..."}.
-
 - Prefer to answer directly (with Thought + finish) for narrative tasks
   such as writing, explaining, or summarising natural-language text.
   Only fall back to a tool for *computational* or *programmatic*

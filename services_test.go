@@ -25,6 +25,47 @@ func TestParseConnectionString_WithQueryParams(t *testing.T) {
 	}
 }
 
+func TestParseConnectionString_MissingCredentials(t *testing.T) {
+	// Test with format: postgres://host:5432/testdb (no @ symbol)
+	user, pass, db, ok := parseConnectionString("postgres://host:5432/testdb")
+	if ok {
+		// The current implementation returns ok=false for this format
+		// since it can't find the '@' symbol to separate credentials
+		t.Fatal("expected ok false for connection string missing @ symbol")
+	}
+	// Should still return default values
+	if user != "postgres" || pass != "postgres" || db != "manifold" {
+		t.Errorf("unexpected default values: user=%s, pass=%s, db=%s", user, pass, db)
+	}
+
+	// Test with properly formatted empty credentials: postgres://@host:5432/testdb
+	user, pass, db, ok = parseConnectionString("postgres://@host:5432/testdb")
+	if !ok {
+		t.Fatal("expected ok true for connection string with empty but properly formatted credentials")
+	}
+	// Should use default values for empty credentials
+	if user != "postgres" || pass != "postgres" {
+		t.Errorf("unexpected default credentials: user=%s, pass=%s", user, pass)
+	}
+	// But should still parse the database name correctly
+	if db != "testdb" {
+		t.Errorf("unexpected database name: got %s, expected: %s", db, "testdb")
+	}
+
+	// Test with username but no password: postgres://someuser@host:5432/testdb
+	user, pass, db, ok = parseConnectionString("postgres://someuser@host:5432/testdb")
+	if !ok {
+		t.Fatal("expected ok true for connection string with username but no password")
+	}
+	// Should use the provided username but default password
+	if user != "someuser" || pass != "postgres" {
+		t.Errorf("unexpected credentials: user=%s, pass=%s; expected user=someuser, pass=postgres", user, pass)
+	}
+	if db != "testdb" {
+		t.Errorf("unexpected database name: got %s, expected: %s", db, "testdb")
+	}
+}
+
 func TestParseConnectionString_Invalid(t *testing.T) {
 	user, pass, db, ok := parseConnectionString("invalidformat")
 	if ok {

@@ -6,9 +6,7 @@ import PythonRunner from '../components/nodes/CodeRunnerNode.vue'
 import WebGLNode from '../components/nodes/WebGLNode.vue'
 import ReactAgent from '../components/nodes/ReactAgentNode.vue'
 import AgentNode from '../components/nodes/AgentNode.vue'
-import ClaudeNode from '../components/nodes/ClaudeNode.vue'
 import ResponseNode from '../components/nodes/ResponseNode.vue'
-import GeminiNode from '../components/nodes/GeminiNode.vue'
 import EmbeddingsNode from '../components/nodes/EmbeddingsNode.vue'
 import WebSearchNode from '../components/nodes/WebSearchNode.vue'
 import WebRetrievalNode from '../components/nodes/WebRetrievalNode.vue'
@@ -133,14 +131,8 @@ export default function useDragAndDrop() {
       case 'completions':
         component = AgentNode;
         break;
-      case 'claudeNode':
-        component = ClaudeNode;
-        break;
       case 'responseNode':
         component = ResponseNode;
-        break;
-      case 'geminiNode':
-        component = GeminiNode;
         break;
       case 'embeddingsNode':
         component = EmbeddingsNode;

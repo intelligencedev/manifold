@@ -23,6 +23,7 @@ import (
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
 	"github.com/pterm/pterm"
 
+	hostinfopkg "manifold/internal/hostinfo"
 	"manifold/internal/sefii"
 )
 
@@ -272,7 +273,7 @@ func InitializeLlamaCpp(config *Config) error {
 	llamaCppDir := filepath.Join(config.DataPath, "llama-cpp")
 
 	// Determine binary name and path based on OS
-	hostInfo, err := GetHostInfo()
+	hostInfo, err := hostinfopkg.GetHostInfo()
 	if err != nil {
 		return fmt.Errorf("failed to get host info: %w", err)
 	}
@@ -467,7 +468,7 @@ func InitializeLlamaCpp(config *Config) error {
 
 // InitializeApplication performs necessary setup tasks, such as creating the data directory.
 func InitializeApplication(config *Config) error {
-	hostInfo, err := GetHostInfo()
+	hostInfo, err := hostinfopkg.GetHostInfo()
 	if err != nil {
 		pterm.Error.Printf("Failed to get host information: %+v\n", err)
 	} else {
@@ -610,7 +611,7 @@ func InitializeApplication(config *Config) error {
 	if config.DBPool == nil {
 		// If the pool doesn't exist yet (which shouldn't happen), create a backup connection temporarily
 		pterm.Warning.Println("Database pool not initialized, creating a temporary connection")
-		db, err := Connect(ctx, config.Database.ConnectionString)
+		db, err := sefii.Connect(ctx, config.Database.ConnectionString)
 		if err != nil {
 			pterm.Fatal.Println(err)
 		}

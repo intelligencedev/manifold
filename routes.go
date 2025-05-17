@@ -10,6 +10,13 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+
+	"manifold/internal/a2a"
+	agentspkg "manifold/internal/agents"
+	anthropicpkg "manifold/internal/anthropic"
+	gitpkg "manifold/internal/git"
+	imggenpkg "manifold/internal/imggen"
+	sefiipkg "manifold/internal/sefii"
 )
 
 // registerRoutes sets up all the routes for the application.
@@ -57,9 +64,12 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// Workflow templates endpoints
 	registerWorkflowEndpoints(api, config)
 
+	// A2A protocol endpoints
+	registerA2AEndpoints(api, config)
+
 	// Git-related endpoints.
-	api.GET("/git-files", gitFilesHandler)
-	api.POST("/git-files/ingest", gitFilesIngestHandler(config))
+	api.GET("/git-files", gitpkg.FilesHandler)
+	api.POST("/git-files/ingest", gitpkg.FilesIngestHandler(config))
 
 	// Anthropic endpoints.
 	registerAnthropicEndpoints(api, config)
@@ -74,9 +84,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// Miscellaneous endpoints.
 	api.POST("/run-fmlx", func(c echo.Context) error {
-		return runFMLXHandler(c, config.DataPath)
+		return imggenpkg.RunFMLXHandler(c, config.DataPath)
 	})
-	api.POST("/run-sd", runSDHandler)
+	api.POST("/run-sd", imggenpkg.RunSDHandler)
 	api.POST("/repoconcat", repoconcatHandler)
 	api.POST("/split-text", splitTextHandler)
 	api.POST("/save-file", saveFileHandler)
@@ -85,7 +95,7 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/code/eval", evaluateCodeHandler)
 	api.POST("/datadog", datadogHandler)
-	api.POST("/comfy-proxy", comfyProxyHandler)
+	api.POST("/comfy-proxy", imggenpkg.ComfyProxyHandler)
 
 	// Agentic Memory endpoints.
 	registerAgenticMemoryEndpoints(api, config)
@@ -132,31 +142,31 @@ func registerCompletionsEndpoints(api *echo.Group, config *Config) {
 // registerSEFIIEndpoints registers routes for SEFII-related functionality.
 func registerSEFIIEndpoints(api *echo.Group, config *Config) {
 	sefiiGroup := api.Group("/sefii")
-	sefiiGroup.POST("/ingest", sefiiIngestHandler(config))
-	sefiiGroup.POST("/search", sefiiSearchHandler(config))
-	sefiiGroup.POST("/combined-retrieve", sefiiCombinedRetrieveHandler(config))
+	sefiiGroup.POST("/ingest", sefiipkg.IngestHandler(config))
+	sefiiGroup.POST("/search", sefiipkg.SearchHandler(config))
+	sefiiGroup.POST("/combined-retrieve", sefiipkg.CombinedRetrieveHandler(config))
 }
 
 // registerAnthropicEndpoints registers routes for Anthropic-related functionality.
 func registerAnthropicEndpoints(api *echo.Group, config *Config) {
 	anthropicGroup := api.Group("/anthropic")
 	anthropicGroup.POST("/messages", func(c echo.Context) error {
-		return handleAnthropicMessages(c, config)
+		return anthropicpkg.HandleMessages(c, config)
 	})
 }
 
 // registerAgenticMemoryEndpoints registers routes for Agentic Memory-related functionality.
 func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
-	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
-	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
+	agenticGroup.POST("/ingest", agentspkg.AgenticMemoryIngestHandler(config))
+	agenticGroup.POST("/search", agentspkg.AgenticMemorySearchHandler(config))
 }
 
 // registerAgentEndpoints registers all routes for the ReAct / advanced agentic system.
 func registerAgentEndpoints(api *echo.Group, config *Config) {
 	agents := api.Group("/agents")
-	agents.POST("/react", runReActAgentHandler(config))              // Kick‑off a new ReAct session and run to completion
-	agents.POST("/react/stream", runReActAgentStreamHandler(config)) // Streaming endpoint for real-time thoughts
+	agents.POST("/react", agentspkg.RunReActAgentHandler(config))              // Kick‑off a new ReAct session and run to completion
+	agents.POST("/react/stream", agentspkg.RunReActAgentStreamHandler(config)) // Streaming endpoint for real-time thoughts
 }
 
 // registerWorkflowEndpoints registers routes for workflow templates.
@@ -164,6 +174,24 @@ func registerWorkflowEndpoints(api *echo.Group, config *Config) {
 	workflowGroup := api.Group("/workflows")
 	workflowGroup.GET("/templates", listWorkflowTemplatesHandler(config))
 	workflowGroup.GET("/templates/:id", getWorkflowTemplateHandler(config))
+}
+
+// registerA2AEndpoints registers all A2A protocol-related routes.
+func registerA2AEndpoints(api *echo.Group, config *Config) {
+	// Create an A2A subgroup for all A2A protocol endpoints
+	a2aGroup := api.Group("/a2a")
+
+	// Create a TaskStore implementation (we can use the existing InMemoryStore for now)
+	taskStore := a2a.NewTaskStore(config)
+
+	// Create an Authenticator (we can use the NoopAuthenticator for now or integrate with Manifold's auth)
+	authenticator := a2a.NewAuthenticator(config)
+
+	// Main A2A endpoint that handles JSON-RPC requests
+	a2aGroup.POST("", echo.WrapHandler(a2a.NewEchoHandler(taskStore, authenticator)))
+
+	// Well-known Agent Card endpoint (required by A2A specification)
+	a2aGroup.GET("/.well-known/agent-card.json", a2a.AgentCardHandler(config))
 }
 
 // WorkflowTemplate represents a workflow template with its metadata

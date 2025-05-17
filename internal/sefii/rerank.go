@@ -1,5 +1,4 @@
-// Package main provides the main entry point and core functionality for the application.
-package main
+package sefii
 
 import (
 	"bytes"
@@ -11,7 +10,7 @@ import (
 	"net/http"
 	"sort"
 
-	"manifold/internal/sefii"
+	configpkg "manifold/internal/config"
 )
 
 // RerankRequest defines the payload to send to the reranker.
@@ -36,10 +35,8 @@ type RerankResponse struct {
 	Results []RerankResult `json:"results"`
 }
 
-// reRankChunks calls the llama.cpp reranker and reorders the chunks based on relevance.
-// It takes a context, configuration, query string, and a slice of chunks as input.
-// Returns the reordered chunks or an error if the reranking fails.
-func reRankChunks(ctx context.Context, config *Config, query string, chunks []sefii.Chunk) ([]sefii.Chunk, error) {
+// ReRankChunks calls the llama.cpp reranker and reorders the chunks based on relevance.
+func ReRankChunks(ctx context.Context, config *configpkg.Config, query string, chunks []Chunk) ([]Chunk, error) {
 	documents := extractDocuments(chunks)
 
 	rankReq, err := createRerankRequest(query, documents, len(chunks))
@@ -70,8 +67,7 @@ func reRankChunks(ctx context.Context, config *Config, query string, chunks []se
 	return chunks, nil
 }
 
-// extractDocuments extracts the content of chunks into a slice of strings.
-func extractDocuments(chunks []sefii.Chunk) []string {
+func extractDocuments(chunks []Chunk) []string {
 	documents := make([]string, len(chunks))
 	for i, ch := range chunks {
 		documents[i] = ch.Content
@@ -79,7 +75,6 @@ func extractDocuments(chunks []sefii.Chunk) []string {
 	return documents
 }
 
-// createRerankRequest constructs the payload for the reranker.
 func createRerankRequest(query string, documents []string, topN int) ([]byte, error) {
 	rankReq := RerankRequest{
 		Model:     "slide-bge-reranker-v2-m3.Q8_0.gguf",
@@ -90,7 +85,6 @@ func createRerankRequest(query string, documents []string, topN int) ([]byte, er
 	return json.Marshal(rankReq)
 }
 
-// sendRerankRequest sends the rerank request to the specified URL.
 func sendRerankRequest(ctx context.Context, url string, payload []byte) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(payload))
 	if err != nil {
@@ -102,7 +96,6 @@ func sendRerankRequest(ctx context.Context, url string, payload []byte) (*http.R
 	return client.Do(req)
 }
 
-// parseRerankResponse decodes the rerank response body into a RerankResponse struct.
 func parseRerankResponse(body io.Reader) (*RerankResponse, error) {
 	var rankResp RerankResponse
 	if err := json.NewDecoder(body).Decode(&rankResp); err != nil {
@@ -111,7 +104,6 @@ func parseRerankResponse(body io.Reader) (*RerankResponse, error) {
 	return &rankResp, nil
 }
 
-// mapScores maps the relevance scores from the rerank results to their respective indices.
 func mapScores(results []RerankResult) map[int]float64 {
 	scoreMap := make(map[int]float64)
 	for _, result := range results {
@@ -120,8 +112,7 @@ func mapScores(results []RerankResult) map[int]float64 {
 	return scoreMap
 }
 
-// sortChunksByScore sorts the chunks in descending order of their relevance scores.
-func sortChunksByScore(chunks []sefii.Chunk, scoreMap map[int]float64) {
+func sortChunksByScore(chunks []Chunk, scoreMap map[int]float64) {
 	sort.Slice(chunks, func(i, j int) bool {
 		return scoreMap[i] > scoreMap[j]
 	})

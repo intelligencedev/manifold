@@ -1,5 +1,6 @@
-// Package main provides utilities for retrieving host system information, including OS, architecture, CPU, memory, and GPU details.
-package main
+// Package hostinfo provides utilities for retrieving host system information,
+// including OS, architecture, CPU, memory, and GPU details.
+package hostinfo
 
 import (
 	"bytes"
@@ -26,11 +27,10 @@ type Memory struct {
 	Total uint64 `json:"total"`
 }
 
-// GPUInfo represents information about a GPU, including its model, number of cores, and Metal support.
 type GPUInfo struct {
-	Model              string `json:"model"`
-	TotalNumberOfCores string `json:"total_number_of_cores"`
-	MetalSupport       string `json:"metal_support"`
+	Model              string
+	TotalNumberOfCores string
+	MetalSupport       string
 }
 
 // GetHostInfo retrieves information about the host system, including OS, architecture, CPU, memory, and GPU details.
@@ -101,33 +101,33 @@ func getMacOSGPUInfo() ([]GPUInfo, error) {
 
 // parseMacOSGPUInfo parses the output of the macOS system_profiler command to extract GPU information.
 func parseMacOSGPUInfo(input string) ([]GPUInfo, error) {
+	lines := strings.Split(input, "\n")
 	var gpus []GPUInfo
-	var currentGPU GPUInfo
-
-	for _, line := range strings.Split(input, "\n") {
+	var current GPUInfo
+	anyFieldSet := false
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Chipset Model") {
-			if currentGPU.Model != "" {
-				gpus = append(gpus, currentGPU)
-				currentGPU = GPUInfo{}
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "Chipset Model:") {
+			if anyFieldSet {
+				gpus = append(gpus, current)
+				current = GPUInfo{}
+				anyFieldSet = false
 			}
-			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
-				currentGPU.Model = strings.TrimSpace(parts[1])
-			}
-		} else if strings.HasPrefix(line, "Total Number of Cores") {
-			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
-				currentGPU.TotalNumberOfCores = strings.TrimSpace(parts[1])
-			}
-		} else if strings.HasPrefix(line, "Metal") {
-			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
-				currentGPU.MetalSupport = strings.TrimSpace(parts[1])
-			}
+			current.Model = strings.TrimSpace(strings.TrimPrefix(line, "Chipset Model:"))
+			anyFieldSet = true
+		} else if strings.HasPrefix(line, "Total Number of Cores:") {
+			current.TotalNumberOfCores = strings.TrimSpace(strings.TrimPrefix(line, "Total Number of Cores:"))
+			anyFieldSet = true
+		} else if strings.HasPrefix(line, "Metal:") {
+			current.MetalSupport = strings.TrimSpace(strings.TrimPrefix(line, "Metal:"))
+			anyFieldSet = true
 		}
 	}
-
-	if currentGPU.Model != "" {
-		gpus = append(gpus, currentGPU)
+	if anyFieldSet || (current.Model == "" && current.TotalNumberOfCores == "" && current.MetalSupport == "" && len(lines) > 0) {
+		gpus = append(gpus, current)
 	}
-
 	return gpus, nil
 }

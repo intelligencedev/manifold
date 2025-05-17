@@ -104,7 +104,7 @@ anthropic_key: ""
 
 # The completions endpoint for the proxy routes as well as agent mode.
 # When agent mode is enabled, the endpoint configured in the frontend
-# will be overriden by this.
+# will be overridden by this.
 # Due to CORS issues with some public endpoints, setting the completions
 # endpoint in the frontend to the manifold host:port/v1/chat/completions
 # will proxy the request to the endpoint configured below.

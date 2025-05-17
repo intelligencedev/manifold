@@ -1,5 +1,4 @@
-// image_handlers.go
-package main
+package imggen
 
 import (
 	"bufio"
@@ -25,7 +24,7 @@ type ComfyProxyRequest struct {
 }
 
 // runFMLXHandler handles FMLX image generation requests.
-func runFMLXHandler(c echo.Context, dataPath string) error {
+func RunFMLXHandler(c echo.Context, dataPath string) error {
 	var req FMLXRequest
 	if err := c.Bind(&req); err != nil {
 		return respondWithError(c, http.StatusBadRequest, "Invalid request body")
@@ -47,7 +46,7 @@ func runFMLXHandler(c echo.Context, dataPath string) error {
 }
 
 // runSDHandler handles Stable Diffusion image generation requests.
-func runSDHandler(c echo.Context) error {
+func RunSDHandler(c echo.Context) error {
 	var req SDRequest
 	if err := c.Bind(&req); err != nil {
 		return respondWithError(c, http.StatusBadRequest, "Invalid request body")
@@ -67,7 +66,7 @@ func runSDHandler(c echo.Context) error {
 }
 
 // comfyProxyHandler handles requests to the ComfyUI proxy.
-func comfyProxyHandler(c echo.Context) error {
+func ComfyProxyHandler(c echo.Context) error {
 	var reqBody ComfyProxyRequest
 	if err := c.Bind(&reqBody); err != nil {
 		return respondWithError(c, http.StatusBadRequest, "Invalid request body")

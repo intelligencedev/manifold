@@ -1,5 +1,5 @@
 // agents.go — ReAct engine w/ MCP, code_eval and robust path & tool-schema handling
-package main
+package agents
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,8 +21,12 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
 
+	"manifold/internal/codeeval"
+	"manifold/internal/completions"
+	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
 	"manifold/internal/mcp"
+	"manifold/internal/util"
 )
 
 /*──────────────────────── public ───────────────────────*/
@@ -64,7 +69,7 @@ type AgentSession struct {
 /*──────────────────────── engine ───────────────────────*/
 
 type AgentEngine struct {
-	Config       *Config
+	Config       *configpkg.Config
 	DB           *pgx.Conn
 	MemoryEngine MemoryEngine
 	HTTPClient   *http.Client
@@ -73,9 +78,23 @@ type AgentEngine struct {
 	mcpTools map[string]ToolInfo
 }
 
+var (
+	mcpToolsOnce   sync.Once
+	cachedMCPTools map[string]ToolInfo
+	cachedToolsErr error
+)
+
+func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
+	conn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	return conn, nil
+}
+
 /*──────────────────────── route ───────────────────────*/
 
-func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
+func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req ReActRequest
 		if err := c.Bind(&req); err != nil {
@@ -96,11 +115,14 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 		}
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, cfg.Database.ConnectionString)
-		if err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
+		if cfg.DBPool == nil {
+			return c.JSON(500, map[string]string{"error": "database connection pool not initialized"})
 		}
-		defer conn.Close(ctx)
+		poolConn, err := cfg.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": "failed to acquire database connection"})
+		}
+		defer poolConn.Release()
 
 		mgr, err := mcp.NewManager(ctx, "config.yaml")
 		if err != nil {
@@ -109,7 +131,7 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 
 		engine := &AgentEngine{
 			Config:     cfg,
-			DB:         conn,
+			DB:         poolConn.Conn(),
 			HTTPClient: &http.Client{Timeout: 180 * time.Second},
 			mcpMgr:     mgr,
 			mcpTools:   make(map[string]ToolInfo),
@@ -117,7 +139,7 @@ func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
 
 		// Configure memory engine based on config
 		if cfg.AgenticMemory.Enabled {
-			engine.MemoryEngine = NewAgenticEngine(conn)
+			engine.MemoryEngine = NewAgenticEngine(poolConn.Conn())
 			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
 				return c.JSON(500, map[string]string{"error": err.Error()})
 			}
@@ -154,44 +176,47 @@ type ToolInfo struct {
 // (You must also update the AgentEngine struct definition above to: mcpTools map[string]ToolInfo)
 
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
-	for _, srv := range ae.mcpMgr.List() {
-		ts, err := ae.mcpMgr.ListTools(ctx, srv)
-		if err != nil {
-			log.Printf("list tools %s: %v", srv, err)
-			continue
-		}
-
-		// Convert the returned JSON to a string
-		b, _ := json.Marshal(ts)
-		var tools []map[string]interface{}
-		if err := json.Unmarshal(b, &tools); err != nil {
-			log.Printf("unmarshal tools %s: %v", srv, err)
-			continue
-		}
-
-		// Process all tool data
-		for _, t := range tools {
-			name, _ := t["name"].(string)
-			desc, _ := t["description"].(string)
-
-			// Try both "input_schema" and "inputSchema" keys for compatibility
-			var inputSchema map[string]interface{}
-			if schema, ok := t["input_schema"].(map[string]interface{}); ok {
-				inputSchema = schema
-			} else if schema, ok := t["inputSchema"].(map[string]interface{}); ok {
-				inputSchema = schema
+	mcpToolsOnce.Do(func() {
+		cachedMCPTools = make(map[string]ToolInfo)
+		for _, srv := range ae.mcpMgr.List() {
+			ts, err := ae.mcpMgr.ListTools(ctx, srv)
+			if err != nil {
+				cachedToolsErr = err
+				continue
 			}
-
-			toolName := fmt.Sprintf("%s::%s", srv, name)
-			ae.mcpTools[toolName] = ToolInfo{
-				Name:        toolName,
-				Description: desc,
-				InputSchema: inputSchema,
+			b, _ := json.Marshal(ts)
+			var tools []map[string]interface{}
+			if err := json.Unmarshal(b, &tools); err != nil {
+				cachedToolsErr = err
+				continue
 			}
-
-			log.Printf("Added MCP tool: %s | Description: %s | Schema: %+v \n\n",
-				toolName, desc, inputSchema)
+			for _, t := range tools {
+				name, _ := t["name"].(string)
+				desc, _ := t["description"].(string)
+				var inputSchema map[string]interface{}
+				if schema, ok := t["input_schema"].(map[string]interface{}); ok {
+					inputSchema = schema
+				} else if schema, ok := t["inputSchema"].(map[string]interface{}); ok {
+					inputSchema = schema
+				}
+				toolName := fmt.Sprintf("%s::%s", srv, name)
+				cachedMCPTools[toolName] = ToolInfo{
+					Name:        toolName,
+					Description: desc,
+					InputSchema: inputSchema,
+				}
+			}
 		}
+	})
+
+	if cachedToolsErr != nil {
+		return cachedToolsErr
+	}
+	if ae.mcpTools == nil {
+		ae.mcpTools = make(map[string]ToolInfo)
+	}
+	for k, v := range cachedMCPTools {
+		ae.mcpTools[k] = v
 	}
 	return nil
 }
@@ -225,20 +250,6 @@ Objective: %s
 
 IMPORTANT: ALL tool calls should be generated as a single line
 with no line breaks, and JSON should be formatted as a single line.
-
-- Need host files?
-   1. stage_path {"src":"/abs/host/path"}            (optional "dest")
-   2. Use returned "path" with file-system tools.
-   3. Inside code_eval use "sandbox_path".
-
-- Need to search the web?
-   1. Call manifold::web_search with JSON {"query":"<keywords>","result_size":5}
-      • It returns **only** a comma-delimited list of up to 5 URLs.
-   2. Immediately fetch those pages via manifold::web_content:
-      {"urls":"<url1>,<url2>,..."}   // comma delimited string
-	  
-- Fetching a web page? URLs are passed as comma delimited string
-   Use manifold::web_content with JSON {"urls":"<link1>, ..."}.
 
 - Prefer to answer directly (with Thought + finish) for narrative tasks
   such as writing, explaining, or summarising natural-language text.
@@ -280,13 +291,13 @@ Tools:
 	}
 
 	// Store conversation history across turns
-	var conversationHistory []Message
+	var conversationHistory []completions.Message
 
 	// Add system prompt only once at the beginning
-	conversationHistory = append(conversationHistory, Message{Role: "system", Content: sysPrompt})
+	conversationHistory = append(conversationHistory, completions.Message{Role: "system", Content: sysPrompt})
 
 	for i := 0; i < req.MaxSteps; i++ {
-		var currentMessages []Message
+		var currentMessages []completions.Message
 
 		// Start with the existing conversation history
 		currentMessages = append(currentMessages, conversationHistory...)
@@ -307,13 +318,13 @@ Tools:
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
 			// Add memory as a separate system message for this turn
-			currentMessages = append(currentMessages, Message{Role: "system", Content: memBuf.String()})
+			currentMessages = append(currentMessages, completions.Message{Role: "system", Content: memBuf.String()})
 		} else {
 			log.Printf("No memories found")
 		}
 
 		// For the current turn, add the user message
-		currentMessages = append(currentMessages, Message{Role: "user", Content: "Next step?"})
+		currentMessages = append(currentMessages, completions.Message{Role: "user", Content: "Next step?"})
 
 		// Print the prompt for debugging
 		log.Println("=====================================")
@@ -403,7 +414,7 @@ Tools:
 		}
 
 		// Add the assistant's response to conversation history
-		assistantMessage := Message{
+		assistantMessage := completions.Message{
 			Role: "assistant",
 			Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s",
 				thought, action, input),
@@ -411,7 +422,7 @@ Tools:
 		conversationHistory = append(conversationHistory, assistantMessage)
 
 		// Add the observation as a user message in the conversation history
-		userMessage := Message{
+		userMessage := completions.Message{
 			Role:    "user",
 			Content: fmt.Sprintf("Observation: %s\n\nNext step?", obs),
 		}
@@ -435,11 +446,11 @@ Tools:
 
 /*────────────────────── LLM helper ────────────────────*/
 
-func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message) (string, error) {
+func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []completions.Message) (string, error) {
 	// Calculate input token count (approximate)
 	var promptTokens int
 	for _, msg := range msgs {
-		promptTokens += len(strings.Split(msg.Content, " ")) // Simple approximation
+		promptTokens += util.CountTokens(msg.Content)
 	}
 
 	// Get model context size (default to 4096 if unknown)
@@ -448,7 +459,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(modelCtx-promptTokens-1024, 128)
 
-	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
+	body, _ := json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
 	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
@@ -462,7 +473,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message
 		b, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("llm %d: %s", resp.StatusCode, string(b))
 	}
-	var cr CompletionResponse
+	var cr completions.CompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
 		return "", err
 	}
@@ -655,21 +666,36 @@ func copyFile(src, dst string) error {
 /*────────────────────── code_eval ────────────────────*/
 
 func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error) {
-	var req CodeEvalRequest
+	var req codeeval.CodeEvalRequest
 	if err := json.Unmarshal([]byte(arg), &req); err != nil {
 		return "", fmt.Errorf("code_eval expects JSON {language, code, dependencies}: %v", err)
 	}
 	var (
-		resp *CodeEvalResponse
+		resp *codeeval.CodeEvalResponse
 		err  error
 	)
 	switch strings.ToLower(strings.TrimSpace(req.Language)) {
 	case "python":
-		resp, err = runPythonInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunPythonInContainer(req.Code, req.Dependencies)
+		if err != nil {
+			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &codeeval.CodeEvalResponse{Result: result}
+		}
 	case "go":
-		resp, err = runGoInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunGoInContainer(req.Code, req.Dependencies)
+		if err != nil {
+			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &codeeval.CodeEvalResponse{Result: result}
+		}
 	case "javascript":
-		resp, err = runNodeInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunNodeInContainer(req.Code, req.Dependencies)
+		if err != nil {
+			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &codeeval.CodeEvalResponse{Result: result}
+		}
 	default:
 		return "", fmt.Errorf("unsupported language: %s", req.Language)
 	}

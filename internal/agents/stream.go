@@ -1,4 +1,4 @@
-package main
+package agents
 
 import (
 	"fmt"
@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
+	configpkg "manifold/internal/config"
 	"manifold/internal/mcp"
 
 	"github.com/labstack/echo/v4"
 )
 
-// runReActAgentStreamHandler handles POST /api/agents/react/stream.
-func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
+// RunReActAgentStreamHandler handles POST /api/agents/react/stream.
+func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req ReActRequest
 		if err := c.Bind(&req); err != nil {
@@ -40,11 +41,14 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 		}
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, cfg.Database.ConnectionString)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
+		if cfg.DBPool == nil {
+			return c.String(http.StatusInternalServerError, "database connection pool not initialized")
 		}
-		defer conn.Close(ctx)
+		poolConn, err := cfg.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "failed to acquire database connection")
+		}
+		defer poolConn.Release()
 
 		mgr, err := mcp.NewManager(ctx, "config.yaml")
 		if err != nil {
@@ -53,7 +57,7 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 
 		engine := &AgentEngine{
 			Config:     cfg,
-			DB:         conn,
+			DB:         poolConn.Conn(),
 			HTTPClient: &http.Client{Timeout: 180 * time.Second},
 			mcpMgr:     mgr,
 			mcpTools:   make(map[string]ToolInfo),
@@ -61,7 +65,7 @@ func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
 
 		// Configure memory engine based on config
 		if cfg.AgenticMemory.Enabled {
-			engine.MemoryEngine = NewAgenticEngine(conn)
+			engine.MemoryEngine = NewAgenticEngine(poolConn.Conn())
 			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
 				return c.String(http.StatusInternalServerError, err.Error())
 			}

@@ -19,6 +19,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/pterm/pterm"
+
+	configpkg "manifold/internal/config"
 )
 
 //go:embed frontend/dist
@@ -30,7 +32,7 @@ func main() {
 	flag.Parse()
 
 	// Initialize configuration
-	config, err := LoadConfig(*configPath)
+	config, err := configpkg.LoadConfig(*configPath)
 	if err != nil {
 		logger.Fatal(fmt.Sprintf("Failed to load configuration: %v", err))
 	}

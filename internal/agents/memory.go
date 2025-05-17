@@ -1,5 +1,5 @@
 // agentic_memory.go
-package main
+package agents
 
 import (
 	"context"
@@ -14,6 +14,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pgvector/pgvector-go"
 
+	configpkg "manifold/internal/config"
+	"manifold/internal/embeddings"
 	"manifold/internal/sefii"
 )
 
@@ -29,6 +31,7 @@ type MemoryRequest struct {
 
 // Memory represents a memory entry in the database
 type AgenticMemory struct {
+	ID          int64           `json:"id"`
 	WorkflowID  string          `json:"workflow_id"`
 	Content     string          `json:"content"`
 	NoteContext string          `json:"note_context"`
@@ -41,19 +44,19 @@ type AgenticMemory struct {
 
 // MemoryEngine defines the interface for memory operations
 type MemoryEngine interface {
-	IngestAgenticMemory(ctx context.Context, cfg *Config, txt string, wf uuid.UUID) (int64, error)
-	SearchWithinWorkflow(ctx context.Context, cfg *Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error)
+	IngestAgenticMemory(ctx context.Context, cfg *configpkg.Config, txt string, wf uuid.UUID) (int64, error)
+	SearchWithinWorkflow(ctx context.Context, cfg *configpkg.Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error)
 	EnsureAgenticMemoryTable(ctx context.Context, embeddingDim int) error
 }
 
 // NilMemoryEngine is a no-op implementation of MemoryEngine
 type NilMemoryEngine struct{}
 
-func (n *NilMemoryEngine) IngestAgenticMemory(ctx context.Context, cfg *Config, txt string, wf uuid.UUID) (int64, error) {
+func (n *NilMemoryEngine) IngestAgenticMemory(ctx context.Context, cfg *configpkg.Config, txt string, wf uuid.UUID) (int64, error) {
 	return 0, nil
 }
 
-func (n *NilMemoryEngine) SearchWithinWorkflow(ctx context.Context, cfg *Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error) {
+func (n *NilMemoryEngine) SearchWithinWorkflow(ctx context.Context, cfg *configpkg.Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error) {
 	return nil, nil
 }
 
@@ -103,7 +106,7 @@ func (ae *AgenticEngine) EnsureAgenticMemoryTable(ctx context.Context, embedding
 // IngestAgenticMemory ingests a new memory note.
 func (ae *AgenticEngine) IngestAgenticMemory(
 	ctx context.Context,
-	config *Config,
+	config *configpkg.Config,
 	content string,
 	workflowID uuid.UUID,
 ) (int64, error) {
@@ -137,7 +140,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 
 	// 2. Compute the embedding.
 	embeddingInput := config.Embeddings.EmbedPrefix + content + " " + noteContext + " " + strings.Join(keywords, " ") + " " + strings.Join(tags, " ")
-	embeds, err := GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
+	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
 	if err != nil || len(embeds) == 0 {
 		return 0, fmt.Errorf("failed to generate embedding: %w", err)
 	}
@@ -212,8 +215,8 @@ func (ae *AgenticEngine) generateLinks(ctx context.Context, newMemoryID int64, k
 }
 
 // SearchAgenticMemories performs a vector-based search on agentic_memories.
-func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Config, queryText string, limit int) ([]AgenticMemory, error) {
-	embeds, err := GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{queryText})
+func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *configpkg.Config, queryText string, limit int) ([]AgenticMemory, error) {
+	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{queryText})
 	if err != nil || len(embeds) == 0 {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
@@ -221,7 +224,7 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Conf
 
 	// Cast keywords and tags to text to force string output.
 	searchQuery := `
-        SELECT id, content, note_context, keywords::text, tags::text, timestamp, embedding, links
+        SELECT id, workflow_id, content, note_context, keywords::text, tags::text, timestamp, embedding, links
         FROM agentic_memories
         ORDER BY embedding <-> $1
         LIMIT $2
@@ -237,7 +240,7 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Conf
 		var mem AgenticMemory
 		var kwStr, tagStr string
 		var ts time.Time
-		err := rows.Scan(&mem.WorkflowID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
+		err := rows.Scan(&mem.ID, &mem.WorkflowID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
 		if err != nil {
 			return nil, err
 		}
@@ -262,8 +265,8 @@ func parseTextArray(input string) []string {
 	return parts
 }
 
-// agenticMemoryIngestHandler handles POST /api/agentic-memory/ingest.
-func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
+// AgenticMemoryIngestHandler handles POST /api/agentic-memory/ingest.
+func AgenticMemoryIngestHandler(config *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Check if agentic memory is enabled
 		if !config.AgenticMemory.Enabled {
@@ -323,8 +326,8 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 	}
 }
 
-// agenticMemorySearchHandler handles POST /api/agentic-memory/search.
-func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
+// AgenticMemorySearchHandler handles POST /api/agentic-memory/search.
+func AgenticMemorySearchHandler(config *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Check if agentic memory is enabled
 		if !config.AgenticMemory.Enabled {
@@ -377,20 +380,20 @@ func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
 // SearchWithinWorkflow finds memories for the same workflow only.
 func (ae *AgenticEngine) SearchWithinWorkflow(
 	ctx context.Context,
-	cfg *Config,
+	cfg *configpkg.Config,
 	workflowID uuid.UUID,
 	query string,
 	k int,
 ) ([]AgenticMemory, error) {
 
-	embeds, err := GenerateEmbeddings(cfg.Embeddings.Host, cfg.Embeddings.APIKey, []string{query})
+	embeds, err := embeddings.GenerateEmbeddings(cfg.Embeddings.Host, cfg.Embeddings.APIKey, []string{query})
 	if err != nil || len(embeds) == 0 {
 		return nil, err
 	}
 
 	qvec := pgvector.NewVector(embeds[0])
 	rows, err := ae.DB.Query(ctx, `
-        SELECT id, content, note_context, timestamp
+        SELECT id, workflow_id, content, note_context, timestamp
         FROM agentic_memories
         WHERE workflow_id = $1
         ORDER BY embedding <-> $2
@@ -403,7 +406,7 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 	var memories []AgenticMemory
 	for rows.Next() {
 		var am AgenticMemory
-		if err := rows.Scan(&am.WorkflowID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
+		if err := rows.Scan(&am.ID, &am.WorkflowID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
 			return nil, err
 		}
 		memories = append(memories, am)

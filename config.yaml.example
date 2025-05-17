@@ -143,6 +143,16 @@ agentic_memory:
                   # This improves consistency and continuity in multi-turn interactions
                   # Requires PostgreSQL with pgvector extension for vector storage
 
+# Agent2Agent (A2A) configuration
+# Defines the role of this node and other nodes in the cluster
+a2a:
+  # Node role can be "master" or "worker"
+  role: "master"
+  # List of remote node URLs participating in this cluster
+  nodes:
+    - "http://node1.example.com"
+    - "http://node2.example.com"
+
 # List of external MCP servers
 # Example GitHub MCP server
 mcpServers:

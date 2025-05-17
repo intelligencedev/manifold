@@ -39,6 +39,14 @@ type AgenticMemoryConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
+// A2AConfig defines settings for the Agent2Agent protocol.
+type A2AConfig struct {
+	// Role specifies the node's role in the cluster ("master" or "worker").
+	Role string `yaml:"role"`
+	// Nodes lists the URLs of remote nodes participating in the cluster.
+	Nodes []string `yaml:"nodes"`
+}
+
 type CompletionsConfig struct {
 	DefaultHost      string           `yaml:"default_host"`
 	CompletionsModel string           `yaml:"completions_model"`
@@ -80,6 +88,7 @@ type Config struct {
 	Reranker                  RerankerConfig      `yaml:"reranker"`
 	Auth                      AuthConfig          `yaml:"auth"`
 	AgenticMemory             AgenticMemoryConfig `yaml:"agentic_memory"`
+	A2A                       A2AConfig           `yaml:"a2a"`
 }
 
 // LoadConfig reads the configuration from a YAML file, unmarshals it into a Config struct,

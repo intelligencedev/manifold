@@ -1,4 +1,4 @@
-package main
+package agents
 
 import (
 	"fmt"
@@ -6,13 +6,14 @@ import (
 	"strings"
 	"time"
 
+	configpkg "manifold/internal/config"
 	"manifold/internal/mcp"
 
 	"github.com/labstack/echo/v4"
 )
 
-// runReActAgentStreamHandler handles POST /api/agents/react/stream.
-func runReActAgentStreamHandler(cfg *Config) echo.HandlerFunc {
+// RunReActAgentStreamHandler handles POST /api/agents/react/stream.
+func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req ReActRequest
 		if err := c.Bind(&req); err != nil {

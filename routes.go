@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"manifold/internal/a2a"
+	agentspkg "manifold/internal/agents"
 	anthropicpkg "manifold/internal/anthropic"
 	gitpkg "manifold/internal/git"
 	imggenpkg "manifold/internal/imggen"
@@ -156,15 +157,15 @@ func registerAnthropicEndpoints(api *echo.Group, config *Config) {
 // registerAgenticMemoryEndpoints registers routes for Agentic Memory-related functionality.
 func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
-	agenticGroup.POST("/ingest", agenticMemoryIngestHandler(config))
-	agenticGroup.POST("/search", agenticMemorySearchHandler(config))
+	agenticGroup.POST("/ingest", agentspkg.AgenticMemoryIngestHandler(config))
+	agenticGroup.POST("/search", agentspkg.AgenticMemorySearchHandler(config))
 }
 
 // registerAgentEndpoints registers all routes for the ReAct / advanced agentic system.
 func registerAgentEndpoints(api *echo.Group, config *Config) {
 	agents := api.Group("/agents")
-	agents.POST("/react", runReActAgentHandler(config))              // Kick‑off a new ReAct session and run to completion
-	agents.POST("/react/stream", runReActAgentStreamHandler(config)) // Streaming endpoint for real-time thoughts
+	agents.POST("/react", agentspkg.RunReActAgentHandler(config))              // Kick‑off a new ReAct session and run to completion
+	agents.POST("/react/stream", agentspkg.RunReActAgentStreamHandler(config)) // Streaming endpoint for real-time thoughts
 }
 
 // registerWorkflowEndpoints registers routes for workflow templates.

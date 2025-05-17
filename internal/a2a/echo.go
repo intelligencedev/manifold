@@ -21,7 +21,7 @@ type manifoldTaskStore struct {
 }
 
 // NewTaskStore creates a TaskStore implementation configured for Manifold
-func NewTaskStore(config interface{}) server.TaskStore {
+func NewTaskStore(cfgParam interface{}) server.TaskStore { // Renamed parameter "config" to "cfgParam"
 	return &manifoldTaskStore{
 		tasks: make(map[string]*server.Task),
 	}
@@ -131,8 +131,8 @@ func (s *manifoldTaskStore) GetPushConfig(ctx context.Context, id string) (*serv
 }
 
 // NewAuthenticator creates an Authenticator for A2A requests
-func NewAuthenticator(config interface{}) server.Authenticator {
-	cfg, ok := config.(*config.Config)
+func NewAuthenticator(cfgParam interface{}) server.Authenticator { // Renamed parameter "config" to "cfgParam"
+	cfg, ok := cfgParam.(*config.Config) // Updated to use cfgParam
 	if ok && cfg.A2A.Token != "" {
 		return auth.NewToken(cfg.A2A.Token)
 	}
@@ -149,7 +149,7 @@ func NewEchoHandler(store server.TaskStore, authenticator server.Authenticator) 
 }
 
 // AgentCardHandler returns an echo.HandlerFunc that serves the Agent Card JSON
-func AgentCardHandler(config interface{}) echo.HandlerFunc {
+func AgentCardHandler(cfgParam interface{}) echo.HandlerFunc { // Renamed parameter "config" to "cfgParam"
 	// Create a sample Agent Card based on the A2A specification
 	// This should be customized based on your Manifold capabilities
 	return func(c echo.Context) error {
@@ -168,7 +168,7 @@ func AgentCardHandler(config interface{}) echo.HandlerFunc {
 			},
 			"authentication": map[string]interface{}{
 				"type": func() string {
-					if cfg, ok := config.(*config.Config); ok && cfg.A2A.Token != "" {
+					if cfg, ok := cfgParam.(*config.Config); ok && cfg.A2A.Token != "" { // Updated to use cfgParam
 						return "bearer"
 					}
 					return "none"

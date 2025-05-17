@@ -41,11 +41,14 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 		}
 
 		ctx := c.Request().Context()
-		conn, err := Connect(ctx, cfg.Database.ConnectionString)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, err.Error())
+		if cfg.DBPool == nil {
+			return c.String(http.StatusInternalServerError, "database connection pool not initialized")
 		}
-		defer conn.Close(ctx)
+		poolConn, err := cfg.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "failed to acquire database connection")
+		}
+		defer poolConn.Release()
 
 		mgr, err := mcp.NewManager(ctx, "config.yaml")
 		if err != nil {
@@ -54,7 +57,7 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 
 		engine := &AgentEngine{
 			Config:     cfg,
-			DB:         conn,
+			DB:         poolConn.Conn(),
 			HTTPClient: &http.Client{Timeout: 180 * time.Second},
 			mcpMgr:     mgr,
 			mcpTools:   make(map[string]ToolInfo),
@@ -62,7 +65,7 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 
 		// Configure memory engine based on config
 		if cfg.AgenticMemory.Enabled {
-			engine.MemoryEngine = NewAgenticEngine(conn)
+			engine.MemoryEngine = NewAgenticEngine(poolConn.Conn())
 			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
 				return c.String(http.StatusInternalServerError, err.Error())
 			}

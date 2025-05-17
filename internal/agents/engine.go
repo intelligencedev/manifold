@@ -1,5 +1,5 @@
 // agents.go — ReAct engine w/ MCP, code_eval and robust path & tool-schema handling
-package main
+package agents
 
 import (
 	"bytes"
@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
+	configpkg "manifold/internal/config"
 
 	"manifold/internal/documents"
 	"manifold/internal/mcp"
@@ -64,7 +65,7 @@ type AgentSession struct {
 /*──────────────────────── engine ───────────────────────*/
 
 type AgentEngine struct {
-	Config       *Config
+	Config       *configpkg.Config
 	DB           *pgx.Conn
 	MemoryEngine MemoryEngine
 	HTTPClient   *http.Client
@@ -73,9 +74,17 @@ type AgentEngine struct {
 	mcpTools map[string]ToolInfo
 }
 
+func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
+	conn, err := pgx.Connect(ctx, connStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	return conn, nil
+}
+
 /*──────────────────────── route ───────────────────────*/
 
-func runReActAgentHandler(cfg *Config) echo.HandlerFunc {
+func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req ReActRequest
 		if err := c.Bind(&req); err != nil {

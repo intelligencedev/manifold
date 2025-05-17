@@ -1,5 +1,5 @@
 // agentic_memory.go
-package main
+package agents
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pgvector/pgvector-go"
+
+	configpkg "manifold/internal/config"
 
 	"manifold/internal/sefii"
 )
@@ -42,19 +44,19 @@ type AgenticMemory struct {
 
 // MemoryEngine defines the interface for memory operations
 type MemoryEngine interface {
-	IngestAgenticMemory(ctx context.Context, cfg *Config, txt string, wf uuid.UUID) (int64, error)
-	SearchWithinWorkflow(ctx context.Context, cfg *Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error)
+	IngestAgenticMemory(ctx context.Context, cfg *configpkg.Config, txt string, wf uuid.UUID) (int64, error)
+	SearchWithinWorkflow(ctx context.Context, cfg *configpkg.Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error)
 	EnsureAgenticMemoryTable(ctx context.Context, embeddingDim int) error
 }
 
 // NilMemoryEngine is a no-op implementation of MemoryEngine
 type NilMemoryEngine struct{}
 
-func (n *NilMemoryEngine) IngestAgenticMemory(ctx context.Context, cfg *Config, txt string, wf uuid.UUID) (int64, error) {
+func (n *NilMemoryEngine) IngestAgenticMemory(ctx context.Context, cfg *configpkg.Config, txt string, wf uuid.UUID) (int64, error) {
 	return 0, nil
 }
 
-func (n *NilMemoryEngine) SearchWithinWorkflow(ctx context.Context, cfg *Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error) {
+func (n *NilMemoryEngine) SearchWithinWorkflow(ctx context.Context, cfg *configpkg.Config, wf uuid.UUID, q string, k int) ([]AgenticMemory, error) {
 	return nil, nil
 }
 
@@ -104,7 +106,7 @@ func (ae *AgenticEngine) EnsureAgenticMemoryTable(ctx context.Context, embedding
 // IngestAgenticMemory ingests a new memory note.
 func (ae *AgenticEngine) IngestAgenticMemory(
 	ctx context.Context,
-	config *Config,
+	config *configpkg.Config,
 	content string,
 	workflowID uuid.UUID,
 ) (int64, error) {
@@ -213,7 +215,7 @@ func (ae *AgenticEngine) generateLinks(ctx context.Context, newMemoryID int64, k
 }
 
 // SearchAgenticMemories performs a vector-based search on agentic_memories.
-func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Config, queryText string, limit int) ([]AgenticMemory, error) {
+func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *configpkg.Config, queryText string, limit int) ([]AgenticMemory, error) {
 	embeds, err := GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{queryText})
 	if err != nil || len(embeds) == 0 {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
@@ -263,8 +265,8 @@ func parseTextArray(input string) []string {
 	return parts
 }
 
-// agenticMemoryIngestHandler handles POST /api/agentic-memory/ingest.
-func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
+// AgenticMemoryIngestHandler handles POST /api/agentic-memory/ingest.
+func AgenticMemoryIngestHandler(config *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Check if agentic memory is enabled
 		if !config.AgenticMemory.Enabled {
@@ -324,8 +326,8 @@ func agenticMemoryIngestHandler(config *Config) echo.HandlerFunc {
 	}
 }
 
-// agenticMemorySearchHandler handles POST /api/agentic-memory/search.
-func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
+// AgenticMemorySearchHandler handles POST /api/agentic-memory/search.
+func AgenticMemorySearchHandler(config *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		// Check if agentic memory is enabled
 		if !config.AgenticMemory.Enabled {
@@ -378,7 +380,7 @@ func agenticMemorySearchHandler(config *Config) echo.HandlerFunc {
 // SearchWithinWorkflow finds memories for the same workflow only.
 func (ae *AgenticEngine) SearchWithinWorkflow(
 	ctx context.Context,
-	cfg *Config,
+	cfg *configpkg.Config,
 	workflowID uuid.UUID,
 	query string,
 	k int,

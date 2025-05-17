@@ -611,7 +611,7 @@ func InitializeApplication(config *Config) error {
 	if config.DBPool == nil {
 		// If the pool doesn't exist yet (which shouldn't happen), create a backup connection temporarily
 		pterm.Warning.Println("Database pool not initialized, creating a temporary connection")
-		db, err := Connect(ctx, config.Database.ConnectionString)
+		db, err := sefii.Connect(ctx, config.Database.ConnectionString)
 		if err != nil {
 			pterm.Fatal.Println(err)
 		}

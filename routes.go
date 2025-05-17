@@ -16,6 +16,7 @@ import (
 	anthropicpkg "manifold/internal/anthropic"
 	gitpkg "manifold/internal/git"
 	imggenpkg "manifold/internal/imggen"
+	sefiipkg "manifold/internal/sefii"
 )
 
 // registerRoutes sets up all the routes for the application.
@@ -141,9 +142,9 @@ func registerCompletionsEndpoints(api *echo.Group, config *Config) {
 // registerSEFIIEndpoints registers routes for SEFII-related functionality.
 func registerSEFIIEndpoints(api *echo.Group, config *Config) {
 	sefiiGroup := api.Group("/sefii")
-	sefiiGroup.POST("/ingest", sefiiIngestHandler(config))
-	sefiiGroup.POST("/search", sefiiSearchHandler(config))
-	sefiiGroup.POST("/combined-retrieve", sefiiCombinedRetrieveHandler(config))
+	sefiiGroup.POST("/ingest", sefiipkg.IngestHandler(config))
+	sefiiGroup.POST("/search", sefiipkg.SearchHandler(config))
+	sefiiGroup.POST("/combined-retrieve", sefiipkg.CombinedRetrieveHandler(config))
 }
 
 // registerAnthropicEndpoints registers routes for Anthropic-related functionality.

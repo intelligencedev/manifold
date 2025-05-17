@@ -43,6 +43,8 @@ type AgenticMemoryConfig struct {
 type A2AConfig struct {
 	// Role specifies the node's role in the cluster ("master" or "worker").
 	Role string `yaml:"role"`
+	// Token is the shared secret used for authenticating A2A requests.
+	Token string `yaml:"token"`
 	// Nodes lists the URLs of remote nodes participating in the cluster.
 	Nodes []string `yaml:"nodes"`
 }

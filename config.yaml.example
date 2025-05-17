@@ -148,6 +148,8 @@ agentic_memory:
 a2a:
   # Node role can be "master" or "worker"
   role: "master"
+  # Shared secret token for authenticating A2A requests
+  token: ""
   # List of remote node URLs participating in this cluster
   nodes:
     - "http://node1.example.com"

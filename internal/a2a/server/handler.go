@@ -11,8 +11,10 @@ import (
 
 	"github.com/google/uuid"
 
+	parent "manifold/internal/a2a"
 	"manifold/internal/a2a/rpc"
 	"manifold/internal/a2a/sse"
+	agents "manifold/internal/agents"
 )
 
 // Server implements the A2A protocol server
@@ -86,14 +88,29 @@ func (s *Server) handleSend(ctx context.Context, params json.RawMessage) (interf
 
 	// Start a goroutine to process the task
 	go func() {
-		// Update task to running
-		s.store.UpdateStatus(context.Background(), createdTask.ID, TaskStatusRunning)
+		ctxb := context.Background()
+		s.store.UpdateStatus(ctxb, createdTask.ID, TaskStatusRunning)
 
-		// Simulate task processing (this would be replaced with real processing)
-		time.Sleep(2 * time.Second)
+		if ms, ok := s.store.(*parent.manifoldTaskStore); ok && ms.cfg != nil && ms.cfg.DBPool != nil {
+			poolConn, err := ms.cfg.DBPool.Acquire(ctxb)
+			if err == nil {
+				objective := ""
+				if len(req.Message.Parts) > 0 {
+					if tp, ok := req.Message.Parts[0].(TextPart); ok {
+						objective = tp.Text
+					}
+				}
+				if objective != "" {
+					engine, err := agents.NewEngine(ctxb, ms.cfg, poolConn.Conn())
+					if err == nil {
+						_, _ = engine.RunSession(ctxb, agents.ReActRequest{Objective: objective, MaxSteps: ms.cfg.Completions.ReactAgentConfig.MaxSteps})
+					}
+				}
+				poolConn.Release()
+			}
+		}
 
-		// Update task to completed
-		s.store.UpdateStatus(context.Background(), createdTask.ID, TaskStatusCompleted)
+		s.store.UpdateStatus(ctxb, createdTask.ID, TaskStatusCompleted)
 	}()
 
 	return SendResponse{Task: *createdTask}, nil

@@ -92,6 +92,36 @@ func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
 	return conn, nil
 }
 
+// NewEngine constructs an AgentEngine using the provided database connection.
+// The caller is responsible for closing the DB connection.
+func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*AgentEngine, error) {
+	mgr, err := mcp.NewManager(ctx, "config.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("mcp manager: %w", err)
+	}
+
+	eng := &AgentEngine{
+		Config:     cfg,
+		DB:         db,
+		HTTPClient: &http.Client{Timeout: 180 * time.Second},
+		mcpMgr:     mgr,
+		mcpTools:   make(map[string]ToolInfo),
+	}
+
+	if cfg.AgenticMemory.Enabled {
+		eng.MemoryEngine = NewAgenticEngine(db)
+		if err := eng.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
+			return nil, err
+		}
+	} else {
+		eng.MemoryEngine = &NilMemoryEngine{}
+	}
+
+	_ = eng.discoverMCPTools(ctx)
+
+	return eng, nil
+}
+
 /*──────────────────────── route ───────────────────────*/
 
 func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
@@ -123,32 +153,10 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.JSON(500, map[string]string{"error": "failed to acquire database connection"})
 		}
 		defer poolConn.Release()
-
-		mgr, err := mcp.NewManager(ctx, "config.yaml")
+		engine, err := NewEngine(ctx, cfg, poolConn.Conn())
 		if err != nil {
-			return c.JSON(500, map[string]string{"error": fmt.Sprintf("mcp manager: %v", err)})
+			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
-
-		engine := &AgentEngine{
-			Config:     cfg,
-			DB:         poolConn.Conn(),
-			HTTPClient: &http.Client{Timeout: 180 * time.Second},
-			mcpMgr:     mgr,
-			mcpTools:   make(map[string]ToolInfo),
-		}
-
-		// Configure memory engine based on config
-		if cfg.AgenticMemory.Enabled {
-			engine.MemoryEngine = NewAgenticEngine(poolConn.Conn())
-			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
-				return c.JSON(500, map[string]string{"error": err.Error()})
-			}
-		} else {
-			// Use the no-op implementation when agentic memory is disabled
-			engine.MemoryEngine = &NilMemoryEngine{}
-		}
-
-		_ = engine.discoverMCPTools(ctx)
 
 		session, err := engine.RunSession(ctx, req)
 		if err != nil {

@@ -488,39 +488,35 @@ func StopPGVectorContainer() error {
 }
 
 // parseConnectionString attempts to extract username, password and database name from a connection string
-func parseConnectionString(connStr string) (username, password, dbname string, ok bool) {
-	// Default values
-	username = "postgres"
-	password = "postgres"
-	dbname = "manifold"
-
-	// Very basic parsing - this won't handle all formats but should work for simple cases
-	// Example: postgres://username:password@hostname:5432/dbname
-	if strings.HasPrefix(connStr, "postgres://") {
-		connStr = strings.TrimPrefix(connStr, "postgres://")
-
-		// Extract username and password
-		if userPassEnd := strings.Index(connStr, "@"); userPassEnd > 0 {
-			userPass := connStr[:userPassEnd]
-			if passwordSep := strings.Index(userPass, ":"); passwordSep > 0 {
-				username = userPass[:passwordSep]
-				password = userPass[passwordSep+1:]
-			}
-
-			// Extract database name
-			remainder := connStr[userPassEnd+1:]
-			if dbSep := strings.LastIndex(remainder, "/"); dbSep > 0 {
-				potentialDb := remainder[dbSep+1:]
-				if queryParamSep := strings.Index(potentialDb, "?"); queryParamSep > 0 {
-					dbname = potentialDb[:queryParamSep]
-				} else {
-					dbname = potentialDb
-				}
-			}
-
-			return username, password, dbname, true
+func parseConnectionString(conn string) (user, pass, db string, ok bool) {
+	user, pass, db = "postgres", "postgres", "manifold"
+	at := strings.Index(conn, "@")
+	if at == -1 {
+		return user, pass, db, false
+	}
+	creds := conn[strings.Index(conn, "//")+2 : at]
+	hostAndDb := conn[at+1:]
+	colon := strings.Index(creds, ":")
+	if colon != -1 {
+		// If username is empty, keep default
+		if creds[:colon] != "" {
+			user = creds[:colon]
+		}
+		// If password is empty, keep default
+		if creds[colon+1:] != "" {
+			pass = creds[colon+1:]
+		}
+	} else if creds != "" {
+		user = creds
+	}
+	// If creds is empty (i.e., postgres://@host:5432/db), keep defaults and ok=true
+	slash := strings.LastIndex(hostAndDb, "/")
+	if slash != -1 && slash+1 < len(hostAndDb) {
+		db = hostAndDb[slash+1:]
+		q := strings.Index(db, "?")
+		if q != -1 {
+			db = db[:q]
 		}
 	}
-
-	return username, password, dbname, false
+	return user, pass, db, true
 }

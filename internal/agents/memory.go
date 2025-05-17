@@ -15,7 +15,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 
 	configpkg "manifold/internal/config"
-
+	"manifold/internal/embeddings"
 	"manifold/internal/sefii"
 )
 
@@ -140,7 +140,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 
 	// 2. Compute the embedding.
 	embeddingInput := config.Embeddings.EmbedPrefix + content + " " + noteContext + " " + strings.Join(keywords, " ") + " " + strings.Join(tags, " ")
-	embeds, err := GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
+	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
 	if err != nil || len(embeds) == 0 {
 		return 0, fmt.Errorf("failed to generate embedding: %w", err)
 	}
@@ -216,7 +216,7 @@ func (ae *AgenticEngine) generateLinks(ctx context.Context, newMemoryID int64, k
 
 // SearchAgenticMemories performs a vector-based search on agentic_memories.
 func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *configpkg.Config, queryText string, limit int) ([]AgenticMemory, error) {
-	embeds, err := GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{queryText})
+	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{queryText})
 	if err != nil || len(embeds) == 0 {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
@@ -386,7 +386,7 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 	k int,
 ) ([]AgenticMemory, error) {
 
-	embeds, err := GenerateEmbeddings(cfg.Embeddings.Host, cfg.Embeddings.APIKey, []string{query})
+	embeds, err := embeddings.GenerateEmbeddings(cfg.Embeddings.Host, cfg.Embeddings.APIKey, []string{query})
 	if err != nil || len(embeds) == 0 {
 		return nil, err
 	}

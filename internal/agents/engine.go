@@ -676,21 +676,21 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 	)
 	switch strings.ToLower(strings.TrimSpace(req.Language)) {
 	case "python":
-		result, err := codeeval.RunPythonInContainer(ae.Config, req.Code, req.Dependencies)
+		result, err := codeeval.RunPythonInContainer(req.Code, req.Dependencies)
 		if err != nil {
 			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
 		} else {
 			resp = &codeeval.CodeEvalResponse{Result: result}
 		}
 	case "go":
-		result, err := codeeval.RunGoInContainer(ae.Config, req.Code, req.Dependencies)
+		result, err := codeeval.RunGoInContainer(req.Code, req.Dependencies)
 		if err != nil {
 			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
 		} else {
 			resp = &codeeval.CodeEvalResponse{Result: result}
 		}
 	case "javascript":
-		result, err := codeeval.RunNodeInContainer(ae.Config, req.Code, req.Dependencies)
+		result, err := codeeval.RunNodeInContainer(req.Code, req.Dependencies)
 		if err != nil {
 			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
 		} else {

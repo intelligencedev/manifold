@@ -523,55 +523,7 @@ export function useAgentNode(props, emit) {
         result = { content: accumulatedContent };
 
       } else if (currentProvider === 'anthropic') {
-        // --- Handle Anthropic/Claude Provider ---
-        const anthropicRequestBody = {
-          model: props.data.inputs.model,
-          max_tokens: parseInt(props.data.inputs.max_completion_tokens || 1024),
-          messages: [{ role: 'user', text: finalPrompt }],
-          stream: true
-        };
-        
-        // Add system prompt if provided
-        if (props.data.inputs.system_prompt && props.data.inputs.system_prompt.trim() !== '') {
-          anthropicRequestBody.system = [props.data.inputs.system_prompt.trim()];
-        }
-        
-        // Call Anthropic API
-        const response = await fetch(props.data.inputs.endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': props.data.inputs.api_key,
-            'anthropic-version': '2023-06-01'
-          },
-          body: JSON.stringify(anthropicRequestBody)
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`API error (${response.status}): ${errorText}`);
-        }
-        
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let responseText = '';
-        
-        // Stream response and update UI
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          responseText += chunk;
-          onResponseUpdate(responseText, responseText);
-        }
-        
-        props.data.outputs = {
-          ...props.data.outputs,
-          response: responseText,
-          result: { output: responseText }
-        };
-        
-        return { content: responseText };
+        return await handleAnthropicProvider(props, finalPrompt, onResponseUpdate);
       } else {
         // --- Fallback to non-streaming for other providers ---
         const response = await fetch(props.data.inputs.endpoint, {

@@ -1,6 +1,6 @@
 <template>
-  <div 
-    :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }" 
+  <div
+    :style="computedContainerStyle"
     class="node-container claude-node tool-node" 
     @mouseenter="isHovered = true" 
     @mouseleave="isHovered = false"
@@ -143,6 +143,7 @@ const {
   api_key,
   resizeHandleStyle,
   customStyle,
+  computedContainerStyle,
   
   // Methods
   onResize,

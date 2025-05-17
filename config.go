@@ -83,7 +83,6 @@ type Config struct {
 }
 
 // LoadConfig reads the configuration from a YAML file, unmarshals it into a Config struct,
-// logs the outcome using pterm, and prints the loaded configuration as pretty printed JSON.
 func LoadConfig(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {

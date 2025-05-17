@@ -29,6 +29,7 @@ type MemoryRequest struct {
 
 // Memory represents a memory entry in the database
 type AgenticMemory struct {
+	ID          int64           `json:"id"`
 	WorkflowID  string          `json:"workflow_id"`
 	Content     string          `json:"content"`
 	NoteContext string          `json:"note_context"`
@@ -221,7 +222,7 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Conf
 
 	// Cast keywords and tags to text to force string output.
 	searchQuery := `
-        SELECT id, content, note_context, keywords::text, tags::text, timestamp, embedding, links
+        SELECT id, workflow_id, content, note_context, keywords::text, tags::text, timestamp, embedding, links
         FROM agentic_memories
         ORDER BY embedding <-> $1
         LIMIT $2
@@ -237,7 +238,7 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *Conf
 		var mem AgenticMemory
 		var kwStr, tagStr string
 		var ts time.Time
-		err := rows.Scan(&mem.WorkflowID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
+		err := rows.Scan(&mem.ID, &mem.WorkflowID, &mem.Content, &mem.NoteContext, &kwStr, &tagStr, &ts, &mem.Embedding, &mem.Links)
 		if err != nil {
 			return nil, err
 		}
@@ -390,7 +391,7 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 
 	qvec := pgvector.NewVector(embeds[0])
 	rows, err := ae.DB.Query(ctx, `
-        SELECT id, content, note_context, timestamp
+        SELECT id, workflow_id, content, note_context, timestamp
         FROM agentic_memories
         WHERE workflow_id = $1
         ORDER BY embedding <-> $2
@@ -403,7 +404,7 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 	var memories []AgenticMemory
 	for rows.Next() {
 		var am AgenticMemory
-		if err := rows.Scan(&am.WorkflowID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
+		if err := rows.Scan(&am.ID, &am.WorkflowID, &am.Content, &am.NoteContext, &am.Timestamp); err != nil {
 			return nil, err
 		}
 		memories = append(memories, am)

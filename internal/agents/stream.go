@@ -49,32 +49,10 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.String(http.StatusInternalServerError, "failed to acquire database connection")
 		}
 		defer poolConn.Release()
-
-		mgr, err := mcp.NewManager(ctx, "config.yaml")
+		engine, err := NewEngine(ctx, cfg, poolConn.Conn())
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
-
-		engine := &AgentEngine{
-			Config:     cfg,
-			DB:         poolConn.Conn(),
-			HTTPClient: &http.Client{Timeout: 180 * time.Second},
-			mcpMgr:     mgr,
-			mcpTools:   make(map[string]ToolInfo),
-		}
-
-		// Configure memory engine based on config
-		if cfg.AgenticMemory.Enabled {
-			engine.MemoryEngine = NewAgenticEngine(poolConn.Conn())
-			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
-				return c.String(http.StatusInternalServerError, err.Error())
-			}
-		} else {
-			// Use the no-op implementation when agentic memory is disabled
-			engine.MemoryEngine = &NilMemoryEngine{}
-		}
-
-		_ = engine.discoverMCPTools(ctx)
 
 		// helper to write one SSE data frame
 		write := func(data string) {

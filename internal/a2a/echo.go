@@ -16,13 +16,19 @@ import (
 
 // Define our implementation of the TaskStore interface
 type manifoldTaskStore struct {
+	cfg   *config.Config
 	tasks map[string]*server.Task
 	mutex sync.Mutex
 }
 
 // NewTaskStore creates a TaskStore implementation configured for Manifold
 func NewTaskStore(cfgParam interface{}) server.TaskStore { // Renamed parameter "config" to "cfgParam"
+	var cfg *config.Config
+	if c, ok := cfgParam.(*config.Config); ok {
+		cfg = c
+	}
 	return &manifoldTaskStore{
+		cfg:   cfg,
 		tasks: make(map[string]*server.Task),
 	}
 }

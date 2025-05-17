@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"strings"
 
+	auth "manifold/internal/a2a/auth"
 	"manifold/internal/a2a/rpc"
 	"manifold/internal/a2a/server"
+	config "manifold/internal/config"
 )
 
 type Authenticator interface {
@@ -31,6 +33,16 @@ func New(baseURL string, client *http.Client, auth Authenticator) *A2AClient {
 		http:    client,
 		auth:    auth,
 	}
+}
+
+// NewFromConfig constructs an authenticated client using configuration settings.
+func NewFromConfig(cfg *config.Config, baseURL string) *A2AClient {
+	httpClient := &http.Client{}
+	var authn Authenticator
+	if cfg.A2A.Token != "" {
+		authn = auth.NewTokenSender(cfg.A2A.Token)
+	}
+	return New(baseURL, httpClient, authn)
 }
 
 // do sends a JSON-RPC request to the server and unmarshals the result into the

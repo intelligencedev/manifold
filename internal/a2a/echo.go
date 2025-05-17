@@ -11,6 +11,7 @@ import (
 
 	"manifold/internal/a2a/auth"
 	"manifold/internal/a2a/server"
+	config "manifold/internal/config"
 )
 
 // Define our implementation of the TaskStore interface
@@ -131,8 +132,10 @@ func (s *manifoldTaskStore) GetPushConfig(ctx context.Context, id string) (*serv
 
 // NewAuthenticator creates an Authenticator for A2A requests
 func NewAuthenticator(config interface{}) server.Authenticator {
-	// For now, we'll use the no-op authenticator
-	// In production, this should be integrated with Manifold's authentication system
+	cfg, ok := config.(*config.Config)
+	if ok && cfg.A2A.Token != "" {
+		return auth.NewToken(cfg.A2A.Token)
+	}
 	return auth.NewNoop()
 }
 
@@ -164,7 +167,12 @@ func AgentCardHandler(config interface{}) echo.HandlerFunc {
 				"stateTransitionHistory": false,
 			},
 			"authentication": map[string]interface{}{
-				"type": "none", // Update based on your authentication mechanism
+				"type": func() string {
+					if cfg, ok := config.(*config.Config); ok && cfg.A2A.Token != "" {
+						return "bearer"
+					}
+					return "none"
+				}(),
 			},
 			"defaultInputContentTypes": []string{
 				"text/plain",

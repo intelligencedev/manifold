@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	agentspkg "manifold/internal/agents"
+	configpkg "manifold/internal/config"
 
 	"github.com/labstack/echo/v4"
 )
@@ -30,13 +31,15 @@ func evaluateCodeHandler(c echo.Context) error {
 		err  error
 	)
 
+	cfg, _ := c.Get("config").(*configpkg.Config)
+
 	switch lang {
 	case "python":
-		resp, err = agentspkg.RunPythonInContainer(req.Code, req.Dependencies)
+		resp, err = agentspkg.RunPythonInContainer(cfg, req.Code, req.Dependencies)
 	case "go":
-		resp, err = agentspkg.RunGoInContainer(req.Code, req.Dependencies)
+		resp, err = agentspkg.RunGoInContainer(cfg, req.Code, req.Dependencies)
 	case "javascript":
-		resp, err = agentspkg.RunNodeInContainer(req.Code, req.Dependencies)
+		resp, err = agentspkg.RunNodeInContainer(cfg, req.Code, req.Dependencies)
 	default:
 		return c.JSON(http.StatusBadRequest, agentspkg.CodeEvalResponse{
 			Error: "Unsupported language: " + req.Language,

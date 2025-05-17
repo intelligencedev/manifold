@@ -34,142 +34,35 @@ type DockerExecResponse struct {
 	Stderr     string
 }
 
-// RunPythonInContainer writes out the Python code and dependencies, then executes them using the multi-language Docker container.
-func RunPythonInContainer(code string, dependencies []string) (*CodeEvalResponse, error) {
+func runInContainer(codeFile string, code string, install []string, runCmd string, deps []string, cfg *configpkg.Config) (*CodeEvalResponse, error) {
 	tempDir, err := os.MkdirTemp("", "sandbox_")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	codeFilePath := filepath.Join(tempDir, "user_code.py")
-	if err := os.WriteFile(codeFilePath, []byte(code), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write python code: %w", err)
+	if err := os.WriteFile(filepath.Join(tempDir, codeFile), []byte(code), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write code: %w", err)
 	}
 
-	reqFile := filepath.Join(tempDir, "requirements.txt")
-	if len(dependencies) > 0 {
-		reqContent := strings.Join(dependencies, "\n")
+	if len(deps) > 0 {
+		reqFile := filepath.Join(tempDir, "requirements.txt")
+		reqContent := strings.Join(deps, "\n")
 		if err := os.WriteFile(reqFile, []byte(reqContent), 0644); err != nil {
 			return nil, fmt.Errorf("failed to write requirements.txt: %w", err)
 		}
-	} else {
-		if err := os.WriteFile(reqFile, []byte(""), 0644); err != nil {
-			return nil, fmt.Errorf("failed to write empty requirements.txt: %w", err)
-		}
-	}
-
-	config, err := configpkg.LoadConfig("config.yaml")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	cmdStr := `
-cd /sandbox &&
-pip install -r requirements.txt > /dev/null 2>/dev/null &&
-python3 user_code.py
-`
-
-	dockerArgs := []string{
-		"run", "--rm",
-		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
-		"-v", fmt.Sprintf("%s:/mnt", config.DataPath),
-		"code-sandbox",
-		"/bin/bash", "-c", cmdStr,
-	}
-
-	dresp, err := runDockerCommand(dockerArgs, 60*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	return ConvertDockerResponse(dresp), nil
-}
-
-// RunGoInContainer writes out the Go code and sets up dependencies, then executes the code using the multi-language Docker container.
-func RunGoInContainer(code string, dependencies []string) (*CodeEvalResponse, error) {
-	tempDir, err := os.MkdirTemp("", "sandbox_")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	codeFilePath := filepath.Join(tempDir, "main.go")
-	if err := os.WriteFile(codeFilePath, []byte(code), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write go code: %w", err)
-	}
-
-	config, err := configpkg.LoadConfig("config.yaml")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	var installLines []string
-	if len(dependencies) > 0 {
-		for _, dep := range dependencies {
-			installLines = append(installLines, fmt.Sprintf("go get %s > /dev/null 2>/dev/null", dep))
-		}
-	}
-
-	cmdParts := []string{
-		"cd /sandbox",
-		"go mod init sandbox > /dev/null 2>/dev/null || true",
-	}
-	cmdParts = append(cmdParts, installLines...)
-	cmdParts = append(cmdParts, "go run main.go")
-
-	cmdStr := strings.Join(cmdParts, " && ")
-
-	dockerArgs := []string{
-		"run", "--rm",
-		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
-		"-v", fmt.Sprintf("%s:/mnt", config.DataPath),
-		"code-sandbox",
-		"/bin/sh", "-c", cmdStr,
-	}
-
-	dresp, err := runDockerCommand(dockerArgs, 60*time.Second)
-	if err != nil {
-		return nil, err
-	}
-
-	return ConvertDockerResponse(dresp), nil
-}
-
-// RunNodeInContainer writes out the JavaScript code and sets up dependencies, then executes it using the multi-language Docker container.
-func RunNodeInContainer(code string, dependencies []string) (*CodeEvalResponse, error) {
-	tempDir, err := os.MkdirTemp("", "sandbox_")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	codeFilePath := filepath.Join(tempDir, "user_code.js")
-	if err := os.WriteFile(codeFilePath, []byte(code), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write javascript code: %w", err)
-	}
-
-	config, err := configpkg.LoadConfig("config.yaml")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	var installLines []string
-	if len(dependencies) > 0 {
-		installLines = append(installLines, "npm init -y > /dev/null 2>/dev/null")
-		installLines = append(installLines, fmt.Sprintf("npm install %s > /dev/null 2>/dev/null", strings.Join(dependencies, " ")))
+		install = append(install, "pip install -r requirements.txt > /dev/null 2>/dev/null")
 	}
 
 	cmdParts := []string{"cd /sandbox"}
-	cmdParts = append(cmdParts, installLines...)
-	cmdParts = append(cmdParts, "node user_code.js")
-
+	cmdParts = append(cmdParts, install...)
+	cmdParts = append(cmdParts, runCmd)
 	cmdStr := strings.Join(cmdParts, " && ")
 
 	dockerArgs := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
-		"-v", fmt.Sprintf("%s:/mnt", config.DataPath),
+		"-v", fmt.Sprintf("%s:/mnt", cfg.DataPath),
 		"code-sandbox",
 		"/bin/sh", "-c", cmdStr,
 	}
@@ -180,6 +73,31 @@ func RunNodeInContainer(code string, dependencies []string) (*CodeEvalResponse, 
 	}
 
 	return ConvertDockerResponse(dresp), nil
+}
+
+// RunPythonInContainer writes out the Python code and dependencies, then executes them using the multi-language Docker container.
+func RunPythonInContainer(cfg *configpkg.Config, code string, dependencies []string) (*CodeEvalResponse, error) {
+	return runInContainer("user_code.py", code, nil, "python3 user_code.py", dependencies, cfg)
+}
+
+// RunGoInContainer writes out the Go code and sets up dependencies, then executes the code using the multi-language Docker container.
+func RunGoInContainer(cfg *configpkg.Config, code string, dependencies []string) (*CodeEvalResponse, error) {
+	var install []string
+	install = append(install, "go mod init sandbox > /dev/null 2>/dev/null || true")
+	for _, dep := range dependencies {
+		install = append(install, fmt.Sprintf("go get %s > /dev/null 2>/dev/null", dep))
+	}
+	return runInContainer("main.go", code, install, "go run main.go", nil, cfg)
+}
+
+// RunNodeInContainer writes out the JavaScript code and sets up dependencies, then executes it using the multi-language Docker container.
+func RunNodeInContainer(cfg *configpkg.Config, code string, dependencies []string) (*CodeEvalResponse, error) {
+	var install []string
+	if len(dependencies) > 0 {
+		install = append(install, "npm init -y > /dev/null 2>/dev/null")
+		install = append(install, fmt.Sprintf("npm install %s > /dev/null 2>/dev/null", strings.Join(dependencies, " ")))
+	}
+	return runInContainer("user_code.js", code, install, "node user_code.js", nil, cfg)
 }
 
 func runDockerCommand(dockerArgs []string, timeout time.Duration) (*DockerExecResponse, error) {

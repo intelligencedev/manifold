@@ -214,7 +214,17 @@ func (c *A2AClient) streamResponses(resp *http.Response, ch chan<- SendTaskStrea
 
 // SendTask sends a task to the server using the tasks/send method.
 func (c *A2AClient) SendTask(ctx context.Context, msg server.Message) (*server.Task, error) {
-	req := server.SendRequest{Message: msg}
+	// Convert Message to ServerMessage
+	serverMsg := server.ServerMessage{
+		Role: msg.Role,
+		Parts: []server.Part{
+			server.TextPart{
+				Type: "text",
+				Text: fmt.Sprintf("%v", msg.Content),
+			},
+		},
+	}
+	req := server.SendRequest{Message: serverMsg}
 	var resp struct {
 		Task server.Task `json:"task"`
 	}
@@ -226,7 +236,17 @@ func (c *A2AClient) SendTask(ctx context.Context, msg server.Message) (*server.T
 
 // SendTaskSubscribe sends a task and subscribes to updates using SSE.
 func (c *A2AClient) SendTaskSubscribe(ctx context.Context, msg server.Message) (<-chan SendTaskStreamingResponse, error) {
-	req := server.SendRequest{Message: msg}
+	// Convert Message to ServerMessage
+	serverMsg := server.ServerMessage{
+		Role: msg.Role,
+		Parts: []server.Part{
+			server.TextPart{
+				Type: "text",
+				Text: fmt.Sprintf("%v", msg.Content),
+			},
+		},
+	}
+	req := server.SendRequest{Message: serverMsg}
 	resp, err := c.postStream(ctx, "tasks/sendSubscribe", req)
 	if err != nil {
 		return nil, err

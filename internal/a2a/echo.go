@@ -10,31 +10,46 @@ import (
 	echo "github.com/labstack/echo/v4"
 
 	"manifold/internal/a2a/auth"
+	"manifold/internal/a2a/models"
 	"manifold/internal/a2a/server"
+
 	config "manifold/internal/config"
 )
 
 // Define our implementation of the TaskStore interface
 type manifoldTaskStore struct {
 	cfg   *config.Config
-	tasks map[string]*server.Task
+	tasks map[string]*models.Task
 	mutex sync.Mutex
 }
 
+// HasDBPool implements server.DBBackedTaskStore
+func (s *manifoldTaskStore) HasDBPool() bool {
+	return s.cfg != nil && s.cfg.DBPool != nil
+}
+
+// GetDBPool implements server.DBBackedTaskStore
+func (s *manifoldTaskStore) GetDBPool() interface{} {
+	if s.cfg == nil {
+		return nil
+	}
+	return s.cfg.DBPool
+}
+
 // NewTaskStore creates a TaskStore implementation configured for Manifold
-func NewTaskStore(cfgParam interface{}) server.TaskStore { // Renamed parameter "config" to "cfgParam"
+func NewTaskStore(cfgParam interface{}) models.TaskStore { // Renamed parameter "config" to "cfgParam"
 	var cfg *config.Config
 	if c, ok := cfgParam.(*config.Config); ok {
 		cfg = c
 	}
 	return &manifoldTaskStore{
 		cfg:   cfg,
-		tasks: make(map[string]*server.Task),
+		tasks: make(map[string]*models.Task),
 	}
 }
 
 // Create implements TaskStore.Create
-func (s *manifoldTaskStore) Create(ctx context.Context, initial server.Task) (*server.Task, error) {
+func (s *manifoldTaskStore) Create(ctx context.Context, initial models.Task) (*models.Task, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -53,7 +68,7 @@ func (s *manifoldTaskStore) Create(ctx context.Context, initial server.Task) (*s
 }
 
 // Get implements TaskStore.Get
-func (s *manifoldTaskStore) Get(ctx context.Context, id string) (*server.Task, error) {
+func (s *manifoldTaskStore) Get(ctx context.Context, id string) (*models.Task, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -66,7 +81,7 @@ func (s *manifoldTaskStore) Get(ctx context.Context, id string) (*server.Task, e
 }
 
 // UpdateStatus implements TaskStore.UpdateStatus
-func (s *manifoldTaskStore) UpdateStatus(ctx context.Context, id string, status server.TaskStatus) error {
+func (s *manifoldTaskStore) UpdateStatus(ctx context.Context, id string, status models.TaskStatus) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -80,7 +95,7 @@ func (s *manifoldTaskStore) UpdateStatus(ctx context.Context, id string, status 
 }
 
 // AppendArtifact implements TaskStore.AppendArtifact
-func (s *manifoldTaskStore) AppendArtifact(ctx context.Context, id string, art server.Artifact) error {
+func (s *manifoldTaskStore) AppendArtifact(ctx context.Context, id string, art models.Artifact) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -95,7 +110,7 @@ func (s *manifoldTaskStore) AppendArtifact(ctx context.Context, id string, art s
 }
 
 // Cancel implements TaskStore.Cancel
-func (s *manifoldTaskStore) Cancel(ctx context.Context, id string) (*server.Task, error) {
+func (s *manifoldTaskStore) Cancel(ctx context.Context, id string) (*models.Task, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -104,12 +119,12 @@ func (s *manifoldTaskStore) Cancel(ctx context.Context, id string) (*server.Task
 		return nil, echo.NewHTTPError(http.StatusNotFound, "Task not found")
 	}
 
-	task.Status = server.TaskStatusCanceled
+	task.Status = models.TaskStatusCanceled
 	return task, nil
 }
 
 // SetPushConfig implements TaskStore.SetPushConfig
-func (s *manifoldTaskStore) SetPushConfig(ctx context.Context, id string, cfg *server.PushNotificationConfig) error {
+func (s *manifoldTaskStore) SetPushConfig(ctx context.Context, id string, cfg *models.PushNotificationConfig) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -123,7 +138,7 @@ func (s *manifoldTaskStore) SetPushConfig(ctx context.Context, id string, cfg *s
 }
 
 // GetPushConfig implements TaskStore.GetPushConfig
-func (s *manifoldTaskStore) GetPushConfig(ctx context.Context, id string) (*server.PushNotificationConfig, error) {
+func (s *manifoldTaskStore) GetPushConfig(ctx context.Context, id string) (*models.PushNotificationConfig, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -133,25 +148,29 @@ func (s *manifoldTaskStore) GetPushConfig(ctx context.Context, id string) (*serv
 	}
 
 	// Return a placeholder config
-	return &server.PushNotificationConfig{}, nil
+	return &models.PushNotificationConfig{}, nil
 }
 
 // NewAuthenticator creates an Authenticator for A2A requests
-func NewAuthenticator(cfgParam interface{}) server.Authenticator { // Renamed parameter "config" to "cfgParam"
+func NewAuthenticator(cfgParam interface{}) models.Authenticator { // Renamed parameter "config" to "cfgParam"
 	cfg, ok := cfgParam.(*config.Config) // Updated to use cfgParam
 	if ok && cfg.A2A.Token != "" {
-		return auth.NewToken(cfg.A2A.Token)
+		return auth.NewTokenModels(cfg.A2A.Token)
 	}
-	return auth.NewNoop()
+	return auth.NewNoopModels()
 }
 
 // NewEchoHandler creates an http.Handler that can be used with Echo's WrapHandler
-func NewEchoHandler(store server.TaskStore, authenticator server.Authenticator) http.Handler {
+func NewEchoHandler(store models.TaskStore, authenticator models.Authenticator) http.Handler {
+	// Create adapters to convert between our types and server package types
+	storeAdapter := NewServerTaskStoreAdapter(store)
+	authAdapter := NewServerAuthenticatorAdapter(authenticator)
+
 	// Create a new A2A server
-	a2aServer := server.NewServer(store, authenticator)
+	a2aServer := server.NewServer(storeAdapter, authAdapter)
 
 	// Wrap it with the authentication middleware
-	return server.Authenticate(a2aServer, authenticator)
+	return server.Authenticate(a2aServer, authAdapter)
 }
 
 // AgentCardHandler returns an echo.HandlerFunc that serves the Agent Card JSON

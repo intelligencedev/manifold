@@ -50,6 +50,7 @@ Metal: Supported
 		t.Errorf("second GPU data mismatch: %+v", gpus[1])
 	}
 }
+
 func TestParseMacOSGPUInfo_MalformedLines(t *testing.T) {
 	input := `Chipset Model Intel Graphics
 Total Number of Cores

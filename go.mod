@@ -5,7 +5,6 @@ go 1.24.3
 require (
 	github.com/DataDog/datadog-api-client-go/v2 v2.37.1
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
-	github.com/anthropics/anthropic-sdk-go v0.2.0-beta.3
 	github.com/chromedp/cdproto v0.0.0-20250509201441-70372ae9ef75
 	github.com/chromedp/chromedp v0.13.6
 	github.com/golang-jwt/jwt/v5 v5.2.2

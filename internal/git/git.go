@@ -1,5 +1,5 @@
-// git_handlers.go
-package main
+// Package git contains handlers and utilities for git file ingestion.
+package git
 
 import (
 	"context"
@@ -14,10 +14,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
+
+	cfg "manifold/internal/config"
 )
 
-// gitFilesHandler handles requests to list Git files in a repository.
-func gitFilesHandler(c echo.Context) error {
+// FilesHandler handles requests to list Git files in a repository.
+func FilesHandler(c echo.Context) error {
 	repoPath := c.QueryParam("repo_path")
 	if repoPath == "" {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "repo_path query parameter is required"})
@@ -31,8 +33,8 @@ func gitFilesHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{"files": files})
 }
 
-// gitFilesIngestHandler returns an HTTP handler for ingesting Git files into the system.
-func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
+// FilesIngestHandler returns an HTTP handler for ingesting Git files into the system.
+func FilesIngestHandler(cfg *cfg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req struct {
 			RepoPath     string `json:"repo_path"`
@@ -53,19 +55,19 @@ func gitFilesIngestHandler(config *Config) echo.HandlerFunc {
 		ctx := c.Request().Context()
 
 		// Use the connection pool instead of creating a new connection
-		if config.DBPool == nil {
+		if cfg.DBPool == nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
 		}
 
 		// Get a connection from the pool
-		conn, err := config.DBPool.Acquire(ctx)
+		conn, err := cfg.DBPool.Acquire(ctx)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
 		}
 		// Return the connection to the pool when done
 		defer conn.Release()
 
-		successFiles, err := processGitFiles(ctx, req, config, conn.Conn())
+		successFiles, err := processGitFiles(ctx, req, cfg, conn.Conn())
 		if err != nil {
 			log.Printf("Error processing Git files: %v", err)
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to process Git files"})
@@ -97,7 +99,7 @@ func processGitFiles(ctx context.Context, req struct {
 	RepoPath     string `json:"repo_path"`
 	ChunkSize    int    `json:"chunk_size"`
 	ChunkOverlap int    `json:"chunk_overlap"`
-}, config *Config, conn *pgx.Conn) ([]string, error) {
+}, cfg *cfg.Config, conn *pgx.Conn) ([]string, error) {
 	engine := sefii.NewEngine(conn)
 
 	gitFiles, err := documents.GetGitFiles(req.RepoPath)
@@ -119,15 +121,15 @@ func processGitFiles(ctx context.Context, req struct {
 			file.Path,
 			filepath.Base(file.Path),
 			[]string{file.Path},
-			config.Embeddings.Host,
-			config.Completions.CompletionsModel,
-			config.Embeddings.APIKey,
-			config.Completions.DefaultHost,
-			config.Completions.APIKey,
+			cfg.Embeddings.Host,
+			cfg.Completions.CompletionsModel,
+			cfg.Embeddings.APIKey,
+			cfg.Completions.DefaultHost,
+			cfg.Completions.APIKey,
 			req.ChunkSize,
 			req.ChunkOverlap,
-			config.Embeddings.Dimensions,
-			config.Embeddings.EmbedPrefix,
+			cfg.Embeddings.Dimensions,
+			cfg.Embeddings.EmbedPrefix,
 		); err == nil {
 			successFiles = append(successFiles, file.Path)
 		} else {

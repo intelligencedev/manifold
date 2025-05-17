@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"manifold/internal/a2a"
+	gitpkg "manifold/internal/git"
 )
 
 // registerRoutes sets up all the routes for the application.
@@ -63,8 +64,8 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	registerA2AEndpoints(api, config)
 
 	// Git-related endpoints.
-	api.GET("/git-files", gitFilesHandler)
-	api.POST("/git-files/ingest", gitFilesIngestHandler(config))
+	api.GET("/git-files", gitpkg.FilesHandler)
+	api.POST("/git-files/ingest", gitpkg.FilesIngestHandler(config))
 
 	// Anthropic endpoints.
 	registerAnthropicEndpoints(api, config)

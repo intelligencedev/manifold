@@ -21,6 +21,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
 
+	a2aclient "manifold/internal/a2a/client"
 	"manifold/internal/codeeval"
 	"manifold/internal/completions"
 	configpkg "manifold/internal/config"
@@ -76,6 +77,8 @@ type AgentEngine struct {
 
 	mcpMgr   *mcp.Manager
 	mcpTools map[string]ToolInfo
+
+	a2aClients map[string]*a2aclient.A2AClient
 }
 
 var (
@@ -106,6 +109,7 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 		HTTPClient: &http.Client{Timeout: 180 * time.Second},
 		mcpMgr:     mgr,
 		mcpTools:   make(map[string]ToolInfo),
+		a2aClients: make(map[string]*a2aclient.A2AClient),
 	}
 
 	if cfg.AgenticMemory.Enabled {
@@ -118,6 +122,19 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	_ = eng.discoverMCPTools(ctx)
+
+	if cfg.A2A.Role == "master" {
+		for _, node := range cfg.A2A.Nodes {
+			base := strings.TrimRight(node, "/") + "/api/a2a"
+			cl := a2aclient.NewFromConfig(cfg, base)
+			if err := cl.Check(ctx); err != nil {
+				log.Printf("a2a node %s unreachable: %v", node, err)
+				continue
+			}
+			eng.a2aClients[node] = cl
+		}
+		log.Printf("a2a discovery complete: %d nodes available", len(eng.a2aClients))
+	}
 
 	return eng, nil
 }
@@ -237,6 +254,10 @@ func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*Agent
 
 func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest, hook StepHook) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
+
+	if ae.Config.A2A.Role == "master" {
+		log.Printf("a2a cluster workers available: %d", len(ae.a2aClients))
+	}
 
 	var td []string
 	for n := range ae.mcpTools {

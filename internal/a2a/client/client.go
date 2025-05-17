@@ -27,6 +27,32 @@ type A2AClient struct {
 	auth    Authenticator
 }
 
+// BaseURL returns the client's base URL.
+func (c *A2AClient) BaseURL() string { return c.baseURL }
+
+// Check performs a simple agent card request to verify the server is reachable.
+func (c *A2AClient) Check(ctx context.Context) error {
+	url := strings.TrimRight(c.baseURL, "/") + "/.well-known/agent-card.json"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	if c.auth != nil {
+		if err := c.auth.Authenticate(req); err != nil {
+			return err
+		}
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("agent card status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 func New(baseURL string, client *http.Client, auth Authenticator) *A2AClient {
 	return &A2AClient{
 		baseURL: baseURL,

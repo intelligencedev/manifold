@@ -64,8 +64,11 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// Workflow templates endpoints
 	registerWorkflowEndpoints(api, config)
 
-	// A2A protocol endpoints
-	registerA2AEndpoints(api, config)
+	// A2A protocol endpoints for worker nodes
+	if config.A2A.Role == "worker" {
+		log.Println("starting a2a server endpoints")
+		registerA2AEndpoints(api, config)
+	}
 
 	// Git-related endpoints.
 	api.GET("/git-files", gitpkg.FilesHandler)

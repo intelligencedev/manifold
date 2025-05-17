@@ -12,7 +12,9 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"manifold/internal/a2a"
+	anthropicpkg "manifold/internal/anthropic"
 	gitpkg "manifold/internal/git"
+	imggenpkg "manifold/internal/imggen"
 )
 
 // registerRoutes sets up all the routes for the application.
@@ -80,9 +82,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// Miscellaneous endpoints.
 	api.POST("/run-fmlx", func(c echo.Context) error {
-		return runFMLXHandler(c, config.DataPath)
+		return imggenpkg.RunFMLXHandler(c, config.DataPath)
 	})
-	api.POST("/run-sd", runSDHandler)
+	api.POST("/run-sd", imggenpkg.RunSDHandler)
 	api.POST("/repoconcat", repoconcatHandler)
 	api.POST("/split-text", splitTextHandler)
 	api.POST("/save-file", saveFileHandler)
@@ -91,7 +93,7 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/code/eval", evaluateCodeHandler)
 	api.POST("/datadog", datadogHandler)
-	api.POST("/comfy-proxy", comfyProxyHandler)
+	api.POST("/comfy-proxy", imggenpkg.ComfyProxyHandler)
 
 	// Agentic Memory endpoints.
 	registerAgenticMemoryEndpoints(api, config)
@@ -147,7 +149,7 @@ func registerSEFIIEndpoints(api *echo.Group, config *Config) {
 func registerAnthropicEndpoints(api *echo.Group, config *Config) {
 	anthropicGroup := api.Group("/anthropic")
 	anthropicGroup.POST("/messages", func(c echo.Context) error {
-		return handleAnthropicMessages(c, config)
+		return anthropicpkg.HandleMessages(c, config)
 	})
 }
 

@@ -53,6 +53,47 @@ export function useAgentNode(props, emit) {
       }
     });
   }
+
+  // Helper functions for Gemini API
+  function parseIncompleteJson(jsonString) {
+    try {
+      const validJson = JSON.parse(jsonString);
+      return { valid: true, completeObject: validJson };
+    } catch (e) {
+      // Attempt to fix the JSON string
+      let fixedJsonString = jsonString;
+      if (e.message.includes("Unexpected end of JSON input")) {
+        // Try to close any unclosed braces or brackets
+        const openBraces = (fixedJsonString.match(/{/g) || []).length;
+        const closeBraces = (fixedJsonString.match(/}/g) || []).length;
+        const openBrackets = (fixedJsonString.match(/\[/g) || []).length;
+        const closeBrackets = (fixedJsonString.match(/\]/g) || []).length;
+        fixedJsonString += "}".repeat(openBraces - closeBraces);
+        fixedJsonString += "]".repeat(openBrackets - closeBrackets);
+      }
+      try {
+        const fixedJson = JSON.parse(fixedJsonString);
+        return { valid: true, completeObject: fixedJson };
+      } catch (e) {
+        return { valid: false, completeObject: null };
+      }
+    }
+  }
+
+  function getCompleteJsonLength(jsonString) {
+    let openBraces = 0;
+    let openBrackets = 0;
+    for (let i = 0; i < jsonString.length; i++) {
+      if (jsonString[i] === "{") openBraces++;
+      if (jsonString[i] === "}") openBraces--;
+      if (jsonString[i] === "[") openBrackets++;
+      if (jsonString[i] === "]") openBrackets--;
+      if (openBraces === 0 && openBrackets === 0) {
+        return i + 1;
+      }
+    }
+    return jsonString.length; // Return total length if no complete object is found
+  }
   
   // Function to update response in real-time as stream content comes in
   function onResponseUpdate(content, fullResponse) {
@@ -128,9 +169,37 @@ export function useAgentNode(props, emit) {
   const providerOptions = [
     { value: 'llama-server', label: 'llama-server' },
     { value: 'mlx_lm.server', label: 'mlx_lm.server' },
-    { value: 'openai', label: 'openai' }
+    { value: 'openai', label: 'openai' },
+    { value: 'anthropic', label: 'anthropic' },
+    { value: 'google', label: 'google' }
   ]
   
+  // Add models list for Anthropic
+  const claudeModels = [
+    'claude-3-7-sonnet-latest', 
+    'claude-3-5-sonnet-latest', 
+    'claude-3-5-haiku-latest'
+  ]
+
+  // Add models list for Google Gemini
+  const geminiModels = [
+    'gemini-2.0-flash',
+    'gemini-2.0-pro-exp-02-05', 
+    'gemini-2.0-flash-lite-preview-02-05',
+    'gemini-2.0-flash-thinking-exp-01-21'
+  ]
+
+  // Computed property to dynamically show the appropriate models based on provider
+  const modelOptions = computed(() => {
+    if (provider.value === 'anthropic') {
+      return claudeModels.map(model => ({ value: model, label: model }));
+    } else if (provider.value === 'google') {
+      return geminiModels.map(model => ({ value: model, label: model }));
+    } else {
+      // Return OpenAI or local models based on existing logic
+      return [];
+    }
+  });
 
   
   // Provider detection and setting
@@ -138,6 +207,10 @@ export function useAgentNode(props, emit) {
     get: () => {
       if (props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
         return 'openai';
+      } else if (props.data.inputs.endpoint === '/api/anthropic/messages') {
+        return 'anthropic';
+      } else if (props.data.inputs.endpoint?.includes('generativelanguage.googleapis.com')) {
+        return 'google';
       } else if (props.data.inputs.endpoint === configStore.config?.Completions?.DefaultHost) {
         if (configStore.config?.Completions?.Provider === 'llama-server') {
           return 'llama-server';
@@ -158,13 +231,21 @@ export function useAgentNode(props, emit) {
     },
     set: (value) => {
       if (value !== 'openai') {
-        props.data._lastLocalProvider = value; // Store for custom local endpoints
+        props.data._lastLocalProvider = value;
       }
       
       if (value === 'openai') {
         props.data.inputs.endpoint = 'https://api.openai.com/v1/chat/completions';
-      } else if (!props.data.inputs.endpoint || props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions') {
-        // If current endpoint is empty or OpenAI, set to default local
+      } else if (value === 'anthropic') {
+        props.data.inputs.endpoint = '/api/anthropic/messages';
+      } else if (value === 'google') {
+        // Use template string for endpoint which will be filled with model and API key during API call
+        props.data.inputs.endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/';
+      } else if (!props.data.inputs.endpoint || 
+                props.data.inputs.endpoint === 'https://api.openai.com/v1/chat/completions' || 
+                props.data.inputs.endpoint === '/api/anthropic/messages' ||
+                props.data.inputs.endpoint?.includes('generativelanguage.googleapis.com')) {
+        // If current endpoint is empty or OpenAI/Anthropic, set to default local
         props.data.inputs.endpoint = configStore.config?.Completions?.DefaultHost || 'http://localhost:32186/v1/chat/completions';
       }
       // Otherwise, keep user's custom endpoint
@@ -237,7 +318,146 @@ export function useAgentNode(props, emit) {
 
       const canStream = currentProvider === 'openai' || currentProvider === 'llama-server' || currentProvider === 'mlx_lm.server';
 
-      if (canStream) {
+      // --- Handle Anthropic/Claude Provider ---
+      if (currentProvider === 'anthropic') {
+        // Build Anthropic request body
+        const anthropicRequestBody = {
+          model: props.data.inputs.model,
+          max_tokens: parseInt(props.data.inputs.max_completion_tokens || 1024),
+          messages: [{ role: 'user', text: finalPrompt }],
+          stream: true
+        };
+        
+        // Add system prompt if provided
+        if (props.data.inputs.system_prompt && props.data.inputs.system_prompt.trim() !== '') {
+          anthropicRequestBody.system = [props.data.inputs.system_prompt.trim()];
+        }
+        
+        // Call Anthropic API
+        const response = await fetch(props.data.inputs.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': props.data.inputs.api_key,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify(anthropicRequestBody)
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API error (${response.status}): ${errorText}`);
+        }
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let responseText = '';
+        
+        // Stream response and update UI
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          responseText += chunk;
+          onResponseUpdate(responseText, responseText);
+        }
+        
+        props.data.outputs = {
+          ...props.data.outputs,
+          response: responseText,
+          result: { output: responseText }
+        };
+        
+        return { content: responseText };
+      } 
+      // --- Handle Google Gemini Provider ---
+      else if (currentProvider === 'google') {
+        // Include system prompt in the user prompt for Gemini (as it doesn't have a separate system prompt)
+        let geminiPrompt = finalPrompt;
+        if (props.data.inputs.system_prompt && props.data.inputs.system_prompt.trim() !== '') {
+          geminiPrompt = `${props.data.inputs.system_prompt.trim()}\n\n${finalPrompt}`;
+        }
+
+        // Construct the request body
+        const requestBody = {
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: geminiPrompt }],
+            },
+          ],
+        };
+
+        // Construct full endpoint with model and API key
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${props.data.inputs.model}:streamGenerateContent?key=${props.data.inputs.api_key}`;
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API error (${response.status}): ${errorText}`);
+        }
+
+        const reader = response.body.getReader();
+        let buffer = "";
+        let incompleteJsonResponse = ""; // Buffer for incomplete JSON
+        let accumulatedResponse = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = new TextDecoder().decode(value);
+          buffer += chunk;
+
+          // Process each complete JSON object
+          let start = 0;
+          while (true) {
+            let jsonStart = buffer.indexOf("{", start);
+            if (jsonStart === -1) break;
+
+            incompleteJsonResponse += buffer.substring(start, jsonStart);
+            buffer = buffer.substring(jsonStart);
+
+            try {
+              const { valid, completeObject } = parseIncompleteJson(buffer);
+              if (valid) {
+                const responseContent =
+                  completeObject.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+                // Update response text and UI
+                accumulatedResponse += responseContent;
+                onResponseUpdate(accumulatedResponse, accumulatedResponse);
+
+                buffer = buffer.substring(getCompleteJsonLength(buffer));
+                incompleteJsonResponse = ""; // Reset incomplete JSON buffer
+                start = 0; // Reset start position for next object
+              } else {
+                // If not a valid or complete JSON, move to the next character
+                start = jsonStart + 1;
+                break; // Exit while loop and wait for more data
+              }
+            } catch (e) {
+              console.error("Error processing JSON:", e);
+              break;
+            }
+          }
+        }
+
+        props.data.outputs = {
+          ...props.data.outputs,
+          response: accumulatedResponse,
+          result: { output: accumulatedResponse }
+        };
+
+        return { content: accumulatedResponse };
+      } else if (canStream) {
         requestBody.stream = true;
         
         const headers = {
@@ -302,6 +522,56 @@ export function useAgentNode(props, emit) {
         };
         result = { content: accumulatedContent };
 
+      } else if (currentProvider === 'anthropic') {
+        // --- Handle Anthropic/Claude Provider ---
+        const anthropicRequestBody = {
+          model: props.data.inputs.model,
+          max_tokens: parseInt(props.data.inputs.max_completion_tokens || 1024),
+          messages: [{ role: 'user', text: finalPrompt }],
+          stream: true
+        };
+        
+        // Add system prompt if provided
+        if (props.data.inputs.system_prompt && props.data.inputs.system_prompt.trim() !== '') {
+          anthropicRequestBody.system = [props.data.inputs.system_prompt.trim()];
+        }
+        
+        // Call Anthropic API
+        const response = await fetch(props.data.inputs.endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': props.data.inputs.api_key,
+            'anthropic-version': '2023-06-01'
+          },
+          body: JSON.stringify(anthropicRequestBody)
+        });
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API error (${response.status}): ${errorText}`);
+        }
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let responseText = '';
+        
+        // Stream response and update UI
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          responseText += chunk;
+          onResponseUpdate(responseText, responseText);
+        }
+        
+        props.data.outputs = {
+          ...props.data.outputs,
+          response: responseText,
+          result: { output: responseText }
+        };
+        
+        return { content: responseText };
       } else {
         // --- Fallback to non-streaming for other providers ---
         const response = await fetch(props.data.inputs.endpoint, {
@@ -428,6 +698,21 @@ export function useAgentNode(props, emit) {
     }
   });
 
+  // Update model when provider changes
+  watch(provider, (newProvider) => {
+    if (newProvider === 'anthropic') {
+      // Set a default Claude model if current model is not in claudeModels
+      if (!claudeModels.includes(model.value)) {
+        model.value = claudeModels[0]; // Default to first Claude model
+      }
+    } else if (newProvider === 'google') {
+      // Set a default Gemini model if current model is not in geminiModels
+      if (!geminiModels.includes(model.value)) {
+        model.value = geminiModels[0]; // Default to first Gemini model
+      }
+    }
+  });
+
   if (!props.data.style) {
     props.data.style = {
         border: '1px solid #666',
@@ -463,6 +748,7 @@ export function useAgentNode(props, emit) {
     onResize,
     handleTextareaMouseEnter,
     handleTextareaMouseLeave,
-    sendToCodeEditor
+    sendToCodeEditor,
+    modelOptions
   }
 }

@@ -48,15 +48,9 @@
           <AgentNode v-bind="completionsProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
             @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, completionsProps.id)" />
         </template>
-        <template #node-claudeNode="claudeNodeProps">
-          <ClaudeNode v-bind="claudeNodeProps" @contextmenu.native.prevent="showContextMenu($event, claudeNodeProps.id)" />
-        </template>
         <template #node-responseNode="responseNodeProps">
           <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
             @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, responseNodeProps.id)" />
-        </template>
-        <template #node-geminiNode="geminiNodeProps">
-          <GeminiNode v-bind="geminiNodeProps" @contextmenu.native.prevent="showContextMenu($event, geminiNodeProps.id)" />
         </template>
         <template #node-codeRunnerNode="codeRunnerNodeProps">
           <CodeRunnerNode v-bind="codeRunnerNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
@@ -199,9 +193,7 @@ import UtilityPalette from './components/UtilityPalette.vue';
 import NoteNode from './components/nodes/NoteNode.vue';
 import ReactAgent from './components/nodes/ReactAgentNode.vue';
 import AgentNode from './components/nodes/AgentNode.vue';
-import ClaudeNode from './components/nodes/ClaudeNode.vue';
 import ResponseNode from './components/nodes/ResponseNode.vue';
-import GeminiNode from './components/nodes/GeminiNode.vue';
 import CodeRunnerNode from './components/nodes/CodeRunnerNode.vue';
 import WebGLNode from './components/nodes/WebGLNode.vue';
 import EmbeddingsNode from './components/nodes/EmbeddingsNode.vue';

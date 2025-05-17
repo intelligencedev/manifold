@@ -5,7 +5,11 @@
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
-    <div :style="data.labelStyle" class="node-label">Open AI / Local</div>
+    <div :style="data.labelStyle" class="node-label">
+      {{ provider === 'anthropic' ? 'Claude / Anthropic' : 
+         provider === 'google' ? 'Gemini / Google' : 
+         'Open AI / Local' }}
+    </div>
 
     <!-- Provider -->
     <BaseSelect label="Provider" v-model="provider" :options="providerOptions" />
@@ -17,7 +21,7 @@
       <div class="input-wrapper">
         <BaseInput
           :id="`${data.id}-api_key`"
-          label="OpenAI API Key"
+          :label="provider === 'anthropic' ? 'Anthropic API Key' : provider === 'google' ? 'Google AI API Key' : 'OpenAI API Key'"
           v-model="api_key"
           :type="showApiKey ? 'text' : 'password'"
         >
@@ -25,7 +29,14 @@
         </BaseInput>
       </div>
 
-      <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" />
+      <!-- Model selection: dropdown for Anthropic/Google, text input for others -->
+      <template v-if="provider === 'anthropic' || provider === 'google'">
+        <BaseSelect :id="`${data.id}-model`" label="Model" v-model="model" :options="modelOptions" />
+      </template>
+      <template v-else>
+        <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" />
+      </template>
+      
       <BaseInput
         :id="`${data.id}-max_tokens`"
         label="Max Tokens"
@@ -134,7 +145,7 @@ const emit = defineEmits(['update:data','resize','disable-zoom','enable-zoom'])
 
 const {
   showApiKey, agentMode, selectedSystemPrompt, isHovered,
-  providerOptions, systemPromptOptionsList,
+  providerOptions, systemPromptOptionsList, modelOptions,
   provider, endpoint, api_key, model, max_completion_tokens, temperature,
   system_prompt, user_prompt,
   resizeHandleStyle, computedContainerStyle,

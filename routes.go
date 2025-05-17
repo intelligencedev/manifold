@@ -192,9 +192,12 @@ func registerA2AEndpoints(api *echo.Group, config *Config) {
 
 	// Main A2A endpoint that handles JSON-RPC requests
 	a2aGroup.POST("", echo.WrapHandler(a2a.NewEchoHandler(taskStore, authenticator)))
+	a2aGroup.GET("/hello", func(c echo.Context) error {
+		return c.String(http.StatusOK, "hello world")
+	})
 
 	// Well-known Agent Card endpoint (required by A2A specification)
-	a2aGroup.GET("/.well-known/agent-card.json", a2a.AgentCardHandler(config))
+	a2aGroup.GET("/.well-known/agent.json", a2a.AgentCardHandler(config))
 }
 
 // WorkflowTemplate represents a workflow template with its metadata

@@ -178,45 +178,50 @@ func AgentCardHandler(cfgParam interface{}) echo.HandlerFunc { // Renamed parame
 	// Create a sample Agent Card based on the A2A specification
 	// This should be customized based on your Manifold capabilities
 	return func(c echo.Context) error {
-		agentCard := map[string]interface{}{
-			"name":        "Manifold A2A Agent",
-			"description": "Manifold A2A agent implementation based on the Agent2Agent Protocol.",
-			"url":         "https://your-manifold-url.com/api/a2a", // Update this URL to match your deployment
-			"provider": map[string]interface{}{
-				"organization": "Manifold",
-				"url":          "https://manifold.ai", // Update with your organization URL
-			},
-			"capabilities": map[string]interface{}{
-				"streaming":              true,
-				"pushNotifications":      false,
-				"stateTransitionHistory": false,
-			},
-			"authentication": map[string]interface{}{
-				"type": func() string {
-					if cfg, ok := cfgParam.(*config.Config); ok && cfg.A2A.Token != "" { // Updated to use cfgParam
-						return "bearer"
-					}
-					return "none"
-				}(),
-			},
-			"defaultInputContentTypes": []string{
-				"text/plain",
-				"application/json",
-			},
-			"defaultOutputContentTypes": []string{
-				"text/plain",
-				"application/json",
-			},
-			"skills": []map[string]interface{}{
-				{
-					"name":               "general_assistant",
-					"description":        "General purpose AI assistant",
-					"inputContentTypes":  []string{"text/plain"},
-					"outputContentTypes": []string{"text/plain"},
-				},
-			},
+
+		desc := "just returns hello world"
+		helloSkill := AgentSkill{
+			Id:          "hello_world",
+			Name:        "Returns hello world",
+			Description: &desc,
+			Tags:        []string{"hello world"},
+			Examples:    []string{"hi", "hello world"},
 		}
 
-		return c.JSON(http.StatusOK, agentCard)
+		card := AgentCard{
+			Name:               "Hello World Agent",
+			Description:        &desc,
+			Url:                "http://localhost:8080/api/a2a", // Agent will run here
+			Version:            "1.0.0",
+			DefaultInputModes:  []string{"text"},
+			DefaultOutputModes: []string{"text"},
+			Capabilities:       AgentCapabilities{},                               // Basic capabilities
+			Skills:             []AgentSkill{helloSkill},                          // Includes the skill defined above
+			Authentication:     &AgentAuthentication{Schemes: []string{"public"}}, // No auth needed
+		}
+
+		// agentCard := map[string]interface{}{
+		// 	"name":               "Hello World Agent",
+		// 	"description":        "Just a hello world agent",
+		// 	"url":                "http://localhost:8080/",
+		// 	"version":            "1.0.0",
+		// 	"defaultInputModes":  []string{"text"},
+		// 	"defaultOutputModes": []string{"text"},
+		// 	"capabilities":       map[string]interface{}{}, // Basic capabilities
+		// 	"skills": []map[string]interface{}{
+		// 		{
+		// 			// Define your skill here, adjust as needed
+		// 			"name":               "general_assistant",
+		// 			"description":        "General purpose AI assistant",
+		// 			"inputContentTypes":  []string{"text"},
+		// 			"outputContentTypes": []string{"text"},
+		// 		},
+		// 	},
+		// 	"authentication": map[string]interface{}{
+		// 		"schemes": []string{"public"},
+		// 	},
+		// }
+
+		return c.JSON(http.StatusOK, card)
 	}
 }

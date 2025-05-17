@@ -43,3 +43,27 @@ func getFileSystem() http.FileSystem {
 	}
 	return http.FS(sub)
 }
+
+// func a2aHandler(c echo.Context) error {
+// 	desc := "just returns hello world"
+// 	helloSkill := a2a.AgentSkill{
+// 		Id:          "hello_world",
+// 		Name:        "Returns hello world",
+// 		Description: &desc,
+// 		Tags:        []string{"hello world"},
+// 		Examples:    []string{"hi", "hello world"},
+// 	}
+
+// 	card := a2a.AgentCard{
+// 		Name:               "Hello World Agent",
+// 		Description:        &desc,
+// 		Url:                "http://localhost:9999/", // Agent will run here
+// 		Version:            "1.0.0",
+// 		DefaultInputModes:  []string{"text"},
+// 		DefaultOutputModes: []string{"text"},
+// 		Capabilities:       a2a.AgentCapabilities{},                               // Basic capabilities
+// 		Skills:             []a2a.AgentSkill{helloSkill},                          // Includes the skill defined above
+// 		Authentication:     &a2a.AgentAuthentication{Schemes: []string{"public"}}, // No auth needed
+// 	}
+
+// }

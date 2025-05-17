@@ -19,8 +19,10 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
-	configpkg "manifold/internal/config"
 
+	"manifold/internal/codeeval"
+	"manifold/internal/completions"
+	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
 	"manifold/internal/mcp"
 )
@@ -275,13 +277,13 @@ Tools:
 	}
 
 	// Store conversation history across turns
-	var conversationHistory []Message
+	var conversationHistory []completions.Message
 
 	// Add system prompt only once at the beginning
-	conversationHistory = append(conversationHistory, Message{Role: "system", Content: sysPrompt})
+	conversationHistory = append(conversationHistory, completions.Message{Role: "system", Content: sysPrompt})
 
 	for i := 0; i < req.MaxSteps; i++ {
-		var currentMessages []Message
+		var currentMessages []completions.Message
 
 		// Start with the existing conversation history
 		currentMessages = append(currentMessages, conversationHistory...)
@@ -302,13 +304,13 @@ Tools:
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
 			// Add memory as a separate system message for this turn
-			currentMessages = append(currentMessages, Message{Role: "system", Content: memBuf.String()})
+			currentMessages = append(currentMessages, completions.Message{Role: "system", Content: memBuf.String()})
 		} else {
 			log.Printf("No memories found")
 		}
 
 		// For the current turn, add the user message
-		currentMessages = append(currentMessages, Message{Role: "user", Content: "Next step?"})
+		currentMessages = append(currentMessages, completions.Message{Role: "user", Content: "Next step?"})
 
 		// Print the prompt for debugging
 		log.Println("=====================================")
@@ -398,7 +400,7 @@ Tools:
 		}
 
 		// Add the assistant's response to conversation history
-		assistantMessage := Message{
+		assistantMessage := completions.Message{
 			Role: "assistant",
 			Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s",
 				thought, action, input),
@@ -406,7 +408,7 @@ Tools:
 		conversationHistory = append(conversationHistory, assistantMessage)
 
 		// Add the observation as a user message in the conversation history
-		userMessage := Message{
+		userMessage := completions.Message{
 			Role:    "user",
 			Content: fmt.Sprintf("Observation: %s\n\nNext step?", obs),
 		}
@@ -430,7 +432,7 @@ Tools:
 
 /*────────────────────── LLM helper ────────────────────*/
 
-func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message) (string, error) {
+func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []completions.Message) (string, error) {
 	// Calculate input token count (approximate)
 	var promptTokens int
 	for _, msg := range msgs {
@@ -443,7 +445,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(modelCtx-promptTokens-1024, 128)
 
-	body, _ := json.Marshal(CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
+	body, _ := json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
 	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
@@ -457,7 +459,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []Message
 		b, _ := io.ReadAll(resp.Body)
 		return "", fmt.Errorf("llm %d: %s", resp.StatusCode, string(b))
 	}
-	var cr CompletionResponse
+	var cr completions.CompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
 		return "", err
 	}
@@ -650,21 +652,36 @@ func copyFile(src, dst string) error {
 /*────────────────────── code_eval ────────────────────*/
 
 func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error) {
-	var req CodeEvalRequest
+	var req codeeval.CodeEvalRequest
 	if err := json.Unmarshal([]byte(arg), &req); err != nil {
 		return "", fmt.Errorf("code_eval expects JSON {language, code, dependencies}: %v", err)
 	}
 	var (
-		resp *CodeEvalResponse
+		resp *codeeval.CodeEvalResponse
 		err  error
 	)
 	switch strings.ToLower(strings.TrimSpace(req.Language)) {
 	case "python":
-		resp, err = runPythonInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunPythonInContainer(req.Code, req.Dependencies)
+		if err != nil {
+			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &codeeval.CodeEvalResponse{Result: result}
+		}
 	case "go":
-		resp, err = runGoInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunGoInContainer(req.Code, req.Dependencies)
+		if err != nil {
+			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &codeeval.CodeEvalResponse{Result: result}
+		}
 	case "javascript":
-		resp, err = runNodeInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunNodeInContainer(req.Code, req.Dependencies)
+		if err != nil {
+			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &codeeval.CodeEvalResponse{Result: result}
+		}
 	default:
 		return "", fmt.Errorf("unsupported language: %s", req.Language)
 	}

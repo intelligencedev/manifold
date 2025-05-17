@@ -318,3 +318,7 @@ func generateUniqueFilename(originalName string) string {
 	timestamp := time.Now().Format("20060102-150405")
 	return fmt.Sprintf("%s_%s%s", name, timestamp, ext)
 }
+
+func respondWithError(c echo.Context, status int, message string) error {
+	return c.JSON(status, map[string]string{"error": message})
+}

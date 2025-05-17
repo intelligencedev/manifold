@@ -1,5 +1,6 @@
-// Package main provides utilities for retrieving host system information, including OS, architecture, CPU, memory, and GPU details.
-package main
+// Package hostinfo provides utilities for retrieving host system information,
+// including OS, architecture, CPU, memory, and GPU details.
+package hostinfo
 
 import (
 	"bytes"

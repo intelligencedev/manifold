@@ -13,6 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pterm/pterm"
+
+	hostinfopkg "manifold/internal/hostinfo"
 )
 
 // LlamaService represents a running llama-server instance.
@@ -262,7 +264,7 @@ func getLlamaServerBinaryPath(config *Config) (string, error) {
 		return "", fmt.Errorf("data path not configured")
 	}
 
-	hostInfo, err := GetHostInfo()
+	hostInfo, err := hostinfopkg.GetHostInfo()
 	if err != nil {
 		return "", fmt.Errorf("failed to get host info: %w", err)
 	}

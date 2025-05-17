@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+
+	configpkg "manifold/internal/config"
 )
 
 // CodeEvalRequest is the unified structure for code evaluation requests.
@@ -107,7 +109,7 @@ func runPythonInContainer(code string, dependencies []string) (*CodeEvalResponse
 	}
 
 	// Get the data path from config
-	config, err := LoadConfig("config.yaml")
+	config, err := configpkg.LoadConfig("config.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
@@ -152,7 +154,7 @@ func runGoInContainer(code string, dependencies []string) (*CodeEvalResponse, er
 	}
 
 	// Get the data path from config
-	config, err := LoadConfig("config.yaml")
+	config, err := configpkg.LoadConfig("config.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
@@ -207,7 +209,7 @@ func runNodeInContainer(code string, dependencies []string) (*CodeEvalResponse, 
 	}
 
 	// Get the data path from config
-	config, err := LoadConfig("config.yaml")
+	config, err := configpkg.LoadConfig("config.yaml")
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}

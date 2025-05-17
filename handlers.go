@@ -17,6 +17,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+
+	configpkg "manifold/internal/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -25,7 +27,7 @@ import (
 
 // configHandler returns the parsed config.yaml.
 func configHandler(c echo.Context) error {
-	cfg, err := LoadConfig("config.yaml")
+	cfg, err := configpkg.LoadConfig("config.yaml")
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError,
 			map[string]string{"error": fmt.Sprintf("config load: %v", err)})

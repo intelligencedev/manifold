@@ -28,9 +28,9 @@
             </svg>
           </div>
           <div v-if="isExpanded(category)" class="accordion-content">
-            <div v-for="(nodeComponent, key) in nodes" :key="key" class="node-item" draggable="true"
-              @dragstart="(event) => onDragStart(event, key)">
-              {{ key }}
+            <div v-for="node in nodes" :key="node.type" class="node-item" draggable="true"
+              @dragstart="(event) => onDragStart(event, node.type)">
+              {{ node.type }}
             </div>
           </div>
         </div>
@@ -42,6 +42,7 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import useDragAndDrop from '../composables/useDnD.js'
+import { getNodeCategories } from './nodes/nodeRegistry.ts'
 
 const { onDragStart } = useDragAndDrop()
 const isOpen = ref(false)
@@ -50,52 +51,7 @@ function togglePalette() {
   isOpen.value = !isOpen.value
 }
 
-const nodeCategories = {
-  "Text Completions": {
-    "completions": null,
-    "responseNode": null,
-    "reactAgent": null,
-  },
-  "Image Generation": {
-    "comfyNode": null,
-    "mlxFluxNode": null,
-  },
-  "Speech Generation": {
-    "ttsNode": null,
-  },
-  "Code": {
-    "codeRunnerNode": null,
-    "webGLNode": null,
-  },
-  "Web": {
-    "webSearchNode": null,
-    "webRetrievalNode": null,
-  },
-  "Documents": {
-    "openFileNode": null,
-    "saveTextNode": null,
-    "textSplitterNode": null,
-    "documentsIngestNode": null,
-    "documentsRetrieveNode": null,
-    "repoConcatNode": null,
-  },
-  "Utilities": {
-    "textNode": null,
-    "noteNode": null,
-    "embeddingsNode": null,
-    "tokenCounterNode": null,
-  },
-  "Integrations": {
-    "mermaidNode": null,
-    "datadogNode": null,
-    "datadogGraphNode": null,
-  },
-  "Experimental": {
-    "mcpClientNode": null,
-    "flowControlNode": null,
-    "messageBusNode": null,
-  },
-}
+const nodeCategories = getNodeCategories()
 
 // Initialize state for expanded/collapsed accordion sections
 const expandedCategories = reactive({})

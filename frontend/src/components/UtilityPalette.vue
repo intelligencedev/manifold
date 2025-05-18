@@ -515,7 +515,7 @@ const executePython = async () => {
 /* Utility Palette Container */
 .utility-palette {
   position: fixed;
-  top: 50px;
+  top: 62px;
   bottom: 0;
   right: 0;
   width: 50%; /* Changed from 250px to 50% of viewport */
@@ -525,7 +525,6 @@ const executePython = async () => {
   transition: transform 0.3s ease-in-out;
   transform: translateX(100%);
   font-family: 'Roboto', sans-serif; /* Consistent font */
-  box-shadow: -5px 0 15px rgba(0, 0, 0, 0.3); /* Add shadow for better visuals */
 }
 
 .utility-palette.is-open {
@@ -568,7 +567,7 @@ const executePython = async () => {
   display: flex;
   flex-direction: column;
   height: 100%; /* Fill parent (UtilityPalette) */
-  background-color: #2a2a2a; /* Match palette */
+  background-color: #222; /* Match palette */
   color: #eee;
   font-family: sans-serif;
   padding: 10px;

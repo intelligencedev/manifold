@@ -116,7 +116,7 @@ function isExpanded(category) {
 <style scoped>
 .node-palette {
   position: fixed;
-  top: 50px;
+  top: 62px;
   bottom: 0px;
   width: 250px;
   background-color: #222;

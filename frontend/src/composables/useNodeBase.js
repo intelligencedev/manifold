@@ -1,5 +1,8 @@
 import { ref, computed } from 'vue'
 
+// CSS selector used as the drag handle for nodes
+export const dragHandle = '.node-header'
+
 /**
  * Basic node behavior shared across multiple nodes.
  */

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	agentspkg "manifold/internal/agents"
+	codeeval "manifold/internal/codeeval"
 	configpkg "manifold/internal/config"
 
 	"github.com/labstack/echo/v4"
@@ -14,10 +14,10 @@ import (
 
 // evaluateCodeHandler is the HTTP handler that dispatches based on language.
 func evaluateCodeHandler(c echo.Context) error {
-	var req agentspkg.CodeEvalRequest
+	var req codeeval.CodeEvalRequest
 	if err := c.Bind(&req); err != nil {
 		log.Printf("Received language: [%s]", req.Language)
-		return c.JSON(http.StatusBadRequest, agentspkg.CodeEvalResponse{
+		return c.JSON(http.StatusBadRequest, codeeval.CodeEvalResponse{
 			Error: "Invalid request body: " + err.Error(),
 		})
 	}
@@ -27,7 +27,7 @@ func evaluateCodeHandler(c echo.Context) error {
 	log.Printf("Received language: [%s]", lang)
 
 	var (
-		resp *agentspkg.CodeEvalResponse
+		resp *codeeval.CodeEvalResponse
 		err  error
 	)
 
@@ -35,19 +35,19 @@ func evaluateCodeHandler(c echo.Context) error {
 
 	switch lang {
 	case "python":
-		resp, err = agentspkg.RunPythonInContainer(cfg, req.Code, req.Dependencies)
+		resp, err = codeeval.RunPython(cfg, req.Code, req.Dependencies)
 	case "go":
-		resp, err = agentspkg.RunGoInContainer(cfg, req.Code, req.Dependencies)
+		resp, err = codeeval.RunGo(cfg, req.Code, req.Dependencies)
 	case "javascript":
-		resp, err = agentspkg.RunNodeInContainer(cfg, req.Code, req.Dependencies)
+		resp, err = codeeval.RunNode(cfg, req.Code, req.Dependencies)
 	default:
-		return c.JSON(http.StatusBadRequest, agentspkg.CodeEvalResponse{
+		return c.JSON(http.StatusBadRequest, codeeval.CodeEvalResponse{
 			Error: "Unsupported language: " + req.Language,
 		})
 	}
 
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, agentspkg.CodeEvalResponse{
+		return c.JSON(http.StatusInternalServerError, codeeval.CodeEvalResponse{
 			Error: err.Error(),
 		})
 	}

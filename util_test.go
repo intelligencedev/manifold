@@ -1,7 +1,7 @@
 package main
 
 import (
-	agentspkg "manifold/internal/agents"
+	codeeval "manifold/internal/codeeval"
 	"strings"
 	"testing"
 )
@@ -28,8 +28,8 @@ func TestGenerateUniqueFilename(t *testing.T) {
 }
 
 func TestConvertDockerResponse_Success(t *testing.T) {
-	dresp := &agentspkg.DockerExecResponse{ReturnCode: 0, Stdout: "output", Stderr: ""}
-	resp := agentspkg.ConvertDockerResponse(dresp)
+	dresp := &codeeval.DockerExecResponse{ReturnCode: 0, Stdout: "output", Stderr: ""}
+	resp := codeeval.ConvertDockerResponse(dresp)
 	if resp.Result != "output" {
 		t.Errorf("expected result output, got %s", resp.Result)
 	}
@@ -39,8 +39,8 @@ func TestConvertDockerResponse_Success(t *testing.T) {
 }
 
 func TestConvertDockerResponse_Error(t *testing.T) {
-	dresp := &agentspkg.DockerExecResponse{ReturnCode: 1, Stdout: "", Stderr: "error occurred"}
-	resp := agentspkg.ConvertDockerResponse(dresp)
+	dresp := &codeeval.DockerExecResponse{ReturnCode: 1, Stdout: "", Stderr: "error occurred"}
+	resp := codeeval.ConvertDockerResponse(dresp)
 	if resp.Error != "error occurred" {
 		t.Errorf("expected error 'error occurred', got %s", resp.Error)
 	}

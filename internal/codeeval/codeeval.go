@@ -1,142 +1,173 @@
-// internal/codeeval/codeeval.go
 package codeeval
 
 import (
 	"bytes"
-	"encoding/json"
+	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
+
+	configpkg "manifold/internal/config"
 )
 
-// CodeEvalRequest is the structure for code evaluation requests
+// CodeEvalRequest describes a code evaluation request.
 type CodeEvalRequest struct {
-	Language     string   `json:"language"`
 	Code         string   `json:"code"`
-	Dependencies []string `json:"dependencies"`
+	Language     string   `json:"language"`
+	Dependencies []string `json:"dependencies,omitempty"`
 }
 
-// CodeEvalResponse is the structure for code evaluation responses
+// CodeEvalResponse is returned after code execution.
 type CodeEvalResponse struct {
-	Result string `json:"result"`
+	Result string `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
 }
 
-// RunPythonInContainer executes Python code in a sandboxed container.
-func RunPythonInContainer(code string, dependencies []string) (string, error) {
-	return runCodeInContainer("python", code, dependencies)
+// DockerExecResponse captures raw docker output.
+type DockerExecResponse struct {
+	ReturnCode int
+	Stdout     string
+	Stderr     string
 }
 
-// RunGoInContainer executes Go code in a sandboxed container.
-func RunGoInContainer(code string, dependencies []string) (string, error) {
-	return runCodeInContainer("go", code, dependencies)
-}
-
-// RunNodeInContainer executes JavaScript code in a sandboxed container.
-func RunNodeInContainer(code string, dependencies []string) (string, error) {
-	return runCodeInContainer("node", code, dependencies)
-}
-
-// runCodeInContainer is a helper function that runs code in a sandboxed container.
-func runCodeInContainer(language, code string, dependencies []string) (string, error) {
-	// Create a temporary directory to store the code file
-	tempDir, err := os.MkdirTemp("", "code-execution")
+func runInContainer(codeFile, code string, install []string, runCmd string, deps []string, cfg *configpkg.Config) (*CodeEvalResponse, error) {
+	tempDir, err := os.MkdirTemp("", "sandbox_")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
+		return nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Determine file extension and setup command based on language
-	var fileExt, setupCmd, runCmd string
-	var args []string
-
-	switch language {
-	case "python":
-		fileExt = ".py"
-		// Create requirements.txt if dependencies are specified
-		if len(dependencies) > 0 {
-			requirementsPath := filepath.Join(tempDir, "requirements.txt")
-			if err := os.WriteFile(requirementsPath, []byte(strings.Join(dependencies, "\n")), 0644); err != nil {
-				return "", fmt.Errorf("failed to write requirements.txt: %w", err)
-			}
-			setupCmd = "pip install -r requirements.txt"
-		}
-		runCmd = "python"
-		args = []string{"code" + fileExt}
-	case "go":
-		fileExt = ".go"
-		if len(dependencies) > 0 {
-			// Format go.mod content
-			goModContent := "module code\n\ngo 1.20\n\n"
-			for _, dep := range dependencies {
-				goModContent += "require " + dep + " v0.0.0\n"
-			}
-			goModPath := filepath.Join(tempDir, "go.mod")
-			if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
-				return "", fmt.Errorf("failed to write go.mod: %w", err)
-			}
-			setupCmd = "go mod tidy"
-		}
-		runCmd = "go"
-		args = []string{"run", "code" + fileExt}
-	case "node":
-		fileExt = ".js"
-		if len(dependencies) > 0 {
-			// Create package.json
-			pkg := map[string]interface{}{
-				"name":         "code-execution",
-				"version":      "1.0.0",
-				"dependencies": map[string]string{},
-			}
-			deps := pkg["dependencies"].(map[string]string)
-			for _, dep := range dependencies {
-				deps[dep] = "latest"
-			}
-			pkgJSON, err := json.Marshal(pkg)
-			if err != nil {
-				return "", fmt.Errorf("failed to create package.json: %w", err)
-			}
-			pkgPath := filepath.Join(tempDir, "package.json")
-			if err := os.WriteFile(pkgPath, pkgJSON, 0644); err != nil {
-				return "", fmt.Errorf("failed to write package.json: %w", err)
-			}
-			setupCmd = "npm install"
-		}
-		runCmd = "node"
-		args = []string{"code" + fileExt}
-	default:
-		return "", fmt.Errorf("unsupported language: %s", language)
+	if err := os.WriteFile(filepath.Join(tempDir, codeFile), []byte(code), 0644); err != nil {
+		return nil, fmt.Errorf("failed to write code: %w", err)
 	}
 
-	// Write the code to a file
-	codePath := filepath.Join(tempDir, "code"+fileExt)
-	if err := os.WriteFile(codePath, []byte(code), 0644); err != nil {
-		return "", fmt.Errorf("failed to write code file: %w", err)
+	if len(deps) > 0 {
+		reqFile := filepath.Join(tempDir, "requirements.txt")
+		reqContent := strings.Join(deps, "\n")
+		if err := os.WriteFile(reqFile, []byte(reqContent), 0644); err != nil {
+			return nil, fmt.Errorf("failed to write requirements.txt: %w", err)
+		}
+		install = append(install, "pip install -r requirements.txt > /dev/null 2>/dev/null")
 	}
 
-	// Run setup command if needed
-	if setupCmd != "" {
-		setupCmdParts := strings.Split(setupCmd, " ")
-		cmd := exec.Command(setupCmdParts[0], setupCmdParts[1:]...)
-		cmd.Dir = tempDir
-		if err := cmd.Run(); err != nil {
-			return "", fmt.Errorf("failed to run setup command: %w", err)
+	cmdParts := []string{"cd /sandbox"}
+	cmdParts = append(cmdParts, install...)
+	cmdParts = append(cmdParts, runCmd)
+	cmdStr := strings.Join(cmdParts, " && ")
+
+	dockerArgs := []string{
+		"run", "--rm",
+		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
+		"-v", fmt.Sprintf("%s:/mnt", cfg.DataPath),
+		"code-sandbox",
+		"/bin/sh", "-c", cmdStr,
+	}
+
+	dresp, err := runDockerCommand(dockerArgs, 60*time.Second)
+	if err != nil {
+		return nil, err
+	}
+
+	return ConvertDockerResponse(dresp), nil
+}
+
+func runInContainerRaw(codeFile, code string, install []string, runCmd string, deps []string, cfg *configpkg.Config) (string, error) {
+	resp, err := runInContainer(codeFile, code, install, runCmd, deps, cfg)
+	if err != nil {
+		return "", err
+	}
+	if resp.Error != "" {
+		return "", fmt.Errorf(resp.Error)
+	}
+	return resp.Result, nil
+}
+
+// RunPython executes Python code inside the sandbox.
+func RunPython(cfg *configpkg.Config, code string, dependencies []string) (*CodeEvalResponse, error) {
+	return runInContainer("user_code.py", code, nil, "python3 user_code.py", dependencies, cfg)
+}
+
+// RunPythonRaw executes Python code and returns only stdout.
+func RunPythonRaw(cfg *configpkg.Config, code string, dependencies []string) (string, error) {
+	return runInContainerRaw("user_code.py", code, nil, "python3 user_code.py", dependencies, cfg)
+}
+
+// RunGo executes Go code inside the sandbox.
+func RunGo(cfg *configpkg.Config, code string, dependencies []string) (*CodeEvalResponse, error) {
+	var install []string
+	install = append(install, "go mod init sandbox > /dev/null 2>/dev/null || true")
+	for _, dep := range dependencies {
+		install = append(install, fmt.Sprintf("go get %s > /dev/null 2>/dev/null", dep))
+	}
+	return runInContainer("main.go", code, install, "go run main.go", nil, cfg)
+}
+
+// RunGoRaw executes Go code and returns only stdout.
+func RunGoRaw(cfg *configpkg.Config, code string, dependencies []string) (string, error) {
+	var install []string
+	install = append(install, "go mod init sandbox > /dev/null 2>/dev/null || true")
+	for _, dep := range dependencies {
+		install = append(install, fmt.Sprintf("go get %s > /dev/null 2>/dev/null", dep))
+	}
+	return runInContainerRaw("main.go", code, install, "go run main.go", nil, cfg)
+}
+
+// RunNode executes JavaScript code inside the sandbox.
+func RunNode(cfg *configpkg.Config, code string, dependencies []string) (*CodeEvalResponse, error) {
+	var install []string
+	if len(dependencies) > 0 {
+		install = append(install, "npm init -y > /dev/null 2>/dev/null")
+		install = append(install, fmt.Sprintf("npm install %s > /dev/null 2>/dev/null", strings.Join(dependencies, " ")))
+	}
+	return runInContainer("user_code.js", code, install, "node user_code.js", nil, cfg)
+}
+
+// RunNodeRaw executes JavaScript code and returns only stdout.
+func RunNodeRaw(cfg *configpkg.Config, code string, dependencies []string) (string, error) {
+	var install []string
+	if len(dependencies) > 0 {
+		install = append(install, "npm init -y > /dev/null 2>/dev/null")
+		install = append(install, fmt.Sprintf("npm install %s > /dev/null 2>/dev/null", strings.Join(dependencies, " ")))
+	}
+	return runInContainerRaw("user_code.js", code, install, "node user_code.js", nil, cfg)
+}
+
+func runDockerCommand(dockerArgs []string, timeout time.Duration) (*DockerExecResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
+	var stdoutBuf, stderrBuf bytes.Buffer
+	cmd.Stdout = &stdoutBuf
+	cmd.Stderr = &stderrBuf
+
+	log.Printf("Running docker command: docker %s", strings.Join(dockerArgs, " "))
+	err := cmd.Run()
+
+	response := &DockerExecResponse{
+		Stdout: stdoutBuf.String(),
+		Stderr: stderrBuf.String(),
+	}
+
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			response.ReturnCode = exitErr.ExitCode()
+		} else {
+			return response, fmt.Errorf("docker command error: %w", err)
 		}
 	}
 
-	// Run the code
-	cmd := exec.Command(runCmd, args...)
-	cmd.Dir = tempDir
+	return response, nil
+}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("execution error: %w\nStderr: %s", err, stderr.String())
+// ConvertDockerResponse converts raw docker output to a CodeEvalResponse.
+func ConvertDockerResponse(dresp *DockerExecResponse) *CodeEvalResponse {
+	if dresp.ReturnCode != 0 {
+		return &CodeEvalResponse{Error: dresp.Stderr}
 	}
-
-	return stdout.String(), nil
+	return &CodeEvalResponse{Result: dresp.Stdout}
 }

@@ -1,289 +1,237 @@
 <template>
-  <header class="header">
-    <div class="header-section">
-      <!-- Left section - empty for centering logo -->
+  <!-- HEADER ---------------------------------------------------------------->
+  <div
+    class="bg-gray-900 dark:bg-neutral-800 text-white flex-none h-16 flex items-center px-5 shadow-md relative select-none"
+  >
+    <!-- Invisible spacer – keeps logo centred regardless of right-section width -->
+    <div class="flex-1"></div>
+
+    <!-- centred logo ---------------------------------------------------------->
+    <div
+      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center"
+    >
+      <span class="text-xl font-bold">Manifold</span>
     </div>
-    <div class="logo">
-      <span class="title">Manifold</span>
-    </div>
-    <div class="controls">
-      <input type="file" ref="fileInput" style="display:none" @change="onFileSelected" accept=".json" />
-      <div class="templates-dropdown">
-        <button class="control-btn templates-btn" @click="toggleTemplatesMenu">
-          <i class="fa fa-file-text"></i>
-          Templates
+
+    <!-- DESKTOP actions ------------------------------------------------------->  
+    <div class="flex items-center space-x-2 flex-1 justify-end lg:flex hidden">
+      <!-- FILE INPUT (hidden) -->
+      <input
+        ref="fileInput"
+        type="file"
+        class="hidden"
+        accept=".json"
+        @change="onFileSelected"
+      />
+
+      <!-- templates dropdown -->
+      <div class="relative">
+        <button
+          @click="toggleTemplatesMenu"
+          class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+        >
+          <i class="fa fa-file-text"></i> <span>Templates</span>
           <i class="fa fa-caret-down"></i>
         </button>
-        <div v-if="showTemplatesMenu" class="dropdown-content">
-          <button v-for="(template, index) in templates" :key="index" @click="loadTemplate(template)">
-            {{ template.name }}
+
+        <div
+          v-if="showTemplatesMenu"
+          class="absolute right-0 mt-2 w-52 bg-gray-800 dark:bg-neutral-900 rounded shadow-lg flex flex-col divide-y divide-gray-700 overflow-hidden z-20"
+        >
+          <button
+            v-for="t in templates"
+            :key="t.template"
+            @click="loadTemplate(t)"
+            class="px-4 py-2 hover:bg-gray-700 text-left"
+          >
+            {{ t.name }}
           </button>
-          <div v-if="templates.length === 0" class="no-templates">No templates available</div>
+          <div
+            v-if="templates.length === 0"
+            class="px-4 py-2 text-gray-400 text-center"
+          >
+            No templates available
+          </div>
         </div>
       </div>
-      <button class="control-btn" @click="openFile">
-        <i class="fa fa-folder-open"></i>
-        Open
+
+      <!-- open / save -->
+      <button
+        class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+        @click="openFile"
+      >
+        <i class="fa fa-folder-open"></i> <span>Open</span>
       </button>
-      <button class="control-btn" @click="saveFlow">
-        <i class="fa fa-save"></i>
-        Save
+      <button
+        class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+        @click="saveFlow"
+      >
+        <i class="fa fa-save"></i> <span>Save</span>
       </button>
-      <div class="user-menu">
-        <button class="control-btn user-btn" @click="toggleUserMenu">
-          <i class="fa fa-user-circle"></i>
-          <span>{{ username }}</span>
+
+      <!-- user settings dropdown -->
+      <div class="relative">
+        <button
+          @click="toggleUserMenu"
+          class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+        >
+          <i class="fa fa-user-circle"></i> <span>{{ username }}</span>
           <i class="fa fa-caret-down"></i>
         </button>
-        <UserSettings 
-          v-if="showUserMenu" 
-          :showMenu="showUserMenu" 
+        <UserSettings
+          v-if="showUserMenu"
+          :showMenu="showUserMenu"
           @close-menu="showUserMenu = false"
-          @logout="logout" 
+          @logout="logout"
         />
       </div>
     </div>
-  </header>
+
+    <!-- MOBILE hamburger ----------------------------------------------------->
+    <div class="flex-1 flex justify-end lg:hidden">
+      <div class="relative">
+        <button
+          @click="mobileMenuOpen = !mobileMenuOpen"
+          class="p-2 rounded hover:bg-gray-800"
+        >
+          <i class="fa fa-bars text-xl"></i>
+        </button>
+
+        <!-- mobile dropdown (same actions as desktop) -->
+        <div
+          v-if="mobileMenuOpen"
+          class="absolute right-0 mt-2 w-52 bg-gray-800 dark:bg-neutral-900 rounded shadow-lg flex flex-col divide-y divide-gray-700 overflow-hidden z-20"
+        >
+          <button @click="toggleTemplatesMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
+            Templates
+          </button>
+          <button @click="openFile" class="px-4 py-2 hover:bg-gray-700 text-left">
+            Open
+          </button>
+          <button @click="saveFlow" class="px-4 py-2 hover:bg-gray-700 text-left">
+            Save
+          </button>
+          <button @click="toggleUserMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
+            User&nbsp;Settings
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import UserSettings from '@/components/UserSettings.vue';
 
-const fileInput = ref<HTMLElement | null>(null);
+/* ───────────────────────── refs/state ───────────────────────── */
+const fileInput = ref<HTMLInputElement | null>(null);
 const emit = defineEmits(['save', 'restore', 'logout', 'load-template']);
+
 const showUserMenu = ref(false);
 const showTemplatesMenu = ref(false);
+const mobileMenuOpen = ref(false);
 const username = ref('User');
 
-// Will be populated dynamically from the server
-const templates = ref<Array<{ name: string, template: string }>>([]);
+const templates = ref<Array<{ name: string; template: string }>>([]);
 
-// Get the username and templates on component mount
+/* ─────────────────── helpers / api calls ────────────────────── */
 onMounted(() => {
-  // Try to get username from localStorage or session
-  const token = localStorage.getItem('jwt_token');
-  if (token) {
-    // Fetch user info from the backend
-    fetch('/api/restricted/user', {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    })
-    .then(response => {
-      if (response.ok) {
-        return response.json();
-      }
-      throw new Error('Failed to get user info');
-    })
-    .then(data => {
-      username.value = data.username;
-    })
-    .catch(error => {
-      console.error('Error fetching user info:', error);
-    });
-  }
-  
-  // Fetch available templates
+  fetchUser();
   fetchTemplates();
 });
 
-// Function to fetch available templates from the server
+function fetchUser() {
+  const token = localStorage.getItem('jwt_token');
+  if (!token) return;
+
+  fetch('/api/restricted/user', { headers: { Authorization: `Bearer ${token}` } })
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((d) => (username.value = d.username))
+    .catch(() => {});
+}
+
 function fetchTemplates() {
   fetch('/api/workflows/templates')
-    .then(response => {
-      if (response.ok) {
-        return response.json();
-      }
-      throw new Error('Failed to get templates');
-    })
-    .then(data => {
-      templates.value = data.map((template: any) => ({
-        name: formatTemplateName(template.name),
-        template: template.id
+    .then((r) => (r.ok ? r.json() : Promise.reject()))
+    .then((arr) => {
+      templates.value = arr.map((t: any) => ({
+        name: formatTemplateName(t.name),
+        template: t.id,
       }));
     })
-    .catch(error => {
-      console.error('Error fetching templates:', error);
-    });
+    .catch(() => {});
 }
 
-// Format template names for display (removes numbers and underscores, capitalizes words)
-function formatTemplateName(filename: string): string {
-  // Remove any leading numbers and underscores (like "1_" in "1_chat_completion")
-  const nameWithoutPrefix = filename.replace(/^\d+_/, '');
-  
-  // Replace underscores with spaces and capitalize each word
-  return nameWithoutPrefix
+function formatTemplateName(fn: string) {
+  return fn
+    .replace(/^\d+_/, '')
     .replace(/_/g, ' ')
-    .replace(/\b\w/g, letter => letter.toUpperCase());
+    .replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
+/* ─────────────────── button actions ─────────────────────────── */
 function saveFlow() {
   emit('save');
 }
-
 function openFile() {
-  if (fileInput.value) {
-    (fileInput.value as HTMLInputElement).click();
-  }
+  fileInput.value?.click();
+}
+function onFileSelected(e: Event) {
+  const input = e.target as HTMLInputElement;
+  if (!(input.files && input.files[0])) return;
+
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    if (typeof ev.target?.result !== 'string') return;
+    try {
+      emit('restore', JSON.parse(ev.target.result));
+    } catch {
+      alert('Invalid Manifold flow file.');
+    }
+  };
+  reader.readAsText(input.files[0]);
+  input.value = '';
 }
 
-function onFileSelected(event: Event) {
-  const input = event.target as HTMLInputElement;
-  if (input.files && input.files[0]) {
-    const file = input.files[0];
-    const reader = new FileReader();
-
-    reader.onload = (e) => {
-      if (e.target && typeof e.target.result === 'string') {
-        try {
-          const parsedFlow = JSON.parse(e.target.result);
-          emit('restore', parsedFlow);
-        } catch (error) {
-          console.error('Failed to parse file:', error);
-          alert('Failed to parse file. Please select a valid Manifold flow file.');
-        }
-      }
-    };
-
-    reader.readAsText(file);
-    // Reset the file input so the same file can be selected again
-    input.value = '';
-  }
-}
-
+/* dropdown logic */
 function toggleUserMenu() {
   showUserMenu.value = !showUserMenu.value;
   if (showUserMenu.value) {
     showTemplatesMenu.value = false;
+    mobileMenuOpen.value = false;
   }
 }
-
 function toggleTemplatesMenu() {
   showTemplatesMenu.value = !showTemplatesMenu.value;
   if (showTemplatesMenu.value) {
     showUserMenu.value = false;
+    mobileMenuOpen.value = false;
   }
 }
-
-function loadTemplate(template: { name: string, template: string }) {
-  emit('load-template', template.template);
+function loadTemplate(t: { name: string; template: string }) {
+  emit('load-template', t.template);
   showTemplatesMenu.value = false;
+  mobileMenuOpen.value = false;
 }
-
 function logout() {
   emit('logout');
+  showUserMenu.value = showTemplatesMenu.value = mobileMenuOpen.value = false;
 }
+
+/* close open dropdowns when window resizes ≥ lg ----------------*/
+watch(
+  () => window.innerWidth,
+  () => {
+    if (window.innerWidth >= 1024) mobileMenuOpen.value = false;
+  },
+  { immediate: true },
+);
 </script>
 
 <style scoped>
-.header {
-  height: 60px;
-  background-color: #222;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0 20px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  color: white;
-}
-
-.header-section {
-  flex: 1;
-}
-
-.logo {
-  display: flex;
-  align-items: center;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.title {
-  font-size: 1.5rem;
-  font-weight: bold;
-  margin-left: 10px;
-}
-
-.controls {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex: 1;
-  justify-content: flex-end;
-}
-
-.control-btn {
-  background-color: #444;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  padding: 8px 16px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.control-btn:hover {
-  background-color: #555;
-}
-
-.control-btn i {
-  font-size: 1rem;
-}
-
-.user-menu, .templates-dropdown {
-  position: relative;
-}
-
-.user-btn, .templates-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.user-btn i:last-child, .templates-btn i:last-child {
-  font-size: 0.8rem;
-  margin-left: 2px;
-}
-
-.dropdown-content {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  z-index: 1000;
-  background-color: #333;
-  min-width: 200px;
-  border-radius: 4px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  margin-top: 5px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.dropdown-content button {
-  background-color: transparent;
-  color: white;
-  border: none;
-  padding: 10px 15px;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.dropdown-content button:hover {
-  background-color: #444;
-}
-
-.no-templates {
-  padding: 10px 15px;
-  color: #aaa;
-  text-align: center;
+/* extra touch target for hamburger on mobile */
+.fa-bars {
+  min-width: 1.25rem;
 }
 </style>

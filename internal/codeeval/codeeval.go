@@ -35,11 +35,16 @@ type DockerExecResponse struct {
 }
 
 func runInContainer(codeFile, code string, install []string, runCmd string, deps []string, cfg *configpkg.Config) (*CodeEvalResponse, error) {
-	tempDir, err := os.MkdirTemp("", "sandbox_")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create temp dir: %w", err)
+	tempDir := cfg.DataPath + "/tmp"
+
+	// Clean up the directory before writing new files
+	if err := os.RemoveAll(tempDir); err != nil {
+		return nil, fmt.Errorf("failed to clean temp directory: %w", err)
 	}
-	defer os.RemoveAll(tempDir)
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	// Write the code to a file
 
 	if err := os.WriteFile(filepath.Join(tempDir, codeFile), []byte(code), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write code: %w", err)
@@ -54,15 +59,14 @@ func runInContainer(codeFile, code string, install []string, runCmd string, deps
 		install = append(install, "pip install -r requirements.txt > /dev/null 2>/dev/null")
 	}
 
-	cmdParts := []string{"cd /sandbox"}
+	var cmdParts []string
 	cmdParts = append(cmdParts, install...)
 	cmdParts = append(cmdParts, runCmd)
 	cmdStr := strings.Join(cmdParts, " && ")
 
 	dockerArgs := []string{
 		"run", "--rm",
-		"-v", fmt.Sprintf("%s:/sandbox", tempDir),
-		"-v", fmt.Sprintf("%s:/mnt", cfg.DataPath),
+		"-v", fmt.Sprintf("%s:/app/projects", tempDir),
 		"code-sandbox",
 		"/bin/sh", "-c", cmdStr,
 	}

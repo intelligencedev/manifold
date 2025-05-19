@@ -269,7 +269,6 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 		td = append(td, fmt.Sprintf("- %s • %s", n, ae.mcpTools[n].Description), string(schema))
 	}
 	td = append(td,
-		"- stage_path   • copy host src into tmp area; returns JSON {host_path,sandbox_path,path}",
 		"- code_eval    • run code in sandbox",
 		"- finish       • end and output final answer",
 	)
@@ -285,12 +284,16 @@ with no line breaks, and JSON should be formatted as a single line.
   Only fall back to a tool for *computational* or *programmatic*
   work (e.g. data transformation, heavy math, file parsing).
 
+IMPORTANT: The working directory is always /app/projects. If a full path is not given, always assume the file is in this directory.
+For example, if the file is called "foo.txt", the full path is "/app/projects/foo.txt". If the file is in a subdirectory, the 
+full path is "/app/projects/subdir/foo.txt". ALL tool calls should be made with the full path. NEVER attempt to use a relative path.
+
 Always consider using the tools first. If no tool is available that can be used to complete the task, make your own.
 
-You can use the code_eval tool with python to successfully complete the task if no other tool is suitable. 
+You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
 The code_eval tool supports third-party libraries, so you can include them in the dependencies array. 
 The code should be valid and executable in Python. The code should always return a string with the result of the execution, 
-so that it can be used for the next task. 
+so that it can be used for the next task.
 
 If no dependencies are needed, the dependencies array must be empty (e.g., []).
 

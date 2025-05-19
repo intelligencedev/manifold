@@ -1,82 +1,83 @@
 <template>
-  <div class="utility-palette" :class="{ 'is-open': isEditorOpen }">
-    <div class="toggle-button" @click="togglePalette">
-      <svg v-if="isEditorOpen" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-        viewBox="0 0 16 16">
-        <path fill-rule="evenodd"
-          d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
+  <div :class="['fixed top-[62px] bottom-0 w-1/2 right-0 z-[1100] transition-transform duration-300 text-white dark:bg-neutral-800 flex flex-col shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)]', isEditorOpen ? 'translate-x-0' : 'translate-x-full']">
+    <div class="absolute top-1/2 left-0 -translate-x-full w-[30px] h-[60px] dark:bg-neutral-800 rounded-l-md flex items-center justify-center cursor-pointer shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)]" @click="togglePalette">
+      <svg v-if="isEditorOpen" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
       </svg>
-      <svg v-else xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
-        viewBox="0 0 16 16">
-        <path fill-rule="evenodd"
-          d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708z" />
+      <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="currentColor" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
       </svg>
     </div>
-    <div class="utility-content">
-      <div class="wasm-code-editor-container">
+    <div class="p-4 h-full box-border flex flex-col">
+      <div class="flex-1 flex flex-col gap-4">
         <!-- Toolbar -->
-        <div class="toolbar">
-          <div class="language-selector">
-            <label for="lang-select">Language:</label>
-            <select id="lang-select" v-model="selectedLanguage" @change="handleLanguageChange">
+        <div class="flex justify-between items-center flex-wrap gap-2 mb-3 pb-3 border-b border-neutral-600">
+          <div class="flex items-center gap-2">
+            <label for="lang-select" class="text-sm">Language:</label>
+            <select id="lang-select" v-model="selectedLanguage" @change="handleLanguageChange"
+              class="p-1 bg-neutral-700 text-white border border-neutral-600 rounded text-sm">
               <option value="javascript">JavaScript</option>
               <option value="python">Python</option>
               <option value="html">HTML</option>
             </select>
           </div>
-          <div class="action-buttons">
-            <button @click="runCode" :disabled="isRunning || !quickJSVm">
+          <div class="flex gap-2">
+            <button @click="runCode" :disabled="isRunning || !quickJSVm"
+              class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm">
               {{ selectedLanguage === 'html' ? 'Render' : 'Run' }}
             </button>
-            <button @click="clearOutput">Clear Output</button>
+            <button @click="clearOutput" class="px-3 py-1 bg-neutral-700 text-white rounded hover:bg-neutral-600 text-sm">
+              Clear Output
+            </button>
           </div>
         </div>
-    
+
         <!-- CodeMirror Editor -->
-        <div class="editor-wrapper" :style="{ height: editorHeightPercent + '%' }">
-          <Codemirror
-            v-model="code"
-            placeholder="Enter JavaScript code..."
-            :style="{ height: '100%' }"
-            :autofocus="true"
-            :indent-with-tab="true"
-            :tab-size="2"
-            :extensions="cmExtensions"
-            @ready="handleCmReady"
-          />
+        <div class="flex-1 min-h-[150px] border border-neutral-600 rounded mb-2 overflow-hidden"
+          :style="{ height: editorHeightPercent + '%' }">
+          <Codemirror v-model="code" placeholder="Enter JavaScript code..." class="h-full" :autofocus="true"
+            :indent-with-tab="true" :tab-size="2" :extensions="cmExtensions" @ready="handleCmReady" />
         </div>
-        
+
         <!-- Resizable divider -->
-        <div 
-          class="resize-handle" 
-          @mousedown="startResize"
-          @touchstart="startResize"
-        >
-          <div class="handle-indicator"></div>
+        <div class="h-2 bg-neutral-700 my-1 cursor-ns-resize flex items-center justify-center" @mousedown="startResize"
+          @touchstart="startResize">
+          <div class="w-10 h-1 bg-neutral-500 rounded-full"></div>
         </div>
-    
+
         <!-- Output Area (Console or HTML Preview) -->
-        <div class="output-area" :style="{ height: (100 - editorHeightPercent) + '%' }">
-          <div class="output-header">
-            <h3>{{ selectedLanguage === 'html' ? 'HTML Preview' : 'Output / Logs' }}</h3>
-            <div v-if="selectedLanguage === 'html'" class="preview-controls">
-              <button @click="refreshPreview" title="Refresh Preview">↻</button>
+        <div class="flex-1 min-h-[100px] border border-neutral-600 rounded flex flex-col bg-neutral-900"
+          :style="{ height: (100 - editorHeightPercent) + '%' }">
+          <div class="flex justify-between items-center bg-neutral-700 border-b border-neutral-600 rounded-t px-3 py-2">
+            <h3 class="text-sm font-medium">{{ selectedLanguage === 'html' ? 'HTML Preview' : 'Output / Logs' }}</h3>
+            <div v-if="selectedLanguage === 'html'" class="flex gap-1">
+              <button @click="refreshPreview" class="p-1 text-neutral-300 hover:bg-neutral-600 rounded">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24"
+                  stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
             </div>
           </div>
-          <pre v-if="selectedLanguage !== 'html'" ref="outputRef" class="output-content">{{ output }}</pre>
-          <div v-else class="html-preview-container">
-            <iframe
-              :key="htmlPreviewKey"
-              ref="htmlPreviewRef"
-              class="html-preview-iframe"
-            ></iframe>
+
+          <!-- Output console -->
+          <pre v-if="selectedLanguage !== 'html'" ref="outputRef"
+            class="p-3 overflow-auto text-sm flex-1 font-mono whitespace-pre-wrap break-words text-left">{{ output }}</pre>
+
+          <!-- HTML Preview -->
+          <div v-else class="flex-1 h-full relative overflow-hidden bg-white">
+            <iframe :key="htmlPreviewKey" ref="htmlPreviewRef" class="w-full h-full border-none bg-white"
+              sandbox="allow-scripts"></iframe>
           </div>
+
+          <!-- Status messages -->
+          <div v-if="isLoadingWasm" class="p-2 text-neutral-400 text-sm italic">Loading Wasm Engine...</div>
+          <div v-if="wasmError" class="p-2 bg-red-900 text-white text-sm rounded-b">
+            {{ wasmError }}
+          </div>
+          <div v-if="isRunning" class="p-2 text-neutral-400 text-sm italic">Running...</div>
         </div>
-    
-        <!-- Status/Loading -->
-        <div v-if="isLoadingWasm" class="status-message">Loading Wasm Engine...</div>
-        <div v-if="wasmError" class="error-message">Wasm Error: {{ wasmError }}</div>
-        <div v-if="isRunning" class="status-message">Running...</div>
       </div>
     </div>
   </div>
@@ -511,230 +512,4 @@ const executePython = async () => {
 };
 </script>
 
-<style scoped>
-/* Utility Palette Container */
-.utility-palette {
-  position: fixed;
-  top: 62px;
-  bottom: 0;
-  right: 0;
-  width: 50%; /* Changed from 250px to 50% of viewport */
-  background-color: #222;
-  color: #eee;
-  z-index: 1100;
-  transition: transform 0.3s ease-in-out;
-  transform: translateX(100%);
-  font-family: 'Roboto', sans-serif; /* Consistent font */
-}
-
-.utility-palette.is-open {
-  transform: translateX(0);
-}
-
-/* Toggle Button */
-.toggle-button {
-  position: absolute;
-  top: 50%;
-  left: -30px;
-  width: 30px;
-  height: 60px;
-  background-color: #222;
-  border-right: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-top-left-radius: 8px;
-  border-bottom-left-radius: 8px;
-  box-shadow: -2px 0 5px rgba(0, 0, 0, 0.2); /* Add shadow */
-}
-
-.toggle-button svg {
-  fill: #eee;
-  width: 16px;
-  height: 16px;
-}
-
-/* Utility Content */
-.utility-content {
-  height: 100%;
-  box-sizing: border-box;
-  overflow: hidden; /* Prevent content overflow */
-}
-
-/* Code Editor Styles */
-.wasm-code-editor-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%; /* Fill parent (UtilityPalette) */
-  background-color: #222; /* Match palette */
-  color: #eee;
-  font-family: sans-serif;
-  padding: 10px;
-  box-sizing: border-box;
-}
-
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #444;
-}
-
-.language-selector {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.language-selector label {
-  font-size: 0.9em;
-}
-
-.language-selector select {
-  padding: 4px 8px;
-  background-color: #333;
-  color: #eee;
-  border: 1px solid #555;
-  border-radius: 4px;
-  font-size: 0.9em;
-}
-
-.action-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.editor-wrapper {
-  flex-shrink: 1; /* Allow shrinking */
-  flex-grow: 1; /* Allow growing but less than output */
-  min-height: 150px; /* Minimum editor height */
-  height: 50%; /* Default height percentage */
-  border: 1px solid #444;
-  margin-bottom: 10px;
-  overflow: hidden; /* Prevent editor from overflowing wrapper */
-}
-
-/* Style codemirror component */
-:deep(.cm-editor) {
-  height: 100%;
-}
-
-.output-area {
-  flex-shrink: 1;
-  flex-grow: 1; /* Take up remaining space */
-  min-height: 100px;
-  height: 45%; /* Default height percentage */
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #444;
-  background-color: #1e1e1e; /* Darker bg for output */
-  border-radius: 4px;
-}
-
-.output-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  background-color: #333;
-  border-bottom: 1px solid #444;
-  border-top-left-radius: 4px;
-  border-top-right-radius: 4px;
-  padding: 0 10px;
-}
-
-.preview-controls {
-  display: flex;
-  gap: 4px;
-}
-
-.preview-controls button {
-  background-color: transparent;
-  border: none;
-  color: #ccc;
-  font-size: 16px;
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-.preview-controls button:hover {
-  background-color: #444;
-  color: #fff;
-}
-
-.html-preview-container {
-  flex-grow: 1;
-  height: 100%;
-  position: relative;
-  overflow: hidden;
-  background-color: #fff;
-}
-
-.html-preview-iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
-  background-color: white;
-  box-sizing: border-box;
-}
-.status-message {
-  padding: 5px;
-  font-style: italic;
-  color: #aaa;
-  font-size: 0.9em;
-}
-.error-message {
-  padding: 5px;
-  font-weight: bold;
-  color: #ff6b6b; /* Error color */
-  font-size: 0.9em;
-}
-
-/* Resizable Divider */
-.resize-handle {
-  height: 6px;
-  margin: 5px 0;
-  cursor: ns-resize;
-  background-color: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-}
-
-.handle-indicator {
-  width: 30px;
-  height: 4px;
-  border-radius: 2px;
-  background-color: #555;
-  margin: 0 auto;
-}
-
-.resize-handle:hover .handle-indicator {
-  background-color: #777;
-}
-
-.output-content {
-  flex-grow: 1;
-  overflow: auto;
-  padding: 10px;
-  margin: 0;
-  font-family: 'Courier New', monospace;
-  font-size: 0.85em;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: #ddd;
-  background-color: #1a1a1a;
-  text-align: left;
-  line-height: 1.4;
-  border-radius: 0 0 4px 4px;
-  display: block;
-  width: 100%;
-  box-sizing: border-box;
-}
-</style>
+<!-- No scoped styles; Tailwind classes are used instead -->

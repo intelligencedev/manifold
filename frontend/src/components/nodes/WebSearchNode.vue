@@ -1,11 +1,8 @@
 <template>
-  <div
-    :style="computedContainerStyle"
-    class="flex flex-col w-full h-full p-3 rounded-xl border border-gray-600 bg-zinc-900 text-gray-100 shadow"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
-  >
-    <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">{{ data.type }}</div>
+  <BaseNode :id="id" :data="data" :min-height="220" @resize="onResize">
+    <template #header>
+      <div :style="data.labelStyle" class="node-label text-base font-semibold">{{ data.type }}</div>
+    </template>
 
     <BaseInput
       :id="`${data.id}-query`"
@@ -54,27 +51,16 @@
       @blur="onInputBlur"
     />
 
-    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
-    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
-
-    <NodeResizer
-      :is-resizable="true"
-      :color="'#666'"
-      :handle-style="resizeHandleStyle"
-      :line-style="resizeHandleStyle"
-      :min-width="320"
-      :min-height="180"
-      :node-id="id"
-      @resize="onResize"
-    />
-  </div>
+    <Handle style="width:12px;height:12px" v-if="data.hasInputs" type="target" position="left" />
+    <Handle style="width:12px;height:12px" v-if="data.hasOutputs" type="source" position="right" />
+  </BaseNode>
 </template>
 
 <script setup>
-import { Handle, useVueFlow } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
+import { Handle } from '@vue-flow/core'
 import BaseInput from '@/components/base/BaseInput.vue'
 import BaseSelect from '@/components/base/BaseSelect.vue'
+import BaseNode from '@/components/base/BaseNode.vue'
 import { useWebSearch } from '../../composables/useWebSearch'
 
 const props = defineProps({
@@ -98,17 +84,20 @@ const props = defineProps({
         sxngUrl: '',
       },
       outputs: {},
+      style: {
+        border: '1px solid #666',
+        borderRadius: '12px',
+        backgroundColor: '#333',
+        color: '#eee',
+        width: '360px',
+        height: '220px'
+      },
     }),
   },
 })
 
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
-const vueFlowInstance = useVueFlow()
 const {
-  isHovered,
-  customStyle,
-  resizeHandleStyle,
-  computedContainerStyle,
   query,
   resultSize,
   searchBackend,
@@ -119,7 +108,7 @@ const {
   onInputFocus,
   onInputBlur,
   onResize
-} = useWebSearch(props, emit, vueFlowInstance)
+} = useWebSearch(props, emit)
 </script>
 
 <style scoped>

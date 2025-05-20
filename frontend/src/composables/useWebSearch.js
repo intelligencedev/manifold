@@ -1,14 +1,45 @@
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
+import { useNodeBase } from './useNodeBase'
 
 export function useWebSearch(props, emit) {
   const { getEdges, findNode } = useVueFlow()
+
+  // Basic node UI behaviour and resize handling
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    onResize
+  } = useNodeBase(props, emit)
 
   // Reactive state
   const query = ref(props.data.inputs?.query || '')
   const resultSize = ref(props.data.inputs?.result_size || 1)
   const searchBackend = ref(props.data.inputs?.search_backend || 'ddg')
   const sxngUrl = ref(props.data.inputs?.sxng_url || 'https://searx.be')
+
+  const searchBackendOptions = [
+    { value: 'ddg', label: 'DuckDuckGo' },
+    { value: 'sxng', label: 'SearXNG' }
+  ]
+
+  function onInputMouseDown() {
+    emit && emit('disable-zoom')
+  }
+
+  function onInputMouseUp() {
+    emit && emit('enable-zoom')
+  }
+
+  function onInputFocus() {
+    emit && emit('disable-zoom')
+  }
+
+  function onInputBlur() {
+    emit && emit('enable-zoom')
+  }
 
   // Main run function
   async function run() {
@@ -107,11 +138,42 @@ export function useWebSearch(props, emit) {
     }
   }
 
+  onMounted(() => {
+    setup()
+    if (!props.data.style) {
+      props.data.style = {
+        border: '1px solid #666',
+        borderRadius: '12px',
+        backgroundColor: '#333',
+        color: '#eee',
+        width: '360px',
+        height: '220px'
+      }
+    }
+    customStyle.value.width = props.data.style.width || '360px'
+    customStyle.value.height = props.data.style.height || '220px'
+  })
+
   return {
+    // state
     query,
     resultSize,
     searchBackend,
     sxngUrl,
+    searchBackendOptions,
+    isHovered,
+    resizeHandleStyle,
+    computedContainerStyle,
+    customStyle,
+
+    // handlers
+    onInputMouseDown,
+    onInputMouseUp,
+    onInputFocus,
+    onInputBlur,
+    onResize,
+
+    // methods
     updateNodeData,
     run,
     setup

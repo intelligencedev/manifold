@@ -1,7 +1,7 @@
 <template>
   <div
     :style="computedContainerStyle"
-    class="node-container bg-neutral-900"
+    class="node-container bg-zinc-900"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
@@ -57,8 +57,8 @@ const { isHovered, resizeHandleStyle, computedContainerStyle, width, height, onR
 }
 
 .node-container {
-  background-color: oklch(26.9% 0 0) !important;
-  border: 3px solid var(--node-border-color) !important;
+  background-color: oklch(21% 0.006 285.885) !important;
+  border: 4px solid oklch(44.2% 0.017 285.786) !important;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   padding: 15px;
   border-radius: 8px;

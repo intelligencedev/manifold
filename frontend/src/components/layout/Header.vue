@@ -1,12 +1,12 @@
 <template>
   <!-- HEADER ---------------------------------------------------------------->
   <div
-    class="bg-gray-900 dark:bg-neutral-800 text-white flex-none h-16 flex items-center px-5 shadow-md relative select-none"
+    class="bg-zinc-900 text-white flex-none h-16 flex items-center px-5 relative select-none"
   >
     <!-- Invisible spacer – keeps logo centred regardless of right-section width -->
     <div class="flex-1"></div>
 
-    <!-- centred logo ---------------------------------------------------------->
+    <!-- centered logo ---------------------------------------------------------->
     <div
       class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center"
     >
@@ -14,7 +14,7 @@
     </div>
 
     <!-- DESKTOP actions ------------------------------------------------------->  
-    <div class="flex items-center space-x-2 flex-1 justify-end lg:flex hidden">
+    <div class="flex items-center space-x-2 flex-1 justify-end lg:flex">
       <!-- FILE INPUT (hidden) -->
       <input
         ref="fileInput"

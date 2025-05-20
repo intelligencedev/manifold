@@ -136,7 +136,3 @@ const {
 
 if (!props.data.outputs) props.data.outputs = { response:'', error:null }
 </script>
-
-<style scoped>
-
-</style>

@@ -1128,7 +1128,7 @@ header {
 }
 
 /* Node Container */
-.node-container {
+/* .node-container {
   border: 3px solid var(--node-border-color) !important;
   background-color: var(--node-bg-color) !important;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
@@ -1136,7 +1136,7 @@ header {
   border-radius: 8px;
   color: var(--node-text-color);
   font-family: 'Roboto', sans-serif;
-}
+} */
 
 .bottom-bar {
   position: absolute;
@@ -1181,11 +1181,11 @@ header {
 }
 
 /* Tool Node Styling */
-.tool-node {
+/* .tool-node {
   --node-border-color: #777 !important;
   --node-bg-color: #1e1e1e !important;
   --node-text-color: #eee;
-}
+} */
 
 /* Toggle Switch Styling */
 .switch {

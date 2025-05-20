@@ -117,7 +117,7 @@ const {
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
+
 
 /* Add styling for the think tags that may come from LLMs or our ReAct agent */
 :deep(think), :deep(think) {

@@ -1,4 +1,4 @@
-package web
+package tools
 
 import (
 	"bytes"

@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	codeeval "manifold/internal/codeeval"
 	configpkg "manifold/internal/config"
+	codeeval "manifold/internal/tools"
 
 	"github.com/labstack/echo/v4"
 )

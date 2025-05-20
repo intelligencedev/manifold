@@ -1,5 +1,5 @@
-// internal/completions/completions.go
-package completions
+// internal/llm/completions.go
+package llm
 
 import (
 	"bytes"

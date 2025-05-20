@@ -1,5 +1,5 @@
-// internal/embeddings/embeddings.go
-package embeddings
+// internal/llm/embeddings.go
+package llm
 
 import (
 	"bytes"

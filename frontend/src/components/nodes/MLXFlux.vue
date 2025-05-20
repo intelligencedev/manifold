@@ -136,7 +136,7 @@ const {
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
+
 
 .mlxflux-node {
   width: 100%;

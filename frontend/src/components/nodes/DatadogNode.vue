@@ -178,7 +178,7 @@ watch(
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
+
 
 .datadog-node {
   --node-border-color: #fd7702 !important;

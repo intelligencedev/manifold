@@ -1,4 +1,4 @@
-package anthropic
+package llm
 
 import (
 	"bytes"
@@ -15,14 +15,14 @@ import (
 
 // Request defines the expected payload for the /anthropic/messages endpoint.
 type Request struct {
-	Model     string    `json:"model"`
-	MaxTokens int64     `json:"max_tokens"`
-	Messages  []Message `json:"messages"`
-	System    []string  `json:"system,omitempty"`
+	Model     string             `json:"model"`
+	MaxTokens int64              `json:"max_tokens"`
+	Messages  []AnthropicMessage `json:"messages"`
+	System    []string           `json:"system,omitempty"`
 }
 
-// Message represents an individual message.
-type Message struct {
+// AnthropicMessage represents an individual Anthropic message.
+type AnthropicMessage struct {
 	Role string `json:"role"`
 	Text string `json:"text"`
 }

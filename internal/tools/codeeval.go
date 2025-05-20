@@ -1,4 +1,4 @@
-package codeeval
+package tools
 
 import (
 	"bytes"

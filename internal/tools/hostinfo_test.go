@@ -1,4 +1,4 @@
-package hostinfo
+package tools
 
 import (
 	"testing"

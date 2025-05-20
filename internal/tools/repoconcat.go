@@ -1,5 +1,5 @@
-// internal/repoconcat/repoconcat.go
-package repoconcat
+// internal/tools/repoconcat.go
+package tools
 
 import (
 	"context"

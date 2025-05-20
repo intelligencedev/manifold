@@ -437,7 +437,7 @@ watch(() => props.data.style, (newStyle) => {
 
 <style scoped>
 /* Import or define styles */
-@import '@/assets/css/nodes.css';
+
 /* Assuming common styles */
 
 .flow-control-node {

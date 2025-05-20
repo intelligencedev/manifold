@@ -23,6 +23,16 @@ export function useNodeBase(props, emit) {
     height: '100%'
   }))
 
+  const width = computed(() => {
+    const w = customStyle.value.width || props.data.style?.width
+    return w ? parseInt(w) : undefined
+  })
+
+  const height = computed(() => {
+    const h = customStyle.value.height || props.data.style?.height
+    return h ? parseInt(h) : undefined
+  })
+
   function onResize(event) {
     customStyle.value.width = `${event.width}px`
     customStyle.value.height = `${event.height}px`
@@ -31,5 +41,5 @@ export function useNodeBase(props, emit) {
     }
   }
 
-  return { isHovered, customStyle, resizeHandleStyle, computedContainerStyle, onResize }
+  return { isHovered, customStyle, resizeHandleStyle, computedContainerStyle, width, height, onResize }
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	codeeval "manifold/internal/codeeval"
+	codeeval "manifold/internal/tools"
 	"strings"
 	"testing"
 )

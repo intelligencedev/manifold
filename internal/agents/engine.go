@@ -22,11 +22,11 @@ import (
 	"github.com/pterm/pterm"
 
 	a2aclient "manifold/internal/a2a/client"
-	"manifold/internal/codeeval"
-	"manifold/internal/completions"
 	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
+	completions "manifold/internal/llm"
 	"manifold/internal/mcp"
+	codeeval "manifold/internal/tools"
 	"manifold/internal/util"
 )
 

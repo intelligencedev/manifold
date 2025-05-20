@@ -1,19 +1,27 @@
 <template>
   <div
+    ref="containerRef"
     :style="computedContainerStyle"
-    class="node-container base-node"
+    class="node-container bg-neutral-900"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
+    <!-- header ----------------------------------------------------------- -->
     <div class="node-header">
       <slot name="header"></slot>
     </div>
-    <div class="node-body">
+
+    <!-- body ------------------------------------------------------------- -->
+    <div>
       <slot></slot>
     </div>
+
+    <!-- resizer ---------------------------------------------------------- -->
     <NodeResizer
       :is-resizable="true"
-      :color="'#666'"
+      color="#666"
+      :min-width="baseMinWidth"
+      :min-height="contentMinHeight"
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle"
       :node-id="id"
@@ -26,25 +34,38 @@
 import { NodeResizer } from '@vue-flow/node-resizer'
 import { useNodeBase } from '@/composables/useNodeBase'
 
+/* ---------- props / emits ---------- */
 const props = defineProps({
-  id: {
-    type: String,
-    required: true,
-  },
-  data: {
-    type: Object,
-    default: () => ({ style: {} })
-  }
+  id:   { type: String,  required: true },
+  data: { type: Object,  default: () => ({ style: {} }) }
 })
+const emit  = defineEmits(['resize'])
 
-const emit = defineEmits(['resize'])
-
-const { isHovered, resizeHandleStyle, computedContainerStyle, onResize } = useNodeBase(props, emit)
+/* ---------- composable ---------- */
+const {
+  containerRef,
+  isHovered,
+  resizeHandleStyle,
+  computedContainerStyle,
+  onResize,
+  contentMinHeight,
+  baseMinWidth
+} = useNodeBase(props, emit)
 </script>
 
 <style scoped>
 .node-header {
   cursor: move;
   user-select: none;
+}
+
+.node-container {
+  background-color: oklch(26.9% 0 0) !important;
+  border: 3px solid var(--node-border-color) !important;
+  box-shadow: 0 2px 5px rgba(0 0 0 / 0.2);
+  padding: 15px;
+  border-radius: 8px;
+  color: var(--node-text-color);
+  font-family: 'Roboto', sans-serif;
 }
 </style>

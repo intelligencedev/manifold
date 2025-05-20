@@ -1,6 +1,6 @@
 // Package hostinfo provides utilities for retrieving host system information,
 // including OS, architecture, CPU, memory, and GPU details.
-package hostinfo
+package tools
 
 import (
 	"bytes"

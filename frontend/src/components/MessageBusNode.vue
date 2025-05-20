@@ -220,7 +220,7 @@ watch(() => props.data.style, s => {
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
+
 
 .message-bus-node {
   display: flex;

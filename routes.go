@@ -13,9 +13,9 @@ import (
 
 	"manifold/internal/a2a"
 	agentspkg "manifold/internal/agents"
-	anthropicpkg "manifold/internal/anthropic"
 	gitpkg "manifold/internal/git"
 	imggenpkg "manifold/internal/imggen"
+	llmpkg "manifold/internal/llm"
 	sefiipkg "manifold/internal/sefii"
 )
 
@@ -154,7 +154,7 @@ func registerSEFIIEndpoints(api *echo.Group, config *Config) {
 func registerAnthropicEndpoints(api *echo.Group, config *Config) {
 	anthropicGroup := api.Group("/anthropic")
 	anthropicGroup.POST("/messages", func(c echo.Context) error {
-		return anthropicpkg.HandleMessages(c, config)
+		return llmpkg.HandleMessages(c, config)
 	})
 }
 

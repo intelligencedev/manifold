@@ -125,7 +125,7 @@ const {
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
+
 
 .code-eval-node {
   display: flex;

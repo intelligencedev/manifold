@@ -1,15 +1,16 @@
 <template>
-  <div
-    :style="computedContainerStyle"
-    class="node-container openai-node tool-node"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
+  <BaseNode
+    :id="id"
+    :data="data"
+    @resize="onResize"
   >
-    <div :style="data.labelStyle" class="node-label">
-      {{ provider === 'anthropic' ? 'Claude / Anthropic' : 
-         provider === 'google' ? 'Gemini / Google' : 
-         'Open AI / Local' }}
-    </div>
+    <template #header>
+      <div :style="data.labelStyle" class="node-label">
+        {{ provider === 'anthropic' ? 'Claude / Anthropic' :
+           provider === 'google' ? 'Gemini / Google' :
+           'Open AI / Local' }}
+      </div>
+    </template>
 
     <!-- Provider -->
     <BaseSelect label="Provider" v-model="provider" :options="providerOptions" />
@@ -18,7 +19,7 @@
     <BaseAccordion title="Parameters">
       <BaseInput label="Endpoint" v-model="endpoint" />
 
-      <div class="input-wrapper">
+      <div class="relative">
         <BaseInput
           :id="`${data.id}-api_key`"
           :label="provider === 'anthropic' ? 'Anthropic API Key' : provider === 'google' ? 'Google AI API Key' : 'OpenAI API Key'"
@@ -79,41 +80,28 @@
 
     <button
       v-if="data.outputs && data.outputs.response"
-      class="code-editor-button"
+      class="flex items-center justify-center my-2 px-3 py-1 bg-gray-700 text-white rounded text-sm transition-colors hover:bg-blue-800"
       @click="sendToCodeEditor"
       title="Send code to the editor"
     >
-      <span class="button-icon">📝</span> Send to Code Editor
+      <span class="mr-1">📝</span> Send to Code Editor
     </button>
 
     <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />
     <Handle v-if="data.hasOutputs" type="source" position="right" style="width:12px;height:12px" />
-
-    <NodeResizer
-      :is-resizable="true"
-      :color="'#666'"
-      :handle-style="resizeHandleStyle"
-      :line-style="resizeHandleStyle"
-      :width="380"
-      :height="906"
-      :min-width="380"
-      :min-height="906"
-      :node-id="id"
-      @resize="onResize"
-    />
-  </div>
+  </BaseNode>
 </template>
 
 <script setup>
 import { Handle } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
 import BaseInput from '@/components/base/BaseInput.vue'
 import BaseSelect from '@/components/base/BaseSelect.vue'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
-import BaseCheckbox from '@/components/base/BaseCheckbox.vue'
 import BaseTogglePassword from '@/components/base/BaseTogglePassword.vue'
 import BaseAccordion from '@/components/base/BaseAccordion.vue'
+import BaseNode from '@/components/base/BaseNode.vue'
 import { useAgentNode } from '@/composables/useAgentNode'
+import { min } from 'd3'
 
 const props = defineProps({
   id: { type:String, required:true, default:'Completions_0' },
@@ -144,11 +132,10 @@ const props = defineProps({
 const emit = defineEmits(['update:data','resize','disable-zoom','enable-zoom'])
 
 const {
-  showApiKey, agentMode, selectedSystemPrompt, isHovered,
+  showApiKey, selectedSystemPrompt,
   providerOptions, systemPromptOptionsList, modelOptions,
   provider, endpoint, api_key, model, max_completion_tokens, temperature,
   system_prompt, user_prompt,
-  resizeHandleStyle, computedContainerStyle,
   onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor
 } = useAgentNode(props, emit)
 
@@ -156,13 +143,5 @@ if (!props.data.outputs) props.data.outputs = { response:'', error:null }
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
-.input-wrapper{position:relative}
-.code-editor-button{
-  display:flex;align-items:center;justify-content:center;margin:10px 0;
-  padding:6px 12px;background:#4a5568;color:#fff;border:none;border-radius:4px;
-  cursor:pointer;font-size:.9em;transition:background-color .2s;
-}
-.code-editor-button:hover{background:#2c5282}
-.button-icon{margin-right:5px}
+@import '@/assets/css/tailwindstyles.css';
 </style>

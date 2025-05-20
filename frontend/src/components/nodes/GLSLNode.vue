@@ -120,7 +120,7 @@ const {
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
+
 
 .glsl-canvas-container {
   flex: 1;

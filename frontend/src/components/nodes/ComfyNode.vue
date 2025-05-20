@@ -122,7 +122,7 @@ const {
 </script>
 
 <style scoped>
-@import '@/assets/css/nodes.css';
+
 
 /* ComfyNode specific styles */
 .image-prompt-textarea {

@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pterm/pterm"
 
-	hostinfopkg "manifold/internal/hostinfo"
+	hostinfopkg "manifold/internal/tools"
 )
 
 // LlamaService represents a running llama-server instance.

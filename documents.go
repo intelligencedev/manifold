@@ -15,8 +15,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"manifold/internal/documents"
-	"manifold/internal/repoconcat"
-	"manifold/internal/web"
+	tools "manifold/internal/tools"
 )
 
 // RepoConcatRequest represents the request payload for the repoconcatHandler.
@@ -36,7 +35,7 @@ func repoconcatHandler(c echo.Context) error {
 	if len(req.Paths) == 0 || len(req.Types) == 0 {
 		return respondWithError(c, http.StatusBadRequest, "Paths and types are required")
 	}
-	rc := repoconcat.NewRepoConcat()
+	rc := tools.NewRepoConcat()
 	result, err := rc.Concatenate(req.Paths, req.Types, req.Recursive, req.IgnorePattern)
 	if err != nil {
 		return respondWithError(c, http.StatusInternalServerError, err.Error())
@@ -142,7 +141,7 @@ func webContentHandler(c echo.Context) error {
 			wg.Add(1)
 			go func(url string) {
 				defer wg.Done()
-				content, err := web.WebGetHandler(url)
+				content, err := tools.WebGetHandler(url)
 				mu.Lock()
 				defer mu.Unlock()
 				if err != nil {
@@ -185,9 +184,9 @@ func webSearchHandler(c echo.Context) error {
 		if sxngURL == "" {
 			return respondWithError(c, http.StatusBadRequest, "sxng_url is required when search_backend is sxng")
 		}
-		results = web.GetSearXNGResults(sxngURL, query)
+		results = tools.GetSearXNGResults(sxngURL, query)
 	} else {
-		results = web.SearchDDG(query)
+		results = tools.SearchDDG(query)
 	}
 	if results == nil {
 		return respondWithError(c, http.StatusInternalServerError, "Error performing web search")

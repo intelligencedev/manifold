@@ -101,7 +101,6 @@ import BaseTogglePassword from '@/components/base/BaseTogglePassword.vue'
 import BaseAccordion from '@/components/base/BaseAccordion.vue'
 import BaseNode from '@/components/base/BaseNode.vue'
 import { useAgentNode } from '@/composables/useAgentNode'
-import { min } from 'd3'
 
 const props = defineProps({
   id: { type:String, required:true, default:'Completions_0' },
@@ -120,11 +119,6 @@ const props = defineProps({
         temperature:0.6
       },
       outputs:{ response:'' },
-      style:{
-        border:'1px solid #666', borderRadius:'12px',
-        background:'#333', color:'#eee',
-        width:'380px', height:'906px'
-      }
     })
   }
 })
@@ -143,5 +137,5 @@ if (!props.data.outputs) props.data.outputs = { response:'', error:null }
 </script>
 
 <style scoped>
-@import '@/assets/css/tailwindstyles.css';
+
 </style>

@@ -68,7 +68,7 @@ type WebPageContent struct {
 }
 
 // CheckRobotsTxt checks if the target website allows scraping by "et-bot".
-func checkRobotsTxt(ctx context.Context, u string) bool {
+func checkRobotsTxt(u string) bool {
 	baseURL, err := url.Parse(u)
 	if err != nil {
 		log.Printf("Failed to parse baseURL: %v", err)
@@ -96,7 +96,7 @@ func checkRobotsTxt(ctx context.Context, u string) bool {
 
 // WebGetHandler retrieves the reader view content of a given URL.
 func WebGetHandler(address string) (*WebPageContent, error) {
-	if !checkRobotsTxt(context.Background(), address) {
+	if !checkRobotsTxt(address) {
 		return nil, errors.New("scraping not allowed according to robots.txt")
 	}
 

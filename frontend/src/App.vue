@@ -1,5 +1,5 @@
 <template>
-  <div id="app">
+  <div id="app" class="flex flex-col h-screen w-screen p-0 m-0 text-center text-[#2c3e50] relative font-sans antialiased">
     <!-- Show Login component if not authenticated -->
     <Login v-if="!isAuthenticated" @login-success="handleLoginSuccess" />
     
@@ -25,7 +25,7 @@
       </div>
 
       <!-- VueFlow Component -->
-      <VueFlow class="vue-flow-container" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
+      <VueFlow class="flex-1 bg-[#282828] relative overflow-hidden pt-2" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
         :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
         @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
         :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[16, 16]"
@@ -121,30 +121,30 @@
         <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
 
         <!-- Run Workflow Button -->
-        <div class="bottom-bar">
-          <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
-          <div class="bottom-toolbar">
+        <div class="absolute bottom-0 left-0 right-0 h-10 flex justify-center items-center z-10">
+          <div class="flex justify-evenly items-center"></div>
+          <div class="flex justify-center items-center bg-[#222] rounded-xl w-[33vw] h-full p-1 border border-[#777] mb-10">
             <!-- three divs -->
-            <div style="flex: 1; display: flex; justify-content: center;">
+            <div class="flex-1 flex justify-center">
               <!-- Toggle Switch -->
-              <div class="tooltip-container" style="display: flex; align-items: center;">
+              <div class="tooltip-container flex items-center">
                 <label class="switch">
                   <input type="checkbox" v-model="autoPanEnabled">
                   <span class="slider round"></span>
                 </label>
-                <span style="color: white; margin-left: 5px; font-size: 14px;">Auto-Pan</span>
+                <span class="text-white ml-2 text-sm">Auto-Pan</span>
                 <span class="tooltip">When enabled, the view will automatically pan to follow node execution</span>
               </div>
             </div>
-            <div style="flex: 1; display: flex; justify-content: center; align-items: center;">
-              <button class="run-button" @click="runWorkflow">Run</button>
+            <div class="flex-1 flex justify-center items-center">
+              <button class="run-button text-white bg-[#007bff] hover:bg-[#0056b3] font-bold text-base rounded-xl mr-2" @click="runWorkflow">Run</button>
             </div>
-            <div style="flex: 1; display: flex; justify-content: center;">
+            <div class="flex-1 flex justify-center">
               <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }"
                 @update-edge-type="updateEdgeType" />
             </div>
           </div>
-          <div style="display: flex; justify-content: space-evenly; align-items: center;"></div>
+          <div class="flex justify-evenly items-center"></div>
         </div>
       </VueFlow>
     </template>
@@ -1085,224 +1085,77 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
+@reference './style.css';
 @import '@vue-flow/core/dist/style.css';
 @import '@vue-flow/core/dist/theme-default.css';
 
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  width: 100vw;
-  padding: 0;
-  margin: 0;
-  text-align: center;
-  color: #2c3e50;
-  position: relative;
-}
-
-/* Header Styling */
-header {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1000;
-  height: 120px;
-}
-
-/* VueFlow Container */
-.vue-flow-container {
-  flex: 1;
-  background-color: #282828;
-  position: relative;
-  overflow: hidden;
-  padding-top: 8px;
-}
-
-/* Node Container */
-/* .node-container {
-  border: 3px solid var(--node-border-color) !important;
-  background-color: var(--node-bg-color) !important;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
-  padding: 15px;
-  border-radius: 8px;
-  color: var(--node-text-color);
-  font-family: 'Roboto', sans-serif;
-} */
-
-.bottom-bar {
-  position: absolute;
-  bottom: 0px;
-  left: 0;
-  right: 0;
-  height: 40px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 10;
-}
-
-.bottom-toolbar {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background-color: #222;
-  border-radius: 12px;
-  width: 33vw;
-  height: 100%;
-  padding: 4px;
-  border: 1px solid #777;
-  margin-bottom: 40px;
-}
-
-/* Run Button Styling */
 .run-button {
-  font-size: 16px;
-  font-weight: bold;
-  color: #fff;
-  background-color: #007bff;
-  border: none;
-  border-radius: 12px;
-  cursor: pointer;
-  margin-right: 10px;
-  /* Add some margin between button and toggle */
+  @apply text-white bg-[#007bff] hover:bg-[#0056b3] font-bold text-base rounded-xl mr-2 cursor-pointer;
 }
 
-.run-button:hover {
-  background-color: #0056b3;
-}
-
-/* Tool Node Styling */
-/* .tool-node {
-  --node-border-color: #777 !important;
-  --node-bg-color: #1e1e1e !important;
-  --node-text-color: #eee;
-} */
-
-/* Toggle Switch Styling */
 .switch {
-  position: relative;
-  display: inline-block;
-  width: 40px;
-  height: 20px;
+  @apply relative inline-block w-10 h-5;
 }
 
 .switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
+  @apply opacity-0 w-0 h-0;
 }
 
 .slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  -webkit-transition: .4s;
-  transition: .4s;
+  @apply absolute cursor-pointer inset-0 bg-gray-300 transition duration-300;
 }
 
 .slider:before {
-  position: absolute;
-  content: "";
-  height: 16px;
-  width: 16px;
-  left: 2px;
-  bottom: 2px;
-  background-color: white;
-  -webkit-transition: .4s;
-  transition: .4s;
+  content: '';
+  @apply absolute h-4 w-4 left-[2px] bottom-[2px] bg-white transition duration-300;
 }
 
-input:checked+.slider {
-  background-color: #2196F3;
+input:checked + .slider {
+  @apply bg-blue-500;
 }
 
-input:focus+.slider {
+input:focus + .slider {
   box-shadow: 0 0 1px #2196F3;
 }
 
-input:checked+.slider:before {
-  -webkit-transform: translateX(20px);
-  -ms-transform: translateX(20px);
+input:checked + .slider:before {
   transform: translateX(20px);
 }
 
-/* Rounded sliders */
 .slider.round {
-  border-radius: 34px;
+  @apply rounded-full;
 }
 
 .slider.round:before {
-  border-radius: 50%;
+  @apply rounded-full;
 }
 
 .tooltip-container {
-  position: relative;
+  @apply relative;
 }
 
 .tooltip {
-  white-space: normal;
-  /* Changed from pre-wrap */
-  width: 200px;
-  /* Increased width to accommodate text */
-  visibility: hidden;
-  position: absolute;
-  bottom: 200%;
-  left: 50%;
-  transform: translateX(-50%);
-  background-color: rgba(255, 140, 0, 0.9);
-  color: white;
-  padding: 8px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: bold;
-  /* Added bold text */
-  z-index: 1000;
-  text-align: center;
-  /* Added for better text alignment */
+  @apply whitespace-normal w-[200px] invisible absolute bottom-[200%] left-1/2 -translate-x-1/2 bg-orange-500/90 text-white px-3 py-2 rounded-xl text-xs font-bold z-[1000] text-center;
 }
 
 .tooltip-container:hover .tooltip {
-  visibility: visible;
+  @apply visible;
 }
 
-/* Optional: Add an arrow to the tooltip */
 .tooltip::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  margin-left: -5px;
-  border-width: 5px;
-  border-style: solid;
-  border-color: rgba(255, 140, 0, 0.9) transparent transparent transparent;
+  content: '';
+  @apply absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-solid border-orange-500/90 border-t-transparent border-l-transparent border-r-transparent;
 }
 
-/* Context Menu Styling */
 .context-menu {
-  position: absolute;
-  background-color: #333;
-  border: 1px solid #777;
-  border-radius: 8px;
-  padding: 8px;
-  z-index: 1000;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  @apply absolute bg-[#333] border border-[#777] rounded-lg p-2 z-[1000] shadow-md;
 }
 
 .context-menu-item {
-  color: white;
-  padding: 8px 12px;
-  cursor: pointer;
+  @apply text-white px-3 py-2 cursor-pointer;
 }
 
 .context-menu-item:hover {
-  background-color: #555;
+  @apply bg-[#555];
 }
 </style>

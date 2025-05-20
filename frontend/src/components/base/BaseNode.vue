@@ -15,6 +15,9 @@
       :is-resizable="true"
       :color="'#666'"
       :min-width="352"
+      :min-height="minHeight"
+      :width="width"
+      :height="height"
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle"
       :node-id="id"
@@ -35,12 +38,16 @@ const props = defineProps({
   data: {
     type: Object,
     default: () => ({ style: {} })
+  },
+  minHeight: {
+    type: Number,
+    default: 0
   }
 })
 
 const emit = defineEmits(['resize'])
 
-const { isHovered, resizeHandleStyle, computedContainerStyle, onResize } = useNodeBase(props, emit)
+const { isHovered, resizeHandleStyle, computedContainerStyle, width, height, onResize } = useNodeBase(props, emit)
 </script>
 
 <style scoped>

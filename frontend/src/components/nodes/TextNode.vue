@@ -1,53 +1,38 @@
 <template>
   <div
-    :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-    class="node-container text-node tool-node"
+    :style="computedContainerStyle"
+    class="node-container text-node tool-node flex flex-col w-full h-full p-3 rounded-xl border border-gray-600 bg-zinc-900 text-gray-100 shadow"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
-    <div :style="data.labelStyle" class="node-label">
-      {{ data.type }}
-    </div>
+    <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">{{ data.type }}</div>
 
-    <!-- Mode selector dropdown -->
-    <div class="node-options mode-selector">
-      <label class="select-label">
+    <div class="node-options mode-selector mb-2">
+      <label class="select-label flex items-center gap-2">
         <span>Mode:</span>
-        <select v-model="mode" @change="updateNodeData" class="mode-select">
+        <select v-model="mode" @change="updateNodeData" class="mode-select bg-zinc-800 border border-gray-600 rounded px-2 py-1 text-sm">
           <option value="text">Text</option>
           <option value="template">Template</option>
         </select>
       </label>
     </div>
 
-    <!-- Text input area -->
-    <textarea
+    <BaseTextarea
       v-model="text"
       @change="updateNodeData"
-      class="input-textarea"
+      label="Text"
+      class="input-textarea mb-2"
       @mouseenter="$emit('disable-zoom')"
       @mouseleave="$emit('enable-zoom')"
       @mousedown="onTextareaMouseDown"
       @mouseup="onTextareaMouseUp"
       @focus="onTextareaFocus"
       @blur="onTextareaBlur"
-      :placeholder="mode === 'template'
-        ? `Paste template + values blocks, e.g.:
+      :placeholder="mode === 'template' ? `Paste template + values blocks, e.g.:\n\n--- template:profile ---\nHello {{USER}}, you are {{AGE}} years old.\n--- endtemplate ---\n\n--- values:profile ---\nUSER=Alice\nAGE=23\n--- endvalues ---` : 'Enter text...'"
+    />
 
---- template:profile ---
-Hello {{USER}}, you are {{AGE}} years old.
---- endtemplate ---
-
---- values:profile ---
-USER=Alice
-AGE=23
---- endvalues ---`
-        : 'Enter text...'"
-    ></textarea>
-
-    <!-- Clear on run checkbox -->
-    <div class="node-options">
-      <label class="checkbox-label">
+    <div class="node-options mb-2">
+      <label class="checkbox-label flex items-center gap-2">
         <input type="checkbox" v-model="clearOnRun" />
         <span>Clear on run</span>
       </label>
@@ -68,14 +53,13 @@ AGE=23
       id="output"
     />
 
-    <!-- Node resizer -->
     <NodeResizer
       :is-resizable="true"
       :color="'#666'"
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle"
-      :min-width="380"
-      :min-height="380"
+      :min-width="320"
+      :min-height="180"
       :node-id="id"
       @resize="onResize"
     />
@@ -85,146 +69,57 @@ AGE=23
 <script setup>
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
-import useTextNode from '../../composables/useTextNode'
+import BaseTextarea from '@/components/base/BaseTextarea.vue'
 
 const props = defineProps({
   id: {
     type: String,
     required: true,
-    default: 'TextNode_0'
+    default: 'TextNode_0',
   },
   data: {
     type: Object,
     required: false,
     default: () => ({
       type: 'TextNode',
-      labelStyle: {
-        fontWeight: 'bold',
-        textAlign: 'center',
-        marginBottom: '10px',
-        fontSize: '16px'
-      },
-      style: {
-        border: '1px solid var(--node-border-color)',
-        borderRadius: '12px',
-        backgroundColor: 'var(--node-bg-color)',
-        color: 'var(--node-text-color)',
-        padding: '10px'
-      },
+      labelStyle: { fontWeight: 'normal' },
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        text: ''
+        text: '',
       },
       outputs: {},
-      clearOnRun: false,
-      mode: 'text'
-    })
-  }
+      style: {
+        border: '1px solid #666',
+        borderRadius: '12px',
+        backgroundColor: '#333',
+        color: '#eee',
+        width: '320px',
+        height: '180px',
+      },
+    }),
+  },
 })
 
-const emit = defineEmits(['update:data', 'disable-zoom', 'enable-zoom', 'resize'])
-
-const { disableNodeDrag, enableNodeDrag } = useVueFlow()
-
+const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
+const vueFlowInstance = useVueFlow()
 const {
+  isHovered,
+  customStyle,
+  resizeHandleStyle,
+  computedContainerStyle,
+  mode,
   text,
   clearOnRun,
-  mode,
-  customStyle,
-  isHovered,
-  resizeHandleStyle,
   updateNodeData,
+  onTextareaMouseDown,
+  onTextareaMouseUp,
+  onTextareaFocus,
+  onTextareaBlur,
   onResize
-} = useTextNode(props, emit)
-
-// Disable node dragging when interacting with textarea
-const onTextareaMouseDown = (e) => {
-  e.stopPropagation()
-  disableNodeDrag(props.id)
-}
-const onTextareaMouseUp = () => enableNodeDrag(props.id)
-const onTextareaFocus   = () => disableNodeDrag(props.id)
-const onTextareaBlur    = () => enableNodeDrag(props.id)
+} = useTextNode(props, emit, vueFlowInstance)
 </script>
 
 <style scoped>
-.node-container {
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  box-sizing: border-box;
-  justify-content: center;
-  align-items: center;
-  padding: 10px;
-}
-
-.text-node {
-  background-color: var(--node-bg-color);
-  border: 1px solid var(--node-border-color);
-  border-radius: 4px;
-  color: var(--node-text-color);
-  width: 100%;
-  height: 100%;
-}
-
-.node-label {
-  color: var(--node-text-color);
-  font-size: 16px;
-  text-align: center;
-  margin-bottom: 10px;
-  font-weight: bold;
-}
-
-.mode-selector {
-  margin-bottom: 10px;
-  width: calc(100% - 20px);
-}
-
-.select-label {
-  display: flex;
-  align-items: center;
-  font-size: 12px;
-}
-
-.select-label span { margin-right: 10px; }
-
-.mode-select {
-  background-color: #333;
-  border: 1px solid #666;
-  color: #eee;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.input-textarea {
-  background-color: #333;
-  border: 1px solid #666;
-  color: #eee;
-  padding: 10px;
-  font-size: 14px;
-  width: calc(100% - 20px);
-  box-sizing: border-box;
-  resize: vertical;
-  flex-grow: 1;
-  margin: 10px 0;
-}
-
-.node-options {
-  display: flex;
-  justify-content: flex-start;
-  width: calc(100% - 20px);
-  margin-bottom: 10px;
-}
-
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.checkbox-label input { margin-right: 5px; }
+/* Remove legacy styles in favor of Tailwind */
 </style>

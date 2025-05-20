@@ -1,157 +1,107 @@
 <template>
-  <div :style="data.style" class="node-container tool-node">
-    <div class="node-label">
-      <div>MCP Client</div>
-    </div>
-    
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="420"
+    :style="customStyle"
+    @resize="onResize"
+    @mouseenter="$emit('disable-zoom')"
+    @mouseleave="$emit('enable-zoom')"
+  >
+    <template #header>
+      <div class="node-label font-bold text-center text-base text-white">MCP Client</div>
+    </template>
+
     <!-- Mode Selection -->
-    <div class="mode-selector">
-      <label class="radio-label">
-        <input type="radio" v-model="mode" value="list" :id="`${data.id}-mode-list`" />
+    <div class="flex gap-4 justify-center mb-3 border-b border-zinc-700 pb-2">
+      <label class="flex items-center gap-2 text-xs text-zinc-200 cursor-pointer">
+        <input type="radio" v-model="mode" value="list" :id="`${data.id}-mode-list`" class="accent-blue-500" />
         <span>List Tools</span>
       </label>
-      <label class="radio-label">
-        <input type="radio" v-model="mode" value="execute" :id="`${data.id}-mode-execute`" />
+      <label class="flex items-center gap-2 text-xs text-zinc-200 cursor-pointer">
+        <input type="radio" v-model="mode" value="execute" :id="`${data.id}-mode-execute`" class="accent-blue-500" />
         <span>Execute Tool</span>
       </label>
     </div>
-    
+
     <!-- LIST MODE -->
-    <div v-if="mode === 'list'" class="mode-container">
-      <div class="input-field">
-        <label :for="`${data.id}-server-list`" class="input-label">Server:</label>
-        <select
-          :id="`${data.id}-server-list`"
-          v-model="selectedServer"
-          class="select-input"
-          :disabled="isLoadingServers"
-        >
-          <option value="all">All Servers</option>
-          <option v-for="server in servers" :key="server" :value="server">
-            {{ server }}
-          </option>
-        </select>
-        <div v-if="isLoadingServers" class="loading-indicator">Loading servers...</div>
-        <div v-if="isLoadingToolsList" class="loading-indicator">Loading tools list...</div>
-      </div>
-      
-      <!-- List Mode Info -->
-      <div class="info-message">
-        <small>
-          Select a server to list its tools, or "All Servers" to list tools from all available servers.
-          <br>
-          The tools list will be sent to the output when this node is run.
-        </small>
+    <div v-if="mode === 'list'" class="space-y-2">
+      <BaseSelect
+        :id="`${data.id}-server-list`"
+        label="Server"
+        v-model="selectedServer"
+        :options="[{label: 'All Servers', value: 'all'}, ...servers.map(s => ({label: s, value: s}))]"
+        :disabled="isLoadingServers"
+      />
+      <div v-if="isLoadingServers" class="text-xs text-zinc-400">Loading servers...</div>
+      <div v-if="isLoadingToolsList" class="text-xs text-zinc-400">Loading tools list...</div>
+      <div class="text-xs text-blue-300 text-center mt-2">
+        Select a server to list its tools, or "All Servers" to list tools from all available servers.<br>
+        The tools list will be sent to the output when this node is run.
       </div>
     </div>
-    
+
     <!-- EXECUTE MODE -->
-    <div v-if="mode === 'execute'" class="mode-container">
-      <!-- Server Selection Dropdown -->
-      <div class="input-field">
-        <label :for="`${data.id}-server-exec`" class="input-label">Server:</label>
-        <select
-          :id="`${data.id}-server-exec`"
-          v-model="selectedServer"
-          class="select-input"
-          :disabled="isLoadingServers"
-        >
-          <option value="" disabled>Select a server</option>
-          <option v-for="server in servers" :key="server" :value="server">
-            {{ server }}
-          </option>
-        </select>
-        <div v-if="isLoadingServers" class="loading-indicator">Loading servers...</div>
-      </div>
-      
-      <!-- Tool Selection Dropdown -->
-      <div class="input-field">
-        <label :for="`${data.id}-tool`" class="input-label">Tool:</label>
-        <select
-          :id="`${data.id}-tool`"
-          v-model="selectedTool"
-          class="select-input"
-          :disabled="isLoadingTools || !selectedServer"
-        >
-          <option value="" disabled>Select a tool</option>
-          <option v-for="tool in toolsForServer" :key="tool.name" :value="tool.name">
-            {{ tool.name }}
-          </option>
-        </select>
-        <div v-if="isLoadingTools" class="loading-indicator">Loading tools...</div>
-      </div>
-      
-      <!-- Schema Button & Display -->
-      <div class="input-field" v-if="selectedTool">
-        <button 
-          @click="toggleToolSchema" 
-          class="schema-button"
-        >
+    <div v-if="mode === 'execute'" class="space-y-2">
+      <BaseSelect
+        :id="`${data.id}-server-exec`"
+        label="Server"
+        v-model="selectedServer"
+        :options="servers.map(s => ({label: s, value: s}))"
+        :disabled="isLoadingServers"
+        placeholder="Select a server"
+      />
+      <div v-if="isLoadingServers" class="text-xs text-zinc-400">Loading servers...</div>
+      <BaseSelect
+        :id="`${data.id}-tool`"
+        label="Tool"
+        v-model="selectedTool"
+        :options="toolsForServer.map(t => ({label: t.name, value: t.name}))"
+        :disabled="isLoadingTools || !selectedServer"
+        placeholder="Select a tool"
+      />
+      <div v-if="isLoadingTools" class="text-xs text-zinc-400">Loading tools...</div>
+      <div v-if="selectedTool">
+        <button @click="toggleToolSchema" class="w-full px-2 py-1 bg-slate-700 text-white rounded text-xs font-semibold mb-1 hover:bg-blue-700 transition">
           {{ showToolSchema ? 'Hide Schema' : 'Show Schema' }}
         </button>
-        
-        <div v-if="showToolSchema" class="schema-container">
-          <h4 class="schema-title">{{ currentToolSchema.name }} Schema</h4>
-          <div v-if="currentToolSchema.description" class="schema-description">
-            {{ currentToolSchema.description }}
-          </div>
-          <pre class="schema-content">{{ formattedToolSchema }}</pre>
+        <div v-if="showToolSchema" class="bg-zinc-800 border border-zinc-600 rounded p-2 max-h-40 overflow-y-auto mt-1">
+          <div class="font-bold text-green-400 text-xs mb-1">{{ currentToolSchema.name }} Schema</div>
+          <div v-if="currentToolSchema.description" class="text-xs text-zinc-300 mb-1">{{ currentToolSchema.description }}</div>
+          <pre class="text-xs text-zinc-200 whitespace-pre-wrap">{{ formattedToolSchema }}</pre>
         </div>
       </div>
-      
-      <!-- Arguments JSON Input -->
-      <div class="input-field">
-        <label :for="`${data.id}-args`" class="input-label">Arguments (JSON):</label>
-        <textarea
-          :id="`${data.id}-args`"
-          v-model="argsInput"
-          class="input-text-area"
-          rows="5"
-          placeholder="Enter JSON arguments for the selected tool"
-        ></textarea>
-      </div>
-      
-      <!-- Execute Mode Info -->
-      <div class="info-message">
-        <small>
-          Connect an LLM node that outputs JSON with server, tool, and args properties to execute tools.
-        </small>
+      <BaseTextarea
+        :id="`${data.id}-args`"
+        label="Arguments (JSON)"
+        v-model="argsInput"
+        rows="5"
+        placeholder="Enter JSON arguments for the selected tool"
+      />
+      <div class="text-xs text-blue-300 text-center mt-2">
+        Connect an LLM node that outputs JSON with server, tool, and args properties to execute tools.
       </div>
     </div>
-    
-    <!-- Error Message Display -->
-    <div v-if="errorMessage" class="error-message">
+
+    <div v-if="errorMessage" class="text-xs text-red-400 bg-red-900/30 border-l-2 border-red-500 px-2 py-1 my-2">
       {{ errorMessage }}
     </div>
-    
-    <!-- Input and Output Handles -->
-    <Handle 
-      style="width:12px; height:12px" 
-      v-if="data.hasInputs" 
-      type="target" 
-      position="left" 
-      id="input" 
-    />
-    <Handle 
-      style="width:12px; height:12px" 
-      v-if="data.hasOutputs" 
-      type="source" 
-      position="right" 
-      id="output" 
-    />
-  </div>
+
+    <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />
+    <Handle v-if="data.hasOutputs" type="source" position="right" style="width:12px;height:12px" />
+  </BaseNode>
 </template>
 
 <script setup>
-import { Handle, useVueFlow } from '@vue-flow/core'
-import { defineProps, defineEmits } from 'vue'
-import { useMCPClient } from '../../composables/useMCPClient'
+import { Handle } from '@vue-flow/core'
+import BaseInput from '@/components/base/BaseInput.vue'
+import BaseSelect from '@/components/base/BaseSelect.vue'
+import BaseTextarea from '@/components/base/BaseTextarea.vue'
+import BaseNode from '@/components/base/BaseNode.vue'
+import { useMCPClient } from '@/composables/useMCPClient'
 
 const props = defineProps({
-  id: {
-    type: String,
-    default: 'MCP_Client_0'
-  },
+  id: { type: String, default: 'MCP_Client_0' },
   data: {
     type: Object,
     default: () => ({
@@ -173,11 +123,9 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:data'])
-const vueFlow = useVueFlow()
+const emit = defineEmits(['update:data','resize','disable-zoom','enable-zoom'])
 
-// Import the enhanced composable with all new functionality
-const { 
+const {
   mode,
   command,
   servers,
@@ -192,155 +140,11 @@ const {
   showToolSchema,
   currentToolSchema,
   formattedToolSchema,
-  run,
+  customStyle,
+  resizeHandleStyle,
+  onResize,
   toggleToolSchema
-} = useMCPClient(props, emit, vueFlow)
+} = useMCPClient(props, emit)
 </script>
 
-<style scoped>
-.tool-node {
-  --node-border-color: #777 !important;
-  --node-bg-color: #1e1e1e !important;
-  --node-text-color: #eee;
-  min-width: 280px;
-}
-
-.node-label {
-  color: var(--node-text-color);
-  font-size: 16px;
-  text-align: center;
-  margin-bottom: 10px;
-  font-weight: bold;
-}
-
-.mode-selector {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  margin-bottom: 12px;
-  padding: 4px 0;
-  border-bottom: 1px solid #555;
-}
-
-.radio-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--node-text-color);
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.radio-label input[type="radio"] {
-  cursor: pointer;
-}
-
-.mode-container {
-  margin-top: 5px;
-}
-
-.input-field {
-  margin-bottom: 8px;
-}
-
-.input-label {
-  display: block;
-  color: var(--node-text-color);
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-
-.input-text-area, .select-input {
-  background-color: #333;
-  border: 1px solid #666;
-  color: #eee;
-  padding: 4px;
-  font-size: 12px;
-  width: calc(100% - 8px);
-  height: auto;
-  box-sizing: border-box;
-}
-
-.input-text-area {
-  resize: vertical;
-}
-
-.select-input {
-  height: 24px;
-}
-
-.error-message {
-  color: #ff6b6b;
-  font-size: 12px;
-  margin: 8px 0;
-  padding: 4px;
-  background-color: rgba(255, 107, 107, 0.1);
-  border-left: 2px solid #ff6b6b;
-}
-
-.info-message {
-  color: #77bbff;
-  font-size: 10px;
-  margin: 8px 0;
-  text-align: center;
-}
-
-.loading-indicator {
-  font-size: 10px;
-  color: #aaa;
-  margin-top: 2px;
-}
-
-.schema-button {
-  width: 100%;
-  padding: 6px;
-  color: white;
-  background-color: #607d8b;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.schema-button:disabled {
-  background-color: #777;
-  cursor: not-allowed;
-}
-
-.schema-container {
-  background-color: #2a2a2a;
-  border: 1px solid #666;
-  padding: 8px;
-  margin-top: 4px;
-  border-radius: 4px;
-  max-height: 150px;
-  overflow-y: auto;
-}
-
-.schema-title {
-  margin: 0 0 4px 0;
-  font-size: 14px;
-  color: #4caf50;
-}
-
-.schema-description {
-  font-size: 12px;
-  color: #bbb;
-  margin-bottom: 6px;
-}
-
-.schema-content {
-  font-size: 11px;
-  color: #ddd;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-}
-
-code {
-  background-color: #333;
-  padding: 2px 4px;
-  border-radius: 3px;
-  font-family: monospace;
-}
-</style>
+<!-- No scoped CSS: all styling is via Tailwind -->

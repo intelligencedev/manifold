@@ -1,109 +1,77 @@
 <template>
-    <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-        class="node-container response-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
-        <div :style="data.labelStyle" class="node-label">{{ modelTypeLabel }}</div>
+  <div
+    :style="computedContainerStyle"
+    class="node-container response-node tool-node flex flex-col w-full h-full p-3 rounded-xl border border-purple-400 bg-zinc-900 text-gray-100 shadow"
+    @mouseenter="isHovered = true"
+    @mouseleave="isHovered = false"
+  >
+    <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">{{ modelTypeLabel }}</div>
 
-        <div class="header">
-            <div class="controls">
-                <!-- Model Type Selector -->
-                <div class="select-container">
-                    <label for="model-type">Model:</label>
-                    <select id="model-type" v-model="selectedModelType">
-                        <option value="openai">OpenAI</option>
-                        <option value="claude">Claude</option>
-                        <option value="gemini">Gemini</option>
-                    </select>
-                </div>
-
-                <div class="select-container">
-                    <label for="render-mode">Render Mode:</label>
-                    <select id="render-mode" v-model="selectedRenderMode">
-                        <option value="markdown">Markdown</option>
-                        <option value="raw">Raw Text</option>
-                        <option value="html">HTML</option>
-                    </select>
-                </div>
-
-                <!-- Theme Selector -->
-                <div class="select-container" v-if="selectedRenderMode === 'markdown'">
-                    <label for="code-theme">Theme:</label>
-                    <select id="code-theme" v-model="selectedTheme">
-                        <option value="atom-one-dark">Dark</option>
-                        <option value="atom-one-light">Light</option>
-                        <option value="github">GitHub</option>
-                        <option value="monokai">Monokai</option>
-                        <option value="vs">VS</option>
-                    </select>
-                </div>
-
-                <!-- Font Size Controls -->
-                <div class="font-size-controls">
-                    <button @click.prevent="decreaseFontSize">-</button>
-                    <button @click.prevent="increaseFontSize">+</button>
-                </div>
-
-                <!-- Copy Button -->
-                <button class="copy-button" @click="copyToClipboard" :disabled="isCopying">
-                    Copy
-                </button>
-            </div>
-
-            <!-- Optional: Feedback Message -->
-            <div v-if="copyStatus" class="copy-feedback">
-                {{ copyStatus }}
-            </div>
+    <div class="header flex flex-col gap-2 mb-2">
+      <div class="controls flex flex-wrap gap-2 items-center">
+        <div class="select-container flex flex-col">
+          <label for="model-type" class="text-xs mb-1">Model:</label>
+          <select id="model-type" v-model="selectedModelType" class="bg-zinc-800 border border-gray-600 rounded px-2 py-1 text-sm">
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+            <option value="gemini">Gemini</option>
+          </select>
         </div>
-
-        <div
-            class="text-container"
-            ref="textContainer"
-            @scroll="handleScroll"
-            @mouseenter="$emit('disable-zoom')"
-            @mouseleave="$emit('enable-zoom')"
-            @wheel.stop
-            :style="{ fontSize: `${currentFontSize}px` }"
-        >
-            <!-- thinking blocks ---------------------------------------------------- -->
-            <template v-for="(t, idx) in thinkingBlocks" :key="idx">
-                <div
-                    class="think-wrapper"
-                    :data-collapsed="t.collapsed"
-                    @click.stop="toggleThink(idx)"
-                >
-                    <div class="think-header">
-                        <span class="think-icon">💭</span>
-                        <span class="think-title">Agent Thinking</span>
-                    </div>
-
-                    <!-- collapsed preview -->
-                    <pre v-if="t.collapsed" class="think-preview">{{ t.preview }}</pre>
-
-                    <!-- full text -->
-                    <pre v-else class="think-content">{{ t.content }}</pre>
-
-                    <div v-if="t.hasMore" class="think-toggle">
-                        <span v-if="t.collapsed" class="chevron-down">▼</span>
-                        <span v-else class="chevron-up">▲</span>
-                    </div>
-                </div>
-            </template>
-
-            <!-- everything **outside** any <think> tag -------------------------- -->
-            <div
-                v-if="selectedRenderMode === 'markdown'"
-                class="markdown-text"
-                v-html="markdownOutsideThinking"
-            />
-            <pre v-else-if="selectedRenderMode === 'raw'" class="raw-text">{{ outsideThinkingRaw }}</pre>
-            <div v-else-if="selectedRenderMode === 'html'" class="html-content" v-html="htmlOutsideThinking" />
+        <div class="select-container flex flex-col">
+          <label for="render-mode" class="text-xs mb-1">Render Mode:</label>
+          <select id="render-mode" v-model="selectedRenderMode" class="bg-zinc-800 border border-gray-600 rounded px-2 py-1 text-sm">
+            <option value="markdown">Markdown</option>
+            <option value="raw">Raw Text</option>
+            <option value="html">HTML</option>
+          </select>
         </div>
-
-        <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
-        <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
-
-        <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle"
-            :line-style="resizeHandleStyle" :min-width="624" :min-height="256" :node-id="props.id" @resize="onResize" />
+        <div class="select-container flex flex-col" v-if="selectedRenderMode === 'markdown'">
+          <label for="code-theme" class="text-xs mb-1">Theme:</label>
+          <select id="code-theme" v-model="selectedTheme" class="bg-zinc-800 border border-gray-600 rounded px-2 py-1 text-sm">
+            <option value="atom-one-dark">Dark</option>
+            <option value="atom-one-light">Light</option>
+            <option value="github">GitHub</option>
+            <option value="monokai">Monokai</option>
+            <option value="vs">VS</option>
+          </select>
+        </div>
+        <div class="font-size-controls flex gap-1 items-center">
+          <button @click.prevent="decreaseFontSize" class="px-2 py-1 rounded bg-purple-700 hover:bg-purple-800 text-xs">-</button>
+          <button @click.prevent="increaseFontSize" class="px-2 py-1 rounded bg-purple-700 hover:bg-purple-800 text-xs">+</button>
+        </div>
+        <button class="copy-button px-3 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs" @click="copyToClipboard" :disabled="isCopying">
+          Copy
+        </button>
+      </div>
+      <div v-if="copyStatus" class="copy-feedback text-xs text-green-400">{{ copyStatus }}</div>
     </div>
+
+    <div
+      class="flex-1 text-container overflow-auto rounded bg-zinc-800 p-2 mb-2"
+      ref="textContainer"
+      @scroll="handleScroll"
+      @mouseenter="$emit('disable-zoom')"
+      @mouseleave="$emit('enable-zoom')"
+      :style="{ fontSize: `${currentFontSize}px` }"
+    >
+      <!-- Rendered content (markdown, raw, html, etc.) -->
+      <slot />
+    </div>
+
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
+    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
+
+    <NodeResizer
+      :is-resizable="true"
+      :color="'#a78bfa'"
+      :handle-style="resizeHandleStyle"
+      :line-style="resizeHandleStyle"
+      :min-width="320"
+      :min-height="180"
+      :node-id="id"
+      @resize="onResize"
+    />
+  </div>
 </template>
 
 <script setup>
@@ -113,7 +81,6 @@ import { marked } from "marked";
 import { NodeResizer } from "@vue-flow/node-resizer";
 import hljs from 'highlight.js';
 import DOMPurify from 'dompurify';
-
 
 const { getEdges, findNode, updateNodeData } = useVueFlow()
 
@@ -593,263 +560,5 @@ watch(response, () => {
 </script>
 
 <style scoped>
-.response-node {
-    background-color: #333;
-    border: 1px solid #666;
-    border-radius: 4px;
-    color: #eee;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-.header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px;
-    position: relative;
-}
-
-h3 {
-    font-size: 14px;
-    margin: 0;
-}
-
-.controls {
-    display: flex;
-    align-items: center;
-}
-
-.select-container {
-    display: flex;
-    align-items: center;
-    margin-right: 10px;
-}
-
-label {
-    font-size: 12px;
-    margin-right: 5px;
-}
-
-select {
-    background-color: #222;
-    border: 1px solid #666;
-    color: #eee;
-    font-size: 12px;
-    padding: 2px 5px;
-}
-
-/* Font Size Controls */
-.font-size-controls {
-    display: flex;
-    gap: 5px;
-    margin-right: 10px;
-}
-
-.font-size-controls button {
-    background-color: #444;
-    border: 1px solid #666;
-    color: #eee;
-    font-size: 12px;
-    padding: 5px 8px;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-}
-
-.font-size-controls button:hover {
-    background-color: #555;
-}
-
-/* Styling for the Copy Button */
-.copy-button {
-    background-color: #444;
-    border: 1px solid #666;
-    color: #eee;
-    font-size: 12px;
-    padding: 5px 10px;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-}
-
-.copy-button:hover {
-    background-color: #555;
-}
-
-.copy-button:disabled {
-    background-color: #555;
-    cursor: not-allowed;
-}
-
-/* Styling for the Copy Feedback Message */
-.copy-feedback {
-    position: absolute;
-    top: 40px;
-    right: 10px;
-    background-color: #555;
-    color: #fff;
-    padding: 3px 8px;
-    border-radius: 3px;
-    font-size: 10px;
-    opacity: 0.9;
-}
-
-.node-container {
-    display: flex;
-    flex-direction: column;
-    box-sizing: border-box;
-}
-
-.text-container {
-    flex-grow: 1;
-    overflow-y: auto;
-    padding: 10px;
-    margin-top: 0;
-    margin-bottom: 0;
-    width: auto;
-    height: auto;
-    min-height: 0;
-    max-height: none;
-    white-space: normal;
-    text-align: left;
-    /* Font size will be applied via inline style */
-}
-
-.raw-text,
-.markdown-text {
-    line-height: 1.5;
-    /* Font size is inherited from the parent .text-container */
-}
-
-/* Ensure code blocks are properly styled */
-:deep(.hljs) {
-    padding: 12px;
-    border-radius: 5px;
-    overflow-x: auto;
-}
-
-:deep(pre) {
-    margin: 10px 0;
-    border-radius: 5px;
-    overflow-x: auto;
-}
-
-:deep(code) {
-    font-family: monospace;
-}
-
-/* Optional: Add styles to ensure markdown renders correctly */
-:deep(.markdown-text img) {
-    max-width: 100%;
-    height: auto;
-}
-
-:deep(.markdown-text a) {
-    color: #1e90ff;
-    text-decoration: underline;
-}
-
-:deep(.markdown-text h1),
-:deep(.markdown-text h2),
-:deep(.markdown-text h3),
-:deep(.markdown-text h4),
-:deep(.markdown-text h5),
-:deep(.markdown-text h6) {
-    color: #fff;
-}
-
-:deep(.markdown-text ul),
-:deep(.markdown-text ol) {
-    padding-left: 20px;
-}
-
-:deep(.markdown-text blockquote) {
-    border-left: 4px solid #555;
-    padding-left: 10px;
-    color: #ccc;
-}
-
-/* Additional styles for model type selector */
-.select-container:first-child {
-    margin-right: 15px;
-}
-
-.select-container select {
-    min-width: 100px;
-}
-
-.html-content {
-    line-height: 1.5;
-    /* Ensure proper spacing for HTML elements */
-    & :first-child {
-        margin-top: 0;
-    }
-    & :last-child {
-        margin-bottom: 0;
-    }
-    /* Basic table styles */
-    & table {
-        border-collapse: collapse;
-        width: 100%;
-        margin: 1em 0;
-    }
-    & th, & td {
-        border: 1px solid #666;
-        padding: 8px;
-        text-align: left;
-    }
-    & th {
-        background-color: #444;
-    }
-}
-
-/* -------- thinking block -------- */
-.think-wrapper {
-  font-style: italic;
-  color: #d8d0e8;
-  background: rgba(73,49,99,.25);
-  border-left: 3px solid #8a70b5;
-  margin: 12px 0;
-  border-radius: 8px;
-  overflow: hidden;
-  position: relative;
-  cursor: pointer; /* Add cursor pointer to indicate clickable */
-}
-.think-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-bottom: 1px solid rgba(138,112,181,.3);
-}
-.think-title { font-weight: 600; color:#b899e0; }
-.think-preview, .think-content {
-  white-space: pre-wrap;
-  padding: 10px;
-  background: rgba(40,30,55,.2);
-  margin: 0;
-}
-.think-content { background: rgba(45,35,65,.3); }
-.think-toggle {
-  text-align: center;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 3px 0 5px;
-  background: rgba(73,49,99,.3);
-  user-select: none;
-}
-.think-wrapper[data-collapsed="false"] .think-preview { display:none; }
-.think-wrapper[data-collapsed="true"]  .think-content { display:none; }
-
-/* -------- thinking block preview line clamping -------- */
-.think-preview {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  max-height: calc(1.2em * 2); /* ensures exactly 2 lines based on line-height */
-}
+/* Remove legacy styles in favor of Tailwind */
 </style>

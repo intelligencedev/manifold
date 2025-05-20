@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,14 +12,35 @@ import (
 	"syscall"
 	"time"
 
-	mcp "github.com/metoro-io/mcp-golang"
-	"github.com/metoro-io/mcp-golang/transport/stdio"
+	mcp "github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/transport/stdio"
 )
 
 // RunMCPServer is the main entry point for running the MCP server with all registered tools.
 func main() {
 	log.Println("Starting Manifold MCP Server...")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle termination signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigChan
+		log.Printf("Received signal %v, initiating shutdown...", sig)
+		cancel()
+	}()
+
+	if err := run(ctx); err != nil {
+		log.Fatalf("Fatal error: %v", err)
+	}
+
+	log.Println("MCP server stopped gracefully")
+}
+
+// run starts the MCP server and blocks until the context is canceled or an error occurs.
+func run(ctx context.Context) error {
 	// Create a transport for the server
 	serverTransport := stdio.NewStdioServerTransport()
 
@@ -27,10 +49,6 @@ func main() {
 
 	// Register all MCP tools
 	registerAllTools(server)
-
-	// Set up signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start the server in a goroutine
 	errChan := make(chan error, 1)
@@ -43,12 +61,10 @@ func main() {
 	// Wait for termination signal or error
 	select {
 	case err := <-errChan:
-		log.Fatalf("Server error: %v", err)
-	case sig := <-sigChan:
-		log.Printf("Received signal %v, shutting down...", sig)
+		return err
+	case <-ctx.Done():
+		return nil
 	}
-
-	log.Println("MCP server stopped")
 }
 
 // registerAllTools registers all the tools that our MCP server will provide.

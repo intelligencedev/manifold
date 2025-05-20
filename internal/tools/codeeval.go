@@ -38,12 +38,12 @@ func runInContainer(codeFile, code string, install []string, runCmd string, deps
 	tempDir := cfg.DataPath + "/tmp"
 
 	// Clean up the directory before writing new files
-	if err := os.RemoveAll(tempDir); err != nil {
-		return nil, fmt.Errorf("failed to clean temp directory: %w", err)
-	}
-	if err := os.MkdirAll(tempDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create temp directory: %w", err)
-	}
+	// if err := os.RemoveAll(tempDir); err != nil {
+	// 	return nil, fmt.Errorf("failed to clean temp directory: %w", err)
+	// }
+	// if err := os.MkdirAll(tempDir, 0755); err != nil {
+	// 	return nil, fmt.Errorf("failed to create temp directory: %w", err)
+	// }
 	// Write the code to a file
 
 	if err := os.WriteFile(filepath.Join(tempDir, codeFile), []byte(code), 0644); err != nil {
@@ -67,6 +67,7 @@ func runInContainer(codeFile, code string, install []string, runCmd string, deps
 	dockerArgs := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:/app/projects", tempDir),
+		"-w", "/app/projects",
 		"code-sandbox",
 		"/bin/sh", "-c", cmdStr,
 	}

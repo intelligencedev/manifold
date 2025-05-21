@@ -1,19 +1,20 @@
 <template>
-  <!-- HEADER ---------------------------------------------------------------->
-  <div
-    class="bg-zinc-900 text-white flex-none h-16 flex items-center px-5 relative select-none"
-  >
-    <!-- Invisible spacer – keeps logo centred regardless of right-section width -->
+  <!-- HEADER --------------------------------------------------------------->
+  <div class="bg-zinc-900 text-white flex-none h-16 flex items-center px-5 relative select-none">
+    <!-- invisible spacer keeps centre alignment -->
     <div class="flex-1"></div>
 
-    <!-- centered logo ---------------------------------------------------------->
+    <!-- centred logo -------------------------------------------------------->
     <div
-      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center"
+      class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center space-x-2 pointer-events-none"
     >
-      <span class="text-xl font-bold">Manifold</span>
+      <!-- logo mark -->
+      <ManifoldLogo class="h-6 w-auto" />
+      <!-- word-mark -->
+      <span class="text-xl font-bold tracking-wide">Manifold</span>
     </div>
 
-    <!-- DESKTOP actions ------------------------------------------------------->  
+    <!-- DESKTOP actions ----------------------------------------------------->
     <div class="flex items-center space-x-2 flex-1 justify-end lg:flex">
       <!-- FILE INPUT (hidden) -->
       <input
@@ -87,7 +88,7 @@
       </div>
     </div>
 
-    <!-- MOBILE hamburger ----------------------------------------------------->
+    <!-- MOBILE hamburger ---------------------------------------------------->
     <div class="flex-1 flex justify-end lg:hidden">
       <div class="relative">
         <button
@@ -97,7 +98,7 @@
           <i class="fa fa-bars text-xl"></i>
         </button>
 
-        <!-- mobile dropdown (same actions as desktop) -->
+        <!-- mobile dropdown -->
         <div
           v-if="mobileMenuOpen"
           class="absolute right-0 mt-2 w-52 bg-gray-800 dark:bg-neutral-900 rounded shadow-lg flex flex-col divide-y divide-gray-700 overflow-hidden z-20"
@@ -123,6 +124,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import UserSettings from '@/components/UserSettings.vue';
+import ManifoldLogo from '@/components/icons/ManifoldLogo.vue';
 
 /* ───────────────────────── refs/state ───────────────────────── */
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -230,8 +232,7 @@ watch(
 </script>
 
 <style scoped>
-/* extra touch target for hamburger on mobile */
 .fa-bars {
-  min-width: 1.25rem;
+  min-width: 1.25rem; /* extra touch target for hamburger */
 }
 </style>

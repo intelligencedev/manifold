@@ -22,12 +22,12 @@
       <div v-if="copyStatus" class="copy-feedback text-xs text-green-400 mb-2">{{ copyStatus }}</div>
 
       <div
-        class="flex-1 w-full text-container overflow-auto rounded bg-zinc-800 p-2"
+        class="flex-1 h-full w-full text-left overflow-auto rounded bg-zinc-800 p-2"
         ref="textContainer"
         @scroll="handleScroll"
         @mouseenter="$emit('disable-zoom')"
         @mouseleave="$emit('enable-zoom')"
-        :style="{ fontSize: `${currentFontSize}px`, textAlign: 'left' }"
+        :style="{ fontSize: `${currentFontSize}px` }"
       >
         <template v-for="(t, idx) in thinkingBlocks" :key="idx">
           <div class="think-wrapper" :data-collapsed="t.collapsed" @click.stop="toggleThink(idx)">
@@ -72,14 +72,6 @@ const props = defineProps({
       hasOutputs: true,
       inputs: { response: '' },
       outputs: {},
-      style: {
-        border: '1px solid #666',
-        borderRadius: '12px',
-        backgroundColor: '#333',
-        color: '#eee',
-        width: '624px',
-        height: '400px'
-      }
     })
   }
 })
@@ -174,7 +166,6 @@ const {
 .think-preview {
   display: -webkit-box;
   -webkit-line-clamp: 2;
-  line-clamp: 2; /* Added standard property */
   -webkit-box-orient: vertical;
   overflow: hidden;
   max-height: calc(1.2em * 2);

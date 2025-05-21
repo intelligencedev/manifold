@@ -90,8 +90,8 @@ export function useResponseNode(props, emit) {
 
   // Font size control
   const currentFontSize = ref(12)
-  const minFontSize = 10
-  const maxFontSize = 24
+  const minFontSize = 16
+  const maxFontSize = 34
   const fontSizeStep = 2
 
   const increaseFontSize = () => {

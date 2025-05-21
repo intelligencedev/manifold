@@ -4,7 +4,7 @@
     <div class="relative flex flex-1 min-h-0">
       <textarea 
         :id="id" 
-        class="w-full px-2 py-1.5 text-md border border-slate-600 rounded-md bg-zinc-700 text-gray-200 resize-none overflow-y-auto flex-1 h-full min-h-0" 
+        class="w-full px-2 py-1.5 text-md border border-slate-700 rounded-md bg-zinc-700 text-gray-200 resize-none overflow-y-auto flex-1 h-full min-h-0" 
         v-model="internalValue" 
         @input="handleInput"
       ></textarea>

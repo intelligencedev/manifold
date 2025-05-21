@@ -8,16 +8,15 @@
 
     <div class="flex flex-col h-full w-full">
       <div class="controls flex flex-wrap gap-2 items-center mb-2">
-        <BaseSelect :id="`${data.id}-model-type`" label="Model" v-model="selectedModelType" :options="modelOptions" />
-        <BaseSelect :id="`${data.id}-render-mode`" label="Render Mode" v-model="selectedRenderMode" :options="renderModeOptions" />
-        <BaseSelect v-if="selectedRenderMode === 'markdown'" :id="`${data.id}-theme`" label="Theme" v-model="selectedTheme" :options="themeOptions" />
-        <div class="font-size-controls flex gap-1 items-center">
-          <button @click.prevent="decreaseFontSize" class="px-2 py-1 rounded bg-purple-700 hover:bg-purple-800 text-xs">-</button>
-          <button @click.prevent="increaseFontSize" class="px-2 py-1 rounded bg-purple-700 hover:bg-purple-800 text-xs">+</button>
+        <BaseDropdown :id="`${data.id}-model-type`" label="Model" v-model="selectedModelType" :options="modelOptions" />
+        <BaseDropdown :id="`${data.id}-render-mode`" label="Render Mode" v-model="selectedRenderMode" :options="renderModeOptions" />
+        <BaseDropdown v-if="selectedRenderMode === 'markdown'" :id="`${data.id}-theme`" label="Theme" v-model="selectedTheme" :options="themeOptions" />
+        <div class="flex-1"></div>
+        <div class="font-size-controls flex gap-2 items-center">
+          <BaseButton @click.prevent="decreaseFontSize" class="bg-slate-600 hover:bg-slate-800 text-xs">-</BaseButton>
+          <BaseButton @click.prevent="increaseFontSize" class="bg-slate-600 hover:bg-slate-800 text-xs">+</BaseButton>
         </div>
-        <button class="copy-button px-3 py-1 rounded bg-purple-600 hover:bg-purple-700 text-white text-xs" @click="copyToClipboard" :disabled="isCopying">
-          Copy
-        </button>
+        <BaseButton @click="copyToClipboard" :disabled="isCopying" class="bg-slate-600 hover:bg-slate-800 text-white text-lg">Copy</BaseButton>
       </div>
       <div v-if="copyStatus" class="copy-feedback text-xs text-green-400 mb-2">{{ copyStatus }}</div>
 
@@ -58,7 +57,8 @@
 <script setup>
 import { Handle } from '@vue-flow/core'
 import BaseNode from '@/components/base/BaseNode.vue'
-import BaseSelect from '@/components/base/BaseSelect.vue'
+import BaseDropdown from '@/components/base/BaseDropdown.vue'
+import BaseButton from '@/components/base/BaseButton.vue'
 import { useResponseNode } from '@/composables/useResponseNode'
 
 const props = defineProps({
@@ -150,6 +150,14 @@ const {
   background: rgba(40,30,55,.2);
   margin: 0;
 }
+.think-preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  max-height: calc(1.2em * 2);
+}
 .think-content { background: rgba(45,35,65,.3); }
 .think-toggle {
   text-align: center;
@@ -166,6 +174,7 @@ const {
 .think-preview {
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   max-height: calc(1.2em * 2);

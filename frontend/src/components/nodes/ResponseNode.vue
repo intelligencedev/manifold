@@ -27,7 +27,7 @@
         @scroll="handleScroll"
         @mouseenter="$emit('disable-zoom')"
         @mouseleave="$emit('enable-zoom')"
-        :style="{ fontSize: `${currentFontSize}px` }"
+        :style="{ fontSize: `${currentFontSize}px`, textAlign: 'left' }"
       >
         <template v-for="(t, idx) in thinkingBlocks" :key="idx">
           <div class="think-wrapper" :data-collapsed="t.collapsed" @click.stop="toggleThink(idx)">
@@ -174,6 +174,7 @@ const {
 .think-preview {
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2; /* Added standard property */
   -webkit-box-orient: vertical;
   overflow: hidden;
   max-height: calc(1.2em * 2);

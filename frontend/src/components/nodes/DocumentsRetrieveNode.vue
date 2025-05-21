@@ -1,123 +1,73 @@
 <template>
-  <div
-    :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-    class="node-container documents-retrieve-node tool-node"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="200"
+    @resize="onResize"
   >
-    <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
-
-    <div class="input-field">
-      <label class="input-label">Retrieve Endpoint:</label>
-      <input type="text" class="input-text" v-model="retrieve_endpoint" />
-    </div>
-
-    <div class="input-field">
-      <input 
-        type="checkbox" 
-        :id="`${props.id}-update-from-source`" 
-        v-model="updateFromSource"
-      />
-      <label :for="`${props.id}-update-from-source`" class="input-label">
-        Update Input from Source
-      </label>
-    </div>
-
-    <div class="input-field">
-      <label class="input-label">Prompt Text:</label>
-      <textarea class="input-text" v-model="prompt" rows="3"></textarea>
-    </div>
-
-    <div class="input-field">
-      <label class="input-label">Limit:</label>
-      <input type="number" class="input-text" v-model.number="limit" />
-    </div>
-
-    <div class="input-field">
-      <label class="input-label">Merge Mode:</label>
-      <select class="input-text" v-model="merge_mode">
-        <option value="union">Union</option>
-        <option value="intersect">Intersect</option>
-        <option value="weighted">Weighted</option>
-      </select>
-    </div>
-
-    <template v-if="merge_mode === 'weighted'">
-      <div class="input-field">
-        <label class="input-label">Vector Weight (Alpha):</label>
-        <input 
-          type="number" 
-          step="0.1" 
-          min="0" 
-          max="1" 
-          class="input-text" 
-          v-model.number="alpha" 
-        />
-      </div>
-      <div class="input-field">
-        <label class="input-label">Keyword Weight (Beta):</label>
-        <input 
-          type="number" 
-          step="0.1" 
-          min="0" 
-          max="1" 
-          class="input-text" 
-          v-model.number="beta" 
-        />
-      </div>
+    <template #header>
+      <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
     </template>
 
-    <div class="input-field">
-      <input 
-        type="checkbox" 
-        :id="`${props.id}-return-full-docs`" 
-        v-model="return_full_docs" 
-      />
-      <label :for="`${props.id}-return-full-docs`" class="input-label">
-        Return Full Docs
-      </label>
-    </div>
+    <BaseInput label="Retrieve Endpoint" v-model="retrieve_endpoint" />
 
-    <Handle 
-      v-if="data.hasInputs" 
-      style="width:12px; height:12px" 
-      type="target" 
-      position="left" 
+    <BaseCheckbox
+      :id="`${data.id}-update-from-source`"
+      label="Update Input from Source"
+      v-model="updateFromSource"
     />
-    <Handle 
-      v-if="data.hasOutputs" 
-      style="width:12px; height:12px" 
-      type="source" 
-      position="right" 
+
+    <BaseTextarea label="Prompt Text" v-model="prompt" rows="3" />
+
+    <BaseInput label="Limit" type="number" v-model.number="limit" />
+
+    <BaseSelect
+      label="Merge Mode"
+      v-model="merge_mode"
+      :options="['union', 'intersect', 'weighted']"
     />
-    <NodeResizer 
-      :is-resizable="true" 
-      :color="'#666'" 
-      :handle-style="resizeHandleStyle" 
-      :line-style="resizeHandleStyle"
-      :min-width="200" 
-      :min-height="120" 
-      :node-id="props.id" 
-      @resize="onResize" 
+
+    <template v-if="merge_mode === 'weighted'">
+      <BaseInput
+        label="Vector Weight (Alpha)"
+        type="number"
+        step="0.1"
+        min="0"
+        max="1"
+        v-model.number="alpha"
+      />
+      <BaseInput
+        label="Keyword Weight (Beta)"
+        type="number"
+        step="0.1"
+        min="0"
+        max="1"
+        v-model.number="beta"
+      />
+    </template>
+
+    <BaseCheckbox
+      :id="`${data.id}-return-full-docs`"
+      label="Return Full Docs"
+      v-model="return_full_docs"
     />
-  </div>
+
+    <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />
+    <Handle v-if="data.hasOutputs" type="source" position="right" style="width:12px;height:12px" />
+  </BaseNode>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { Handle, useVueFlow } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
-import { useDocumentsRetrieve } from '../../composables/useDocumentsRetrieve'
-
-const { updateNodeData } = useVueFlow()
-const emit = defineEmits(['update:data', 'resize'])
+import { Handle } from '@vue-flow/core'
+import BaseNode from '@/components/base/BaseNode.vue'
+import BaseInput from '@/components/base/BaseInput.vue'
+import BaseSelect from '@/components/base/BaseSelect.vue'
+import BaseTextarea from '@/components/base/BaseTextarea.vue'
+import BaseCheckbox from '@/components/base/BaseCheckbox.vue'
+import { useDocumentsRetrieveNode } from '@/composables/useDocumentsRetrieveNode'
 
 const props = defineProps({
-  id: {
-    type: String,
-    required: true,
-    default: 'DocumentsRetrieve_0',
-  },
+  id: { type: String, required: true, default: 'DocumentsRetrieve_0' },
   data: {
     type: Object,
     required: false,
@@ -132,9 +82,11 @@ const props = defineProps({
         limit: 1,
         merge_mode: 'intersect',
         return_full_docs: true,
+        alpha: 0.7,
+        beta: 0.3
       },
       outputs: {
-        result: { output: '' },
+        result: { output: '' }
       },
       updateFromSource: true,
       style: {
@@ -143,11 +95,13 @@ const props = defineProps({
         backgroundColor: '#333',
         color: '#eee',
         width: '200px',
-        height: '150px',
-      },
-    }),
-  },
+        height: '150px'
+      }
+    })
+  }
 })
+
+const emit = defineEmits(['update:data', 'resize'])
 
 const {
   retrieve_endpoint,
@@ -158,95 +112,8 @@ const {
   updateFromSource,
   alpha,
   beta,
-  retrieveDocuments,
-  formatOutput,
-  getConnectedNodesText
-} = useDocumentsRetrieve(props)
-
-const isHovered = ref(false)
-const customStyle = ref({})
-
-onMounted(() => {
-  if (!props.data.run) {
-    props.data.run = run
-  }
-})
-
-async function run() {
-  try {
-    const inputText = getConnectedNodesText()
-    const responseData = await retrieveDocuments(inputText)
-    const outputText = formatOutput(responseData)
-    
-    props.data.outputs = {
-      result: { output: outputText },
-    }
-    updateNodeData()
-    return { responseData }
-  } catch (error) {
-    console.error('Error in DocumentsRetrieveNode run:', error)
-    return { error }
-  }
-}
-
-const resizeHandleStyle = computed(() => ({
-  visibility: isHovered.value ? 'visible' : 'hidden',
-  width: '12px',
-  height: '12px',
-}))
-
-function onResize(event) {
-  customStyle.value = {
-    width: `${event.width}px`,
-    height: `${event.height}px`,
-  }
-}
+  onResize
+} = useDocumentsRetrieveNode(props, emit)
 </script>
 
-<style scoped>
-.documents-retrieve-node {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  background-color: var(--node-bg-color);
-  border: 1px solid var(--node-border-color);
-  border-radius: 4px;
-  color: var(--node-text-color);
-  padding: 8px;
-}
-
-.node-label {
-  color: var(--node-text-color);
-  font-size: 16px;
-  text-align: center;
-  margin-bottom: 10px;
-  font-weight: bold;
-}
-
-.input-field {
-  margin-bottom: 8px;
-  display: flex;
-  flex-direction: column;
-}
-
-.input-label {
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-
-.input-text {
-  background-color: #333;
-  border: 1px solid #666;
-  color: #eee;
-  padding: 4px;
-  font-size: 12px;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-textarea.input-text {
-  resize: vertical;
-}
-</style>
+<!-- Styling is handled by Tailwind and Base components -->

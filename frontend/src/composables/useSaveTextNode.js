@@ -1,5 +1,6 @@
-import { computed, watch } from 'vue'
+import { computed, watch, onMounted } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
+import { useNodeBase } from './useNodeBase'
 
 /**
  * Composable for managing SaveTextNode functionality
@@ -9,6 +10,13 @@ import { useVueFlow } from '@vue-flow/core'
  */
 export function useSaveTextNode(props, emit) {
   const { getEdges, findNode } = useVueFlow()
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    onResize: baseOnResize
+  } = useNodeBase(props, emit)
 
   // Filename computed property
   const filename = computed({
@@ -29,6 +37,13 @@ export function useSaveTextNode(props, emit) {
   watch(filename, () => {
     updateNodeData()
   })
+
+  // Handle node resizing
+  function onResize(event) {
+    customStyle.value.width = `${event.width}px`
+    customStyle.value.height = `${event.height}px`
+    baseOnResize(event)
+  }
 
   /**
    * Main run function that saves text to a file
@@ -79,8 +94,22 @@ export function useSaveTextNode(props, emit) {
     }
   }
 
+  onMounted(() => {
+    if (!props.data.run) {
+      props.data.run = run
+    }
+  })
+
   return {
+    // Base node state
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    // Node fields
     filename,
+    // Methods
+    onResize,
     updateNodeData,
     run
   }

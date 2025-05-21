@@ -19,6 +19,7 @@ import DocumentsRetrieveNode from './DocumentsRetrieveNode.vue'
 import EmbeddingsNode from './EmbeddingsNode.vue'
 import GLSLNode from './GLSLNode.vue'
 import MCPClient from './MCPClient.vue'
+import MLXNode from './MLXNode.vue'
 import MLXFlux from './MLXFlux.vue'
 import Mermaid from './Mermaid.vue'
 import NoteNode from './NoteNode.vue'
@@ -59,6 +60,12 @@ export const nodeRegistry: NodeRegistration[] = [
     component: ComfyNode,
     category: 'Image Generation',
     defaultData: () => (ComfyNode as any).props.data.default(),
+  },
+  {
+    type: 'mlxNode',
+    component: MLXNode,
+    category: 'Image Generation',
+    defaultData: () => (MLXNode as any).props.data.default(),
   },
   {
     type: 'mlxFluxNode',

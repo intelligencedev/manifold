@@ -1,17 +1,19 @@
 import { ref, computed, onMounted } from 'vue'
+import { useNodeBase } from './useNodeBase'
 
 /**
  * Composable for managing ComfyNode state and functionality
  */
 export function useComfyNode(props, emit, vueFlow) {
   const { getEdges, findNode } = vueFlow
-  
-  // State variables
-  const isHovered = ref(false)
-  const customStyle = ref({
-    width: '360px',
-    height: '660px'
-  })
+
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    onResize
+  } = useNodeBase(props, emit)
+
   const generatedImage = ref('')
   
   // Computed properties for form binding
@@ -25,12 +27,6 @@ export function useComfyNode(props, emit, vueFlow) {
     set: (value) => { props.data.inputs.prompt = value }
   })
   
-  // UI state
-  const resizeHandleStyle = computed(() => ({
-    visibility: isHovered.value ? 'visible' : 'hidden',
-    width: '12px',
-    height: '12px'
-  }))
   
   // Main run function
   async function run() {
@@ -91,14 +87,7 @@ export function useComfyNode(props, emit, vueFlow) {
     }
   }
   
-  // Event handlers
-  function onResize(event) {
-    customStyle.value.width = `${event.width}px`
-    customStyle.value.height = `${event.height}px`
-    if (emit) {
-      emit('resize', event)
-    }
-  }
+  // Event handlers are handled by useNodeBase
   
   // Lifecycle hooks
   onMounted(() => {

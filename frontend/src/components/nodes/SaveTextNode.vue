@@ -1,27 +1,40 @@
 <template>
-  <div :style="data.style" class="node-container tool-node">
-    <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
+  <BaseNode :id="id" :data="data" :min-height="80" @resize="onResize">
+    <template #header>
+      <div :style="data.labelStyle" class="node-label">
+        {{ data.type }}
+      </div>
+    </template>
 
-    <!-- Filename Input -->
-    <div class="input-field">
-      <label :for="`${data.id}-filename`" class="input-label">Filename:</label>
-      <input
-        :id="`${data.id}-filename`"
-        type="text"
-        v-model="filename"
-        @change="updateNodeData"
-        class="input-text"
-      />
-    </div>
+    <BaseInput
+      :id="`${data.id}-filename`"
+      label="Filename"
+      v-model="filename"
+      class="mb-2"
+    />
 
-    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
-  </div>
+    <Handle
+      v-if="data.hasInputs"
+      type="target"
+      position="left"
+      id="input"
+      style="width:12px;height:12px"
+    />
+    <Handle
+      v-if="data.hasOutputs"
+      type="source"
+      position="right"
+      id="output"
+      style="width:12px;height:12px"
+    />
+  </BaseNode>
 </template>
 
 <script setup>
-import { watch, onMounted } from 'vue';
-import { Handle } from '@vue-flow/core';
-import { useSaveTextNode } from '@/composables/useSaveTextNode';
+import { Handle } from '@vue-flow/core'
+import BaseNode from '@/components/base/BaseNode.vue'
+import BaseInput from '@/components/base/BaseInput.vue'
+import { useSaveTextNode } from '@/composables/useSaveTextNode'
 
 const props = defineProps({
   id: {
@@ -49,26 +62,12 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['update:data']);
+const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 
-// Use the save text node composable
-const { filename, updateNodeData, run } = useSaveTextNode(props, emit);
-
-// Watch for prop changes to update component state
-watch(
-  () => props.data,
-  (newData) => {
-    emit('update:data', { id: props.id, data: newData });
-  },
-  { deep: true }
-);
-
-// Set run function on component mount
-onMounted(() => {
-  if (!props.data.run) {
-    props.data.run = run;
-  }
-});
+const {
+  filename,
+  onResize
+} = useSaveTextNode(props, emit)
 </script>
 
 <style scoped>

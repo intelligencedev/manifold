@@ -1,6 +1,15 @@
 <template>
-    <div :style="data.style" class="node-container tool-node">
-        <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="180"
+    @resize="onResize"
+  >
+    <template #header>
+      <div :style="data.labelStyle" class="node-label">
+        {{ data.type }}
+      </div>
+    </template>
 
         <!-- Endpoint Input -->
         <div class="input-field">
@@ -15,53 +24,58 @@
             <textarea :id="`${data.id}-text`" v-model="text" @change="updateNodeData" class="input-textarea"></textarea>
         </div>
 
-        <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
-        <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
-    </div>
+    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
+    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
+  </BaseNode>
 </template>
 
 <script setup>
-import { Handle } from '@vue-flow/core';
-import { onMounted } from 'vue';
-import { useTextSplitterNode } from '../../composables/useTextSplitterNode';
+import { Handle } from '@vue-flow/core'
+import BaseNode from '@/components/base/BaseNode.vue'
+import BaseInput from '@/components/base/BaseInput.vue'
+import BaseTextarea from '@/components/base/BaseTextarea.vue'
+import { useTextSplitterNode } from '@/composables/useTextSplitterNode'
 
 const props = defineProps({
-    id: {
-        type: String,
-        required: true,
-        default: 'TextSplitter_0',
-    },
-    data: {
-        type: Object,
-        required: false,
-        default: () => ({
-            type: 'textSplitterNode',
-            labelStyle: {},
-            style: {},
-            inputs: {
-                endpoint: 'http://localhost:8080/api/split-text',
-                text: '',
-            },
-            outputs: {},
-            hasInputs: true,
-            hasOutputs: true,
-            inputHandleColor: '#777',
-            outputHandleShape: '50%',
-            handleColor: '#777',
-        }),
-    },
-});
+  id: {
+    type: String,
+    required: true,
+    default: 'TextSplitter_0',
+  },
+  data: {
+    type: Object,
+    required: false,
+    default: () => ({
+      type: 'textSplitterNode',
+      labelStyle: {},
+      style: {
+        border: '1px solid #666',
+        borderRadius: '12px',
+        backgroundColor: '#333',
+        color: '#eee',
+        width: '320px',
+        height: '180px'
+      },
+      inputs: {
+        endpoint: 'http://localhost:8080/api/split-text',
+        text: '',
+      },
+      outputs: {},
+      hasInputs: true,
+      hasOutputs: true,
+      inputHandleColor: '#777',
+      outputHandleShape: '50%',
+      handleColor: '#777',
+    }),
+  },
+})
 
-const emit = defineEmits(['update:data']);
-
-// Use the composable and destructure the returned values
-const { endpoint, text, updateNodeData, run } = useTextSplitterNode(props, emit);
-
-onMounted(() => {
-    if (!props.data.run) {
-        props.data.run = run;
-    }
-});
+const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
+const {
+  endpoint,
+  text,
+  onResize
+} = useTextSplitterNode(props, emit)
 </script>
 
 <style scoped>

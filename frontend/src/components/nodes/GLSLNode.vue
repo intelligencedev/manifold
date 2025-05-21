@@ -1,27 +1,25 @@
 <template>
-  <div 
-    :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-    class="node-container glsl-node tool-node" 
-    @mouseenter="isHovered = true" 
+  <div
+    :style="computedContainerStyle"
+    class="node-container glsl-node tool-node flex flex-col w-full h-full p-3 rounded-xl border border-gray-600 bg-zinc-900 text-gray-100 shadow"
+    @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
-    <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
-    
-    <div class="glsl-canvas-container">
-      <canvas ref="shaderCanvas" class="shader-canvas"></canvas>
+    <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">{{ data.type }}</div>
+
+    <div class="glsl-canvas-container flex-1 flex items-center justify-center mb-2">
+      <canvas ref="shaderCanvas" class="shader-canvas w-full h-48 rounded bg-black border border-gray-700"></canvas>
     </div>
-    
-    <!-- Shader Editor (Optional) -->
+
     <BaseAccordion v-if="data.showEditor" title="Shader Editor" :initiallyOpen="false">
       <BaseTextarea 
         label="Fragment Shader" 
         v-model="fragmentShader"
-        class="shader-textarea"
+        class="shader-textarea mb-2"
       />
-      <button @click="run" class="run-shader-btn">Run Shader</button>
+      <button @click="run" class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm">Run Shader</button>
     </BaseAccordion>
-    
-    <!-- Input/Output Handles -->
+
     <Handle 
       v-if="data.hasInputs"
       style="width:12px; height:12px" 
@@ -34,8 +32,7 @@
       type="source" 
       position="right" 
     />
-    
-    <!-- NodeResizer -->
+
     <NodeResizer 
       :is-resizable="true" 
       :color="'#666'" 
@@ -60,7 +57,7 @@ const props = defineProps({
   id: {
     type: String,
     required: true,
-    default: 'GLSLNode_0'
+    default: 'GLSLNode_0',
   },
   data: {
     type: Object,
@@ -69,92 +66,35 @@ const props = defineProps({
       type: 'GLSLNode',
       labelStyle: { fontWeight: 'normal' },
       hasInputs: true,
-      hasOutputs: false,
+      hasOutputs: true,
       showEditor: true,
-      inputs: {
-        fragmentShader: `
-precision mediump float;
-varying vec2 vTextureCoord;
-uniform float uTime;
-uniform vec2 uResolution;
-
-void main() {
-  vec2 uv = vTextureCoord;
-  vec3 col = 0.5 + 0.5 * cos(uTime + uv.xyx + vec3(0, 2, 4));
-  gl_FragColor = vec4(col, 1.0);
-}`
-      },
+      inputs: {},
       outputs: {},
       style: {
         border: '1px solid #666',
         borderRadius: '12px',
-        backgroundColor: '#333',
+        backgroundColor: '#222',
         color: '#eee',
-        width: '400px',
-        height: '320px'
-      }
-    })
-  }
+        width: '360px',
+        height: '320px',
+      },
+    }),
+  },
 })
 
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
-
-// Pass Vue Flow instance to the composable
 const vueFlowInstance = useVueFlow()
-
-// Use the composable to manage state and functionality
 const {
-  // State refs
   isHovered,
-  shaderCanvas,
-  fragmentShader,
   customStyle,
-  
-  // Computed properties
   resizeHandleStyle,
-  
-  // Methods
-  onResize,
-  run
+  computedContainerStyle,
+  fragmentShader,
+  run,
+  onResize
 } = useGLSLNode(props, emit, vueFlowInstance)
 </script>
 
 <style scoped>
-
-
-.glsl-canvas-container {
-  flex: 1;
-  width: 100%;
-  position: relative;
-  overflow: hidden;
-  border-radius: 4px;
-}
-
-.shader-canvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.shader-textarea {
-  height: 280px;
-  font-family: monospace;
-}
-
-.run-shader-btn {
-  background-color: #444;
-  color: #eee;
-  border: 1px solid #666;
-  border-radius: 4px;
-  padding: 6px 12px;
-  margin-top: 10px;
-  cursor: pointer;
-  font-size: 14px;
-  display: block;
-  width: 100%;
-}
-
-.run-shader-btn:hover {
-  background-color: #555;
-}
+/* Remove legacy styles in favor of Tailwind */
 </style>

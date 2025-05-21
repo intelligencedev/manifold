@@ -18,6 +18,19 @@ export function useSaveTextNode(props, emit) {
     onResize: baseOnResize
   } = useNodeBase(props, emit)
 
+  if (!props.data.style) {
+    props.data.style = {
+      border: '1px solid #666',
+      borderRadius: '12px',
+      backgroundColor: '#333',
+      color: '#eee',
+      width: '240px',
+      height: '100px',
+    }
+  }
+  customStyle.value.width = props.data.style.width || '240px'
+  customStyle.value.height = props.data.style.height || '100px'
+
   // Filename computed property
   const filename = computed({
     get: () => props.data.inputs.filename,

@@ -5,6 +5,7 @@
       'fixed top-[64px] bottom-0 right-0 w-1/2 z-[1100] flex flex-col text-white transition-transform duration-300 shadow-[-5px_0_10px_-5px_rgba(0,0,0,0.3)] dark:bg-zinc-900',
       isEditorOpen ? 'translate-x-0' : 'translate-x-full'
     ]"
+    style="text-align: left;"
   >
     <!-- Toggle handle -->
     <div

@@ -336,6 +336,7 @@ export function useResponseNode(props, emit) {
     response,
     markdownOutsideThinking,
     htmlOutsideThinking,
+    outsideThinkingRaw,
     thinkingBlocks,
     toggleThink
   }

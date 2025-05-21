@@ -1,7 +1,12 @@
 <template>
-  <BaseNode :id="id" :data="data" @resize="onResize">
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="200"
+    @resize="onResize"
+  >
     <template #header>
-      <div class="node-label">Code Runner</div>
+      <div :style="data.labelStyle">Code Runner</div>
     </template>
 
     <BaseTextarea
@@ -46,7 +51,6 @@ const props = defineProps({
     type: Object,
     required: false,
     default: () => ({
-      style: {},
       labelStyle: {},
       type: 'Code Runner',
       inputs: {

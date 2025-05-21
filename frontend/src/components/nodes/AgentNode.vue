@@ -71,10 +71,10 @@
 
     <BaseTextarea
       :id="`${data.id}-user_prompt`"
+      :style="computedContainerStyle"      
       label="User Prompt"
       v-model="user_prompt"
-      fullHeight
-      class="user-prompt-area"
+      class="user-prompt-area flex-1 w-full h-full"
       @mouseenter="handleTextareaMouseEnter"
       @mouseleave="handleTextareaMouseLeave"
     />

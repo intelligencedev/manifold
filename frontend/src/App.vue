@@ -96,9 +96,6 @@
         <template #node-comfyNode="comfyNodeProps">
           <ComfyNode v-bind="comfyNodeProps" @contextmenu.native.prevent="showContextMenu($event, comfyNodeProps.id)" />
         </template>
-        <template #node-mlxNode="mlxNodeProps">
-          <MLXNode v-bind="mlxNodeProps" @contextmenu.native.prevent="showContextMenu($event, mlxNodeProps.id)" />
-        </template>
         <template #node-mlxFluxNode="mlxFluxNodeProps">
           <MLXFlux v-bind="mlxFluxNodeProps" @contextmenu.native.prevent="showContextMenu($event, mlxFluxNodeProps.id)" />
         </template>
@@ -207,7 +204,6 @@ import TokenCounterNode from './components/nodes/TokenCounterNode.vue';
 import FlowControl from './components/FlowControl.vue';
 import RepoConcat from './components/nodes/RepoConcat.vue';
 import ComfyNode from './components/nodes/ComfyNode.vue';
-import MLXNode from './components/nodes/MLXNode.vue';
 import MLXFlux from './components/nodes/MLXFlux.vue';
 import DocumentsIngest from './components/nodes/DocumentsIngestNode.vue';
 import DocumentsRetrieve from './components/nodes/DocumentsRetrieveNode.vue';

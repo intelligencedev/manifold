@@ -103,7 +103,6 @@ const {
   computedContainerStyle,
   width,
   height,
-  noteText,
   currentFontSize,
   cycleColor,
   decreaseFontSize,

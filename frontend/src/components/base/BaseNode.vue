@@ -8,7 +8,7 @@
     <div class="node-header">
       <slot name="header"></slot>
     </div>
-    <div class="flex-1 overflow-hidden">
+    <div class="flex-1 flex flex-col min-h-0 overflow-visible">
       <slot></slot>
     </div>
     <NodeResizer
@@ -66,6 +66,7 @@ const { isHovered, resizeHandleStyle, computedContainerStyle, width, height, onR
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   padding: 15px;
   border-radius: 8px;
+  overflow: visible !important;
   color: var(--node-text-color);
   font-family: 'Roboto', sans-serif;
 }

@@ -1,7 +1,7 @@
 <template>
   <BaseNode :id="id" :data="data" :min-height="800" :min-width="704" @resize="onResize">
     <template #header>
-      <div :style="data.labelStyle" class="node-label text-base font-semibold">
+      <div :style="data.labelStyle">
         {{ modelTypeLabel }}
       </div>
     </template>

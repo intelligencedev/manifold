@@ -5,7 +5,7 @@
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
-    <div class="node-header">
+    <div class="node-header text-white text-center mb-2 text-lg">
       <slot name="header"></slot>
     </div>
     <div class="flex-1 flex flex-col min-h-0 overflow-visible">
@@ -55,10 +55,6 @@ const { isHovered, resizeHandleStyle, computedContainerStyle, width, height, onR
 </script>
 
 <style scoped>
-.node-header {
-  cursor: move;
-  user-select: none;
-}
 
 .node-container {
   background-color: oklch(21% 0.006 285.885) !important;

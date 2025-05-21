@@ -1,5 +1,10 @@
 <template>
-  <BaseNode :id="id" :data="data" @resize="onResize">
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="612"
+    @resize="onResize"
+  >
     <template #header>
       <div :style="data.labelStyle" class="node-label">
         {{ data.type }}
@@ -10,8 +15,10 @@
       <div class="flex flex-col gap-2">
         <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" />
         <BaseTextarea :id="`${data.id}-prompt`" label="Prompt" v-model="prompt" />
-        <BaseInput :id="`${data.id}-steps`" label="Steps" v-model.number="steps" type="number" min="1" />
-        <BaseInput :id="`${data.id}-seed`" label="Seed" v-model.number="seed" type="number" />
+        <div class="flex items-center gap-4">
+          <BaseInput class="flex-1" :id="`${data.id}-steps`" label="Steps" v-model.number="steps" type="number" min="1" />
+          <BaseInput class="flex-1" :id="`${data.id}-seed`" label="Seed" v-model.number="seed" type="number" />
+        </div>
         <div class="flex items-center gap-2">
           <span class="input-label text-xs">Quality:</span>
           <label class="radio-label flex items-center gap-1">
@@ -61,14 +68,6 @@ const props = defineProps({
         output: ''
       },
       outputs: {},
-      style: {
-        border: '1px solid #666',
-        borderRadius: '12px',
-        backgroundColor: '#333',
-        color: '#eee',
-        width: '320px',
-        height: '180px'
-      }
     })
   }
 })
@@ -85,6 +84,3 @@ const {
   onResize
 } = useMLXNode(props, emit)
 </script>
-
-<style scoped>
-</style>

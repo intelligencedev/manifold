@@ -2,14 +2,14 @@
   <BaseNode
     :id="id"
     :data="data"
-    :min-height="500"
+    :min-height="512"
     :style="customStyle"
     @resize="onResize"
     @mouseenter="$emit('disable-zoom')"
     @mouseleave="$emit('enable-zoom')"
   >
     <template #header>
-      <div :style="data.labelStyle" class="node-label font-semibold text-base text-white">ReAct Agent</div>
+      <div :style="data.labelStyle">ReAct Agent</div>
     </template>
 
     <BaseTextarea

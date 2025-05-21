@@ -123,25 +123,25 @@
         <!-- Run Workflow Button -->
         <div class="absolute bottom-0 left-0 right-0 h-10 flex justify-center items-center z-10">
           <div class="flex justify-evenly items-center"></div>
-          <div class="flex justify-center items-center bg-[#222] rounded-xl w-[33vw] h-full p-1 border border-[#777] mb-10">
-            <!-- three divs -->
+          <div class="flex justify-center items-center bg-gray-800 rounded-xl w-[33vw] h-full p-1 border border-gray-600 mb-10">
             <div class="flex-1 flex justify-center">
-              <!-- Toggle Switch -->
-              <div class="tooltip-container flex items-center">
-                <label class="switch">
-                  <input type="checkbox" v-model="autoPanEnabled">
-                  <span class="slider round"></span>
+              <div class="relative flex items-center group">
+                <label class="inline-flex relative items-center cursor-pointer">
+                  <input type="checkbox" v-model="autoPanEnabled" class="sr-only peer" />
+                  <div class="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-blue-500 transition-colors"></div>
+                  <div class="absolute left-1 top-1 bg-white w-4 h-4 rounded-full peer-checked:translate-x-5 transition-transform"></div>
                 </label>
                 <span class="text-white ml-2 text-sm">Auto-Pan</span>
-                <span class="tooltip">When enabled, the view will automatically pan to follow node execution</span>
+                <div class="invisible absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 w-48 bg-orange-500/90 text-white px-3 py-2 rounded-xl text-xs font-bold z-50 text-center whitespace-normal group-hover:visible">
+                  When enabled, the view will automatically pan to follow node execution
+                </div>
               </div>
             </div>
             <div class="flex-1 flex justify-center items-center">
-              <button class="run-button text-white bg-[#007bff] hover:bg-[#0056b3] font-bold text-base rounded-xl mr-2" @click="runWorkflow">Run</button>
+              <button @click="runWorkflow" class="px-4 py-1 bg-blue-600 text-white rounded-xl text-base font-bold hover:bg-blue-700 transition">Run</button>
             </div>
             <div class="flex-1 flex justify-center">
-              <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }"
-                @update-edge-type="updateEdgeType" />
+              <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }" @update-edge-type="updateEdgeType" />
             </div>
           </div>
           <div class="flex justify-evenly items-center"></div>
@@ -1085,76 +1085,5 @@ onBeforeUnmount(() => {
 </script>
 
 <style>
-@import '@vue-flow/core/dist/style.css';
-@import '@vue-flow/core/dist/theme-default.css';
-
-.run-button {
-  @apply text-white bg-[#007bff] hover:bg-[#0056b3] font-bold text-base rounded-xl mr-2 cursor-pointer;
-}
-
-.switch {
-  @apply relative inline-block w-10 h-5;
-}
-
-.switch input {
-  @apply opacity-0 w-0 h-0;
-}
-
-.slider {
-  @apply absolute cursor-pointer inset-0 bg-gray-300 transition duration-300;
-}
-
-.slider:before {
-  content: '';
-  @apply absolute h-4 w-4 left-[2px] bottom-[2px] bg-white transition duration-300;
-}
-
-input:checked + .slider {
-  @apply bg-blue-500;
-}
-
-input:focus + .slider {
-  box-shadow: 0 0 1px #2196F3;
-}
-
-input:checked + .slider:before {
-  transform: translateX(20px);
-}
-
-.slider.round {
-  @apply rounded-full;
-}
-
-.slider.round:before {
-  @apply rounded-full;
-}
-
-.tooltip-container {
-  @apply relative;
-}
-
-.tooltip {
-  @apply whitespace-normal w-[200px] invisible absolute bottom-[200%] left-1/2 -translate-x-1/2 bg-orange-500/90 text-white px-3 py-2 rounded-xl text-xs font-bold z-[1000] text-center;
-}
-
-.tooltip-container:hover .tooltip {
-  @apply visible;
-}
-
-.tooltip::after {
-  content: '';
-  @apply absolute top-full left-1/2 -translate-x-1/2 border-[5px] border-solid border-orange-500/90 border-t-transparent border-l-transparent border-r-transparent;
-}
-
-.context-menu {
-  @apply absolute bg-[#333] border border-[#777] rounded-lg p-2 z-[1000] shadow-md;
-}
-
-.context-menu-item {
-  @apply text-white px-3 py-2 cursor-pointer;
-}
-
-.context-menu-item:hover {
-  @apply bg-[#555];
-}
+/* Tailwind utilities used inline; no custom CSS required here */
 </style>

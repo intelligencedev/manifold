@@ -14,7 +14,7 @@
     </template>
 
     <!-- Provider -->
-    <BaseSelect label="Provider" v-model="provider" :options="providerOptions" />
+    <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
 
     <!-- Parameters -->
     <BaseAccordion title="Parameters">
@@ -33,30 +33,32 @@
 
       <!-- Model selection: dropdown for Anthropic/Google, text input for others -->
       <template v-if="provider === 'anthropic' || provider === 'google'">
-        <BaseSelect :id="`${data.id}-model`" label="Model" v-model="model" :options="modelOptions" />
+        <BaseDropdown :id="`${data.id}-model`" label="Model" v-model="model" :options="modelOptions" />
       </template>
       <template v-else>
         <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" />
       </template>
       
-      <BaseInput
-        :id="`${data.id}-max_tokens`"
-        label="Max Tokens"
-        type="number"
-        v-model.number="max_completion_tokens"
-        min="1"
-      />
-      <BaseInput
-        :id="`${data.id}-temperature`"
-        label="Temperature"
-        type="number"
-        v-model.number="temperature"
-        step="0.1"
-        min="0"
-        max="2"
-      />
+      <div class="grid grid-cols-2 gap-4">
+        <BaseInput
+          :id="`${data.id}-max_tokens`"
+          label="Max Tokens"
+          type="number"
+          v-model.number="max_completion_tokens"
+          min="1"
+        />
+        <BaseInput
+          :id="`${data.id}-temperature`"
+          label="Temperature"
+          type="number"
+          v-model.number="temperature"
+          step="0.1"
+          min="0"
+          max="2"
+        />
+      </div>
 
-      <BaseSelect
+      <BaseDropdown
         label="Predefined System Prompt"
         v-model="selectedSystemPrompt"
         :options="systemPromptOptionsList"
@@ -96,7 +98,7 @@
 <script setup>
 import { Handle } from '@vue-flow/core'
 import BaseInput from '@/components/base/BaseInput.vue'
-import BaseSelect from '@/components/base/BaseSelect.vue'
+import BaseDropdown from '@/components/base/BaseDropdown.vue'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
 import BaseTogglePassword from '@/components/base/BaseTogglePassword.vue'
 import BaseAccordion from '@/components/base/BaseAccordion.vue'

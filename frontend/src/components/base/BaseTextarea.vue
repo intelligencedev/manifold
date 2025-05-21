@@ -1,10 +1,10 @@
 <template>
   <div v-bind="$attrs" class="mb-2 w-full h-full flex flex-col">
-    <label v-if="label" :for="id" class="mb-1 block text-sm text-gray-200">{{ label }}:</label>
+    <label v-if="label" :for="id" class="mb-1 block text-md text-gray-200">{{ label }}:</label>
     <div class="relative flex flex-1 min-h-0">
       <textarea 
         :id="id" 
-        class="w-full px-2 py-1.5 text-sm border border-gray-600 rounded-md bg-gray-800 text-gray-200 resize-none overflow-y-auto flex-1 h-full min-h-0" 
+        class="w-full px-2 py-1.5 text-md border border-slate-600 rounded-md bg-zinc-700 text-gray-200 resize-none overflow-y-auto flex-1 h-full min-h-0" 
         v-model="internalValue" 
         @input="handleInput"
       ></textarea>

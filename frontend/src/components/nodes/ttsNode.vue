@@ -1,17 +1,13 @@
 <template>
-  <div
-    :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-    class="node-container tool-node"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
-  >
-    <div :style="data.labelStyle" class="node-label">
-      Text to Speech (WebGPU)
-      <select v-model="selectedVoice" class="voice-select">
-        <optgroup label="American (Female)">
-          <option value="af_alloy">af_alloy</option>
-          <option value="af_aoede">af_aoede</option>
-          <option value="af_bella">af_bella</option>
+  <BaseNode :id="id" :data="data" :min-height="100" @resize="onResize">
+    <template #header>
+      <div :style="data.labelStyle" class="node-label font-bold mb-2">
+        Text to Speech (WebGPU)
+        <select v-model="selectedVoice" class="voice-select mt-2 p-1 text-sm border border-gray-600 bg-zinc-900 text-zinc-100 rounded w-full">
+          <optgroup label="American (Female)">
+            <option value="af_alloy">af_alloy</option>
+            <option value="af_aoede">af_aoede</option>
+            <option value="af_bella">af_bella</option>
           <option value="af_heart">af_heart</option>
           <option value="af_jessica">af_jessica</option>
           <option value="af_kore">af_kore</option>
@@ -44,35 +40,44 @@
           <option value="bm_lewis">bm_lewis</option>
         </optgroup>
       </select>
-    </div>
+      </div>
+    </template>
     <Handle style="width:12px; height:12px" type="target" position="left" id="input" />
     <Handle style="width:12px; height:12px" type="source" position="right" id="output" />
-    <div class="wave">
-      <div class="bar" v-for="n in 10" :key="n" :ref="el => bars[n - 1] = el"></div>
+    <div class="wave flex items-center justify-between h-16 p-2 mt-3">
+      <div class="bar w-2 h-10 bg-teal-400 rounded origin-bottom transition-transform" v-for="n in 10" :key="n" :ref="el => bars[n - 1] = el"></div>
     </div>
-    <NodeResizer
-      :is-resizable="true"
-      :color="'#666'"
-      :handle-style="resizeHandleStyle(isHovered)"
-      :line-style="resizeHandleStyle(isHovered)"
-      :min-width="150"
-      :min-height="100"
-      :node-id="props.id"
-      @resize="(evt) => onResize(evt, emit)"
-    />
-  </div>
+  </BaseNode>
 </template>
 
 <script setup>
-import { nextTick, onMounted, onUnmounted } from "vue";
-import { Handle } from "@vue-flow/core";
-import { NodeResizer } from "@vue-flow/node-resizer";
-import { useTtsNode } from "../../composables/useTtsNode";
+import { onMounted, onUnmounted } from 'vue'
+import { Handle } from '@vue-flow/core'
+import BaseNode from '@/components/base/BaseNode.vue'
+import { useTtsNode } from '@/composables/useTtsNode'
 
 const props = defineProps({
-  id: { type: String, required: true, default: "ttsNode_0" },
-  data: { type: Object, required: false, default: () => ({}) },
-});
+  id: { type: String, required: true, default: 'ttsNode_0' },
+  data: {
+    type: Object,
+    required: false,
+    default: () => ({
+      type: 'ttsNode',
+      labelStyle: { fontWeight: 'normal' },
+      hasInputs: true,
+      hasOutputs: true,
+      outputs: {},
+      style: {
+        border: '1px solid #666',
+        borderRadius: '12px',
+        backgroundColor: '#333',
+        color: '#eee',
+        width: '352px',
+        height: '240px'
+      }
+    })
+  }
+})
 
 const emit = defineEmits(["update:data", "resize"]);
 
@@ -87,7 +92,7 @@ const {
   setupNode,
   cleanupNode,
   onResize
-} = useTtsNode(props);
+} = useTtsNode(props, emit);
 
 // Lifecycle hooks
 onMounted(() => {
@@ -100,48 +105,5 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.node-container {
-  background-color: #222;
-  border: 1px solid #666;
-  border-radius: 12px;
-  color: #eee;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  padding: 8px;
-}
-
-.node-label {
-  font-weight: bold;
-  margin-bottom: 8px;
-}
-
-.voice-select {
-  margin-top: 8px;
-  padding: 4px;
-  font-size: 14px;
-  border: 1px solid #666;
-  background-color: #222;
-  color: #eee;
-  border-radius: 4px;
-  width: 100%;
-}
-
-.wave {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 60px;
-  padding: 10px;
-  margin-top: 12px;
-}
-
-.bar {
-  width: 8px;
-  height: 40px;
-  background-color: #4afff0;
-  border-radius: 4px;
-  transform-origin: bottom;
-  transition: transform 0.1s ease;
-}
+/* Tailwind handles styling */
 </style>

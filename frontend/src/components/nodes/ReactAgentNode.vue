@@ -1,57 +1,45 @@
 <template>
-  <div 
-    :style="computedContainerStyle"
-    class="node-container openai-node tool-node" 
-    @mouseenter="isHovered = true" 
-    @mouseleave="isHovered = false"
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="500"
+    :style="customStyle"
+    @resize="onResize"
+    @mouseenter="$emit('disable-zoom')"
+    @mouseleave="$emit('enable-zoom')"
   >
-    <div :style="data.labelStyle" class="node-label">ReAct Agent</div>
+    <template #header>
+      <div :style="data.labelStyle" class="node-label font-semibold text-base text-white">ReAct Agent</div>
+    </template>
 
-    <!-- User Prompt -->
-    <BaseTextarea 
-      :id="`${data.id}-user_prompt`" 
-      label="User Prompt" 
+    <BaseTextarea
+      :id="`${data.id}-user_prompt`"
+      label="User Prompt"
       v-model="user_prompt"
       fullHeight
       class="user-prompt-area"
-      @mouseenter="handleTextareaMouseEnter" 
+      @mouseenter="handleTextareaMouseEnter"
       @mouseleave="handleTextareaMouseLeave"
     />
 
-    <!-- Input/Output Handles -->
-    <Handle 
-      style="width:12px; height:12px" 
-      v-if="data.hasInputs" 
-      type="target" 
-      position="left" 
-    />
-    <Handle 
-      style="width:12px; height:12px" 
-      v-if="data.hasOutputs" 
-      type="source" 
-      position="right" 
-    />
+    <button
+      v-if="data.outputs && data.outputs.response"
+      class="flex items-center justify-center my-2 px-3 py-1 bg-gray-700 text-white rounded text-sm transition-colors hover:bg-blue-800"
+      @click="sendToCodeEditor"
+      title="Send code to the editor"
+    >
+      <span class="mr-1">📝</span> Send to Code Editor
+    </button>
 
-    <!-- NodeResizer -->
-    <NodeResizer 
-      :is-resizable="true" 
-      :color="'#666'" 
-      :handle-style="resizeHandleStyle"
-      :line-style="resizeHandleStyle" 
-      :width="380" 
-      :height="600" 
-      :min-width="380" 
-      :min-height="500"
-      :node-id="id" 
-      @resize="onResize" 
-    />
-  </div>
+    <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />
+    <Handle v-if="data.hasOutputs" type="source" position="right" style="width:12px;height:12px" />
+  </BaseNode>
 </template>
 
 <script setup>
-import { Handle, useVueFlow } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
+import { Handle } from '@vue-flow/core'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
+import BaseNode from '@/components/base/BaseNode.vue'
 import { useReactAgent } from '@/composables/useReactAgent'
 
 const props = defineProps({
@@ -69,7 +57,6 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        // Hardcoded endpoint for agent
         endpoint: '/api/agents/react',
         api_key: "",
         user_prompt: 'What can I help you with today?',
@@ -89,26 +76,12 @@ const props = defineProps({
 
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 
-// Pass Vue Flow instance to the useAgentNode composable
-const vueFlowInstance = useVueFlow()
-props.vueFlowInstance = vueFlowInstance
-
-// Ensure that the data.outputs structure is properly initialized
-if (!props.data.outputs) {
-  props.data.outputs = { response: '', error: null }
-}
-
-// Use the composable to manage state and functionality
 const {
-  // State
   isHovered,
-  
-  // Computed properties
   user_prompt,
   resizeHandleStyle,
   computedContainerStyle,
-  
-  // Methods
+  customStyle,
   onResize,
   handleTextareaMouseEnter,
   handleTextareaMouseLeave,
@@ -116,18 +89,4 @@ const {
 } = useReactAgent(props, emit)
 </script>
 
-<style scoped>
-
-
-/* Add styling for the think tags that may come from LLMs or our ReAct agent */
-:deep(think), :deep(think) {
-  display: block;
-  background-color: rgba(30, 30, 30, 0.7);
-  border-left: 3px solid #666;
-  padding: 8px;
-  margin: 8px 0;
-  font-family: monospace;
-  white-space: pre-wrap;
-  color: #aaa;
-}
-</style>
+<!-- No scoped CSS: all styling is via Tailwind -->

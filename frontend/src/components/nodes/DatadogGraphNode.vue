@@ -1,29 +1,23 @@
 <template>
-
   <div
-    :style="{
-      ...data.style,
-      width: '100%',
-      height: '100%',
-      boxSizing: 'border-box',
-    }"
-    class="node-container tool-node datadog-graph-node"
+    :style="computedContainerStyle"
+    class="node-container tool-node datadog-graph-node flex flex-col w-full h-full p-3 rounded-xl border border-orange-500 bg-zinc-900 text-gray-100 shadow"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
-    <div :style="data.labelStyle" class="node-label">
+    <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">
       {{ data.type }}
     </div>
 
     <Handle style="width:12px; height:12px" type="target" position="left" id="input" />
 
-    <div class="graph-container" ref="graphContainer"></div>
+    <div class="graph-container flex-1" ref="graphContainer"></div>
 
-    <Handle style="width:12px; height:12px" type="source" position="right" id="output"/>
+    <Handle style="width:12px; height:12px" type="source" position="right" id="output" />
 
     <NodeResizer
       :is-resizable="true"
-      :color="'#666'"
+      :color="'#fd7702'"
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle"
       :min-width="200"
@@ -35,7 +29,6 @@
 </template>
 
 <script setup>
-import { watch, nextTick } from "vue";
 import { Handle, useVueFlow } from "@vue-flow/core";
 import { NodeResizer } from "@vue-flow/node-resizer";
 import { useDatadogGraphNode } from "@/composables/useDatadogGraphNode";
@@ -60,70 +53,20 @@ const props = defineProps({
       outputs: {},
     }),
   },
-});
+})
 
-// Use the composable to manage state and functionality
-const vueFlowInstance = useVueFlow();
+const emit = defineEmits(["update:data", "resize", "disable-zoom", "enable-zoom"])
+const vueFlowInstance = useVueFlow()
 const {
   isHovered,
-  graphContainer,
+  customStyle,
   resizeHandleStyle,
-  run,
+  computedContainerStyle,
+  graphContainer,
   onResize
-} = useDatadogGraphNode(props, vueFlowInstance);
-
-// Watch for data changes
-watch(
-  () => props.data.inputs,
-  (newVal) => {
-    console.log("[DatadogGraphNode] data.inputs changed:", newVal);
-    if (newVal?.result) {
-      nextTick(() => {
-        run();
-      });
-    }
-  },
-  { deep: true }
-);
+} = useDatadogGraphNode(props, emit, vueFlowInstance)
 </script>
 
 <style scoped>
-.datadog-graph-node {
-  padding: 10px;
-  border-radius: 12px;
-  background-color: #1e1e1e;
-  color: #eee;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.node-label {
-  color: #eee;
-  font-size: 14px;
-  text-align: center;
-  margin-bottom: 8px;
-}
-
-.graph-container {
-  width: 100%;
-  height: calc(100% - 30px);
-  overflow: hidden;
-}
-
-/* Use :deep for styling D3's appended elements */
-:deep(svg) {
-  width: 100%;
-  height: 100%;
-}
-
-:deep(.domain),
-:deep(.tick line) {
-  stroke: #666;
-}
-
-:deep(.tick text) {
-  fill: #999;
-}
+/* Remove legacy styles in favor of Tailwind */
 </style>

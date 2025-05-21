@@ -1,15 +1,7 @@
 <template>
   <div
-    :style="{
-      ...data.style,
-      ...customStyle,
-      '--node-bg-color': currentColor,
-      width: '100%',
-      height: '100%',
-      boxSizing: 'border-box',
-      position: 'relative'
-    }"
-    class="node-container note-node"
+    :style="computedContainerStyle"
+    class="node-container note-node flex flex-col w-full h-full p-3 rounded-xl border text-gray-900 shadow relative"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
@@ -28,19 +20,16 @@
       class="text-container"
       ref="textContainer"
       @scroll="handleScroll"
-      @mouseenter="$emit('disable-zoom')"
-      @mouseleave="$emit('enable-zoom')"
     >
-      <textarea
+      <BaseTextarea
         v-model="noteText"
-        class="note-textarea"
+        class="note-textarea w-full h-full resize-none border border-yellow-300"
         placeholder="Enter your notes here..."
         :style="{ fontSize: `${currentFontSize}px` }"
-        @mousedown="onTextareaMouseDown"
-        @mouseup="onTextareaMouseUp"
-        @focus="onTextareaFocus"
-        @blur="onTextareaBlur"
-      ></textarea>
+        fullHeight
+        @mouseenter="handleTextareaMouseEnter"
+        @mouseleave="handleTextareaMouseLeave"
+      />
     </div>
     <NodeResizer
       :is-resizable="true"
@@ -49,6 +38,8 @@
       :line-style="resizeHandleStyle"
       :min-width="200"
       :min-height="120"
+      :width="width"
+      :height="height"
       :node-id="props.id"
       @resize="onResize"
     />
@@ -58,6 +49,7 @@
 import { watch, onMounted } from 'vue'
 import { Handle } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
+import BaseTextarea from '@/components/base/BaseTextarea.vue'
 import { useNoteNode } from '@/composables/useNoteNode'
 import { useVueFlow } from '@vue-flow/core'
 
@@ -107,17 +99,18 @@ const { disableNodeDrag, enableNodeDrag } = useVueFlow()
 const {
   noteText,
   isHovered,
-  customStyle,
-  currentFontSize,
-  textContainer,
-  currentColor,
   resizeHandleStyle,
-  increaseFontSize,
+  computedContainerStyle,
+  width,
+  height,
+  noteText,
+  currentFontSize,
+  cycleColor,
   decreaseFontSize,
   handleScroll,
-  onResize,
-  cycleColor,
-  run,
+  handleTextareaMouseEnter,
+  handleTextareaMouseLeave,
+  onResize
 } = useNoteNode(props, emit)
 
 // Set run function on component mount

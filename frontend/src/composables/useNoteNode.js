@@ -1,5 +1,5 @@
-import { ref, computed, nextTick } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
+import { ref, computed, nextTick, onMounted } from 'vue'
+import { useNodeBase } from './useNodeBase'
 
 /**
  * Composable for managing NoteNode functionality
@@ -8,6 +8,17 @@ import { useVueFlow } from '@vue-flow/core'
  * @returns {Object} - NoteNode functionality
  */
 export function useNoteNode(props, emit) {
+  // Base node behavior
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    width,
+    height,
+    onResize,
+  } = useNodeBase(props, emit)
+
   // Note text computed property
   const noteText = computed({
     get: () => props.data.inputs.note,
@@ -15,17 +26,6 @@ export function useNoteNode(props, emit) {
       props.data.inputs.note = value
     }
   })
-
-  // UI state
-  const isHovered = ref(false)
-  const customStyle = ref({})
-  
-  // Show/hide resize handles when hovering
-  const resizeHandleStyle = computed(() => ({
-    visibility: isHovered.value ? 'visible' : 'hidden',
-    width: '12px',
-    height: '12px',
-  }))
 
   // Font size control
   const minFontSize = 10
@@ -53,8 +53,6 @@ export function useNoteNode(props, emit) {
   // Auto-scroll control
   const isAutoScrollEnabled = ref(true)
   
-  // Access zoom functions from VueFlow
-  const { zoomIn, zoomOut } = useVueFlow()
   
   // Function to scroll to the bottom of the text container
   const scrollToBottom = () => {
@@ -76,12 +74,7 @@ export function useNoteNode(props, emit) {
       }
     }
   }
-  
-  // Handle resize events
-  const onResize = (event) => {
-    customStyle.value.width = `${event.width}px`
-    customStyle.value.height = `${event.height}px`
-  }
+
 
   // Define pastel colors for sticky note background
   const pastelColors = ['#FFB3BA', '#FFDFBA', '#FFFFBA', '#BAFFC9', '#BAE1FF']
@@ -109,6 +102,24 @@ export function useNoteNode(props, emit) {
     props.data.colorIndex = currentColorIndex.value
   }
 
+  function handleTextareaMouseEnter() {
+    emit('disable-zoom')
+  }
+
+  function handleTextareaMouseLeave() {
+    emit('enable-zoom')
+  }
+
+  onMounted(() => {
+    if (!props.data.run) {
+      props.data.run = run
+    }
+    if (props.data.style) {
+      customStyle.value.width = props.data.style.width || '200px'
+      customStyle.value.height = props.data.style.height || '120px'
+    }
+  })
+
   // Basic run function
   const run = async () => {
     return
@@ -119,18 +130,23 @@ export function useNoteNode(props, emit) {
     noteText,
     isHovered,
     customStyle,
+    computedContainerStyle,
+    width,
+    height,
     currentFontSize,
     textContainer,
     currentColor,
     scrollbarTrackColor,
     scrollbarBorderColor,
     resizeHandleStyle,
-    
+
     // Methods
     increaseFontSize,
     decreaseFontSize,
     handleScroll,
     onResize,
+    handleTextareaMouseEnter,
+    handleTextareaMouseLeave,
     cycleColor,
     run,
   }

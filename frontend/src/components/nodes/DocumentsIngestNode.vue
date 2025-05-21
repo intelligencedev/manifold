@@ -1,63 +1,54 @@
 <template>
-  <div
-    :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-    class="node-container ingest-documents-node tool-node"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="220"
+    @resize="onResize"
   >
-    <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
+    <template #header>
+      <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
+    </template>
     
-    <div class="mode-selector">
-      <label v-for="option in ['passthrough', 'documents', 'git']" :key="option">
+    <div class="mode-selector flex justify-around mb-2 text-sm">
+      <label v-for="option in ['passthrough', 'documents', 'git']" :key="option" class="flex items-center space-x-1">
         <input type="radio" :value="option" v-model="mode" />
-        {{ option.charAt(0).toUpperCase() + option.slice(1) }}
+        <span>{{ option.charAt(0).toUpperCase() + option.slice(1) }}</span>
       </label>
     </div>
 
-    <div class="input-field">
-      <label class="input-label">Ingestion Endpoint:</label>
-      <input type="text" class="input-text" v-model="ingestion_endpoint" :disabled="mode === 'git'"/>
-    </div>
+    <BaseInput label="Ingestion Endpoint" v-model="ingestion_endpoint" :disabled="mode === 'git'" />
 
-    <div v-if="mode === 'git'" class="input-field">
-      <label class="input-label">Git Repo Path:</label>
-      <input type="text" class="input-text" v-model="gitRepoPath" />
-    </div>
+    <BaseInput v-if="mode === 'git'" label="Git Repo Path" v-model="gitRepoPath" />
 
-    <div class="input-field">
-      <label class="input-label">Language:</label>
-      <input type="text" class="input-text" v-model="language" placeholder="DEFAULT" :disabled="mode === 'git'" />
-    </div>
+    <BaseInput label="Language" v-model="language" placeholder="DEFAULT" :disabled="mode === 'git'" />
 
-    <div class="input-field">
-      <label class="input-label">Chunk Size:</label>
-      <input type="number" class="input-text" v-model.number="chunk_size" />
-    </div>
+    <BaseInput label="Chunk Size" type="number" v-model.number="chunk_size" />
 
-    <div class="input-field">
-      <label class="input-label">Chunk Overlap:</label>
-      <input type="number" class="input-text" v-model.number="chunk_overlap" />
-    </div>
+    <BaseInput label="Chunk Overlap" type="number" v-model.number="chunk_overlap" />
 
     <div v-if="mode === 'documents'">
-      <div class="input-field">
-        <label class="input-label">Selection Type:</label>
-        <select v-model="selectionType">
-          <option value="file">File</option>
-          <option value="folder">Folder</option>
-        </select>
-      </div>
-      <div class="file-picker">
-        <button @click="openFilePicker">
+      <BaseSelect
+        label="Selection Type"
+        v-model="selectionType"
+        :options="[
+          { value: 'file', label: 'File' },
+          { value: 'folder', label: 'Folder' }
+        ]"
+      />
+      <div class="file-picker flex items-center mt-1">
+        <button
+          class="bg-gray-600 text-white px-2 py-1 rounded mr-2 text-sm"
+          @click="openFilePicker"
+        >
           Select {{ selectionType === 'folder' ? 'Folder' : 'File' }}
         </button>
-        <span v-if="selectedFileNames.length">
+        <span v-if="selectedFileNames.length" class="text-xs text-gray-300">
           {{ selectedFileNames.length }} files in path.
         </span>
         <input
           type="file"
           ref="fileInput"
-          style="display: none;"
+          class="hidden"
           :webkitdirectory="selectionType === 'folder'"
           multiple
           @change="onFileSelection"
@@ -68,23 +59,15 @@
     <Handle v-if="data.hasInputs" style="width:12px; height:12px" type="target" position="left" />
     <Handle v-if="data.hasOutputs" style="width:12px; height:12px" type="source" position="right" />
     
-    <NodeResizer
-      :is-resizable="true"
-      :color="'#666'"
-      :handle-style="resizeHandleStyle"
-      :line-style="resizeHandleStyle"
-      :min-width="300"
-      :min-height="200"
-      :node-id="id"
-      @resize="onResize"
-    />
-  </div>
+  </BaseNode>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Handle, useVueFlow } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
+import BaseNode from '@/components/base/BaseNode.vue'
+import BaseInput from '@/components/base/BaseInput.vue'
+import BaseSelect from '@/components/base/BaseSelect.vue'
 import { useDocumentsIngest } from '../../composables/useDocumentsIngest'
 
 const { getEdges, findNode, updateNodeData } = useVueFlow()
@@ -141,8 +124,6 @@ const {
   handleFileSelection
 } = useDocumentsIngest()
 
-const isHovered = ref(false)
-const customStyle = ref({})
 const fileInput = ref(null)
 
 // Initialize with props data
@@ -252,86 +233,10 @@ function updateOutput(result) {
   updateNodeData()
 }
 
-const resizeHandleStyle = computed(() => ({
-  visibility: isHovered.value ? 'visible' : 'hidden',
-  width: '12px',
-  height: '12px',
-}))
-
-function onResize(event) {
-  customStyle.value = {
-    width: `${event.width}px`,
-    height: `${event.height}px`,
-  }
+function onResize({ width, height }) {
+  props.data.style.width = `${width}px`
+  props.data.style.height = `${height}px`
+  updateNodeData()
+  emit('resize', { id: props.id, width, height })
 }
 </script>
-
-<style scoped>
-.ingest-documents-node {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-  background-color: var(--node-bg-color);
-  border: 1px solid var(--node-border-color);
-  border-radius: 4px;
-  color: var(--node-text-color);
-  padding: 8px;
-}
-
-.node-label {
-  color: var(--node-text-color);
-  font-size: 16px;
-  text-align: center;
-  margin-bottom: 10px;
-  font-weight: bold;
-}
-
-.input-field {
-  margin-bottom: 8px;
-  display: flex;
-  flex-direction: column;
-}
-
-.input-label {
-  font-size: 12px;
-  margin-bottom: 4px;
-}
-
-.input-text {
-  background-color: #333;
-  border: 1px solid #666;
-  color: #eee;
-  padding: 4px;
-  font-size: 12px;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.mode-selector {
-  margin-bottom: 8px;
-  display: flex;
-  justify-content: space-around;
-}
-
-.mode-selector label {
-  font-size: 12px;
-  color: var(--node-text-color);
-}
-
-.file-picker {
-  display: flex;
-  align-items: center;
-}
-
-.file-picker button {
-  background-color: #555;
-  color: #eee;
-  border: 1px solid #666;
-  padding: 4px 8px;
-  cursor: pointer;
-  font-size: 12px;
-  margin-right: 8px;
-}
-</style>

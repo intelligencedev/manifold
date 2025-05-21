@@ -1,7 +1,7 @@
 <template>
-  <details class="accordion" :open="initiallyOpen">
-    <summary class="accordion-summary">{{ title }}</summary>
-    <div class="accordion-content">
+  <details class="w-full mb-2 border border-slate-600 rounded bg-zinc-900 text-gray-200 box-border" :open="initiallyOpen">
+    <summary class="cursor-pointer p-2 font-bold select-none">{{ title }}</summary>
+    <div class="px-2 pb-2">
       <slot></slot>
     </div>
   </details>
@@ -19,26 +19,3 @@ defineProps({
   }
 })
 </script>
-
-<style scoped>
-.accordion {
-  width: 100%;
-  margin-bottom: 10px;
-  border: 1px solid var(--accordion-border-color, #666);
-  border-radius: 4px;
-  background-color: var(--accordion-bg-color, #444);
-  color: var(--accordion-text-color, #eee);
-  box-sizing: border-box;
-}
-
-.accordion-summary {
-  cursor: pointer;
-  padding: 8px;
-  font-weight: bold;
-  user-select: none;
-}
-
-.accordion-content {
-  padding: 0 8px 8px 8px;
-}
-</style>

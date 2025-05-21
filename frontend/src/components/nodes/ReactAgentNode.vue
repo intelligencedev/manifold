@@ -14,9 +14,9 @@
 
     <BaseTextarea
       :id="`${data.id}-user_prompt`"
+      :style="customStyle"
       label="User Prompt"
       v-model="user_prompt"
-      fullHeight
       class="user-prompt-area"
       @mouseenter="handleTextareaMouseEnter"
       @mouseleave="handleTextareaMouseLeave"
@@ -62,14 +62,6 @@ const props = defineProps({
         user_prompt: 'What can I help you with today?',
       },
       outputs: { response: '' },
-      style: {
-        border: '1px solid #666',
-        borderRadius: '12px',
-        backgroundColor: '#333',
-        color: '#eee',
-        width: '380px',
-        height: '600px',
-      },
     }),
   },
 })
@@ -88,5 +80,3 @@ const {
   sendToCodeEditor
 } = useReactAgent(props, emit)
 </script>
-
-<!-- No scoped CSS: all styling is via Tailwind -->

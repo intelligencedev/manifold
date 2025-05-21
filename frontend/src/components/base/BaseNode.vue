@@ -1,20 +1,20 @@
 <template>
   <div
     :style="computedContainerStyle"
-    class="node-container bg-zinc-900"
+    class="node-container bg-zinc-900 flex flex-col"
     @mouseenter="isHovered = true"
     @mouseleave="isHovered = false"
   >
     <div class="node-header">
       <slot name="header"></slot>
     </div>
-    <div>
+    <div class="flex-1 overflow-hidden">
       <slot></slot>
     </div>
     <NodeResizer
       :is-resizable="true"
       :color="'#666'"
-      :min-width="352"
+      :min-width="minWidth"
       :min-height="minHeight"
       :width="width"
       :height="height"
@@ -38,6 +38,10 @@ const props = defineProps({
   data: {
     type: Object,
     default: () => ({ style: {} })
+  },
+  minWidth: {
+    type: Number,
+    default: 352
   },
   minHeight: {
     type: Number,

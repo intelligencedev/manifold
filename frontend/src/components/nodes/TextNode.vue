@@ -70,6 +70,7 @@
 import { Handle, useVueFlow } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
+import useTextNode from '@/composables/useTextNode'
 
 const props = defineProps({
   id: {
@@ -119,7 +120,3 @@ const {
   onResize
 } = useTextNode(props, emit, vueFlowInstance)
 </script>
-
-<style scoped>
-/* Remove legacy styles in favor of Tailwind */
-</style>

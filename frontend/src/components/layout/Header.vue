@@ -9,9 +9,11 @@
       class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center space-x-2 pointer-events-none"
     >
       <!-- logo mark -->
-      <ManifoldLogo class="h-6 w-auto" />
-      <!-- word-mark -->
-      <span class="text-xl font-bold tracking-wide">Manifold</span>
+      <div class="flex flex-col items-center">
+        <ManifoldLogo class="h-6 w-auto" />
+        <!-- word-mark -->
+        <span class="text-md font-bold tracking-wide">Manifold</span>
+      </div>
     </div>
 
     <!-- DESKTOP actions ----------------------------------------------------->

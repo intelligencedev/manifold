@@ -43,9 +43,9 @@
           </div>
         </template>
 
-        <div v-if="selectedRenderMode === 'markdown'" class="markdown-text" v-html="markdownOutsideThinking" />
-        <pre v-else-if="selectedRenderMode === 'raw'" class="raw-text">{{ outsideThinkingRaw }}</pre>
-        <div v-else-if="selectedRenderMode === 'html'" class="html-content" v-html="htmlOutsideThinking" />
+        <div v-if="selectedRenderMode === 'markdown'" class="text-white tracking-wide" v-html="markdownOutsideThinking" />
+        <pre v-else-if="selectedRenderMode === 'raw'" class="text-white tracking-wide">{{ outsideThinkingRaw }}</pre>
+        <div v-else-if="selectedRenderMode === 'html'" class="text-white tracking-wide" v-html="htmlOutsideThinking" />
       </div>
 
       <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />

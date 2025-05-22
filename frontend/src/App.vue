@@ -1,5 +1,5 @@
 <template>
-  <div id="app" class="flex flex-col h-screen w-screen p-0 m-0 text-center text-[#2c3e50] relative font-sans antialiased">
+  <div id="app" class="flex flex-col h-screen w-screen p-0 m-0 text-center text-[#2c3e50] relative font-roboto antialiased">
     <!-- Show Login component if not authenticated -->
     <Login v-if="!isAuthenticated" @login-success="handleLoginSuccess" />
     
@@ -120,32 +120,13 @@
 
         <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
 
-        <!-- Run Workflow Button -->
-        <div class="absolute bottom-0 left-0 right-0 h-10 flex justify-center items-center z-10">
-          <div class="flex justify-evenly items-center"></div>
-          <div class="flex justify-center items-center bg-gray-800 rounded-xl w-[33vw] h-full p-1 border border-gray-600 mb-10">
-            <div class="flex-1 flex justify-center">
-              <div class="relative flex items-center group">
-                <label class="inline-flex relative items-center cursor-pointer">
-                  <input type="checkbox" v-model="autoPanEnabled" class="sr-only peer" />
-                  <div class="w-10 h-5 bg-gray-300 rounded-full peer-checked:bg-blue-500 transition-colors"></div>
-                  <div class="absolute left-1 top-1 bg-white w-4 h-4 rounded-full peer-checked:translate-x-5 transition-transform"></div>
-                </label>
-                <span class="text-white ml-2 text-sm">Auto-Pan</span>
-                <div class="invisible absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 w-48 bg-orange-500/90 text-white px-3 py-2 rounded-xl text-xs font-bold z-50 text-center whitespace-normal group-hover:visible">
-                  When enabled, the view will automatically pan to follow node execution
-                </div>
-              </div>
-            </div>
-            <div class="flex-1 flex justify-center items-center">
-              <button @click="runWorkflow" class="px-4 py-1 bg-blue-600 text-white rounded-xl text-base font-bold hover:bg-blue-700 transition">Run</button>
-            </div>
-            <div class="flex-1 flex justify-center">
-              <LayoutControls ref="layoutControls" @update-nodes="updateLayout" :style="{ zIndex: 1000 }" @update-edge-type="updateEdgeType" />
-            </div>
-          </div>
-          <div class="flex justify-evenly items-center"></div>
-        </div>
+        <!-- Run Workflow ToolBar -->
+        <ToolBar
+          v-model="autoPanEnabled"
+          @run="runWorkflow"
+          @update-layout="updateLayout"
+          @update-edge-type="updateEdgeType"
+        />
       </VueFlow>
     </template>
   </div>
@@ -173,6 +154,7 @@ import {
   BackgroundVariant,
 } from '@vue-flow/additional-components';
 import SpecialEdge from './components/SpecialEdge.vue';
+import ToolBar from '@/components/layout/ToolBar.vue';
 import { useConfigStore } from '@/stores/configStore';
 
 // Import Login component
@@ -1083,7 +1065,3 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', hideContextMenu);
 });
 </script>
-
-<style>
-/* Tailwind utilities used inline; no custom CSS required here */
-</style>

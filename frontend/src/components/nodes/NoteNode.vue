@@ -19,18 +19,18 @@
     <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
     <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
     <div
-      class="text-container"
+      class="text-container flex-grow"
       ref="textContainer"
       @scroll="handleScroll"
     >
-      <BaseTextarea
+      <textarea
         v-model="noteText"
-        class="w-full h-full resize-none"
+        class="w-full h-full resize-none outline-none bg-transparent"
         placeholder="Enter your notes here..."
-        :style="{ fontSize: `${currentFontSize}px`, backgroundColor: 'transparent' }"
+        :style="{ fontSize: `${currentFontSize}px` }"
         @mouseenter="handleTextareaMouseEnter"
         @mouseleave="handleTextareaMouseLeave"
-      />
+      ></textarea>
     </div>
     <NodeResizer
       :is-resizable="true"
@@ -50,7 +50,6 @@
 import { watch, onMounted } from 'vue'
 import { Handle } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
-import BaseTextarea from '@/components/base/BaseTextarea.vue'
 import { useNoteNode } from '@/composables/useNoteNode'
 import { useVueFlow } from '@vue-flow/core'
 
@@ -107,6 +106,7 @@ const {
   height,
   currentFontSize,
   cycleColor,
+  increaseFontSize,
   decreaseFontSize,
   handleScroll,
   handleTextareaMouseEnter,

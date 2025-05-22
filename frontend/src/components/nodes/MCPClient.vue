@@ -2,7 +2,7 @@
   <BaseNode
     :id="id"
     :data="data"
-    :min-height="420"
+    :min-height="560"
     :style="customStyle"
     @resize="onResize"
     @mouseenter="$emit('disable-zoom')"
@@ -93,7 +93,7 @@
 </template>
 
 <script setup>
-import { Handle } from '@vue-flow/core'
+import { Handle, useVueFlow } from '@vue-flow/core'
 import BaseInput from '@/components/base/BaseInput.vue'
 import BaseSelect from '@/components/base/BaseSelect.vue'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
@@ -125,6 +125,8 @@ const props = defineProps({
 
 const emit = defineEmits(['update:data','resize','disable-zoom','enable-zoom'])
 
+const vueFlow = useVueFlow()
+
 const {
   mode,
   command,
@@ -144,7 +146,7 @@ const {
   resizeHandleStyle,
   onResize,
   toggleToolSchema
-} = useMCPClient(props, emit)
+} = useMCPClient(props, emit, vueFlow)
 </script>
 
 <!-- No scoped CSS: all styling is via Tailwind -->

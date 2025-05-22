@@ -1,0 +1,2 @@
+- Remove DataDog implementation in front and backend since there is an MCP server and there is no need to further support this internally.
+- Make the defaultCtx of the agent engine completions request configurable instead of the hard coded `32768` value.

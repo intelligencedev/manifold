@@ -38,38 +38,38 @@ export const nodeRegistry: NodeRegistration[] = [
   {
     type: 'completions',
     component: AgentNode,
-    category: 'Text Completions',
+    category: 'Chat/Agent',
     defaultData: () => (AgentNode as any).props.data.default(),
   },
   {
     type: 'responseNode',
     component: ResponseNode,
-    category: 'Text Completions',
+    category: 'Chat/Agent',
     defaultData: () => (ResponseNode as any).props.data.default(),
   },
   {
     type: 'reactAgent',
     component: ReactAgentNode,
-    category: 'Text Completions',
+    category: 'Chat/Agent',
     defaultData: () => (ReactAgentNode as any).props.data.default(),
+  },
+  {
+    type: 'ttsNode',
+    component: TtsNode,
+    category: 'Chat/Agent',
+    defaultData: () => (TtsNode as any).props.data.default(),
   },
   {
     type: 'comfyNode',
     component: ComfyNode,
-    category: 'Image Generation',
+    category: 'Image Gen',
     defaultData: () => (ComfyNode as any).props.data.default(),
   },
   {
     type: 'mlxFluxNode',
     component: MLXFlux,
-    category: 'Image Generation',
+    category: 'Image Gen',
     defaultData: () => (MLXFlux as any).props.data.default(),
-  },
-  {
-    type: 'ttsNode',
-    component: TtsNode,
-    category: 'Speech Generation',
-    defaultData: () => (TtsNode as any).props.data.default(),
   },
   {
     type: 'codeRunnerNode',
@@ -158,25 +158,13 @@ export const nodeRegistry: NodeRegistration[] = [
   {
     type: 'mermaidNode',
     component: Mermaid,
-    category: 'Integrations',
+    category: 'Utilities',
     defaultData: () => (Mermaid as any).props.data.default(),
-  },
-  {
-    type: 'datadogNode',
-    component: DatadogNode,
-    category: 'Integrations',
-    defaultData: () => (DatadogNode as any).props.data.default(),
-  },
-  {
-    type: 'datadogGraphNode',
-    component: DatadogGraphNode,
-    category: 'Integrations',
-    defaultData: () => (DatadogGraphNode as any).props.data.default(),
   },
   {
     type: 'mcpClientNode',
     component: MCPClient,
-    category: 'Experimental',
+    category: 'Tools',
     defaultData: () => (MCPClient as any).props.data.default(),
   },
 ]

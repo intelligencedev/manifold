@@ -33,6 +33,8 @@ import WebGLNode from './WebGLNode.vue'
 import WebRetrievalNode from './WebRetrievalNode.vue'
 import WebSearchNode from './WebSearchNode.vue'
 import TtsNode from './ttsNode.vue'
+import MessageBusNode from '../MessageBusNode.vue'
+import FlowControl from '../FlowControl.vue'
 
 export const nodeRegistry: NodeRegistration[] = [
   {
@@ -166,6 +168,18 @@ export const nodeRegistry: NodeRegistration[] = [
     component: MCPClient,
     category: 'Tools',
     defaultData: () => (MCPClient as any).props.data.default(),
+  },
+  {
+    type: 'flowControlNode',
+    component: FlowControl,
+    category: 'Tools',
+    defaultData: () => (FlowControl as any).props.data.default(),
+  },
+  {
+    type: 'messageBusNode',
+    component: MessageBusNode,
+    category: 'Tools',
+    defaultData: () => (MessageBusNode as any).props.data.default(),
   },
 ]
 

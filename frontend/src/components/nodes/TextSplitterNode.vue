@@ -2,7 +2,7 @@
   <BaseNode
     :id="id"
     :data="data"
-    :min-height="180"
+    :min-height="300"
     @resize="onResize"
   >
     <template #header>

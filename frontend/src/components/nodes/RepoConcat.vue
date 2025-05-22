@@ -1,11 +1,7 @@
 <template>
   <BaseNode :id="id" :data="data" :min-height="240" @resize="onResize">
     <template #header>
-      <BaseInput
-        :id="`${data.id}-label`"
-        v-model="label"
-        class="w-full"
-      />
+      <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">{{ data.type }}</div>
     </template>
 
     <BaseCheckbox

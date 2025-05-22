@@ -486,7 +486,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []complet
 	}
 
 	// Get model context size (default to 4096 if unknown)
-	modelCtx := 32768 // default context size
+	modelCtx := 64000 // default context size
 
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(modelCtx-promptTokens-1024, 128)

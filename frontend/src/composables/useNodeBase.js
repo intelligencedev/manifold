@@ -9,6 +9,7 @@ export const dragHandle = '.node-header'
 export function useNodeBase(props, emit) {
   const isHovered = ref(false)
   const customStyle = ref({})
+  const isExecuting = ref(false); // New ref to track execution state
 
   const resizeHandleStyle = computed(() => ({
     visibility: isHovered.value ? 'visible' : 'hidden',
@@ -20,7 +21,9 @@ export function useNodeBase(props, emit) {
     ...props.data.style,
     ...customStyle.value,
     width: '100%',
-    height: '100%'
+    height: '100%',
+    // Apply dynamic shadow based on execution state
+    boxShadow: isExecuting.value ? '0 20px 25px -5px rgba(167, 139, 250, 0.5), 0 10px 10px -5px rgba(167, 139, 250, 0.4)' : (props.data.style?.boxShadow || 'none')
   }))
 
   const width = computed(() => {
@@ -41,5 +44,10 @@ export function useNodeBase(props, emit) {
     }
   }
 
-  return { isHovered, customStyle, resizeHandleStyle, computedContainerStyle, width, height, onResize }
+  // Function to be called by the node when execution starts/ends
+  function setExecuting(executing) {
+    isExecuting.value = executing;
+  }
+
+  return { isHovered, customStyle, resizeHandleStyle, computedContainerStyle, width, height, onResize, setExecuting }
 }

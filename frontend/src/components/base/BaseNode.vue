@@ -59,7 +59,6 @@ const { isHovered, resizeHandleStyle, computedContainerStyle, width, height, onR
 .node-container {
   background-color: oklch(21% 0.006 285.885) !important;
   border: 2px solid oklch(44.6% 0.043 257.281) !important;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
   padding: 15px;
   border-radius: 8px;
   overflow: visible !important;

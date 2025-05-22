@@ -31,7 +31,7 @@
       <div class="relative">
         <BaseButton
           @click="toggleTemplatesMenu"
-          class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+          class="bg-teal-700 hover:bg-teal-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         >
           <i class="fa fa-file-text"></i> <span>Templates</span>
           <i class="fa fa-caret-down"></i>
@@ -42,7 +42,7 @@
             v-for="t in templates"
             :key="t.template"
             @click="loadTemplate(t)"
-            class="px-4 py-2 hover:bg-gray-700 text-left"
+            class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left"
           >
             {{ t.name }}
           </BaseButton>
@@ -57,13 +57,13 @@
 
       <!-- open / save -->
       <BaseButton
-        class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+        class="bg-teal-700 hover:bg-teal-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         @click="openFile"
       >
         <i class="fa fa-folder-open"></i> <span>Open</span>
       </BaseButton>
       <BaseButton
-        class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+        class="bg-teal-700 hover:bg-teal-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         @click="saveFlow"
       >
         <i class="fa fa-save"></i> <span>Save</span>
@@ -73,7 +73,7 @@
       <div class="relative">
         <BaseButton
           @click="toggleUserMenu"
-          class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
+          class="bg-teal-700 hover:bg-teal-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         >
           <i class="fa fa-user-circle"></i> <span>{{ username }}</span>
           <i class="fa fa-caret-down"></i>

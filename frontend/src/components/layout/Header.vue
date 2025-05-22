@@ -15,7 +15,7 @@
     </div>
 
     <!-- DESKTOP actions ----------------------------------------------------->
-    <div class="flex items-center space-x-2 flex-1 justify-end lg:flex">
+    <div class="hidden items-center space-x-2 flex-1 justify-end lg:flex">
       <!-- FILE INPUT (hidden) -->
       <input
         ref="fileInput"
@@ -27,58 +27,55 @@
 
       <!-- templates dropdown -->
       <div class="relative">
-        <button
+        <BaseButton
           @click="toggleTemplatesMenu"
           class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         >
           <i class="fa fa-file-text"></i> <span>Templates</span>
           <i class="fa fa-caret-down"></i>
-        </button>
+        </BaseButton>
 
-        <div
-          v-if="showTemplatesMenu"
-          class="absolute right-0 mt-2 w-52 bg-gray-800 dark:bg-neutral-900 rounded shadow-lg flex flex-col divide-y divide-gray-700 overflow-hidden z-20"
-        >
-          <button
+        <BaseDropdownMenu :show="showTemplatesMenu">
+          <BaseButton
             v-for="t in templates"
             :key="t.template"
             @click="loadTemplate(t)"
             class="px-4 py-2 hover:bg-gray-700 text-left"
           >
             {{ t.name }}
-          </button>
+          </BaseButton>
           <div
             v-if="templates.length === 0"
             class="px-4 py-2 text-gray-400 text-center"
           >
             No templates available
           </div>
-        </div>
+        </BaseDropdownMenu>
       </div>
 
       <!-- open / save -->
-      <button
+      <BaseButton
         class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         @click="openFile"
       >
         <i class="fa fa-folder-open"></i> <span>Open</span>
-      </button>
-      <button
+      </BaseButton>
+      <BaseButton
         class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         @click="saveFlow"
       >
         <i class="fa fa-save"></i> <span>Save</span>
-      </button>
+      </BaseButton>
 
       <!-- user settings dropdown -->
       <div class="relative">
-        <button
+        <BaseButton
           @click="toggleUserMenu"
           class="bg-gray-700 hover:bg-gray-600 rounded px-3 py-1 text-sm flex items-center space-x-1"
         >
           <i class="fa fa-user-circle"></i> <span>{{ username }}</span>
           <i class="fa fa-caret-down"></i>
-        </button>
+        </BaseButton>
         <UserSettings
           v-if="showUserMenu"
           :showMenu="showUserMenu"
@@ -91,31 +88,28 @@
     <!-- MOBILE hamburger ---------------------------------------------------->
     <div class="flex-1 flex justify-end lg:hidden">
       <div class="relative">
-        <button
+        <BaseButton
           @click="mobileMenuOpen = !mobileMenuOpen"
           class="p-2 rounded hover:bg-gray-800"
         >
           <i class="fa fa-bars text-xl"></i>
-        </button>
+        </BaseButton>
 
         <!-- mobile dropdown -->
-        <div
-          v-if="mobileMenuOpen"
-          class="absolute right-0 mt-2 w-52 bg-gray-800 dark:bg-neutral-900 rounded shadow-lg flex flex-col divide-y divide-gray-700 overflow-hidden z-20"
-        >
-          <button @click="toggleTemplatesMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
+        <BaseDropdownMenu :show="mobileMenuOpen">
+          <BaseButton @click="toggleTemplatesMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
             Templates
-          </button>
-          <button @click="openFile" class="px-4 py-2 hover:bg-gray-700 text-left">
+          </BaseButton>
+          <BaseButton @click="openFile" class="px-4 py-2 hover:bg-gray-700 text-left">
             Open
-          </button>
-          <button @click="saveFlow" class="px-4 py-2 hover:bg-gray-700 text-left">
+          </BaseButton>
+          <BaseButton @click="saveFlow" class="px-4 py-2 hover:bg-gray-700 text-left">
             Save
-          </button>
-          <button @click="toggleUserMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
+          </BaseButton>
+          <BaseButton @click="toggleUserMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
             User&nbsp;Settings
-          </button>
-        </div>
+          </BaseButton>
+        </BaseDropdownMenu>
       </div>
     </div>
   </div>
@@ -125,6 +119,8 @@
 import { ref, onMounted, watch } from 'vue';
 import UserSettings from '@/components/UserSettings.vue';
 import ManifoldLogo from '@/components/icons/ManifoldLogo.vue';
+import BaseButton from '@/components/base/BaseButton.vue';
+import BaseDropdownMenu from '@/components/base/BaseDropdownMenu.vue';
 
 /* ───────────────────────── refs/state ───────────────────────── */
 const fileInput = ref<HTMLInputElement | null>(null);

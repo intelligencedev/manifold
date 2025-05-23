@@ -20,7 +20,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -trimpath -o /app/mcp-man
 FROM ghcr.io/openai/codex-universal:latest
 
 # Install dependencies for tools
-RUN apt-get update && apt-get install -y git ca-certificates tzdata bash openssh-client && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git ca-certificates tzdata bash openssh-client \
+    wget gnupg2 \
+    # Install Chromium browser (works on both amd64 and arm64)
+    chromium-browser \
+    # Other required dependencies for headless browser usage
+    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf \
+    --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application
 RUN groupadd -r manifold && useradd -r -g manifold -m -s /bin/bash manifold
@@ -57,6 +64,12 @@ USER manifold
 
 # Set environment variable for data path
 ENV DATA_PATH=/data
+
+# Configure Chromium for headless mode
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROME_PATH=/usr/lib/chromium/
+# Following flags are needed for Chromium to run in a containerized environment
+ENV CHROME_FLAGS="--headless --disable-gpu --no-sandbox --disable-dev-shm-usage"
 
 # Command to run the binary
 ENTRYPOINT ["/app/mcp-manifold"]

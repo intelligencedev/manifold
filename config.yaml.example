@@ -113,6 +113,10 @@ completions:
   default_host: "http://127.0.0.1:32186/v1/chat/completions"
   completions_model: 'gpt-4.1-mini' # ignored if using local endpoint
   api_key: "" # Used with OpenAI API if configured as default host
+  agent:
+    max_steps: 100
+    memory: false
+    num_tools: 5
 
 # Example CLI command for running the embeddings service manually:
 # llama-server -m <data_path>/models/embeddings/nomic-embed-text-v1.5.Q8_0.gguf -c 65536 -np 8 -b 8192 -ub 8192 -fa --host 127.0.0.1 --port 32184 -lv 1 --embedding

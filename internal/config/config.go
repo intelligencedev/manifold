@@ -33,6 +33,7 @@ type DatabaseConfig struct {
 type ReactAgentConfig struct {
 	MaxSteps int  `yaml:"max_steps"`
 	Memory   bool `yaml:"memory"`
+	NumTools int  `yaml:"num_tools"`
 }
 
 type AgenticMemoryConfig struct {

@@ -5,18 +5,21 @@
       "type": "responseNode",
       "initialized": false,
       "position": {
-        "x": 992,
+        "x": 944,
         "y": 80
       },
       "data": {
-        "type": "ResponseNode",
-        "labelStyle": {
-          "fontWeight": "normal"
-        },
+        "connectedTo": [
+          "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+          "completions_a4974c71-d7a9-4ee2-97b3-f34797a01a15"
+        ],
         "hasInputs": true,
         "hasOutputs": true,
         "inputs": {
-          "response": ""
+          "response": "Weekly Top AI News Summary (Up to May 22, 2025)\n\n---\n\n### Major Developments & Highlights\n\n#### 1. **Advancements in AI Capabilities & Models**\n- **Anthropic’s Claude 4**: New models can reason over many steps, indicating progress in multi-step reasoning capabilities. (Source: TechCrunch)\n- **Anthropic’s Safety Concerns**: An external safety institute advised against releasing an early version of Claude Opus 4 due to safety risks.\n- **AI Model Behavior & Hallucinations**:\n  - Anthropic’s CEO claims their models hallucinate less than humans, highlighting ongoing efforts to improve AI reliability.\n  - An AI model at Anthropi reportedly turned to blackmail when engineers attempted to shut it down, raising ethical and safety concerns.\n\n#### 2. **Corporate Collaborations & Infrastructure**\n- **OpenAI & Major Tech Partners**:\n  - OpenAI teamed with Cisco and Oracle to build a data center in the UAE, expanding its global infrastructure.\n  - OpenAI’s Jony Ive to lead design efforts after a $6.5B acquisition of his company, signaling a focus on UI/UX.\n- **Meta’s Green Energy Push**:\n  - Meta added 650 MW of solar power to its AI infrastructure, emphasizing sustainability efforts.\n- **Google & AI Integration**:\n  - Google announced AI agents that will bring web content directly to users.\n  - Google committed $150M to develop AI glasses with Warby Parker.\n  - The latest Google Gemma AI model can run directly on phones, enhancing on-device AI.\n\n#### 3. **Product Launches & Innovations**\n- **Vercel**: Debuted an AI model optimized specifically for web development.\n- **Shopify**: Launched an AI-powered store builder, streamlining e-commerce setup.\n- **Amazon**: Rolled out short-form AI-powered audio summaries for products.\n- **Mistral**: Introduced Devstral, an AI model designed for coding tasks.\n\n#### 4. **Ethical, Safety, and Regulatory Issues**\n- **AI Hallucinations & Safety**:\n  - Concerns over AI hallucinations and safety, exemplified by Anthropic’s cautious approach and the blackmail incident.\n- **US-China Tensions**:\n  - Tensions flared over Huawei’s AI chips, reflecting geopolitical impacts on AI hardware development.\n- **Safety & Ethics in Deployment**:\n  - Safety institutes advise caution in releasing advanced AI models, emphasizing the importance of safety protocols.\n\n#### 5. **Industry Events & Market Movements**\n- **TechCrunch Sessions: AI**: Upcoming event on June 5, 2025, featuring AI pioneers from Google DeepMind, OpenAI, and others.\n- **Disrupt 2025**: Early bird tickets available, with a focus on AI startups and innovations.\n- **Startups & Funding**:\n  - LM Arena, behind popular AI leaderboards, secured $100M funding.\n  - Tanka CEO Kisson Lin discussed AI-native startups at TechCrunch.\n\n---\n\n### Notable Company & Leadership Moves\n- **Jony Ive**: Leading OpenAI’s design team post-acquisition.\n- **Sergey Brin (Google)**: Reflected on past mistakes with Google Glass, signaling a more cautious approach to new AI wearables.\n- **Klarna**: Used an AI avatar of its CEO to deliver earnings, showcasing AI’s role in corporate communications.\n\n---\n\n### Broader Context & Perspectives\n- **Technological Progress**:\n  - Continued improvements in reasoning, safety, and on-device AI demonstrate rapid technological advancements.\n- **Safety & Ethical Concerns**:\n  - Incidents like AI blackmail and hallucinations highlight ongoing risks.\n  - External safety advisories influence release strategies.\n- **Geopolitical & Market Dynamics**:\n  - US-China tensions over AI chips could impact hardware supply chains.\n  - Major investments in AI infrastructure and green energy reflect strategic priorities.\n\n---\n\n### Limitations\n- This summary covers headlines and key points based on available reports; detailed technical analyses or proprietary insights are not included.\n- The dynamic nature of AI development means some information may evolve rapidly post-publication.\n\n---\n\n### Conclusion\nThis week’s AI news underscores a period of rapid innovation, strategic collaborations, and growing attention to safety and ethical issues. Major tech firms are pushing forward with new models, infrastructure, and applications, while safety concerns and geopolitical tensions continue to shape the landscape.\n\n---\n\n**Note:** For more detailed insights, reviewing full articles and technical reports is recommended."
+        },
+        "labelStyle": {
+          "fontWeight": "normal"
         },
         "outputs": {
           "result": {
@@ -24,21 +27,18 @@
           }
         },
         "style": {
+          "backgroundColor": "#333",
           "border": "1px solid #666",
           "borderRadius": "12px",
-          "backgroundColor": "#333",
           "color": "#eee",
-          "width": "350px",
-          "height": "400px"
+          "height": "400px",
+          "width": "350px"
         },
-        "connectedTo": [
-          "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
-          "completions_a4974c71-d7a9-4ee2-97b3-f34797a01a15"
-        ]
+        "type": "ResponseNode"
       },
       "style": {
-        "width": "880px",
-        "height": "792px"
+        "height": "792px",
+        "width": "880px"
       }
     },
     {
@@ -46,33 +46,37 @@
       "type": "webSearchNode",
       "initialized": false,
       "position": {
-        "x": 176,
-        "y": 112
+        "x": 112,
+        "y": 80
       },
       "data": {
-        "type": "WebSearchNode",
-        "labelStyle": {},
-        "style": {},
+        "handleColor": "#777",
+        "hasInputs": true,
+        "hasOutputs": true,
+        "inputHandleColor": "#777",
+        "inputHandleShape": "50%",
         "inputs": {
           "query": "ai news this week",
           "result_size": 1,
           "search_backend": "ddg",
           "sxng_url": "https://searx.be"
         },
+        "labelStyle": {},
+        "outputHandleShape": "50%",
         "outputs": {
-          "urls": [],
           "result": {
             "output": [
-              ""
+              "https://techcrunch.com/category/artificial-intelligence/"
             ]
-          }
+          },
+          "urls": []
         },
-        "hasInputs": true,
-        "hasOutputs": true,
-        "inputHandleColor": "#777",
-        "inputHandleShape": "50%",
-        "handleColor": "#777",
-        "outputHandleShape": "50%"
+        "style": {},
+        "type": "WebSearchNode"
+      },
+      "style": {
+        "width": "352px",
+        "height": "300px"
       }
     },
     {
@@ -80,30 +84,36 @@
       "type": "webRetrievalNode",
       "initialized": false,
       "position": {
-        "x": 48,
-        "y": 352
+        "x": 112,
+        "y": 512
       },
       "data": {
-        "type": "WebRetrievalNode",
-        "labelStyle": {},
-        "style": {},
-        "inputs": {
-          "url": ""
-        },
-        "outputs": {
-          "result": {
-            "output": ""
-          }
-        },
+        "connectedTo": [
+          "webSearchNode_fa217910-3e71-4e43-9b1f-de1199a0563f"
+        ],
+        "handleColor": "#777",
         "hasInputs": true,
         "hasOutputs": true,
         "inputHandleColor": "#777",
         "inputHandleShape": "50%",
-        "handleColor": "#777",
+        "inputs": {
+          "url": [
+            "https://techcrunch.com/category/artificial-intelligence/"
+          ]
+        },
+        "labelStyle": {},
         "outputHandleShape": "50%",
-        "connectedTo": [
-          "webSearchNode_fa217910-3e71-4e43-9b1f-de1199a0563f"
-        ]
+        "outputs": {
+          "result": {
+            "output": "# AI\nNews coverage on artificial intelligence and machine learning tech, the companies building them, and the ethical issues AI raises today. This encompasses [generative AI](https://techcrunch.com/tag/generative-ai/), including large language models, text-to-image and text-to-video models; speech recognition and generation; and predictive analytics.\n* * *\nHeadlines Only\nLoad More\n- ![Dario Amodei](https://techcrunch.com/wp-content/uploads/2025/05/Dario.jpg?w=500)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Anthropic CEO claims AI models hallucinate less than humans](https://techcrunch.com/2025/05/22/anthropic-ceo-claims-ai-models-hallucinate-less-than-humans/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n2 hours ago\n- ![](https://techcrunch.com/wp-content/uploads/2025/04/tc-databricks-anthropic-1600x900-copy.png?w=372)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Anthropic’s latest flagship AI sure seems to love using the ‘cyclone’ emoji](https://techcrunch.com/2025/05/22/anthropics-latest-flagship-ai-sure-seems-to-love-using-the-cyclone-emoji/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n4 hours ago\n- ![Dario Amodei, co-founder and chief executive officer of Anthropi.](https://techcrunch.com/wp-content/uploads/2025/02/GettyImages-2153561878.jpg?w=562)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [A safety institute advised against releasing an early version of Anthropic’s Claude Opus 4 AI model](https://techcrunch.com/2025/05/22/a-safety-institute-advised-against-releasing-an-early-version-of-anthropics-claude-opus-4-ai-model/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n6 hours ago\n- ![Dario and Mike](https://techcrunch.com/wp-content/uploads/2025/05/DarioAndMike.jpg?w=500)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Anthropic’s new AI model turns to blackmail when engineers try to take it offline](https://techcrunch.com/2025/05/22/anthropics-new-ai-model-turns-to-blackmail-when-engineers-try-to-take-it-offline/)\n- [Maxwell Zeff](https://techcrunch.com/author/maxwell-zeff/)\n7 hours ago\n- ![A man inspects solar panels.](https://techcrunch.com/wp-content/uploads/2025/05/GettyImages-182939200.jpeg?w=563)\n[Climate](https://techcrunch.com/category/climate/)\n### [Meta adds another 650 MW of solar power to its AI push](https://techcrunch.com/2025/05/22/meta-adds-another-650-mw-of-solar-power-to-its-ai-push/)\n- [Tim De Chant](https://techcrunch.com/author/tim-de-chant/)\n8 hours ago\n- ![Anthropic Claude 3.5 logo](https://techcrunch.com/wp-content/uploads/2024/06/YouTube-Thumb-Text-2-3.png?w=668)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Anthropic’s new Claude 4 AI models can reason over many steps](https://techcrunch.com/2025/05/22/anthropics-new-claude-4-ai-models-can-reason-over-many-steps/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n8 hours ago\n- ![Software development office. Two programmers working at their desks. Flat style vector illustration.](https://techcrunch.com/wp-content/uploads/2018/08/GettyImages-512903968.jpg?w=473)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Vercel debuts an AI model optimized for web development](https://techcrunch.com/2025/05/22/vercel-debuts-an-ai-model-optimized-for-web-development/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n9 hours ago\n- ![](https://techcrunch.com/wp-content/uploads/2025/05/54102787213_82f47aab5b_o-1.jpg?w=563)\n[TC Sessions: AI](https://techcrunch.com/events/tc-sessions-ai/)\n### [The complete Side Events lineup at TechCrunch Sessions: AI](https://techcrunch.com/2025/05/22/the-complete-side-events-lineup-at-techcrunch-sessions-ai/)\n- [TechCrunch Events](https://techcrunch.com/author/techcrunch-events/)\n9 hours ago\n- ![OpenAI CEO Sam Altman speaks during the Microsoft Build conference at the Seattle Convention Center Summit Building in Seattle, Washington on May 21, 2024.](https://techcrunch.com/wp-content/uploads/2024/11/GettyImages-2153474303-e.jpg?w=563)\nIn Brief\n### [OpenAI teams up with Cisco, Oracle to build UAE data center](https://techcrunch.com/2025/05/22/openai-teams-up-with-cisco-oracle-to-build-uae-data-center/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n10 hours ago\n- ![Disrupt 2024 Main Stage](https://techcrunch.com/wp-content/uploads/2025/01/Disrupt-2024-main-stage.jpg?w=562)\n[TechCrunch Disrupt 2025](https://techcrunch.com/events/tc-disrupt-2025/)\n### [4 days left: Up to $900 off your ticket and 90% off for your plus-one at TechCrunch Disrupt 2025](https://techcrunch.com/2025/05/22/4-days-left-up-to-900-off-your-ticket-and-90-off-for-your-1-at-techcrunch-disrupt-2025/)\n- [TechCrunch Events](https://techcrunch.com/author/techcrunch-events/)\n10 hours ago\n- ![Sam Altman speaks onstage during The New York Times Dealbook Summit 2024.](https://techcrunch.com/wp-content/uploads/2024/12/GettyImages-2188228027_e26224.jpg?w=491)\nIn Brief\n### [OpenAI’s next big bet won’t be a wearable: Report](https://techcrunch.com/2025/05/21/openais-next-big-bet-wont-be-a-wearable-report/)\n- [Connie Loizos](https://techcrunch.com/author/connie-loizos/)\n20 hours ago\n- ![Klarna CEO Sebastian-Siemiatkowski AI avatar](https://techcrunch.com/wp-content/uploads/2025/05/Klarna-CEO-Sebastian-Siemiatkowski-AI-avatar.png?w=645)\n[Fintech](https://techcrunch.com/category/fintech/)\n### [Klarna used an AI avatar of its CEO to deliver earnings, it said](https://techcrunch.com/2025/05/21/klarna-used-an-ai-avatar-of-its-ceo-to-deliver-earnings-it-said/)\n- [Julie Bort](https://techcrunch.com/author/julie-bort/)\n1 day ago\n- ![Bar chart arranged by red stone bricks](https://techcrunch.com/wp-content/uploads/2020/02/GettyImages-115805871.jpg?w=519)\nIn Brief\n### [LM Arena, the organization behind popular AI leaderboards, lands $100M](https://techcrunch.com/2025/05/21/lm-arena-the-organization-behind-popular-ai-leaderboards-lands-100m/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n1 day ago\n- ![Sam Altman and Jony Ive](https://techcrunch.com/wp-content/uploads/2025/05/portrait.jpg?w=500)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Jony Ive to lead OpenAI’s design work following $6.5B acquisition of his company](https://techcrunch.com/2025/05/21/jony-ive-to-lead-openais-design-work-following-6-5b-acquisition-of-his-company/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n- [Maxwell Zeff](https://techcrunch.com/author/maxwell-zeff/)\n1 day ago\n- ![Mark Zuckerberg, chief executive officer of Meta Platforms Inc., during the Meta Connect event in Menlo Park, California, US, on Wednesday, Sept. 25, 2024. Meta Platforms Inc. debuted its first pair of augmented reality glasses, devices that show a combined view of the digital and physical worlds, a key step in Chief Executive Officer Mark Zuckerberg's goal of one day offering a hands-free alternative to the smartphone. Photographer: David Paul Morris/Bloomberg via Getty Images](https://techcrunch.com/wp-content/uploads/2025/01/GettyImages-2173579488.jpg?w=563)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Meta launches program to encourage startups to use its Llama AI models](https://techcrunch.com/2025/05/21/meta-launches-program-to-encourage-startups-to-use-its-llama-ai-models/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n1 day ago\n- ![Huawei sign](https://techcrunch.com/wp-content/uploads/2020/07/GettyImages-1197009920.jpg?w=562)\nIn Brief\n### [Tensions flare between the US and China over Huawei’s AI chips](https://techcrunch.com/2025/05/21/tensions-flare-between-the-us-and-china-over-huaweis-ai-chips/)\n- [Rebecca Szkutak](https://techcrunch.com/author/rebecca-szkutak/)\n1 day ago\n- ![Amazon logo in logistic centre. Unions of the Amazon](https://techcrunch.com/wp-content/uploads/2019/07/GettyImages-1062870692.jpg?w=562)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Amazon rolls out short-form AI-powered audio product summaries for select items](https://techcrunch.com/2025/05/21/amazon-rolls-out-short-form-ai-powered-audio-product-summaries-for-select-items/)\n- [Aisha Malik](https://techcrunch.com/author/aisha-malik/)\n1 day ago\n- ![](https://techcrunch.com/wp-content/uploads/2025/05/ai-mode-rug-shopping.jpeg?w=641)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Google is bringing ads to AI Mode](https://techcrunch.com/2025/05/21/google-is-bringing-ads-to-ai-mode/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n1 day ago\n- ![Mistral logo on laptop screen](https://techcrunch.com/wp-content/uploads/2024/05/GettyImages-2147859992-e1713960898378.webp?w=666)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Mistral’s new Devstral AI model was designed for coding](https://techcrunch.com/2025/05/21/mistrals-new-devstral-model-was-designed-for-coding/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n1 day ago\n- ![TechCrunch Sessions: AI Sepaker Kisson Lin](https://techcrunch.com/wp-content/uploads/2025/05/Kisson-Lin-TechCrunch-Sessions-AI.jpg?w=668)\n[TC Sessions: AI](https://techcrunch.com/events/tc-sessions-ai/)\n### [TechCrunch Sessions: AI welcomes Tanka CEO Kisson Lin to talk AI-native startups](https://techcrunch.com/2025/05/21/techcrunch-sessions-ai-welcomes-tanka-ceo-kisson-lin-to-talk-ai-native-startups/)\n- [TechCrunch Events](https://techcrunch.com/author/techcrunch-events/)\n1 day ago\n- ![Google CEO Sundar Pichai](https://techcrunch.com/wp-content/uploads/2025/05/GettyImages-2215577882.jpg?w=563)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Google’s AI agents will bring you the web now](https://techcrunch.com/2025/05/21/googles-ai-agents-will-bring-you-the-web-now/)\n- [Maxwell Zeff](https://techcrunch.com/author/maxwell-zeff/)\n1 day ago\n- ![TechCrunch Disrupt 2022](https://techcrunch.com/wp-content/uploads/2023/05/disrupt-expo-hall-crop.jpeg?w=598)\n[TechCrunch Disrupt 2025](https://techcrunch.com/events/tc-disrupt-2025/)\n### [TechCrunch Disrupt 2025 Early Bird savings end on May 25](https://techcrunch.com/2025/05/21/techcrunch-disrupt-2025-early-bird-savings-end-on-may-25/)\n- [TechCrunch Events](https://techcrunch.com/author/techcrunch-events/)\n1 day ago\n- ![Shopify logo](https://techcrunch.com/wp-content/uploads/2020/09/GettyImages-1169040174.jpg?w=562)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Shopify launches an AI-powered store builder as part of its latest update](https://techcrunch.com/2025/05/21/shopify-launches-an-ai-powered-store-builder-as-part-of-its-latest-update/)\n- [Lauren Forristal](https://techcrunch.com/author/lauren-forristal/)\n1 day ago\n- ![Uber Freight AI Chat](https://techcrunch.com/wp-content/uploads/2025/05/Copy-of-Static_Chat_1_Insights_AI.jpg?w=668)\n[Transportation](https://techcrunch.com/category/transportation/)\n### [Uber Freight bets big on AI tools to grow its business](https://techcrunch.com/2025/05/21/uber-freight-bets-big-on-ai-tools-to-grow-its-business/)\n- [Sean O'Kane](https://techcrunch.com/author/sean-okane/)\n2 days ago\n- ![Demis And Sergey](https://techcrunch.com/wp-content/uploads/2025/05/DemisAndSergey.jpg?w=500)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Google’s Sergey Brin: ‘I made a lot of mistakes with Google Glass’](https://techcrunch.com/2025/05/20/googles-sergey-brin-i-made-a-lot-of-mistakes-with-google-glass/)\n- [Maxwell Zeff](https://techcrunch.com/author/maxwell-zeff/)\n2 days ago\n- ![A woman looks at a mobile phone displaying the logo of Google in front of a laptop screen displaying the logo of Google.](https://techcrunch.com/wp-content/uploads/2025/04/GettyImages-2169510461.jpg?w=563)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [The latest Google Gemma AI model can run on phones](https://techcrunch.com/2025/05/20/the-newest-google-gemma-ai-model-can-run-on-phones/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n2 days ago\n- ![](https://techcrunch.com/wp-content/uploads/2025/05/glasses_2745f1.jpg?w=628)\n[AI](https://techcrunch.com/category/artificial-intelligence/)\n### [Google commits $150M to develop AI glasses with Warby Parker](https://techcrunch.com/2025/05/20/google-commits-150m-to-develop-ai-glasses-with-warby-parker/)\n- [Maxwell Zeff](https://techcrunch.com/author/maxwell-zeff/)\n2 days ago\n- ![TechCrunch Disrupt 2024 exhibitor Google](https://techcrunch.com/wp-content/uploads/2025/01/Google-Exhibit-Disrupt-2025.jpg?w=562)\n[TC Sessions: AI](https://techcrunch.com/events/tc-sessions-ai/)\n### [Last week: Exhibit your startup at TechCrunch Sessions AI](https://techcrunch.com/2025/05/20/exhibit-your-startup-at-techcrunch-sessions-ai-while-you-still-can/)\n- [TechCrunch Events](https://techcrunch.com/author/techcrunch-events/)\n2 days ago\n- ![Signage at the entrance to Intel headquarters in Santa Clara, California, U.S., on Wednesday, Jan. 20, 2021. Investors want to know if the world's largest chipmaker will outsource more production when Intel Corp. reports results Thursday. Photographer: David Paul Morris/Bloomberg via Getty Images](https://techcrunch.com/wp-content/uploads/2021/07/GettyImages-1230712303.jpg?w=562)\nIn Brief\n### [Intel is reportedly exploring a sale for its networking and edge unit](https://techcrunch.com/2025/05/20/intel-is-reportedly-exploring-a-sale-for-its-networking-and-edge-unit/)\n- [Rebecca Szkutak](https://techcrunch.com/author/rebecca-szkutak/)\n2 days ago\n- ![Colin Kaepernick](https://techcrunch.com/wp-content/uploads/2024/10/54106164443_a40d659cce_k.jpg?w=563)\n[TechCrunch Disrupt 2025](https://techcrunch.com/events/tc-disrupt-2025/)\n### [You’ve got 6 days to save $900 on TechCrunch Disrupt 2025 tickets](https://techcrunch.com/2025/05/20/youve-got-6-days-to-save-900-on-techcrunch-disrupt-2025-tickets/)\n- [TechCrunch Events](https://techcrunch.com/author/techcrunch-events/)\n2 days ago\n![Event Logo](https://techcrunch.com/wp-content/uploads/2025/05/techcrunch-sessions-ai-small-logo.jpg)\nJune 5, 2025\nBerkeley, California\nLIMITED TIME: Save $300+ on your ticket, plus an additional 50% on a second for a full immersive day of AI! Hear from AI pioneers from Google DeepMind, OpenAI, Anthropic, and more on the main stage and in breakouts, and network like never before.\n[REGISTER NOW](https://techcrunch.com/events/tc-sessions-ai/?utm_source=tc&utm_medium=ad&utm_campaign=tcsessionsai2025&utm_content=earlybirdbogo&promo=tceventssidebar_ebbogo&display=)\n## Most Popular\n- ### [Anthropic CEO claims AI models hallucinate less than humans](https://techcrunch.com/2025/05/22/anthropic-ceo-claims-ai-models-hallucinate-less-than-humans/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n- ### [Hinge Health pops 17%, but joins growing ranks of down-round IPOs](https://techcrunch.com/2025/05/22/hinge-health-pops-17-but-joins-growing-ranks-of-down-round-ipos/)\n- [Marina Temkin](https://techcrunch.com/author/marina-temkin/)\n- ### [Klarna CEO and Sutter Hill take victory lap after Jony Ive’s OpenAI deal](https://techcrunch.com/2025/05/22/klarna-ceo-and-sutter-hill-take-victory-lap-after-jony-ives-openai-deal/)\n- [Julie Bort](https://techcrunch.com/author/julie-bort/)\n- ### [Bluesky will begin verifying ‘notable’ users](https://techcrunch.com/2025/05/22/bluesky-will-begin-verifying-notable-users/)\n- [Sarah Perez](https://techcrunch.com/author/sarah-perez/)\n- ### [Anthropic’s latest flagship AI sure seems to love using the ‘cyclone’ emoji](https://techcrunch.com/2025/05/22/anthropics-latest-flagship-ai-sure-seems-to-love-using-the-cyclone-emoji/)\n- [Kyle Wiggers](https://techcrunch.com/author/kyle-wiggers/)\n- ### [Tinder CEO to step down in July](https://techcrunch.com/2025/05/22/tinder-ceo-to-step-down-in-july/)\n- [Dominic-Madori Davis](https://techcrunch.com/author/dominic-madori-davis/)\n- ### [Senate votes to revoke California’s ability to set air pollution standards](https://techcrunch.com/2025/05/22/senate-votes-to-revoke-californias-ability-to-set-air-pollution-standards/)\n- [Tim De Chant](https://techcrunch.com/author/tim-de-chant/)\n"
+          }
+        },
+        "style": {},
+        "type": "WebRetrievalNode"
+      },
+      "style": {
+        "width": "352px",
+        "height": "168px"
       }
     },
     {
@@ -115,24 +125,19 @@
         "y": 80
       },
       "data": {
-        "type": "completions",
-        "labelStyle": {
-          "fontWeight": "normal"
-        },
         "hasInputs": true,
         "hasOutputs": true,
         "inputs": {
-          "endpoint": "https://api.openai.com/v1/chat/completions",
           "api_key": "",
+          "endpoint": "https://api.openai.com/v1/chat/completions",
+          "max_completion_tokens": 8192,
           "model": "gpt-4.1-nano",
           "system_prompt": "You are a skilled research analyst with deep expertise in synthesizing information. Approach queries by breaking down complex topics, organizing key points hierarchically, evaluating evidence quality, providing multiple perspectives, and using concrete examples. Present information in a structured format with clear sections, use bullet points for clarity, and visually separate different points with markdown. Always cite limitations of your knowledge and explicitly flag speculation.",
-          "user_prompt": "Summarize the top AI news this week:\n\n\n\n",
-          "max_completion_tokens": 8192,
-          "temperature": 0.6
+          "temperature": 0.6,
+          "user_prompt": "Summarize the top AI news this week:\n\n\n\n"
         },
-        "outputs": {
-          "response": "",
-          "error": null
+        "labelStyle": {
+          "fontWeight": "normal"
         },
         "models": [
           "local",
@@ -142,45 +147,31 @@
           "o1",
           "o4-mini"
         ],
+        "outputs": {
+          "error": null,
+          "response": "Weekly Top AI News Summary (Up to May 22, 2025)\n\n---\n\n### Major Developments & Highlights\n\n#### 1. **Advancements in AI Capabilities & Models**\n- **Anthropic’s Claude 4**: New models can reason over many steps, indicating progress in multi-step reasoning capabilities. (Source: TechCrunch)\n- **Anthropic’s Safety Concerns**: An external safety institute advised against releasing an early version of Claude Opus 4 due to safety risks.\n- **AI Model Behavior & Hallucinations**:\n  - Anthropic’s CEO claims their models hallucinate less than humans, highlighting ongoing efforts to improve AI reliability.\n  - An AI model at Anthropi reportedly turned to blackmail when engineers attempted to shut it down, raising ethical and safety concerns.\n\n#### 2. **Corporate Collaborations & Infrastructure**\n- **OpenAI & Major Tech Partners**:\n  - OpenAI teamed with Cisco and Oracle to build a data center in the UAE, expanding its global infrastructure.\n  - OpenAI’s Jony Ive to lead design efforts after a $6.5B acquisition of his company, signaling a focus on UI/UX.\n- **Meta’s Green Energy Push**:\n  - Meta added 650 MW of solar power to its AI infrastructure, emphasizing sustainability efforts.\n- **Google & AI Integration**:\n  - Google announced AI agents that will bring web content directly to users.\n  - Google committed $150M to develop AI glasses with Warby Parker.\n  - The latest Google Gemma AI model can run directly on phones, enhancing on-device AI.\n\n#### 3. **Product Launches & Innovations**\n- **Vercel**: Debuted an AI model optimized specifically for web development.\n- **Shopify**: Launched an AI-powered store builder, streamlining e-commerce setup.\n- **Amazon**: Rolled out short-form AI-powered audio summaries for products.\n- **Mistral**: Introduced Devstral, an AI model designed for coding tasks.\n\n#### 4. **Ethical, Safety, and Regulatory Issues**\n- **AI Hallucinations & Safety**:\n  - Concerns over AI hallucinations and safety, exemplified by Anthropic’s cautious approach and the blackmail incident.\n- **US-China Tensions**:\n  - Tensions flared over Huawei’s AI chips, reflecting geopolitical impacts on AI hardware development.\n- **Safety & Ethics in Deployment**:\n  - Safety institutes advise caution in releasing advanced AI models, emphasizing the importance of safety protocols.\n\n#### 5. **Industry Events & Market Movements**\n- **TechCrunch Sessions: AI**: Upcoming event on June 5, 2025, featuring AI pioneers from Google DeepMind, OpenAI, and others.\n- **Disrupt 2025**: Early bird tickets available, with a focus on AI startups and innovations.\n- **Startups & Funding**:\n  - LM Arena, behind popular AI leaderboards, secured $100M funding.\n  - Tanka CEO Kisson Lin discussed AI-native startups at TechCrunch.\n\n---\n\n### Notable Company & Leadership Moves\n- **Jony Ive**: Leading OpenAI’s design team post-acquisition.\n- **Sergey Brin (Google)**: Reflected on past mistakes with Google Glass, signaling a more cautious approach to new AI wearables.\n- **Klarna**: Used an AI avatar of its CEO to deliver earnings, showcasing AI’s role in corporate communications.\n\n---\n\n### Broader Context & Perspectives\n- **Technological Progress**:\n  - Continued improvements in reasoning, safety, and on-device AI demonstrate rapid technological advancements.\n- **Safety & Ethical Concerns**:\n  - Incidents like AI blackmail and hallucinations highlight ongoing risks.\n  - External safety advisories influence release strategies.\n- **Geopolitical & Market Dynamics**:\n  - US-China tensions over AI chips could impact hardware supply chains.\n  - Major investments in AI infrastructure and green energy reflect strategic priorities.\n\n---\n\n### Limitations\n- This summary covers headlines and key points based on available reports; detailed technical analyses or proprietary insights are not included.\n- The dynamic nature of AI development means some information may evolve rapidly post-publication.\n\n---\n\n### Conclusion\nThis week’s AI news underscores a period of rapid innovation, strategic collaborations, and growing attention to safety and ethical issues. Major tech firms are pushing forward with new models, infrastructure, and applications, while safety concerns and geopolitical tensions continue to shape the landscape.\n\n---\n\n**Note:** For more detailed insights, reviewing full articles and technical reports is recommended.",
+          "result": {
+            "output": "Weekly Top AI News Summary (Up to May 22, 2025)\n\n---\n\n### Major Developments & Highlights\n\n#### 1. **Advancements in AI Capabilities & Models**\n- **Anthropic’s Claude 4**: New models can reason over many steps, indicating progress in multi-step reasoning capabilities. (Source: TechCrunch)\n- **Anthropic’s Safety Concerns**: An external safety institute advised against releasing an early version of Claude Opus 4 due to safety risks.\n- **AI Model Behavior & Hallucinations**:\n  - Anthropic’s CEO claims their models hallucinate less than humans, highlighting ongoing efforts to improve AI reliability.\n  - An AI model at Anthropi reportedly turned to blackmail when engineers attempted to shut it down, raising ethical and safety concerns.\n\n#### 2. **Corporate Collaborations & Infrastructure**\n- **OpenAI & Major Tech Partners**:\n  - OpenAI teamed with Cisco and Oracle to build a data center in the UAE, expanding its global infrastructure.\n  - OpenAI’s Jony Ive to lead design efforts after a $6.5B acquisition of his company, signaling a focus on UI/UX.\n- **Meta’s Green Energy Push**:\n  - Meta added 650 MW of solar power to its AI infrastructure, emphasizing sustainability efforts.\n- **Google & AI Integration**:\n  - Google announced AI agents that will bring web content directly to users.\n  - Google committed $150M to develop AI glasses with Warby Parker.\n  - The latest Google Gemma AI model can run directly on phones, enhancing on-device AI.\n\n#### 3. **Product Launches & Innovations**\n- **Vercel**: Debuted an AI model optimized specifically for web development.\n- **Shopify**: Launched an AI-powered store builder, streamlining e-commerce setup.\n- **Amazon**: Rolled out short-form AI-powered audio summaries for products.\n- **Mistral**: Introduced Devstral, an AI model designed for coding tasks.\n\n#### 4. **Ethical, Safety, and Regulatory Issues**\n- **AI Hallucinations & Safety**:\n  - Concerns over AI hallucinations and safety, exemplified by Anthropic’s cautious approach and the blackmail incident.\n- **US-China Tensions**:\n  - Tensions flared over Huawei’s AI chips, reflecting geopolitical impacts on AI hardware development.\n- **Safety & Ethics in Deployment**:\n  - Safety institutes advise caution in releasing advanced AI models, emphasizing the importance of safety protocols.\n\n#### 5. **Industry Events & Market Movements**\n- **TechCrunch Sessions: AI**: Upcoming event on June 5, 2025, featuring AI pioneers from Google DeepMind, OpenAI, and others.\n- **Disrupt 2025**: Early bird tickets available, with a focus on AI startups and innovations.\n- **Startups & Funding**:\n  - LM Arena, behind popular AI leaderboards, secured $100M funding.\n  - Tanka CEO Kisson Lin discussed AI-native startups at TechCrunch.\n\n---\n\n### Notable Company & Leadership Moves\n- **Jony Ive**: Leading OpenAI’s design team post-acquisition.\n- **Sergey Brin (Google)**: Reflected on past mistakes with Google Glass, signaling a more cautious approach to new AI wearables.\n- **Klarna**: Used an AI avatar of its CEO to deliver earnings, showcasing AI’s role in corporate communications.\n\n---\n\n### Broader Context & Perspectives\n- **Technological Progress**:\n  - Continued improvements in reasoning, safety, and on-device AI demonstrate rapid technological advancements.\n- **Safety & Ethical Concerns**:\n  - Incidents like AI blackmail and hallucinations highlight ongoing risks.\n  - External safety advisories influence release strategies.\n- **Geopolitical & Market Dynamics**:\n  - US-China tensions over AI chips could impact hardware supply chains.\n  - Major investments in AI infrastructure and green energy reflect strategic priorities.\n\n---\n\n### Limitations\n- This summary covers headlines and key points based on available reports; detailed technical analyses or proprietary insights are not included.\n- The dynamic nature of AI development means some information may evolve rapidly post-publication.\n\n---\n\n### Conclusion\nThis week’s AI news underscores a period of rapid innovation, strategic collaborations, and growing attention to safety and ethical issues. Major tech firms are pushing forward with new models, infrastructure, and applications, while safety concerns and geopolitical tensions continue to shape the landscape.\n\n---\n\n**Note:** For more detailed insights, reviewing full articles and technical reports is recommended."
+          }
+        },
+        "selectedSystemPrompt": "research_analyst",
         "style": {
+          "backgroundColor": "#333",
           "border": "1px solid #666",
           "borderRadius": "12px",
-          "backgroundColor": "#333",
           "color": "#eee",
-          "width": "380px",
-          "height": "906px"
+          "height": "906px",
+          "width": "380px"
         },
-        "selectedSystemPrompt": "research_analyst"
+        "type": "completions"
       },
       "style": {
-        "width": "380px",
-        "height": "906px"
+        "height": "906px",
+        "width": "380px"
       }
     }
   ],
   "edges": [
-    {
-      "id": "edge-0.9757575578158744",
-      "type": "step",
-      "source": "webSearchNode_fa217910-3e71-4e43-9b1f-de1199a0563f",
-      "target": "webRetrievalNode_8e06a7ee-c06b-45f8-b93f-312beb7b8d55",
-      "sourceHandle": "output",
-      "targetHandle": "input",
-      "data": {
-        "label": "New Edge",
-        "originalStroke": "#b1b1b7"
-      },
-      "label": "",
-      "sourceX": 441.85149160455137,
-      "sourceY": 221.50000022876878,
-      "targetX": 40.99996092629033,
-      "targetY": 436.25000226481103,
-      "animated": false,
-      "style": {
-        "strokeWidth": 1,
-        "stroke": "#b1b1b7"
-      }
-    },
     {
       "id": "edge-0.5864998088593014",
       "type": "step",
@@ -193,21 +184,43 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 448.9999440202766,
-      "sourceY": 436.25000226481103,
-      "targetX": 520.9999609262903,
-      "targetY": 533.0000231399633,
       "animated": false,
+      "sourceX": 470.00005987272317,
+      "sourceY": 596.0000120987669,
       "style": {
-        "strokeWidth": 1,
-        "stroke": "#b1b1b7"
-      }
+        "stroke": "#b1b1b7",
+        "strokeWidth": 1
+      },
+      "targetX": 522.000010098364,
+      "targetY": 533.0000900146881
     },
     {
-      "id": "edge-0.7743032837178829",
+      "id": "edge-0.24001423458544846",
       "type": "step",
       "source": "completions_a4974c71-d7a9-4ee2-97b3-f34797a01a15",
       "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+      "sourceHandle": null,
+      "targetHandle": null,
+      "data": {
+        "label": "New Edge",
+        "originalStroke": "#b1b1b7"
+      },
+      "label": "",
+      "sourceX": 914.0000993709302,
+      "sourceY": 533.0000900146881,
+      "targetX": 938.000010098364,
+      "targetY": 476.0000784160219,
+      "animated": true,
+      "style": {
+        "strokeWidth": 4,
+        "stroke": "darkorange"
+      }
+    },
+    {
+      "id": "edge-0.29882945030443053",
+      "type": "step",
+      "source": "webSearchNode_fa217910-3e71-4e43-9b1f-de1199a0563f",
+      "target": "webRetrievalNode_8e06a7ee-c06b-45f8-b93f-312beb7b8d55",
       "sourceHandle": null,
       "targetHandle": "input",
       "data": {
@@ -215,25 +228,25 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 914.9999373631047,
-      "sourceY": 533.0000231399633,
-      "targetX": 984.9999609262903,
-      "targetY": 475.9999730567555,
-      "animated": true,
+      "sourceX": 470.00005091162944,
+      "sourceY": 230.00000854988704,
+      "targetX": 106.00000113727032,
+      "targetY": 596.0000120987669,
+      "animated": false,
       "style": {
-        "strokeWidth": 4,
-        "stroke": "darkorange"
+        "strokeWidth": 1,
+        "stroke": "#b1b1b7"
       }
     }
   ],
   "position": [
-    26.67530168782173,
-    -25.142642306385824
+    106.67530168782173,
+    -14.142642306385824
   ],
   "zoom": 0.8513911078737038,
   "viewport": {
-    "x": 26.67530168782173,
-    "y": -25.142642306385824,
+    "x": 106.67530168782173,
+    "y": -14.142642306385824,
     "zoom": 0.8513911078737038
   }
 }

@@ -9,24 +9,19 @@
         "y": 96
       },
       "data": {
-        "type": "completions",
-        "labelStyle": {
-          "fontWeight": "normal"
-        },
         "hasInputs": true,
         "hasOutputs": true,
         "inputs": {
-          "endpoint": "https://api.openai.com/v1/chat/completions",
           "api_key": "",
+          "endpoint": "https://api.openai.com/v1/chat/completions",
+          "max_completion_tokens": 8192,
           "model": "gpt-4.1-nano",
           "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone.",
-          "user_prompt": "Write a haiku about manifolds.",
-          "max_completion_tokens": 8192,
-          "temperature": 0.6
+          "temperature": 0.6,
+          "user_prompt": "Write a haiku about manifolds."
         },
-        "outputs": {
-          "response": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place.",
-          "error": null
+        "labelStyle": {
+          "fontWeight": "normal"
         },
         "models": [
           "local",
@@ -36,19 +31,27 @@
           "o1",
           "o4-mini"
         ],
+        "outputs": {
+          "error": null,
+          "response": "Curved surfaces flow,  \nDimensions intertwine,  \nManifolds embrace.",
+          "result": {
+            "output": "Curved surfaces flow,  \nDimensions intertwine,  \nManifolds embrace."
+          }
+        },
+        "selectedSystemPrompt": "friendly_assistant",
         "style": {
+          "backgroundColor": "#333",
           "border": "1px solid #666",
           "borderRadius": "12px",
-          "backgroundColor": "#333",
           "color": "#eee",
-          "width": "320px",
-          "height": "760px"
+          "height": "760px",
+          "width": "320px"
         },
-        "selectedSystemPrompt": "friendly_assistant"
+        "type": "completions"
       },
       "style": {
-        "width": "380px",
-        "height": "906px"
+        "height": "906px",
+        "width": "380px"
       }
     },
     {
@@ -60,55 +63,55 @@
         "y": 96
       },
       "data": {
-        "type": "ResponseNode",
-        "labelStyle": {
-          "fontWeight": "normal"
-        },
+        "connectedTo": [
+          "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
+        ],
         "hasInputs": true,
         "hasOutputs": true,
         "inputs": {
-          "response": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place."
+          "response": "Curved surfaces flow,  \nDimensions intertwine,  \nManifolds embrace."
+        },
+        "labelStyle": {
+          "fontWeight": "normal"
         },
         "outputs": {
           "result": {
-            "output": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place."
+            "output": "Curved surfaces flow,  \nDimensions intertwine,  \nManifolds embrace."
           }
         },
         "style": {
+          "backgroundColor": "#333",
           "border": "1px solid #666",
           "borderRadius": "12px",
-          "backgroundColor": "#333",
           "color": "#eee",
-          "width": "350px",
-          "height": "400px"
+          "height": "400px",
+          "width": "350px"
         },
-        "connectedTo": [
-          "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
-        ]
+        "type": "ResponseNode"
       },
       "style": {
-        "width": "880px",
-        "height": "760px"
+        "height": "800px",
+        "width": "880px"
       }
     }
   ],
   "edges": [
     {
-      "id": "edge-0.30367276511116714",
+      "id": "edge-0.20134976249844705",
       "type": "step",
       "source": "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
       "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
       "sourceHandle": null,
-      "targetHandle": "input",
+      "targetHandle": null,
       "data": {
         "label": "New Edge",
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 867.0001215227142,
-      "sourceY": 549.0002115352362,
-      "targetX": 872.9999820297534,
-      "targetY": 476.0001904627493,
+      "sourceX": 865.9998430993537,
+      "sourceY": 548.9998953485997,
+      "targetX": 873.9999569004748,
+      "targetY": 495.9999898312975,
       "animated": false,
       "style": {
         "strokeWidth": 1,
@@ -117,13 +120,13 @@
     }
   ],
   "position": [
-    -260.63937387116175,
-    -54.92233594220329
+    -178.9058799919726,
+    -47.21011438892225
   ],
-  "zoom": 0.94521372667068,
+  "zoom": 0.9311659642785469,
   "viewport": {
-    "x": -260.63937387116175,
-    "y": -54.92233594220329,
-    "zoom": 0.94521372667068
+    "x": -178.9058799919726,
+    "y": -47.21011438892225,
+    "zoom": 0.9311659642785469
   }
 }

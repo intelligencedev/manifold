@@ -20,17 +20,29 @@
             <svg v-if="category === 'Documents'" xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" viewBox="0 0 24 24" class="ml-auto mr-2"><!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ --><g fill="none"><path fill="currentColor" d="m15.393 4.054l-.502.557zm3.959 3.563l-.502.557zm2.302 2.537l-.685.305zM3.172 20.828l.53-.53zm17.656 0l-.53-.53zM14 21.25h-4v1.5h4zM2.75 14v-4h-1.5v4zm18.5-.437V14h1.5v-.437zM14.891 4.61l3.959 3.563l1.003-1.115l-3.958-3.563zm7.859 8.952c0-1.689.015-2.758-.41-3.714l-1.371.61c.266.598.281 1.283.281 3.104zm-3.9-5.389c1.353 1.218 1.853 1.688 2.119 2.285l1.37-.61c-.426-.957-1.23-1.66-2.486-2.79zM10.03 2.75c1.582 0 2.179.012 2.71.216l.538-1.4c-.852-.328-1.78-.316-3.248-.316zm5.865.746c-1.086-.977-1.765-1.604-2.617-1.93l-.537 1.4c.532.204.98.592 2.15 1.645zM10 21.25c-1.907 0-3.261-.002-4.29-.14c-1.005-.135-1.585-.389-2.008-.812l-1.06 1.06c.748.75 1.697 1.081 2.869 1.239c1.15.155 2.625.153 4.489.153zM1.25 14c0 1.864-.002 3.338.153 4.489c.158 1.172.49 2.121 1.238 2.87l1.06-1.06c-.422-.424-.676-1.004-.811-2.01c-.138-1.027-.14-2.382-.14-4.289zM14 22.75c1.864 0 3.338.002 4.489-.153c1.172-.158 2.121-.49 2.87-1.238l-1.06-1.06c-.424.422-1.004.676-2.01.811c-1.027.138-2.382.14-4.289.14zM21.25 14c0 1.907-.002 3.262-.14 4.29c-.135 1.005-.389 1.585-.812 2.008l1.06 1.06c.75-.748 1.081-1.697 1.239-2.869c.155-1.15.153-2.625.153-4.489zm-18.5-4c0-1.907.002-3.261.14-4.29c.135-1.005.389-1.585.812-2.008l-1.06-1.06c-.75.748-1.081 1.697-1.239 2.869C1.248 6.661 1.25 8.136 1.25 10zm7.28-8.75c-1.875 0-3.356-.002-4.511.153c-1.177.158-2.129.49-2.878 1.238l1.06 1.06c.424-.422 1.005-.676 2.017-.811c1.033-.138 2.395-.14 4.312-.14z"></path><path stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="M6 14.5h8M6 18h5.5"></path><path stroke="currentColor" stroke-width="1.5" d="M13 2.5V5c0 2.357 0 3.536.732 4.268S15.643 10 18 10h4"></path></g></svg>
             <svg v-if="category === 'Utilities'" xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" viewBox="0 0 24 24" class="ml-auto mr-2"><!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ --><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 12c0-4.714 0-7.071 1.464-8.536C4.93 2 7.286 2 12 2s7.071 0 8.535 1.464C22 4.93 22 7.286 22 12s0 7.071-1.465 8.535C19.072 22 16.714 22 12 22s-7.071 0-8.536-1.465C2 19.072 2 16.714 2 12Z"></path><path d="M10 14a2 2 0 1 1 0 4a2 2 0 0 1 0-4Z"></path><circle cx="2" cy="2" r="2" transform="matrix(0 -1 -1 0 16 10)"></circle><path stroke-linecap="round" d="M14 16h5m-9-8H5m0 8h1m13-8h-1"></path></g></svg>
             <svg v-if="category === 'Tools'" xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" viewBox="0 0 24 24" class="ml-auto mr-2"><!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ --><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7 12H6c-1.886 0-2.828 0-3.414.586S2 14.114 2 16v2c0 1.886 0 2.828.586 3.414S4.114 22 6 22h2c1.886 0 2.828 0 3.414-.586S12 19.886 12 18v-1"></path><path d="M12 7h-1c-1.886 0-2.828 0-3.414.586S7 9.114 7 11v2c0 1.886 0 2.828.586 3.414S9.114 17 11 17h2c1.886 0 2.828 0 3.414-.586S17 14.886 17 13v-1"></path><path d="M12 6c0-1.886 0-2.828.586-3.414S14.114 2 16 2h2c1.886 0 2.828 0 3.414.586S22 4.114 22 6v2c0 1.886 0 2.828-.586 3.414S19.886 12 18 12h-2c-1.886 0-2.828 0-3.414-.586S12 9.886 12 8z"></path></g></svg>
-            <svg v-if="isExpanded(category)" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+            <svg v-if="isExpanded(category)" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 transition-transform duration-300 rotate-90" fill="currentColor" viewBox="0 0 16 16">
               <path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z" />
             </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
+            <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 transition-transform duration-300" fill="currentColor" viewBox="0 0 16 16">
               <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z" />
             </svg>
           </div>
-          <div v-if="isExpanded(category)" class="pl-2 space-y-3">
-        <div v-for="node in nodes" :key="node.type" class="p-3 mb-2 bg-teal-700 border border-teal-600 rounded cursor-grab text-base font-medium flex items-center justify-center hover:bg-white/20" draggable="true" @dragstart="(event) => onDragStart(event, node.type)">
-          {{ node.type }}
-        </div>
+          <div 
+            class="overflow-hidden transition-all duration-300 ease-in-out"
+            :style="{ maxHeight: isExpanded(category) ? contentHeights[category] || 'auto' : '0', opacity: isExpanded(category) ? 1 : 0 }"
+            :ref="el => { if (el) contentRefs[category] = el }"
+          >
+            <div class="pl-2 space-y-3 pb-2" :ref="el => { if (el) innerContentRefs[category] = el }">
+              <div 
+                v-for="node in nodes" 
+                :key="node.type" 
+                class="p-3 bg-teal-700 border border-teal-600 rounded cursor-grab text-base font-medium flex items-center justify-center hover:bg-white/20" 
+                draggable="true" 
+                @dragstart="(event) => onDragStart(event, node.type)"
+              >
+                {{ node.type }}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -39,11 +51,77 @@
 </template>
 
 <script setup>
+import { ref, reactive, onMounted, nextTick, watch } from 'vue'
 import useDragAndDrop from '../composables/useDnD.js'
 import useNodePalette from '../composables/useNodePalette.js'
 
 const { onDragStart } = useDragAndDrop()
 const { isOpen, togglePalette, nodeCategories, toggleAccordion, isExpanded } = useNodePalette()
+
+// Refs to manage the content heights for animations
+const contentRefs = reactive({})
+const innerContentRefs = reactive({})
+const contentHeights = reactive({})
+
+// Update content heights when categories are expanded/collapsed
+watch(() => ({ ...nodeCategories }), async () => {
+  await nextTick()
+  updateContentHeights()
+}, { immediate: true, deep: true })
+
+// Initialize content heights after mount
+onMounted(async () => {
+  await nextTick()
+  updateContentHeights()
+})
+
+// Watch for changes to expanded state
+Object.keys(nodeCategories).forEach(category => {
+  watch(() => isExpanded(category), async (expanded) => {
+    if (expanded) {
+      // First set a fixed height for animation
+      if (innerContentRefs[category]) {
+        contentHeights[category] = `${innerContentRefs[category].scrollHeight}px`
+      }
+      
+      // Then switch to auto after animation completes
+      setTimeout(() => {
+        if (isExpanded(category)) {
+          contentHeights[category] = 'auto'
+        }
+      }, 300)
+    } else {
+      // Set a fixed height first (for animation from auto)
+      if (innerContentRefs[category]) {
+        contentHeights[category] = `${innerContentRefs[category].scrollHeight}px`
+        
+        // Force a reflow to ensure the browser registers the change
+        if (contentRefs[category]) {
+          contentRefs[category].offsetHeight
+        }
+        
+        // Then animate to zero
+        contentHeights[category] = '0px'
+      }
+    }
+  })
+})
+
+// Update all content heights
+const updateContentHeights = () => {
+  Object.keys(nodeCategories).forEach(category => {
+    if (isExpanded(category) && innerContentRefs[category]) {
+      contentHeights[category] = `${innerContentRefs[category].scrollHeight}px`
+      
+      // Switch to auto for already expanded categories
+      setTimeout(() => {
+        if (isExpanded(category)) {
+          contentHeights[category] = 'auto'
+        }
+      }, 300)
+    }
+  })
+}
 </script>
 
 <style scoped>

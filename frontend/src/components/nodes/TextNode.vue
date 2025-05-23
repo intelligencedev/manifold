@@ -1,12 +1,15 @@
 <template>
-  <div
-    :style="computedContainerStyle"
-    class="node-container text-node tool-node flex flex-col w-full h-full p-3 rounded-xl border border-gray-600 bg-zinc-900 text-gray-100 shadow"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-width="320"
+    :min-height="300"
+    @resize="onResize"
   >
-    <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">{{ data.type }}</div>
-
+    <template #header>
+      <div :style="data.labelStyle" class="node-label text-base font-semibold">{{ data.type }}</div>
+    </template>
+    
     <div class="node-options mode-selector mb-2">
       <label class="select-label flex items-center gap-2">
         <span>Mode:</span>
@@ -21,7 +24,7 @@
       v-model="text"
       @change="updateNodeData"
       label="Text"
-      class="input-textarea mb-2"
+      class="input-textarea mb-2 flex-1"
       @mouseenter="$emit('disable-zoom')"
       @mouseleave="$emit('enable-zoom')"
       @mousedown="onTextareaMouseDown"
@@ -52,24 +55,13 @@
       position="right"
       id="output"
     />
-
-    <NodeResizer
-      :is-resizable="true"
-      :color="'#666'"
-      :handle-style="resizeHandleStyle"
-      :line-style="resizeHandleStyle"
-      :min-width="320"
-      :min-height="180"
-      :node-id="id"
-      @resize="onResize"
-    />
-  </div>
+  </BaseNode>
 </template>
 
 <script setup>
 import { Handle, useVueFlow } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
+import BaseNode from '@/components/base/BaseNode.vue'
 import useTextNode from '@/composables/useTextNode'
 
 const props = defineProps({
@@ -105,10 +97,6 @@ const props = defineProps({
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 const vueFlowInstance = useVueFlow()
 const {
-  isHovered,
-  customStyle,
-  resizeHandleStyle,
-  computedContainerStyle,
   mode,
   text,
   clearOnRun,

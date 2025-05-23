@@ -21,10 +21,12 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
 
+	"github.com/pgvector/pgvector-go"
 	a2aclient "manifold/internal/a2a/client"
 	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
 	completions "manifold/internal/llm"
+	embeddings "manifold/internal/llm"
 	"manifold/internal/mcp"
 	codeeval "manifold/internal/tools"
 	"manifold/internal/util"
@@ -230,6 +232,16 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 					Description: desc,
 					InputSchema: inputSchema,
 				}
+
+				// compute and store embedding for tool description
+				if err := ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions); err == nil {
+					embedTxt := ae.Config.Embeddings.EmbedPrefix + desc
+					embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, []string{embedTxt})
+					if err == nil && len(embeds) > 0 {
+						vec := pgvector.NewVector(embeds[0])
+						_ = ae.upsertToolMemory(ctx, toolName, desc, vec)
+					}
+				}
 			}
 		}
 	})
@@ -260,13 +272,22 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 	}
 
 	var td []string
-	for n := range ae.mcpTools {
-		// Convert input schema to JSON string
-		schema, err := json.Marshal(ae.mcpTools[n].InputSchema)
+	toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
+	if toolLimit <= 0 {
+		toolLimit = len(ae.mcpTools)
+	}
+	relTools, err := ae.getRelevantTools(ctx, req.Objective, toolLimit)
+	if err != nil || len(relTools) == 0 {
+		for _, v := range ae.mcpTools {
+			relTools = append(relTools, v)
+		}
+	}
+	for _, t := range relTools {
+		schema, err := json.Marshal(t.InputSchema)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal input schema: %v", err)
 		}
-		td = append(td, fmt.Sprintf("- %s • %s", n, ae.mcpTools[n].Description), string(schema))
+		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
 	}
 	td = append(td,
 		"- code_eval    • run code in sandbox",

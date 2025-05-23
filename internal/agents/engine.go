@@ -21,7 +21,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
 
-	"github.com/pgvector/pgvector-go"
 	a2aclient "manifold/internal/a2a/client"
 	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
@@ -30,6 +29,8 @@ import (
 	"manifold/internal/mcp"
 	codeeval "manifold/internal/tools"
 	"manifold/internal/util"
+
+	"github.com/pgvector/pgvector-go"
 )
 
 /*──────────────────────── public ───────────────────────*/
@@ -507,7 +508,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []complet
 	}
 
 	// Get model context size (default to 4096 if unknown)
-	modelCtx := 64000 // default context size
+	modelCtx := 32768 // default context size
 
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(modelCtx-promptTokens-1024, 128)

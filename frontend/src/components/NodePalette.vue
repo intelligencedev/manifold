@@ -9,7 +9,7 @@
       </svg>
     </div>
     <div class="p-4 h-full box-border">
-      <div class="overflow-y-auto h-full pr-2 space-y-4">
+      <div class="overflow-y-auto h-full pr-2 space-y-4 palette-scroll">
         <div v-for="(nodes, category) in nodeCategories" :key="category">
           <div class="text-base font-bold mb-2 uppercase text-gray-300 cursor-pointer flex justify-between items-center p-2 bg-zinc-800 border border-teal-600 rounded hover:bg-white/20" @click="toggleAccordion(category)">
             <span>{{ category }}</span>
@@ -45,3 +45,23 @@ import useNodePalette from '../composables/useNodePalette.js'
 const { onDragStart } = useDragAndDrop()
 const { isOpen, togglePalette, nodeCategories, toggleAccordion, isExpanded } = useNodePalette()
 </script>
+
+<style scoped>
+.palette-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #14b8a6 transparent; /* teal-500 thumb, no track */
+}
+
+.palette-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.palette-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.palette-scroll::-webkit-scrollbar-thumb {
+  background-color: #14b8a6;
+  border-radius: 9999px;
+}
+</style>

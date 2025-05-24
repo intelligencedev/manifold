@@ -1,5 +1,5 @@
 <template>
-  <BaseNode :id="id" :data="data" :min-height="180">
+  <BaseNode :id="id" :data="data" :min-height="200">
     <template #header>
       <div :style="data.labelStyle" class="text-center mb-2 font-bold text-gray-200">{{ data.type }}</div>
     </template>
@@ -50,8 +50,8 @@
         </div>
       </template>
     </div>
-    <Handle v-if="data.hasInputs" type="target" position="left" class="handle-input" />
-    <Handle v-if="data.hasOutputs" type="source" position="right" class="handle-output" />
+    <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />
+    <Handle v-if="data.hasOutputs" type="source" position="right" style="width:12px;height:12px" />
   </BaseNode>
 </template>
 

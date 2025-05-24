@@ -97,7 +97,6 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/code/eval", evaluateCodeHandler)
-	api.POST("/datadog", datadogHandler)
 	api.POST("/comfy-proxy", imggenpkg.ComfyProxyHandler)
 
 	// Agentic Memory endpoints.

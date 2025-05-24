@@ -12,8 +12,6 @@ export interface NodeRegistration {
 import AgentNode from './AgentNode.vue'
 import CodeRunnerNode from './CodeRunnerNode.vue'
 import ComfyNode from './ComfyNode.vue'
-import DatadogGraphNode from './DatadogGraphNode.vue'
-import DatadogNode from './DatadogNode.vue'
 import DocumentsIngestNode from './DocumentsIngestNode.vue'
 import DocumentsRetrieveNode from './DocumentsRetrieveNode.vue'
 import EmbeddingsNode from './EmbeddingsNode.vue'

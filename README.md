@@ -4,25 +4,61 @@
 
 </div>
 
-![Manifold](docs/completions.jpg)
+![completions](docs/img/completions.png)
 
 Manifold is a powerful platform designed for workflow automation using AI models. It supports text generation, image generation, and retrieval-augmented generation, integrating seamlessly with popular AI endpoints including OpenAI, llama.cpp, Apple's MLX LM, Google Gemini, Anthropic Claude, ComfyUI, and MFlux. Additionally, Manifold provides robust semantic search capabilities using PGVector combined with the SEFII (Semantic Embedding Forest with Inverted Index) engine.
 
-> **Note:** Manifold is under active development, and breaking changes are expected. It is **NOT** production-ready. Contributions are highly encouraged!
+> **Note:** Manifold is under active development. The platform is not intended for production use until otherwise noted.
 
 ---
 
-## Vision Support - Local Models + OpenAI Compatible
+## OpenAI, Anthropic, Google and Open Weights Models (llama.cpp or mlx_lm.server backends)
 
-![Manifold](docs/vision.jpg)
+Run parallel inference across multiple providers.
 
----
+![providers](docs/img/providers.png)
+
+## Powerful ReAct Agent with access to Model Context Protocol servers
+
+Manifold implements an MCP client and a ReAct Agent for full "autopilot" task execution. MCP servers can be configured as Docker containers that mount the same local:container paths for secure tool execution.
+
+![react](docs/img/react.png)
+
+Or use the MCP node to list and execute tools as part of your workflows.
+
+![mcp](docs/img/mcp.png)
 
 ## Web Search and Retrieval
 
-![Manifold](docs/web.jpg)
+![web](docs/img/web.png)
 
-And more!
+## Powerful Document Ingestion and Retrieval
+
+Manifold features a powerful semantic and keyword document ingestion and retrieval engine. Ingest files, entire folders, and even LLM output. Retrieve relevant information for your AI assistant to use as reference.
+
+![sefii](docs/img/sefii.png)
+
+## Code Execution - Python, Go, JavaScript
+
+### Web Code Editor (WASM Sandbox)
+
+![code editor](docs/img/code.png)
+
+### Code Execution Node (Docker Sandbox w/ 3rd Party Lib Support)
+
+![code execution](docs/img/codenode.png)
+
+### Prototype Shaders with the WebGL Node
+
+![webgl](docs/img/shaders.png)
+
+## Controlled Execution Flow
+
+Manifold provides nodes to control the execution order of your workflows.
+
+Run concurrent agents. Jump to nodes. Execute for each loops on assistant outputs. Combine context. Publish and subscribe to topics to teleport context around your workflows. Be creative!
+
+![controls](docs/img/control.png)
 
 ## Prerequisites
 

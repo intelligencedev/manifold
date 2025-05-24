@@ -5,11 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"net/url"
-	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -343,47 +339,6 @@ func removeEmptyRows(input string) string {
 	return strings.Join(filteredLines, "\n")
 }
 
-// --- The remaining functions (extractURLs, removeUrl, cleanURL, searchDDG, getSearchResults,
-// removeUnwantedURLs, getPageScreen, removeUrls, postRequest, extractURLsFromHTML, GetSearXNGResults)
-// remain largely unchanged. ---
-
-// extractURLs extracts URLs from the input string.
-func extractURLs(input string) []string {
-	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
-	re := regexp.MustCompile(urlRegex)
-	matches := re.FindAllString(input, -1)
-	var cleanedURLs []string
-	for _, match := range matches {
-		cleanedURL := cleanURL(match)
-		cleanedURLs = append(cleanedURLs, cleanedURL)
-	}
-	return cleanedURLs
-}
-
-// removeUrl removes URLs from each string in the input slice.
-func removeUrl(input []string) []string {
-	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
-	re := regexp.MustCompile(urlRegex)
-	for i, str := range input {
-		matches := re.FindAllString(str, -1)
-		for _, match := range matches {
-			input[i] = strings.ReplaceAll(input[i], match, "")
-		}
-	}
-	return input
-}
-
-// cleanURL removes illegal trailing characters from a URL.
-func cleanURL(urlStr string) string {
-	illegalTrailingChars := []rune{'.', ',', ';', '!', '?'}
-	for _, char := range illegalTrailingChars {
-		if urlStr[len(urlStr)-1] == byte(char) {
-			urlStr = urlStr[:len(urlStr)-1]
-		}
-	}
-	return urlStr
-}
-
 // searchDDG performs a search on DuckDuckGo and returns the result URLs.
 func searchDDG(query string) []string {
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(),
@@ -435,25 +390,6 @@ func searchDDG(query string) []string {
 	return resultURLs
 }
 
-// getSearchResults retrieves the content of multiple URLs and returns it as a concatenated string.
-func getSearchResults(urls []string) string {
-	var result strings.Builder
-	for _, u := range urls {
-		content, err := webGetHandler(u)
-		if err != nil {
-			log.Printf("Error getting search result for URL %s: %v", u, err)
-			continue
-		}
-		if content != nil && content.Content != "" {
-			result.WriteString(fmt.Sprintf("Title: %s\n", content.Title))
-			result.WriteString(fmt.Sprintf("Source: %s\n\n", content.Source))
-			result.WriteString(content.Content)
-			result.WriteString("\n\n")
-		}
-	}
-	return result.String()
-}
-
 // removeUnwantedURLs filters out unwanted URLs from the given list.
 func removeUnwantedURLs(urls []string) []string {
 	var filteredURLs []string
@@ -473,96 +409,4 @@ func removeUnwantedURLs(urls []string) []string {
 	}
 	log.Printf("Filtered URLs: %v", filteredURLs)
 	return filteredURLs
-}
-
-// getPageScreen captures a screenshot of a webpage and saves it as a PNG file.
-func getPageScreen(chromeUrl string, pageAddress string) string {
-	instanceUrl := chromeUrl
-	allocatorCtx, cancel := chromedp.NewRemoteAllocator(context.Background(), instanceUrl)
-	defer cancel()
-	ctx, cancel := chromedp.NewContext(allocatorCtx, chromedp.WithLogf(log.Printf))
-	defer cancel()
-	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	var buf []byte
-	err := chromedp.Run(ctx,
-		chromedp.Navigate(pageAddress),
-		chromedp.FullScreenshot(&buf, 90),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	u, err := url.Parse(pageAddress)
-	if err != nil {
-		log.Fatal(err)
-	}
-	t := time.Now()
-	filename := u.Hostname() + "-" + t.Format("20060102150405") + ".png"
-	err = os.WriteFile(filename, buf, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return filename
-}
-
-// removeUrls removes URLs from the input string.
-func removeUrls(input string) string {
-	urlRegex := `http.*?://[^\s<>{}|\\^` + "`" + `"]+`
-	re := regexp.MustCompile(urlRegex)
-	matches := re.FindAllString(input, -1)
-	for _, match := range matches {
-		input = strings.ReplaceAll(input, match, "")
-	}
-	return input
-}
-
-// postRequest sends a POST request to the given endpoint with a named parameter 'q'.
-func postRequest(endpoint string, queryParam string) (string, error) {
-	formData := url.Values{}
-	formData.Set("q", queryParam)
-	data := bytes.NewBufferString(formData.Encode())
-	req, err := http.NewRequest("POST", endpoint, data)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to perform request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
-	}
-	buf := new(bytes.Buffer)
-	_, err = io.Copy(buf, resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-	return buf.String(), nil
-}
-
-// extractURLsFromHTML parses the HTML content and extracts URLs.
-func extractURLsFromHTML(htmlContent string) ([]string, error) {
-	doc, err := html.Parse(strings.NewReader(htmlContent))
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse HTML: %w", err)
-	}
-	var urls []string
-	var f func(*html.Node)
-	f = func(n *html.Node) {
-		if n.Type == html.ElementNode && n.Data == "a" {
-			for _, attr := range n.Attr {
-				if attr.Key == "href" && strings.Contains(attr.Val, "http") {
-					urls = append(urls, attr.Val)
-				}
-			}
-		}
-		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			f(c)
-		}
-	}
-	f(doc)
-	return urls, nil
 }

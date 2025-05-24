@@ -1,17 +1,19 @@
 import { ref, computed, onMounted } from 'vue'
+import { useNodeBase } from './useNodeBase'
 
 /**
  * Composable for managing ComfyNode state and functionality
  */
 export function useComfyNode(props, emit, vueFlow) {
   const { getEdges, findNode } = vueFlow
-  
-  // State variables
-  const isHovered = ref(false)
-  const customStyle = ref({
-    width: '360px',
-    height: '660px'
-  })
+
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    onResize
+  } = useNodeBase(props, emit)
+
   const generatedImage = ref('')
   
   // Computed properties for form binding
@@ -25,12 +27,6 @@ export function useComfyNode(props, emit, vueFlow) {
     set: (value) => { props.data.inputs.prompt = value }
   })
   
-  // UI state
-  const resizeHandleStyle = computed(() => ({
-    visibility: isHovered.value ? 'visible' : 'hidden',
-    width: '12px',
-    height: '12px'
-  }))
   
   // Main run function
   async function run() {
@@ -54,7 +50,7 @@ export function useComfyNode(props, emit, vueFlow) {
         }
       }
       
-      // Send the user's endpoint + prompt to the backend proxy
+      // Send the actual proxy request to generate the image
       const response = await fetch('/api/comfy-proxy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -69,36 +65,40 @@ export function useComfyNode(props, emit, vueFlow) {
         throw new Error(`API error (${response.status}): ${errorText}`)
       }
       
-      // Get the blob from response
+      // Get the true image URL from the response header
+      const originalImageUrl = response.headers.get('X-Comfy-Image-Url')
+      if (!originalImageUrl) {
+        throw new Error('Image URL not found in response headers')
+      }
+      
+      console.log('Original ComfyUI image URL from response:', originalImageUrl)
+      
+      // Get the blob from response for displaying in the UI
       const blob = await response.blob()
       
-      // Create an object URL from the blob
-      const imageUrl = URL.createObjectURL(blob)
+      // Create an object URL from the blob for display purposes
+      const displayImageUrl = URL.createObjectURL(blob)
       
-      // Update both the display image and node output
-      generatedImage.value = imageUrl
-      props.data.outputs.image = imageUrl
+      // Update the display image with the blob URL (for UI rendering)
+      generatedImage.value = displayImageUrl
       
-      // Ensure the result output property exists and set it to the exact same image URL
-      // that is being used to render the image
+      // Use the original Comfy URL for the node output
+      props.data.outputs.image = originalImageUrl
+      
+      // Ensure the result output property exists and set it to the original image URL
       if (!props.data.outputs.result) {
         props.data.outputs.result = {};
       }
-      props.data.outputs.result.output = imageUrl;
+      props.data.outputs.result.output = originalImageUrl;
+      
+      console.log("Original ComfyUI image URL:", originalImageUrl);
       
     } catch (error) {
       console.error('Error in ComfyNode run:', error)
     }
   }
   
-  // Event handlers
-  function onResize(event) {
-    customStyle.value.width = `${event.width}px`
-    customStyle.value.height = `${event.height}px`
-    if (emit) {
-      emit('resize', event)
-    }
-  }
+  // Event handlers are handled by useNodeBase
   
   // Lifecycle hooks
   onMounted(() => {

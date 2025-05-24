@@ -1,9 +1,17 @@
-import { ref, onMounted, onUnmounted } from 'vue';
-import { useVueFlow } from '@vue-flow/core';
-import { KokoroTTS } from 'kokoro-js';
+import { ref } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
+import { KokoroTTS } from 'kokoro-js'
+import { useNodeBase } from './useNodeBase'
 
-export function useTtsNode(props) {
-  const { getEdges, findNode } = useVueFlow();
+export function useTtsNode(props, emit) {
+  const { getEdges, findNode } = useVueFlow()
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    onResize
+  } = useNodeBase(props, emit)
   
   const inputText = ref('');
   const selectedVoice = ref('af_sky');
@@ -11,17 +19,10 @@ export function useTtsNode(props) {
   const isProcessing = ref(false);
   const isPlaying = ref(false);
   const bars = ref([]);
-  const isHovered = ref(false);
-  const customStyle = ref({});
-  
-  let audioContext = null;
+  let audioContext = null
   let analyser = null;
   let animationFrameId = null;
   let tts = null;
-
-  const resizeHandleStyle = (isHovered) => ({
-    visibility: isHovered ? 'visible' : 'hidden',
-  });
 
   async function initializeTTS() {
     try {
@@ -145,11 +146,6 @@ export function useTtsNode(props) {
     }
   }
 
-  const onResize = (event, emit) => {
-    customStyle.value.width = `${event.width}px`;
-    customStyle.value.height = `${event.height}px`;
-    emit('resize', { id: props.id, width: event.width, height: event.height });
-  };
 
   const setupNode = async () => {
     await initializeTTS();
@@ -169,6 +165,7 @@ export function useTtsNode(props) {
     isHovered,
     customStyle,
     resizeHandleStyle,
+    computedContainerStyle,
     run,
     setupNode,
     cleanupNode,

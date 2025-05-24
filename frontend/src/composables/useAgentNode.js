@@ -22,7 +22,6 @@ export function useAgentNode(props, emit) {
     customStyle,
     resizeHandleStyle,
     computedContainerStyle,
-    onResize
   } = useNodeBase(props, emit)
   const { systemPromptOptions, systemPromptOptionsList } = useSystemPromptOptions()
 
@@ -598,11 +597,14 @@ export function useAgentNode(props, emit) {
   }
 
   // Event handlers
-  // function onResize(event) {
-  //   customStyle.value.width = `${event.width}px`;
-  //   customStyle.value.height = `${event.height}px`;
-  //   emit('resize', { id: props.id, width: event.width, height: event.height });
-  // }
+  function onResize(event) {
+    const minHeight = 800;
+    console.log('Resizing AgentNode:', props.id, minHeight);
+    customStyle.value.width = `${event.width}px`;
+    customStyle.value.height = `${event.height}px`;
+    // Emit resize event with minimum height
+    emit('resize', { event, minHeight });
+  }
   
   function handleTextareaMouseEnter() {
     emit('disable-zoom');

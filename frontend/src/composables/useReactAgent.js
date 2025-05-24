@@ -1,4 +1,5 @@
 import { ref, computed, onMounted } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
 import { useConfigStore } from '@/stores/configStore'
 
 /**
@@ -6,6 +7,7 @@ import { useConfigStore } from '@/stores/configStore'
  */
 export function useReactAgent(props, emit) {
   const configStore = useConfigStore()
+  const { getEdges, findNode, updateNodeData } = useVueFlow()
   
   // State variables
   const isHovered = ref(false)
@@ -48,25 +50,25 @@ export function useReactAgent(props, emit) {
   
   // Function to update response in real-time as agent thoughts come in
   function onResponseUpdate(content, fullResponse) {
-    // Update the UI with the streamed response
     props.data.outputs = {
       ...props.data.outputs,
       response: content,
       result: {
         output: fullResponse
       }
-    };
-    
-    // Also update any connected response nodes
-    if (props.vueFlowInstance) {
-      const { getEdges, findNode } = props.vueFlowInstance;
-      const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
-      const responseNode = responseNodeId ? findNode(responseNodeId) : null;
-      
-      if (responseNode) {
-        responseNode.data.inputs.response = content;
-      }
     }
+
+    const edges = getEdges.value.filter((e) => e.source === props.id)
+    edges.forEach(edge => {
+      const node = findNode(edge.target)
+      if (node && node.data?.inputs) {
+        const updated = {
+          ...node.data,
+          inputs: { ...node.data.inputs, response: content }
+        }
+        updateNodeData(edge.target, updated)
+      }
+    })
   }
   
   // Computed properties for form binding
@@ -102,18 +104,15 @@ export function useReactAgent(props, emit) {
       let finalPrompt = props.data.inputs.user_prompt;
       
       // Collect input from connected nodes if any
-      if (props.vueFlowInstance) {
-        const { getEdges, findNode } = props.vueFlowInstance;
-        const connectedSources = getEdges.value
-          .filter((edge) => edge.target === props.id)
-          .map((edge) => edge.source);
-  
-        if (connectedSources.length > 0) {
-          for (const sourceId of connectedSources) {
-            const sourceNode = findNode(sourceId);
-            if (sourceNode) {
-              finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
-            }
+      const connectedSources = getEdges.value
+        .filter((edge) => edge.target === props.id)
+        .map((edge) => edge.source)
+
+      if (connectedSources.length > 0) {
+        for (const sourceId of connectedSources) {
+          const sourceNode = findNode(sourceId)
+          if (sourceNode) {
+            finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`
           }
         }
       }
@@ -187,13 +186,15 @@ export function useReactAgent(props, emit) {
       };
       
       // Now that the agent has completed, trigger the next node in the workflow
-      if (props.vueFlowInstance) {
-        const { getEdges, findNode } = props.vueFlowInstance;
-        const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
-        const responseNode = responseNodeId ? findNode(responseNodeId) : null;
-        
-        if (responseNode) {
-          responseNode.data.inputs.response = finalResponse;
+      const responseEdge = getEdges.value.find((e) => e.source === props.id)
+      if (responseEdge) {
+        const node = findNode(responseEdge.target)
+        if (node && node.data?.inputs) {
+          const updated = {
+            ...node.data,
+            inputs: { ...node.data.inputs, response: finalResponse }
+          }
+          updateNodeData(responseEdge.target, updated)
         }
       }
 
@@ -208,14 +209,15 @@ export function useReactAgent(props, emit) {
       props.data.outputs.response = JSON.stringify({ error: errorMessage }, null, 2);
       
       // Update connected response nodes with the error
-      if (props.vueFlowInstance) {
-        const { getEdges, findNode } = props.vueFlowInstance;
-        const responseNodeId = getEdges.value.find((e) => e.source === props.id)?.target;
-        const responseNode = responseNodeId ? findNode(responseNodeId) : null;
-        
-        if (responseNode) {
-          responseNode.data.inputs.response = props.data.outputs.response;
-          responseNode.run();
+      const responseEdge = getEdges.value.find((e) => e.source === props.id)
+      if (responseEdge) {
+        const node = findNode(responseEdge.target)
+        if (node && node.data?.inputs) {
+          const updated = {
+            ...node.data,
+            inputs: { ...node.data.inputs, response: props.data.outputs.response }
+          }
+          updateNodeData(responseEdge.target, updated)
         }
       }
       

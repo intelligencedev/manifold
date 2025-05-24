@@ -1,23 +1,31 @@
-import { computed, watch } from 'vue'
-import { useVueFlow } from '@vue-flow/core'
+import { computed, watch } from "vue";
+import { useVueFlow } from "@vue-flow/core";
 
 export function useWebRetrieval(props, emit) {
-  const { getEdges, findNode } = useVueFlow()
+  const { getEdges, findNode } = useVueFlow();
 
   // ----- Reactivity for inputs -----
   const urls = computed({
     get: () => props.data.inputs.url,
     set: (value) => {
-      props.data.inputs.url = value
-      updateNodeData()
+      props.data.inputs.url = value;
+      updateNodeData();
     },
-  })
+  });
 
   /**
    * Manually trigger an update-data emit
    */
   function updateNodeData() {
-    emit('update:data', { id: props.id, data: { ...props.data } })
+    emit("update:data", { id: props.id, data: { ...props.data } });
+  }
+
+  function onResize({ width, height }) {
+    if (!props.data.style) props.data.style = {};
+    props.data.style.width = `${width}px`;
+    props.data.style.height = `${height}px`;
+    updateNodeData();
+    emit("resize", { id: props.id, width, height });
   }
 
   /**
@@ -28,58 +36,64 @@ export function useWebRetrieval(props, emit) {
    * 4) Stores results in `props.data.outputs.result.output`.
    */
   async function run() {
-    console.log('Running WebRetrievalNode:', props.id)
+    console.log("Running WebRetrievalNode:", props.id);
 
     // Check incoming edges
-    const connectedEdges = getEdges.value.filter(e => e.target === props.id)
+    const connectedEdges = getEdges.value.filter((e) => e.target === props.id);
     if (connectedEdges.length > 0) {
-      const connectedSourceIds = connectedEdges.map(edge => edge.source)
-      
+      const connectedSourceIds = connectedEdges.map((edge) => edge.source);
+
       if (connectedSourceIds.length > 0) {
-        const sourceNode = findNode(connectedSourceIds[0])
-        
-        if (sourceNode && sourceNode.data.outputs && sourceNode.data.outputs.result) {
-          console.log('Connected node data:', sourceNode.data)
+        const sourceNode = findNode(connectedSourceIds[0]);
+
+        if (
+          sourceNode &&
+          sourceNode.data.outputs &&
+          sourceNode.data.outputs.result
+        ) {
+          console.log("Connected node data:", sourceNode.data);
           // Update the URL input with the connected node's output
-          props.data.inputs.url = sourceNode.data.outputs.result.output
-          updateNodeData()
+          props.data.inputs.url = sourceNode.data.outputs.result.output;
+          updateNodeData();
         }
       }
     }
 
     // Grab the URLs from inputs
-    const urlsToFetch = props.data.inputs.url || ''
+    const urlsToFetch = props.data.inputs.url || "";
     if (!urlsToFetch) {
-      console.warn('No URLs provided in WebRetrievalNode.')
+      console.warn("No URLs provided in WebRetrievalNode.");
       props.data.outputs = {
         result: {
-          output: '',
+          output: "",
         },
-        error: 'No URLs provided.'
-      }
-      updateNodeData()
-      return { error: 'No URLs provided.' }
+        error: "No URLs provided.",
+      };
+      updateNodeData();
+      return { error: "No URLs provided." };
     }
 
     try {
       // Call to backend API
       const response = await fetch(
-        `http://localhost:8080/api/web-content?urls=${encodeURIComponent(urlsToFetch)}`
-      )
+        `http://localhost:8080/api/web-content?urls=${encodeURIComponent(urlsToFetch)}`,
+      );
       if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Web Content API error (${response.status}): ${errorText}`)
+        const errorText = await response.text();
+        throw new Error(
+          `Web Content API error (${response.status}): ${errorText}`,
+        );
       }
 
-      const results = await response.json()
+      const results = await response.json();
 
       // Combine the text content from all URLs
-      let aggregatedWebContent = ''
+      let aggregatedWebContent = "";
       for (const url in results) {
         if (results[url].error) {
-          console.error(`Error for ${url}: ${results[url].error}`)
+          console.error(`Error for ${url}: ${results[url].error}`);
         } else {
-          aggregatedWebContent += results[url].Content + '\n'
+          aggregatedWebContent += results[url].Content + "\n";
         }
       }
 
@@ -88,21 +102,21 @@ export function useWebRetrieval(props, emit) {
         result: {
           output: aggregatedWebContent,
         },
-      }
+      };
 
-      updateNodeData()
-      console.log('WebRetrievalNode run result:', props.data.outputs)
-      return { response, result: props.data.outputs }
+      updateNodeData();
+      console.log("WebRetrievalNode run result:", props.data.outputs);
+      return { response, result: props.data.outputs };
     } catch (error) {
-      console.error('Error in WebRetrievalNode run:', error)
+      console.error("Error in WebRetrievalNode run:", error);
       props.data.outputs = {
         result: {
-          output: '',
+          output: "",
         },
-        error: error.message
-      }
-      updateNodeData()
-      return { error: error.message }
+        error: error.message,
+      };
+      updateNodeData();
+      return { error: error.message };
     }
   }
 
@@ -110,10 +124,10 @@ export function useWebRetrieval(props, emit) {
   watch(
     () => props.data,
     (newData) => {
-      emit('update:data', { id: props.id, data: newData })
+      emit("update:data", { id: props.id, data: newData });
     },
-    { deep: true }
-  )
+    { deep: true },
+  );
 
   // Setup function to initialize the node
   const setup = () => {
@@ -121,21 +135,27 @@ export function useWebRetrieval(props, emit) {
     if (!props.data.outputs) {
       props.data.outputs = {
         result: {
-          output: '',
+          output: "",
         },
-      }
+      };
     }
-    
+
     // Add the run function to the node data if it doesn't exist
     if (!props.data.run) {
-      props.data.run = run
+      props.data.run = run;
     }
-  }
+    if (!props.data.style) {
+      props.data.style = {
+        width: "352px",
+        height: "160px",
+      };
+    }
+  };
 
   return {
     urls,
-    updateNodeData,
+    onResize,
     run,
-    setup
-  }
+    setup,
+  };
 }

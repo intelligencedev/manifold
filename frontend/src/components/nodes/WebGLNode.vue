@@ -1,26 +1,23 @@
 <template>
-  <div :style="{ ...data.style, ...customStyle, width: '100%', height: '100%' }"
-    class="node-container webgl-node tool-node" @mouseenter="isHovered = true" @mouseleave="isHovered = false">
-    <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
-    <!-- Input and Output Handles -->
-    <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" id="input" />
-    <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" id="output" />
-        
-    <!-- Container for our WebGL canvas -->
-    <div class="canvas-container" ref="canvasContainer">
-      <canvas ref="webglCanvas"></canvas>
+  <BaseNode :id="id" :data="data" :min-height="300" @resize="onResize">
+    <template #header>
+      <div :style="data.labelStyle" class="node-label font-semibold text-base mb-2">{{ data.type }}</div>
+    </template>
+
+    <div class="flex-1 relative" ref="canvasContainer">
+      <canvas ref="webglCanvas" class="w-full h-full"></canvas>
     </div>
-        <!-- Resizer Component -->
-    <NodeResizer :is-resizable="true" :color="'#666'" :handle-style="resizeHandleStyle" :line-style="resizeHandleStyle"
-        :min-width="300" :min-height="300" :node-id="props.id" @resize="onResize" />
-  </div>
+
+    <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />
+    <Handle v-if="data.hasOutputs" type="source" position="right" style="width:12px;height:12px" />
+  </BaseNode>
 </template>
 
 <script setup>
-import { onMounted, onUnmounted } from "vue";
-import { Handle } from "@vue-flow/core";
-import { NodeResizer } from "@vue-flow/node-resizer";
-import { useWebGLNode } from "../../composables/useWebGLNode";
+import { onMounted, onUnmounted } from 'vue'
+import { Handle } from '@vue-flow/core'
+import BaseNode from '@/components/base/BaseNode.vue'
+import { useWebGLNode } from '@/composables/useWebGLNode'
 
 // --- PROPS & DEFAULTS ---
 const props = defineProps({
@@ -96,13 +93,10 @@ const emit = defineEmits(["update:data", "resize"]);
 const {
   webglCanvas,
   canvasContainer,
-  customStyle,
-  isHovered,
-  resizeHandleStyle,
   onResize,
   setup,
   cleanup
-} = useWebGLNode(props, emit);
+} = useWebGLNode(props, emit)
 
 // --- LIFECYCLE HOOKS ---
 onMounted(() => {
@@ -113,33 +107,3 @@ onUnmounted(() => {
   cleanup();
 });
 </script>
-
-<style scoped>
-.webgl-node {
-  background-color: #222;
-  border: 1px solid #666;
-  border-radius: 4px;
-  color: #eee;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-}
-
-.node-label {
-  text-align: center;
-  font-size: 16px;
-  margin-bottom: 5px;
-  padding: 5px;
-}
-
-.canvas-container {
-  flex-grow: 1;
-  position: relative;
-  overflow: hidden;
-}
-
-canvas {
-  width: 100%;
-  height: 100%;
-}
-</style>

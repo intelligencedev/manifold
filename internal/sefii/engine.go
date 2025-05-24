@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"manifold/internal/documents"
-	"manifold/internal/embeddings"
+	embeddings "manifold/internal/llm"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/pgvector/pgvector-go"

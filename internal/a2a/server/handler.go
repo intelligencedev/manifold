@@ -48,7 +48,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // SendRequest is the request format for the tasks/send method
 type SendRequest struct {
-	Message Message `json:"message"`
+	Message ServerMessage `json:"message"`
 }
 
 // SendResponse is the response format for the tasks/send method
@@ -72,7 +72,7 @@ func (s *Server) handleSend(ctx context.Context, params json.RawMessage) (interf
 		Status:    TaskStatusPending,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-		Messages:  []Message{req.Message},
+		Messages:  []Message{req.Message.ToInterfaceMessage()},
 	}
 
 	// Store the task
@@ -86,14 +86,19 @@ func (s *Server) handleSend(ctx context.Context, params json.RawMessage) (interf
 
 	// Start a goroutine to process the task
 	go func() {
-		// Update task to running
-		s.store.UpdateStatus(context.Background(), createdTask.ID, TaskStatusRunning)
+		ctxb := context.Background()
+		s.store.UpdateStatus(ctxb, createdTask.ID, TaskStatusRunning)
 
-		// Simulate task processing (this would be replaced with real processing)
-		time.Sleep(2 * time.Second)
+		// If req.Message exists and has the necessary structure, extract information
+		// This would need proper implementation based on your message structure
 
-		// Update task to completed
-		s.store.UpdateStatus(context.Background(), createdTask.ID, TaskStatusCompleted)
+		// Check if the store provides database access
+		if dbStore, ok := s.store.(DBBackedTaskStore); ok && dbStore.HasDBPool() {
+			// This is a placeholder for the original database-backed agent functionality
+			// Implement according to your application's needs
+		}
+
+		s.store.UpdateStatus(ctxb, createdTask.ID, TaskStatusCompleted)
 	}()
 
 	return SendResponse{Task: *createdTask}, nil
@@ -283,7 +288,7 @@ func (s *Server) handleSendSubscribe(ctx context.Context, params json.RawMessage
 		Status:    TaskStatusPending,
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-		Messages:  []Message{req.Message},
+		Messages:  []Message{req.Message.ToInterfaceMessage()},
 	}
 
 	// Store the task
@@ -333,7 +338,7 @@ func (s *Server) handleSendSubscribe(ctx context.Context, params json.RawMessage
 		time.Sleep(1 * time.Second)
 
 		// Create a response message
-		responseMsg := Message{
+		responseMsg := ServerMessage{
 			ID:        uuid.New().String(),
 			Role:      "assistant",
 			CreatedAt: time.Now().UTC(),
@@ -346,7 +351,7 @@ func (s *Server) handleSendSubscribe(ctx context.Context, params json.RawMessage
 		}
 
 		// Add the response message to the task
-		task.Messages = append(task.Messages, responseMsg)
+		task.Messages = append(task.Messages, responseMsg.ToInterfaceMessage())
 
 		// Update task to completed
 		s.store.UpdateStatus(context.Background(), createdTask.ID, TaskStatusCompleted)

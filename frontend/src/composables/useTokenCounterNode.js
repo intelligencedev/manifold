@@ -1,7 +1,29 @@
-import { useVueFlow } from '@vue-flow/core';
+import { computed, onMounted } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
+import { useNodeBase } from './useNodeBase'
 
-export function useTokenCounterNode(props) {
+export function useTokenCounterNode(props, emit) {
   const { getEdges, findNode, updateNodeData } = useVueFlow();
+
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    onResize: baseOnResize,
+  } = useNodeBase(props, emit)
+
+  const endpoint = computed({
+    get: () => props.data.inputs.endpoint,
+    set: (value) => { props.data.inputs.endpoint = value }
+  })
+
+  const api_key = computed({
+    get: () => props.data.inputs.api_key,
+    set: (value) => { props.data.inputs.api_key = value }
+  })
+
+  const tokenCount = computed(() => props.data.tokenCount)
 
   /**
    *  updateInputData: Persist data changes. Called when inputs change.
@@ -77,8 +99,34 @@ export function useTokenCounterNode(props) {
     }
   }
 
+  function onResize(event) {
+    customStyle.value.width = `${event.width}px`
+    customStyle.value.height = `${event.height}px`
+    props.data.style = props.data.style || {}
+    props.data.style.width = `${event.width}px`
+    props.data.style.height = `${event.height}px`
+    updateInputData()
+    emit('resize', event)
+  }
+
+  onMounted(() => {
+    if (!props.data.run) {
+      props.data.run = run
+    }
+    if (props.data.style) {
+      customStyle.value.width = props.data.style.width || '200px'
+      customStyle.value.height = props.data.style.height || '160px'
+    }
+  })
+
   return {
+    endpoint,
+    api_key,
+    tokenCount,
+    onResize,
     updateInputData,
-    run
+    resizeHandleStyle,
+    computedContainerStyle
   };
 }
+

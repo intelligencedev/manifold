@@ -65,6 +65,8 @@ func RunSDHandler(c echo.Context) error {
 	})
 }
 
+// ComfyProxyHandler handles requests to the ComfyUI proxy.
+
 // comfyProxyHandler handles requests to the ComfyUI proxy.
 func ComfyProxyHandler(c echo.Context) error {
 	var reqBody ComfyProxyRequest
@@ -248,8 +250,17 @@ func waitForImage(baseURL, uuid string, c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	// Check if the URL ends with "/prompt" and remove it
+	if len(baseURL) >= 7 && baseURL[len(baseURL)-7:] == "/prompt" {
+		baseURL = baseURL[:len(baseURL)-7]
+	}
+
+	// Construct the image URL
 	imageURL := fmt.Sprintf("%s/view?filename=%s_00001_.png&subfolder=&type=output", baseURL, uuid)
 	log.Printf("Waiting for image at %s", imageURL)
+
+	// Set the actual image URL in a header so the client can use it
+	c.Response().Header().Set("X-Comfy-Image-Url", imageURL)
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -291,7 +302,7 @@ func validateSDRequest(req SDRequest) bool {
 var comfyTemplate = `{
   "6": {
     "inputs": {
-      "text": "cute anime girl with massive fluffy fennec ears and a big fluffy tail blonde messy long hair blue eyes wearing a maid outfit with a long black gold leaf pattern dress and a white apron mouth open holding a fancy black forest cake with candles on top in the kitchen of an old dark Victorian mansion lit by candlelight with a bright window to the foggy forest and very expensive stuff everywhere",
+      "text": "a luxury breakfast photograph",
       "speak_and_recognation": true,
       "clip": [
         "11",
@@ -444,8 +455,8 @@ var comfyTemplate = `{
   },
   "27": {
     "inputs": {
-      "width": 1024,
-      "height": 1024,
+      "width": 1280,
+      "height": 768,
       "batch_size": 1
     },
     "class_type": "EmptySD3LatentImage",

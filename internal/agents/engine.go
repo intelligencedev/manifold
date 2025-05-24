@@ -21,12 +21,16 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pterm/pterm"
 
-	"manifold/internal/codeeval"
-	"manifold/internal/completions"
+	a2aclient "manifold/internal/a2a/client"
 	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
+	completions "manifold/internal/llm"
+	embeddings "manifold/internal/llm"
 	"manifold/internal/mcp"
+	codeeval "manifold/internal/tools"
 	"manifold/internal/util"
+
+	"github.com/pgvector/pgvector-go"
 )
 
 /*──────────────────────── public ───────────────────────*/
@@ -76,6 +80,8 @@ type AgentEngine struct {
 
 	mcpMgr   *mcp.Manager
 	mcpTools map[string]ToolInfo
+
+	a2aClients map[string]*a2aclient.A2AClient
 }
 
 var (
@@ -90,6 +96,50 @@ func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 	return conn, nil
+}
+
+// NewEngine constructs an AgentEngine using the provided database connection.
+// The caller is responsible for closing the DB connection.
+func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*AgentEngine, error) {
+	mgr, err := mcp.NewManager(ctx, "config.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("mcp manager: %w", err)
+	}
+
+	eng := &AgentEngine{
+		Config:     cfg,
+		DB:         db,
+		HTTPClient: &http.Client{Timeout: 180 * time.Second},
+		mcpMgr:     mgr,
+		mcpTools:   make(map[string]ToolInfo),
+		a2aClients: make(map[string]*a2aclient.A2AClient),
+	}
+
+	if cfg.AgenticMemory.Enabled {
+		eng.MemoryEngine = NewAgenticEngine(db)
+		if err := eng.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
+			return nil, err
+		}
+	} else {
+		eng.MemoryEngine = &NilMemoryEngine{}
+	}
+
+	_ = eng.discoverMCPTools(ctx)
+
+	if cfg.A2A.Role == "master" {
+		for _, node := range cfg.A2A.Nodes {
+			base := strings.TrimRight(node, "/") + "/api/a2a"
+			cl := a2aclient.NewFromConfig(cfg, base)
+			if err := cl.Check(ctx); err != nil {
+				log.Printf("a2a node %s unreachable: %v", node, err)
+				continue
+			}
+			eng.a2aClients[node] = cl
+		}
+		log.Printf("a2a discovery complete: %d nodes available", len(eng.a2aClients))
+	}
+
+	return eng, nil
 }
 
 /*──────────────────────── route ───────────────────────*/
@@ -123,32 +173,10 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.JSON(500, map[string]string{"error": "failed to acquire database connection"})
 		}
 		defer poolConn.Release()
-
-		mgr, err := mcp.NewManager(ctx, "config.yaml")
+		engine, err := NewEngine(ctx, cfg, poolConn.Conn())
 		if err != nil {
-			return c.JSON(500, map[string]string{"error": fmt.Sprintf("mcp manager: %v", err)})
+			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
-
-		engine := &AgentEngine{
-			Config:     cfg,
-			DB:         poolConn.Conn(),
-			HTTPClient: &http.Client{Timeout: 180 * time.Second},
-			mcpMgr:     mgr,
-			mcpTools:   make(map[string]ToolInfo),
-		}
-
-		// Configure memory engine based on config
-		if cfg.AgenticMemory.Enabled {
-			engine.MemoryEngine = NewAgenticEngine(poolConn.Conn())
-			if err := engine.MemoryEngine.EnsureAgenticMemoryTable(ctx, cfg.Embeddings.Dimensions); err != nil {
-				return c.JSON(500, map[string]string{"error": err.Error()})
-			}
-		} else {
-			// Use the no-op implementation when agentic memory is disabled
-			engine.MemoryEngine = &NilMemoryEngine{}
-		}
-
-		_ = engine.discoverMCPTools(ctx)
 
 		session, err := engine.RunSession(ctx, req)
 		if err != nil {
@@ -205,6 +233,16 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 					Description: desc,
 					InputSchema: inputSchema,
 				}
+
+				// compute and store embedding for tool description
+				if err := ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions); err == nil {
+					embedTxt := ae.Config.Embeddings.EmbedPrefix + desc
+					embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, []string{embedTxt})
+					if err == nil && len(embeds) > 0 {
+						vec := pgvector.NewVector(embeds[0])
+						_ = ae.upsertToolMemory(ctx, toolName, desc, vec)
+					}
+				}
 			}
 		}
 	})
@@ -230,23 +268,79 @@ func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*Agent
 func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest, hook StepHook) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
+	if ae.Config.A2A.Role == "master" {
+		log.Printf("a2a cluster workers available: %d", len(ae.a2aClients))
+	}
+
 	var td []string
-	for n := range ae.mcpTools {
-		// Convert input schema to JSON string
-		schema, err := json.Marshal(ae.mcpTools[n].InputSchema)
+	toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
+	if toolLimit <= 0 {
+		toolLimit = len(ae.mcpTools)
+	}
+	relTools, err := ae.getRelevantTools(ctx, req.Objective, toolLimit)
+	if err != nil || len(relTools) == 0 {
+		for _, v := range ae.mcpTools {
+			relTools = append(relTools, v)
+		}
+	}
+	for _, t := range relTools {
+		schema, err := json.Marshal(t.InputSchema)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal input schema: %v", err)
 		}
-		td = append(td, fmt.Sprintf("- %s • %s", n, ae.mcpTools[n].Description), string(schema))
+		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
 	}
 	td = append(td,
-		"- stage_path   • copy host src into tmp area; returns JSON {host_path,sandbox_path,path}",
 		"- code_eval    • run code in sandbox",
 		"- finish       • end and output final answer",
 	)
 
 	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
 Objective: %s
+
+You run inside a bash sandbox at /workspace.  
+Goal: read, patch, and validate text/code with deterministic CLI calls only.  
+Return clear reasoning + final diff or file content.
+
+─────────────────
+CORE CLI PRIMITIVES
+─────────────────
+• List/scan   : ls, tree, find . -type f, grep -R --line-number PATTERN .
+• Count lines : wc -l FILE
+• Read slice  : sed -n 'START,ENDp' FILE   # preserves original numbering
+• Show single : awk 'NR==N{print;exit}' FILE
+• Diff        : diff -u OLD NEW   |   git diff --no-index
+• Patch apply : patch -p1 < PATCH   |   git apply --stat PATCH
+• In-place edit (single line) : ed -s FILE <<< $'LINEc\nNEW_TEXT\n.'
+• Regex replace range         : sed -i 'A,B s/OLD/NEW/g' FILE
+• Atomic overwrite            : printf '%%s\n' "$NEW" | sponge FILE
+
+─────────────
+LANG CHECKERS
+─────────────
+.py  → flake8 && mypy && python -m pytest -q (if tests exist)  
+.js  → eslint . && npm test --silent  
+.rs  → cargo fmt --check && cargo clippy --no-deps && cargo test --quiet  
+.go  → gofmt -s -l . && golint ./... && go vet ./... && go test ./...  
+.swift → swiftformat --lint . && swiftlint
+
+─────────
+WORKFLOW
+─────────
+1. **Locate** target lines via grep -n / regex.  
+2. **Read** minimal context chunks with sed/awk for reasoning.  
+3. **Plan** unified diff ( --- a/FILE\n+++ b/FILE … ).  
+4. **Apply** patch atomically; abort on fuzz/hunk failures.  
+5. **Validate** with language checkers; if any fail, rollback and rethink.  
+6. **Output** final 'diff -u' (or full file if small) plus success note.
+
+Rules:
+• Never invoke interactive editors (vim, nano, etc.).  
+• Keep patches minimal; do not reformat entire files unless required.  
+• Track and reference original line numbers in your reasoning.  
+• For non-code text, skip language checkers but still diff/patch/verify.
+
+You have full sudo-less access inside the sandbox; no external network.
 
 IMPORTANT: ALL tool calls should be generated as a single line
 with no line breaks, and JSON should be formatted as a single line.
@@ -256,12 +350,16 @@ with no line breaks, and JSON should be formatted as a single line.
   Only fall back to a tool for *computational* or *programmatic*
   work (e.g. data transformation, heavy math, file parsing).
 
+IMPORTANT: The working directory is always /app/projects. If a full path is not given, always assume the file is in this directory.
+For example, if the file is called "foo.txt", the full path is "/app/projects/foo.txt". If the file is in a subdirectory, the 
+full path is "/app/projects/subdir/foo.txt". ALL tool calls should be made with the full path. NEVER attempt to use a relative path.
+
 Always consider using the tools first. If no tool is available that can be used to complete the task, make your own.
 
-You can use the code_eval tool with python to successfully complete the task if no other tool is suitable. 
+You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
 The code_eval tool supports third-party libraries, so you can include them in the dependencies array. 
 The code should be valid and executable in Python. The code should always return a string with the result of the execution, 
-so that it can be used for the next task. 
+so that it can be used for the next task.
 
 If no dependencies are needed, the dependencies array must be empty (e.g., []).
 
@@ -676,21 +774,21 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 	)
 	switch strings.ToLower(strings.TrimSpace(req.Language)) {
 	case "python":
-		result, err := codeeval.RunPythonInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunPythonRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
 			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
 		} else {
 			resp = &codeeval.CodeEvalResponse{Result: result}
 		}
 	case "go":
-		result, err := codeeval.RunGoInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunGoRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
 			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
 		} else {
 			resp = &codeeval.CodeEvalResponse{Result: result}
 		}
 	case "javascript":
-		result, err := codeeval.RunNodeInContainer(req.Code, req.Dependencies)
+		result, err := codeeval.RunNodeRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
 			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
 		} else {

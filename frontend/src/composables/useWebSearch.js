@@ -1,8 +1,15 @@
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
+import { useNodeBase } from './useNodeBase'
 
 export function useWebSearch(props, emit) {
   const { getEdges, findNode } = useVueFlow()
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+  } = useNodeBase(props, emit)
 
   // Reactive state
   const query = ref(props.data.inputs?.query || '')
@@ -105,15 +112,45 @@ export function useWebSearch(props, emit) {
     if (!props.data.run) {
       props.data.run = run
     }
+    if (props.data.style) {
+      customStyle.value.width = props.data.style.width || '352px'
+      customStyle.value.height = props.data.style.height || '200px'
+    }
   }
 
+  function onResize(event) {
+    customStyle.value.width = `${event.width}px`
+    customStyle.value.height = `${event.height}px`
+    emit('resize', { event })
+  }
+
+  onMounted(() => {
+    setup()
+    if (!props.data.style) {
+      props.data.style = {
+        border: '1px solid #666',
+        borderRadius: '12px',
+        backgroundColor: '#333',
+        color: '#eee',
+        width: '352px',
+        height: '200px'
+      }
+    }
+    customStyle.value.width = props.data.style.width || '352px'
+    customStyle.value.height = props.data.style.height || '200px'
+  })
+
   return {
+    isHovered,
+    resizeHandleStyle,
+    computedContainerStyle,
     query,
     resultSize,
     searchBackend,
     sxngUrl,
     updateNodeData,
     run,
-    setup
+    setup,
+    onResize
   }
 }

@@ -10,17 +10,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// TaskStore defines the interface for storing and managing tasks
-type TaskStore interface {
-	Create(ctx context.Context, initial Task) (*Task, error)
-	Get(ctx context.Context, id string) (*Task, error)
-	UpdateStatus(ctx context.Context, id string, status TaskStatus) error
-	AppendArtifact(ctx context.Context, id string, art Artifact) error
-	Cancel(ctx context.Context, id string) (*Task, error)
-	SetPushConfig(ctx context.Context, id string, cfg *PushNotificationConfig) error
-	GetPushConfig(ctx context.Context, id string) (*PushNotificationConfig, error)
-}
-
 // InMemoryStore is a simple in-memory implementation of TaskStore
 type InMemoryStore struct {
 	tasks       map[string]*Task

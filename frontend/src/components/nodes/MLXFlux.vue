@@ -2,7 +2,7 @@
   <BaseNode
     :id="id"
     :data="data"
-    :min-height="612"
+    :min-height="800"
     @resize="onResize"
   >
     <template #header>
@@ -60,12 +60,12 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        model: '',
+        model: 'dev',
         prompt: '',
         steps: 20,
         seed: 0,
         quality: 8,
-        output: ''
+        output: 'mlxflux.png'
       },
       outputs: {},
     })

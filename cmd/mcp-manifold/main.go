@@ -187,6 +187,18 @@ func registerAdditionalTools(mcpServer *server.MCPServer) {
 		),
 	), handleShellCommandTool)
 
+	// CLI Tool
+	mcpServer.AddTool(mcp.NewTool("cli",
+		mcp.WithDescription("Execute a raw CLI command"),
+		mcp.WithString("command",
+			mcp.Description("Command string to execute"),
+			mcp.Required(),
+		),
+		mcp.WithString("dir",
+			mcp.Description("Optional working directory"),
+		),
+	), handleCLITool)
+
 	// Go Build Tool
 	mcpServer.AddTool(mcp.NewTool("go_build",
 		mcp.WithDescription("Builds a Go module"),

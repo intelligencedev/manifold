@@ -49,6 +49,13 @@ type ShellCommandArgs struct {
 	Dir     string   `json:"dir" jsonschema:"required"`
 }
 
+// CLIToolArgs defines the input for the cli tool which simply passes a raw
+// command string to the underlying shell.
+type CLIToolArgs struct {
+	Command string `json:"command" jsonschema:"required,description=Raw CLI command to execute"`
+	Dir     string `json:"dir,omitempty" jsonschema:"description=Optional working directory"`
+}
+
 type GoBuildArgs struct {
 	Path string `json:"path" jsonschema:"required,description=Directory of Go module"`
 }
@@ -177,6 +184,22 @@ func runShellCommandTool(args ShellCommandArgs) (string, error) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("shell command error: %w\nOutput: %s", err, output)
+	}
+	return string(output), nil
+}
+
+// cli tool
+func cliTool(args CLIToolArgs) (string, error) {
+	if strings.TrimSpace(args.Command) == "" {
+		return "", fmt.Errorf("command required")
+	}
+	cmd := exec.Command("bash", "-c", args.Command)
+	if args.Dir != "" {
+		cmd.Dir = args.Dir
+	}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("cli command error: %w\nOutput: %s", err, output)
 	}
 	return string(output), nil
 }

@@ -296,6 +296,29 @@ func handleShellCommandTool(ctx context.Context, request mcp.CallToolRequest) (*
 	}, nil
 }
 
+// handleCLITool executes a raw CLI command using the underlying shell.
+func handleCLITool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	arguments := request.Params.Arguments
+	command, _ := arguments["command"].(string)
+	dir, _ := arguments["dir"].(string)
+
+	args := CLIToolArgs{
+		Command: command,
+		Dir:     dir,
+	}
+
+	res, err := cliTool(args)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{Type: "text", Text: res},
+		},
+	}, nil
+}
+
 // handleGoBuildTool handles the go build tool
 func handleGoBuildTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	arguments := request.Params.Arguments

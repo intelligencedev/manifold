@@ -12,6 +12,10 @@ Manifold is a powerful platform designed for workflow automation using AI models
 
 ---
 
+## OpenAI, Anthropic, Google and Open Weights Models (llama.cpp or mlx_lm.server backends)
+
+![providers](docs/img/providers.png)
+
 ## Powerful ReAct Agent with access to Model Context Protocol servers
 
 Manifold implements an MCP client and a ReAct Agent for full "autopilot" task execution. MCP servers can be configured as Docker containers that mount the same local:container paths for secure tool execution.

@@ -8,11 +8,13 @@
 
 Manifold is a powerful platform designed for workflow automation using AI models. It supports text generation, image generation, and retrieval-augmented generation, integrating seamlessly with popular AI endpoints including OpenAI, llama.cpp, Apple's MLX LM, Google Gemini, Anthropic Claude, ComfyUI, and MFlux. Additionally, Manifold provides robust semantic search capabilities using PGVector combined with the SEFII (Semantic Embedding Forest with Inverted Index) engine.
 
-> **Note:** Manifold is under active development, and breaking changes are expected. It is **NOT** production-ready. Contributions are highly encouraged!
+> **Note:** Manifold is under active development. The platform is not intended for production use until otherwise noted.
 
 ---
 
 ## OpenAI, Anthropic, Google and Open Weights Models (llama.cpp or mlx_lm.server backends)
+
+Run parallel inference across multiple providers.
 
 ![providers](docs/img/providers.png)
 
@@ -29,8 +31,6 @@ Or use the MCP node to list and execute tools as part of your workflows.
 ## Web Search and Retrieval
 
 ![web](docs/img/web.png)
-
----
 
 ## Powerful Document Ingestion and Retrieval
 

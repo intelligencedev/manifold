@@ -115,7 +115,7 @@ export function useNoteNode(props, emit) {
       props.data.run = run
     }
     if (props.data.style) {
-      customStyle.value.width = props.data.style.width || '200px'
+      customStyle.value.width = props.data.style.width || '380px'
       customStyle.value.height = props.data.style.height || '120px'
     }
   })

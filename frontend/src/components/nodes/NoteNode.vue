@@ -79,7 +79,7 @@ const props = defineProps({
         borderRadius: '12px',
         backgroundColor: '#f7f3d7',
         color: '#333',
-        width: '200px',
+        width: '380px',
         height: '120px'
       }
     })

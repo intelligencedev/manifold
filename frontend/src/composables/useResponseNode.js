@@ -89,7 +89,7 @@ export function useResponseNode(props, emit) {
   const isCopying = ref(false)
 
   // Font size control
-  const currentFontSize = ref(12)
+  const currentFontSize = ref(16)
   const minFontSize = 16
   const maxFontSize = 34
   const fontSizeStep = 2

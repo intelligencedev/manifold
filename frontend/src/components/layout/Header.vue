@@ -38,19 +38,22 @@
         </BaseButton>
 
         <BaseDropdownMenu :show="showTemplatesMenu">
-          <BaseButton
-            v-for="t in templates"
-            :key="t.template"
-            @click="loadTemplate(t)"
-            class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left"
-          >
-            {{ t.name }}
-          </BaseButton>
-          <div
-            v-if="templates.length === 0"
-            class="px-4 py-2 text-gray-400 text-center"
-          >
-            No templates available
+          <div class="templates-list">
+            <div 
+              v-for="(t, index) in templates" 
+              :key="t.template"
+              class="template-item"
+              @click="loadTemplate(t)"
+            >
+              {{ t.name }}
+              <div v-if="index < templates.length - 1" class="template-divider"></div>
+            </div>
+            <div
+              v-if="templates.length === 0"
+              class="px-4 py-2 text-gray-400 text-center"
+            >
+              No templates available
+            </div>
           </div>
         </BaseDropdownMenu>
       </div>
@@ -78,12 +81,23 @@
           <i class="fa fa-user-circle"></i> <span>{{ username }}</span>
           <i class="fa fa-caret-down"></i>
         </BaseButton>
-        <UserSettings
-          v-if="showUserMenu"
-          :showMenu="showUserMenu"
-          @close-menu="showUserMenu = false"
-          @logout="logout"
-        />
+        <BaseDropdownMenu :show="showUserMenu">
+          <div class="templates-list user-menu-list">
+            <div 
+              class="template-item"
+              @click="openPasswordModal"
+            >
+              <i class="fa fa-key mr-2"></i> Change Password
+              <div class="template-divider"></div>
+            </div>
+            <div 
+              class="template-item"
+              @click="logout"
+            >
+              <i class="fa fa-sign-out mr-2"></i> Logout
+            </div>
+          </div>
+        </BaseDropdownMenu>
       </div>
     </div>
 
@@ -92,26 +106,141 @@
       <div class="relative">
         <BaseButton
           @click="mobileMenuOpen = !mobileMenuOpen"
-          class="p-2 rounded hover:bg-gray-800"
+          class="p-2 rounded bg-teal-700 hover:bg-teal-600"
         >
           <i class="fa fa-bars text-xl"></i>
         </BaseButton>
 
         <!-- mobile dropdown -->
         <BaseDropdownMenu :show="mobileMenuOpen">
-          <BaseButton @click="toggleTemplatesMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
+          <!-- Templates Button with inline dropdown -->
+          <BaseButton @click="toggleMobileTemplatesMenu" class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left flex justify-between items-center">
             Templates
+            <i class="fa fa-caret-down ml-2"></i>
           </BaseButton>
-          <BaseButton @click="openFile" class="px-4 py-2 hover:bg-gray-700 text-left">
+          
+          <!-- Templates Submenu -->
+          <div v-if="showMobileTemplatesMenu" class="bg-gray-900">
+            <div class="templates-list mobile">
+              <template v-if="templates.length > 0">
+                <div 
+                  v-for="(t, index) in templates" 
+                  :key="t.template"
+                  class="template-item mobile"
+                  @click="loadTemplate(t)"
+                >
+                  {{ t.name }}
+                  <div v-if="index < templates.length - 1" class="template-divider"></div>
+                </div>
+              </template>
+              <div
+                v-else
+                class="px-4 py-2 text-gray-400 text-center"
+              >
+                No templates available
+              </div>
+            </div>
+          </div>
+          
+          <!-- Standard menu items -->
+          <BaseButton @click="openFile" class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left">
             Open
           </BaseButton>
-          <BaseButton @click="saveFlow" class="px-4 py-2 hover:bg-gray-700 text-left">
+          <BaseButton @click="saveFlow" class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left">
             Save
           </BaseButton>
-          <BaseButton @click="toggleUserMenu" class="px-4 py-2 hover:bg-gray-700 text-left">
+          
+          <!-- User Settings with inline dropdown -->
+          <BaseButton @click="toggleMobileUserMenu" class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left flex justify-between items-center">
             User&nbsp;Settings
+            <i class="fa fa-caret-down ml-2"></i>
           </BaseButton>
+          
+          <!-- User Settings submenu -->
+          <div v-if="showMobileUserMenu" class="bg-gray-900">
+            <div class="templates-list mobile">
+              <div 
+                class="template-item mobile"
+                @click="openPasswordModal"
+              >
+                <i class="fa fa-key mr-2"></i> Change Password
+                <div class="template-divider"></div>
+              </div>
+              <div 
+                class="template-item mobile"
+                @click="logout"
+              >
+                <i class="fa fa-sign-out mr-2"></i> Logout
+              </div>
+            </div>
+          </div>
         </BaseDropdownMenu>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Password Change Modal - Moved to root level -->
+  <div class="modal-overlay" v-if="showPasswordModal" @click.self="closePasswordModal" @touchstart.self="closePasswordModal">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3>Change Password</h3>
+        <button @click="closePasswordModal" class="close-btn">
+          <i class="fa fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <form @submit.prevent="changePassword">
+          <div class="form-group">
+            <label>Current Password</label>
+            <div class="password-input">
+              <input 
+                :type="showCurrentPassword ? 'text' : 'password'" 
+                v-model="passwordData.currentPassword" 
+                required
+              />
+              <button type="button" @click="showCurrentPassword = !showCurrentPassword">
+                <i :class="['fa', showCurrentPassword ? 'fa-eye-slash' : 'fa-eye']"></i>
+              </button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>New Password</label>
+            <div class="password-input">
+              <input 
+                :type="showNewPassword ? 'text' : 'password'" 
+                v-model="passwordData.newPassword" 
+                required 
+              />
+              <button type="button" @click="showNewPassword = !showNewPassword">
+                <i :class="['fa', showNewPassword ? 'fa-eye-slash' : 'fa-eye']"></i>
+              </button>
+            </div>
+            <div v-if="passwordError" class="error">{{ passwordError }}</div>
+          </div>
+          <div class="form-group">
+            <label>Confirm New Password</label>
+            <div class="password-input">
+              <input 
+                :type="showConfirmPassword ? 'text' : 'password'" 
+                v-model="passwordData.confirmPassword" 
+                required
+              />
+              <button type="button" @click="showConfirmPassword = !showConfirmPassword">
+                <i :class="['fa', showConfirmPassword ? 'fa-eye-slash' : 'fa-eye']"></i>
+              </button>
+            </div>
+            <div v-if="confirmError" class="error">{{ confirmError }}</div>
+          </div>
+          <div v-if="formError" class="error form-error">{{ formError }}</div>
+          <div v-if="formSuccess" class="success form-success">{{ formSuccess }}</div>
+          <div class="form-actions">
+            <button type="button" @click="closePasswordModal" class="cancel-btn">Cancel</button>
+            <button type="submit" class="submit-btn" :disabled="isSubmitting">
+              <span v-if="isSubmitting">Updating...</span>
+              <span v-else>Update Password</span>
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -119,7 +248,6 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import UserSettings from '@/components/UserSettings.vue';
 import ManifoldLogo from '@/components/icons/ManifoldLogo.vue';
 import BaseButton from '@/components/base/BaseButton.vue';
 import BaseDropdownMenu from '@/components/base/BaseDropdownMenu.vue';
@@ -131,7 +259,25 @@ const emit = defineEmits(['save', 'restore', 'logout', 'load-template']);
 const showUserMenu = ref(false);
 const showTemplatesMenu = ref(false);
 const mobileMenuOpen = ref(false);
+const showMobileTemplatesMenu = ref(false);
+const showMobileUserMenu = ref(false);
+const showPasswordModal = ref(false);
 const username = ref('User');
+
+// Password change state
+const passwordData = ref({
+  currentPassword: '',
+  newPassword: '',
+  confirmPassword: ''
+});
+const showCurrentPassword = ref(false);
+const showNewPassword = ref(false);
+const showConfirmPassword = ref(false);
+const passwordError = ref('');
+const confirmError = ref('');
+const formError = ref('');
+const formSuccess = ref('');
+const isSubmitting = ref(false);
 
 const templates = ref<Array<{ name: string; template: string }>>([]);
 
@@ -209,28 +355,404 @@ function toggleTemplatesMenu() {
     mobileMenuOpen.value = false;
   }
 }
+
+/* mobile dropdown logic */
+function toggleMobileTemplatesMenu() {
+  showMobileTemplatesMenu.value = !showMobileTemplatesMenu.value;
+  if (showMobileTemplatesMenu.value) {
+    showMobileUserMenu.value = false;
+  }
+}
+function toggleMobileUserMenu() {
+  showMobileUserMenu.value = !showMobileUserMenu.value;
+  if (showMobileUserMenu.value) {
+    showMobileTemplatesMenu.value = false;
+  }
+}
 function loadTemplate(t: { name: string; template: string }) {
   emit('load-template', t.template);
   showTemplatesMenu.value = false;
+  showMobileTemplatesMenu.value = false;
   mobileMenuOpen.value = false;
 }
 function logout() {
   emit('logout');
-  showUserMenu.value = showTemplatesMenu.value = mobileMenuOpen.value = false;
+  showUserMenu.value = false;
+  showTemplatesMenu.value = false;
+  showMobileUserMenu.value = false;
+  showMobileTemplatesMenu.value = false;
+  showPasswordModal.value = false;
+  mobileMenuOpen.value = false;
+}
+
+/* password modal functions */
+function openPasswordModal() {
+  // Close all menus when opening password modal
+  showUserMenu.value = false;
+  showTemplatesMenu.value = false;
+  mobileMenuOpen.value = false;
+  showMobileUserMenu.value = false;
+  showMobileTemplatesMenu.value = false;
+  
+  // Add a small delay to ensure dropdown menus are closed first
+  setTimeout(() => {
+    // Show the password modal
+    showPasswordModal.value = true;
+    // Add a class to the body to prevent background scrolling
+    document.body.classList.add('modal-open');
+  }, 150); // Increased delay for better reliability
+}
+
+function closePasswordModal() {
+  showPasswordModal.value = false;
+  // Remove the modal-open class from body
+  document.body.classList.remove('modal-open');
+  
+  // Reset form fields and errors
+  passwordData.value = {
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  };
+  passwordError.value = '';
+  confirmError.value = '';
+  formError.value = '';
+  formSuccess.value = '';
+  isSubmitting.value = false;
+}
+
+function changePassword() {
+  // Validate passwords
+  if (passwordData.value.newPassword.length < 8) {
+    passwordError.value = 'Password must be at least 8 characters';
+    return;
+  }
+  
+  if (passwordData.value.newPassword !== passwordData.value.confirmPassword) {
+    confirmError.value = 'Passwords do not match';
+    return;
+  }
+  
+  isSubmitting.value = true;
+  formError.value = '';
+  formSuccess.value = '';
+  
+  // Here you would make an API call to change the password
+  // For now, we'll just simulate success after a delay
+  setTimeout(() => {
+    isSubmitting.value = false;
+    formSuccess.value = 'Password updated successfully!';
+    
+    // Close the modal after a short delay
+    setTimeout(() => {
+      closePasswordModal();
+    }, 2000);
+  }, 1000);
 }
 
 /* close open dropdowns when window resizes ≥ lg ----------------*/
 watch(
   () => window.innerWidth,
   () => {
-    if (window.innerWidth >= 1024) mobileMenuOpen.value = false;
+    if (window.innerWidth >= 1024) {
+      mobileMenuOpen.value = false;
+      showMobileTemplatesMenu.value = false;
+      showMobileUserMenu.value = false;
+    }
   },
   { immediate: true },
+);
+
+// Close mobile submenus when the main mobile menu is closed
+watch(
+  () => mobileMenuOpen.value,
+  (isOpen) => {
+    if (!isOpen) {
+      showMobileTemplatesMenu.value = false;
+      showMobileUserMenu.value = false;
+    }
+  }
+);
+
+// Handle modal visibility and body class
+watch(
+  () => showPasswordModal.value,
+  (isVisible) => {
+    if (isVisible) {
+      document.body.classList.add('modal-open');
+    } else {
+      document.body.classList.remove('modal-open');
+    }
+  }
 );
 </script>
 
 <style scoped>
 .fa-bars {
   min-width: 1.25rem; /* extra touch target for hamburger */
+}
+
+.templates-list {
+  background-color: #1e1e1e;
+  border-radius: 0.25rem;
+  overflow: hidden;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+
+.templates-list.mobile {
+  background-color: rgba(30, 30, 30, 0.8); /* Similar to desktop but with transparency */
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding-left: 0; /* Remove any left padding that could cause alignment issues */
+}
+
+.template-item {
+  padding: 0.75rem 1rem;
+  color: #fff;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 0.2s ease;
+}
+
+.template-item:hover {
+  background-color: rgba(56, 178, 172, 0.5); /* teal-600 with opacity */
+}
+
+.template-item.mobile {
+  padding-left: 1.5rem; /* Ensure consistent indentation */
+}
+
+.template-item.mobile:hover {
+  background-color: rgba(56, 178, 172, 0.5); /* teal-600 with opacity - same as desktop */
+}
+
+.template-divider {
+  position: absolute;
+  bottom: 0;
+  left: 0.75rem;
+  right: 0.75rem;
+  height: 1px;
+  background-color: rgba(107, 114, 128, 0.4); /* gray-500 with opacity */
+}
+
+/* Special handling for mobile dividers */
+.template-item.mobile .template-divider {
+  left: 1.25rem;
+  right: 0.75rem;
+}
+
+/* User menu specific styles */
+.user-menu-list {
+  min-width: 180px;
+}
+
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.8); /* Darkened for better visibility */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999; /* Use highest possible z-index */
+  overflow-y: auto; /* Allow scrolling on smaller screens if needed */
+  padding: 1rem 0; /* Add some vertical padding */
+  will-change: opacity; /* Optimize for animations */
+}
+
+/* Adding @layer to ensure these styles take precedence */
+@media (max-width: 1023px) {
+  .modal-overlay {
+    padding: 0;
+    overflow: hidden;
+    display: flex !important; /* Force display even if there are display conflicts */
+    align-items: center !important;
+    justify-content: center !important;
+  }
+}
+
+.modal-content {
+  background-color: #2a2a2a;
+  border-radius: 6px;
+  width: 90%;
+  max-width: 400px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  margin: 0 1rem; /* Add margin to prevent touching edges on small screens */
+  position: relative; /* Add position relative for better mobile handling */
+  z-index: 10000; /* Ensure it's above everything else */
+}
+
+@media (max-width: 1023px) {
+  .modal-content {
+    width: 85%;
+    max-height: 85vh;
+    overflow-y: auto;
+    margin: auto; /* Center in viewport */
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  border-bottom: 1px solid #444;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: white;
+  font-size: 18px;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.close-btn:hover {
+  color: white;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  color: #ddd;
+  font-size: 14px;
+}
+
+.password-input {
+  display: flex;
+  position: relative;
+  width: 100%; /* Ensure full width on mobile */
+}
+
+.password-input input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background-color: #333;
+  color: white;
+  font-size: 16px; /* Prevent zoom on input focus on iOS */
+}
+
+.password-input button {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: #999;
+  cursor: pointer;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+  gap: 10px;
+}
+
+.cancel-btn {
+  padding: 8px 15px;
+  background-color: transparent;
+  border: 1px solid #666;
+  color: #ddd;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.submit-btn {
+  padding: 8px 15px;
+  background-color: #38b2ac; /* teal-600 */
+  border: none;
+  color: white;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.submit-btn:hover {
+  background-color: #319795; /* teal-700 */
+}
+
+.submit-btn:disabled {
+  background-color: #4a5568;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #f56565; /* red-500 */
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.form-error {
+  padding: 8px;
+  background-color: rgba(245, 101, 101, 0.1);
+  border-left: 2px solid #f56565;
+  margin-bottom: 15px;
+  max-width: 100%; /* Ensure it doesn't overflow on mobile */
+  word-break: break-word; /* Break words if needed */
+}
+
+.success {
+  color: #48bb78; /* green-500 */
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.form-success {
+  padding: 8px;
+  background-color: rgba(72, 187, 120, 0.1);
+  border-left: 2px solid #48bb78;
+  margin-bottom: 15px;
+  max-width: 100%; /* Ensure it doesn't overflow on mobile */
+  word-break: break-word; /* Break words if needed */
+}
+
+/* Animation for modal appearance */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.modal-overlay {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+.modal-content {
+  animation: scaleIn 0.2s ease-out forwards;
+}
+
+/* Style for body when modal is open to prevent background scrolling */
+</style>
+
+<style>
+/* Global styles that need to be applied outside the component */
+body.modal-open {
+  overflow: hidden !important;
+  position: fixed !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 </style>

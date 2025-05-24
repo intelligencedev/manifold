@@ -5,7 +5,7 @@ const isOpen = ref(false)
 const nodeCategories = getNodeCategories()
 const expandedCategories = reactive({})
 Object.keys(nodeCategories).forEach((category) => {
-  expandedCategories[category] = category === 'Text Completions'
+  expandedCategories[category] = category === 'Chat/Agent'
 })
 
 function togglePalette() {

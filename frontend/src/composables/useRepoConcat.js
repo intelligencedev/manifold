@@ -1,5 +1,6 @@
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
+import { useNodeBase } from './useNodeBase'
 
 /**
  * Composable for managing RepoConcat functionality
@@ -9,6 +10,12 @@ import { useVueFlow } from '@vue-flow/core'
  */
 export function useRepoConcat(props, emit) {
   const { getEdges, findNode } = useVueFlow()
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+  } = useNodeBase(props, emit)
 
   // Local reactive variable for the update-from-source checkbox
   const updateFromSource = ref(props.data.updateFromSource)
@@ -72,6 +79,11 @@ export function useRepoConcat(props, emit) {
       },
       outputs: props.data.outputs,
       updateFromSource: updateFromSource.value,
+      style: {
+        ...props.data.style,
+        width: customStyle.value.width,
+        height: customStyle.value.height,
+      },
     }
     emit('update:data', { id: props.id, data: updatedData })
   }
@@ -153,6 +165,36 @@ export function useRepoConcat(props, emit) {
     }
   }
 
+  onMounted(() => {
+    if (!props.data.run) {
+      props.data.run = run
+    }
+    if (props.data.style) {
+      customStyle.value.width = props.data.style.width || '380px'
+      customStyle.value.height = props.data.style.height || '240px'
+    }
+  })
+
+  if (!props.data.style) {
+    props.data.style = {
+      border: '1px solid #666',
+      borderRadius: '12px',
+      backgroundColor: '#333',
+      color: '#eee',
+      width: '380px',
+      height: '240px',
+    }
+  }
+  customStyle.value.width = props.data.style.width || '380px'
+  customStyle.value.height = props.data.style.height || '240px'
+
+  function onResize(event) {
+    customStyle.value.width = `${event.width}px`
+    customStyle.value.height = `${event.height}px`
+    updateNodeData()
+    emit('resize', { id: props.id, width: event.width, height: event.height })
+  }
+
   return {
     updateFromSource,
     label,
@@ -161,6 +203,10 @@ export function useRepoConcat(props, emit) {
     recursive,
     ignorePattern,
     updateNodeData,
-    run
+    run,
+    isHovered,
+    resizeHandleStyle,
+    computedContainerStyle,
+    onResize
   }
 }

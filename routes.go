@@ -13,9 +13,9 @@ import (
 
 	"manifold/internal/a2a"
 	agentspkg "manifold/internal/agents"
-	anthropicpkg "manifold/internal/anthropic"
 	gitpkg "manifold/internal/git"
 	imggenpkg "manifold/internal/imggen"
+	llmpkg "manifold/internal/llm"
 	sefiipkg "manifold/internal/sefii"
 )
 
@@ -64,8 +64,11 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// Workflow templates endpoints
 	registerWorkflowEndpoints(api, config)
 
-	// A2A protocol endpoints
-	registerA2AEndpoints(api, config)
+	// A2A protocol endpoints for worker nodes
+	if config.A2A.Role == "worker" {
+		log.Println("starting a2a server endpoints")
+		registerA2AEndpoints(api, config)
+	}
 
 	// Git-related endpoints.
 	api.GET("/git-files", gitpkg.FilesHandler)
@@ -94,7 +97,6 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", webSearchHandler)
 	api.POST("/code/eval", evaluateCodeHandler)
-	api.POST("/datadog", datadogHandler)
 	api.POST("/comfy-proxy", imggenpkg.ComfyProxyHandler)
 
 	// Agentic Memory endpoints.
@@ -151,7 +153,7 @@ func registerSEFIIEndpoints(api *echo.Group, config *Config) {
 func registerAnthropicEndpoints(api *echo.Group, config *Config) {
 	anthropicGroup := api.Group("/anthropic")
 	anthropicGroup.POST("/messages", func(c echo.Context) error {
-		return anthropicpkg.HandleMessages(c, config)
+		return llmpkg.HandleMessages(c, config)
 	})
 }
 
@@ -189,9 +191,12 @@ func registerA2AEndpoints(api *echo.Group, config *Config) {
 
 	// Main A2A endpoint that handles JSON-RPC requests
 	a2aGroup.POST("", echo.WrapHandler(a2a.NewEchoHandler(taskStore, authenticator)))
+	a2aGroup.GET("/hello", func(c echo.Context) error {
+		return c.String(http.StatusOK, "hello world")
+	})
 
 	// Well-known Agent Card endpoint (required by A2A specification)
-	a2aGroup.GET("/.well-known/agent-card.json", a2a.AgentCardHandler(config))
+	a2aGroup.GET("/.well-known/agent.json", a2a.AgentCardHandler(config))
 }
 
 // WorkflowTemplate represents a workflow template with its metadata

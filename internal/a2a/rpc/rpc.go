@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -42,6 +43,52 @@ type JSONRPCError struct {
 	Code    int             `json:"code"`
 	Message string          `json:"message"`
 	Data    json.RawMessage `json:"data,omitempty"`
+}
+
+// SSEWriter wraps an http.ResponseWriter to provide SSE functionality
+type SSEWriter struct {
+	w http.ResponseWriter
+	f http.Flusher
+}
+
+// NewSSEWriter creates a new SSE writer
+func NewSSEWriter(w http.ResponseWriter) *SSEWriter {
+	// Set required headers for SSE
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	// Get the flusher interface if supported
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		log.Printf("Warning: Streaming is not supported by the underlying http.ResponseWriter")
+		// Return a dummy writer that will still work but won't flush
+		return &SSEWriter{w: w, f: nil}
+	}
+
+	return &SSEWriter{w: w, f: flusher}
+}
+
+// Send sends a JSON-RPC response as an SSE event
+func (s *SSEWriter) Send(resp JSONRPCResponse) error {
+	// Marshal the response to JSON
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON-RPC response: %w", err)
+	}
+
+	// Write SSE format: "data: <json>\n\n"
+	_, err = fmt.Fprintf(s.w, "data: %s\n\n", data)
+	if err != nil {
+		return fmt.Errorf("failed to write SSE event: %w", err)
+	}
+
+	// Flush to ensure the data is sent immediately
+	if s.f != nil {
+		s.f.Flush()
+	}
+	return nil
 }
 
 // Standard JSON-RPC error codes
@@ -85,6 +132,13 @@ func (r *Router) Register(method string, h HandlerFunc) {
 
 // ServeHTTP implements http.Handler
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// Check if client is requesting SSE
+	wantsSSE := false
+	acceptHeader := req.Header.Get("Accept")
+	if acceptHeader == "text/event-stream" {
+		wantsSSE = true
+	}
+
 	// Verify content type
 	if req.Header.Get("Content-Type") != "application/json" {
 		writeError(w, nil, InvalidRequestCode, "Content-Type must be application/json")
@@ -109,6 +163,13 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err := json.Unmarshal(bodyBytes, &jsonRPCReq); err != nil {
 		writeError(w, nil, ParseErrorCode, "Failed to parse JSON-RPC request")
 		return
+	}
+
+	// Store SSE preference in context for handlers to use
+	if wantsSSE {
+		ctx := req.Context()
+		ctx = context.WithValue(ctx, contextKey("wants_sse"), true)
+		req = req.WithContext(ctx)
 	}
 
 	// Validate JSON-RPC version
@@ -145,7 +206,23 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Return successful response
+	// Check if client wants SSE response
+	if ctx.Value(contextKey("wants_sse")) == true {
+		// Set up SSE response
+		sseWriter := NewSSEWriter(w)
+		response := JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      jsonRPCReq.ID,
+			Result:  result,
+		}
+
+		if err := sseWriter.Send(response); err != nil {
+			log.Printf("Error sending SSE response: %v", err)
+		}
+		return
+	}
+
+	// Return standard JSON response
 	response := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      jsonRPCReq.ID,
@@ -171,9 +248,24 @@ func writeError(w http.ResponseWriter, id interface{}, code int, message string)
 		},
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK) // JSON-RPC always returns 200 OK
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding JSON-RPC error response: %v", err)
+	// Check Accept header for SSE
+	acceptHeader := ""
+	if rw, ok := w.(interface{ Header() http.Header }); ok {
+		acceptHeader = rw.Header().Get("Accept")
+	}
+
+	if acceptHeader == "text/event-stream" {
+		// Return error as SSE
+		sseWriter := NewSSEWriter(w)
+		if err := sseWriter.Send(response); err != nil {
+			log.Printf("Error sending SSE error response: %v", err)
+		}
+	} else {
+		// Return error as JSON
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK) // JSON-RPC always returns 200 OK
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("Error encoding JSON-RPC error response: %v", err)
+		}
 	}
 }

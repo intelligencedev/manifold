@@ -1,32 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 import { useVueFlow } from '@vue-flow/core'
-import { ref, watch, nextTick } from 'vue'
-import NoteNode from '../components/nodes/NoteNode.vue'
-import PythonRunner from '../components/nodes/CodeRunnerNode.vue'
-import WebGLNode from '../components/nodes/WebGLNode.vue'
-import ReactAgent from '../components/nodes/ReactAgentNode.vue'
-import AgentNode from '../components/nodes/AgentNode.vue'
-import ResponseNode from '../components/nodes/ResponseNode.vue'
-import EmbeddingsNode from '../components/nodes/EmbeddingsNode.vue'
-import WebSearchNode from '../components/nodes/WebSearchNode.vue'
-import WebRetrievalNode from '../components/nodes/WebRetrievalNode.vue'
-import TextNode from '../components/nodes/TextNode.vue'
-import TextSplitterNode from '../components/nodes/TextSplitterNode.vue'
-import OpenFileNode from '../components/nodes/OpenFileNode.vue'
-import SaveTextNode from '../components/nodes/SaveTextNode.vue'
-import DatadogNode from '../components/nodes/DatadogNode.vue'
-import DatadogGraphNode from '../components/nodes/DatadogGraphNode.vue'
-import TokenCounterNode from '../components/nodes/TokenCounterNode.vue'
-import FlowControl from '../components/FlowControl.vue'
-import RepoConcat from '../components/nodes/RepoConcat.vue'
-import ComfyNode from '../components/nodes/ComfyNode.vue'
-import MLXFlux from '../components/nodes/MLXFlux.vue'
-import DocumentsIngest from '../components/nodes/DocumentsIngestNode.vue'
-import DocumentsRetrieve from '../components/nodes/DocumentsRetrieveNode.vue'
-import ttsNode from '../components/nodes/ttsNode.vue'
-import MCPClientNode from '../components/nodes/MCPClient.vue'
-import Mermaid from '../components/nodes/Mermaid.vue'
-import CodeRunnerNode from '../components/nodes/CodeRunnerNode.vue'
+import { ref, watch } from 'vue'
+import { nodeRegistry } from '../components/nodes/nodeRegistry.ts'
 import MessageBusNode from '@/components/MessageBusNode.vue'
 
 let id = 0
@@ -54,7 +29,7 @@ const state = {
 export default function useDragAndDrop() {
   const { draggedType, isDragOver, isDragging } = state
 
-  const { addNodes, screenToFlowCoordinate, setNodes } = useVueFlow()
+  const { addNodes, screenToFlowCoordinate } = useVueFlow()
 
   watch(isDragging, (dragging) => {
     document.body.style.userSelect = dragging ? 'none' : ''
@@ -113,92 +88,16 @@ export default function useDragAndDrop() {
 
     const nodeId = getId(draggedType.value)
 
-    // Get the default data for the component
-    let component;
-    switch (draggedType.value) {
-      case 'noteNode':
-        component = NoteNode;
-        break;
-      case 'codeRunnerNode':
-        component = CodeRunnerNode;
-        break;
-      case 'webGLNode':
-        component = WebGLNode;
-        break;
-      case 'reactAgent':
-        component = ReactAgent;
-        break;
-      case 'completions':
-        component = AgentNode;
-        break;
-      case 'responseNode':
-        component = ResponseNode;
-        break;
-      case 'embeddingsNode':
-        component = EmbeddingsNode;
-        break;
-      case 'webSearchNode':
-        component = WebSearchNode;
-        break;
-      case 'webRetrievalNode':
-        component = WebRetrievalNode;
-        break;
-      case 'textNode':
-        component = TextNode;
-        break;
-      case 'textSplitterNode':
-        component = TextSplitterNode;
-        break;
-      case 'openFileNode':
-        component = OpenFileNode;
-        break;
-      case 'saveTextNode':
-        component = SaveTextNode;
-        break;
-      case 'datadogNode':
-        component = DatadogNode;
-        break;
-      case 'datadogGraphNode':
-        component = DatadogGraphNode;
-        break;
-      case 'tokenCounterNode':
-        component = TokenCounterNode;
-        break;
-      case 'flowControlNode':
-        component = FlowControl;
-        break;
-      case 'repoConcatNode':
-        component = RepoConcat;
-        break;
-      case 'comfyNode':
-        component = ComfyNode;
-        break;
-      case 'mlxFluxNode':
-        component = MLXFlux;
-        break;
-      case 'documentsIngestNode':
-        component = DocumentsIngest;
-        break;
-      case 'documentsRetrieveNode':
-        component = DocumentsRetrieve;
-        break;
-      case 'ttsNode':
-        component = ttsNode;
-        break;
-      case 'mcpClientNode':
-        component = MCPClientNode;
-        break;
-      case 'mermaidNode':
-        component = Mermaid;
-        break;
-      case 'messageBusNode':
-        component = MessageBusNode;
-        break;
-      default:
-        console.error(`Unknown node type: ${draggedType.value}`);
-        return;
+    const registration = nodeRegistry.find((n) => n.type === draggedType.value)
+    let defaultData
+    if (!registration && draggedType.value === 'messageBusNode') {
+      defaultData = MessageBusNode.props.data.default()
+    } else if (registration) {
+      defaultData = registration.defaultData()
+    } else {
+      console.error(`Unknown node type: ${draggedType.value}`)
+      return
     }
-    const defaultData = component.props.data.default();
 
     // Create a new node with the default data
     const newNode = {

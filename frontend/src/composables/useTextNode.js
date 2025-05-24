@@ -242,6 +242,23 @@ export default function useTextNode(props, emit) {
     updateNodeData()
     emit('resize', { id: props.id, width: event.width, height: event.height })
   }
+
+  // Handle textarea interactions
+  const onTextareaMouseDown = (e) => {
+    emit('disable-zoom')
+  }
+  
+  const onTextareaMouseUp = (e) => {
+    emit('enable-zoom')
+  }
+  
+  const onTextareaFocus = (e) => {
+    emit('disable-zoom')
+  }
+  
+  const onTextareaBlur = (e) => {
+    emit('enable-zoom')
+  }
   
   return {
     text,
@@ -252,6 +269,10 @@ export default function useTextNode(props, emit) {
     resizeHandleStyle,
     updateNodeData,
     onResize,
-    run
+    run,
+    onTextareaMouseDown,
+    onTextareaMouseUp,
+    onTextareaFocus,
+    onTextareaBlur
   }
 }

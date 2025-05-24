@@ -1,260 +1,268 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"strings"
-	"sync"
 	"syscall"
-	"time"
 
-	mcp "github.com/metoro-io/mcp-golang"
-	"github.com/metoro-io/mcp-golang/transport/stdio"
+	mcp "github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 // RunMCPServer is the main entry point for running the MCP server with all registered tools.
 func main() {
 	log.Println("Starting Manifold MCP Server...")
 
-	// Create a transport for the server
-	serverTransport := stdio.NewStdioServerTransport()
-
-	// Create a new server with the transport
-	server := mcp.NewServer(serverTransport)
-
-	// Register all MCP tools
-	registerAllTools(server)
-
-	// Set up signal handling for graceful shutdown
+	// Handle termination signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Start the server in a goroutine
-	errChan := make(chan error, 1)
 	go func() {
-		if err := server.Serve(); err != nil {
-			errChan <- fmt.Errorf("MCP server error: %w", err)
-		}
+		sig := <-sigChan
+		log.Printf("Received signal %v, initiating shutdown...", sig)
 	}()
 
-	// Wait for termination signal or error
-	select {
-	case err := <-errChan:
-		log.Fatalf("Server error: %v", err)
-	case sig := <-sigChan:
-		log.Printf("Received signal %v, shutting down...", sig)
+	if err := run(); err != nil {
+		log.Fatalf("Fatal error: %v", err)
 	}
 
-	log.Println("MCP server stopped")
+	log.Println("MCP server stopped gracefully")
+}
+
+// run starts the MCP server and blocks until the context is canceled or an error occurs.
+func run() error {
+	// Create a new MCP server
+	mcpServer := newMCPServer()
+
+	// Start the server with stdio transport
+	if err := server.ServeStdio(mcpServer); err != nil {
+		return fmt.Errorf("MCP server error: %w", err)
+	}
+
+	return nil
+}
+
+// newMCPServer creates and configures a new MCP server with all tools
+func newMCPServer() *server.MCPServer {
+	// Create a new server
+	mcpServer := server.NewMCPServer(
+		"mcp-manifold",
+		"1.0.0",
+		server.WithToolCapabilities(true),
+		server.WithLogging(),
+	)
+
+	// Register all MCP tools
+	registerAllTools(mcpServer)
+
+	return mcpServer
 }
 
 // registerAllTools registers all the tools that our MCP server will provide.
-func registerAllTools(server *mcp.Server) {
+func registerAllTools(mcpServer *server.MCPServer) {
 	// Basic tools
-	registerBasicTools(server)
+	registerBasicTools(mcpServer)
 
 	// Git tools
-	registerGitTools(server)
+	registerGitTools(mcpServer)
 
-	// Additional tools
-	registerAdditionalTools(server)
+	// Additional tools (incl. file_tool)
+	registerAdditionalTools(mcpServer)
 
 	log.Println("All MCP tools registered successfully")
 }
 
 // registerBasicTools registers the simple utility tools
-func registerBasicTools(server *mcp.Server) {
-	tools := []struct {
-		name        string
-		description string
-		handler     interface{}
-	}{
-		{"calculate", "Performs basic mathematical operations", func(args CalculateArgs) (*mcp.ToolResponse, error) {
-			res, err := calculateTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"time", "Returns the current time", func(args TimeArgs) (*mcp.ToolResponse, error) {
-			res, err := timeTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"get_weather", "Get the weather forecast", func(args WeatherArgs) (*mcp.ToolResponse, error) {
-			res, err := getWeatherTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"web_search", "Performs a web search using selected backend", func(args WebSearchArgs) (*mcp.ToolResponse, error) {
-			res := searchDDG(args.Query)
+func registerBasicTools(mcpServer *server.MCPServer) {
+	// Calculate Tool
+	mcpServer.AddTool(mcp.NewTool("calculate",
+		mcp.WithDescription("Performs basic mathematical operations"),
+		mcp.WithString("operation",
+			mcp.Description("The mathematical operation to perform"),
+			mcp.Enum("add", "subtract", "multiply", "divide"),
+			mcp.Required(),
+		),
+		mcp.WithNumber("a",
+			mcp.Description("First number"),
+			mcp.Required(),
+		),
+		mcp.WithNumber("b",
+			mcp.Description("Second number"),
+			mcp.Required(),
+		),
+	), handleCalculateTool)
 
-			// Convert the go slice to a string
-			resStr := strings.Join(res, "\n")
-			if len(resStr) == 0 {
-				resStr = "No results found."
-			}
+	// Time Tool
+	mcpServer.AddTool(mcp.NewTool("time",
+		mcp.WithDescription("Returns the current time"),
+		mcp.WithString("format",
+			mcp.Description("Optional time format (default: RFC3339)"),
+		),
+	), handleTimeTool)
 
-			// return the result
-			return mcp.NewToolResponse(mcp.NewTextContent(resStr)), nil
-		}},
-		{"web_content", "Fetches and extracts content from web URLs", func(args WebContentArgs) (*mcp.ToolResponse, error) {
-			urlsParam := args.URLs
+	// Weather Tool
+	mcpServer.AddTool(mcp.NewTool("get_weather",
+		mcp.WithDescription("Get the weather forecast"),
+		mcp.WithNumber("longitude",
+			mcp.Description("Longitude in decimal degrees"),
+			mcp.Required(),
+		),
+		mcp.WithNumber("latitude",
+			mcp.Description("Latitude in decimal degrees"),
+			mcp.Required(),
+		),
+	), handleWeatherTool)
 
-			if urlsParam == "" {
-				return nil, fmt.Errorf("URLs are required")
-			}
-			// Split the URLs by comma
+	// Web Search Tool
+	mcpServer.AddTool(mcp.NewTool("web_search",
+		mcp.WithDescription("Performs a web search using selected backend"),
+		mcp.WithString("query",
+			mcp.Description("Search query"),
+			mcp.Required(),
+		),
+		mcp.WithNumber("result_size",
+			mcp.Description("Optional number of results to return"),
+		),
+	), handleWebSearchTool)
 
-			urls := strings.Split(urlsParam, ",")
-			var wg sync.WaitGroup
-			var mu sync.Mutex
-			results := make(map[string]interface{})
-
-			resultChan := make(chan *mcp.ToolResponse)
-			errChan := make(chan error)
-
-			go func() {
-				for _, pageURL := range urls {
-					wg.Add(1)
-					go func(url string) {
-						defer wg.Done()
-						content, err := webGetHandler(url)
-						mu.Lock()
-						defer mu.Unlock()
-						if err != nil {
-							results[url] = map[string]string{"error": fmt.Sprintf("Error extracting web content: %v", err)}
-						} else {
-							results[url] = content
-						}
-					}(pageURL)
-				}
-
-				wg.Wait()
-
-				jsonResult, err := json.Marshal(results)
-				if err != nil {
-					errChan <- fmt.Errorf("error marshaling results: %w", err)
-					return
-				}
-				resultChan <- mcp.NewToolResponse(mcp.NewTextContent(string(jsonResult)))
-			}()
-
-			// Wait for result or timeout
-			select {
-			case result := <-resultChan:
-				return result, nil
-			case err := <-errChan:
-				return nil, err
-			case <-time.After(60 * time.Second):
-				jsonResult, err := json.Marshal(results)
-				if err != nil {
-					return nil, fmt.Errorf("error marshaling results after timeout: %w", err)
-				}
-				return mcp.NewToolResponse(mcp.NewTextContent(string(jsonResult))), nil
-			}
-		}},
-	}
-
-	for _, tool := range tools {
-		if err := server.RegisterTool(tool.name, tool.description, tool.handler); err != nil {
-			log.Printf("Error registering %s tool: %v", tool.name, err)
-		}
-	}
+	// Web Content Tool
+	mcpServer.AddTool(mcp.NewTool("web_content",
+		mcp.WithDescription("Fetches and extracts content from web URLs"),
+		mcp.WithString("urls",
+			mcp.Description("Comma separated list of URLs"),
+			mcp.Required(),
+		),
+	), handleWebContentTool)
 }
 
 // registerGitTools registers tools related to git operations
 // These tools are missing in other git MCP servers tested
-func registerGitTools(server *mcp.Server) {
-	tools := []struct {
-		name        string
-		description string
-		handler     interface{}
-	}{
-		{"git_pull", "Pulls changes", func(args GitRepoArgs) (*mcp.ToolResponse, error) {
-			res, err := gitPullTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"git_push", "Pushes commits", func(args GitRepoArgs) (*mcp.ToolResponse, error) {
-			res, err := gitPushTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"git_clone", "Clones a remote Git repository", func(args GitCloneArgs) (*mcp.ToolResponse, error) {
-			res, err := gitCloneTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-	}
+func registerGitTools(mcpServer *server.MCPServer) {
+	// Git Pull Tool
+	mcpServer.AddTool(mcp.NewTool("git_pull",
+		mcp.WithDescription("Pulls changes"),
+		mcp.WithString("path",
+			mcp.Description("Local path to an existing Git repo"),
+			mcp.Required(),
+		),
+	), handleGitPullTool)
 
-	for _, tool := range tools {
-		if err := server.RegisterTool(tool.name, tool.description, tool.handler); err != nil {
-			log.Printf("Error registering %s tool: %v", tool.name, err)
-		}
-	}
+	// Git Push Tool
+	mcpServer.AddTool(mcp.NewTool("git_push",
+		mcp.WithDescription("Pushes commits"),
+		mcp.WithString("path",
+			mcp.Description("Local path to an existing Git repo"),
+			mcp.Required(),
+		),
+	), handleGitPushTool)
+
+	// Git Clone Tool
+	mcpServer.AddTool(mcp.NewTool("git_clone",
+		mcp.WithDescription("Clones a remote Git repository"),
+		mcp.WithString("repoUrl",
+			mcp.Description("URL of the Git repository to clone"),
+			mcp.Required(),
+		),
+		mcp.WithString("path",
+			mcp.Description("Local path where to clone the repository"),
+			mcp.Required(),
+		),
+	), handleGitCloneTool)
 }
 
-// registerAdditionalTools registers various other tools
-func registerAdditionalTools(server *mcp.Server) {
-	tools := []struct {
-		name        string
-		description string
-		handler     interface{}
-	}{
-		{"run_shell_command", "Executes an arbitrary shell command", func(args ShellCommandArgs) (*mcp.ToolResponse, error) {
-			res, err := runShellCommandTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"go_build", "Builds a Go module", func(args GoBuildArgs) (*mcp.ToolResponse, error) {
-			res, err := goBuildTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"go_test", "Runs Go tests", func(args GoTestArgs) (*mcp.ToolResponse, error) {
-			res, err := goTestTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"format_go_code", "Formats Go code using go fmt", func(args FormatGoCodeArgs) (*mcp.ToolResponse, error) {
-			res, err := formatGoCodeTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-		{"lint_code", "Runs a code linter", func(args LintCodeArgs) (*mcp.ToolResponse, error) {
-			res, err := lintCodeTool(args)
-			if err != nil {
-				return nil, err
-			}
-			return mcp.NewToolResponse(mcp.NewTextContent(res)), nil
-		}},
-	}
+// registerAdditionalTools registers various other tools, including the new file_tool
+func registerAdditionalTools(mcpServer *server.MCPServer) {
+	// Run Shell Command Tool
+	mcpServer.AddTool(mcp.NewTool("run_shell_command",
+		mcp.WithDescription("Executes an arbitrary shell command"),
+		mcp.WithArray("command",
+			mcp.Description("Command to execute and its arguments"),
+			mcp.Required(),
+			mcp.Items(map[string]interface{}{"type": "string"}),
+		),
+		mcp.WithString("dir",
+			mcp.Description("Directory in which to run the command"),
+			mcp.Required(),
+		),
+	), handleShellCommandTool)
 
-	for _, tool := range tools {
-		if err := server.RegisterTool(tool.name, tool.description, tool.handler); err != nil {
-			log.Printf("Error registering %s tool: %v", tool.name, err)
-		}
-	}
+	// CLI Tool
+	mcpServer.AddTool(mcp.NewTool("cli",
+		mcp.WithDescription("Execute a raw CLI command"),
+		mcp.WithString("command",
+			mcp.Description("Command string to execute"),
+			mcp.Required(),
+		),
+		mcp.WithString("dir",
+			mcp.Description("Optional working directory"),
+		),
+	), handleCLITool)
+
+	// Go Build Tool
+	mcpServer.AddTool(mcp.NewTool("go_build",
+		mcp.WithDescription("Builds a Go module"),
+		mcp.WithString("path",
+			mcp.Description("Directory of Go module"),
+			mcp.Required(),
+		),
+	), handleGoBuildTool)
+
+	// Go Test Tool
+	mcpServer.AddTool(mcp.NewTool("go_test",
+		mcp.WithDescription("Runs Go tests"),
+		mcp.WithString("path",
+			mcp.Description("Directory of Go tests"),
+			mcp.Required(),
+		),
+	), handleGoTestTool)
+
+	// Format Go Code Tool
+	mcpServer.AddTool(mcp.NewTool("format_go_code",
+		mcp.WithDescription("Formats Go code using go fmt"),
+		mcp.WithString("path",
+			mcp.Description("Directory of Go code to format"),
+			mcp.Required(),
+		),
+	), handleFormatGoCodeTool)
+
+	// Lint Code Tool
+	mcpServer.AddTool(mcp.NewTool("lint_code",
+		mcp.WithDescription("Runs a code linter"),
+		mcp.WithString("path",
+			mcp.Description("Dir or file to lint"),
+			mcp.Required(),
+		),
+		mcp.WithString("linterName",
+			mcp.Description("Optional linter name"),
+		),
+	), handleLintCodeTool)
+
+	mcpServer.AddTool(mcp.NewTool("file_tool",
+		mcp.WithDescription("Reads, searches, and patches code files with line precision"),
+		mcp.WithString("operation",
+			mcp.Description("read, read_range, search, replace_line, replace_range, apply_patch"),
+			mcp.Enum("read", "read_range", "search", "replace_line", "replace_range", "apply_patch"),
+			mcp.Required(),
+		),
+		mcp.WithString("path",
+			mcp.Description("Absolute or workspace-relative file path"),
+			mcp.Required(),
+		),
+		mcp.WithNumber("start",
+			mcp.Description("Start line (1-based) for range/replace operations"),
+		),
+		mcp.WithNumber("end",
+			mcp.Description("End line (inclusive) for range/replace operations"),
+		),
+		mcp.WithString("pattern",
+			mcp.Description("Regex or plain-text pattern used by search"),
+		),
+		mcp.WithString("replacement",
+			mcp.Description("Replacement text for replace_line / replace_range"),
+		),
+		mcp.WithString("patch",
+			mcp.Description("Unified-diff content for apply_patch"),
+		),
+	), handleFileTool)
 }

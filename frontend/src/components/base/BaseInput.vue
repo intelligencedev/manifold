@@ -1,11 +1,11 @@
 <template>
-  <div class="base-input">
-    <label v-if="label" :for="id" class="input-label">{{ label }}:</label>
-    <div class="input-wrapper">
+  <div class="mb-2">
+    <label v-if="label" :for="id" class="block mb-1 text-md text-gray-200">{{ label }}:</label>
+    <div class="relative flex">
       <input 
         :id="id" 
         :type="type" 
-        class="input-text" 
+        class="w-full px-2 py-1.5 text-md border border-slate-600 rounded bg-zinc-700 text-gray-200" 
         :value="modelValue"
         @input="handleInput"
         v-bind="$attrs"
@@ -50,41 +50,15 @@ function handleInput(event) {
 }
 </script>
 
-<style scoped>
-.base-input {
-  margin-bottom: 8px;
-}
-
-.input-label {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 14px;
-  color: var(--input-label-color, #eee);
-}
-
-.input-wrapper {
-  position: relative;
-  display: flex;
-}
-
-.input-text {
-  width: 100%;
-  padding: 6px 8px;
-  font-size: 14px;
-  border: 1px solid var(--input-border-color, #666);
-  border-radius: 4px;
-  background-color: var(--input-bg-color, #333);
-  color: var(--input-text-color, #eee);
-}
-
+<style>
 /* Safari fix to hide spinner arrows */
-.input-text::-webkit-inner-spin-button,
-.input-text::-webkit-outer-spin-button {
+input::-webkit-inner-spin-button,
+input::-webkit-outer-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
 /* Firefox fix */
-.input-text[type=number] {
+input[type=number] {
   -moz-appearance: textfield;
   appearance: textfield;
 }

@@ -30,11 +30,11 @@ frontend/src/system_templates.yaml
 
 # IDE specific files
 .idea/
-.vscode/
+.vscode/*
 *.swp
 *.swo
 
-models
+./models
 mflux
 prompt.md
 embed_examples.md

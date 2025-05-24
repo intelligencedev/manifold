@@ -28,8 +28,13 @@ embeddings:
   dimensions: 128
   embed_prefix: "e"
   search_prefix: "s"
-reranker:
+  reranker:
   host: "rhost"
+a2a:
+  role: "worker"
+  token: "secret"
+  nodes:
+    - "http://node1"
 `
 	cfgPath := filepath.Join(tmpDir, "config.yaml")
 	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0644); err != nil {
@@ -45,6 +50,15 @@ reranker:
 	}
 	if cfg.Database.ConnectionString != "user:pass@/dbname" {
 		t.Errorf("database connection incorrect: %v", cfg.Database.ConnectionString)
+	}
+	if cfg.A2A.Role != "worker" {
+		t.Errorf("unexpected a2a role: %v", cfg.A2A.Role)
+	}
+	if cfg.A2A.Token != "secret" {
+		t.Errorf("unexpected a2a token: %v", cfg.A2A.Token)
+	}
+	if len(cfg.A2A.Nodes) != 1 || cfg.A2A.Nodes[0] != "http://node1" {
+		t.Errorf("unexpected a2a nodes: %v", cfg.A2A.Nodes)
 	}
 }
 

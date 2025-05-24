@@ -15,7 +15,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 
 	configpkg "manifold/internal/config"
-	"manifold/internal/embeddings"
+	embeddings "manifold/internal/llm"
 	"manifold/internal/sefii"
 )
 

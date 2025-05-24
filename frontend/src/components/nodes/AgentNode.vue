@@ -1,24 +1,26 @@
 <template>
-  <div
-    :style="computedContainerStyle"
-    class="node-container openai-node tool-node"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
+  <BaseNode
+    :id="id"
+    :data="data"
+    :min-height="800"
+    @resize="onResize"
   >
-    <div :style="data.labelStyle" class="node-label">
-      {{ provider === 'anthropic' ? 'Claude / Anthropic' : 
-         provider === 'google' ? 'Gemini / Google' : 
-         'Open AI / Local' }}
-    </div>
+    <template #header>
+      <div :style="data.labelStyle" class="node-label">
+        {{ provider === 'anthropic' ? 'Claude / Anthropic' :
+           provider === 'google' ? 'Gemini / Google' :
+           'Open AI / Local' }}
+      </div>
+    </template>
 
     <!-- Provider -->
-    <BaseSelect label="Provider" v-model="provider" :options="providerOptions" />
+    <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
 
     <!-- Parameters -->
     <BaseAccordion title="Parameters">
       <BaseInput label="Endpoint" v-model="endpoint" />
 
-      <div class="input-wrapper">
+      <div class="relative">
         <BaseInput
           :id="`${data.id}-api_key`"
           :label="provider === 'anthropic' ? 'Anthropic API Key' : provider === 'google' ? 'Google AI API Key' : 'OpenAI API Key'"
@@ -31,30 +33,32 @@
 
       <!-- Model selection: dropdown for Anthropic/Google, text input for others -->
       <template v-if="provider === 'anthropic' || provider === 'google'">
-        <BaseSelect :id="`${data.id}-model`" label="Model" v-model="model" :options="modelOptions" />
+        <BaseDropdown :id="`${data.id}-model`" label="Model" v-model="model" :options="modelOptions" />
       </template>
       <template v-else>
         <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" />
       </template>
       
-      <BaseInput
-        :id="`${data.id}-max_tokens`"
-        label="Max Tokens"
-        type="number"
-        v-model.number="max_completion_tokens"
-        min="1"
-      />
-      <BaseInput
-        :id="`${data.id}-temperature`"
-        label="Temperature"
-        type="number"
-        v-model.number="temperature"
-        step="0.1"
-        min="0"
-        max="2"
-      />
+      <div class="grid grid-cols-2 gap-4">
+        <BaseInput
+          :id="`${data.id}-max_tokens`"
+          label="Max Tokens"
+          type="number"
+          v-model.number="max_completion_tokens"
+          min="1"
+        />
+        <BaseInput
+          :id="`${data.id}-temperature`"
+          label="Temperature"
+          type="number"
+          v-model.number="temperature"
+          step="0.1"
+          min="0"
+          max="2"
+        />
+      </div>
 
-      <BaseSelect
+      <BaseDropdown
         label="Predefined System Prompt"
         v-model="selectedSystemPrompt"
         :options="systemPromptOptionsList"
@@ -69,50 +73,36 @@
 
     <BaseTextarea
       :id="`${data.id}-user_prompt`"
+      :style="computedContainerStyle"      
       label="User Prompt"
       v-model="user_prompt"
-      fullHeight
-      class="user-prompt-area"
+      class="user-prompt-area flex-1 w-full h-full"
       @mouseenter="handleTextareaMouseEnter"
       @mouseleave="handleTextareaMouseLeave"
     />
 
     <button
       v-if="data.outputs && data.outputs.response"
-      class="code-editor-button"
+      class="flex items-center justify-center my-2 px-3 py-1 bg-gray-700 text-white rounded text-sm transition-colors hover:bg-blue-800"
       @click="sendToCodeEditor"
       title="Send code to the editor"
     >
-      <span class="button-icon">📝</span> Send to Code Editor
+      <span class="mr-1">📝</span> Send to Code Editor
     </button>
 
     <Handle v-if="data.hasInputs" type="target" position="left" style="width:12px;height:12px" />
     <Handle v-if="data.hasOutputs" type="source" position="right" style="width:12px;height:12px" />
-
-    <NodeResizer
-      :is-resizable="true"
-      :color="'#666'"
-      :handle-style="resizeHandleStyle"
-      :line-style="resizeHandleStyle"
-      :width="380"
-      :height="906"
-      :min-width="380"
-      :min-height="906"
-      :node-id="id"
-      @resize="onResize"
-    />
-  </div>
+  </BaseNode>
 </template>
 
 <script setup>
 import { Handle } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
 import BaseInput from '@/components/base/BaseInput.vue'
-import BaseSelect from '@/components/base/BaseSelect.vue'
+import BaseDropdown from '@/components/base/BaseDropdown.vue'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
-import BaseCheckbox from '@/components/base/BaseCheckbox.vue'
 import BaseTogglePassword from '@/components/base/BaseTogglePassword.vue'
 import BaseAccordion from '@/components/base/BaseAccordion.vue'
+import BaseNode from '@/components/base/BaseNode.vue'
 import { useAgentNode } from '@/composables/useAgentNode'
 
 const props = defineProps({
@@ -132,11 +122,6 @@ const props = defineProps({
         temperature:0.6
       },
       outputs:{ response:'' },
-      style:{
-        border:'1px solid #666', borderRadius:'12px',
-        background:'#333', color:'#eee',
-        width:'380px', height:'906px'
-      }
     })
   }
 })
@@ -144,25 +129,12 @@ const props = defineProps({
 const emit = defineEmits(['update:data','resize','disable-zoom','enable-zoom'])
 
 const {
-  showApiKey, agentMode, selectedSystemPrompt, isHovered,
+  showApiKey, selectedSystemPrompt,
   providerOptions, systemPromptOptionsList, modelOptions,
   provider, endpoint, api_key, model, max_completion_tokens, temperature,
   system_prompt, user_prompt,
-  resizeHandleStyle, computedContainerStyle,
   onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor
 } = useAgentNode(props, emit)
 
 if (!props.data.outputs) props.data.outputs = { response:'', error:null }
 </script>
-
-<style scoped>
-@import '@/assets/css/nodes.css';
-.input-wrapper{position:relative}
-.code-editor-button{
-  display:flex;align-items:center;justify-content:center;margin:10px 0;
-  padding:6px 12px;background:#4a5568;color:#fff;border:none;border-radius:4px;
-  cursor:pointer;font-size:.9em;transition:background-color .2s;
-}
-.code-editor-button:hover{background:#2c5282}
-.button-icon{margin-right:5px}
-</style>

@@ -23,8 +23,8 @@ import (
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
 	"github.com/pterm/pterm"
 
-	hostinfopkg "manifold/internal/hostinfo"
 	"manifold/internal/sefii"
+	hostinfopkg "manifold/internal/tools"
 )
 
 //go:embed sandbox/Dockerfile

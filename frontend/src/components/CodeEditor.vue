@@ -1,5 +1,5 @@
 <template>
-    <div class="wasm-code-editor-container">
+    <div class="wasm-code-editor-container" style="text-align: left;">
       <!-- Toolbar with language selector -->
       <div class="toolbar">
         <div class="language-selector">
@@ -387,6 +387,7 @@
     font-family: sans-serif;
     padding: 10px;
     box-sizing: border-box;
+    text-align: left; /* Override global centering */
   }
   
   .toolbar {

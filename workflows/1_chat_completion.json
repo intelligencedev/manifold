@@ -1,15 +1,15 @@
 {
   "nodes": [
     {
-      "id": "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
+      "id": "completions_913460fa-cdfe-46ea-83a1-b044e6648042",
       "type": "completions",
       "initialized": false,
       "position": {
-        "x": 480,
-        "y": 96
+        "x": 544,
+        "y": 144
       },
       "data": {
-        "type": "completions",
+        "type": "Completions",
         "labelStyle": {
           "fontWeight": "normal"
         },
@@ -19,45 +19,40 @@
           "endpoint": "https://api.openai.com/v1/chat/completions",
           "api_key": "",
           "model": "gpt-4.1-nano",
-          "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it.  Maintain a conversational and approachable tone.",
+          "system_prompt": "You are a helpful, friendly, and knowledgeable general-purpose AI assistant. You can answer questions, provide information, engage in conversation, and assist with a wide variety of tasks.  Be concise in your responses when possible, but prioritize clarity and accuracy.  If you don't know something, admit it. Maintain a conversational and approachable tone.",
           "user_prompt": "Write a haiku about manifolds.",
           "max_completion_tokens": 8192,
           "temperature": 0.6
         },
         "outputs": {
-          "response": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place.",
-          "error": null
+          "response": "Curved surfaces stretch,  \nInfinite paths intertwine,  \nManifolds unfold.",
+          "error": null,
+          "result": {
+            "output": "Curved surfaces stretch,  \nInfinite paths intertwine,  \nManifolds unfold."
+          }
         },
-        "models": [
-          "local",
-          "chatgpt-4o-latest",
-          "gpt-4.1-mini",
-          "gpt-4.1-nano",
-          "o1",
-          "o4-mini"
-        ],
         "style": {
           "border": "1px solid #666",
           "borderRadius": "12px",
           "backgroundColor": "#333",
           "color": "#eee",
-          "width": "320px",
-          "height": "760px"
+          "width": "380px",
+          "height": "906px"
         },
         "selectedSystemPrompt": "friendly_assistant"
       },
       "style": {
-        "width": "380px",
-        "height": "906px"
+        "width": "438px",
+        "height": "800px"
       }
     },
     {
-      "id": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+      "id": "responseNode_f61388c8-851d-48d0-9764-c9ad41cb3d94",
       "type": "responseNode",
       "initialized": false,
       "position": {
-        "x": 880,
-        "y": 96
+        "x": 1008,
+        "y": 144
       },
       "data": {
         "type": "ResponseNode",
@@ -67,48 +62,37 @@
         "hasInputs": true,
         "hasOutputs": true,
         "inputs": {
-          "response": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place."
+          "response": "Curved surfaces stretch,  \nInfinite paths intertwine,  \nManifolds unfold."
         },
         "outputs": {
           "result": {
-            "output": "Curves in hidden space,  \nShapes unfold in silent grace,  \nMath's dance, time and place."
+            "output": "Curved surfaces stretch,  \nInfinite paths intertwine,  \nManifolds unfold."
           }
-        },
-        "style": {
-          "border": "1px solid #666",
-          "borderRadius": "12px",
-          "backgroundColor": "#333",
-          "color": "#eee",
-          "width": "350px",
-          "height": "400px"
-        },
-        "connectedTo": [
-          "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3"
-        ]
+        }
       },
       "style": {
-        "width": "880px",
-        "height": "760px"
+        "width": "568px",
+        "height": "796px"
       }
     }
   ],
   "edges": [
     {
-      "id": "edge-0.30367276511116714",
-      "type": "step",
-      "source": "completions_e0215bc0-c2af-48a6-b85d-dd635bf074d3",
-      "target": "responseNode_c929cf9e-d61c-4e22-b8c5-56127f2f2a08",
+      "id": "edge-0.6521259488779168",
+      "type": "bezier",
+      "source": "completions_913460fa-cdfe-46ea-83a1-b044e6648042",
+      "target": "responseNode_f61388c8-851d-48d0-9764-c9ad41cb3d94",
       "sourceHandle": null,
-      "targetHandle": "input",
+      "targetHandle": null,
       "data": {
         "label": "New Edge",
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 867.0001215227142,
-      "sourceY": 549.0002115352362,
-      "targetX": 872.9999820297534,
-      "targetY": 476.0001904627493,
+      "sourceX": 988.0016460775835,
+      "sourceY": 544.0015650906299,
+      "targetX": 1002.000038451022,
+      "targetY": 541.9997199951188,
       "animated": false,
       "style": {
         "strokeWidth": 1,
@@ -117,13 +101,13 @@
     }
   ],
   "position": [
-    -260.63937387116175,
-    -54.92233594220329
+    -118.71861112813758,
+    -85.27605359871046
   ],
-  "zoom": 0.94521372667068,
+  "zoom": 0.9439813643052569,
   "viewport": {
-    "x": -260.63937387116175,
-    "y": -54.92233594220329,
-    "zoom": 0.94521372667068
+    "x": -118.71861112813758,
+    "y": -85.27605359871046,
+    "zoom": 0.9439813643052569
   }
 }

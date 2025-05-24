@@ -1,44 +1,6 @@
 // Package server provides the A2A server implementation
 package server
 
-import (
-	"time"
-)
-
-// These types define the core data structures for the A2A protocol
-
-// Task represents an A2A task
-type Task struct {
-	ID          string     `json:"id"`
-	Status      TaskStatus `json:"status"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	UpdatedAt   time.Time  `json:"updatedAt"`
-	CompletedAt *time.Time `json:"completedAt,omitempty"`
-	CanceledAt  *time.Time `json:"canceledAt,omitempty"`
-	Artifacts   []Artifact `json:"artifacts,omitempty"`
-	Messages    []Message  `json:"messages,omitempty"`
-}
-
-// TaskStatus represents the status of an A2A task
-type TaskStatus string
-
-// Task status constants
-const (
-	TaskStatusPending   TaskStatus = "pending"
-	TaskStatusRunning   TaskStatus = "running"
-	TaskStatusCompleted TaskStatus = "completed"
-	TaskStatusFailed    TaskStatus = "failed"
-	TaskStatusCanceled  TaskStatus = "canceled"
-)
-
-// Message represents a message in an A2A conversation
-type Message struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	CreatedAt time.Time `json:"createdAt"`
-	Parts     []Part    `json:"parts"`
-}
-
 // Part is a union type for different content parts in a message
 type Part interface {
 	GetType() string
@@ -48,10 +10,6 @@ type Part interface {
 type TextPart struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
-}
-
-func (p TextPart) GetType() string {
-	return p.Type
 }
 
 // FilePart represents a file reference part
@@ -82,25 +40,6 @@ type DataPart struct {
 
 func (p DataPart) GetType() string {
 	return p.Type
-}
-
-// Artifact represents an output artifact from a task
-type Artifact struct {
-	ID        string    `json:"id"`
-	Type      string    `json:"type"`
-	MimeType  string    `json:"mimeType,omitempty"`
-	Name      string    `json:"name,omitempty"`
-	CreatedAt time.Time `json:"createdAt"`
-	Data      []byte    `json:"-"` // Not serialized to JSON
-	URI       string    `json:"uri,omitempty"`
-	TextData  string    `json:"textData,omitempty"`
-}
-
-// PushNotificationConfig represents a push notification configuration for a task
-type PushNotificationConfig struct {
-	WebhookURL string            `json:"webhookUrl"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	Events     []string          `json:"events,omitempty"`
 }
 
 // AuthenticationInfo represents authentication information for a task

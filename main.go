@@ -122,10 +122,10 @@ func main() {
 	// Start server in a goroutine
 	go func() {
 		port := fmt.Sprintf(":%d", config.Port)
+		logger.Info(fmt.Sprintf("Server listening on port: %d", config.Port))
 		if err := e.Start(port); err != nil && err != http.ErrServerClosed {
 			logger.Fatal(fmt.Sprintf("Error starting server: %v", err))
 		}
-		logger.Info(fmt.Sprintf("Server started on port: %d", config.Port))
 	}()
 
 	// Set up graceful shutdown
@@ -136,8 +136,6 @@ func main() {
 	logger.Warn("Received shutdown signal")
 
 	// Perform cleanup
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	// Close MCP handler if it was successfully created
 	if internalMCPHandler != nil {
@@ -158,6 +156,8 @@ func main() {
 	}
 
 	// Shutdown Echo server
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	if err := e.Shutdown(ctx); err != nil {
 		logger.Fatal(fmt.Sprintf("Error shutting down server: %v", err))
 	}

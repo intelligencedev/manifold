@@ -1,4 +1,4 @@
-FROM golang:1.23.4-alpine AS builder
+FROM golang:1.24.3-alpine AS builder
 
 # Install Git and other dependencies
 RUN apk add --no-cache git gcc musl-dev
@@ -16,14 +16,21 @@ COPY ./cmd/mcp-manifold/ ./
 # Build the mcp-manifold binary
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -trimpath -o /app/mcp-manifold ./
 
-# Create a minimal runtime image
-FROM alpine:latest
+# Use the latest OpenAI Codex image as the base for the final image
+FROM ghcr.io/openai/codex-universal:latest
 
 # Install dependencies for tools
-RUN apk add --no-cache git ca-certificates tzdata bash openssh-client
+RUN apt-get update && apt-get install -y git ca-certificates tzdata bash openssh-client \
+    wget gnupg2 \
+    # Install Chromium browser (works on both amd64 and arm64)
+    chromium-browser \
+    # Other required dependencies for headless browser usage
+    fonts-ipafont-gothic fonts-wqy-zenhei fonts-thai-tlwg fonts-kacst fonts-freefont-ttf \
+    --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user to run the application
-RUN addgroup -S manifold && adduser -S manifold -G manifold
+RUN groupadd -r manifold && useradd -r -g manifold -m -s /bin/bash manifold
 
 # Set the working directory
 WORKDIR /app
@@ -48,15 +55,21 @@ RUN chown -R manifold:manifold /app
 RUN mkdir -p /data
 RUN chown -R manifold:manifold /data
 
-# Switch to non-root user
-USER manifold
-
 # Configure Git for the manifold user
 RUN git config --global user.email "manifold@example.com" && \
     git config --global user.name "Manifold User"
 
+# Switch to non-root user
+USER manifold
+
 # Set environment variable for data path
 ENV DATA_PATH=/data
+
+# Configure Chromium for headless mode
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROME_PATH=/usr/lib/chromium/
+# Following flags are needed for Chromium to run in a containerized environment
+ENV CHROME_FLAGS="--headless --disable-gpu --no-sandbox --disable-dev-shm-usage"
 
 # Command to run the binary
 ENTRYPOINT ["/app/mcp-manifold"]

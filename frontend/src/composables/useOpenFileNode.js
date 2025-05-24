@@ -1,5 +1,6 @@
 import { ref, computed, watch } from 'vue';
 import { useVueFlow } from '@vue-flow/core';
+import { useNodeBase } from './useNodeBase';
 
 /**
  * Checks if a file path is an image based on its extension
@@ -62,6 +63,26 @@ function getContentType(filepath) {
  */
 export function useOpenFileNode(props, emit) {
   const { getEdges, findNode } = useVueFlow();
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    onResize
+  } = useNodeBase(props, emit);
+
+  if (!props.data.style) {
+    props.data.style = {
+      border: '1px solid #666',
+      borderRadius: '12px',
+      backgroundColor: '#333',
+      color: '#eee',
+      width: '240px',
+      height: '120px',
+    };
+  }
+  customStyle.value.width = props.data.style.width || '240px';
+  customStyle.value.height = props.data.style.height || '120px';
 
   // File path input
   const filepath = computed({
@@ -324,5 +345,9 @@ export function useOpenFileNode(props, emit) {
     updateNodeData,
     run,
     isImage,
+    onResize,
+    resizeHandleStyle,
+    computedContainerStyle,
+    isHovered,
   };
 }

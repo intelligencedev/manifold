@@ -47,6 +47,7 @@ jobs:
     - name: Build Frontend
       run: |
         cd frontend
+        export NODE_OPTIONS="--max-old-space-size=4096"
         npm ci
         npm run build
         cd ..

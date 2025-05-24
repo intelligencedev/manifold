@@ -1,21 +1,22 @@
-import { ref, computed, watch, nextTick } from 'vue';
-import { useVueFlow } from '@vue-flow/core';
+import { ref, computed, watch, nextTick } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
+import { useNodeBase } from './useNodeBase'
 
 export function useWebGLNode(props, emit) {
   // --- VUE FLOW HELPERS ---
-  const { getEdges, findNode } = useVueFlow();
+  const { getEdges, findNode } = useVueFlow()
+
+  // --- BASE NODE BEHAVIOR ---
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    onResize: baseOnResize,
+  } = useNodeBase(props, emit)
 
   // --- REACTIVE REFERENCES ---
-  const webglCanvas = ref(null);
-  const canvasContainer = ref(null);
-  const customStyle = ref({});
-  const isHovered = ref(false);
-  
-  const resizeHandleStyle = computed(() => ({
-    visibility: isHovered.value ? 'visible' : 'hidden',
-    width: '12px',
-    height: '12px',
-  }));
+  const webglCanvas = ref(null)
+  const canvasContainer = ref(null)
 
   // --- SHADER JSON HANDLING ---
   // Using a computed property so that we can update the node's data.
@@ -214,13 +215,11 @@ export function useWebGLNode(props, emit) {
 
   // --- RESIZE HANDLER ---
   const onResize = (event) => {
-    customStyle.value.width = `${event.width}px`;
-    customStyle.value.height = `${event.height}px`;
+    baseOnResize(event)
     nextTick(() => {
-      initializeWebGL();
-    });
-    emit("resize", { id: props.id, width: event.width, height: event.height });
-  };
+      initializeWebGL()
+    })
+  }
 
   // Watch for changes to the shader JSON
   watch(
@@ -251,9 +250,6 @@ export function useWebGLNode(props, emit) {
   return {
     webglCanvas,
     canvasContainer,
-    customStyle,
-    isHovered,
-    resizeHandleStyle,
     shaderJson,
     run,
     initializeWebGL,

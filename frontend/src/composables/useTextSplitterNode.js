@@ -1,22 +1,27 @@
-import { ref, watch } from 'vue';
-import { useVueFlow } from '@vue-flow/core';
+import { ref, watch, computed, onMounted } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
+import { useNodeBase } from './useNodeBase'
 
 export function useTextSplitterNode(props, emit) {
-  const { getEdges, findNode } = useVueFlow();
-  
-  const endpoint = ref(props.data.inputs?.endpoint || 'http://localhost:8080/api/split-text');
-  const text = ref(props.data.inputs?.text || '');
-  const outputConnectionCount = ref(0);
+  const { getEdges, findNode } = useVueFlow()
+  const {
+    isHovered,
+    customStyle,
+    resizeHandleStyle,
+    computedContainerStyle,
+    onResize
+  } = useNodeBase(props, emit)
 
-  watch(
-    () => props.data,
-    (newData) => {
-      endpoint.value = newData.inputs?.endpoint || 'http://localhost:8080/api/split-text';
-      text.value = newData.inputs?.text || '';
-      emit('update:data', { id: props.id, data: newData });
-    },
-    { deep: true }
-  );
+  const endpoint = computed({
+    get: () => props.data.inputs?.endpoint || 'http://localhost:8080/api/split-text',
+    set: (val) => { props.data.inputs.endpoint = val }
+  })
+
+  const text = computed({
+    get: () => props.data.inputs?.text || '',
+    set: (val) => { props.data.inputs.text = val }
+  })
+  const outputConnectionCount = ref(0)
 
   watch(
     () => getEdges.value,
@@ -124,11 +129,33 @@ export function useTextSplitterNode(props, emit) {
     console.log('Chunks:', chunks);
   };
 
+  onMounted(() => {
+    if (!props.data.run) {
+      props.data.run = run;
+    }
+    if (!props.data.style) {
+      props.data.style = {
+        border: '1px solid #666',
+        borderRadius: '12px',
+        backgroundColor: '#333',
+        color: '#eee',
+        width: '320px',
+        height: '180px'
+      };
+    }
+    customStyle.value.width = props.data.style.width || '320px';
+    customStyle.value.height = props.data.style.height || '180px';
+  })
+
   // Return the values and methods needed in the component
   return {
+    isHovered,
+    resizeHandleStyle,
+    computedContainerStyle,
     endpoint,
     text,
     updateNodeData,
-    run
+    run,
+    onResize
   };
 }

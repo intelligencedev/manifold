@@ -89,4 +89,3 @@ onMounted(() => {
   if (!props.data.style) props.data.style = {}
 })
 </script>
-

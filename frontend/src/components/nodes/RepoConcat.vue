@@ -98,5 +98,3 @@ onMounted(() => {
   }
 })
 </script>
-
-<!-- No scoped CSS; styling provided by Base components and Tailwind classes -->

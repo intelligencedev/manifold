@@ -2,11 +2,12 @@
   <BaseNode
     :id="id"
     :data="data"
-    :min-height="560"
+    :min-height="360"
     :style="customStyle"
     @resize="onResize"
     @mouseenter="$emit('disable-zoom')"
     @mouseleave="$emit('enable-zoom')"
+    class="flex flex-col"
   >
     <template #header>
       <div class="node-label font-bold text-center text-base text-white">MCP Client</div>
@@ -25,7 +26,7 @@
     </div>
 
     <!-- LIST MODE -->
-    <div v-if="mode === 'list'" class="space-y-2">
+    <div v-if="mode === 'list'" class="flex flex-col h-full space-y-2">
       <BaseSelect
         :id="`${data.id}-server-list`"
         label="Server"
@@ -42,7 +43,7 @@
     </div>
 
     <!-- EXECUTE MODE -->
-    <div v-if="mode === 'execute'" class="space-y-2">
+    <div v-if="mode === 'execute'" class="flex flex-col h-full space-y-2">
       <BaseSelect
         :id="`${data.id}-server-exec`"
         label="Server"
@@ -76,14 +77,16 @@
         label="Arguments (JSON)"
         v-model="argsInput"
         rows="5"
+        fullHeight
         placeholder="Enter JSON arguments for the selected tool"
+        class="flex-grow"
       />
       <div class="text-xs text-blue-300 text-center mt-2">
         Connect an LLM node that outputs JSON with server, tool, and args properties to execute tools.
       </div>
     </div>
 
-    <div v-if="errorMessage" class="text-xs text-red-400 bg-red-900/30 border-l-2 border-red-500 px-2 py-1 my-2">
+    <div v-if="errorMessage" class="text-xs text-red-400 bg-red-900/30 border-l-2 border-red-500 px-2 py-1 my-2 flex-shrink-0">
       {{ errorMessage }}
     </div>
 
@@ -148,5 +151,3 @@ const {
   toggleToolSchema
 } = useMCPClient(props, emit, vueFlow)
 </script>
-
-<!-- No scoped CSS: all styling is via Tailwind -->

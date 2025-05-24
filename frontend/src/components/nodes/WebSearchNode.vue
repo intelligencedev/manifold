@@ -98,5 +98,3 @@ onMounted(() => {
   setup()
 })
 </script>
-
-<!-- Styling handled by Tailwind and Base components -->

@@ -3,7 +3,7 @@
     :id="id"
     :data="data"
     :min-width="320" 
-    :min-height="180" 
+    :min-height="220" 
     @resize="onResize"
   >
     <template #header>

@@ -77,12 +77,6 @@
         <template #node-saveTextNode="saveTextNodeProps">
           <SaveTextNode v-bind="saveTextNodeProps" @contextmenu.native.prevent="showContextMenu($event, saveTextNodeProps.id)" />
         </template>
-        <template #node-datadogNode="datadogNodeProps">
-          <DatadogNode v-bind="datadogNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogNodeProps.id)" />
-        </template>
-        <template #node-datadogGraphNode="datadogGraphNodeProps">
-          <DatadogGraphNode v-bind="datadogGraphNodeProps" @contextmenu.native.prevent="showContextMenu($event, datadogGraphNodeProps.id)" />
-        </template>
         <template #node-tokenCounterNode="tokenCounterNodeProps">
           <TokenCounterNode v-bind="tokenCounterNodeProps" @contextmenu.native.prevent="showContextMenu($event, tokenCounterNodeProps.id)" />
         </template>
@@ -180,8 +174,6 @@ import TextNode from './components/nodes/TextNode.vue';
 import TextSplitterNode from './components/nodes/TextSplitterNode.vue';
 import OpenFileNode from './components/nodes/OpenFileNode.vue';
 import SaveTextNode from './components/nodes/SaveTextNode.vue';
-import DatadogNode from './components/nodes/DatadogNode.vue';
-import DatadogGraphNode from './components/nodes/DatadogGraphNode.vue';
 import TokenCounterNode from './components/nodes/TokenCounterNode.vue';
 import FlowControl from './components/FlowControl.vue';
 import RepoConcat from './components/nodes/RepoConcat.vue';

@@ -75,8 +75,8 @@
         "type": "WebSearchNode"
       },
       "style": {
-        "width": "352px",
-        "height": "300px"
+        "height": "300px",
+        "width": "352px"
       }
     },
     {
@@ -112,8 +112,8 @@
         "type": "WebRetrievalNode"
       },
       "style": {
-        "width": "352px",
-        "height": "168px"
+        "height": "180px",
+        "width": "352px"
       }
     },
     {
@@ -185,8 +185,8 @@
       },
       "label": "",
       "animated": false,
-      "sourceX": 470.00005987272317,
-      "sourceY": 596.0000120987669,
+      "sourceX": 470.00005091162944,
+      "sourceY": 602.0000378447777,
       "style": {
         "stroke": "#b1b1b7",
         "strokeWidth": 1
@@ -206,15 +206,15 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 914.0000993709302,
-      "sourceY": 533.0000900146881,
-      "targetX": 938.000010098364,
-      "targetY": 476.0000784160219,
       "animated": true,
+      "sourceX": 914.0000635265553,
+      "sourceY": 533.0000900146881,
       "style": {
-        "strokeWidth": 4,
-        "stroke": "darkorange"
-      }
+        "stroke": "darkorange",
+        "strokeWidth": 4
+      },
+      "targetX": 937.9999384096144,
+      "targetY": 476.0000784160219
     },
     {
       "id": "edge-0.29882945030443053",
@@ -228,15 +228,15 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 470.00005091162944,
-      "sourceY": 230.00000854988704,
-      "targetX": 106.00000113727032,
-      "targetY": 596.0000120987669,
       "animated": false,
+      "sourceX": 470.00005091162944,
+      "sourceY": 230.00002647207444,
       "style": {
-        "strokeWidth": 1,
-        "stroke": "#b1b1b7"
-      }
+        "stroke": "#b1b1b7",
+        "strokeWidth": 1
+      },
+      "targetX": 106.00001009836403,
+      "targetY": 602.0000378447777
     }
   ],
   "position": [

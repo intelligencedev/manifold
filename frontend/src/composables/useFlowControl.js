@@ -9,8 +9,8 @@ export function useFlowControl(props, emit) {
   const { getEdges, findNode } = useVueFlow()
   const { isHovered, resizeHandleStyle, computedContainerStyle } = useNodeBase(props, emit)
 
-  // Initialize inputs if they don't exist
-  if (!props.data.inputs) {
+  // Initialize inputs with sensible defaults if missing or incomplete
+  if (!props.data.inputs || Object.keys(props.data.inputs).length === 0) {
     props.data.inputs = {
       mode: 'RunAllChildren',
       targetNodeId: '',
@@ -18,11 +18,12 @@ export function useFlowControl(props, emit) {
       waitTime: 5,
       combineMode: 'newline'
     }
-  }
-
-  // Ensure waitTime is initialized if not present
-  if (props.data.inputs.waitTime === undefined) {
-    props.data.inputs.waitTime = 5
+  } else {
+    if (!props.data.inputs.mode) props.data.inputs.mode = 'RunAllChildren'
+    if (props.data.inputs.targetNodeId === undefined) props.data.inputs.targetNodeId = ''
+    if (props.data.inputs.delimiter === undefined) props.data.inputs.delimiter = ''
+    if (props.data.inputs.waitTime === undefined) props.data.inputs.waitTime = 5
+    if (props.data.inputs.combineMode === undefined) props.data.inputs.combineMode = 'newline'
   }
 
   // Initialize outputs if they don't exist or ensure output structure is consistent
@@ -304,6 +305,11 @@ export function useFlowControl(props, emit) {
 
     // Default case (shouldn't happen with current modes)
     return null
+  }
+
+  // Expose run immediately for workflow engine access
+  if (!props.data.run) {
+    props.data.run = run
   }
 
   // Lifecycle management

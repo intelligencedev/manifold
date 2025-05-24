@@ -69,7 +69,13 @@ const props = defineProps({
       labelStyle: { fontWeight: 'normal' }, // Kept for now, can be moved to BaseNode or removed if not dynamic
       hasInputs: true,
       hasOutputs: true,
-      inputs: {},
+      inputs: {
+        mode: 'RunAllChildren',
+        targetNodeId: '',
+        delimiter: '',
+        waitTime: 5,
+        combineMode: 'newline',
+      },
       outputs: {},
       style: {}, // BaseNode handles styling
     }),

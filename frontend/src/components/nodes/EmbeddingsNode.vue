@@ -80,7 +80,3 @@ const {
   onResize
 } = useEmbeddingsNode(props, emit, vueFlowInstance)
 </script>
-
-<style scoped>
-/* Remove legacy styles in favor of Tailwind */
-</style>

@@ -2,7 +2,7 @@
   <BaseNode
     :id="id"
     :data="data"
-    :min-height="512"
+    :min-height="212"
     :style="customStyle"
     @resize="onResize"
     @mouseenter="$emit('disable-zoom')"

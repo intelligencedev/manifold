@@ -1,5 +1,5 @@
 <template>
-  <BaseNode :id="id" :data="data" :min-height="240" @resize="onResize">
+  <BaseNode :id="id" :data="data" :min-height="350" @resize="onResize">
     <template #header>
       <div :style="data.labelStyle" class="node-label text-base font-semibold mb-2">{{ data.type }}</div>
     </template>

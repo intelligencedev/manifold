@@ -1,5 +1,5 @@
 <template>
-  <BaseNode :id="id" :data="data" :min-height="100" @resize="onResize">
+  <BaseNode :id="id" :data="data" :min-height="200" @resize="onResize">
     <template #header>
       <div :style="data.labelStyle" class="node-label font-bold mb-2">
         Text to Speech (WebGPU)

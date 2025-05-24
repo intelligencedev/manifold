@@ -37,7 +37,7 @@
       :color="'#666'"
       :handle-style="resizeHandleStyle"
       :line-style="resizeHandleStyle"
-      :min-width="200"
+      :min-width="240"
       :min-height="120"
       :width="width"
       :height="height"

@@ -46,8 +46,8 @@
       "type": "textNode",
       "initialized": false,
       "position": {
-        "x": -320,
-        "y": 1904
+        "x": -352,
+        "y": 1472
       },
       "data": {
         "clearOnRun": false,
@@ -67,6 +67,7 @@
           "marginBottom": "10px",
           "textAlign": "center"
         },
+        "mode": "text",
         "outputs": {
           "result": {
             "output": "1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n\n\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n\n\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\n16\n17\nFizz\n19\nBuzz\nFizz\n22\n23\nFizz\nBuzz\n26\nFizz\n28\n29\nFizzBuzz\n31\n32\nFizz\n34\nBuzz\nFizz\n37\n38\nFizz\nBuzz\n41\nFizz\n43\n44\nFizzBuzz\n46\n47\nFizz\n49\nBuzz\nFizz\n52\n53\nFizz\nBuzz\n56\nFizz\n58\n59\nFizzBuzz\n61\n62\nFizz\n64\nBuzz\nFizz\n67\n68\nFizz\nBuzz\n71\nFizz\n73\n74\nFizzBuzz\n76\n77\nFizz\n79\nBuzz\nFizz\n82\n83\nFizz\nBuzz\n86\nFizz\n88\n89\nFizzBuzz\n91\n92\nFizz\n94\nBuzz\nFizz\n97\n98\nFizz\nBuzz\n"
@@ -81,12 +82,11 @@
           "padding": "10px",
           "width": "undefinedpx"
         },
-        "type": "TextNode",
-        "mode": "text"
+        "type": "TextNode"
       },
       "style": {
-        "height": "390px",
-        "width": "665px"
+        "height": "240px",
+        "width": "505px"
       }
     },
     {
@@ -151,6 +151,7 @@
           "marginBottom": "10px",
           "textAlign": "center"
         },
+        "mode": "text",
         "outputs": {
           "result": {
             "output": "write a fizz buzz example in python"
@@ -165,8 +166,7 @@
           "padding": "10px",
           "width": "undefinedpx"
         },
-        "type": "TextNode",
-        "mode": "text"
+        "type": "TextNode"
       },
       "style": {
         "height": "278px",
@@ -209,8 +209,8 @@
         "type": "ResponseNode"
       },
       "style": {
-        "height": "800px",
-        "width": "704px"
+        "height": "300px",
+        "width": "504px"
       }
     },
     {
@@ -219,7 +219,7 @@
       "initialized": false,
       "position": {
         "x": -352,
-        "y": 1040
+        "y": 1120
       },
       "data": {
         "connectedTo": [
@@ -249,8 +249,8 @@
         "type": "ResponseNode"
       },
       "style": {
-        "height": "800px",
-        "width": "704px"
+        "height": "300px",
+        "width": "504px"
       }
     },
     {
@@ -317,8 +317,8 @@
         "type": "Code Runner"
       },
       "style": {
-        "width": "352px",
-        "height": "200px"
+        "height": "200px",
+        "width": "352px"
       }
     },
     {
@@ -351,7 +351,7 @@
       },
       "style": {
         "height": "120px",
-        "width": "200px"
+        "width": "240px"
       }
     },
     {
@@ -384,7 +384,7 @@
       },
       "style": {
         "height": "120px",
-        "width": "200px"
+        "width": "240px"
       }
     },
     {
@@ -510,13 +510,13 @@
       },
       "label": "",
       "animated": false,
-      "sourceX": 2926.9992234807382,
-      "sourceY": -325.00012875134314,
+      "sourceX": 2927.000816480153,
+      "sourceY": -324.99989583532783,
       "style": {
         "stroke": "#b1b1b7",
         "strokeWidth": 1
       },
-      "targetX": 0,
+      "targetX": -100,
       "targetY": 768
     },
     {
@@ -532,14 +532,14 @@
       },
       "label": "",
       "animated": false,
-      "sourceX": 350.99948059057476,
-      "sourceY": 2098.9998952538454,
+      "sourceX": 158.99992701173545,
+      "sourceY": 1592.0001005022777,
       "style": {
         "stroke": "#b1b1b7",
         "strokeWidth": 1
       },
-      "targetX": 0,
-      "targetY": 1040
+      "targetX": -100,
+      "targetY": 1120
     },
     {
       "id": "edge-0.7709850953909844",
@@ -554,14 +554,14 @@
       },
       "label": "",
       "animated": false,
-      "sourceX": 1397.9999956814918,
-      "sourceY": 1284.0000087310107,
+      "sourceX": 1398.0003976785447,
+      "sourceY": 1284.0001545406737,
       "style": {
         "stroke": "#b1b1b7",
         "strokeWidth": 1
       },
-      "targetX": -326.0000048796077,
-      "targetY": 2098.9998952538454
+      "targetX": -358.0000934682977,
+      "targetY": 1592.0001005022777
     },
     {
       "id": "edge-0.657478969239189",
@@ -576,14 +576,14 @@
       },
       "label": "",
       "animated": false,
-      "sourceX": 0,
-      "sourceY": 1568,
+      "sourceX": -100,
+      "sourceY": 1068,
       "style": {
         "stroke": "#b1b1b7",
         "strokeWidth": 1
       },
-      "targetX": -342.0000048796077,
-      "targetY": 260.99958816938295
+      "targetX": -342.0000006122627,
+      "targetY": 261.00048045924603
     },
     {
       "id": "edge-0.852993591748597",
@@ -598,14 +598,14 @@
       },
       "label": "",
       "animated": false,
-      "sourceX": 0,
-      "sourceY": 1568,
+      "sourceX": -100,
+      "sourceY": 1068,
       "style": {
         "stroke": "#b1b1b7",
         "strokeWidth": 1
       },
-      "targetX": 1513.9999951203922,
-      "targetY": 308.99958816938295
+      "targetX": 1513.9999993877373,
+      "targetY": 309.00042610353677
     },
     {
       "id": "edge-0.22569120544751642",
@@ -620,14 +620,14 @@
       },
       "label": "",
       "animated": false,
-      "sourceX": 0,
-      "sourceY": 1840,
+      "sourceX": -100,
+      "sourceY": 1420,
       "style": {
         "stroke": "#b1b1b7",
         "strokeWidth": 1
       },
-      "targetX": 1513.9999951203922,
-      "targetY": 308.99958816938295
+      "targetX": 1513.9999993877373,
+      "targetY": 309.00042610353677
     },
     {
       "id": "edge-0.8406875561896514",
@@ -641,15 +641,15 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 49.999636489904674,
-      "sourceY": 260.99958816938295,
-      "targetX": 154.00004110676798,
-      "targetY": 207.99991160373872,
       "animated": false,
+      "sourceX": 50.00043677291018,
+      "sourceY": 261.00048045924603,
       "style": {
-        "strokeWidth": 1,
-        "stroke": "#b1b1b7"
-      }
+        "stroke": "#b1b1b7",
+        "strokeWidth": 1
+      },
+      "targetX": 153.9997819649002,
+      "targetY": 208.00040257664637
     },
     {
       "id": "edge-0.12341412770084326",
@@ -663,15 +663,15 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 870.0000318483458,
-      "sourceY": 207.99991160373872,
-      "targetX": 1513.9999951203922,
-      "targetY": 308.99958816938295,
       "animated": false,
+      "sourceX": 870.000578546515,
+      "sourceY": 208.00040257664637,
       "style": {
-        "strokeWidth": 1,
-        "stroke": "#b1b1b7"
-      }
+        "stroke": "#b1b1b7",
+        "strokeWidth": 1
+      },
+      "targetX": 1513.9999993877373,
+      "targetY": 309.00042610353677
     },
     {
       "id": "edge-0.5163444636857478",
@@ -685,15 +685,15 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 870.0000318483458,
-      "sourceY": 207.99991160373872,
-      "targetX": 1034.0000411067679,
-      "targetY": 1284.0000087310107,
       "animated": false,
+      "sourceX": 870.000578546515,
+      "sourceY": 208.00040257664637,
       "style": {
-        "strokeWidth": 1,
-        "stroke": "#b1b1b7"
-      }
+        "stroke": "#b1b1b7",
+        "strokeWidth": 1
+      },
+      "targetX": 1033.9999993877373,
+      "targetY": 1284.0001545406737
     },
     {
       "id": "edge-0.4468147651442236",
@@ -707,25 +707,25 @@
         "originalStroke": "#b1b1b7"
       },
       "label": "",
-      "sourceX": 1905.9997011033538,
-      "sourceY": 308.99958816938295,
-      "targetX": 2009.9999951203922,
-      "targetY": 287.99963794758406,
       "animated": false,
+      "sourceX": 1906.0003280614917,
+      "sourceY": 309.00042610353677,
       "style": {
-        "strokeWidth": 1,
-        "stroke": "#b1b1b7"
-      }
+        "stroke": "#b1b1b7",
+        "strokeWidth": 1
+      },
+      "targetX": 2009.9999993877373,
+      "targetY": 288.0004618304573
     }
   ],
   "position": [
-    477.7882843391146,
-    197.9530547814369
+    222.75925026772097,
+    395.3175393218594
   ],
-  "zoom": 0.28072128576892225,
+  "zoom": 0.46047998836797627,
   "viewport": {
-    "x": 477.7882843391146,
-    "y": 197.9530547814369,
-    "zoom": 0.28072128576892225
+    "x": 222.75925026772097,
+    "y": 395.3175393218594,
+    "zoom": 0.46047998836797627
   }
 }

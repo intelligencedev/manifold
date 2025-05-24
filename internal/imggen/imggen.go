@@ -65,6 +65,8 @@ func RunSDHandler(c echo.Context) error {
 	})
 }
 
+// ComfyProxyHandler handles requests to the ComfyUI proxy.
+
 // comfyProxyHandler handles requests to the ComfyUI proxy.
 func ComfyProxyHandler(c echo.Context) error {
 	var reqBody ComfyProxyRequest
@@ -248,11 +250,17 @@ func waitForImage(baseURL, uuid string, c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// Replace the "/prompt" part of the URL with "/view"
-	baseURL = baseURL[:len(baseURL)-len("/prompt")]
+	// Check if the URL ends with "/prompt" and remove it
+	if len(baseURL) >= 7 && baseURL[len(baseURL)-7:] == "/prompt" {
+		baseURL = baseURL[:len(baseURL)-7]
+	}
+
 	// Construct the image URL
 	imageURL := fmt.Sprintf("%s/view?filename=%s_00001_.png&subfolder=&type=output", baseURL, uuid)
 	log.Printf("Waiting for image at %s", imageURL)
+
+	// Set the actual image URL in a header so the client can use it
+	c.Response().Header().Set("X-Comfy-Image-Url", imageURL)
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()

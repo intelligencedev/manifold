@@ -248,6 +248,9 @@ func waitForImage(baseURL, uuid string, c echo.Context) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
+	// Replace the "/prompt" part of the URL with "/view"
+	baseURL = baseURL[:len(baseURL)-len("/prompt")]
+	// Construct the image URL
 	imageURL := fmt.Sprintf("%s/view?filename=%s_00001_.png&subfolder=&type=output", baseURL, uuid)
 	log.Printf("Waiting for image at %s", imageURL)
 
@@ -291,7 +294,7 @@ func validateSDRequest(req SDRequest) bool {
 var comfyTemplate = `{
   "6": {
     "inputs": {
-      "text": "cute anime girl with massive fluffy fennec ears and a big fluffy tail blonde messy long hair blue eyes wearing a maid outfit with a long black gold leaf pattern dress and a white apron mouth open holding a fancy black forest cake with candles on top in the kitchen of an old dark Victorian mansion lit by candlelight with a bright window to the foggy forest and very expensive stuff everywhere",
+      "text": "a luxury breakfast photograph",
       "speak_and_recognation": true,
       "clip": [
         "11",
@@ -444,8 +447,8 @@ var comfyTemplate = `{
   },
   "27": {
     "inputs": {
-      "width": 1024,
-      "height": 1024,
+      "width": 1280,
+      "height": 768,
       "batch_size": 1
     },
     "class_type": "EmptySD3LatentImage",

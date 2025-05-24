@@ -115,5 +115,3 @@ const {
   onResize
 } = useDocumentsRetrieveNode(props, emit)
 </script>
-
-<!-- Styling is handled by Tailwind and Base components -->

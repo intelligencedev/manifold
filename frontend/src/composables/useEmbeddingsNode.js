@@ -1,7 +1,8 @@
-import { ref, computed, onMounted } from 'vue'
+import { onMounted, computed } from 'vue'
+import { useVueFlow } from '@vue-flow/core'
 
-export default function useEmbeddingsNode(props, emit, vueFlowInstance) {
-  const { getEdges, findNode, updateNodeData } = vueFlowInstance
+export default function useEmbeddingsNode(props, emit) {
+  const { getEdges, findNode, updateNodeData } = useVueFlow()
 
   // The run() logic
   onMounted(() => {
@@ -94,35 +95,13 @@ export default function useEmbeddingsNode(props, emit, vueFlowInstance) {
     set: (value) => { props.data.inputs.embeddings_endpoint = value },
   })
 
-  const isHovered = ref(false)
-  const customStyle = ref({})
-
-  // Show/hide the handles
-  const resizeHandleStyle = computed(() => ({
-    visibility: isHovered.value ? 'visible' : 'hidden',
-    width: '12px',
-    height: '12px',
-  }))
-
-  // Computed style for the container
-  const computedContainerStyle = computed(() => ({
-    ...props.data.style,
-    ...customStyle.value,
-    width: '100%',
-    height: '100%',
-  }))
-
   function onResize(event) {
-    customStyle.value.width = `${event.width}px`
-    customStyle.value.height = `${event.height}px`
-    emit('resize', event)
+    props.data.style.width = `${event.width}px`
+    props.data.style.height = `${event.height}px`
+    emit('resize', { id: props.id, width: event.width, height: event.height })
   }
 
   return {
-    isHovered,
-    customStyle,
-    resizeHandleStyle,
-    computedContainerStyle,
     embeddings_endpoint,
     onResize
   }

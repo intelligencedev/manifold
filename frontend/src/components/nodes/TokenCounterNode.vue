@@ -96,7 +96,3 @@ onMounted(() => {
   updateInputData()
 })
 </script>
-
-<style scoped>
-/* Remove legacy styles in favor of Tailwind */
-</style>

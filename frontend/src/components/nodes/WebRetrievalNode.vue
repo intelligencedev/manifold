@@ -74,5 +74,3 @@ onMounted(() => {
   setup();
 });
 </script>
-
-<!-- No scoped CSS: all styling is via Tailwind -->

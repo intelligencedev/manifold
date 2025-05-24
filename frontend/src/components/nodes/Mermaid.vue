@@ -70,7 +70,3 @@ const {
   onResize
 } = useMermaidNode(props, emit, vueFlowInstance)
 </script>
-
-<style scoped>
-/* Remove legacy styles in favor of Tailwind */
-</style>

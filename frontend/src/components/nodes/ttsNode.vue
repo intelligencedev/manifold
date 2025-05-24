@@ -103,7 +103,3 @@ onUnmounted(() => {
   cleanupNode();
 });
 </script>
-
-<style scoped>
-/* Tailwind handles styling */
-</style>

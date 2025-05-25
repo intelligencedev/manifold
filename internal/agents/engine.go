@@ -33,8 +33,6 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
-/*──────────────────────── public ───────────────────────*/
-
 type ReActRequest struct {
 	Objective string `json:"objective"`
 	MaxSteps  int    `json:"max_steps,omitempty"`
@@ -47,8 +45,6 @@ type ReActResponse struct {
 	Result    string      `json:"result"`
 	Completed bool        `json:"completed"`
 }
-
-/*──────────────────────── internal ─────────────────────*/
 
 // StepHook is a callback function that's called whenever a new step is produced
 type StepHook func(step AgentStep)
@@ -69,8 +65,6 @@ type AgentSession struct {
 	Completed bool        `json:"completed"`
 	Created   time.Time   `json:"created"`
 }
-
-/*──────────────────────── engine ───────────────────────*/
 
 type AgentEngine struct {
 	Config       *configpkg.Config
@@ -142,8 +136,6 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	return eng, nil
 }
 
-/*──────────────────────── route ───────────────────────*/
-
 func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req ReActRequest
@@ -190,8 +182,6 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 		})
 	}
 }
-
-/*────────────────────── MCP discovery ─────────────────*/
 
 // ToolInfo holds metadata about an MCP tool.
 type ToolInfo struct {
@@ -259,8 +249,6 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	return nil
 }
 
-/*────────────────────── main loop ─────────────────────*/
-
 func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*AgentSession, error) {
 	return ae.RunSessionWithHook(ctx, req, nil)
 }
@@ -284,42 +272,19 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 		}
 	}
 	for _, t := range relTools {
-		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description))
+		schema, err := json.Marshal(t.InputSchema)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal input schema: %v", err)
+		}
+		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
 	}
 	td = append(td,
 		"- code_eval    • run code in sandbox",
-		"- tool_help    • get tool schema and description",
 		"- finish       • end and output final answer",
 	)
 
 	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
 Objective: %s
-
-You run inside a bash sandbox at /app/projects.  
-Goal: read, patch, and validate text/code with deterministic CLI calls only.  
-Return clear reasoning + final diff or file content.
-
-─────────────────
-CORE CLI PRIMITIVES
-─────────────────
-• List/scan   : ls, tree, find . -type f, grep -R --line-number PATTERN .
-• Count lines : wc -l FILE
-• Read slice  : sed -n 'START,ENDp' FILE   # preserves original numbering
-• Show single : awk 'NR==N{print;exit}' FILE
-• Diff        : diff -u OLD NEW   |   git diff --no-index
-• Patch apply : patch -p1 < PATCH   |   git apply --stat PATCH
-• In-place edit (single line) : ed -s FILE <<< $'LINEc\nNEW_TEXT\n.'
-• Regex replace range         : sed -i 'A,B s/OLD/NEW/g' FILE
-• Atomic overwrite            : printf '%%s\n' "$NEW" | sponge FILE
-
-─────────────
-LANG CHECKERS
-─────────────
-.py  → flake8 && mypy && python -m pytest -q (if tests exist)  
-.js  → eslint . && npm test --silent  
-.rs  → cargo fmt --check && cargo clippy --no-deps && cargo test --quiet  
-.go  → gofmt -s -l . && golint ./... && go vet ./... && go test ./...  
-.swift → swiftformat --lint . && swiftlint
 
 ─────────
 WORKFLOW
@@ -337,22 +302,12 @@ Rules:
 • Track and reference original line numbers in your reasoning.  
 • For non-code text, skip language checkers but still diff/patch/verify.
 
-You have full sudo-less access inside the sandbox; no external network.
+Prefer to answer directly (with Thought + finish) for narrative tasks
+such as writing, explaining, or summarising natural-language text.
+Only fall back to a tool for *computational* or *programmatic*
+work (e.g. data transformation, heavy math, file parsing).
 
-IMPORTANT: ALL tool calls should be generated as a single line
-with no line breaks, and JSON should be formatted as a single line.
-
-- Prefer to answer directly (with Thought + finish) for narrative tasks
-  such as writing, explaining, or summarising natural-language text.
-  Only fall back to a tool for *computational* or *programmatic*
-  work (e.g. data transformation, heavy math, file parsing).
-
-IMPORTANT: The working directory is always /app/projects. If a full path is not given, always assume the file is in this directory.
-For example, if the file is called "foo.txt", the full path is "/app/projects/foo.txt". If the file is in a subdirectory, the 
-full path is "/app/projects/subdir/foo.txt". ALL tool calls should be made with the full path. NEVER attempt to use a relative path.
-
-Always consider using the tools first. If no tool is available that can be used to complete the task, make your own.
-
+Always consider using the tools first. If no tool is available that can be used to complete the task, make your own using the code_eval tool.
 If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or create your own using the code_eval tool.
 
 You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
@@ -361,12 +316,10 @@ The code should be valid and executable in Python. The code should always return
 so that it can be used for the next task.
 
 If no dependencies are needed, the dependencies array must be empty (e.g., []).
-
 The json object should be formatted in a single line as follows:
 {"language":"python","code":"<python code>","dependencies":["<dependency1>","<dependency2>"]}
 
 For example (using third party libraries):
-
 {"language":"python","code":"import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__':\n    main()","dependencies":["requests","beautifulsoup4","markdownify"]}
 
 IMPORTANT: NEVER omit the three headers below – the server will error out:
@@ -375,14 +328,11 @@ IMPORTANT: NEVER omit the three headers below – the server will error out:
   Action Input: …
 
 ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach.
-IMPORTANT: If a tool call fails always try another tool or create your own using the code_eval tool. DO NOT GIVE UP!
 
 Format for every turn:
 Thought: <reasoning>
 Action:  <tool>
 Action Input: <JSON | text>
-
-Use tool_help <tool_name> to view a tool's JSON schema.
 
 Tools:
 %s`, req.Objective, strings.Join(td, "\n"))
@@ -446,7 +396,6 @@ Tools:
 		}
 		thought, action, input := parseReAct(out)
 
-		/*──── graceful fallback ────*/
 		if action == "" {
 			// treat entire reply as the final answer
 			step := AgentStep{
@@ -467,7 +416,6 @@ Tools:
 			sess.Completed = true
 			break
 		}
-		/*──────────────────────────*/
 
 		obs, err := ae.execTool(ctx, action, input)
 		if err != nil {
@@ -504,8 +452,6 @@ Tools:
 				}
 			}
 		}
-
-		//obs = truncate(obs, 500)
 
 		step := AgentStep{Index: len(sess.Steps) + 1, Thought: thought, Action: action, ActionInput: input, Observation: obs}
 		sess.Steps = append(sess.Steps, step)
@@ -546,8 +492,6 @@ Tools:
 	return sess, nil
 }
 
-/*────────────────────── LLM helper ────────────────────*/
-
 func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []completions.Message) (string, error) {
 	// Calculate input token count (approximate)
 	var promptTokens int
@@ -587,8 +531,6 @@ func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []complet
 	response = strings.ReplaceAll(response, "</think>", "")
 	return strings.TrimSpace(response), nil
 }
-
-/*────────────────────── parse helper ─────────────────*/
 
 func parseReAct(s string) (thought, action, input string) {
 	var grab bool
@@ -635,32 +577,12 @@ func parseReAct(s string) (thought, action, input string) {
 	return
 }
 
-/*────────────────────── dispatcher ───────────────────*/
-
 func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, error) {
 	switch strings.ToLower(name) {
 	case "finish":
 		return arg, nil
 	case "code_eval":
 		return ae.runCodeEval(ctx, arg)
-	case "tool_help":
-		tname := strings.TrimSpace(arg)
-		if info, ok := ae.mcpTools[tname]; ok {
-			resp := map[string]interface{}{
-				"description":  info.Description,
-				"input_schema": info.InputSchema,
-			}
-			b, _ := json.Marshal(resp)
-			return string(b), nil
-		}
-		var desc string
-		err := ae.DB.QueryRow(ctx, `SELECT description FROM tool_memory WHERE tool_name = $1`, tname).Scan(&desc)
-		if err == nil {
-			resp := map[string]interface{}{"description": desc}
-			b, _ := json.Marshal(resp)
-			return string(b), nil
-		}
-		return "", fmt.Errorf("unknown tool: %s", tname)
 	case "stage_path":
 		return ae.stagePath(arg)
 	default:
@@ -679,8 +601,6 @@ func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, 
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
 }
-
-/*────────────────────── arg normalizer ───────────────*/
 
 func (ae *AgentEngine) normalizeMCPArg(arg string) (string, error) {
 	hostPrefix := filepath.Join(ae.Config.DataPath, "tmp") + "/"
@@ -718,8 +638,6 @@ func (ae *AgentEngine) normalizeMCPArg(arg string) (string, error) {
 	b, _ := json.Marshal(m)
 	return string(b), nil
 }
-
-/*────────────────────── stage_path ───────────────────*/
 
 func (ae *AgentEngine) stagePath(arg string) (string, error) {
 	var p struct {
@@ -783,8 +701,6 @@ func copyFile(src, dst string) error {
 	return os.WriteFile(dst, data, 0644)
 }
 
-/*────────────────────── code_eval ────────────────────*/
-
 func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error) {
 	var req codeeval.CodeEvalRequest
 	if err := json.Unmarshal([]byte(arg), &req); err != nil {
@@ -828,8 +744,6 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 	return resp.Result, nil
 }
 
-/*────────────────────── MCP call ─────────────────────*/
-
 func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, error) {
 	parts := strings.SplitN(fq, "::", 2)
 	if len(parts) != 2 {
@@ -848,8 +762,6 @@ func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, err
 	b, _ := json.Marshal(resp)
 	return string(b), nil
 }
-
-/*────────────────────── memory ───────────────────────*/
 
 func (ae *AgentEngine) persistStep(ctx context.Context, workflowID uuid.UUID, st AgentStep) error {
 	// Check if agentic memory is enabled in configuration

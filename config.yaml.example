@@ -147,29 +147,28 @@ agentic_memory:
                   # This improves consistency and continuity in multi-turn interactions
                   # Requires PostgreSQL with pgvector extension for vector storage
 
-# Agent2Agent (A2A) configuration
-# Defines the role of this node and other nodes in the cluster
-a2a:
-  # Node role can be "master" or "worker"
-  role: "master"
-  # Shared secret token for authenticating A2A requests
-  token: ""
-  # List of remote node URLs participating in this cluster
-  nodes:
-    - "http://node1.example.com"
-    - "http://node2.example.com"
-
 # List of external MCP servers
-# Example GitHub MCP server
-mcpServers:
-  # Manifold's built-in MCP server
   manifold:
-    command: ./mcp-manifold
-    args: []
-    env:
-      DATA_PATH: "~/.manifold"
+    command: docker
+    args:
+      - run
+      - --rm
+      - -i
+      - -e
+      - DATA_PATH=/app/projects
+      - -e
+      - GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no
+      - -e
+      - SSH_AUTH_SOCK=/ssh-agent
+      - --volume
+      - /Users/$USER/.manifold/tmp:/app/projects
+      - --volume
+      - $SSH_AUTH_SOCK:/ssh-agent # Put the value of the auth sock by running `echo $SSH_AUTH_SOCK`
+      - -w
+      - /app/projects
+      - intelligencedev/manifold-mcp
 
-  # Example GitHub MCP server (commented by default)
+  # Example GitHub MCP server
   # github:
   #   command: docker
   #   args:

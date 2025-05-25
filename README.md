@@ -28,6 +28,20 @@ Or use the MCP node to list and execute tools as part of your workflows.
 
 ![mcp](docs/img/mcp.png)
 
+## Image Generation and Vision Support
+
+### Image Generation
+
+Manifold supports image generation via ComfyUI in Windows, Linux and MacOS. Manifold also supports MLXFlux image generation on MacOS only, no external service required.
+
+![image generation](docs/img/img_gen.png)
+
+### Vision Support
+
+For now, Manifold supports OpenAI and supported local vision models via `llama.cpp` such as Gemma-3.
+
+![vision example](docs/img/img_description.png)
+
 ## Web Search and Retrieval
 
 ![web](docs/img/web.png)

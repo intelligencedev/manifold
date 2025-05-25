@@ -72,6 +72,18 @@
         <i class="fa fa-save"></i> <span>Save</span>
       </BaseButton>
 
+      <BaseButton
+        class="bg-teal-700 hover:bg-teal-600 rounded px-3 py-1 text-sm"
+        @click="emit('toggle-mode')"
+        title="Switch Mode"
+      >
+        <svg v-if="props.mode === 'flow'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-current">
+          <path d="M2 3h20v14H6l-4 4V3z" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+        <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-current">
+          <circle cx="6" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="18" cy="12" r="2"/>
+          <path d="M7.5 11L11 7.5m2 0l3.5 3.5M11 7.5v9" stroke="currentColor" stroke-width="2" fill="none"/></svg>
+      </BaseButton>
+
       <!-- user settings dropdown -->
       <div class="relative">
         <BaseButton
@@ -148,6 +160,16 @@
           </BaseButton>
           <BaseButton @click="saveFlow" class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left">
             Save
+          </BaseButton>
+
+          <BaseButton @click="emit('toggle-mode')" class="px-4 py-2 bg-teal-700 hover:bg-teal-600 text-left flex items-center justify-center">
+            <svg v-if="props.mode === 'flow'" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-current">
+              <path d="M2 3h20v14H6l-4 4V3z" stroke="currentColor" stroke-width="2" fill="none"/>
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-5 h-5 fill-current">
+              <circle cx="6" cy="12" r="2"/><circle cx="12" cy="6" r="2"/><circle cx="18" cy="12" r="2"/>
+              <path d="M7.5 11L11 7.5m2 0l3.5 3.5M11 7.5v9" stroke="currentColor" stroke-width="2" fill="none"/>
+            </svg>
           </BaseButton>
           
           <!-- User Settings with inline dropdown -->
@@ -254,7 +276,10 @@ import BaseDropdownMenu from '@/components/base/BaseDropdownMenu.vue';
 
 /* ───────────────────────── refs/state ───────────────────────── */
 const fileInput = ref<HTMLInputElement | null>(null);
-const emit = defineEmits(['save', 'restore', 'logout', 'load-template']);
+const props = defineProps({
+  mode: { type: String, default: 'flow' }
+})
+const emit = defineEmits(['save', 'restore', 'logout', 'load-template', 'toggle-mode']);
 
 const showUserMenu = ref(false);
 const showTemplatesMenu = ref(false);

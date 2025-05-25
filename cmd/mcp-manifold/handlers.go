@@ -3,10 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
-	"sync"
-	"time"
 
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
@@ -87,107 +83,6 @@ func handleWeatherTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.C
 			},
 		},
 	}, nil
-}
-
-// handleWebSearchTool handles the web search tool
-func handleWebSearchTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	arguments := request.Params.Arguments
-	query, _ := arguments["query"].(string)
-	resultSize, _ := arguments["result_size"].(float64)
-
-	args := WebSearchArgs{
-		Query:      query,
-		ResultSize: int(resultSize),
-	}
-
-	res := searchDDG(args.Query)
-
-	// Convert the go slice to a string
-	resStr := strings.Join(res, "\n")
-	if len(resStr) == 0 {
-		resStr = "No results found."
-	}
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: resStr,
-			},
-		},
-	}, nil
-}
-
-// handleWebContentTool handles the web content tool
-func handleWebContentTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	arguments := request.Params.Arguments
-	urlsParam, _ := arguments["urls"].(string)
-
-	if urlsParam == "" {
-		return nil, fmt.Errorf("URLs are required")
-	}
-
-	urls := strings.Split(urlsParam, ",")
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	results := make(map[string]interface{})
-
-	resultChan := make(chan string)
-	errChan := make(chan error)
-
-	go func() {
-		for _, pageURL := range urls {
-			wg.Add(1)
-			go func(url string) {
-				defer wg.Done()
-				content, err := webGetHandler(url)
-				mu.Lock()
-				defer mu.Unlock()
-				if err != nil {
-					results[url] = map[string]string{"error": fmt.Sprintf("Error extracting web content: %v", err)}
-				} else {
-					results[url] = content
-				}
-			}(pageURL)
-		}
-
-		wg.Wait()
-
-		jsonResult, err := json.Marshal(results)
-		if err != nil {
-			errChan <- fmt.Errorf("error marshaling results: %w", err)
-			return
-		}
-		resultChan <- string(jsonResult)
-	}()
-
-	// Wait for result or timeout
-	select {
-	case result := <-resultChan:
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: result,
-				},
-			},
-		}, nil
-	case err := <-errChan:
-		return nil, err
-	case <-time.After(60 * time.Second):
-		jsonResult, err := json.Marshal(results)
-		if err != nil {
-			return nil, fmt.Errorf("error marshaling results after timeout: %w", err)
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				mcp.TextContent{
-					Type: "text",
-					Text: string(jsonResult),
-				},
-			},
-		}, nil
-	}
 }
 
 // handleGitPullTool handles the git pull tool

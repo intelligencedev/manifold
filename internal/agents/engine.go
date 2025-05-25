@@ -298,7 +298,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
 Objective: %s
 
-You run inside a bash sandbox at /workspace.  
+You run inside a bash sandbox at /app/projects.  
 Goal: read, patch, and validate text/code with deterministic CLI calls only.  
 Return clear reasoning + final diff or file content.
 
@@ -356,6 +356,8 @@ full path is "/app/projects/subdir/foo.txt". ALL tool calls should be made with 
 
 Always consider using the tools first. If no tool is available that can be used to complete the task, make your own.
 
+If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or create your own using the code_eval tool.
+
 You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
 The code_eval tool supports third-party libraries, so you can include them in the dependencies array. 
 The code should be valid and executable in Python. The code should always return a string with the result of the execution, 
@@ -374,6 +376,9 @@ IMPORTANT: NEVER omit the three headers below – the server will error out:
   Thought: …
   Action: …
   Action Input: …
+
+ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach.
+IMPORTANT: If a tool call fails always try another tool or create your own using the code_eval tool. DO NOT GIVE UP!
 
 Format for every turn:
 Thought: <reasoning>

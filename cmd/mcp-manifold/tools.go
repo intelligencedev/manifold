@@ -73,11 +73,6 @@ type LintCodeArgs struct {
 	LinterName string `json:"linterName,omitempty" jsonschema:"description=Optional linter name"`
 }
 
-type WebSearchArgs struct {
-	Query      string `json:"query" jsonschema:"required"`
-	ResultSize int    `json:"result_size,omitempty"` // default 5, max 10
-}
-
 type WebContentArgs struct {
 	URLs string `json:"urls" jsonschema:"required,description=Comma separated list of URLs"`
 }

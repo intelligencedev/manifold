@@ -113,27 +113,6 @@ func registerBasicTools(mcpServer *server.MCPServer) {
 			mcp.Required(),
 		),
 	), handleWeatherTool)
-
-	// Web Search Tool
-	mcpServer.AddTool(mcp.NewTool("web_search",
-		mcp.WithDescription("Performs a web search using selected backend"),
-		mcp.WithString("query",
-			mcp.Description("Search query"),
-			mcp.Required(),
-		),
-		mcp.WithNumber("result_size",
-			mcp.Description("Optional number of results to return"),
-		),
-	), handleWebSearchTool)
-
-	// Web Content Tool
-	mcpServer.AddTool(mcp.NewTool("web_content",
-		mcp.WithDescription("Fetches and extracts content from web URLs"),
-		mcp.WithString("urls",
-			mcp.Description("Comma separated list of URLs"),
-			mcp.Required(),
-		),
-	), handleWebContentTool)
 }
 
 // registerGitTools registers tools related to git operations

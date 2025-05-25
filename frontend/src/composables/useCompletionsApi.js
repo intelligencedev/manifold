@@ -133,10 +133,36 @@ export function useCompletionsApi() {
       await handleStreamingResponse(
         streamResponse,
         (parsedData) => {
-          const delta = parsedData.choices[0]?.delta || {};
-          const tokenContent = (delta.content || "") + (delta.thinking || "");
-          fullResponse += tokenContent;
-          if (onUpdate) onUpdate(tokenContent, fullResponse);
+          // Handle different response formats
+          let tokenContent = '';
+          
+          if (parsedData.choices && parsedData.choices[0]) {
+            const choice = parsedData.choices[0];
+            if (choice.delta) {
+              // OpenAI-style streaming format
+              const delta = choice.delta;
+              tokenContent = (delta.content || "") + (delta.thinking || "");
+            } else if (choice.text) {
+              // Some LLM servers use 'text' field instead of 'delta.content'
+              tokenContent = choice.text;
+            } else if (typeof choice === 'string') {
+              // Simple string format
+              tokenContent = choice;
+            }
+          } else if (parsedData.content) {
+            // Some LLM servers provide direct content field
+            tokenContent = parsedData.content;
+          } else if (typeof parsedData === 'string') {
+            // Plain string format
+            tokenContent = parsedData;
+          }
+          
+          // Only update if we have content
+          if (tokenContent) {
+            console.log("Token content:", tokenContent);
+            fullResponse += tokenContent;
+            if (onUpdate) onUpdate(tokenContent);
+          }
         }
       );
       
@@ -225,10 +251,36 @@ export function useCompletionsApi() {
     await handleStreamingResponse(
       streamResponse,
       (parsedData) => {
-        const delta = parsedData.choices[0]?.delta || {};
-        const tokenContent = (delta.content || "") + (delta.thinking || "");
-        fullResponse += tokenContent;
-        if (onUpdate) onUpdate(tokenContent, fullResponse);
+        // Handle different response formats
+        let tokenContent = '';
+        
+        if (parsedData.choices && parsedData.choices[0]) {
+          const choice = parsedData.choices[0];
+          if (choice.delta) {
+            // OpenAI-style streaming format
+            const delta = choice.delta;
+            tokenContent = (delta.content || "") + (delta.thinking || "");
+          } else if (choice.text) {
+            // Some LLM servers use 'text' field instead of 'delta.content'
+            tokenContent = choice.text;
+          } else if (typeof choice === 'string') {
+            // Simple string format
+            tokenContent = choice;
+          }
+        } else if (parsedData.content) {
+          // Some LLM servers provide direct content field
+          tokenContent = parsedData.content;
+        } else if (typeof parsedData === 'string') {
+          // Plain string format
+          tokenContent = parsedData;
+        }
+        
+        // Only update if we have content
+        if (tokenContent) {
+          console.log("Token content (enhanced prompt):", tokenContent);
+          fullResponse += tokenContent;
+          if (onUpdate) onUpdate(tokenContent);
+        }
       }
     );
     

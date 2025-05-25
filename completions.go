@@ -134,10 +134,20 @@ func completionsHandler(c echo.Context, config *Config) error {
 
 		// Stream the response back to the client
 		scanner := bufio.NewScanner(resp.Body)
+		// Increase the buffer size to handle larger tokens
+		const maxScanTokenSize = 1024 * 1024 // 1MB buffer
+		scannerBuffer := make([]byte, maxScanTokenSize)
+		scanner.Buffer(scannerBuffer, maxScanTokenSize)
+
 		for scanner.Scan() {
 			line := scanner.Text()
 			if line != "" {
-				// Write the SSE line
+				// Make sure each line is properly formatted as a server-sent event
+				// The format should be: "data: {json}\n\n"
+				if !strings.HasPrefix(line, "data: ") {
+					line = "data: " + line
+				}
+				// Write the SSE line with double newlines
 				_, err := c.Response().Write([]byte(line + "\n\n"))
 				if err != nil {
 					return err

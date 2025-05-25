@@ -65,6 +65,7 @@ const toggleMode = () => modeStore.toggleMode()
 const { systemPromptOptions, systemPromptOptionsList } = useSystemPromptOptions()
 const { callCompletionsAPI } = useCompletionsApi()
 
+// Use an explicit reactive array for messages to ensure Vue tracks changes properly
 const messages = ref<{ role: string; content: string }[]>([])
 const userInput = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
@@ -80,7 +81,7 @@ const providerOptions = [
 ]
 
 const provider = ref('llama-server')
-const endpoint = ref('http://localhost:8080/v1/chat/completions')
+const endpoint = ref('http://localhost:8080/api/v1/chat/completions')
 const api_key = ref('')
 const model = ref('local')
 const max_completion_tokens = ref(8192)
@@ -147,8 +148,11 @@ async function sendMessage() {
   const prompt = userInput.value.trim()
   messages.value.push({ role: 'user', content: prompt })
   userInput.value = ''
-  const assistantMsg = { role: 'assistant', content: '' }
-  messages.value.push(assistantMsg)
+  
+  // Create the assistant message and add it to the messages array
+  const msgIndex = messages.value.length
+  messages.value.push({ role: 'assistant', content: '' })
+  
   const config = {
     provider: provider.value,
     endpoint: endpoint.value,
@@ -159,13 +163,23 @@ async function sendMessage() {
     temperature: temperature.value,
     enableToolCalls: enableToolCalls.value
   }
+  
   try {
-    await callCompletionsAPI(config, prompt, (token) => {
-      assistantMsg.content += token
+    await callCompletionsAPI(config, prompt, (token: string) => {
+      console.log('Received token:', token.substring(0, 50) + (token.length > 50 ? '...' : ''));
+      // Create a new object to trigger reactivity properly
+      const updatedMessages = [...messages.value]
+      updatedMessages[msgIndex] = { 
+        role: 'assistant', 
+        content: updatedMessages[msgIndex].content + token 
+      }
+      messages.value = updatedMessages
     })
   } catch (e) {
     console.error(e)
-    assistantMsg.content = 'Error fetching response.'
+    const updatedMessages = [...messages.value]
+    updatedMessages[msgIndex] = { role: 'assistant', content: 'Error fetching response.' }
+    messages.value = updatedMessages
   }
 }
 </script>

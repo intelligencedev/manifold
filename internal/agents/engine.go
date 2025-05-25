@@ -284,14 +284,11 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 		}
 	}
 	for _, t := range relTools {
-		schema, err := json.Marshal(t.InputSchema)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal input schema: %v", err)
-		}
-		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
+		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description))
 	}
 	td = append(td,
 		"- code_eval    • run code in sandbox",
+		"- tool_help    • get tool schema and description",
 		"- finish       • end and output final answer",
 	)
 
@@ -384,6 +381,8 @@ Format for every turn:
 Thought: <reasoning>
 Action:  <tool>
 Action Input: <JSON | text>
+
+Use tool_help <tool_name> to view a tool's JSON schema.
 
 Tools:
 %s`, req.Objective, strings.Join(td, "\n"))
@@ -644,6 +643,24 @@ func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, 
 		return arg, nil
 	case "code_eval":
 		return ae.runCodeEval(ctx, arg)
+	case "tool_help":
+		tname := strings.TrimSpace(arg)
+		if info, ok := ae.mcpTools[tname]; ok {
+			resp := map[string]interface{}{
+				"description":  info.Description,
+				"input_schema": info.InputSchema,
+			}
+			b, _ := json.Marshal(resp)
+			return string(b), nil
+		}
+		var desc string
+		err := ae.DB.QueryRow(ctx, `SELECT description FROM tool_memory WHERE tool_name = $1`, tname).Scan(&desc)
+		if err == nil {
+			resp := map[string]interface{}{"description": desc}
+			b, _ := json.Marshal(resp)
+			return string(b), nil
+		}
+		return "", fmt.Errorf("unknown tool: %s", tname)
 	case "stage_path":
 		return ae.stagePath(arg)
 	default:

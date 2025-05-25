@@ -1,0 +1,44 @@
+--- frontend/src/composables/useAgentNode.js	2024-06-19 00:00:00.000000000 +0000
++++ frontend/src/composables/useAgentNode.js	2024-06-19 00:00:00.000000000 +0000
+@@ -81,14 +81,30 @@
+-  function getCompleteJsonLength(jsonString) {
+-    let openBraces = 0;
+-    let openBrackets = 0;
+-    for (let i = 0; i < jsonString.length; i++) {
+-      if (jsonString[i] === "{") openBraces++;
+-      if (jsonString[i] === "}") openBraces--;
+-      if (jsonString[i] === "[") openBrackets++;
+-      if (jsonString[i] === "]") openBrackets--;
+-      if (openBraces === 0 && openBrackets === 0) {
+-        return i + 1;
+-      }
+-    }
+-    return jsonString.length; // Return total length if no complete object is found
+-  }
++  function getCompleteJsonLength(jsonString) {
++    let openBraces = 0;
++    let openBrackets = 0;
++    for (let i = 0; i < jsonString.length; i++) {
++      if (jsonString[i] === "{") openBraces++;
++      if (jsonString[i] === "}") openBraces--;
++      if (jsonString[i] === "[") openBrackets++;
++      if (jsonString[i] === "]") openBrackets--;
++      if (openBraces === 0 && openBrackets === 0) {
++        return i + 1;
++      }
++      // If counts go negative, invalid JSON structure
++      if (openBraces < 0 || openBrackets < 0) {
++        return -1;
++      }
++    }
++    return -1; // Return -1 if no complete object is found
++  }
+@@ -417,13 +433,23 @@
+-                buffer = buffer.substring(getCompleteJsonLength(buffer));
++                const length = getCompleteJsonLength(buffer);
++                if (length > 0) {
++                  buffer = buffer.substring(length);
++                } else {
++                  // If no complete JSON object found, wait for more data
++                  break;
++                }

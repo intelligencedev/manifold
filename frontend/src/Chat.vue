@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-zinc-800 text-gray-200 flex flex-col h-fit min-h-screen">
+  <div class="bg-zinc-800 text-gray-200 flex flex-col h-screen view-container">
     <Header :mode="mode" @toggle-mode="toggleMode" />
     <div class="flex flex-1 overflow-hidden">
       <!-- Sidebar for parameters/settings -->

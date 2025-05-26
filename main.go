@@ -122,7 +122,7 @@ func main() {
 	// Start server in a goroutine
 	go func() {
 		port := fmt.Sprintf(":%d", config.Port)
-		logger.Info(fmt.Sprintf("Server listening on port: %d", config.Port))
+		logger.Info(fmt.Sprintf("Manifold server listening on port: %d", config.Port))
 		if err := e.Start(port); err != nil && err != http.ErrServerClosed {
 			logger.Fatal(fmt.Sprintf("Error starting server: %v", err))
 		}

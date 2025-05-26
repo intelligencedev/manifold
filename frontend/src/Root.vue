@@ -1,5 +1,5 @@
 <template>
-  <Transition name="fade" mode="out-in">
+  <Transition name="fade" mode="out-in" class="transition duration-100">
     <component :is="currentComponent" />
   </Transition>
 </template>

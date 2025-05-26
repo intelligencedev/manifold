@@ -77,6 +77,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// Anthropic endpoints.
 	registerAnthropicEndpoints(api, config)
 
+	// Google Gemini endpoints.
+	registerGeminiEndpoints(api, config)
+
 	// File upload endpoints
 	api.POST("/upload", func(c echo.Context) error {
 		return fileUploadHandler(c, config)
@@ -154,6 +157,14 @@ func registerAnthropicEndpoints(api *echo.Group, config *Config) {
 	anthropicGroup := api.Group("/anthropic")
 	anthropicGroup.POST("/messages", func(c echo.Context) error {
 		return llmpkg.HandleMessages(c, config)
+	})
+}
+
+// registerGeminiEndpoints registers routes for Google Gemini-related functionality.
+func registerGeminiEndpoints(api *echo.Group, config *Config) {
+	geminiGroup := api.Group("/gemini")
+	geminiGroup.POST("/generate", func(c echo.Context) error {
+		return llmpkg.HandleGemini(c, config)
 	})
 }
 

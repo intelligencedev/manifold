@@ -666,7 +666,20 @@ export function useAgentNode(props, emit) {
       }
     }
   });
-
+  
+  // Watch provider changes to swap API key accordingly
+  watch(provider, (newProvider) => {
+    if (newProvider === 'google') {
+      if (configStore.config?.google_gemini_key) {
+        props.data.inputs.api_key = configStore.config.google_gemini_key;
+      }
+    } else if (newProvider === 'openai' || newProvider === 'anthropic' || newProvider === 'llama-server' || newProvider === 'mlx_lm.server') {
+      // Reset to general API key for other providers
+      if (configStore.config?.Completions?.APIKey) {
+        props.data.inputs.api_key = configStore.config.Completions.APIKey;
+      }
+    }
+  });
   if (!props.data.style) {
     props.data.style = {
         border: '1px solid #666',

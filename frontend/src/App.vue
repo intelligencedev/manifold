@@ -1,135 +1,141 @@
 <template>
-  <div id="app" class="flex flex-col h-screen w-screen p-0 m-0 text-center text-[#2c3e50] relative font-roboto antialiased">
-    <!-- Show Login component if not authenticated -->
-    <Login v-if="!isAuthenticated" @login-success="handleLoginSuccess" />
+  <div id="app" class="flex flex-col h-screen w-screen p-0 m-0 text-center text-[#2c3e50] bg-slate-900 relative font-roboto antialiased">
+    <!-- Loading spinner while checking authentication -->
+    <div v-if="isLoading" class="flex h-full w-full items-center justify-center bg-slate-900"></div>
     
-    <!-- Show main app content when authenticated -->
-    <template v-else>
-      <Header
-        :mode="mode"
-        @toggle-mode="toggleMode"
-        @save="onSave"
-        @restore="onRestore"
-        @logout="handleLogout"
-        @load-template="handleLoadTemplate"
-      />
-      <NodePalette />
-      <UtilityPalette />
-
-      <!-- Context Menu Component -->
-      <div 
-        v-if="contextMenu.show" 
-        class="context-menu"
-        :style="{
-          left: `${contextMenu.x}px`,
-          top: `${contextMenu.y}px`
-        }"
-        @click.stop
-      >
-        <div class="context-menu-item" @click="copyNodeId">
-          Copy Node ID
-        </div>
-      </div>
-
-      <!-- VueFlow Component -->
-      <VueFlow class="flex-1 bg-[#282828] relative overflow-hidden pt-2" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
-        :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
-        @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
-        :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[16, 16]"
-        :default-viewport="{ x: 0, y: 0, zoom: 1 }">
-        <!-- Node Templates -->
-        <template #node-noteNode="noteNodeProps">
-          <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.prevent="showContextMenu($event, noteNodeProps.id)" />
-        </template>
-        <template #node-reactAgent="reactAgentProps">
-          <ReactAgent v-bind="reactAgentProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, reactAgentProps.id)" />
-        </template>
-        <template #node-completions="completionsProps">
-          <AgentNode v-bind="completionsProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, completionsProps.id)" />
-        </template>
-        <template #node-responseNode="responseNodeProps">
-          <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, responseNodeProps.id)" />
-        </template>
-        <template #node-codeRunnerNode="codeRunnerNodeProps">
-          <CodeRunnerNode v-bind="codeRunnerNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, codeRunnerNodeProps.id)" />
-        </template>
-        <template #node-webGLNode="webGLNodeProps">
-          <WebGLNode v-bind="webGLNodeProps" @contextmenu.native.prevent="showContextMenu($event, webGLNodeProps.id)" />
-        </template>
-        <template #node-embeddingsNode="embeddingsNodeProps">
-          <EmbeddingsNode v-bind="embeddingsNodeProps" @contextmenu.native.prevent="showContextMenu($event, embeddingsNodeProps.id)" />
-        </template>
-        <template #node-webSearchNode="webSearchNodeProps">
-          <WebSearchNode v-bind="webSearchNodeProps" @contextmenu.native.prevent="showContextMenu($event, webSearchNodeProps.id)" />
-        </template>
-        <template #node-webRetrievalNode="webRetrievalNodeProps">
-          <WebRetrievalNode v-bind="webRetrievalNodeProps" @contextmenu.native.prevent="showContextMenu($event, webRetrievalNodeProps.id)" />
-        </template>
-        <template #node-textSplitterNode="textSplitterNodeProps">
-          <TextSplitterNode v-bind="textSplitterNodeProps" @contextmenu.native.prevent="showContextMenu($event, textSplitterNodeProps.id)" />
-        </template>
-        <template #node-textNode="textNodeProps">
-          <TextNode v-bind="textNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, textNodeProps.id)" />
-        </template>
-        <template #node-openFileNode="openFileNodeProps">
-          <OpenFileNode v-bind="openFileNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, openFileNodeProps.id)" />
-        </template>
-        <template #node-saveTextNode="saveTextNodeProps">
-          <SaveTextNode v-bind="saveTextNodeProps" @contextmenu.native.prevent="showContextMenu($event, saveTextNodeProps.id)" />
-        </template>
-        <template #node-tokenCounterNode="tokenCounterNodeProps">
-          <TokenCounterNode v-bind="tokenCounterNodeProps" @contextmenu.native.prevent="showContextMenu($event, tokenCounterNodeProps.id)" />
-        </template>
-        <template #node-flowControlNode="flowControlNodeProps">
-          <FlowControl v-bind="flowControlNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
-            @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, flowControlNodeProps.id)" />
-        </template>
-        <template #node-repoConcatNode="repoConcatNodeProps">
-          <RepoConcat v-bind="repoConcatNodeProps" @contextmenu.native.prevent="showContextMenu($event, repoConcatNodeProps.id)" />
-        </template>
-        <template #node-comfyNode="comfyNodeProps">
-          <ComfyNode v-bind="comfyNodeProps" @contextmenu.native.prevent="showContextMenu($event, comfyNodeProps.id)" />
-        </template>
-        <template #node-mlxFluxNode="mlxFluxNodeProps">
-          <MLXFlux v-bind="mlxFluxNodeProps" @contextmenu.native.prevent="showContextMenu($event, mlxFluxNodeProps.id)" />
-        </template>
-        <template #node-documentsIngestNode="documentsIngestNodeProps">
-          <DocumentsIngest v-bind="documentsIngestNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsIngestNodeProps.id)" />
-        </template>
-        <template #node-documentsRetrieveNode="documentsRetrieveNodeProps">
-          <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsRetrieveNodeProps.id)" />
-        </template>
-        <template #node-ttsNode="ttsNodeProps">
-          <ttsNode v-bind="ttsNodeProps" @contextmenu.native.prevent="showContextMenu($event, ttsNodeProps.id)" />
-        </template>
-        <template #node-mcpClientNode="mcpClientNodeProps">
-          <MCPClient v-bind="mcpClientNodeProps" @contextmenu.native.prevent="showContextMenu($event, mcpClientNodeProps.id)" />
-        </template>
-        <template #node-mermaidNode="mermaidNodeProps">
-          <Mermaid v-bind="mermaidNodeProps" @contextmenu.native.prevent="showContextMenu($event, mermaidNodeProps.id)" />
-        </template>
-        <template #node-messageBusNode="messageBusNodeProps">
-          <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
-        </template>
-
-        <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
-
-        <!-- Run Workflow ToolBar -->
-        <ToolBar
-          v-model="autoPanEnabled"
-          @run="runWorkflow"
-          @update-layout="updateLayout"
-          @update-edge-type="updateEdgeType"
+    <!-- Authentication flow with transitions -->
+    <Transition name="fade" mode="out-in">
+      <!-- Show Login component if not authenticated -->
+      <Login v-if="!isLoading && !isAuthenticated" @login-success="handleLoginSuccess" />
+      
+      <!-- Show main app content when authenticated -->
+      <div v-else-if="!isLoading && isAuthenticated" class="flex flex-col h-full">
+        <Header
+          :mode="mode"
+          @toggle-mode="toggleMode"
+          @save="onSave"
+          @restore="onRestore"
+          @logout="handleLogout"
+          @load-template="handleLoadTemplate"
         />
-      </VueFlow>
-    </template>
+        <NodePalette />
+        <UtilityPalette />
+
+        <!-- Context Menu Component -->
+        <div 
+          v-if="contextMenu.show" 
+          class="context-menu"
+          :style="{
+            left: `${contextMenu.x}px`,
+            top: `${contextMenu.y}px`
+          }"
+          @click.stop
+        >
+          <div class="context-menu-item" @click="copyNodeId">
+            Copy Node ID
+          </div>
+        </div>
+
+        <!-- VueFlow Component -->
+        <VueFlow class="flex-1 bg-[#282828] relative overflow-hidden pt-2" :nodes="nodes" :edges="edges" :edge-types="edgeTypes"
+          :zoom-on-scroll="zoomOnScroll" @nodes-initialized="onNodesInitialized" @nodes-change="onNodesChange"
+          @edges-change="onEdgesChange" @connect="onConnect" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onDrop"
+          :min-zoom="0.2" :max-zoom="4" fit-view-on-init :snap-to-grid="true" :snap-grid="[16, 16]"
+          :default-viewport="{ x: 0, y: 0, zoom: 1 }">
+          <!-- Node Templates -->
+          <template #node-noteNode="noteNodeProps">
+            <NoteNode v-bind="noteNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.prevent="showContextMenu($event, noteNodeProps.id)" />
+          </template>
+          <template #node-reactAgent="reactAgentProps">
+            <ReactAgent v-bind="reactAgentProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, reactAgentProps.id)" />
+          </template>
+          <template #node-completions="completionsProps">
+            <AgentNode v-bind="completionsProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, completionsProps.id)" />
+          </template>
+          <template #node-responseNode="responseNodeProps">
+            <ResponseNode v-bind="responseNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, responseNodeProps.id)" />
+          </template>
+          <template #node-codeRunnerNode="codeRunnerNodeProps">
+            <CodeRunnerNode v-bind="codeRunnerNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, codeRunnerNodeProps.id)" />
+          </template>
+          <template #node-webGLNode="webGLNodeProps">
+            <WebGLNode v-bind="webGLNodeProps" @contextmenu.native.prevent="showContextMenu($event, webGLNodeProps.id)" />
+          </template>
+          <template #node-embeddingsNode="embeddingsNodeProps">
+            <EmbeddingsNode v-bind="embeddingsNodeProps" @contextmenu.native.prevent="showContextMenu($event, embeddingsNodeProps.id)" />
+          </template>
+          <template #node-webSearchNode="webSearchNodeProps">
+            <WebSearchNode v-bind="webSearchNodeProps" @contextmenu.native.prevent="showContextMenu($event, webSearchNodeProps.id)" />
+          </template>
+          <template #node-webRetrievalNode="webRetrievalNodeProps">
+            <WebRetrievalNode v-bind="webRetrievalNodeProps" @contextmenu.native.prevent="showContextMenu($event, webRetrievalNodeProps.id)" />
+          </template>
+          <template #node-textSplitterNode="textSplitterNodeProps">
+            <TextSplitterNode v-bind="textSplitterNodeProps" @contextmenu.native.prevent="showContextMenu($event, textSplitterNodeProps.id)" />
+          </template>
+          <template #node-textNode="textNodeProps">
+            <TextNode v-bind="textNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, textNodeProps.id)" />
+          </template>
+          <template #node-openFileNode="openFileNodeProps">
+            <OpenFileNode v-bind="openFileNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, openFileNodeProps.id)" />
+          </template>
+          <template #node-saveTextNode="saveTextNodeProps">
+            <SaveTextNode v-bind="saveTextNodeProps" @contextmenu.native.prevent="showContextMenu($event, saveTextNodeProps.id)" />
+          </template>
+          <template #node-tokenCounterNode="tokenCounterNodeProps">
+            <TokenCounterNode v-bind="tokenCounterNodeProps" @contextmenu.native.prevent="showContextMenu($event, tokenCounterNodeProps.id)" />
+          </template>
+          <template #node-flowControlNode="flowControlNodeProps">
+            <FlowControl v-bind="flowControlNodeProps" @disable-zoom="disableZoom" @enable-zoom="enableZoom"
+              @node-resized="updateNodeDimensions" @contextmenu.native.prevent="showContextMenu($event, flowControlNodeProps.id)" />
+          </template>
+          <template #node-repoConcatNode="repoConcatNodeProps">
+            <RepoConcat v-bind="repoConcatNodeProps" @contextmenu.native.prevent="showContextMenu($event, repoConcatNodeProps.id)" />
+          </template>
+          <template #node-comfyNode="comfyNodeProps">
+            <ComfyNode v-bind="comfyNodeProps" @contextmenu.native.prevent="showContextMenu($event, comfyNodeProps.id)" />
+          </template>
+          <template #node-mlxFluxNode="mlxFluxNodeProps">
+            <MLXFlux v-bind="mlxFluxNodeProps" @contextmenu.native.prevent="showContextMenu($event, mlxFluxNodeProps.id)" />
+          </template>
+          <template #node-documentsIngestNode="documentsIngestNodeProps">
+            <DocumentsIngest v-bind="documentsIngestNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsIngestNodeProps.id)" />
+          </template>
+          <template #node-documentsRetrieveNode="documentsRetrieveNodeProps">
+            <DocumentsRetrieve v-bind="documentsRetrieveNodeProps" @contextmenu.native.prevent="showContextMenu($event, documentsRetrieveNodeProps.id)" />
+          </template>
+          <template #node-ttsNode="ttsNodeProps">
+            <ttsNode v-bind="ttsNodeProps" @contextmenu.native.prevent="showContextMenu($event, ttsNodeProps.id)" />
+          </template>
+          <template #node-mcpClientNode="mcpClientNodeProps">
+            <MCPClient v-bind="mcpClientNodeProps" @contextmenu.native.prevent="showContextMenu($event, mcpClientNodeProps.id)" />
+          </template>
+          <template #node-mermaidNode="mermaidNodeProps">
+            <Mermaid v-bind="mermaidNodeProps" @contextmenu.native.prevent="showContextMenu($event, mermaidNodeProps.id)" />
+          </template>
+          <template #node-messageBusNode="messageBusNodeProps">
+            <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
+          </template>
+
+          <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
+
+          <!-- Run Workflow ToolBar -->
+          <ToolBar
+            v-model="autoPanEnabled"
+            @run="runWorkflow"
+            @update-layout="updateLayout"
+            @update-edge-type="updateEdgeType"
+          />
+        </VueFlow>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -204,9 +210,13 @@ const bgVariant = BackgroundVariant.Dots;
 
 // --- STATE ---
 
+// Immediately check for token (before onMounted to reduce flash)
+const token = localStorage.getItem('jwt_token');
+
 // Authentication state
-const isAuthenticated = ref(false);
-const authToken = ref('');
+const isAuthenticated = ref(!!token); // Initialize based on token existence
+const isLoading = ref(true); // Start with loading state
+const authToken = ref(token || '');
 const modeStore = useModeStore();
 const mode = computed(() => modeStore.mode);
 const toggleMode = () => modeStore.toggleMode();
@@ -226,52 +236,65 @@ onMounted(() => {
 });
 
 // Check if the user is already authenticated
-function checkAuthentication() {
-  // Check localStorage for token
-  const token = localStorage.getItem('jwt_token');
+async function checkAuthentication() {
+  isLoading.value = true; // Start loading
   
-  if (token) {
+  try {
+    // Check localStorage for token
+    const token = localStorage.getItem('jwt_token');
+    
+    if (!token) {
+      // No token found, set authenticated to false
+      isAuthenticated.value = false;
+      return;
+    }
+    
     // Validate token by making a request to the backend
-    fetch('/api/restricted/user', {
+    const response = await fetch('/api/restricted/user', {
       headers: {
         'Authorization': `Bearer ${token}`
       }
-    })
-    .then(response => {
-      if (response.ok) {
-        // Token is valid
-        authToken.value = token;
-        isAuthenticated.value = true;
-        return response.json();
-      } else {
-        // Token is invalid or expired
-        localStorage.removeItem('jwt_token');
-        isAuthenticated.value = false;
-        throw new Error('Invalid token');
-      }
-    })
-    .then(userData => {
-      console.log('Authenticated as:', userData.username);
-    })
-    .catch(error => {
-      console.error('Authentication check failed:', error);
-      isAuthenticated.value = false;
     });
-  } else {
+    
+    if (response.ok) {
+      // Token is valid
+      const userData = await response.json();
+      authToken.value = token;
+      isAuthenticated.value = true;
+      console.log('Authenticated as:', userData.username);
+    } else {
+      // Token is invalid or expired
+      localStorage.removeItem('jwt_token');
+      isAuthenticated.value = false;
+    }
+  } catch (error) {
+    console.error('Authentication check failed:', error);
     isAuthenticated.value = false;
+  } finally {
+    // Always turn off loading state when done
+    isLoading.value = false;
   }
 }
 
 // Handle successful login
 function handleLoginSuccess(data) {
-  authToken.value = data.token;
-  isAuthenticated.value = true;
-  console.log('Login successful');
+  isLoading.value = true; // Show loading state during transition
+  
+  // Short timeout to allow for a smooth transition
+  setTimeout(() => {
+    authToken.value = data.token;
+    isAuthenticated.value = true;
+    localStorage.setItem('jwt_token', data.token);
+    console.log('Login successful');
+    isLoading.value = false;
+  }, 300);
 }
 
 // Handle logout
 async function handleLogout() {
   try {
+    isLoading.value = true; // Show loading during transition
+    
     // Call logout API
     await fetch('/api/restricted/logout', {
       method: 'POST',
@@ -280,12 +303,17 @@ async function handleLogout() {
       }
     });
     
+    // Short delay for animation
+    await new Promise(resolve => setTimeout(resolve, 300));
+    
     // Clear local token and auth state
     localStorage.removeItem('jwt_token');
     authToken.value = '';
     isAuthenticated.value = false;
   } catch (error) {
     console.error('Logout error:', error);
+  } finally {
+    isLoading.value = false;
   }
 }
 
@@ -1068,3 +1096,48 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', hideContextMenu);
 });
 </script>
+
+<style>
+/* Add any component-specific styles here */
+#app {
+  /* Prevent scrolling on body when workflow is running */
+  overflow: hidden;
+}
+
+.context-menu {
+  position: absolute;
+  z-index: 1000;
+  background: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding: 8px 0;
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.context-menu-item:hover {
+  background: #f0f0f0;
+}
+
+/* Spinner animation */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Fade transition for authentication (Vue 3 syntax) */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

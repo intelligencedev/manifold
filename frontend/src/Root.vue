@@ -1,5 +1,7 @@
 <template>
-  <component :is="currentComponent" />
+  <Transition name="fade" mode="out-in">
+    <component :is="currentComponent" />
+  </Transition>
 </template>
 
 <script setup lang="ts">
@@ -11,3 +13,15 @@ import Chat from './Chat.vue'
 const modeStore = useModeStore()
 const currentComponent = computed(() => modeStore.mode === 'chat' ? Chat : App)
 </script>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

@@ -458,47 +458,60 @@ export function useAgentNode(props, emit) {
 
         const reader = response.body.getReader();
         let buffer = "";
-        let incompleteJsonResponse = ""; // Buffer for incomplete JSON
+        let startedArray = false;
         let accumulatedResponse = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = new TextDecoder().decode(value);
-          buffer += chunk;
+          buffer += new TextDecoder().decode(value);
 
-          // Process each complete JSON object
-          let start = 0;
+          // Wait for the opening '[' of the array
+          if (!startedArray) {
+            const idx = buffer.indexOf("[");
+            if (idx !== -1) {
+              buffer = buffer.slice(idx + 1);
+              startedArray = true;
+            } else {
+              continue;
+            }
+          }
+
           while (true) {
-            let jsonStart = buffer.indexOf("{", start);
-            if (jsonStart === -1) break;
-
-            incompleteJsonResponse += buffer.substring(start, jsonStart);
-            buffer = buffer.substring(jsonStart);
-
-            try {
-              const { valid, completeObject } = parseIncompleteJson(buffer);
-              if (valid) {
-                const responseContent =
-                  completeObject.candidates?.[0]?.content?.parts?.[0]?.text ||
-                  "";
-
-                // Update response text and UI
-                accumulatedResponse += responseContent;
-                onResponseUpdate(accumulatedResponse, accumulatedResponse);
-
-                buffer = buffer.substring(getCompleteJsonLength(buffer));
-                incompleteJsonResponse = ""; // Reset incomplete JSON buffer
-                start = 0; // Reset start position for next object
-              } else {
-                // If not a valid or complete JSON, move to the next character
-                start = jsonStart + 1;
-                break; // Exit while loop and wait for more data
-              }
-            } catch (e) {
-              console.error("Error processing JSON:", e);
+            // Trim any leading whitespace or commas
+            buffer = buffer.trimStart();
+            if (buffer.startsWith("]")) {
+              buffer = buffer.slice(1);
+              startedArray = false;
               break;
+            }
+
+            const startIdx = buffer.indexOf("{");
+            if (startIdx === -1) break;
+
+            const jsonLength = getCompleteJsonLength(buffer.slice(startIdx));
+            if (jsonLength > buffer.slice(startIdx).length) {
+              // Incomplete object, wait for more data
+              break;
+            }
+
+            const jsonStr = buffer.slice(startIdx, startIdx + jsonLength);
+            try {
+              const obj = JSON.parse(jsonStr);
+              const responseContent =
+                obj.candidates?.[0]?.content?.parts?.[0]?.text || "";
+
+              accumulatedResponse += responseContent;
+              onResponseUpdate(accumulatedResponse, accumulatedResponse);
+            } catch (e) {
+              console.error("Error parsing Gemini chunk:", e);
+            }
+
+            buffer = buffer.slice(startIdx + jsonLength);
+            // Remove trailing comma after the object if present
+            if (buffer.startsWith(",")) {
+              buffer = buffer.slice(1);
             }
           }
         }

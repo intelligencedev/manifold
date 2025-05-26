@@ -59,6 +59,7 @@ import BaseTogglePassword from './components/base/BaseTogglePassword.vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import { useModeStore } from './stores/modeStore'
+import { useChatStore } from './stores/chatStore'
 import { useSystemPromptOptions } from './composables/systemPrompts'
 import { useCompletionsApi } from './composables/useCompletionsApi'
 
@@ -70,14 +71,15 @@ declare module 'marked' {
 }
 
 const modeStore = useModeStore()
+const chatStore = useChatStore()
 const mode = computed(() => modeStore.mode)
 const toggleMode = () => modeStore.toggleMode()
 
 const { systemPromptOptions, systemPromptOptionsList } = useSystemPromptOptions()
 const { callCompletionsAPI } = useCompletionsApi()
 
-// Use an explicit reactive array for messages to ensure Vue tracks changes properly
-const messages = ref<{ role: string; content: string }[]>([])
+// Use the messages from chatStore instead of local ref
+const messages = computed(() => chatStore.messages)
 const userInput = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
 const showApiKey = ref(false)
@@ -90,24 +92,75 @@ const providerOptions = [
   { value: 'google', label: 'google' }
 ]
 
-const provider = ref('llama-server')
-const endpoint = ref('http://localhost:8080/api/v1/chat/completions')
-const api_key = ref('')
-const model = ref('local')
-const max_completion_tokens = ref(8192)
-const temperature = ref(0.6)
-const enableToolCalls = ref(false)
-const selectedSystemPrompt = ref('friendly_assistant')
-const system_prompt = ref(systemPromptOptions[selectedSystemPrompt.value].system_prompt)
+// Use values from chatStore
+const provider = computed({
+  get: () => chatStore.provider,
+  set: (value) => chatStore.provider = value
+})
+
+const endpoint = computed({
+  get: () => chatStore.endpoint,
+  set: (value) => chatStore.endpoint = value
+})
+
+const api_key = computed({
+  get: () => chatStore.api_key,
+  set: (value) => chatStore.api_key = value
+})
+
+const model = computed({
+  get: () => chatStore.model,
+  set: (value) => chatStore.model = value
+})
+
+const max_completion_tokens = computed({
+  get: () => chatStore.max_completion_tokens,
+  set: (value) => chatStore.max_completion_tokens = value
+})
+
+const temperature = computed({
+  get: () => chatStore.temperature,
+  set: (value) => chatStore.temperature = value
+})
+
+const enableToolCalls = computed({
+  get: () => chatStore.enableToolCalls,
+  set: (value) => chatStore.enableToolCalls = value
+})
+
+const selectedSystemPrompt = computed({
+  get: () => chatStore.selectedSystemPrompt,
+  set: (value) => chatStore.selectedSystemPrompt = value
+})
+
+const system_prompt = computed({
+  get: () => chatStore.system_prompt,
+  set: (value) => chatStore.system_prompt = value
+})
+
+// Initialize system prompt if not already set
+if (!chatStore.system_prompt && selectedSystemPrompt.value in systemPromptOptions) {
+  const key = selectedSystemPrompt.value as keyof typeof systemPromptOptions
+  chatStore.setSystemPrompt(systemPromptOptions[key].system_prompt)
+}
+
 watch(selectedSystemPrompt, (k) => {
-  if (systemPromptOptions[k]) system_prompt.value = systemPromptOptions[k].system_prompt
+  const key = k as keyof typeof systemPromptOptions
+  if (key in systemPromptOptions) {
+    chatStore.setSystemPrompt(systemPromptOptions[key].system_prompt)
+  }
 })
 
 const renderModeOptions = [
   { value: 'raw', label: 'Raw Text' },
   { value: 'markdown', label: 'Markdown' }
 ]
-const renderMode = ref('markdown')
+
+const renderMode = computed({
+  get: () => chatStore.renderMode,
+  set: (value) => chatStore.renderMode = value
+})
+
 const themeOptions = [
   { value: 'atom-one-dark', label: 'Dark' },
   { value: 'atom-one-light', label: 'Light' },
@@ -115,7 +168,12 @@ const themeOptions = [
   { value: 'monokai', label: 'Monokai' },
   { value: 'vs', label: 'VS' }
 ]
-const selectedTheme = ref('atom-one-dark')
+
+const selectedTheme = computed({
+  get: () => chatStore.selectedTheme,
+  set: (value) => chatStore.selectedTheme = value
+})
+
 let currentThemeLink: HTMLLinkElement | null = null
 function loadTheme(themeName: string) {
   if (currentThemeLink) document.head.removeChild(currentThemeLink)
@@ -149,7 +207,7 @@ watch(messages, () => {
       })
     }
   })
-})
+}, { deep: true })
 
 function formatMessage(content: string) {
   return marked(content)
@@ -158,12 +216,11 @@ function formatMessage(content: string) {
 async function sendMessage() {
   if (!userInput.value.trim()) return
   const prompt = userInput.value.trim()
-  messages.value.push({ role: 'user', content: prompt })
+  chatStore.addMessage({ role: 'user', content: prompt })
   userInput.value = ''
   
   // Create the assistant message and add it to the messages array
-  const msgIndex = messages.value.length
-  messages.value.push({ role: 'assistant', content: '' })
+  chatStore.addMessage({ role: 'assistant', content: '' })
   
   const config = {
     provider: provider.value,
@@ -177,21 +234,17 @@ async function sendMessage() {
   }
   
   try {
+    let assistantResponse = ''
+    
     await callCompletionsAPI(config, prompt, (token: string) => {
       console.log('Received token:', token.substring(0, 50) + (token.length > 50 ? '...' : ''));
-      // Create a new object to trigger reactivity properly
-      const updatedMessages = [...messages.value]
-      updatedMessages[msgIndex] = { 
-        role: 'assistant', 
-        content: updatedMessages[msgIndex].content + token 
-      }
-      messages.value = updatedMessages
+      assistantResponse += token
+      // Update the last assistant message in the chatStore
+      chatStore.updateLastAssistantMessage(assistantResponse)
     })
   } catch (e) {
     console.error(e)
-    const updatedMessages = [...messages.value]
-    updatedMessages[msgIndex] = { role: 'assistant', content: 'Error fetching response.' }
-    messages.value = updatedMessages
+    chatStore.updateLastAssistantMessage('Error fetching response.')
   }
 }
 </script>

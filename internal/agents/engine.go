@@ -286,21 +286,99 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
 Objective: %s
 
-─────────
-WORKFLOW
-─────────
-1. **Locate** target lines via grep -n / regex.  
-2. **Read** minimal context chunks with sed/awk for reasoning.  
-3. **Plan** unified diff ( --- a/FILE\n+++ b/FILE … ).  
-4. **Apply** patch atomically; abort on fuzz/hunk failures.  
-5. **Validate** with language checkers; if any fail, rollback and rethink.  
-6. **Output** final 'diff -u' (or full file if small) plus success note.
+Always use the manifold::cli tool to run commands, and the code_eval tool to run Python code when making your own tools.
+
+The manifold cli tool:
+- manifold::cli • Execute a raw CLI command
+{"properties":{"command":{"description":"Command string to execute","type":"string"},"dir":{"description":"Optional working directory","type":"string"}},"required":["command"],"type":"object"}
+
+Below is a list of available CLI commands using the manifold::cli tool schema you should use.
+
+// ── Listing & navigation ────────────────────────────────────────────────
+{"command":"ls -la PATH"}
+{"command":"find PATH -type f"}
+{"command":"find PATH -type d"}
+{"command":"tree PATH"}
+
+// ── Search & pattern matching ───────────────────────────────────────────
+{"command":"grep -rn \"PATTERN\" PATH"}
+{"command":"find PATH -name \"*.ext\" -exec grep -l \"PATTERN\" {} \\;"}
+{"command":"find PATH -name \"FILENAME\""}
+{"command":"find PATH -name \"*PATTERN*\""}
+
+// ── File reading & paging ───────────────────────────────────────────────
+{"command":"cat FILE"}
+{"command":"head -n N FILE"}
+{"command":"tail -n N FILE"}
+{"command":"less FILE"}
+{"command":"sed -n 'START,ENDp' FILE"}
+
+// ── File creation & simple writes ───────────────────────────────────────
+{"command":"echo \"TEXT\"  > FILE"}
+{"command":"echo \"TEXT\" >> FILE"}
+{"command":"cat > FILE <<'EOF'  # …content…  EOF"}
+{"command":"touch FILE"}
+
+// ── Precise non-interactive edits ───────────────────────────────────────
+{"command":"sed -i 's/OLD/NEW/g' FILE"}
+{"command":"sed -i 'Ns/OLD/NEW/' FILE"}
+{"command":"sed -i '/PATTERN/s/OLD/NEW/g' FILE"}
+{"command":"sed -i '/PATTERN/d' FILE"}
+{"command":"awk '{gsub(/OLD/,\"NEW\");print}' FILE > NEWFILE"}
+
+// ── Text manipulation utilities ────────────────────────────────────────
+{"command":"cut -d'DELIM' -f N FILE"}
+{"command":"awk -F'DELIM' '{print $N}' FILE"}
+{"command":"sort FILE"}
+{"command":"uniq FILE"}
+{"command":"tr 'a-z' 'A-Z' < FILE"}
+
+// ── Basic file operations ───────────────────────────────────────────────
+{"command":"cp FILE DEST"}
+{"command":"cp -r DIR DEST"}
+{"command":"mv FILE DEST"}
+{"command":"rm FILE"}
+{"command":"rm -rf DIR"}
+{"command":"mkdir -p PATH"}
+{"command":"chmod +x FILE"}
+{"command":"ln -s TARGET LINK"}
+
+// ── Line/chunk utilities ────────────────────────────────────────────────
+{"command":"nl FILE"}
+{"command":"wc -l FILE"}
+{"command":"split -l N FILE PREFIX"}
+
+// ── Backup & versioning ────────────────────────────────────────────────
+{"command":"cp FILE FILE.bak"}
+{"command":"diff FILE1 FILE2"}
+{"command":"patch FILE < PATCHFILE"}
+
+// ── Process control & chaining ──────────────────────────────────────────
+{"command":"COMMAND1 && COMMAND2"}
+{"command":"COMMAND1 || COMMAND2"}
+{"command":"COMMAND1 | COMMAND2"}
+
+// ── File information ────────────────────────────────────────────────────
+{"command":"stat FILE"}
+{"command":"file FILE"}
+{"command":"du -sh PATH"}
+
+// ── Pattern-based batch operations ──────────────────────────────────────
+{"command":"find PATH -name \"*.ext\" -delete"}
+{"command":"for f in *.txt; do mv \"$f\" \"${f%%.txt}.bak\"; done"}
+
+// ── Text analysis helpers ───────────────────────────────────────────────
+{"command":"grep -c \"PATTERN\" FILE"}
+{"command":"grep -v \"PATTERN\" FILE"}
+{"command":"grep -A N -B N \"PATTERN\" FILE"}
+{"command":"grep -E \"REGEX\" FILE"}
+{"command":"awk '/PATTERN/{print NR\": \"$0}' FILE"}
 
 Rules:
-• Never invoke interactive editors (vim, nano, etc.).  
-• Keep patches minimal; do not reformat entire files unless required.  
-• Track and reference original line numbers in your reasoning.  
-• For non-code text, skip language checkers but still diff/patch/verify.
+- Never invoke interactive editors (vim, nano, etc.).  
+- Keep patches minimal; do not reformat entire files unless required.  
+- Track and reference original line numbers in your reasoning.  
+- For non-code text, skip language checkers but still diff/patch/verify.
 
 Prefer to answer directly (with Thought + finish) for narrative tasks
 such as writing, explaining, or summarising natural-language text.

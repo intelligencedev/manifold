@@ -1,9 +1,9 @@
 <template>
-  <div class="flex flex-col h-screen w-screen bg-zinc-800 text-gray-200">
+  <div class="bg-zinc-800 text-gray-200 flex flex-col h-fit min-h-screen">
     <Header :mode="mode" @toggle-mode="toggleMode" />
     <div class="flex flex-1 overflow-hidden">
       <!-- Sidebar for parameters/settings -->
-      <aside class="w-80 min-w-[18rem] max-w-xs bg-zinc-900 border-r border-zinc-700 flex flex-col p-4 overflow-y-auto">
+      <div class="bg-zinc-900 border-r border-zinc-700 w-80 min-w-[18rem] max-w-xs p-4 overflow-y-auto">
         <div class="space-y-2">
           <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
           <BaseInput label="Endpoint" v-model="endpoint" />
@@ -23,11 +23,11 @@
           <BaseDropdown label="Render Mode" v-model="renderMode" :options="renderModeOptions" />
           <BaseDropdown v-if="renderMode === 'markdown'" label="Theme" v-model="selectedTheme" :options="themeOptions" />
         </div>
-      </aside>
+      </div>
       <!-- Chat/Main area -->
-      <section class="flex-1 flex flex-col p-4 overflow-hidden">
+      <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
         <!-- messages -->
-        <div ref="messageContainer" class="flex-1 overflow-y-auto space-y-4 pr-2">
+        <div ref="messageContainer" class="flex-1 overflow-y-auto space-y-4 p-4 pr-6 mb-12">
           <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : 'text-left'">
             <div class="inline-block px-3 py-2 rounded max-w-lg" :class="msg.role==='user' ? 'bg-blue-600' : 'bg-zinc-700'">
               <div v-if="msg.role === 'assistant' && renderMode === 'markdown'" v-html="formatMessage(msg.content)" />
@@ -35,24 +35,13 @@
             </div>
           </div>
         </div>
-        <!-- input -->
-        <div class="mt-2">
-          <BaseTextarea v-model="userInput" placeholder="Type a message..." class="w-full" />
-          <div class="flex items-center justify-between mt-2">
+        <!-- input area - fixed at bottom -->
+        <div class="mb-10 p-4 bg-zinc-800 border-t border-zinc-700">
+          <BaseTextarea v-model="userInput" placeholder="Type a message..." class="w-full bg-zinc-700" />
+          <div class="mt-2">
             <BaseButton @click="sendMessage">Send</BaseButton>
           </div>
         </div>
-      </section>
-    </div>
-  </div>
-</template>
-          <BaseInput label="Temperature" type="number" v-model.number="temperature" step="0.1" min="0" max="2" />
-        </div>
-        <BaseCheckbox v-model="enableToolCalls" label="Enable Tool Calls" />
-        <BaseDropdown label="Predefined System Prompt" v-model="selectedSystemPrompt" :options="systemPromptOptionsList" />
-        <BaseTextarea label="System Prompt" v-model="system_prompt" />
-        <BaseDropdown label="Render Mode" v-model="renderMode" :options="renderModeOptions" />
-        <BaseDropdown v-if="renderMode === 'markdown'" label="Theme" v-model="selectedTheme" :options="themeOptions" />
       </div>
     </div>
   </div>

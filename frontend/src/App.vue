@@ -1,15 +1,15 @@
 <template>
   <div id="app" class="flex flex-col h-screen w-screen p-0 m-0 text-center text-[#2c3e50] bg-slate-900 relative font-roboto antialiased">
     <!-- Loading spinner while checking authentication -->
-    <div v-if="isLoading" class="flex h-full w-full items-center justify-center bg-slate-900"></div>
+    <div v-if="isLoading" class="flex h-full w-full items-center justify-center bg-slate-700"></div>
     
     <!-- Authentication flow with transitions -->
-    <Transition name="fade" mode="out-in">
+    <Transition name="fade" mode="out-in" class="transition duration-100 flex flex-col h-full bg-slate-700">
       <!-- Show Login component if not authenticated -->
       <Login v-if="!isLoading && !isAuthenticated" @login-success="handleLoginSuccess" />
       
       <!-- Show main app content when authenticated -->
-      <div v-else-if="!isLoading && isAuthenticated" class="flex flex-col h-full">
+      <div v-else-if="!isLoading && isAuthenticated" class="flex flex-col h-full bg-slate-700">
         <Header
           :mode="mode"
           @toggle-mode="toggleMode"
@@ -1102,6 +1102,7 @@ onBeforeUnmount(() => {
 #app {
   /* Prevent scrolling on body when workflow is running */
   overflow: hidden;
+  background-color: oklch(21% 0.006 285.885); /* slate-700 color in RGB */
 }
 
 .context-menu {
@@ -1133,11 +1134,13 @@ onBeforeUnmount(() => {
 /* Fade transition for authentication (Vue 3 syntax) */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.3s ease;
+  transition: opacity 0.1ms ease;
+  background-color: oklch(21% 0.006 285.885); /* slate-700 color in RGB */
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+  background-color: oklch(21% 0.006 285.885); /* slate-700 color in RGB */
 }
 </style>

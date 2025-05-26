@@ -27,9 +27,9 @@
       <!-- Chat/Main area -->
       <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
         <!-- messages -->
-        <div ref="messageContainer" class="flex-1 overflow-y-auto space-y-4 p-4 pr-6 mb-12">
-          <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : 'text-left'">
-            <div class="inline-block px-3 py-2 rounded max-w-lg" :class="msg.role==='user' ? 'bg-blue-600' : 'bg-zinc-700'">
+        <div ref="messageContainer" class="flex-1 overflow-y-auto space-y-6 p-4 2xl:px-65 xl:px-45">
+          <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : ''">
+            <div class="p-6 rounded-lg" :class="msg.role==='user' ? 'bg-teal-600 inline-block px-3 py-1 w-1/2' : ''">
               <div v-if="msg.role === 'assistant' && renderMode === 'markdown'" v-html="formatMessage(msg.content)" />
               <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
             </div>

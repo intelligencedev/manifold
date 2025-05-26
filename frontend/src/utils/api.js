@@ -56,27 +56,42 @@ export async function handleStreamingResponse(response, onChunk, onDone) {
       const chunk = new TextDecoder().decode(value);
       buffer += chunk;
       
-      let start = 0;
-      for (let i = 0; i < buffer.length; i++) {
-        if (buffer[i] === "\n") {
-          const line = buffer.substring(start, i).trim();
-          start = i + 1;
+      // Process all complete lines in the buffer
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ""; // The last line might be incomplete
+      
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) continue;
+        
+        if (trimmedLine.startsWith("data: ")) {
+          const jsonData = trimmedLine.substring(6);
+          if (jsonData === "[DONE]") break;
           
-          if (line.startsWith("data: ")) {
-            const jsonData = line.substring(6);
-            if (jsonData === "[DONE]") break;
-            
-            try {
-              const parsedData = JSON.parse(jsonData);
-              onChunk(parsedData);
-            } catch (e) {
-              console.error("Error parsing response chunk:", e);
-            }
+          try {
+            const parsedData = JSON.parse(jsonData);
+            console.log("Processed chunk:", parsedData);
+            onChunk(parsedData);
+          } catch (e) {
+            // If not valid JSON, treat the content as a direct token
+            console.log("Treating as direct content:", jsonData);
+            onChunk({ content: jsonData });
+            console.error("Error parsing response chunk:", jsonData, e);
+          }
+        } else {
+          // Try to parse the line as JSON even if it doesn't have the "data: " prefix
+          try {
+            const parsedData = JSON.parse(trimmedLine);
+            console.log("Processed non-prefixed chunk:", parsedData);
+            onChunk(parsedData);
+          } catch (e) {
+            // If not valid JSON, treat the content as a direct token
+            console.log("Treating as direct content:", trimmedLine);
+            onChunk({ content: trimmedLine });
+            console.error("Error parsing non-data-prefixed response chunk:", trimmedLine, e);
           }
         }
       }
-      
-      buffer = buffer.substring(start);
     }
     
     if (onDone) {

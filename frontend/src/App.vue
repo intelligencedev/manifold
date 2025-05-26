@@ -5,7 +5,14 @@
     
     <!-- Show main app content when authenticated -->
     <template v-else>
-      <Header @save="onSave" @restore="onRestore" @logout="handleLogout" @load-template="handleLoadTemplate" />
+      <Header
+        :mode="mode"
+        @toggle-mode="toggleMode"
+        @save="onSave"
+        @restore="onRestore"
+        @logout="handleLogout"
+        @load-template="handleLoadTemplate"
+      />
       <NodePalette />
       <UtilityPalette />
 
@@ -127,7 +134,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, markRaw, watch, onMounted } from 'vue';
+import { ref, markRaw, watch, onMounted, computed } from 'vue';
 import type {
   Connection,
   NodeChange,
@@ -150,6 +157,7 @@ import {
 import SpecialEdge from './components/SpecialEdge.vue';
 import ToolBar from '@/components/layout/ToolBar.vue';
 import { useConfigStore } from '@/stores/configStore';
+import { useModeStore } from '@/stores/modeStore';
 
 // Import Login component
 import Login from './components/Login.vue';
@@ -199,6 +207,9 @@ const bgVariant = BackgroundVariant.Dots;
 // Authentication state
 const isAuthenticated = ref(false);
 const authToken = ref('');
+const modeStore = useModeStore();
+const mode = computed(() => modeStore.mode);
+const toggleMode = () => modeStore.toggleMode();
 
 // Destructure fitView along with other methods
 const { findNode, getNodes, getEdges, toObject, fromObject, fitView, updateNodeData } = useVueFlow();

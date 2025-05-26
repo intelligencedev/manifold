@@ -275,7 +275,27 @@ export function useResponseNode(props, emit) {
   function copyToClipboard() {
     if (isCopying.value) return
     isCopying.value = true
-    navigator.clipboard.writeText(response.value)
+    
+    let textToCopy = '';
+    
+    // Copy text based on the selected render mode
+    if (selectedRenderMode.value === 'markdown') {
+      // For markdown, we want to copy the rendered text without HTML tags
+      // Create a temporary DOM element to strip HTML tags
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = markdownOutsideThinking.value;
+      textToCopy = tempDiv.textContent || tempDiv.innerText || outsideThinkingRaw.value;
+    } else if (selectedRenderMode.value === 'html') {
+      // For HTML, we also want to copy the rendered text without HTML tags
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = htmlOutsideThinking.value;
+      textToCopy = tempDiv.textContent || tempDiv.innerText || outsideThinkingRaw.value;
+    } else {
+      // For raw text, just use the outside thinking raw text
+      textToCopy = outsideThinkingRaw.value;
+    }
+    
+    navigator.clipboard.writeText(textToCopy)
       .then(() => { copyStatus.value = 'Copied!' })
       .catch((err) => { console.error('Failed to copy text:', err); copyStatus.value = 'Failed to copy.' })
       .finally(() => {

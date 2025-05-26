@@ -671,7 +671,7 @@ export function useAgentNode(props, emit) {
   watch(provider, (newProvider) => {
     if (newProvider === 'google') {
       if (configStore.config?.google_gemini_key) {
-        props.data.inputs.api_key = configStore.config.google_gemini_key;
+        props.data.inputs.api_key = GoogleGeminiKey;
       }
     } else if (newProvider === 'openai' || newProvider === 'anthropic' || newProvider === 'llama-server' || newProvider === 'mlx_lm.server') {
       // Reset to general API key for other providers

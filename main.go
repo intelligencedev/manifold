@@ -81,6 +81,10 @@ func main() {
 	// Create a new Echo instance
 	e := echo.New()
 
+	// Remove banner and version info from Echo logs
+	e.HideBanner = true
+	e.HidePort = true
+
 	// Make config accessible via context
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {

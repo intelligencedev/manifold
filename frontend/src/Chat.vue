@@ -1,43 +1,47 @@
 <template>
-  <div class="flex flex-col h-screen w-screen bg-zinc-800 text-gray-200">
+  <div class="bg-zinc-800 text-gray-200 flex flex-col h-screen view-container">
     <Header :mode="mode" @toggle-mode="toggleMode" />
-    <div class="flex-1 flex flex-col p-4 overflow-hidden">
-      <!-- messages -->
-      <div ref="messageContainer" class="flex-1 overflow-y-auto space-y-4">
-        <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : 'text-left'">
-          <div class="inline-block px-3 py-2 rounded max-w-lg" :class="msg.role==='user' ? 'bg-blue-600' : 'bg-zinc-700'">
-            <div v-if="msg.role === 'assistant' && renderMode === 'markdown'" v-html="formatMessage(msg.content)" />
-            <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
+    <div class="flex flex-1 overflow-hidden">
+      <!-- Sidebar for parameters/settings -->
+      <div class="bg-zinc-900 border-r border-zinc-700 w-80 min-w-[18rem] max-w-xs p-4 overflow-y-auto">
+        <div class="space-y-2">
+          <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
+          <BaseInput label="Endpoint" v-model="endpoint" />
+          <BaseInput label="API Key" v-model="api_key" :type="showApiKey ? 'text' : 'password'">
+            <template #suffix>
+              <BaseTogglePassword v-model="showApiKey" />
+            </template>
+          </BaseInput>
+          <BaseInput label="Model" v-model="model" />
+          <div class="grid grid-cols-2 gap-2">
+            <BaseInput label="Max Tokens" type="number" v-model.number="max_completion_tokens" min="1" />
+            <BaseInput label="Temperature" type="number" v-model.number="temperature" step="0.1" min="0" max="2" />
+          </div>
+          <BaseCheckbox v-model="enableToolCalls" label="Enable Tool Calls" />
+          <BaseDropdown label="Predefined System Prompt" v-model="selectedSystemPrompt" :options="systemPromptOptionsList" />
+          <BaseTextarea label="System Prompt" v-model="system_prompt" />
+          <BaseDropdown label="Render Mode" v-model="renderMode" :options="renderModeOptions" />
+          <BaseDropdown v-if="renderMode === 'markdown'" label="Theme" v-model="selectedTheme" :options="themeOptions" />
+        </div>
+      </div>
+      <!-- Chat/Main area -->
+      <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
+        <!-- messages -->
+        <div ref="messageContainer" class="flex-1 overflow-y-auto space-y-6 p-4 2xl:px-65 xl:px-45">
+          <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : ''">
+            <div class="p-6 rounded-lg" :class="msg.role==='user' ? 'bg-teal-600 inline-block px-3 py-1 w-1/2' : ''">
+              <div v-if="msg.role === 'assistant' && renderMode === 'markdown'" class="markdown-content" v-html="formatMessage(msg.content)" />
+              <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
+            </div>
           </div>
         </div>
-      </div>
-      <!-- input -->
-      <div class="mt-2">
-        <BaseTextarea v-model="userInput" placeholder="Type a message..." class="w-full" />
-        <div class="flex items-center justify-between mt-2">
-          <BaseButton @click="sendMessage">Send</BaseButton>
-          <BaseButton @click="toggleSettings">⚙</BaseButton>
+        <!-- input area - fixed at bottom -->
+        <div class="mb-10 p-4 bg-zinc-800 2xl:px-65 xl:px-45">
+            <BaseTextarea v-model="userInput" placeholder="Type a message..." class="w-full bg-zinc-700 border-teal-700 border-1 rounded-lg" />
+          <div class="mt-2">
+            <BaseButton class="bg-teal-700" @click="sendMessage">Send</BaseButton>
+          </div>
         </div>
-      </div>
-      <!-- settings -->
-      <div v-if="showSettings" class="mt-4 p-4 bg-zinc-900 rounded space-y-2 max-h-96 overflow-y-auto">
-        <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
-        <BaseInput label="Endpoint" v-model="endpoint" />
-        <BaseInput label="API Key" v-model="api_key" :type="showApiKey ? 'text' : 'password'">
-          <template #suffix>
-            <BaseTogglePassword v-model="showApiKey" />
-          </template>
-        </BaseInput>
-        <BaseInput label="Model" v-model="model" />
-        <div class="grid grid-cols-2 gap-2">
-          <BaseInput label="Max Tokens" type="number" v-model.number="max_completion_tokens" min="1" />
-          <BaseInput label="Temperature" type="number" v-model.number="temperature" step="0.1" min="0" max="2" />
-        </div>
-        <BaseCheckbox v-model="enableToolCalls" label="Enable Tool Calls" />
-        <BaseDropdown label="Predefined System Prompt" v-model="selectedSystemPrompt" :options="systemPromptOptionsList" />
-        <BaseTextarea label="System Prompt" v-model="system_prompt" />
-        <BaseDropdown label="Render Mode" v-model="renderMode" :options="renderModeOptions" />
-        <BaseDropdown v-if="renderMode === 'markdown'" label="Theme" v-model="selectedTheme" :options="themeOptions" />
       </div>
     </div>
   </div>
@@ -58,6 +62,13 @@ import { useModeStore } from './stores/modeStore'
 import { useSystemPromptOptions } from './composables/systemPrompts'
 import { useCompletionsApi } from './composables/useCompletionsApi'
 
+// Add type declaration for marked options
+declare module 'marked' {
+  interface MarkedOptions {
+    highlight?: (code: string, lang: string) => string;
+  }
+}
+
 const modeStore = useModeStore()
 const mode = computed(() => modeStore.mode)
 const toggleMode = () => modeStore.toggleMode()
@@ -69,7 +80,6 @@ const { callCompletionsAPI } = useCompletionsApi()
 const messages = ref<{ role: string; content: string }[]>([])
 const userInput = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
-const showSettings = ref(false)
 const showApiKey = ref(false)
 
 const providerOptions = [
@@ -131,13 +141,15 @@ watch(messages, () => {
   nextTick(() => {
     if (messageContainer.value) {
       messageContainer.value.scrollTop = messageContainer.value.scrollHeight
+      
+      // Highlight code blocks in messages
+      const codeBlocks = messageContainer.value.querySelectorAll('pre code:not(.hljs)')
+      codeBlocks.forEach(block => {
+        hljs.highlightElement(block as HTMLElement)
+      })
     }
   })
 })
-
-function toggleSettings() {
-  showSettings.value = !showSettings.value
-}
 
 function formatMessage(content: string) {
   return marked(content)
@@ -183,3 +195,33 @@ async function sendMessage() {
   }
 }
 </script>
+
+<style>
+/* Styling for code blocks similar to ResponseNode */
+.markdown-content pre {
+  background: rgba(45, 45, 55, 0.6);
+  padding: 12px;
+  border-radius: 6px;
+  margin: 12px 0;
+  overflow-x: auto;
+  border-left: 3px solid #8a70b5;
+}
+
+.markdown-content code {
+  font-family: 'Fira Code', 'Courier New', Courier, monospace;
+  font-size: 14px;
+}
+
+.markdown-content code:not(pre code) {
+  background: rgba(73, 49, 99, 0.3);
+  padding: 2px 5px;
+  border-radius: 4px;
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: #e1e1e6;
+}
+</style>

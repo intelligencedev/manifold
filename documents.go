@@ -163,22 +163,27 @@ func webContentHandler(c echo.Context) error {
 }
 
 // webSearchHandler handles requests to perform web searches.
-func webSearchHandler(c echo.Context) error {
+func webSearchHandler(c echo.Context, config *Config) error {
 	query := c.QueryParam("query")
 	if query == "" {
 		return respondWithError(c, http.StatusBadRequest, "Query is required")
 	}
-	resultSize := 3
+
+	resultSize := config.Tools.Search.ResultSize
+
 	if size := c.QueryParam("result_size"); size != "" {
 		if parsedSize, err := strconv.Atoi(size); err == nil {
 			resultSize = parsedSize
 		}
 	}
+
 	searchBackend := c.QueryParam("search_backend")
 	if searchBackend == "" {
-		searchBackend = "ddg"
+		searchBackend = config.Tools.Search.Backend
 	}
+
 	var results []string
+
 	if searchBackend == "sxng" {
 		sxngURL := c.QueryParam("sxng_url")
 		if sxngURL == "" {
@@ -188,12 +193,15 @@ func webSearchHandler(c echo.Context) error {
 	} else {
 		results = tools.SearchDDG(query)
 	}
+
 	if results == nil {
 		return respondWithError(c, http.StatusInternalServerError, "Error performing web search")
 	}
+
 	if len(results) > resultSize {
 		results = results[:resultSize]
 	}
+
 	return c.JSON(http.StatusOK, results)
 }
 

@@ -27,7 +27,7 @@ import (
 	completions "manifold/internal/llm"
 	embeddings "manifold/internal/llm"
 	"manifold/internal/mcp"
-	codeeval "manifold/internal/tools"
+	tools "manifold/internal/tools"
 	"manifold/internal/util"
 
 	"github.com/pgvector/pgvector-go"
@@ -280,6 +280,8 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 	}
 	td = append(td,
 		"- code_eval    • run code in sandbox",
+		"- web_search   • search the web",
+		"- web_fetch    • fetch webpage content",
 		"- finish       • end and output final answer",
 	)
 
@@ -661,6 +663,10 @@ func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, 
 		return arg, nil
 	case "code_eval":
 		return ae.runCodeEval(ctx, arg)
+	case "web_search":
+		return ae.runWebSearch(ctx, arg)
+	case "web_fetch":
+		return ae.runWebFetch(ctx, arg)
 	case "stage_path":
 		return ae.stagePath(arg)
 	default:
@@ -780,35 +786,35 @@ func copyFile(src, dst string) error {
 }
 
 func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error) {
-	var req codeeval.CodeEvalRequest
+	var req tools.CodeEvalRequest
 	if err := json.Unmarshal([]byte(arg), &req); err != nil {
 		return "", fmt.Errorf("code_eval expects JSON {language, code, dependencies}: %v", err)
 	}
 	var (
-		resp *codeeval.CodeEvalResponse
+		resp *tools.CodeEvalResponse
 		err  error
 	)
 	switch strings.ToLower(strings.TrimSpace(req.Language)) {
 	case "python":
-		result, err := codeeval.RunPythonRaw(ae.Config, req.Code, req.Dependencies)
+		result, err := tools.RunPythonRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
-			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
-			resp = &codeeval.CodeEvalResponse{Result: result}
+			resp = &tools.CodeEvalResponse{Result: result}
 		}
 	case "go":
-		result, err := codeeval.RunGoRaw(ae.Config, req.Code, req.Dependencies)
+		result, err := tools.RunGoRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
-			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
-			resp = &codeeval.CodeEvalResponse{Result: result}
+			resp = &tools.CodeEvalResponse{Result: result}
 		}
 	case "javascript":
-		result, err := codeeval.RunNodeRaw(ae.Config, req.Code, req.Dependencies)
+		result, err := tools.RunNodeRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
-			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
-			resp = &codeeval.CodeEvalResponse{Result: result}
+			resp = &tools.CodeEvalResponse{Result: result}
 		}
 	default:
 		return "", fmt.Errorf("unsupported language: %s", req.Language)
@@ -820,6 +826,61 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 		return "", fmt.Errorf(resp.Error)
 	}
 	return resp.Result, nil
+}
+
+func (ae *AgentEngine) runWebSearch(_ context.Context, arg string) (string, error) {
+	var req struct {
+		Query         string `json:"query"`
+		ResultSize    int    `json:"result_size"`
+		SearchBackend string `json:"search_backend"`
+		SxngURL       string `json:"sxng_url"`
+	}
+	if err := json.Unmarshal([]byte(arg), &req); err != nil {
+		req.Query = strings.TrimSpace(arg)
+	}
+	if req.Query == "" {
+		return "", fmt.Errorf("query required")
+	}
+	if req.ResultSize <= 0 {
+		req.ResultSize = 3
+	}
+	var urls []string
+	if strings.ToLower(req.SearchBackend) == "sxng" {
+		if req.SxngURL == "" {
+			return "", fmt.Errorf("sxng_url required")
+		}
+		urls = tools.GetSearXNGResults(req.SxngURL, req.Query)
+	} else {
+		urls = tools.SearchDDG(req.Query)
+	}
+	if urls == nil {
+		return "", fmt.Errorf("error performing web search")
+	}
+	if len(urls) > req.ResultSize {
+		urls = urls[:req.ResultSize]
+	}
+	return tools.GetSearchResults(urls), nil
+}
+
+func (ae *AgentEngine) runWebFetch(_ context.Context, arg string) (string, error) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(arg), &req); err != nil {
+		req.URL = strings.TrimSpace(arg)
+	}
+	if req.URL == "" {
+		return "", fmt.Errorf("url required")
+	}
+	pg, err := tools.WebGetHandler(req.URL)
+	if err != nil {
+		return "", err
+	}
+	if pg == nil {
+		return "", fmt.Errorf("no content")
+	}
+	b, _ := json.Marshal(pg)
+	return string(b), nil
 }
 
 func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, error) {

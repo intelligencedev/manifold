@@ -62,7 +62,7 @@
             <button
               @click="runCode"
               :disabled="isRunning || !quickJSVm"
-              class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              class="px-3 py-1 bg-teal-700 hover:bg-teal-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed text-sm"
             >
               {{ selectedLanguage === 'html' ? 'Render' : 'Run' }}
             </button>

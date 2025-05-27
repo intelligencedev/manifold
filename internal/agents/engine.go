@@ -76,6 +76,8 @@ type AgentEngine struct {
 	mcpTools map[string]ToolInfo
 
 	a2aClients map[string]*a2aclient.A2AClient
+
+	fleet *Fleet // map of fleet name to Fleet instance
 }
 
 var (
@@ -100,6 +102,23 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 		return nil, fmt.Errorf("mcp manager: %w", err)
 	}
 
+	agentFleet := NewFleet()
+	fleetCfg := cfg.AgentFleet
+
+	for _, worker := range fleetCfg.Workers {
+		fleetWorker := FleetWorker{
+			Name:         worker.Name,
+			Role:         worker.Role,
+			Endpoint:     worker.Endpoint,
+			Model:        worker.Model,
+			CtxSize:      worker.CtxSize,
+			Temperature:  worker.Temperature,
+			Instructions: worker.Instructions,
+		}
+
+		agentFleet.AddWorker(fleetWorker)
+	}
+
 	eng := &AgentEngine{
 		Config:     cfg,
 		DB:         db,
@@ -107,6 +126,7 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 		mcpMgr:     mgr,
 		mcpTools:   make(map[string]ToolInfo),
 		a2aClients: make(map[string]*a2aclient.A2AClient),
+		fleet:      agentFleet,
 	}
 
 	if cfg.AgenticMemory.Enabled {
@@ -119,19 +139,6 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	_ = eng.discoverMCPTools(ctx)
-
-	if cfg.A2A.Role == "master" {
-		for _, node := range cfg.A2A.Nodes {
-			base := strings.TrimRight(node, "/") + "/api/a2a"
-			cl := a2aclient.NewFromConfig(cfg, base)
-			if err := cl.Check(ctx); err != nil {
-				log.Printf("a2a node %s unreachable: %v", node, err)
-				continue
-			}
-			eng.a2aClients[node] = cl
-		}
-		log.Printf("a2a discovery complete: %d nodes available", len(eng.a2aClients))
-	}
 
 	return eng, nil
 }
@@ -170,7 +177,7 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
 
-		session, err := engine.RunSession(ctx, req)
+		session, err := engine.RunSession(ctx, cfg, req)
 		if err != nil {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
@@ -249,18 +256,21 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	return nil
 }
 
-func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*AgentSession, error) {
-	return ae.RunSessionWithHook(ctx, req, nil)
+func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, req ReActRequest) (*AgentSession, error) {
+	return ae.RunSessionWithHook(ctx, cfg, req, nil)
 }
 
-func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest, hook StepHook) (*AgentSession, error) {
+func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Config, req ReActRequest, hook StepHook) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
-	if ae.Config.A2A.Role == "master" {
-		log.Printf("a2a cluster workers available: %d", len(ae.a2aClients))
+	var td []string
+
+	// Append agent fleet
+	td = append(td, "Available specialized assistant workers:")
+	for _, worker := range ae.fleet.ListWorkers() {
+		td = append(td, fmt.Sprintf("- %s (%s) • %s", worker.Name, worker.Role, worker.Instructions))
 	}
 
-	var td []string
 	toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
 	if toolLimit <= 0 {
 		toolLimit = len(ae.mcpTools)
@@ -279,20 +289,31 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
 	}
 	td = append(td,
+		"- ask_assistant_worker • get help from specialized assistant worker",
 		"- code_eval    • run code in sandbox",
 		"- web_search   • search the web",
 		"- web_fetch    • fetch webpage content",
 		"- finish       • end and output final answer",
 	)
 
-	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
+	sysPrompt := fmt.Sprintf(`You are a helpful assistant.
 Objective: %s
+
+IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.
+Assistants are specialized workers that can help with specific tasks, such as code generation, data analysis, or document analysis.
+Assistants can only take your instructions and respond using their knowledge expertise. They cannot execute code or perform actions directly.
+- ask_assistant_worker • get help from specialized assistant worker
+{"properties":{"name":{"description":"Name of the worker to ask","type":"string"},"model":{"description":"Optional model to use. Leave empty unless explicitly requested.","type":"string"},"msg":{"description":"Message to send to the worker. Detailed task or help query.","type":"string"}},"required":["name","msg"],"type":"object"}
 
 Always use the manifold::cli tool to run commands, and the code_eval tool to run Python code when making your own tools.
 
 The manifold cli tool:
 - manifold::cli • Execute a raw CLI command
 {"properties":{"command":{"description":"Command string to execute","type":"string"},"dir":{"description":"Optional working directory","type":"string"}},"required":["command"],"type":"object"}
+
+The manifold web search tool:
+- manifold::web_search • Search the web for information
+{"properties":{"query":{"description":"Search query","type":"string"}},"required":["query"],"type":"object"}
 
 Below is a list of available CLI commands using the manifold::cli tool schema you should use.
 
@@ -381,6 +402,7 @@ Rules:
 - Keep patches minimal; do not reformat entire files unless required.  
 - Track and reference original line numbers in your reasoning.  
 - For non-code text, skip language checkers but still diff/patch/verify.
+- Never use search engines or external APIs directly; use the web_search tool instead.
 
 Prefer to answer directly (with Thought + finish) for narrative tasks
 such as writing, explaining, or summarising natural-language text.
@@ -470,7 +492,7 @@ Tools:
 		}
 		log.Println("=====================================")
 
-		out, err := ae.callLLM(ctx, model, currentMessages)
+		out, err := ae.callLLM(ctx, "", model, currentMessages)
 		if err != nil {
 			return nil, err
 		}
@@ -497,7 +519,7 @@ Tools:
 			break
 		}
 
-		obs, err := ae.execTool(ctx, action, input)
+		obs, err := ae.execTool(ctx, cfg, action, input)
 		if err != nil {
 			obs = "error: " + err.Error()
 		}
@@ -572,21 +594,35 @@ Tools:
 	return sess, nil
 }
 
-func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []completions.Message) (string, error) {
+func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []completions.Message) (string, error) {
+
+	fleet := ae.fleet
+	assistant := fleet.GetWorker(assistantName)
+	if assistant == nil {
+		assistant = &FleetWorker{
+			Name:         "default",
+			Role:         "assistant",
+			Endpoint:     ae.Config.Completions.DefaultHost,
+			Model:        model,
+			CtxSize:      ae.Config.Completions.CtxSize,
+			Temperature:  ae.Config.Completions.Temperature,
+			Instructions: "",
+		}
+	}
+
 	// Calculate input token count (approximate)
 	var promptTokens int
 	for _, msg := range msgs {
 		promptTokens += util.CountTokens(msg.Content)
 	}
 
-	// Get model context size (default to 4096 if unknown)
-	modelCtx := 32768 // default context size
+	modelCtx := 16384
 
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(modelCtx-promptTokens-1024, 128)
 
 	body, _ := json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
-	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
+	req, _ := http.NewRequestWithContext(ctx, "POST", assistant.Endpoint, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
 
@@ -657,14 +693,31 @@ func parseReAct(s string) (thought, action, input string) {
 	return
 }
 
-func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, error) {
+func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name, arg string) (string, error) {
 	switch strings.ToLower(name) {
 	case "finish":
 		return arg, nil
+	case "ask_assistant_worker":
+		// parse the arg as a JSON object
+		var req struct {
+			Name  string `json:"name"`
+			Model string `json:"model,omitempty"`
+			Msg   string `json:"msg,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(arg), &req); err != nil {
+			return "", fmt.Errorf("ask_assistant_worker expects JSON {worker, args}: %v", err)
+		}
+
+		worker := ae.fleet.GetWorker(req.Name)
+		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
+
+		return ae.callLLM(ctx, worker.Name, worker.Model, []completions.Message{
+			{Role: "user", Content: msg},
+		})
 	case "code_eval":
 		return ae.runCodeEval(ctx, arg)
 	case "web_search":
-		return ae.runWebSearch(ctx, arg)
+		return ae.runWebSearch(ctx, arg, cfg)
 	case "web_fetch":
 		return ae.runWebFetch(ctx, arg)
 	case "stage_path":
@@ -828,37 +881,41 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 	return resp.Result, nil
 }
 
-func (ae *AgentEngine) runWebSearch(_ context.Context, arg string) (string, error) {
+func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpkg.Config) (string, error) {
 	var req struct {
-		Query         string `json:"query"`
-		ResultSize    int    `json:"result_size"`
-		SearchBackend string `json:"search_backend"`
-		SxngURL       string `json:"sxng_url"`
+		Query string `json:"query"`
 	}
 	if err := json.Unmarshal([]byte(arg), &req); err != nil {
 		req.Query = strings.TrimSpace(arg)
 	}
+
 	if req.Query == "" {
 		return "", fmt.Errorf("query required")
 	}
-	if req.ResultSize <= 0 {
-		req.ResultSize = 3
-	}
+
 	var urls []string
-	if strings.ToLower(req.SearchBackend) == "sxng" {
-		if req.SxngURL == "" {
+	if strings.ToLower(cfg.Tools.Search.Backend) == "sxng" {
+		if cfg.Tools.Search.Endpoint == "" {
 			return "", fmt.Errorf("sxng_url required")
 		}
-		urls = tools.GetSearXNGResults(req.SxngURL, req.Query)
+		urls = tools.GetSearXNGResults(cfg.Tools.Search.Endpoint, req.Query)
 	} else {
 		urls = tools.SearchDDG(req.Query)
 	}
+
 	if urls == nil {
 		return "", fmt.Errorf("error performing web search")
 	}
-	if len(urls) > req.ResultSize {
-		urls = urls[:req.ResultSize]
+
+	resultSize := cfg.Tools.Search.ResultSize
+	if resultSize <= 0 {
+		resultSize = 3
 	}
+
+	if len(urls) > resultSize {
+		urls = urls[:resultSize]
+	}
+
 	return tools.GetSearchResults(urls), nil
 }
 

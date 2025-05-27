@@ -98,7 +98,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.POST("/save-file", saveFileHandler)
 	api.POST("/open-file", openFileHandler)
 	api.GET("/web-content", webContentHandler)
-	api.GET("/web-search", webSearchHandler)
+	api.GET("/web-search", func(c echo.Context) error {
+		return webSearchHandler(c, config)
+	})
 	api.POST("/code/eval", evaluateCodeHandler)
 	api.POST("/comfy-proxy", imggenpkg.ComfyProxyHandler)
 

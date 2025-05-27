@@ -36,6 +36,23 @@ type ReactAgentConfig struct {
 	NumTools int  `yaml:"num_tools"`
 }
 
+type FleetWorker struct {
+	Name         string  `json:"name"`
+	Model        string  `json:"model,omitempty"`
+	Role         string  `json:"role"`
+	Endpoint     string  `json:"endpoint"`
+	CtxSize      int     `json:"ctx_size"`
+	Temperature  float32 `json:"temperature"`
+	ApiKey       string  `json:"api_key,omitempty"`
+	Instructions string  `json:"instructions"`
+	MaxSteps     int     `json:"max_steps"`
+	Memory       bool    `json:"memory"`
+}
+
+type AgentFleet struct {
+	Workers []FleetWorker `json:"workers"`
+}
+
 type AgenticMemoryConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
@@ -53,6 +70,8 @@ type A2AConfig struct {
 type CompletionsConfig struct {
 	DefaultHost      string           `yaml:"default_host"`
 	CompletionsModel string           `yaml:"completions_model"`
+	Temperature      float32          `yaml:"temperature"`
+	CtxSize          int              `yaml:"ctx_size"`
 	APIKey           string           `yaml:"api_key"`
 	ReactAgentConfig ReactAgentConfig `yaml:"agent"`
 }
@@ -74,6 +93,17 @@ type AuthConfig struct {
 	TokenExpiry int    `yaml:"token_expiry"` // Token expiry in hours
 }
 
+type WebSearchToolConfig struct {
+	Enabled    bool   `yaml:"enabled"`
+	Backend    string `yaml:"backend"`            // e.g., "serpapi", "bing"
+	Endpoint   string `yaml:"endpoint,omniempty"` // API endpoint for the search service
+	ResultSize int    `yaml:"result_size"`        // Number of results to fetch
+}
+
+type ToolsConfig struct {
+	Search WebSearchToolConfig
+}
+
 type Config struct {
 	Host                      string              `yaml:"host"`
 	Port                      int                 `yaml:"port"`
@@ -85,13 +115,15 @@ type Config struct {
 	GoogleGeminiKey           string              `yaml:"google_gemini_key,omitempty"`
 	HuggingFaceToken          string              `yaml:"hf_token,omitempty"`
 	Database                  DatabaseConfig      `yaml:"database"`
-	DBPool                    *pgxpool.Pool       `yaml:"-"` // Connection pool, not serialized
+	DBPool                    *pgxpool.Pool       `yaml:"-"` // PgxPool is not serialized, used for database connections
 	Completions               CompletionsConfig   `yaml:"completions"`
 	Embeddings                EmbeddingsConfig    `yaml:"embeddings"`
 	Reranker                  RerankerConfig      `yaml:"reranker"`
 	Auth                      AuthConfig          `yaml:"auth"`
+	AgentFleet                AgentFleet          `yaml:"agent_fleet,omitempty"`
 	AgenticMemory             AgenticMemoryConfig `yaml:"agentic_memory"`
-	A2A                       A2AConfig           `yaml:"a2a"`
+	A2A                       A2AConfig           `yaml:"a2a,omitempty"`
+	Tools                     ToolsConfig         `yaml:"tools,omitempty"`
 }
 
 // LoadConfig reads the configuration from a YAML file, unmarshals it into a Config struct,

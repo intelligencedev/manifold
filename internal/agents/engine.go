@@ -709,6 +709,10 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 		}
 
 		worker := ae.fleet.GetWorker(req.Name)
+		if worker == nil {
+			return "", fmt.Errorf("unknown worker: %s", req.Name)
+		}
+
 		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
 
 		return ae.callLLM(ctx, worker.Name, worker.Model, []completions.Message{

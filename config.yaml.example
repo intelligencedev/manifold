@@ -147,6 +147,21 @@ agentic_memory:
                   # This improves consistency and continuity in multi-turn interactions
                   # Requires PostgreSQL with pgvector extension for vector storage
 
+# Agent Fleet Configuration
+# Define multiple cooperating agents
+agent_fleet:
+  workers:
+    - name: assistant
+      role: assistant
+      model: gpt-4o
+      endpoint: "http://127.0.0.1:32186/v1/chat/completions"
+      ctx_size: 4096
+      temperature: 0.7
+      api_key: ""
+      instructions: "You are a helpful assistant."
+      max_steps: 20
+      memory: false
+
 # List of external MCP servers
   manifold:
     command: docker

@@ -30,12 +30,12 @@ func (f *Fleet) AddWorker(worker FleetWorker) {
 
 // GetWorker retrieves a worker by name.
 func (f *Fleet) GetWorker(name string) *FleetWorker {
-	for _, worker := range f.Workers {
+	for i, worker := range f.Workers {
 		if worker.Name == name {
-			return &worker
+			return &f.Workers[i]
 		}
 	}
-	return nil // or return an error if preferred
+	return nil
 }
 
 // RemoveWorker removes a worker from the fleet by name.

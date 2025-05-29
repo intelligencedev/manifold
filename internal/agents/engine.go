@@ -106,7 +106,7 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	fleetCfg := cfg.AgentFleet
 
 	for _, worker := range fleetCfg.Workers {
-		fleetWorker := FleetWorker{
+		fleetWorker := configpkg.FleetWorker{
 			Name:         worker.Name,
 			Role:         worker.Role,
 			Endpoint:     worker.Endpoint,
@@ -599,7 +599,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	fleet := ae.fleet
 	assistant := fleet.GetWorker(assistantName)
 	if assistant == nil {
-		assistant = &FleetWorker{
+		assistant = &configpkg.FleetWorker{
 			Name:         "default",
 			Role:         "assistant",
 			Endpoint:     ae.Config.Completions.DefaultHost,

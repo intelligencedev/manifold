@@ -160,36 +160,36 @@ func handleGitCloneTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 }
 
 // handleShellCommandTool handles the shell command tool
-func handleShellCommandTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	arguments := request.Params.Arguments
-	commandArray, _ := arguments["command"].([]interface{})
-	dir, _ := arguments["dir"].(string)
+// func handleShellCommandTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// 	arguments := request.Params.Arguments
+// 	commandArray, _ := arguments["command"].([]interface{})
+// 	dir, _ := arguments["dir"].(string)
 
-	// Convert interface slice to string slice
-	command := make([]string, len(commandArray))
-	for i, v := range commandArray {
-		command[i], _ = v.(string)
-	}
+// 	// Convert interface slice to string slice
+// 	command := make([]string, len(commandArray))
+// 	for i, v := range commandArray {
+// 		command[i], _ = v.(string)
+// 	}
 
-	args := ShellCommandArgs{
-		Command: command,
-		Dir:     dir,
-	}
+// 	args := ShellCommandArgs{
+// 		Command: command,
+// 		Dir:     dir,
+// 	}
 
-	res, err := runShellCommandTool(args)
-	if err != nil {
-		return nil, err
-	}
+// 	res, err := runShellCommandTool(args)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: res,
-			},
-		},
-	}, nil
-}
+// 	return &mcp.CallToolResult{
+// 		Content: []mcp.Content{
+// 			mcp.TextContent{
+// 				Type: "text",
+// 				Text: res,
+// 			},
+// 		},
+// 	}, nil
+// }
 
 // handleCLITool executes a raw CLI command using the underlying shell.
 func handleCLITool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

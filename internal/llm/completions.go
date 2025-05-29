@@ -10,6 +10,20 @@ import (
 	"net/http"
 )
 
+// choices: A list of outputs. Each output is a dictionary containing the fields:
+
+// index: The index in the list.
+// logprobs: A dictionary containing the fields:
+// token_logprobs: A list of the log probabilities for the generated tokens.
+// tokens: A list of the generated token ids.
+// top_logprobs: A list of lists. Each list contains the logprobs top tokens (if requested) with their corresponding probabilities.
+
+type Logprobs struct {
+	TokenLogprobs []float64            `json:"token_logprobs,omitempty"`
+	Tokens        []int                `json:"tokens,omitempty"`
+	TopLogprobs   []map[string]float64 `json:"top_logprobs,omitempty"`
+}
+
 // Message represents a message in a conversation.
 type Message struct {
 	Role    string `json:"role"`
@@ -30,10 +44,10 @@ type CompletionRequest struct {
 
 // Choice represents a choice for the completion response.
 type Choice struct {
-	Index        int     `json:"index"`
-	Message      Message `json:"message"`
-	Logprobs     *bool   `json:"logprobs"` // Pointer to a boolean or nil
-	FinishReason string  `json:"finish_reason"`
+	Index        int       `json:"index"`
+	Message      Message   `json:"message"`
+	Logprobs     *Logprobs `json:"logprobs,omitempty"`
+	FinishReason string    `json:"finish_reason"`
 }
 
 // Usage contains information about token usage in the completion response.

@@ -42,7 +42,7 @@ type FleetWorker struct {
 	Role         string  `json:"role"`
 	Endpoint     string  `json:"endpoint"`
 	CtxSize      int     `json:"ctx_size"`
-	Temperature  float32 `json:"temperature"`
+	Temperature  float64 `json:"temperature"`
 	ApiKey       string  `json:"api_key,omitempty"`
 	Instructions string  `json:"instructions"`
 	MaxSteps     int     `json:"max_steps"`
@@ -69,8 +69,9 @@ type A2AConfig struct {
 
 type CompletionsConfig struct {
 	DefaultHost      string           `yaml:"default_host"`
+	Backend          string           `yaml:"backend"` // e.g., "openai", "llamacpp", "mlx"
 	CompletionsModel string           `yaml:"completions_model"`
-	Temperature      float32          `yaml:"temperature"`
+	Temperature      float64          `yaml:"temperature"`
 	CtxSize          int              `yaml:"ctx_size"`
 	APIKey           string           `yaml:"api_key"`
 	ReactAgentConfig ReactAgentConfig `yaml:"agent"`

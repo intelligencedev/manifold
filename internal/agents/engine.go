@@ -616,12 +616,17 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 		promptTokens += util.CountTokens(msg.Content)
 	}
 
-	modelCtx := 16384
-
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
-	maxTokens := max(modelCtx-promptTokens-1024, 128)
+	// maxTokens := max(ae.Config.Completions.CtxSize-promptTokens-1024, 128)
 
-	body, _ := json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
+	var body []byte
+
+	if ae.Config.Completions.Backend != "mlx" {
+		body, _ = json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, Temperature: ae.Config.Completions.Temperature})
+	} else {
+		body, _ = json.Marshal(completions.CompletionRequest{Messages: msgs, Temperature: ae.Config.Completions.Temperature})
+	}
+
 	req, _ := http.NewRequestWithContext(ctx, "POST", assistant.Endpoint, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)

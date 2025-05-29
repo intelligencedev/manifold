@@ -21,7 +21,7 @@ func (f *Fleet) AddWorker(worker configpkg.FleetWorker) {
 
 // GetWorker retrieves a worker by name.
 func (f *Fleet) GetWorker(name string) *configpkg.FleetWorker {
-	for _, worker := range f.Workers {
+	for i, worker := range f.Workers {
 		if worker.Name == name {
 			return &f.Workers[i]
 		}

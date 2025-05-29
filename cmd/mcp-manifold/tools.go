@@ -170,18 +170,18 @@ func gitCloneTool(args GitCloneArgs) (string, error) {
 }
 
 // run_shell_command tool
-func runShellCommandTool(args ShellCommandArgs) (string, error) {
-	if len(args.Command) == 0 {
-		return "", fmt.Errorf("empty command array")
-	}
-	cmd := exec.Command(args.Command[0], args.Command[1:]...)
-	cmd.Dir = args.Dir
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("shell command error: %w\nOutput: %s", err, output)
-	}
-	return string(output), nil
-}
+// func runShellCommandTool(args ShellCommandArgs) (string, error) {
+// 	if len(args.Command) == 0 {
+// 		return "", fmt.Errorf("empty command array")
+// 	}
+// 	cmd := exec.Command(args.Command[0], args.Command[1:]...)
+// 	cmd.Dir = args.Dir
+// 	output, err := cmd.CombinedOutput()
+// 	if err != nil {
+// 		return "", fmt.Errorf("shell command error: %w\nOutput: %s", err, output)
+// 	}
+// 	return string(output), nil
+// }
 
 // cli tool
 func cliTool(args CLIToolArgs) (string, error) {

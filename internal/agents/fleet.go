@@ -1,36 +1,27 @@
 package agents
 
-// FleetWorker defines a basic agent worker in the fleet.
-type FleetWorker struct {
-	Name         string  `json:"name"`
-	Role         string  `json:"role"`
-	Endpoint     string  `json:"endpoint"`
-	Model        string  `json:"model,omitempty"`
-	CtxSize      int     `json:"ctx_size"`
-	Temperature  float32 `json:"temperature"`
-	Instructions string  `json:"instructions"`
-}
+import configpkg "manifold/internal/config"
 
 // Fleet defines a collection of workers in the fleet.
 type Fleet struct {
-	Workers []FleetWorker `json:"workers"`
+	Workers []configpkg.FleetWorker `json:"workers"`
 }
 
 // NewFleet creates a new Fleet instance.
 func NewFleet() *Fleet {
 	return &Fleet{
-		Workers: []FleetWorker{},
+		Workers: []configpkg.FleetWorker{},
 	}
 }
 
 // AddWorker adds a new worker to the fleet.
-func (f *Fleet) AddWorker(worker FleetWorker) {
+func (f *Fleet) AddWorker(worker configpkg.FleetWorker) {
 	f.Workers = append(f.Workers, worker)
 }
 
 // GetWorker retrieves a worker by name.
-func (f *Fleet) GetWorker(name string) *FleetWorker {
-	for i, worker := range f.Workers {
+func (f *Fleet) GetWorker(name string) *configpkg.FleetWorker {
+	for _, worker := range f.Workers {
 		if worker.Name == name {
 			return &f.Workers[i]
 		}
@@ -50,12 +41,12 @@ func (f *Fleet) RemoveWorker(name string) {
 }
 
 // ListWorkers returns a list of all workers in the fleet.
-func (f *Fleet) ListWorkers() []FleetWorker {
+func (f *Fleet) ListWorkers() []configpkg.FleetWorker {
 	return f.Workers
 }
 
 // UpdateWorker updates an existing worker's details.
-func (f *Fleet) UpdateWorker(name string, updatedWorker FleetWorker) bool {
+func (f *Fleet) UpdateWorker(name string, updatedWorker configpkg.FleetWorker) bool {
 	for i, worker := range f.Workers {
 		if worker.Name == name {
 			f.Workers[i] = updatedWorker
@@ -67,7 +58,7 @@ func (f *Fleet) UpdateWorker(name string, updatedWorker FleetWorker) bool {
 
 // ClearWorkers removes all workers from the fleet.
 func (f *Fleet) ClearWorkers() {
-	f.Workers = []FleetWorker{}
+	f.Workers = []configpkg.FleetWorker{}
 }
 
 // CountWorkers returns the number of workers in the fleet.
@@ -76,8 +67,8 @@ func (f *Fleet) CountWorkers() int {
 }
 
 // FindWorkersByRole returns a list of workers matching a specific role.
-func (f *Fleet) FindWorkersByRole(role string) []FleetWorker {
-	var matchedWorkers []FleetWorker
+func (f *Fleet) FindWorkersByRole(role string) []configpkg.FleetWorker {
+	var matchedWorkers []configpkg.FleetWorker
 	for _, worker := range f.Workers {
 		if worker.Role == role {
 			matchedWorkers = append(matchedWorkers, worker)
@@ -87,8 +78,8 @@ func (f *Fleet) FindWorkersByRole(role string) []FleetWorker {
 }
 
 // FindWorkersByName returns a list of workers matching a specific name.
-func (f *Fleet) FindWorkersByName(name string) []FleetWorker {
-	var matchedWorkers []FleetWorker
+func (f *Fleet) FindWorkersByName(name string) []configpkg.FleetWorker {
+	var matchedWorkers []configpkg.FleetWorker
 	for _, worker := range f.Workers {
 		if worker.Name == name {
 			matchedWorkers = append(matchedWorkers, worker)

@@ -60,6 +60,7 @@ import { useModeStore } from './stores/modeStore'
 import { useChatStore } from './stores/chatStore'
 import { useSystemPromptOptions } from './composables/systemPrompts'
 import { useCompletionsApi } from './composables/useCompletionsApi'
+import { useConfigStore } from './stores/configStore'
 
 // Add type declaration for marked options
 declare module 'marked' {
@@ -75,6 +76,8 @@ const toggleMode = () => modeStore.toggleMode()
 
 const { systemPromptOptions, systemPromptOptionsList } = useSystemPromptOptions()
 const { callCompletionsAPI } = useCompletionsApi()
+const configStore = useConfigStore()
+const agentMaxSteps = computed(() => configStore.config?.Completions?.Agent?.MaxSteps || 30)
 
 // Use the messages from chatStore instead of local ref
 const messages = computed(() => chatStore.messages)
@@ -87,7 +90,8 @@ const providerOptions = [
   { value: 'mlx_lm.server', label: 'mlx_lm.server' },
   { value: 'openai', label: 'openai' },
   { value: 'anthropic', label: 'anthropic' },
-  { value: 'google', label: 'google' }
+  { value: 'google', label: 'google' },
+  { value: 'react-agent', label: 'ReAct Agent' }
 ]
 
 // Use values from chatStore
@@ -202,6 +206,29 @@ watch(messages, () => {
   })
 }, { deep: true })
 
+function createEventStreamSplitter () {
+  let buffer = ''
+  return new TransformStream<string, string>({
+    transform (chunk, controller) {
+      buffer += chunk
+      let idx
+      while ((idx = buffer.indexOf('\n\n')) !== -1) {
+        const event = buffer.slice(0, idx).replace(/^data:\s*/gm, '').trim()
+        controller.enqueue(event)
+        buffer = buffer.slice(idx + 2)
+      }
+    },
+    flush (controller) {
+      if (buffer.trim()) {
+        const event = buffer.replace(/^data:\s*/gm, '').trim()
+        if (event) {
+          controller.enqueue(event)
+        }
+      }
+    }
+  })
+}
+
 function formatMessage(content: string) {
   return marked(content)
 }
@@ -211,10 +238,61 @@ async function sendMessage() {
   const prompt = userInput.value.trim()
   chatStore.addMessage({ role: 'user', content: prompt })
   userInput.value = ''
-  
+
   // Create the assistant message and add it to the messages array
   chatStore.addMessage({ role: 'assistant', content: '' })
-  
+
+  if (provider.value === 'react-agent') {
+    try {
+      const resp = await fetch('http://localhost:8080/api/agents/react/stream', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
+        body: JSON.stringify({
+          objective: prompt,
+          max_steps: agentMaxSteps.value,
+          model: ''
+        })
+      })
+
+      if (!resp.ok || !resp.body) {
+        throw new Error(`API error (${resp.status})`)
+      }
+
+      const reader = resp.body
+        .pipeThrough(new TextDecoderStream())
+        .pipeThrough(createEventStreamSplitter())
+        .getReader()
+
+      let thoughts = ''
+      let finalResult = ''
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        if (value === '[[EOF]]') {
+          await reader.cancel()
+          break
+        }
+        const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/)
+        if (thinkMatch) {
+          thoughts += thinkMatch[1] + '\n'
+        } else {
+          finalResult = value
+        }
+        const combined = (thoughts ? `<think>${thoughts}</think>` : '') + (finalResult ? `\n${finalResult}` : '')
+        chatStore.updateLastAssistantMessage(combined)
+      }
+      const finalResponse = (thoughts ? `<think>${thoughts}</think>` : '') + (finalResult ? `\n${finalResult}` : '')
+      chatStore.updateLastAssistantMessage(finalResponse)
+    } catch (e) {
+      console.error(e)
+      chatStore.updateLastAssistantMessage('Error fetching response.')
+    }
+    return
+  }
+
   const config = {
     provider: provider.value,
     endpoint: endpoint.value,
@@ -224,12 +302,12 @@ async function sendMessage() {
     max_completion_tokens: max_completion_tokens.value,
     temperature: temperature.value,
   }
-  
+
   try {
     let assistantResponse = ''
-    
+
     await callCompletionsAPI(config, prompt, (token: string) => {
-      console.log('Received token:', token.substring(0, 50) + (token.length > 50 ? '...' : ''));
+      console.log('Received token:', token.substring(0, 50) + (token.length > 50 ? '...' : ''))
       assistantResponse += token
       // Update the last assistant message in the chatStore
       chatStore.updateLastAssistantMessage(assistantResponse)

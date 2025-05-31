@@ -312,7 +312,7 @@ The manifold cli tool:
 {"properties":{"command":{"description":"Command string to execute","type":"string"},"dir":{"description":"Optional working directory","type":"string"}},"required":["command"],"type":"object"}
 
 The manifold web search tool:
-- manifold::web_search • Search the web for information
+- web_search • Search the web for information
 {"properties":{"query":{"description":"Search query","type":"string"}},"required":["query"],"type":"object"}
 
 Below is a list of available CLI commands using the manifold::cli tool schema you should use.

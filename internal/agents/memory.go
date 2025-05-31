@@ -523,6 +523,56 @@ func AgenticMemorySearchHandler(config *configpkg.Config) echo.HandlerFunc {
 	}
 }
 
+// AgenticMemoryUpdateHandler handles POST /api/agentic-memory/update/:id
+func AgenticMemoryUpdateHandler(config *configpkg.Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if !config.AgenticMemory.Enabled {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Agentic memory is disabled in configuration"})
+		}
+		idStr := c.Param("id")
+		memID, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid memory ID"})
+		}
+		var req struct {
+			Content       string `json:"content"`
+			WorkflowID    string `json:"workflow_id"`
+			EvolutionType string `json:"evolution_type"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.Content == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Content is required"})
+		}
+		if req.EvolutionType == "" {
+			req.EvolutionType = "refinement"
+		}
+		workflowID, err := uuid.Parse(req.WorkflowID)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid workflow ID"})
+		}
+		ctx := c.Request().Context()
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		defer conn.Release()
+		engine := NewAgenticEngine(conn.Conn())
+		if err := engine.EnsureAgenticMemoryTable(ctx, config.Embeddings.Dimensions); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ensure agentic memory table"})
+		}
+		newID, err := engine.UpdateMemoryWithEvolution(ctx, config, memID, req.Content, workflowID, req.EvolutionType)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("Failed to update memory: %v", err)})
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{"evolved_id": newID})
+	}
+}
+
 // SearchWithinWorkflow finds memories for the same workflow only.
 func (ae *AgenticEngine) SearchWithinWorkflow(
 	ctx context.Context,
@@ -1143,7 +1193,40 @@ func (ae *AgenticEngine) ResolveContradiction(ctx context.Context, contradiction
 		UPDATE memory_contradictions 
 		SET status = 'resolved', resolved_at = $1, description = description || ' | Resolution: ' || $2
 		WHERE id = $3`, now, resolution, contradictionID)
+
 	return err
+}
+
+// MemoryContradictionsHandler runs contradiction detection for a workflow
+func MemoryContradictionsHandler(config *configpkg.Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if !config.AgenticMemory.Enabled {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Agentic memory is disabled in configuration"})
+		}
+		workflowStr := c.Param("workflowId")
+		wf, err := uuid.Parse(workflowStr)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid workflow ID"})
+		}
+		ctx := c.Request().Context()
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		defer conn.Release()
+		engine := NewAgenticEngine(conn.Conn())
+		if err := engine.EnsureAgenticMemoryTable(ctx, config.Embeddings.Dimensions); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ensure agentic memory table"})
+		}
+		contradictions, err := engine.DetectMemoryContradictions(ctx, config, wf)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{"contradictions": contradictions})
+	}
 }
 
 // calculateDistance calculates cosine distance between two embeddings

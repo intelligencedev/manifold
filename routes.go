@@ -176,12 +176,14 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup.POST("/ingest", agentspkg.AgenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agentspkg.AgenticMemorySearchHandler(config))
 
+	agenticGroup.POST("/update/:id", agentspkg.AgenticMemoryUpdateHandler(config))
 	// New graph-based memory endpoints
 	memoryGroup := api.Group("/memory")
 	memoryGroup.GET("/path/:sourceId/:targetId", agentspkg.FindMemoryPathHandler(config))
 	memoryGroup.GET("/related/:memoryId", agentspkg.FindRelatedMemoriesHandler(config))
 	memoryGroup.GET("/clusters/:workflowId", agentspkg.DiscoverMemoryClustersHandler(config))
 	memoryGroup.GET("/health/:workflowId", agentspkg.AnalyzeNetworkHealthHandler(config))
+	memoryGroup.GET("/contradictions/:workflowId", agentspkg.MemoryContradictionsHandler(config))
 	memoryGroup.GET("/knowledge-map/:workflowId", agentspkg.BuildKnowledgeMapHandler(config))
 }
 

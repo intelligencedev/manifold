@@ -29,7 +29,7 @@ const state = {
 export default function useDragAndDrop() {
   const { draggedType, isDragOver, isDragging } = state
 
-  const { addNodes, screenToFlowCoordinate } = useVueFlow()
+  const { addNodes, screenToFlowCoordinate, toObject, setViewport } = useVueFlow()
 
   watch(isDragging, (dragging) => {
     document.body.style.userSelect = dragging ? 'none' : ''
@@ -81,6 +81,7 @@ export default function useDragAndDrop() {
    * @param {DragEvent} event
    */
   function onDrop(event) {
+    const { viewport } = toObject()
     const position = screenToFlowCoordinate({
       x: event.clientX,
       y: event.clientY,
@@ -108,6 +109,10 @@ export default function useDragAndDrop() {
     }
 
     addNodes(newNode);
+
+    if (typeof setViewport === 'function') {
+      setViewport(viewport)
+    }
   }
 
   return {

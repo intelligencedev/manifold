@@ -175,6 +175,14 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agentspkg.AgenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agentspkg.AgenticMemorySearchHandler(config))
+
+	// New graph-based memory endpoints
+	memoryGroup := api.Group("/memory")
+	memoryGroup.GET("/path/:sourceId/:targetId", agentspkg.FindMemoryPathHandler(config))
+	memoryGroup.GET("/related/:memoryId", agentspkg.FindRelatedMemoriesHandler(config))
+	memoryGroup.GET("/clusters/:workflowId", agentspkg.DiscoverMemoryClustersHandler(config))
+	memoryGroup.GET("/health/:workflowId", agentspkg.AnalyzeNetworkHealthHandler(config))
+	memoryGroup.GET("/knowledge-map/:workflowId", agentspkg.BuildKnowledgeMapHandler(config))
 }
 
 // registerAgentEndpoints registers all routes for the ReAct / advanced agentic system.

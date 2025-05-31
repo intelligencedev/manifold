@@ -592,3 +592,253 @@ func parseTextArray(input string) []string {
 	}
 	return parts
 }
+
+// DiscoverMemoryClusters finds clusters of related memories using connected components
+func (eae *EnhancedAgenticEngine) DiscoverMemoryClusters(ctx context.Context, workflowID uuid.UUID, minClusterSize int) ([][]MemoryNode, error) {
+	// Use pgr_connectedComponents to find clusters
+	query := `
+		WITH components AS (
+			SELECT node, component
+			FROM pgr_connectedComponents(
+				'SELECT id, source, target FROM memory_edges 
+				 JOIN memory_nodes s ON source = s.id 
+				 JOIN memory_nodes t ON target = t.id 
+				 WHERE s.workflow_id = ''' || $1 || ''' AND t.workflow_id = ''' || $1 || ''''
+			)
+		),
+		cluster_sizes AS (
+			SELECT component, COUNT(*) as size
+			FROM components
+			GROUP BY component
+			HAVING COUNT(*) >= $2
+		)
+		SELECT c.component, c.node
+		FROM components c
+		JOIN cluster_sizes cs ON c.component = cs.component
+		ORDER BY c.component, c.node`
+
+	rows, err := eae.DB.Query(ctx, query, workflowID.String(), minClusterSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover clusters: %w", err)
+	}
+	defer rows.Close()
+
+	clusterMap := make(map[int][]int64)
+	for rows.Next() {
+		var component int
+		var nodeID int64
+		if err := rows.Scan(&component, &nodeID); err != nil {
+			continue
+		}
+		clusterMap[component] = append(clusterMap[component], nodeID)
+	}
+
+	// Convert to clusters of MemoryNode
+	var clusters [][]MemoryNode
+	for _, nodeIDs := range clusterMap {
+		if len(nodeIDs) < minClusterSize {
+			continue
+		}
+
+		nodes, err := eae.getNodesByIDs(ctx, nodeIDs)
+		if err != nil {
+			continue
+		}
+
+		clusters = append(clusters, nodes)
+	}
+
+	return clusters, nil
+}
+
+// AnalyzeMemoryNetworkHealth provides comprehensive network analysis
+func (eae *EnhancedAgenticEngine) AnalyzeMemoryNetworkHealth(ctx context.Context, workflowID uuid.UUID) (*NetworkHealthMetrics, error) {
+	health := &NetworkHealthMetrics{}
+
+	// Count total nodes and edges
+	err := eae.DB.QueryRow(ctx, `SELECT COUNT(*) FROM memory_nodes WHERE workflow_id = $1`, workflowID).Scan(&health.TotalNodes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count nodes: %w", err)
+	}
+
+	err = eae.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM memory_edges e
+		JOIN memory_nodes s ON e.source = s.id
+		JOIN memory_nodes t ON e.target = t.id
+		WHERE s.workflow_id = $1 AND t.workflow_id = $1`, workflowID).Scan(&health.TotalEdges)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count edges: %w", err)
+	}
+
+	// Calculate density
+	if health.TotalNodes > 1 {
+		maxPossibleEdges := health.TotalNodes * (health.TotalNodes - 1) / 2
+		health.Density = float64(health.TotalEdges) / float64(maxPossibleEdges)
+	}
+
+	// Count isolated nodes
+	err = eae.DB.QueryRow(ctx, `
+		SELECT COUNT(*) FROM memory_nodes n
+		WHERE n.workflow_id = $1 
+		AND NOT EXISTS (
+			SELECT 1 FROM memory_edges e 
+			WHERE e.source = n.id OR e.target = n.id
+		)`, workflowID).Scan(&health.IsolatedNodes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count isolated nodes: %w", err)
+	}
+
+	// Calculate average path length (simplified)
+	if health.TotalNodes > 0 {
+		// Use a sampling approach for large networks
+		sampleSize := 100
+		if health.TotalNodes < sampleSize {
+			sampleSize = health.TotalNodes
+		}
+
+		var totalPathLength float64
+		var pathCount int
+
+		// Sample random pairs and calculate shortest paths
+		rows, err := eae.DB.Query(ctx, `
+			SELECT n1.id, n2.id FROM memory_nodes n1, memory_nodes n2
+			WHERE n1.workflow_id = $1 AND n2.workflow_id = $1 AND n1.id < n2.id
+			ORDER BY RANDOM() LIMIT $2`, workflowID, sampleSize)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var source, target int64
+				if err := rows.Scan(&source, &target); err != nil {
+					continue
+				}
+
+				// Try to find path using pgr_dijkstra
+				var pathLength float64
+				err := eae.DB.QueryRow(ctx, `
+					SELECT COALESCE(MAX(seq), 0) FROM pgr_dijkstra(
+						'SELECT id, source, target, cost FROM memory_edges',
+						$1, $2, FALSE
+					)`, source, target).Scan(&pathLength)
+				if err == nil && pathLength > 0 {
+					totalPathLength += pathLength
+					pathCount++
+				}
+			}
+		}
+
+		if pathCount > 0 {
+			health.AveragePathLength = totalPathLength / float64(pathCount)
+		}
+	}
+
+	// Calculate clustering coefficient (simplified)
+	health.ClusteringCoefficient = eae.calculateClusteringCoefficient(ctx, workflowID)
+
+	return health, nil
+}
+
+// BuildKnowledgeMap creates a comprehensive knowledge map
+func (eae *EnhancedAgenticEngine) BuildKnowledgeMap(ctx context.Context, workflowID uuid.UUID, depth int) (*KnowledgeMap, error) {
+	// Find central nodes (high degree)
+	centralNodesQuery := `
+		SELECT n.id, COUNT(e.id) as degree
+		FROM memory_nodes n
+		LEFT JOIN memory_edges e ON (n.id = e.source OR n.id = e.target)
+		WHERE n.workflow_id = $1
+		GROUP BY n.id
+		ORDER BY degree DESC
+		LIMIT 10`
+
+	rows, err := eae.DB.Query(ctx, centralNodesQuery, workflowID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find central nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var centralNodeIDs []int64
+	for rows.Next() {
+		var nodeID int64
+		var degree int
+		if err := rows.Scan(&nodeID, &degree); err == nil {
+			centralNodeIDs = append(centralNodeIDs, nodeID)
+		}
+	}
+
+	centralNodes, err := eae.getNodesByIDs(ctx, centralNodeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get central nodes: %w", err)
+	}
+
+	// Find communities using clustering
+	communities, err := eae.DiscoverMemoryClusters(ctx, workflowID, 2)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover communities: %w", err)
+	}
+
+	// Find bridge edges (edges that connect different communities)
+	var bridges []MemoryEdge
+	// This is a simplified approach - in a full implementation, you'd use more sophisticated bridge detection
+	bridgeQuery := `
+		SELECT e.id, e.source, e.target, e.relationship_type, e.weight, e.confidence, e.created_at, e.evidence
+		FROM memory_edges e
+		JOIN memory_nodes s ON e.source = s.id
+		JOIN memory_nodes t ON e.target = t.id
+		WHERE s.workflow_id = $1 AND t.workflow_id = $1
+		AND e.weight > 0.5
+		ORDER BY e.weight DESC
+		LIMIT 20`
+
+	bridgeRows, err := eae.DB.Query(ctx, bridgeQuery, workflowID)
+	if err == nil {
+		defer bridgeRows.Close()
+		for bridgeRows.Next() {
+			var edge MemoryEdge
+			err := bridgeRows.Scan(&edge.ID, &edge.SourceID, &edge.TargetID,
+				&edge.RelationshipType, &edge.Weight, &edge.Confidence,
+				&edge.CreatedAt, &edge.Evidence)
+			if err == nil {
+				bridges = append(bridges, edge)
+			}
+		}
+	}
+
+	return &KnowledgeMap{
+		CentralNodes: centralNodes,
+		Communities:  communities,
+		Bridges:      bridges,
+	}, nil
+}
+
+// Helper method to calculate clustering coefficient
+func (eae *EnhancedAgenticEngine) calculateClusteringCoefficient(ctx context.Context, workflowID uuid.UUID) float64 {
+	// Simplified clustering coefficient calculation
+	// In a full implementation, you'd calculate the ratio of actual triangles to possible triangles
+
+	var triangleCount, possibleTriangles int
+
+	// Count triangles using a simplified approach
+	triangleQuery := `
+		SELECT COUNT(*) FROM memory_edges e1
+		JOIN memory_edges e2 ON e1.target = e2.source
+		JOIN memory_edges e3 ON e2.target = e3.source AND e3.target = e1.source
+		JOIN memory_nodes n1 ON e1.source = n1.id
+		JOIN memory_nodes n2 ON e1.target = n2.id
+		JOIN memory_nodes n3 ON e2.target = n3.id
+		WHERE n1.workflow_id = $1 AND n2.workflow_id = $1 AND n3.workflow_id = $1`
+
+	eae.DB.QueryRow(ctx, triangleQuery, workflowID).Scan(&triangleCount)
+
+	// Count possible triangles (simplified)
+	var nodeCount int
+	eae.DB.QueryRow(ctx, `SELECT COUNT(*) FROM memory_nodes WHERE workflow_id = $1`, workflowID).Scan(&nodeCount)
+
+	if nodeCount >= 3 {
+		possibleTriangles = nodeCount * (nodeCount - 1) * (nodeCount - 2) / 6
+	}
+
+	if possibleTriangles > 0 {
+		return float64(triangleCount) / float64(possibleTriangles)
+	}
+
+	return 0.0
+}

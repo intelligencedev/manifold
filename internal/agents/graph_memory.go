@@ -842,3 +842,86 @@ func (eae *EnhancedAgenticEngine) calculateClusteringCoefficient(ctx context.Con
 
 	return 0.0
 }
+
+// TraceMemoryEvolution follows 'evolved' relationships starting from the given concept ID
+// and returns the sequence of nodes and edges representing the evolution path.
+func (eae *EnhancedAgenticEngine) TraceMemoryEvolution(ctx context.Context, conceptID int64) (*MemoryPath, error) {
+	query := `
+                WITH RECURSIVE evo AS (
+                        SELECT id, source, target, cost, 1 AS depth
+                        FROM memory_edges
+                        WHERE source = $1 AND relationship_type = 'evolved'
+                    UNION ALL
+                        SELECT e.id, e.source, e.target, e.cost, evo.depth + 1
+                        FROM memory_edges e
+                        JOIN evo ON e.source = evo.target
+                        WHERE e.relationship_type = 'evolved' AND evo.depth < 20
+                )
+                SELECT id, source, target, cost, depth FROM evo ORDER BY depth`
+	rows, err := eae.DB.Query(ctx, query, conceptID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodeIDs []int64
+	var edges []MemoryEdge
+	totalCost := 0.0
+
+	nodeIDs = append(nodeIDs, conceptID)
+	for rows.Next() {
+		var id, source, target int64
+		var cost float64
+		var depth int
+		if err := rows.Scan(&id, &source, &target, &cost, &depth); err != nil {
+			continue
+		}
+		edges = append(edges, MemoryEdge{
+			ID:               id,
+			SourceID:         source,
+			TargetID:         target,
+			RelationshipType: RelationshipEvolved,
+			Cost:             cost,
+		})
+		nodeIDs = append(nodeIDs, target)
+		totalCost += cost
+	}
+
+	nodes, err := eae.getNodesByIDs(ctx, nodeIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MemoryPath{
+		Nodes: nodes,
+		Edges: edges,
+		Cost:  totalCost,
+		Hops:  len(edges),
+	}, nil
+}
+
+// FindMemoryConflicts returns edges tagged as contradictory within the workflow graph
+func (eae *EnhancedAgenticEngine) FindMemoryConflicts(ctx context.Context, workflowID uuid.UUID) ([]MemoryEdge, error) {
+	query := `
+                SELECT e.id, e.source, e.target, e.relationship_type, e.weight, e.confidence, e.created_at, e.evidence
+                FROM memory_edges e
+                JOIN memory_nodes s ON e.source = s.id
+                JOIN memory_nodes t ON e.target = t.id
+                WHERE s.workflow_id = $1 AND t.workflow_id = $1 AND e.relationship_type = 'contradicts'
+                ORDER BY e.confidence DESC`
+	rows, err := eae.DB.Query(ctx, query, workflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var conflicts []MemoryEdge
+	for rows.Next() {
+		var edge MemoryEdge
+		if err := rows.Scan(&edge.ID, &edge.SourceID, &edge.TargetID, &edge.RelationshipType,
+			&edge.Weight, &edge.Confidence, &edge.CreatedAt, &edge.Evidence); err == nil {
+			conflicts = append(conflicts, edge)
+		}
+	}
+	return conflicts, nil
+}

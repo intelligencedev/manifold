@@ -296,7 +296,10 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		"- finish       • end and output final answer",
 	)
 
-	sysPrompt := fmt.Sprintf(`You are a helpful assistant.
+	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are the ONLY assistant in your team with access to the tools. The other assistants can only think and reply to your requests for help from your team. You are the ONLY one that makes the tool calls. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
+
+IMPORTANT: If you get stuck, or detect a loop, ask for assistance from another expert and ensure you give them all of the information necessary for them to help you.
+
 Objective: %s
 
 IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.

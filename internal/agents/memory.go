@@ -252,19 +252,6 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *conf
 	return results, nil
 }
 
-// parseTextArray is a simple helper to convert Postgres TEXT[] output to a slice of strings.
-func parseTextArray(input string) []string {
-	input = strings.Trim(input, "{}")
-	if input == "" {
-		return []string{}
-	}
-	parts := strings.Split(input, ",")
-	for i, p := range parts {
-		parts[i] = strings.TrimSpace(p)
-	}
-	return parts
-}
-
 // AgenticMemoryIngestHandler handles POST /api/agentic-memory/ingest.
 func AgenticMemoryIngestHandler(config *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {

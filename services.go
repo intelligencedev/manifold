@@ -353,8 +353,8 @@ func StartPGVectorContainer(config *Config) error {
 			pterm.Warning.Println("No database connection string provided, using default credentials")
 		}
 
-		// Create and run new container using ankane/pgvector image
-		pterm.Info.Printf("Creating new PGVector container: %s with image ankane/pgvector\n", containerName)
+		// Create and run new container using intelligencedev/pg-manifold:latest image
+		pterm.Info.Printf("Creating new PGVector container: %s with image intelligencedev/pg-manifold:latest\n", containerName)
 
 		runCmd := exec.Command("docker", "run", "-d",
 			"--name", containerName,
@@ -363,7 +363,7 @@ func StartPGVectorContainer(config *Config) error {
 			"-e", "POSTGRES_USER="+username,
 			"-e", "POSTGRES_PASSWORD="+password,
 			"-e", "POSTGRES_DB="+dbname,
-			"ankane/pgvector")
+			"intelligencedev/pg-manifold:latest")
 
 		if output, err := runCmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to start pgvector container: %w\n%s", err, string(output))

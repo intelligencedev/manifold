@@ -126,7 +126,6 @@ const {
 <style scoped>
 /* -------- thinking block -------- */
 .think-wrapper {
-  font-style: italic;
   color: #d8d0e8;
   background: rgba(73,49,99,.25);
   border-left: 3px solid #8a70b5;

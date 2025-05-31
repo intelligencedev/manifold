@@ -881,7 +881,6 @@ func (eae *EnhancedAgenticEngine) TraceMemoryEvolution(ctx context.Context, conc
 			SourceID:         source,
 			TargetID:         target,
 			RelationshipType: RelationshipEvolved,
-			Cost:             cost,
 		})
 		nodeIDs = append(nodeIDs, target)
 		totalCost += cost

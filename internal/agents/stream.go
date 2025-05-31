@@ -66,7 +66,7 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 		// Use a dedicated hook function to send each thought immediately as it happens
 		session, err := engine.RunSessionWithHook(ctx, cfg, req, func(st AgentStep) {
 			// Send ONLY the thought wrapped in <think> tags
-			payload := fmt.Sprintf("<think>%s</think>", st.Thought)
+			payload := fmt.Sprintf("<think>🤔 %s\n</think>", st.Thought)
 			write(payload)
 
 			// Flush to ensure client receives it immediately

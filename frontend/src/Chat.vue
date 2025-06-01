@@ -6,13 +6,16 @@
       <div class="bg-zinc-900 border-r border-zinc-700 w-80 min-w-[18rem] max-w-xs p-4 overflow-y-auto sidebar-scroll">
         <div class="space-y-6">
           <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
-          <BaseInput label="Endpoint" v-model="endpoint" />
+          <BaseInput label="Endpoint" v-model="endpoint" @blur="fetchLocalServerModel" />
           <BaseInput label="API Key" v-model="api_key" :type="showApiKey ? 'text' : 'password'">
             <template #suffix>
               <BaseTogglePassword v-model="showApiKey" />
             </template>
           </BaseInput>
-          <BaseInput label="Model" v-model="model" />
+          <div class="relative">
+            <BaseInput label="Model" v-model="model" :disabled="isLoadingModel" />
+            <span v-if="isLoadingModel" class="absolute right-10 top-1/2 transform -translate-y-1/2 text-xs text-blue-400">Loading...</span>
+          </div>
           <div class="grid grid-cols-2 gap-2 space-y-6">
             <BaseInput label="Max Tokens" type="number" v-model.number="max_completion_tokens" min="1" />
             <BaseInput label="Temperature" type="number" v-model.number="temperature" step="0.1" min="0" max="2" />
@@ -52,7 +55,6 @@ import BaseButton from './components/base/BaseButton.vue'
 import BaseInput from './components/base/BaseInput.vue'
 import BaseTextarea from './components/base/BaseTextarea.vue'
 import BaseDropdown from './components/base/BaseDropdown.vue'
-import BaseCheckbox from './components/base/BaseCheckbox.vue'
 import BaseTogglePassword from './components/base/BaseTogglePassword.vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
@@ -84,6 +86,7 @@ const messages = computed(() => chatStore.messages)
 const userInput = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
 const showApiKey = ref(false)
+const isLoadingModel = ref(false) // Track model loading state
 
 const providerOptions = [
   { value: 'llama-server', label: 'llama-server' },
@@ -148,6 +151,50 @@ watch(selectedSystemPrompt, (k) => {
   }
 })
 
+// Watch provider changes to fetch model from llama-server or mlx_lm.server
+watch(provider, (newProvider) => {
+  if ((newProvider === 'llama-server' || newProvider === 'mlx_lm.server') && endpoint.value) {
+    fetchLocalServerModel()
+  }
+})
+
+// Helper function to fetch model ID from local servers (llama-server or mlx_lm.server)
+async function fetchLocalServerModel() {
+  if ((provider.value !== 'llama-server' && provider.value !== 'mlx_lm.server') || !endpoint.value) return;
+  isLoadingModel.value = true
+  try {
+    // Derive the models endpoint from the chat completions endpoint
+    let modelsEndpoint = endpoint.value
+    // Extract the base URL from the endpoint
+    const endpointParts = modelsEndpoint.split('/')
+    const apiIndex = endpointParts.findIndex(part => part === 'api' || part === 'v1')
+    let baseUrl
+    if (apiIndex !== -1) {
+      baseUrl = endpointParts.slice(0, apiIndex).join('/')
+      modelsEndpoint = `${baseUrl}/v1/models`
+    } else {
+      const urlObj = new URL(modelsEndpoint)
+      urlObj.pathname = '/v1/models'
+      modelsEndpoint = urlObj.toString()
+    }
+    console.log("Fetching model from:", modelsEndpoint)
+    const response = await fetch(modelsEndpoint)
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models: ${response.statusText}`)
+    }
+    const data = await response.json()
+    if (data && data.data && data.data.length > 0) {
+      const modelId = data.data[0].id
+      console.log("Found model:", modelId)
+      chatStore.model = modelId
+    }
+  } catch (error) {
+    console.error("Error fetching local server model:", error)
+  } finally {
+    isLoadingModel.value = false
+  }
+}
+
 const renderModeOptions = [
   { value: 'raw', label: 'Raw Text' },
   { value: 'markdown', label: 'Markdown' }
@@ -158,13 +205,7 @@ const renderMode = computed({
   set: (value) => chatStore.renderMode = value
 })
 
-const themeOptions = [
-  { value: 'atom-one-dark', label: 'Dark' },
-  { value: 'atom-one-light', label: 'Light' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'monokai', label: 'Monokai' },
-  { value: 'vs', label: 'VS' }
-]
+// Theme options are used through the selectedTheme computed property
 
 const selectedTheme = computed({
   get: () => chatStore.selectedTheme,
@@ -205,6 +246,8 @@ watch(messages, () => {
     }
   })
 }, { deep: true })
+
+// Removed the old fetchLlamaServerModel function
 
 function createEventStreamSplitter () {
   let buffer = ''

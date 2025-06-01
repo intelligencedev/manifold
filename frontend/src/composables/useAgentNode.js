@@ -21,6 +21,54 @@ export function useAgentNode(props, emit) {
     useNodeBase(props, emit);
   const { systemPromptOptions, systemPromptOptionsList } =
     useSystemPromptOptions();
+    
+  // Loading state for model fetching
+  const isLoadingModel = ref(false);
+
+  // Helper function to fetch model ID from llama-server
+  async function fetchLlamaServerModel() {
+    isLoadingModel.value = true;
+    try {
+      // Derive the models endpoint from the chat completions endpoint
+      let modelsEndpoint = props.data.inputs.endpoint;
+      
+      // Extract the base URL from the endpoint
+      const endpointParts = modelsEndpoint.split('/');
+      const apiIndex = endpointParts.findIndex(part => part === 'api' || part === 'v1');
+      
+      let baseUrl;
+      if (apiIndex !== -1) {
+        // If '/api/' or '/v1/' is found in the path, use everything before including that part
+        baseUrl = endpointParts.slice(0, apiIndex).join('/');
+        modelsEndpoint = `${baseUrl}/models`;
+      } else {
+        // If not found, assume we need to replace the endpoint path
+        const urlObj = new URL(modelsEndpoint);
+        urlObj.pathname = '/models';
+        modelsEndpoint = urlObj.toString();
+      }
+
+      console.log("Fetching model from:", modelsEndpoint);
+      
+      const response = await fetch(modelsEndpoint);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch models: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.data && data.data.length > 0) {
+        // Get the first model ID
+        const modelId = data.data[0].id;
+        console.log("Found model:", modelId);
+        model.value = modelId;
+      }
+    } catch (error) {
+      console.error("Error fetching llama-server model:", error);
+    } finally {
+      isLoadingModel.value = false;
+    }
+  }
 
   // Helper function to create an event stream splitter
   // This is suitable for SSE format where events are `data: <payload>\n\n`
@@ -753,9 +801,19 @@ export function useAgentNode(props, emit) {
       if (!geminiModels.includes(model.value)) {
         model.value = geminiModels[0]; // Default to first Gemini model
       }
+    } else if (newProvider === "llama-server" && props.data.inputs.endpoint) {
+      // Fetch model ID from llama-server when provider is selected
+      fetchLlamaServerModel();
     }
   });
   
+  // Watch endpoint changes for llama-server to fetch model ID
+  watch(endpoint, (newEndpoint) => {
+    if (provider.value === "llama-server" && newEndpoint) {
+      fetchLlamaServerModel();
+    }
+  });
+
   // Watch provider changes to swap API key accordingly
   watch(provider, (newProvider) => {
     if (newProvider === 'google') {
@@ -806,5 +864,7 @@ export function useAgentNode(props, emit) {
     handleTextareaMouseLeave,
     sendToCodeEditor,
     modelOptions,
+    isLoadingModel, // Expose loading state
+    fetchLlamaServerModel, // Expose fetch function
   };
 }

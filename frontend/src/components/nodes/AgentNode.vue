@@ -35,6 +35,12 @@
       <template v-if="provider === 'anthropic' || provider === 'google'">
         <BaseDropdown :id="`${data.id}-model`" label="Model" v-model="model" :options="modelOptions" />
       </template>
+      <template v-else-if="provider === 'llama-server'">
+        <div class="relative">
+          <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" :disabled="isLoadingModel" />
+          <span v-if="isLoadingModel" class="absolute right-10 top-1/2 transform -translate-y-1/2 text-xs text-blue-400">Loading...</span>
+        </div>
+      </template>
       <template v-else>
         <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" />
       </template>
@@ -133,7 +139,8 @@ const {
   providerOptions, systemPromptOptionsList, modelOptions,
   provider, endpoint, api_key, model, max_completion_tokens, temperature,
   system_prompt, user_prompt,
-  onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor
+  onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor,
+  isLoadingModel
 } = useAgentNode(props, emit)
 
 if (!props.data.outputs) props.data.outputs = { response:'', error:null }

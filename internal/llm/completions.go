@@ -132,3 +132,41 @@ func CallLLM(ctx context.Context, endpoint, apiKey, model string, msgs []Message
 
 	return completion.Choices[0].Message.Content, nil
 }
+
+// GetEndpointModels returns a list of available models from the API endpoint.
+func GetEndpointModels(ctx context.Context, endpoint, apiKey string) ([]string, error) {
+	client := &http.Client{}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint+"/models", nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error making request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp ErrorResponse
+		if err := json.Unmarshal(respBody, &errResp); err != nil {
+			return nil, fmt.Errorf("error parsing error response: %w (status: %d)", err, resp.StatusCode)
+		}
+		return nil, fmt.Errorf("API error: %s", errResp.Error.Message)
+	}
+
+	var models []string
+	if err := json.Unmarshal(respBody, &models); err != nil {
+		return nil, fmt.Errorf("error parsing models response: %w", err)
+	}
+
+	return models, nil
+}

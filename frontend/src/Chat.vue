@@ -20,6 +20,15 @@
             <BaseInput label="Max Tokens" type="number" v-model.number="max_completion_tokens" min="1" />
             <BaseInput label="Temperature" type="number" v-model.number="temperature" step="0.1" min="0" max="2" />
           </div>
+          <!-- Extra LLM params for openai, llama-server, mlx_lm.server -->
+          <template v-if="['openai','llama-server','mlx_lm.server'].includes(provider)">
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <BaseInput label="Presence Penalty" type="number" v-model.number="presence_penalty" step="0.01" min="-2" max="2" />
+              <BaseInput label="Top P" type="number" v-model.number="top_p" step="0.01" min="0" max="1" />
+              <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" :disabled="provider !== 'mlx_lm.server'" />
+              <BaseInput label="Min P" type="number" v-model.number="min_p" step="0.01" min="0" max="1" />
+            </div>
+          </template>
           <BaseDropdown label="Predefined System Prompt" v-model="selectedSystemPrompt" :options="systemPromptOptionsList" />
           <BaseTextarea label="System Prompt" v-model="system_prompt" />
           <BaseDropdown label="Render Mode" v-model="renderMode" :options="renderModeOptions" />
@@ -126,6 +135,23 @@ const max_completion_tokens = computed({
 const temperature = computed({
   get: () => chatStore.temperature,
   set: (value) => chatStore.temperature = value
+})
+
+const presence_penalty = computed({
+  get: () => chatStore.presence_penalty,
+  set: (value) => chatStore.presence_penalty = value
+})
+const top_p = computed({
+  get: () => chatStore.top_p,
+  set: (value) => chatStore.top_p = value
+})
+const top_k = computed({
+  get: () => chatStore.top_k,
+  set: (value) => chatStore.top_k = value
+})
+const min_p = computed({
+  get: () => chatStore.min_p,
+  set: (value) => chatStore.min_p = value
 })
 
 const selectedSystemPrompt = computed({
@@ -336,7 +362,7 @@ async function sendMessage() {
     return
   }
 
-  const config = {
+  const config: Record<string, any> = {
     provider: provider.value,
     endpoint: endpoint.value,
     api_key: api_key.value,
@@ -344,6 +370,13 @@ async function sendMessage() {
     system_prompt: system_prompt.value,
     max_completion_tokens: max_completion_tokens.value,
     temperature: temperature.value,
+  }
+  if (["openai", "llama-server", "mlx_lm.server"].includes(provider.value)) {
+    if (presence_penalty.value !== undefined && presence_penalty.value !== null && presence_penalty.value !== '') config.presence_penalty = presence_penalty.value
+    if (top_p.value !== undefined && top_p.value !== null && top_p.value !== '') config.top_p = top_p.value
+    if (min_p.value !== undefined && min_p.value !== null && min_p.value !== '') config.min_p = min_p.value
+    // Only include top_k for mlx_lm.server
+    if (provider.value === 'mlx_lm.server' && top_k.value !== undefined && top_k.value !== null && top_k.value !== '') config.top_k = top_k.value
   }
 
   try {

@@ -64,6 +64,47 @@
         />
       </div>
 
+      <!-- Extra LLM params for openai, llama-server, mlx_lm.server -->
+      <template v-if="['openai','llama-server','mlx_lm.server'].includes(provider)">
+        <div class="grid grid-cols-2 gap-4 mt-2">
+          <BaseInput
+            :id="`${data.id}-presence_penalty`"
+            label="Presence Penalty"
+            type="number"
+            v-model.number="presence_penalty"
+            step="0.01"
+            min="-2"
+            max="2"
+          />
+          <BaseInput
+            :id="`${data.id}-top_p`"
+            label="Top P"
+            type="number"
+            v-model.number="top_p"
+            step="0.01"
+            min="0"
+            max="1"
+          />
+          <BaseInput
+            :id="`${data.id}-top_k`"
+            label="Top K"
+            type="number"
+            v-model.number="top_k"
+            min="0"
+            :disabled="provider !== 'mlx_lm.server'"
+          />
+          <BaseInput
+            :id="`${data.id}-min_p`"
+            label="Min P"
+            type="number"
+            v-model.number="min_p"
+            step="0.01"
+            min="0"
+            max="1"
+          />
+        </div>
+      </template>
+
       <BaseDropdown
         label="Predefined System Prompt"
         v-model="selectedSystemPrompt"
@@ -138,6 +179,7 @@ const {
   showApiKey, selectedSystemPrompt,
   providerOptions, systemPromptOptionsList, modelOptions,
   provider, endpoint, api_key, model, max_completion_tokens, temperature,
+  presence_penalty, top_p, top_k, min_p,
   system_prompt, user_prompt,
   onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor,
   isLoadingModel

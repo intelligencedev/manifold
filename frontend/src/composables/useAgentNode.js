@@ -228,6 +228,23 @@ export function useAgentNode(props, emit) {
     },
   });
 
+  const presence_penalty = computed({
+    get: () => props.data.inputs.presence_penalty,
+    set: (value) => { props.data.inputs.presence_penalty = value }
+  });
+  const top_p = computed({
+    get: () => props.data.inputs.top_p,
+    set: (value) => { props.data.inputs.top_p = value }
+  });
+  const top_k = computed({
+    get: () => props.data.inputs.top_k,
+    set: (value) => { props.data.inputs.top_k = value }
+  });
+  const min_p = computed({
+    get: () => props.data.inputs.min_p,
+    set: (value) => { props.data.inputs.min_p = value }
+  });
+
   // Provider options and selection
   const providerOptions = [
     { value: "llama-server", label: "llama-server" },
@@ -400,6 +417,15 @@ export function useAgentNode(props, emit) {
         // For non-OpenAI providers
         requestBody.max_completion_tokens =
           props.data.inputs.max_completion_tokens || 1000;
+      }
+
+      // Add extra LLM params for openai, llama-server, mlx_lm.server
+      if (["openai", "llama-server", "mlx_lm.server"].includes(currentProvider)) {
+        if (props.data.inputs.presence_penalty !== undefined && props.data.inputs.presence_penalty !== null && props.data.inputs.presence_penalty !== '') requestBody.presence_penalty = props.data.inputs.presence_penalty;
+        if (props.data.inputs.top_p !== undefined && props.data.inputs.top_p !== null && props.data.inputs.top_p !== '') requestBody.top_p = props.data.inputs.top_p;
+        if (props.data.inputs.min_p !== undefined && props.data.inputs.min_p !== null && props.data.inputs.min_p !== '') requestBody.min_p = props.data.inputs.min_p;
+        // Only include top_k for mlx_lm.server
+        if (currentProvider === 'mlx_lm.server' && props.data.inputs.top_k !== undefined && props.data.inputs.top_k !== null && props.data.inputs.top_k !== '') requestBody.top_k = props.data.inputs.top_k;
       }
 
       const canStream =
@@ -854,6 +880,10 @@ export function useAgentNode(props, emit) {
     model,
     max_completion_tokens,
     temperature,
+    presence_penalty,
+    top_p,
+    top_k,
+    min_p,
     system_prompt,
     user_prompt,
     resizeHandleStyle,

@@ -4,10 +4,13 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	llm "manifold/internal/llm"
 )
@@ -21,6 +24,10 @@ type Program struct {
 	Scores            map[string]float64
 	Generation        int
 	ParentID          string
+	LLMUsed           string
+	PromptUsed        string
+	CreationTime      time.Time
+	EvaluationDetails map[string]string
 }
 
 // DiffBlock represents a single change proposed by the LLM.
@@ -67,12 +74,13 @@ func ParseInitialProgram(filePath string) (Program, error) {
 		return Program{}, err
 	}
 	return Program{
-		ID:                "initial-0",
+		ID:                uuid.NewString(),
 		Code:              code,
 		EvolvableSections: sections,
 		SkeletonCode:      skeleton.String(),
 		Scores:            make(map[string]float64),
 		Generation:        0,
+		CreationTime:      time.Now(),
 	}, nil
 }
 
@@ -97,32 +105,59 @@ func EvaluateProgram(code string, evalFunc func(string) (map[string]float64, err
 // ProgramDatabase is a minimal in-memory program storage.
 type ProgramDatabase interface {
 	Add(Program) error
+	Get(id string) (Program, bool)
+	Update(Program) error
 	GetAll() []Program
 }
 
 // InMemoryDB is a thread safe in-memory ProgramDatabase implementation.
 type InMemoryDB struct {
 	mu       sync.Mutex
-	programs []Program
+	programs map[string]Program
+	order    []string
 }
 
 // NewInMemoryDB creates a new database instance.
-func NewInMemoryDB() *InMemoryDB { return &InMemoryDB{} }
+func NewInMemoryDB() *InMemoryDB {
+	return &InMemoryDB{programs: make(map[string]Program)}
+}
 
 // Add stores a program.
 func (db *InMemoryDB) Add(p Program) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	db.programs = append(db.programs, p)
+	db.programs[p.ID] = p
+	db.order = append(db.order, p.ID)
 	return nil
 }
 
-// GetAll returns all programs.
+// Get returns a program by id.
+func (db *InMemoryDB) Get(id string) (Program, bool) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	p, ok := db.programs[id]
+	return p, ok
+}
+
+// Update stores updated data for a program.
+func (db *InMemoryDB) Update(p Program) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if _, ok := db.programs[p.ID]; !ok {
+		return fmt.Errorf("program not found")
+	}
+	db.programs[p.ID] = p
+	return nil
+}
+
+// GetAll returns all programs in insertion order.
 func (db *InMemoryDB) GetAll() []Program {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	out := make([]Program, len(db.programs))
-	copy(out, db.programs)
+	out := make([]Program, 0, len(db.order))
+	for _, id := range db.order {
+		out = append(out, db.programs[id])
+	}
 	return out
 }
 
@@ -132,12 +167,16 @@ func SampleProgramsFromDatabase(db ProgramDatabase, numParents, numInspirations 
 	if len(all) == 0 {
 		return nil, nil, fmt.Errorf("database empty")
 	}
-	parent := all[len(all)-1]
+	sort.Slice(all, func(i, j int) bool { return all[i].Scores["score"] > all[j].Scores["score"] })
+	parents := []Program{}
+	for i := 0; i < numParents && i < len(all); i++ {
+		parents = append(parents, all[i])
+	}
 	inspirations := []Program{}
-	for i := len(all) - 2; i >= 0 && len(inspirations) < numInspirations; i-- {
+	for i := numParents; i < len(all) && len(inspirations) < numInspirations; i++ {
 		inspirations = append(inspirations, all[i])
 	}
-	return []Program{parent}, inspirations, nil
+	return parents, inspirations, nil
 }
 
 // BuildLLMPrompt constructs a basic prompt for the LLM.
@@ -149,11 +188,12 @@ func BuildLLMPrompt(parent Program, inspirations []Program, context, meta string
 	if meta != "" {
 		b.WriteString(meta + "\n\n")
 	}
-	b.WriteString("Parent program:\n")
+	b.WriteString(fmt.Sprintf("Parent program (score %.3f):\n", parent.Scores["score"]))
 	b.WriteString(parent.Code + "\n\n")
 	if len(inspirations) > 0 {
 		b.WriteString("Inspirations:\n")
 		for _, p := range inspirations {
+			b.WriteString(fmt.Sprintf("(score %.3f)\n", p.Scores["score"]))
 			b.WriteString(p.Code + "\n---\n")
 		}
 	}
@@ -164,6 +204,7 @@ func BuildLLMPrompt(parent Program, inspirations []Program, context, meta string
 // LLMClient defines minimal interface for code generation.
 type LLMClient interface {
 	Generate(ctx context.Context, prompt string) (string, error)
+	ModelName() string
 }
 
 // DefaultLLMClient implements LLMClient using internal llm package.
@@ -178,6 +219,8 @@ func (c DefaultLLMClient) Generate(ctx context.Context, prompt string) (string, 
 	msgs := []llm.Message{{Role: "user", Content: prompt}}
 	return llm.CallLLM(ctx, c.Endpoint, c.APIKey, c.Model, msgs, 1024, 0.2)
 }
+
+func (c DefaultLLMClient) ModelName() string { return c.Model }
 
 var diffRegexp = regexp.MustCompile(`<<<<<<< SEARCH\n(?s)(.*?)\n=======\n(?s)(.*?)\n>>>>>>> REPLACE`)
 
@@ -200,6 +243,9 @@ func ApplyDiffsToCode(code string, diffs []DiffBlock) (string, error) {
 	for _, d := range diffs {
 		if strings.Contains(updated, d.Search) {
 			updated = strings.Replace(updated, d.Search, d.Replace, 1)
+		} else {
+			// skip diff if search text not found
+			continue
 		}
 	}
 	return updated, nil
@@ -221,7 +267,7 @@ func SelectBestProgram(db ProgramDatabase, metric string) (Program, error) {
 }
 
 // RunAlphaEvolve executes a simplified evolutionary loop.
-func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, evalFunc func(string) (map[string]float64, error), llmClient LLMClient, db ProgramDatabase, generations int) (Program, error) {
+func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, evalFunc func(string) (map[string]float64, error), llmClient LLMClient, db ProgramDatabase, generations int, progress func(int, Program)) (Program, error) {
 	prog, err := ParseInitialProgram(initialPath)
 	if err != nil {
 		return Program{}, err
@@ -231,6 +277,7 @@ func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, eva
 		return Program{}, err
 	}
 	prog.Scores = scores
+	prog.LLMUsed = llmClient.ModelName()
 	_ = db.Add(prog)
 	best := prog
 
@@ -241,6 +288,9 @@ func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, eva
 		}
 		parent := parents[0]
 		prompt, _ := BuildLLMPrompt(parent, inspirations, problemContext, "")
+		if progress != nil {
+			progress(i, best)
+		}
 		llmOut, err := llmClient.Generate(ctx, prompt)
 		if err != nil {
 			return Program{}, err
@@ -260,17 +310,23 @@ func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, eva
 			continue
 		}
 		child := Program{
-			ID:                fmt.Sprintf("gen%d", i+1),
+			ID:                uuid.NewString(),
 			Code:              childCode,
 			EvolvableSections: newSections,
 			SkeletonCode:      parent.SkeletonCode,
 			Scores:            childScores,
 			Generation:        parent.Generation + 1,
 			ParentID:          parent.ID,
+			LLMUsed:           llmClient.ModelName(),
+			PromptUsed:        prompt,
+			CreationTime:      time.Now(),
 		}
 		_ = db.Add(child)
 		if child.Scores["score"] > best.Scores["score"] {
 			best = child
+		}
+		if progress != nil {
+			progress(i+1, best)
 		}
 	}
 	return best, nil

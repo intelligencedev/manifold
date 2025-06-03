@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 )
 
 // EmbeddingRequest defines the request structure for generating embeddings.
@@ -33,38 +34,46 @@ type Embedding struct {
 
 // GenerateEmbeddings generates embeddings for the provided text chunks.
 func GenerateEmbeddings(host string, apiKey string, chunks []string) ([][]float32, error) {
-	var results [][]float32
+	results := make([][]float32, len(chunks))
+	var wg sync.WaitGroup
+	// limit to 5 concurrent embedding requests
+	sem := make(chan struct{}, 5)
 
-	// Process chunks individually to isolate failures
 	for i, chunk := range chunks {
-		// Skip if chunk is too short to be meaningful
-		if len(strings.TrimSpace(chunk)) < 10 {
-			log.Printf("Warning: Text at index %d too short for embedding, using zero vector", i)
-			// Append a zero vector of appropriate dimension
-			results = append(results, make([]float32, 768))
-			continue
-		}
+		wg.Add(1)
+		go func(i int, chunk string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		// Create an embedding request for a single chunk
-		embeddingRequest := EmbeddingRequest{
-			Input:          []string{chunk},
-			Model:          "nomic-embed-text-v1.5.Q8_0",
-			EncodingFormat: "float",
-		}
+			// Skip if chunk is too short to be meaningful
+			if len(strings.TrimSpace(chunk)) < 10 {
+				log.Printf("Warning: Text at index %d too short for embedding, using zero vector", i)
+				results[i] = make([]float32, 768)
+				return
+			}
 
-		singleEmbedding, err := FetchEmbeddings(host, embeddingRequest, apiKey)
-		if err != nil {
-			log.Printf("Warning: Failed to embed chunk %d: %v", i, err)
-			// Append a zero vector instead of failing
-			results = append(results, make([]float32, 768))
-		} else if len(singleEmbedding) > 0 {
-			results = append(results, singleEmbedding[0])
-		} else {
-			log.Printf("Warning: Empty embedding result for chunk %d", i)
-			results = append(results, make([]float32, 768))
-		}
+			// Create an embedding request for a single chunk
+			embeddingRequest := EmbeddingRequest{
+				Input:          []string{chunk},
+				Model:          "nomic-embed-text-v1.5.Q8_0",
+				EncodingFormat: "float",
+			}
+
+			singleEmbedding, err := FetchEmbeddings(host, embeddingRequest, apiKey)
+			if err != nil {
+				log.Printf("Warning: Failed to embed chunk %d: %v", i, err)
+				results[i] = make([]float32, 768)
+			} else if len(singleEmbedding) > 0 {
+				results[i] = singleEmbedding[0]
+			} else {
+				log.Printf("Warning: Empty embedding result for chunk %d", i)
+				results[i] = make([]float32, 768)
+			}
+		}(i, chunk)
 	}
 
+	wg.Wait()
 	return results, nil
 }
 

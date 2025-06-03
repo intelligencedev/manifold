@@ -28,6 +28,10 @@
               <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" :disabled="provider !== 'mlx_lm.server'" />
               <BaseInput label="Min P" type="number" v-model.number="min_p" step="0.01" min="0" max="1" />
             </div>
+            <!-- Debug info -->
+            <div class="text-xs text-gray-400 mt-2">
+              Debug: Provider = {{ provider }}, Top K disabled = {{ provider !== 'mlx_lm.server' }}
+            </div>
           </template>
           <BaseDropdown label="Predefined System Prompt" v-model="selectedSystemPrompt" :options="systemPromptOptionsList" />
           <BaseTextarea label="System Prompt" v-model="system_prompt" />

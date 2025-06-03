@@ -18,7 +18,7 @@
 
     <!-- Parameters -->
     <BaseAccordion title="Parameters">
-      <BaseInput label="Endpoint" v-model="endpoint" />
+      <BaseInput label="Endpoint" v-model="endpoint" @blur="fetchLlamaServerModel" />
 
       <div class="relative">
         <BaseInput

@@ -13,6 +13,7 @@ import (
 
 	"manifold/internal/a2a"
 	agentspkg "manifold/internal/agents"
+	evolvepkg "manifold/internal/evolve"
 	gitpkg "manifold/internal/git"
 	imggenpkg "manifold/internal/imggen"
 	llmpkg "manifold/internal/llm"
@@ -63,6 +64,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// Workflow templates endpoints
 	registerWorkflowEndpoints(api, config)
+
+	// AlphaEvolve endpoints
+	registerEvolveEndpoints(api, config)
 
 	// A2A protocol endpoints for worker nodes
 	if config.A2A.Role == "worker" {
@@ -199,6 +203,12 @@ func registerWorkflowEndpoints(api *echo.Group, config *Config) {
 	workflowGroup := api.Group("/workflows")
 	workflowGroup.GET("/templates", listWorkflowTemplatesHandler(config))
 	workflowGroup.GET("/templates/:id", getWorkflowTemplateHandler(config))
+}
+
+// registerEvolveEndpoints registers routes for the AlphaEvolve system.
+func registerEvolveEndpoints(api *echo.Group, config *Config) {
+	evolveGroup := api.Group("/evolve")
+	evolveGroup.POST("/run", evolvepkg.RunHandler(config))
 }
 
 // registerA2AEndpoints registers all A2A protocol-related routes.

@@ -827,18 +827,12 @@ export function useAgentNode(props, emit) {
       if (!geminiModels.includes(model.value)) {
         model.value = geminiModels[0]; // Default to first Gemini model
       }
-    } else if (newProvider === "llama-server" && props.data.inputs.endpoint) {
-      // Fetch model ID from llama-server when provider is selected
+    } else if ((newProvider === "llama-server" || newProvider === "mlx_lm.server") && props.data.inputs.endpoint) {
+      // Fetch model ID from local servers when provider is selected
       fetchLlamaServerModel();
     }
   });
   
-  // Watch endpoint changes for llama-server to fetch model ID
-  watch(endpoint, (newEndpoint) => {
-    if (provider.value === "llama-server" && newEndpoint) {
-      fetchLlamaServerModel();
-    }
-  });
 
   // Watch provider changes to swap API key accordingly
   watch(provider, (newProvider) => {

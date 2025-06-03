@@ -209,6 +209,8 @@ func registerWorkflowEndpoints(api *echo.Group, config *Config) {
 func registerEvolveEndpoints(api *echo.Group, config *Config) {
 	evolveGroup := api.Group("/evolve")
 	evolveGroup.POST("/run", evolvepkg.RunHandler(config))
+	evolveGroup.GET("/status/:id", evolvepkg.StatusHandler)
+	evolveGroup.GET("/results/:id", evolvepkg.ResultHandler)
 }
 
 // registerA2AEndpoints registers all A2A protocol-related routes.

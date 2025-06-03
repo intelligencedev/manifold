@@ -122,6 +122,31 @@ const api_key = computed({
   set: (value) => chatStore.api_key = value
 })
 
+watch(
+  () => configStore.config,
+  (newConfig) => {
+    if (newConfig && newConfig.Completions) {
+      if (!chatStore.api_key && newConfig.Completions.APIKey) {
+        chatStore.api_key = newConfig.Completions.APIKey
+      }
+      if (!chatStore.endpoint && newConfig.Completions.DefaultHost) {
+        chatStore.endpoint = newConfig.Completions.DefaultHost
+      }
+    }
+  },
+  { immediate: true, deep: true }
+)
+
+watch(
+  () => configStore.config?.Completions?.Provider,
+  (newProvider) => {
+    if (newProvider && provider.value !== 'openai') {
+      chatStore.endpoint = configStore.config.Completions.DefaultHost
+    }
+  },
+  { immediate: true }
+)
+
 const model = computed({
   get: () => chatStore.model,
   set: (value) => chatStore.model = value

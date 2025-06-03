@@ -4,13 +4,15 @@ import (
 	"bufio"
 	"context"
 	"fmt"
-	"github.com/google/uuid"
+	"log"
 	"os"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	llm "manifold/internal/llm"
 )
@@ -179,8 +181,8 @@ func SampleProgramsFromDatabase(db ProgramDatabase, numParents, numInspirations 
 	return parents, inspirations, nil
 }
 
-// BuildLLMPrompt constructs a basic prompt for the LLM.
-func BuildLLMPrompt(parent Program, inspirations []Program, context, meta string) (string, error) {
+// BuildLLMPrompt constructs a basic prompt for the LLM with diversity mechanisms.
+func BuildLLMPrompt(parent Program, inspirations []Program, context, meta string, generation int, attemptType string) (string, error) {
 	var b strings.Builder
 	if context != "" {
 		b.WriteString("Context:\n" + context + "\n\n")
@@ -188,6 +190,13 @@ func BuildLLMPrompt(parent Program, inspirations []Program, context, meta string
 	if meta != "" {
 		b.WriteString(meta + "\n\n")
 	}
+
+	// Add generation info for diversity
+	b.WriteString(fmt.Sprintf("Generation: %d\n", generation))
+	if attemptType != "" {
+		b.WriteString(fmt.Sprintf("Optimization focus: %s\n\n", attemptType))
+	}
+
 	b.WriteString(fmt.Sprintf("Parent program (score %.3f):\n", parent.Scores["score"]))
 	b.WriteString(parent.Code + "\n\n")
 	if len(inspirations) > 0 {
@@ -197,7 +206,36 @@ func BuildLLMPrompt(parent Program, inspirations []Program, context, meta string
 			b.WriteString(p.Code + "\n---\n")
 		}
 	}
-	b.WriteString("Suggest improvements in diff format:")
+
+	// Add diverse optimization strategies based on generation and attempt type
+	if attemptType == "radical_refactor" {
+		b.WriteString("IMPORTANT: The current approach is stagnating. Please provide a RADICAL REFACTOR with completely different logic.\n\n")
+	} else if attemptType == "alternative_algorithm" {
+		b.WriteString("IMPORTANT: Try a completely different algorithmic approach (e.g., iterative vs recursive, different data structures).\n\n")
+	} else if attemptType == "complete_redesign" {
+		b.WriteString("IMPORTANT: Completely redesign the solution from scratch with a fresh perspective.\n\n")
+	} else {
+		strategies := []string{
+			"Focus on performance optimization with memoization or caching",
+			"Simplify the algorithm and reduce complexity",
+			"Add error handling and edge case management",
+			"Optimize for readability and maintainability",
+			"Implement iterative instead of recursive approaches",
+			"Add input validation and type checking",
+			"Optimize memory usage and reduce allocations",
+			"Improve variable naming and code structure",
+		}
+		strategyIndex := generation % len(strategies)
+		b.WriteString(fmt.Sprintf("Optimization strategy: %s\n\n", strategies[strategyIndex]))
+	}
+
+	b.WriteString("Suggest improvements in diff format using this exact structure:\n\n")
+	b.WriteString("<<<<<<< SEARCH\n")
+	b.WriteString("code to replace\n")
+	b.WriteString("=======\n")
+	b.WriteString("improved code\n")
+	b.WriteString(">>>>>>> REPLACE\n\n")
+	b.WriteString("Please provide specific improvements to the code above:")
 	return b.String(), nil
 }
 
@@ -216,8 +254,21 @@ type DefaultLLMClient struct {
 
 // Generate sends the prompt to the completions endpoint.
 func (c DefaultLLMClient) Generate(ctx context.Context, prompt string) (string, error) {
+	log.Printf("[EVOLVE] LLM Generate called with endpoint: %s, model: %s", c.Endpoint, c.Model)
+	log.Printf("[EVOLVE] Prompt length: %d characters", len(prompt))
+	log.Printf("[EVOLVE] Prompt preview: %.200s...", prompt)
+
 	msgs := []llm.Message{{Role: "user", Content: prompt}}
-	return llm.CallLLM(ctx, c.Endpoint, c.APIKey, c.Model, msgs, 1024, 0.2)
+	response, err := llm.CallLLM(ctx, c.Endpoint, c.APIKey, c.Model, msgs, 1024, 0.2)
+
+	if err != nil {
+		log.Printf("[EVOLVE] LLM Generate failed: %v", err)
+		return "", fmt.Errorf("LLM generation failed: %w", err)
+	}
+
+	log.Printf("[EVOLVE] LLM Generate success, response length: %d", len(response))
+	log.Printf("[EVOLVE] Response preview: %.200s...", response)
+	return response, nil
 }
 
 func (c DefaultLLMClient) ModelName() string { return c.Model }
@@ -226,13 +277,23 @@ var diffRegexp = regexp.MustCompile(`<<<<<<< SEARCH\n(?s)(.*?)\n=======\n(?s)(.*
 
 // ParseLLMDiffOutput parses diff-style output into DiffBlocks.
 func ParseLLMDiffOutput(out string) ([]DiffBlock, error) {
+	log.Printf("[EVOLVE] Parsing LLM diff output, length: %d", len(out))
+	log.Printf("[EVOLVE] Raw LLM output: %s", out)
+
 	matches := diffRegexp.FindAllStringSubmatch(out, -1)
 	if len(matches) == 0 {
+		log.Printf("[EVOLVE] No diff blocks found in LLM output")
 		return nil, fmt.Errorf("no diff blocks found")
 	}
+
+	log.Printf("[EVOLVE] Found %d diff blocks", len(matches))
 	diffs := make([]DiffBlock, 0, len(matches))
-	for _, m := range matches {
-		diffs = append(diffs, DiffBlock{Search: strings.TrimSpace(m[1]), Replace: strings.TrimSpace(m[2])})
+	for i, m := range matches {
+		if len(m) >= 3 {
+			diff := DiffBlock{Search: strings.TrimSpace(m[1]), Replace: strings.TrimSpace(m[2])}
+			diffs = append(diffs, diff)
+			log.Printf("[EVOLVE] Diff block %d: search=%d chars, replace=%d chars", i, len(diff.Search), len(diff.Replace))
+		}
 	}
 	return diffs, nil
 }
@@ -268,47 +329,89 @@ func SelectBestProgram(db ProgramDatabase, metric string) (Program, error) {
 
 // RunAlphaEvolve executes a simplified evolutionary loop.
 func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, evalFunc func(string) (map[string]float64, error), llmClient LLMClient, db ProgramDatabase, generations int, progress func(int, Program)) (Program, error) {
+	log.Printf("[EVOLVE] Starting RunAlphaEvolve with file: %s, generations: %d", initialPath, generations)
+
 	prog, err := ParseInitialProgram(initialPath)
 	if err != nil {
-		return Program{}, err
+		log.Printf("[EVOLVE] Failed to parse initial program: %v", err)
+		return Program{}, fmt.Errorf("failed to parse initial program: %w", err)
 	}
+
+	log.Printf("[EVOLVE] Parsed initial program: %d evolvable sections", len(prog.EvolvableSections))
+
 	scores, err := EvaluateProgram(prog.Code, evalFunc)
 	if err != nil {
-		return Program{}, err
+		log.Printf("[EVOLVE] Failed to evaluate initial program: %v", err)
+		return Program{}, fmt.Errorf("failed to evaluate initial program: %w", err)
 	}
+
 	prog.Scores = scores
 	prog.LLMUsed = llmClient.ModelName()
 	_ = db.Add(prog)
 	best := prog
+	stagnationCount := 0
+
+	log.Printf("[EVOLVE] Initial program score: %.3f", scores["score"])
 
 	for i := 0; i < generations; i++ {
+		log.Printf("[EVOLVE] Starting generation %d/%d (stagnation: %d)", i+1, generations, stagnationCount)
+
 		parents, inspirations, err := SampleProgramsFromDatabase(db, 1, 2)
 		if err != nil {
-			return Program{}, err
+			log.Printf("[EVOLVE] Failed to sample programs: %v", err)
+			return Program{}, fmt.Errorf("failed to sample programs: %w", err)
 		}
 		parent := parents[0]
-		prompt, _ := BuildLLMPrompt(parent, inspirations, problemContext, "")
+		log.Printf("[EVOLVE] Using parent program (generation %d, score %.3f)", parent.Generation, parent.Scores["score"])
+
+		// Add diversity to prompt based on generation and stagnation
+		attemptType := ""
+		if stagnationCount > 2 {
+			// High diversity when stagnating
+			diverseTypes := []string{"radical_refactor", "alternative_algorithm", "complete_redesign"}
+			attemptType = diverseTypes[i%len(diverseTypes)]
+		} else if i%3 == 0 {
+			attemptType = "performance"
+		} else if i%3 == 1 {
+			attemptType = "simplicity"
+		} else {
+			attemptType = "robustness"
+		}
+
+		prompt, _ := BuildLLMPrompt(parent, inspirations, problemContext, "", i+1, attemptType)
+		log.Printf("[EVOLVE] Built prompt for LLM (%d characters) with focus: %s", len(prompt), attemptType)
+
 		if progress != nil {
 			progress(i, best)
 		}
+
 		llmOut, err := llmClient.Generate(ctx, prompt)
 		if err != nil {
-			return Program{}, err
+			log.Printf("[EVOLVE] LLM generation failed in generation %d: %v", i+1, err)
+			return Program{}, fmt.Errorf("LLM generation failed in generation %d: %w", i+1, err)
 		}
+
 		diffs, err := ParseLLMDiffOutput(llmOut)
 		if err != nil {
+			log.Printf("[EVOLVE] Failed to parse LLM output in generation %d: %v", i+1, err)
 			continue
 		}
+
+		log.Printf("[EVOLVE] Applying %d diffs to %d evolvable sections", len(diffs), len(parent.EvolvableSections))
 		newSections := make([]string, len(parent.EvolvableSections))
 		for j, sec := range parent.EvolvableSections {
 			updated, _ := ApplyDiffsToCode(sec, diffs)
 			newSections[j] = updated
 		}
 		childCode := ReconstructProgramCode(parent.SkeletonCode, newSections)
+		log.Printf("[EVOLVE] Generated child program (%d characters)", len(childCode))
+
 		childScores, err := EvaluateProgram(childCode, evalFunc)
 		if err != nil {
+			log.Printf("[EVOLVE] Failed to evaluate child program in generation %d: %v", i+1, err)
 			continue
 		}
+
 		child := Program{
 			ID:                uuid.NewString(),
 			Code:              childCode,
@@ -322,12 +425,21 @@ func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, eva
 			CreationTime:      time.Now(),
 		}
 		_ = db.Add(child)
+
+		log.Printf("[EVOLVE] Child program score: %.3f (parent: %.3f)", childScores["score"], parent.Scores["score"])
 		if child.Scores["score"] > best.Scores["score"] {
+			log.Printf("[EVOLVE] New best program found! Score improved from %.3f to %.3f", best.Scores["score"], child.Scores["score"])
 			best = child
+			stagnationCount = 0 // Reset stagnation counter
+		} else {
+			stagnationCount++
+			log.Printf("[EVOLVE] No improvement this generation. Stagnation count: %d", stagnationCount)
 		}
 		if progress != nil {
 			progress(i+1, best)
 		}
 	}
+
+	log.Printf("[EVOLVE] Evolution completed. Final best score: %.3f (generation %d)", best.Scores["score"], best.Generation)
 	return best, nil
 }

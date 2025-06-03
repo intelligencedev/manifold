@@ -211,6 +211,7 @@ func registerEvolveEndpoints(api *echo.Group, config *Config) {
 	evolveGroup.POST("/run", evolvepkg.RunHandler(config))
 	evolveGroup.GET("/status/:id", evolvepkg.StatusHandler)
 	evolveGroup.GET("/results/:id", evolvepkg.ResultHandler)
+	evolveGroup.POST("/save/:id", evolvepkg.SaveHandler)
 }
 
 // registerA2AEndpoints registers all A2A protocol-related routes.

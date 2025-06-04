@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -62,73 +63,127 @@ func RunHandler(config *cfg.Config) echo.HandlerFunc {
 
 		log.Printf("[EVOLVE] LLM Client configured: endpoint=%s, model=%s", llmClient.Endpoint, llmClient.Model)
 
-		evalFunc := func(code string) (map[string]float64, error) {
-			// More sophisticated scoring function
+		// evalFunc now accepts fullCode and evolvableSections
+		evalFunc := func(fullCode string, evolvableSections []string) (map[string]float64, error) {
 			baseScore := 1000.0
 
-			// Penalty for longer code (encourage conciseness)
-			lengthPenalty := float64(len(code)) * 0.1
-
-			// Bonus for performance optimizations
+			// Penalty for longer code (encourage conciseness) - based on full code length
+			lengthPenalty := float64(len(fullCode)) * 0.1
 			performanceBonus := 0.0
+			inefficiencyPenalty := 0.0
 
-			// Check for memoization patterns (much more flexible detection)
-			hasMemo := strings.Contains(code, "memo")
+			// Join evolvable sections to analyze the evolved logic specifically
+			evolvedLogic := strings.Join(evolvableSections, "\\\\n")
+
+			// --- Checks performed on the evolvedLogic string ---
+
+			// Check for memoization patterns
+			hasMemo := false
+			// Pattern 1: memo = {} or cache = {}
+			if strings.Contains(evolvedLogic, "memo = {") || strings.Contains(evolvedLogic, "memo={") ||
+				strings.Contains(evolvedLogic, "cache = {") || strings.Contains(evolvedLogic, "cache={") {
+				hasMemo = true
+			}
+			// Pattern 2: memo: dict or cache: dict (for type hints)
+			if strings.Contains(evolvedLogic, "memo: dict") || strings.Contains(evolvedLogic, "cache: dict") {
+				hasMemo = true
+			}
+			// Pattern 3: memo is None: memo = {}
+			if strings.Contains(evolvedLogic, "memo is None") && strings.Contains(evolvedLogic, "memo = {}") {
+				hasMemo = true
+			}
+
 			if hasMemo {
 				performanceBonus += 200.0
-				log.Printf("[EVOLVE] Detected memoization pattern, +200 bonus")
+				log.Printf("[EVOLVE] Detected memoization/cache pattern in evolved logic, +200 bonus")
 			}
 
-			// Check for cache patterns
-			if strings.Contains(code, "cache") {
-				performanceBonus += 200.0
-				log.Printf("[EVOLVE] Detected cache pattern, +200 bonus")
-			}
-
-			// Check for dynamic programming keywords
-			if strings.Contains(code, "dynamic") || strings.Contains(code, "dp") {
+			// Check for dynamic programming with arrays/lists
+			if (strings.Contains(evolvedLogic, "fib = [") || strings.Contains(evolvedLogic, "dp = [") || strings.Contains(evolvedLogic, "fib_array = [") || strings.Contains(evolvedLogic, "dp_table = [")) &&
+				(strings.Contains(evolvedLogic, ".append(") || strings.Contains(evolvedLogic, "append(")) {
 				performanceBonus += 150.0
-				log.Printf("[EVOLVE] Detected dynamic programming, +150 bonus")
+				log.Printf("[EVOLVE] Detected array-based dynamic programming in evolved logic, +150 bonus")
 			}
 
 			// Check for iterative patterns (for loops)
-			if strings.Contains(code, "for ") && (strings.Contains(code, "range") || strings.Contains(code, "in ")) {
+			hasIteration := strings.Contains(evolvedLogic, "for ") && (strings.Contains(evolvedLogic, "range(") || strings.Contains(evolvedLogic, " in "))
+
+			// Count recursive calls within the evolved logic
+			// Attempt to find the function name defined within the block if it's a simple def.
+			var funcNameInBlock string
+			re := regexp.MustCompile(`def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(`)
+			matches := re.FindStringSubmatch(evolvedLogic)
+			if len(matches) > 1 {
+				funcNameInBlock = matches[1]
+			}
+
+			localRecursiveCalls := 0
+			if funcNameInBlock != "" && funcNameInBlock != "fibonacci" { // If a new function is defined, count its calls
+				localRecursiveCalls = strings.Count(evolvedLogic, funcNameInBlock+"(")
+				// also check for common helper names if the main func name wasn't found or is different
+				if strings.Contains(evolvedLogic, "fib_memo(") {
+					localRecursiveCalls += strings.Count(evolvedLogic, "fib_memo(")
+				}
+				if strings.Contains(evolvedLogic, "helper(") {
+					localRecursiveCalls += strings.Count(evolvedLogic, "helper(")
+				}
+
+			} else { // Fallback to counting "fibonacci(" if no clear inner function or it's still named fibonacci
+				localRecursiveCalls = strings.Count(evolvedLogic, "fibonacci(")
+			}
+
+			if hasIteration && localRecursiveCalls == 0 { // Pure iteration gets full bonus
 				performanceBonus += 100.0
-				log.Printf("[EVOLVE] Detected iterative pattern, +100 bonus")
+				log.Printf("[EVOLVE] Detected pure iterative pattern in evolved logic, +100 bonus")
+			} else if hasIteration && localRecursiveCalls < 2 { // Iteration with minimal recursion (e.g. setup)
+				performanceBonus += 50.0 // Reduced bonus
+				log.Printf("[EVOLVE] Detected iterative pattern with minimal recursion in evolved logic, +50 bonus")
 			}
 
-			// Check for efficient variable swapping (a, b = b, a + b)
-			if strings.Contains(code, "a, b =") && strings.Contains(code, "b, a + b") {
+			// Check for efficient variable swapping (specific to iterative Fibonacci)
+			if strings.Contains(evolvedLogic, "a, b =") && strings.Contains(evolvedLogic, "b, a + b") && hasIteration {
 				performanceBonus += 150.0
-				log.Printf("[EVOLVE] Detected efficient variable swapping, +150 bonus")
+				log.Printf("[EVOLVE] Detected efficient variable swapping in iterative solution, +150 bonus")
 			}
 
-			// Penalty for inefficient patterns - count recursive calls
-			inefficiencyPenalty := 0.0
-			recursiveCount := strings.Count(code, "fibonacci(")
-			if recursiveCount > 2 {
-				penalty := float64(recursiveCount-2) * 50.0
-				inefficiencyPenalty += penalty
-				log.Printf("[EVOLVE] Too many recursive calls (%d), +%.1f penalty", recursiveCount, penalty)
+			// Penalty for inefficient patterns within evolved logic
+			if localRecursiveCalls > 1 {
+				// If memoization is present, recursive calls are okay (part of memoized recursion)
+				// So, only penalize if NOT memoized.
+				if !hasMemo {
+					penalty := float64(localRecursiveCalls-1) * 75.0 // Increased penalty for non-memoized recursion
+					inefficiencyPenalty += penalty
+					log.Printf("[EVOLVE] Detected %d non-memoized recursive calls in evolved logic, +%.1f penalty", localRecursiveCalls, penalty)
+				} else {
+					// If memoized, still a small penalty for complexity if too many internal calls are visible
+					// This encourages cleaner memoization.
+					if localRecursiveCalls > 2 { // e.g. fib_memo(k-1) + fib_memo(k-2) is 2 calls.
+						penalty := float64(localRecursiveCalls-2) * 25.0
+						inefficiencyPenalty += penalty
+						log.Printf("[EVOLVE] Detected %d recursive calls within memoized logic, +%.1f complexity penalty", localRecursiveCalls, penalty)
+					}
+				}
 			}
 
-			// Major penalty for naive recursion (no memoization)
-			if recursiveCount >= 2 && !hasMemo && !strings.Contains(code, "cache") {
-				inefficiencyPenalty += 200.0
-				log.Printf("[EVOLVE] Naive recursion detected, +200 penalty")
+			// Major penalty for naive recursion (recursive calls in evolved logic without memoization)
+			// This is somewhat redundant if the above localRecursiveCalls penalty handles it, but keep for emphasis.
+			if localRecursiveCalls > 1 && !hasMemo && !hasIteration { // only if not iterative and not memoized
+				inefficiencyPenalty += 100.0
+				log.Printf("[EVOLVE] Additional penalty for naive recursion (calls=%d, no memo/iteration), +100 penalty", localRecursiveCalls)
 			}
 
-			// Bonus for pre-initialized memo or base cases
-			if (strings.Contains(code, "{0:") && strings.Contains(code, "1:")) ||
-				(strings.Contains(code, "a, b = 0, 1")) {
+			// Bonus for pre-initialized memo or base cases in evolved logic
+			if (strings.Contains(evolvedLogic, "memo = {0:") && strings.Contains(evolvedLogic, "1:")) || // Python dict init
+				(strings.Contains(evolvedLogic, "memo={0:") && strings.Contains(evolvedLogic, "1:")) ||
+				(strings.Contains(evolvedLogic, "a, b = 0, 1")) { // Iterative base cases
 				performanceBonus += 50.0
-				log.Printf("[EVOLVE] Detected optimized base cases, +50 bonus")
+				log.Printf("[EVOLVE] Detected optimized base cases/initialization in evolved logic, +50 bonus")
 			}
 
 			finalScore := baseScore + performanceBonus - lengthPenalty - inefficiencyPenalty
 
-			log.Printf("[EVOLVE] Scoring code: base=%.1f, perf_bonus=%.1f, length_penalty=%.1f, ineffic_penalty=%.1f, final=%.1f",
-				baseScore, performanceBonus, lengthPenalty, inefficiencyPenalty, finalScore)
+			log.Printf("[EVOLVE] Scoring: full_len=%d, evolved_logic_len=%d. Score: base=%.1f, perf_bonus=%.1f, len_penalty=%.1f, ineffic_penalty=%.1f, final=%.1f",
+				len(fullCode), len(evolvedLogic), baseScore, performanceBonus, lengthPenalty, inefficiencyPenalty, finalScore)
 
 			return map[string]float64{"score": finalScore}, nil
 		}

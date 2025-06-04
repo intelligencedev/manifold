@@ -18,7 +18,7 @@
 
     <!-- Parameters -->
     <BaseAccordion title="Parameters">
-      <BaseInput label="Endpoint" v-model="endpoint" />
+      <BaseInput label="Endpoint" v-model="endpoint" @blur="fetchLlamaServerModel" />
 
       <div class="relative">
         <BaseInput
@@ -34,6 +34,12 @@
       <!-- Model selection: dropdown for Anthropic/Google, text input for others -->
       <template v-if="provider === 'anthropic' || provider === 'google'">
         <BaseDropdown :id="`${data.id}-model`" label="Model" v-model="model" :options="modelOptions" />
+      </template>
+      <template v-else-if="provider === 'llama-server'">
+        <div class="relative">
+          <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" :disabled="isLoadingModel" />
+          <span v-if="isLoadingModel" class="absolute right-10 top-1/2 transform -translate-y-1/2 text-xs text-blue-400">Loading...</span>
+        </div>
       </template>
       <template v-else>
         <BaseInput :id="`${data.id}-model`" label="Model" v-model="model" />
@@ -57,6 +63,47 @@
           max="2"
         />
       </div>
+
+      <!-- Extra LLM params for openai, llama-server, mlx_lm.server -->
+      <template v-if="['openai','llama-server','mlx_lm.server'].includes(provider)">
+        <div class="grid grid-cols-2 gap-4 mt-2">
+          <BaseInput
+            :id="`${data.id}-presence_penalty`"
+            label="Presence Penalty"
+            type="number"
+            v-model.number="presence_penalty"
+            step="0.01"
+            min="-2"
+            max="2"
+          />
+          <BaseInput
+            :id="`${data.id}-top_p`"
+            label="Top P"
+            type="number"
+            v-model.number="top_p"
+            step="0.01"
+            min="0"
+            max="1"
+          />
+          <BaseInput
+            :id="`${data.id}-top_k`"
+            label="Top K"
+            type="number"
+            v-model.number="top_k"
+            min="0"
+            :disabled="provider !== 'mlx_lm.server'"
+          />
+          <BaseInput
+            :id="`${data.id}-min_p`"
+            label="Min P"
+            type="number"
+            v-model.number="min_p"
+            step="0.01"
+            min="0"
+            max="1"
+          />
+        </div>
+      </template>
 
       <BaseDropdown
         label="Predefined System Prompt"
@@ -132,8 +179,10 @@ const {
   showApiKey, selectedSystemPrompt,
   providerOptions, systemPromptOptionsList, modelOptions,
   provider, endpoint, api_key, model, max_completion_tokens, temperature,
+  presence_penalty, top_p, top_k, min_p,
   system_prompt, user_prompt,
-  onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor
+  onResize, handleTextareaMouseEnter, handleTextareaMouseLeave, sendToCodeEditor,
+  isLoadingModel
 } = useAgentNode(props, emit)
 
 if (!props.data.outputs) props.data.outputs = { response:'', error:null }

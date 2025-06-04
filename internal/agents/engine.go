@@ -203,6 +203,12 @@ type ToolInfo struct {
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	mcpToolsOnce.Do(func() {
 		cachedMCPTools = make(map[string]ToolInfo)
+		var toolsToEmbed []struct {
+			name        string
+			description string
+		}
+
+		// First, collect all tools and their info
 		for _, srv := range ae.mcpMgr.List() {
 			ts, err := ae.mcpMgr.ListTools(ctx, srv)
 			if err != nil {
@@ -231,15 +237,44 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 					InputSchema: inputSchema,
 				}
 
-				// compute and store embedding for tool description
-				if err := ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions); err == nil {
-					embedTxt := ae.Config.Embeddings.EmbedPrefix + desc
-					embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, []string{embedTxt})
-					if err == nil && len(embeds) > 0 {
-						vec := pgvector.NewVector(embeds[0])
+				// Collect tools for embedding
+				toolsToEmbed = append(toolsToEmbed, struct {
+					name        string
+					description string
+				}{name: toolName, description: desc})
+			}
+		}
+
+		// Generate embeddings in a single batch if tool memory table exists
+		if len(toolsToEmbed) > 0 && ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions) == nil {
+			// Prepare text for embedding
+			var embedTexts []string
+			for _, tool := range toolsToEmbed {
+				embedTexts = append(embedTexts, ae.Config.Embeddings.EmbedPrefix+tool.description)
+			}
+
+			// Generate all embeddings in one call
+			embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, embedTexts)
+			if err == nil && len(embeds) == len(toolsToEmbed) {
+				// Use a wait group to handle concurrent inserts
+				var wg sync.WaitGroup
+				// Use a semaphore to limit concurrency to avoid overwhelming the database
+				sem := make(chan struct{}, 10) // Allow up to 10 concurrent operations
+
+				for i, tool := range toolsToEmbed {
+					wg.Add(1)
+					sem <- struct{}{} // Acquire semaphore
+
+					go func(index int, toolName, desc string, embedding []float32) {
+						defer wg.Done()
+						defer func() { <-sem }() // Release semaphore
+
+						vec := pgvector.NewVector(embedding)
 						_ = ae.upsertToolMemory(ctx, toolName, desc, vec)
-					}
+					}(i, tool.name, tool.description, embeds[i])
 				}
+
+				wg.Wait() // Wait for all insertions to complete
 			}
 		}
 	})
@@ -296,7 +331,10 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		"- finish       • end and output final answer",
 	)
 
-	sysPrompt := fmt.Sprintf(`You are a helpful assistant.
+	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are the ONLY assistant in your team with access to the tools. The other assistants can only think and reply to your requests for help from your team. You are the ONLY one that makes the tool calls. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
+
+IMPORTANT: If you get stuck, or detect a loop, ask for assistance from another expert and ensure you give them all of the information necessary for them to help you.
+
 Objective: %s
 
 IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.
@@ -312,7 +350,7 @@ The manifold cli tool:
 {"properties":{"command":{"description":"Command string to execute","type":"string"},"dir":{"description":"Optional working directory","type":"string"}},"required":["command"],"type":"object"}
 
 The manifold web search tool:
-- manifold::web_search • Search the web for information
+- web_search • Search the web for information
 {"properties":{"query":{"description":"Search query","type":"string"}},"required":["query"],"type":"object"}
 
 Below is a list of available CLI commands using the manifold::cli tool schema you should use.
@@ -617,14 +655,14 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	}
 
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
-	// maxTokens := max(ae.Config.Completions.CtxSize-promptTokens-1024, 128)
+	maxTokens := max(ae.Config.Completions.CtxSize-promptTokens-1024, 1024)
 
 	var body []byte
 
 	if ae.Config.Completions.Backend != "mlx" {
 		body, _ = json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, Temperature: ae.Config.Completions.Temperature})
 	} else {
-		body, _ = json.Marshal(completions.CompletionRequest{Messages: msgs, Temperature: ae.Config.Completions.Temperature})
+		body, _ = json.Marshal(completions.CompletionRequest{Messages: msgs, Temperature: ae.Config.Completions.Temperature, MaxTokens: maxTokens})
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, "POST", assistant.Endpoint, bytes.NewBuffer(body))

@@ -20,6 +20,10 @@ export const useChatStore = defineStore('chat', () => {
   const enableToolCalls = ref(false)
   const selectedSystemPrompt = ref('friendly_assistant')
   const system_prompt = ref('')
+  const presence_penalty = ref()
+  const top_p = ref()
+  const top_k = ref()
+  const min_p = ref()
   
   // UI preferences
   const renderMode = ref('markdown')
@@ -47,7 +51,7 @@ export const useChatStore = defineStore('chat', () => {
     system_prompt.value = prompt
   }
 
-  return { 
+  return {
     messages, 
     provider,
     endpoint,
@@ -60,6 +64,10 @@ export const useChatStore = defineStore('chat', () => {
     system_prompt,
     renderMode,
     selectedTheme,
+    presence_penalty,
+    top_p,
+    top_k,
+    min_p,
     addMessage,
     updateLastAssistantMessage,
     clearMessages,

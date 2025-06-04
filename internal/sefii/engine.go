@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -776,16 +777,11 @@ func (e *Engine) fetchChunksByIDs(ctx context.Context, ids []int64) ([]Chunk, er
 	return results, nil
 }
 
-// Sort helper
+// Sorts the slice in place by descending score and returns it.
 func sortByScoreDesc(items []scoredItem) []scoredItem {
-	// simple bubble or any sorting
-	for i := 0; i < len(items); i++ {
-		for j := i + 1; j < len(items); j++ {
-			if items[j].score > items[i].score {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
-	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].score > items[j].score
+	})
 	return items
 }
 

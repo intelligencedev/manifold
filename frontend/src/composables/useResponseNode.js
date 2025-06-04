@@ -52,6 +52,9 @@ export function useResponseNode(props, emit) {
     loadTheme(selectedTheme.value)
 
     marked.setOptions({
+      gfm: true, // Enable GitHub Flavored Markdown
+      breaks: true, // Treat single line breaks as <br>
+      headerIds: false, // Disable auto-generating header IDs
       highlight(code, lang) {
         if (lang && hljs.getLanguage(lang)) {
           try {

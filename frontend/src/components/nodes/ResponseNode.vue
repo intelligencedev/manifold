@@ -126,7 +126,6 @@ const {
 <style scoped>
 /* -------- thinking block -------- */
 .think-wrapper {
-  font-style: italic;
   color: #d8d0e8;
   background: rgba(73,49,99,.25);
   border-left: 3px solid #8a70b5;
@@ -178,5 +177,90 @@ const {
   -webkit-box-orient: vertical;
   overflow: hidden;
   max-height: calc(1.2em * 2);
+}
+
+/* Markdown styling for headers and other elements */
+:deep(h1) {
+  font-size: 1.9em;
+  font-weight: bold;
+  margin: 0.67em 0;
+}
+:deep(h2) {
+  font-size: 1.5em;
+  font-weight: bold;
+  margin: 0.83em 0;
+}
+:deep(h3) {
+  font-size: 1.3em;
+  font-weight: bold;
+  margin: 1em 0;
+}
+:deep(h4) {
+  font-size: 1.1em;
+  font-weight: bold;
+  margin: 1.33em 0;
+}
+:deep(h5) {
+  font-size: 1em;
+  font-weight: bold;
+  margin: 1.5em 0;
+}
+:deep(h6) {
+  font-size: 0.9em;
+  font-weight: bold;
+  margin: 1.67em 0;
+}
+:deep(p) {
+  margin: 1em 0;
+}
+:deep(ul), :deep(ol) {
+  padding-left: 1.5em;
+  margin: 1em 0;
+}
+:deep(ul) {
+  list-style-type: disc;
+}
+:deep(ol) {
+  list-style-type: decimal;
+}
+:deep(li) {
+  margin: 0.5em 0;
+}
+:deep(pre) {
+  margin: 1em 0;
+  padding: 1em;
+  background-color: rgba(45, 45, 45, 0.5);
+  border-radius: 0.25em;
+  overflow-x: auto;
+}
+:deep(code) {
+  font-family: monospace;
+  background-color: rgba(45, 45, 45, 0.3);
+  padding: 0.2em 0.4em;
+  border-radius: 0.2em;
+}
+:deep(pre code) {
+  background-color: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+:deep(blockquote) {
+  margin: 1em 0;
+  padding-left: 1em;
+  border-left: 4px solid #4a5568;
+  color: #a0aec0;
+}
+:deep(table) {
+  border-collapse: collapse;
+  margin: 1em 0;
+  width: 100%;
+}
+:deep(th), :deep(td) {
+  border: 1px solid #4a5568;
+  padding: 0.5em;
+  text-align: left;
+}
+:deep(th) {
+  background-color: rgba(45, 45, 45, 0.3);
 }
 </style>

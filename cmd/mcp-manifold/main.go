@@ -153,18 +153,18 @@ func registerGitTools(mcpServer *server.MCPServer) {
 // registerAdditionalTools registers various other tools, including the new file_tool
 func registerAdditionalTools(mcpServer *server.MCPServer) {
 	// Run Shell Command Tool
-	mcpServer.AddTool(mcp.NewTool("run_shell_command",
-		mcp.WithDescription("Executes an arbitrary shell command"),
-		mcp.WithArray("command",
-			mcp.Description("Command to execute and its arguments"),
-			mcp.Required(),
-			mcp.Items(map[string]interface{}{"type": "string"}),
-		),
-		mcp.WithString("dir",
-			mcp.Description("Directory in which to run the command"),
-			mcp.Required(),
-		),
-	), handleShellCommandTool)
+	// mcpServer.AddTool(mcp.NewTool("run_shell_command",
+	// 	mcp.WithDescription("Executes an arbitrary shell command"),
+	// 	mcp.WithArray("command",
+	// 		mcp.Description("Command to execute and its arguments"),
+	// 		mcp.Required(),
+	// 		mcp.Items(map[string]interface{}{"type": "string"}),
+	// 	),
+	// 	mcp.WithString("dir",
+	// 		mcp.Description("Directory in which to run the command"),
+	// 		mcp.Required(),
+	// 	),
+	// ), handleShellCommandTool)
 
 	// CLI Tool
 	mcpServer.AddTool(mcp.NewTool("cli",

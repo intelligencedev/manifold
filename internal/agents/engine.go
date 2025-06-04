@@ -27,7 +27,7 @@ import (
 	completions "manifold/internal/llm"
 	embeddings "manifold/internal/llm"
 	"manifold/internal/mcp"
-	codeeval "manifold/internal/tools"
+	tools "manifold/internal/tools"
 	"manifold/internal/util"
 
 	"github.com/pgvector/pgvector-go"
@@ -76,6 +76,8 @@ type AgentEngine struct {
 	mcpTools map[string]ToolInfo
 
 	a2aClients map[string]*a2aclient.A2AClient
+
+	fleet *Fleet // map of fleet name to Fleet instance
 }
 
 var (
@@ -100,6 +102,23 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 		return nil, fmt.Errorf("mcp manager: %w", err)
 	}
 
+	agentFleet := NewFleet()
+	fleetCfg := cfg.AgentFleet
+
+	for _, worker := range fleetCfg.Workers {
+		fleetWorker := configpkg.FleetWorker{
+			Name:         worker.Name,
+			Role:         worker.Role,
+			Endpoint:     worker.Endpoint,
+			Model:        worker.Model,
+			CtxSize:      worker.CtxSize,
+			Temperature:  worker.Temperature,
+			Instructions: worker.Instructions,
+		}
+
+		agentFleet.AddWorker(fleetWorker)
+	}
+
 	eng := &AgentEngine{
 		Config:     cfg,
 		DB:         db,
@@ -107,6 +126,7 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 		mcpMgr:     mgr,
 		mcpTools:   make(map[string]ToolInfo),
 		a2aClients: make(map[string]*a2aclient.A2AClient),
+		fleet:      agentFleet,
 	}
 
 	if cfg.AgenticMemory.Enabled {
@@ -119,19 +139,6 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	_ = eng.discoverMCPTools(ctx)
-
-	if cfg.A2A.Role == "master" {
-		for _, node := range cfg.A2A.Nodes {
-			base := strings.TrimRight(node, "/") + "/api/a2a"
-			cl := a2aclient.NewFromConfig(cfg, base)
-			if err := cl.Check(ctx); err != nil {
-				log.Printf("a2a node %s unreachable: %v", node, err)
-				continue
-			}
-			eng.a2aClients[node] = cl
-		}
-		log.Printf("a2a discovery complete: %d nodes available", len(eng.a2aClients))
-	}
 
 	return eng, nil
 }
@@ -170,7 +177,7 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
 
-		session, err := engine.RunSession(ctx, req)
+		session, err := engine.RunSession(ctx, cfg, req)
 		if err != nil {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
@@ -196,6 +203,12 @@ type ToolInfo struct {
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	mcpToolsOnce.Do(func() {
 		cachedMCPTools = make(map[string]ToolInfo)
+		var toolsToEmbed []struct {
+			name        string
+			description string
+		}
+
+		// First, collect all tools and their info
 		for _, srv := range ae.mcpMgr.List() {
 			ts, err := ae.mcpMgr.ListTools(ctx, srv)
 			if err != nil {
@@ -224,15 +237,44 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 					InputSchema: inputSchema,
 				}
 
-				// compute and store embedding for tool description
-				if err := ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions); err == nil {
-					embedTxt := ae.Config.Embeddings.EmbedPrefix + desc
-					embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, []string{embedTxt})
-					if err == nil && len(embeds) > 0 {
-						vec := pgvector.NewVector(embeds[0])
+				// Collect tools for embedding
+				toolsToEmbed = append(toolsToEmbed, struct {
+					name        string
+					description string
+				}{name: toolName, description: desc})
+			}
+		}
+
+		// Generate embeddings in a single batch if tool memory table exists
+		if len(toolsToEmbed) > 0 && ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions) == nil {
+			// Prepare text for embedding
+			var embedTexts []string
+			for _, tool := range toolsToEmbed {
+				embedTexts = append(embedTexts, ae.Config.Embeddings.EmbedPrefix+tool.description)
+			}
+
+			// Generate all embeddings in one call
+			embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, embedTexts)
+			if err == nil && len(embeds) == len(toolsToEmbed) {
+				// Use a wait group to handle concurrent inserts
+				var wg sync.WaitGroup
+				// Use a semaphore to limit concurrency to avoid overwhelming the database
+				sem := make(chan struct{}, 10) // Allow up to 10 concurrent operations
+
+				for i, tool := range toolsToEmbed {
+					wg.Add(1)
+					sem <- struct{}{} // Acquire semaphore
+
+					go func(index int, toolName, desc string, embedding []float32) {
+						defer wg.Done()
+						defer func() { <-sem }() // Release semaphore
+
+						vec := pgvector.NewVector(embedding)
 						_ = ae.upsertToolMemory(ctx, toolName, desc, vec)
-					}
+					}(i, tool.name, tool.description, embeds[i])
 				}
+
+				wg.Wait() // Wait for all insertions to complete
 			}
 		}
 	})
@@ -249,18 +291,21 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	return nil
 }
 
-func (ae *AgentEngine) RunSession(ctx context.Context, req ReActRequest) (*AgentSession, error) {
-	return ae.RunSessionWithHook(ctx, req, nil)
+func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, req ReActRequest) (*AgentSession, error) {
+	return ae.RunSessionWithHook(ctx, cfg, req, nil)
 }
 
-func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest, hook StepHook) (*AgentSession, error) {
+func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Config, req ReActRequest, hook StepHook) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
-	if ae.Config.A2A.Role == "master" {
-		log.Printf("a2a cluster workers available: %d", len(ae.a2aClients))
+	var td []string
+
+	// Append agent fleet
+	td = append(td, "Available specialized assistant workers:")
+	for _, worker := range ae.fleet.ListWorkers() {
+		td = append(td, fmt.Sprintf("- %s (%s) • %s", worker.Name, worker.Role, worker.Instructions))
 	}
 
-	var td []string
 	toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
 	if toolLimit <= 0 {
 		toolLimit = len(ae.mcpTools)
@@ -279,18 +324,34 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, req ReActRequest,
 		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
 	}
 	td = append(td,
+		"- ask_assistant_worker • get help from specialized assistant worker",
 		"- code_eval    • run code in sandbox",
+		"- web_search   • search the web",
+		"- web_fetch    • fetch webpage content",
 		"- finish       • end and output final answer",
 	)
 
-	sysPrompt := fmt.Sprintf(`You are ReAct-Agent.
+	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are the ONLY assistant in your team with access to the tools. The other assistants can only think and reply to your requests for help from your team. You are the ONLY one that makes the tool calls. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
+
+IMPORTANT: If you get stuck, or detect a loop, ask for assistance from another expert and ensure you give them all of the information necessary for them to help you.
+
 Objective: %s
+
+IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.
+Assistants are specialized workers that can help with specific tasks, such as code generation, data analysis, or document analysis.
+Assistants can only take your instructions and respond using their knowledge expertise. They cannot execute code or perform actions directly.
+- ask_assistant_worker • get help from specialized assistant worker
+{"properties":{"name":{"description":"Name of the worker to ask","type":"string"},"model":{"description":"Optional model to use. Leave empty unless explicitly requested.","type":"string"},"msg":{"description":"Message to send to the worker. Detailed task or help query.","type":"string"}},"required":["name","msg"],"type":"object"}
 
 Always use the manifold::cli tool to run commands, and the code_eval tool to run Python code when making your own tools.
 
 The manifold cli tool:
 - manifold::cli • Execute a raw CLI command
 {"properties":{"command":{"description":"Command string to execute","type":"string"},"dir":{"description":"Optional working directory","type":"string"}},"required":["command"],"type":"object"}
+
+The manifold web search tool:
+- web_search • Search the web for information
+{"properties":{"query":{"description":"Search query","type":"string"}},"required":["query"],"type":"object"}
 
 Below is a list of available CLI commands using the manifold::cli tool schema you should use.
 
@@ -379,6 +440,7 @@ Rules:
 - Keep patches minimal; do not reformat entire files unless required.  
 - Track and reference original line numbers in your reasoning.  
 - For non-code text, skip language checkers but still diff/patch/verify.
+- Never use search engines or external APIs directly; use the web_search tool instead.
 
 Prefer to answer directly (with Thought + finish) for narrative tasks
 such as writing, explaining, or summarising natural-language text.
@@ -468,7 +530,7 @@ Tools:
 		}
 		log.Println("=====================================")
 
-		out, err := ae.callLLM(ctx, model, currentMessages)
+		out, err := ae.callLLM(ctx, "", model, currentMessages)
 		if err != nil {
 			return nil, err
 		}
@@ -495,7 +557,7 @@ Tools:
 			break
 		}
 
-		obs, err := ae.execTool(ctx, action, input)
+		obs, err := ae.execTool(ctx, cfg, action, input)
 		if err != nil {
 			obs = "error: " + err.Error()
 		}
@@ -570,21 +632,40 @@ Tools:
 	return sess, nil
 }
 
-func (ae *AgentEngine) callLLM(ctx context.Context, model string, msgs []completions.Message) (string, error) {
+func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []completions.Message) (string, error) {
+
+	fleet := ae.fleet
+	assistant := fleet.GetWorker(assistantName)
+	if assistant == nil {
+		assistant = &configpkg.FleetWorker{
+			Name:         "default",
+			Role:         "assistant",
+			Endpoint:     ae.Config.Completions.DefaultHost,
+			Model:        model,
+			CtxSize:      ae.Config.Completions.CtxSize,
+			Temperature:  ae.Config.Completions.Temperature,
+			Instructions: "",
+		}
+	}
+
 	// Calculate input token count (approximate)
 	var promptTokens int
 	for _, msg := range msgs {
 		promptTokens += util.CountTokens(msg.Content)
 	}
 
-	// Get model context size (default to 4096 if unknown)
-	modelCtx := 32768 // default context size
-
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
-	maxTokens := max(modelCtx-promptTokens-1024, 128)
+	maxTokens := max(ae.Config.Completions.CtxSize-promptTokens-1024, 1024)
 
-	body, _ := json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, MaxTokens: maxTokens, Temperature: 0.7})
-	req, _ := http.NewRequestWithContext(ctx, "POST", ae.Config.Completions.DefaultHost, bytes.NewBuffer(body))
+	var body []byte
+
+	if ae.Config.Completions.Backend != "mlx" {
+		body, _ = json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, Temperature: ae.Config.Completions.Temperature})
+	} else {
+		body, _ = json.Marshal(completions.CompletionRequest{Messages: msgs, Temperature: ae.Config.Completions.Temperature, MaxTokens: maxTokens})
+	}
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", assistant.Endpoint, bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
 
@@ -655,12 +736,37 @@ func parseReAct(s string) (thought, action, input string) {
 	return
 }
 
-func (ae *AgentEngine) execTool(ctx context.Context, name, arg string) (string, error) {
+func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name, arg string) (string, error) {
 	switch strings.ToLower(name) {
 	case "finish":
 		return arg, nil
+	case "ask_assistant_worker":
+		// parse the arg as a JSON object
+		var req struct {
+			Name  string `json:"name"`
+			Model string `json:"model,omitempty"`
+			Msg   string `json:"msg,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(arg), &req); err != nil {
+			return "", fmt.Errorf("ask_assistant_worker expects JSON {worker, args}: %v", err)
+		}
+
+		worker := ae.fleet.GetWorker(req.Name)
+		if worker == nil {
+			return "", fmt.Errorf("unknown worker: %s", req.Name)
+		}
+
+		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
+
+		return ae.callLLM(ctx, worker.Name, worker.Model, []completions.Message{
+			{Role: "user", Content: msg},
+		})
 	case "code_eval":
 		return ae.runCodeEval(ctx, arg)
+	case "web_search":
+		return ae.runWebSearch(ctx, arg, cfg)
+	case "web_fetch":
+		return ae.runWebFetch(ctx, arg)
 	case "stage_path":
 		return ae.stagePath(arg)
 	default:
@@ -780,35 +886,35 @@ func copyFile(src, dst string) error {
 }
 
 func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error) {
-	var req codeeval.CodeEvalRequest
+	var req tools.CodeEvalRequest
 	if err := json.Unmarshal([]byte(arg), &req); err != nil {
 		return "", fmt.Errorf("code_eval expects JSON {language, code, dependencies}: %v", err)
 	}
 	var (
-		resp *codeeval.CodeEvalResponse
+		resp *tools.CodeEvalResponse
 		err  error
 	)
 	switch strings.ToLower(strings.TrimSpace(req.Language)) {
 	case "python":
-		result, err := codeeval.RunPythonRaw(ae.Config, req.Code, req.Dependencies)
+		result, err := tools.RunPythonRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
-			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
-			resp = &codeeval.CodeEvalResponse{Result: result}
+			resp = &tools.CodeEvalResponse{Result: result}
 		}
 	case "go":
-		result, err := codeeval.RunGoRaw(ae.Config, req.Code, req.Dependencies)
+		result, err := tools.RunGoRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
-			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
-			resp = &codeeval.CodeEvalResponse{Result: result}
+			resp = &tools.CodeEvalResponse{Result: result}
 		}
 	case "javascript":
-		result, err := codeeval.RunNodeRaw(ae.Config, req.Code, req.Dependencies)
+		result, err := tools.RunNodeRaw(ae.Config, req.Code, req.Dependencies)
 		if err != nil {
-			resp = &codeeval.CodeEvalResponse{Error: err.Error()}
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
-			resp = &codeeval.CodeEvalResponse{Result: result}
+			resp = &tools.CodeEvalResponse{Result: result}
 		}
 	default:
 		return "", fmt.Errorf("unsupported language: %s", req.Language)
@@ -820,6 +926,65 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 		return "", fmt.Errorf(resp.Error)
 	}
 	return resp.Result, nil
+}
+
+func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpkg.Config) (string, error) {
+	var req struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal([]byte(arg), &req); err != nil {
+		req.Query = strings.TrimSpace(arg)
+	}
+
+	if req.Query == "" {
+		return "", fmt.Errorf("query required")
+	}
+
+	var urls []string
+	if strings.ToLower(cfg.Tools.Search.Backend) == "sxng" {
+		if cfg.Tools.Search.Endpoint == "" {
+			return "", fmt.Errorf("sxng_url required")
+		}
+		urls = tools.GetSearXNGResults(cfg.Tools.Search.Endpoint, req.Query)
+	} else {
+		urls = tools.SearchDDG(req.Query)
+	}
+
+	if urls == nil {
+		return "", fmt.Errorf("error performing web search")
+	}
+
+	resultSize := cfg.Tools.Search.ResultSize
+	if resultSize <= 0 {
+		resultSize = 3
+	}
+
+	if len(urls) > resultSize {
+		urls = urls[:resultSize]
+	}
+
+	return tools.GetSearchResults(urls), nil
+}
+
+func (ae *AgentEngine) runWebFetch(_ context.Context, arg string) (string, error) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal([]byte(arg), &req); err != nil {
+		req.URL = strings.TrimSpace(arg)
+	}
+	if req.URL == "" {
+		return "", fmt.Errorf("url required")
+	}
+	pg, err := tools.WebGetHandler(req.URL)
+	if err != nil {
+		return "", err
+	}
+	if pg == nil {
+		return "", fmt.Errorf("no content")
+	}
+	b, _ := json.Marshal(pg)
+	return string(b), nil
 }
 
 func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, error) {

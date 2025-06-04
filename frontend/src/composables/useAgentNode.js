@@ -21,6 +21,54 @@ export function useAgentNode(props, emit) {
     useNodeBase(props, emit);
   const { systemPromptOptions, systemPromptOptionsList } =
     useSystemPromptOptions();
+    
+  // Loading state for model fetching
+  const isLoadingModel = ref(false);
+
+  // Helper function to fetch model ID from llama-server
+  async function fetchLlamaServerModel() {
+    isLoadingModel.value = true;
+    try {
+      // Derive the models endpoint from the chat completions endpoint
+      let modelsEndpoint = props.data.inputs.endpoint;
+      
+      // Extract the base URL from the endpoint
+      const endpointParts = modelsEndpoint.split('/');
+      const apiIndex = endpointParts.findIndex(part => part === 'api' || part === 'v1');
+      
+      let baseUrl;
+      if (apiIndex !== -1) {
+        // If '/api/' or '/v1/' is found in the path, use everything before including that part
+        baseUrl = endpointParts.slice(0, apiIndex).join('/');
+        modelsEndpoint = `${baseUrl}/models`;
+      } else {
+        // If not found, assume we need to replace the endpoint path
+        const urlObj = new URL(modelsEndpoint);
+        urlObj.pathname = '/models';
+        modelsEndpoint = urlObj.toString();
+      }
+
+      console.log("Fetching model from:", modelsEndpoint);
+      
+      const response = await fetch(modelsEndpoint);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch models: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data && data.data && data.data.length > 0) {
+        // Get the first model ID
+        const modelId = data.data[0].id;
+        console.log("Found model:", modelId);
+        model.value = modelId;
+      }
+    } catch (error) {
+      console.error("Error fetching llama-server model:", error);
+    } finally {
+      isLoadingModel.value = false;
+    }
+  }
 
   // Helper function to create an event stream splitter
   // This is suitable for SSE format where events are `data: <payload>\n\n`
@@ -180,6 +228,23 @@ export function useAgentNode(props, emit) {
     },
   });
 
+  const presence_penalty = computed({
+    get: () => props.data.inputs.presence_penalty,
+    set: (value) => { props.data.inputs.presence_penalty = value }
+  });
+  const top_p = computed({
+    get: () => props.data.inputs.top_p,
+    set: (value) => { props.data.inputs.top_p = value }
+  });
+  const top_k = computed({
+    get: () => props.data.inputs.top_k,
+    set: (value) => { props.data.inputs.top_k = value }
+  });
+  const min_p = computed({
+    get: () => props.data.inputs.min_p,
+    set: (value) => { props.data.inputs.min_p = value }
+  });
+
   // Provider options and selection
   const providerOptions = [
     { value: "llama-server", label: "llama-server" },
@@ -198,10 +263,9 @@ export function useAgentNode(props, emit) {
 
   // Add models list for Google Gemini
   const geminiModels = [
-    "gemini-2.0-flash",
-    "gemini-2.0-pro-exp-02-05",
-    "gemini-2.0-flash-lite-preview-02-05",
-    "gemini-2.0-flash-thinking-exp-01-21",
+    "gemini-2.5-flash-preview-05-20",
+    "gemini-2.5-pro-preview-05-06",
+    "gemini-2.0-flash-lite",
   ];
 
   // Computed property to dynamically show the appropriate models based on provider
@@ -353,6 +417,15 @@ export function useAgentNode(props, emit) {
         // For non-OpenAI providers
         requestBody.max_completion_tokens =
           props.data.inputs.max_completion_tokens || 1000;
+      }
+
+      // Add extra LLM params for openai, llama-server, mlx_lm.server
+      if (["openai", "llama-server", "mlx_lm.server"].includes(currentProvider)) {
+        if (props.data.inputs.presence_penalty !== undefined && props.data.inputs.presence_penalty !== null && props.data.inputs.presence_penalty !== '') requestBody.presence_penalty = props.data.inputs.presence_penalty;
+        if (props.data.inputs.top_p !== undefined && props.data.inputs.top_p !== null && props.data.inputs.top_p !== '') requestBody.top_p = props.data.inputs.top_p;
+        if (props.data.inputs.min_p !== undefined && props.data.inputs.min_p !== null && props.data.inputs.min_p !== '') requestBody.min_p = props.data.inputs.min_p;
+        // Only include top_k for mlx_lm.server
+        if (currentProvider === 'mlx_lm.server' && props.data.inputs.top_k !== undefined && props.data.inputs.top_k !== null && props.data.inputs.top_k !== '') requestBody.top_k = props.data.inputs.top_k;
       }
 
       const canStream =
@@ -754,9 +827,13 @@ export function useAgentNode(props, emit) {
       if (!geminiModels.includes(model.value)) {
         model.value = geminiModels[0]; // Default to first Gemini model
       }
+    } else if ((newProvider === "llama-server" || newProvider === "mlx_lm.server") && props.data.inputs.endpoint) {
+      // Fetch model ID from local servers when provider is selected
+      fetchLlamaServerModel();
     }
   });
   
+
   // Watch provider changes to swap API key accordingly
   watch(provider, (newProvider) => {
     if (newProvider === 'google') {
@@ -797,6 +874,10 @@ export function useAgentNode(props, emit) {
     model,
     max_completion_tokens,
     temperature,
+    presence_penalty,
+    top_p,
+    top_k,
+    min_p,
     system_prompt,
     user_prompt,
     resizeHandleStyle,
@@ -807,5 +888,7 @@ export function useAgentNode(props, emit) {
     handleTextareaMouseLeave,
     sendToCodeEditor,
     modelOptions,
+    isLoadingModel, // Expose loading state
+    fetchLlamaServerModel, // Expose fetch function
   };
 }

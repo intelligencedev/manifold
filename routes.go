@@ -13,6 +13,7 @@ import (
 
 	"manifold/internal/a2a"
 	agentspkg "manifold/internal/agents"
+	evolvepkg "manifold/internal/evolve"
 	gitpkg "manifold/internal/git"
 	imggenpkg "manifold/internal/imggen"
 	llmpkg "manifold/internal/llm"
@@ -64,6 +65,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	// Workflow templates endpoints
 	registerWorkflowEndpoints(api, config)
 
+	// AlphaEvolve endpoints
+	registerEvolveEndpoints(api, config)
+
 	// A2A protocol endpoints for worker nodes
 	if config.A2A.Role == "worker" {
 		log.Println("starting a2a server endpoints")
@@ -98,7 +102,9 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.POST("/save-file", saveFileHandler)
 	api.POST("/open-file", openFileHandler)
 	api.GET("/web-content", webContentHandler)
-	api.GET("/web-search", webSearchHandler)
+	api.GET("/web-search", func(c echo.Context) error {
+		return webSearchHandler(c, config)
+	})
 	api.POST("/code/eval", evaluateCodeHandler)
 	api.POST("/comfy-proxy", imggenpkg.ComfyProxyHandler)
 
@@ -173,6 +179,16 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agentspkg.AgenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agentspkg.AgenticMemorySearchHandler(config))
+
+	agenticGroup.POST("/update/:id", agentspkg.AgenticMemoryUpdateHandler(config))
+	// New graph-based memory endpoints
+	memoryGroup := api.Group("/memory")
+	memoryGroup.GET("/path/:sourceId/:targetId", agentspkg.FindMemoryPathHandler(config))
+	memoryGroup.GET("/related/:memoryId", agentspkg.FindRelatedMemoriesHandler(config))
+	memoryGroup.GET("/clusters/:workflowId", agentspkg.DiscoverMemoryClustersHandler(config))
+	memoryGroup.GET("/health/:workflowId", agentspkg.AnalyzeNetworkHealthHandler(config))
+	memoryGroup.GET("/contradictions/:workflowId", agentspkg.MemoryContradictionsHandler(config))
+	memoryGroup.GET("/knowledge-map/:workflowId", agentspkg.BuildKnowledgeMapHandler(config))
 }
 
 // registerAgentEndpoints registers all routes for the ReAct / advanced agentic system.
@@ -187,6 +203,15 @@ func registerWorkflowEndpoints(api *echo.Group, config *Config) {
 	workflowGroup := api.Group("/workflows")
 	workflowGroup.GET("/templates", listWorkflowTemplatesHandler(config))
 	workflowGroup.GET("/templates/:id", getWorkflowTemplateHandler(config))
+}
+
+// registerEvolveEndpoints registers routes for the AlphaEvolve system.
+func registerEvolveEndpoints(api *echo.Group, config *Config) {
+	evolveGroup := api.Group("/evolve")
+	evolveGroup.POST("/run", evolvepkg.RunHandler(config))
+	evolveGroup.GET("/status/:id", evolvepkg.StatusHandler)
+	evolveGroup.GET("/results/:id", evolvepkg.ResultHandler)
+	evolveGroup.POST("/save/:id", evolvepkg.SaveHandler)
 }
 
 // registerA2AEndpoints registers all A2A protocol-related routes.

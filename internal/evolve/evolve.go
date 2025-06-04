@@ -97,11 +97,13 @@ func ReconstructProgramCode(skeleton string, evolvableSections []string) string 
 }
 
 // EvaluateProgram uses the provided evaluation function.
-func EvaluateProgram(code string, evalFunc func(string) (map[string]float64, error)) (map[string]float64, error) {
+// It now accepts the full code and the evolvable sections separately.
+func EvaluateProgram(fullCode string, evolvableSections []string, evalFunc func(string, []string) (map[string]float64, error)) (map[string]float64, error) {
 	if evalFunc == nil {
-		return map[string]float64{"score": float64(len(code))}, nil
+		// Fallback basic scoring if no custom evalFunc is provided
+		return map[string]float64{"score": float64(len(fullCode))}, nil
 	}
-	return evalFunc(code)
+	return evalFunc(fullCode, evolvableSections)
 }
 
 // ProgramDatabase is a minimal in-memory program storage.
@@ -328,7 +330,7 @@ func SelectBestProgram(db ProgramDatabase, metric string) (Program, error) {
 }
 
 // RunAlphaEvolve executes a simplified evolutionary loop.
-func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, evalFunc func(string) (map[string]float64, error), llmClient LLMClient, db ProgramDatabase, generations int, progress func(int, Program)) (Program, error) {
+func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, evalFunc func(string, []string) (map[string]float64, error), llmClient LLMClient, db ProgramDatabase, generations int, progress func(int, Program)) (Program, error) {
 	log.Printf("[EVOLVE] Starting RunAlphaEvolve with file: %s, generations: %d", initialPath, generations)
 
 	prog, err := ParseInitialProgram(initialPath)
@@ -339,7 +341,7 @@ func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, eva
 
 	log.Printf("[EVOLVE] Parsed initial program: %d evolvable sections", len(prog.EvolvableSections))
 
-	scores, err := EvaluateProgram(prog.Code, evalFunc)
+	scores, err := EvaluateProgram(prog.Code, prog.EvolvableSections, evalFunc) // Pass evolvable sections
 	if err != nil {
 		log.Printf("[EVOLVE] Failed to evaluate initial program: %v", err)
 		return Program{}, fmt.Errorf("failed to evaluate initial program: %w", err)
@@ -398,15 +400,39 @@ func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, eva
 		}
 
 		log.Printf("[EVOLVE] Applying %d diffs to %d evolvable sections", len(diffs), len(parent.EvolvableSections))
-		newSections := make([]string, len(parent.EvolvableSections))
-		for j, sec := range parent.EvolvableSections {
-			updated, _ := ApplyDiffsToCode(sec, diffs)
-			newSections[j] = updated
+		// Apply diffs to full parent code (including EVOLVE markers) for context-aware changes
+		updatedFullCode, err := ApplyDiffsToCode(parent.Code, diffs)
+		if err != nil {
+			log.Printf("[EVOLVE] Failed to apply diffs to full code: %v", err)
+			continue
 		}
-		childCode := ReconstructProgramCode(parent.SkeletonCode, newSections)
-		log.Printf("[EVOLVE] Generated child program (%d characters)", len(childCode))
-
-		childScores, err := EvaluateProgram(childCode, evalFunc)
+		// Extract new evolvable sections from updated full code
+		var newSections []string
+		{
+			scanner := bufio.NewScanner(strings.NewReader(updatedFullCode))
+			inBlock := false
+			var block strings.Builder
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.Contains(line, "# EVOLVE-BLOCK-START") {
+					inBlock = true
+					continue
+				}
+				if strings.Contains(line, "# EVOLVE-BLOCK-END") {
+					inBlock = false
+					newSections = append(newSections, block.String())
+					block.Reset()
+					continue
+				}
+				if inBlock {
+					block.WriteString(line + "\n")
+				}
+			}
+		}
+		// Reconstruct code without markers for evaluation and saving
+		childCleanCode := ReconstructProgramCode(parent.SkeletonCode, newSections)
+		log.Printf("[EVOLVE] Generated child program (%d characters)", len(childCleanCode))
+		childScores, err := EvaluateProgram(childCleanCode, newSections, evalFunc)
 		if err != nil {
 			log.Printf("[EVOLVE] Failed to evaluate child program in generation %d: %v", i+1, err)
 			continue
@@ -414,7 +440,7 @@ func RunAlphaEvolve(ctx context.Context, initialPath, problemContext string, eva
 
 		child := Program{
 			ID:                uuid.NewString(),
-			Code:              childCode,
+			Code:              updatedFullCode, // retain markers for next iterations
 			EvolvableSections: newSections,
 			SkeletonCode:      parent.SkeletonCode,
 			Scores:            childScores,

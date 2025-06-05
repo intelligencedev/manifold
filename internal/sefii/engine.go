@@ -133,6 +133,14 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 		return fmt.Errorf("failed to create ivfflat index on documents.embedding: %w", err)
 	}
 
+	// Ensure index on file_path for faster lookup by path
+	filePathIdxQuery := `
+		CREATE INDEX IF NOT EXISTS documents_file_path_idx ON documents(file_path)
+	`
+	if err := e.execWithRetry(ctx, filePathIdxQuery); err != nil {
+		return fmt.Errorf("failed to create index on documents.file_path: %w", err)
+	}
+
 	// check / create inverted_index if needed
 	if err := e.EnsureInvertedIndexTable(ctx); err != nil {
 		return err

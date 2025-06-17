@@ -115,14 +115,26 @@ export function useMessageBus(props, emit) {
 
     // SUBSCRIBE mode
     if (mode.value === 'subscribe') {
-      if (!topic.value) {
+      let subscribeTopic = topic.value
+      // Template detection for topic from upstream
+      if (/^\s*TOPIC\s*:/i.test(upstream)) {
+        const topicMatch = upstream.match(/TOPIC\s*:\s*(.+)/i)
+        if (topicMatch) {
+          subscribeTopic = topicMatch[1].trim()
+          // Optionally reflect parsed topic in UI
+          props.data.inputs.topic = subscribeTopic
+          console.log(`MessageBusNode ${props.id}: parsed subscribe template → topic="${subscribeTopic}"`)
+        }
+      }
+
+      if (!subscribeTopic) {
         console.warn(`MessageBusNode ${props.id}: subscribe topic empty.`)
         return { stopPropagation: true }
       }
 
-      const busData = bus.consume(topic.value)
+      const busData = bus.consume(subscribeTopic)
       if (busData === null && !upstream) {
-        console.log(`MessageBusNode ${props.id}: waiting for "${topic.value}"…`)
+        console.log(`MessageBusNode ${props.id}: waiting for "${subscribeTopic}"…`)
         return { stopPropagation: true }
       }
 

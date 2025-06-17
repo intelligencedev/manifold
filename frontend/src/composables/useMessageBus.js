@@ -138,7 +138,20 @@ export function useMessageBus(props, emit) {
         return { stopPropagation: true }
       }
 
-      const combined = [upstream, busData].filter(Boolean).join('\n').trim()
+      // Remove TOPIC: line from upstream if present
+      let messageOnly = upstream
+      if (/^\s*TOPIC\s*:/i.test(upstream)) {
+        // Remove TOPIC: ... (and optional MESSAGE: ...)
+        const messageMatch = upstream.match(/MESSAGE\s*:\s*([\s\S]*)/i)
+        if (messageMatch) {
+          messageOnly = messageMatch[1].trim()
+        } else {
+          // Remove just the TOPIC: line
+          messageOnly = upstream.replace(/^\s*TOPIC\s*:.+$/im, '').trim()
+        }
+      }
+
+      const combined = [messageOnly, busData].filter(Boolean).join('\n').trim()
       props.data.outputs.result.output = combined
       return null
     }

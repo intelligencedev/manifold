@@ -11,6 +11,7 @@
       <!-- Show main app content when authenticated -->
       <div v-else-if="!isLoading && isAuthenticated" class="flex flex-col h-full bg-slate-700">
         <Header
+          ref="headerRef"
           :mode="mode"
           @toggle-mode="toggleMode"
           @save="onSave"
@@ -171,6 +172,7 @@ import Login from './components/Login.vue';
 // Manifold custom components
 import { isNodeConnected } from './utils/nodeHelpers.js';
 import Header from './components/layout/Header.vue';
+const headerRef = ref<InstanceType<typeof Header> | null>(null);
 import LayoutControls from './components/layout/LayoutControls.vue';
 import useDragAndDrop from './composables/useDnD.js';
 import NodePalette from './components/NodePalette.vue';
@@ -449,16 +451,26 @@ function onConnect(params: Connection) {
 }
 
 // Save the current flow to a JSON file
-function onSave() {
+// Save or update the current flow as a named template
+async function onSave(name: string) {
   const flow = toObject();
-  const data = JSON.stringify(flow, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'manifold-flow.json';
-  a.click();
-  URL.revokeObjectURL(url);
+  try {
+    const response = await fetch('/api/workflows/templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, flow }),
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      alert(err.error || 'Failed to save template');
+      return;
+    }
+    alert('Template saved successfully');
+    headerRef.value?.fetchTemplates();
+  } catch (error) {
+    console.error('Error saving template:', error);
+    alert('Error saving template');
+  }
 }
 
 interface Flow {

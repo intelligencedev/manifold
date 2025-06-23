@@ -266,6 +266,32 @@
       </div>
     </div>
   </div>
+
+  <!-- Save Template Modal -->
+  <div class="modal-overlay" v-if="showSaveModal" @click.self="closeSaveModal" @touchstart.self="closeSaveModal">
+    <div class="modal-content" @click.stop>
+      <div class="modal-header">
+        <h3>Name Template</h3>
+        <button @click="closeSaveModal" class="close-btn">
+          <i class="fa fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Template Name</label>
+          <input v-model="templateName" type="text" placeholder="Enter template name" />
+        </div>
+        <div v-if="saveError" class="error">{{ saveError }}</div>
+        <div class="form-actions">
+          <button type="button" @click="closeSaveModal" class="cancel-btn">Cancel</button>
+          <button type="button" class="submit-btn" @click="confirmSaveTemplate" :disabled="isSavingTemplate">
+            <span v-if="isSavingTemplate">Saving...</span>
+            <span v-else>Save</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -306,6 +332,11 @@ const isSubmitting = ref(false);
 
 const templates = ref<Array<{ name: string; template: string }>>([]);
 
+const showSaveModal = ref(false);
+const templateName = ref('');
+const saveError = ref('');
+const isSavingTemplate = ref(false);
+
 /* ─────────────────── helpers / api calls ────────────────────── */
 onMounted(() => {
   fetchUser();
@@ -343,7 +374,9 @@ function formatTemplateName(fn: string) {
 
 /* ─────────────────── button actions ─────────────────────────── */
 function saveFlow() {
-  emit('save');
+  // Open modal to name and save template
+  showSaveModal.value = true;
+  document.body.classList.add('modal-open');
 }
 function openFile() {
   fileInput.value?.click();
@@ -510,6 +543,29 @@ watch(
     }
   }
 );
+
+// Functions for save template modal
+function closeSaveModal() {
+  showSaveModal.value = false;
+  document.body.classList.remove('modal-open');
+  templateName.value = '';
+  saveError.value = '';
+  isSavingTemplate.value = false;
+}
+
+async function confirmSaveTemplate() {
+  if (!templateName.value) {
+    saveError.value = 'Name is required';
+    return;
+  }
+  isSavingTemplate.value = true;
+  saveError.value = '';
+  // Emit save event with template name
+  emit('save', templateName.value);
+  closeSaveModal();
+}
+
+defineExpose({ fetchTemplates });
 </script>
 
 <style scoped>

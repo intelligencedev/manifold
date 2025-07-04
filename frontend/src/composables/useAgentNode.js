@@ -637,6 +637,8 @@ export function useAgentNode(props, emit) {
       } else if (canStream) {
         requestBody.stream = true;
 
+        requestBody.stop = ["[DONE]", "<|im_end|>"];
+
         const headers = {
           "Content-Type": "application/json",
           Accept: "text/event-stream",
@@ -684,6 +686,10 @@ export function useAgentNode(props, emit) {
               }
 
               if (deltaContent) {
+                // Check and remove any stop tokens that might have leaked through
+                if (deltaContent.includes("<|im_end|>")) {
+                  deltaContent = deltaContent.replace(/<\|im_end\|>/g, "");
+                }
                 accumulatedContent += deltaContent;
                 onResponseUpdate(accumulatedContent, accumulatedContent);
               }

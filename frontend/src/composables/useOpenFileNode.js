@@ -265,7 +265,9 @@ export function useOpenFileNode(props, emit) {
           // Fall back to the API if direct loading fails
           console.log('Falling back to API for image loading');
           
-          const response = await fetch('http://localhost:8080/api/open-file', {
+          // Use application host for API calls
+          const apiOrigin = window.location.origin;
+          const response = await fetch(`${apiOrigin}/api/open-file`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -295,14 +297,12 @@ export function useOpenFileNode(props, emit) {
         }
       } else {
         // Standard text file handling
-        const response = await fetch('http://localhost:8080/api/open-file', {
+        // Use dynamic origin for open-file API
+        const apiOrigin = window.location.origin;
+        const response = await fetch(`${apiOrigin}/api/open-file`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            filepath: payload.filepath,
-          }),
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filepath: payload.filepath }),
         });
 
         if (!response.ok) {

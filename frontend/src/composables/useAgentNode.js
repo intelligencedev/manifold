@@ -463,22 +463,6 @@ export function useAgentNode(props, emit) {
       // Add vision-specific parameters when images are present
       if (visionContent && ["llama-server", "mlx_lm.server"].includes(currentProvider)) {
         requestBody.cache_prompt = true;
-        requestBody.samplers = "edkypmxt";
-        requestBody.dynatemp_range = 0;
-        requestBody.dynatemp_exponent = 1;
-        requestBody.top_k = requestBody.top_k || 40;
-        requestBody.top_p = requestBody.top_p || 0.95;
-        requestBody.min_p = requestBody.min_p || 0.05;
-        requestBody.typical_p = 1;
-        requestBody.xtc_probability = 0;
-        requestBody.xtc_threshold = 0.1;
-        requestBody.dry_multiplier = 0;
-        requestBody.dry_base = 1.75;
-        requestBody.dry_allowed_length = 2;
-        requestBody.dry_penalty_last_n = -1;
-        requestBody.max_tokens = requestBody.max_completion_tokens || -1;
-        requestBody.timings_per_token = false;
-        requestBody.repeat_last_n = 64;
         requestBody.stream = true;
       }
 

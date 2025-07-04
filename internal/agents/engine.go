@@ -72,8 +72,10 @@ type AgentEngine struct {
 	MemoryEngine MemoryEngine
 	HTTPClient   *http.Client
 
-	mcpMgr   *mcp.Manager
-	mcpTools map[string]ToolInfo
+	mcpMgr      *mcp.Manager
+	mcpTools    map[string]ToolInfo
+	serverTools map[string][]ToolInfo
+	serverCfgs  map[string]mcp.ServerConfig
 
 	a2aClients map[string]*a2aclient.A2AClient
 
@@ -81,9 +83,11 @@ type AgentEngine struct {
 }
 
 var (
-	mcpToolsOnce   sync.Once
-	cachedMCPTools map[string]ToolInfo
-	cachedToolsErr error
+	mcpToolsOnce      sync.Once
+	cachedMCPTools    map[string]ToolInfo
+	cachedToolsErr    error
+	cachedServerTools map[string][]ToolInfo
+	cachedServerCfgs  map[string]mcp.ServerConfig
 )
 
 func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
@@ -120,13 +124,15 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	eng := &AgentEngine{
-		Config:     cfg,
-		DB:         db,
-		HTTPClient: &http.Client{Timeout: 180 * time.Second},
-		mcpMgr:     mgr,
-		mcpTools:   make(map[string]ToolInfo),
-		a2aClients: make(map[string]*a2aclient.A2AClient),
-		fleet:      agentFleet,
+		Config:      cfg,
+		DB:          db,
+		HTTPClient:  &http.Client{Timeout: 180 * time.Second},
+		mcpMgr:      mgr,
+		mcpTools:    make(map[string]ToolInfo),
+		serverTools: make(map[string][]ToolInfo),
+		serverCfgs:  make(map[string]mcp.ServerConfig),
+		a2aClients:  make(map[string]*a2aclient.A2AClient),
+		fleet:       agentFleet,
 	}
 
 	if cfg.AgenticMemory.Enabled {
@@ -139,6 +145,7 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	_ = eng.discoverMCPTools(ctx)
+	eng.addToolAgents()
 
 	return eng, nil
 }
@@ -203,6 +210,8 @@ type ToolInfo struct {
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	mcpToolsOnce.Do(func() {
 		cachedMCPTools = make(map[string]ToolInfo)
+		cachedServerTools = make(map[string][]ToolInfo)
+		cachedServerCfgs = make(map[string]mcp.ServerConfig)
 		var toolsToEmbed []struct {
 			name        string
 			description string
@@ -214,6 +223,9 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 			if err != nil {
 				cachedToolsErr = err
 				continue
+			}
+			if cfg, ok := ae.mcpMgr.Config(srv); ok {
+				cachedServerCfgs[srv] = cfg
 			}
 			b, _ := json.Marshal(ts)
 			var tools []map[string]interface{}
@@ -231,11 +243,13 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 					inputSchema = schema
 				}
 				toolName := fmt.Sprintf("%s::%s", srv, name)
-				cachedMCPTools[toolName] = ToolInfo{
+				info := ToolInfo{
 					Name:        toolName,
 					Description: desc,
 					InputSchema: inputSchema,
 				}
+				cachedMCPTools[toolName] = info
+				cachedServerTools[srv] = append(cachedServerTools[srv], info)
 
 				// Collect tools for embedding
 				toolsToEmbed = append(toolsToEmbed, struct {
@@ -288,7 +302,55 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	for k, v := range cachedMCPTools {
 		ae.mcpTools[k] = v
 	}
+	if ae.serverTools == nil {
+		ae.serverTools = make(map[string][]ToolInfo)
+	}
+	for srv, tools := range cachedServerTools {
+		ae.serverTools[srv] = tools
+	}
+	if ae.serverCfgs == nil {
+		ae.serverCfgs = make(map[string]mcp.ServerConfig)
+	}
+	for srv, cfg := range cachedServerCfgs {
+		ae.serverCfgs[srv] = cfg
+	}
 	return nil
+}
+
+// addToolAgents creates a fleet worker for each MCP server summarizing its tools.
+func (ae *AgentEngine) addToolAgents() {
+	for srv, tools := range ae.serverTools {
+		if len(tools) == 0 {
+			continue
+		}
+		cfg, _ := ae.serverCfgs[srv]
+		name := cfg.AgentName
+		if name == "" {
+			name = srv
+		}
+		var sb strings.Builder
+		if cfg.Instructions != "" {
+			sb.WriteString(cfg.Instructions)
+			if !strings.HasSuffix(cfg.Instructions, "\n") {
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString("Available tools on this server:\n")
+		for _, t := range tools {
+			sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+		}
+
+		worker := configpkg.FleetWorker{
+			Name:         name,
+			Role:         "tool-agent",
+			Endpoint:     ae.Config.Completions.DefaultHost,
+			Model:        ae.Config.Completions.CompletionsModel,
+			CtxSize:      ae.Config.Completions.CtxSize,
+			Temperature:  ae.Config.Completions.Temperature,
+			Instructions: sb.String(),
+		}
+		ae.fleet.AddWorker(worker)
+	}
 }
 
 func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, req ReActRequest) (*AgentSession, error) {
@@ -306,22 +368,25 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		td = append(td, fmt.Sprintf("- %s (%s) • %s", worker.Name, worker.Role, worker.Instructions))
 	}
 
-	toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
-	if toolLimit <= 0 {
-		toolLimit = len(ae.mcpTools)
-	}
-	relTools, err := ae.getRelevantTools(ctx, req.Objective, toolLimit)
-	if err != nil || len(relTools) == 0 {
-		for _, v := range ae.mcpTools {
-			relTools = append(relTools, v)
+	useToolList := len(ae.serverTools) == 0
+	if useToolList {
+		toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
+		if toolLimit <= 0 {
+			toolLimit = len(ae.mcpTools)
 		}
-	}
-	for _, t := range relTools {
-		schema, err := json.Marshal(t.InputSchema)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal input schema: %v", err)
+		relTools, err := ae.getRelevantTools(ctx, req.Objective, toolLimit)
+		if err != nil || len(relTools) == 0 {
+			for _, v := range ae.mcpTools {
+				relTools = append(relTools, v)
+			}
 		}
-		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
+		for _, t := range relTools {
+			schema, err := json.Marshal(t.InputSchema)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal input schema: %v", err)
+			}
+			td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
+		}
 	}
 	td = append(td,
 		"- ask_assistant_worker • get help from specialized assistant worker",

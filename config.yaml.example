@@ -182,6 +182,10 @@ agent_fleet:
       - -w
       - /app/projects
       - intelligencedev/manifold-mcp
+    agent_name: manifold_tools
+    instructions: |
+      You are the tool agent for the "manifold" MCP server.
+      Use only the tools from this server to answer requests.
 
   # Example GitHub MCP server
   # github:

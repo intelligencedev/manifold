@@ -278,7 +278,15 @@ mcpServers:
       - -e
       - GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -i /home/manifold/.ssh/id_rsa"
       - intelligencedev/manifold-mcp
+    agent_name: manifold_tools
+    instructions: |
+      You are the tool agent for the "manifold" MCP server.
+      Answer questions and execute tools available on this server only.
 ```
+
+### Tool Agents from `mcpServers`
+
+When one or more `mcpServers` are configured, Manifold queries each server at startup and creates a dedicated *tool agent* for it. Each entry may specify an `agent_name` and custom `instructions` that become the system prompt for that agent. These tool agents expose only the tools from their server and can be consulted via `ask_assistant_worker`. When tool agents exist, individual MCP tools are hidden from the main agent's prompt.
 
 ---
 

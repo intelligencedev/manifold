@@ -706,6 +706,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 			Name:         "default",
 			Role:         "assistant",
 			Endpoint:     ae.Config.Completions.DefaultHost,
+			ApiKey:       ae.Config.Completions.APIKey,
 			Model:        model,
 			CtxSize:      ae.Config.Completions.CtxSize,
 			Temperature:  ae.Config.Completions.Temperature,

@@ -637,8 +637,6 @@ export function useAgentNode(props, emit) {
       } else if (canStream) {
         requestBody.stream = true;
 
-        requestBody.stop = ["[DONE]", "<|im_end|>"];
-
         const headers = {
           "Content-Type": "application/json",
           Accept: "text/event-stream",

@@ -334,6 +334,8 @@ watch(messages, () => {
       codeBlocks.forEach(block => {
         hljs.highlightElement(block as HTMLElement)
       })
+      // Add copy buttons after highlighting
+      addCopyButtons()
     }
   })
 }, { deep: true })
@@ -366,6 +368,47 @@ function createEventStreamSplitter () {
 function formatMessage(content: string) {
   return marked(content)
 }
+
+// Add copy buttons to code blocks
+function addCopyButtons() {
+  if (!messageContainer.value) return
+  const pres = messageContainer.value.querySelectorAll('pre')
+  pres.forEach(pre => {
+    // avoid duplicate
+    if (pre.querySelector('.copy-btn')) return
+    // ensure relative positioning
+    (pre as HTMLElement).style.position = 'relative'
+    const btn = document.createElement('button')
+    btn.innerText = 'Copy'
+    btn.className = 'copy-btn absolute top-2 right-2 bg-zinc-700 hover:bg-zinc-600 text-xs text-gray-200 px-2 py-1 rounded'
+    btn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText((pre.querySelector('code')?.textContent) || '')
+        btn.innerText = 'Copied'
+        setTimeout(() => { btn.innerText = 'Copy' }, 2000)
+      } catch (e) {
+        console.error('Copy failed', e)
+      }
+    }
+    pre.appendChild(btn)
+  })
+}
+
+// Watch messages for new code blocks
+ watch(messages, () => {
+   nextTick(() => {
+     if (messageContainer.value) {
+       messageContainer.value.scrollTop = messageContainer.value.scrollHeight
+       // Highlight code blocks in messages
+       const codeBlocks = messageContainer.value.querySelectorAll('pre code:not(.hljs)')
+       codeBlocks.forEach(block => {
+         hljs.highlightElement(block as HTMLElement)
+       })
+      // Add copy buttons after highlighting
+      addCopyButtons()
+     }
+   })
+ }, { deep: true })
 
 async function sendMessage() {
   if (!userInput.value.trim()) return

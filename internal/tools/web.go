@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +22,10 @@ import (
 	"github.com/chromedp/chromedp/kb"
 	"golang.org/x/net/html"
 )
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 var (
 	// These are the URLs we want to block from search results since they will likely fail
@@ -60,11 +65,51 @@ var (
 	resultURLs []string
 )
 
+// WebClient fetches and parses web pages for the agents.
+type WebClient struct {
+	httpClient *http.Client
+	userAgents []string
+}
+
+// NewWebClient creates a WebClient with sane defaults.
+func NewWebClient() *WebClient {
+	return &WebClient{
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		userAgents: []string{
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+		},
+	}
+}
+
 // WebPageContent represents the content of a webpage.
 type WebPageContent struct {
 	Title   string
 	Content string // Markdown content
 	Source  string
+}
+
+// Get retrieves the main content from the given address.
+// Any failure is converted into a short message for the LLM to consume.
+func (c *WebClient) Get(ctx context.Context, address string) (*WebPageContent, error) {
+	if !checkRobotsTxt(address) {
+		return &WebPageContent{Content: fmt.Sprintf("Unable to read %s due to robots.txt", address), Source: address}, nil
+	}
+
+	htmlContent, err := c.fetchHTML(ctx, address)
+	if err != nil {
+		msg := fmt.Sprintf("Could not retrieve %s", address)
+		return &WebPageContent{Content: msg, Source: address}, nil
+	}
+
+	readerContent, err := extractMainContent(htmlContent, address)
+	if err != nil {
+		msg := fmt.Sprintf("Could not parse %s", address)
+		return &WebPageContent{Content: msg, Source: address}, nil
+	}
+
+	return readerContent, nil
 }
 
 // CheckRobotsTxt checks if the target website allows scraping by "et-bot".
@@ -75,65 +120,51 @@ func checkRobotsTxt(u string) bool {
 		return false
 	}
 
-	robotsUrl := url.URL{Scheme: baseURL.Scheme, Host: baseURL.Host, Path: "/robots.txt"}
-	resp, err := http.Get(robotsUrl.String())
+	robotsURL := url.URL{Scheme: baseURL.Scheme, Host: baseURL.Host, Path: "/robots.txt"}
+	resp, err := http.Get(robotsURL.String())
 	if err != nil {
-		log.Printf("Failed to fetch robots.txt for %s: %v", baseURL.String(), err)
-		return false
+		// If robots.txt cannot be fetched assume allowed
+		return true
 	}
 	defer resp.Body.Close()
 
-	// Check if the status code is 200
-	if resp.StatusCode != 200 {
-		log.Printf("Failed to fetch robots.txt for %s: %v", baseURL.String(), err)
-		// We assume it's allowed if not found
+	if resp.StatusCode != http.StatusOK {
+		// Treat non-200 as missing robots.txt and allow
 		return true
 	}
 
-	log.Printf("URL: %s\n", robotsUrl.String())
+	log.Printf("robots.txt checked: %s\n", robotsURL.String())
 	return true
 }
 
 // WebGetHandler retrieves the reader view content of a given URL.
 func WebGetHandler(address string) (*WebPageContent, error) {
-	if !checkRobotsTxt(address) {
-		return nil, errors.New("scraping not allowed according to robots.txt")
-	}
-
-	htmlContent, err := fetchHTML(address)
-	if err != nil {
-		return nil, err
-	}
-
-	readerContent, err := extractMainContent(htmlContent, address)
-	if err != nil {
-		return nil, err
-	}
-
-	return readerContent, nil
+	client := NewWebClient()
+	return client.Get(context.Background(), address)
 }
 
 // fetchHTML retrieves the HTML content of a given URL using chromedp.
-func fetchHTML(address string) (string, error) {
+func (c *WebClient) fetchHTML(ctx context.Context, address string) (string, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 	)
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
 	defer cancel()
 
-	ctx, cancel := chromedp.NewContext(allocCtx)
+	ctx, cancel = chromedp.NewContext(allocCtx)
 	defer cancel()
 
 	ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	var htmlContent string
+	ua := c.userAgents[rand.Intn(len(c.userAgents))]
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(address),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			headers := map[string]interface{}{
-				"User-Agent":      "et-bot", // Set user agent to et-bot
+				"User-Agent":      ua,
 				"Referer":         "https://www.duckduckgo.com/",
 				"Accept-Language": "en-US,en;q=0.9",
 				"X-Forwarded-For": "203.0.113.195",
@@ -417,11 +448,11 @@ func cleanURL(urlStr string) string {
 
 // SearchDDG performs a search on DuckDuckGo and returns the result URLs.
 func SearchDDG(query string) []string {
+	ua := NewWebClient().userAgents
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(),
 		append(chromedp.DefaultExecAllocatorOptions[:],
 			chromedp.Flag("headless", true),
-			// NORMAL UA – DuckDuckGo blocks “HeadlessChrome”
-			chromedp.UserAgent(`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36`),
+			chromedp.UserAgent(ua[rand.Intn(len(ua))]),
 		)...,
 	)
 	defer cancel()

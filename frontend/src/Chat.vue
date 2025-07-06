@@ -585,6 +585,10 @@ textarea.no-focus-anywhere:hover {
   border-radius: 4px;
 }
 
+.markdown-content {
+  line-height: 1.8;
+}
+
 .markdown-content pre code {
   background: transparent;
   padding: 0;

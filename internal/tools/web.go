@@ -58,25 +58,25 @@ type WebPageContent struct {
 }
 
 // Get retrieves the main content from the given address.
-// Any failure is converted into a short message for the LLM to consume.
-func (c *WebClient) Get(ctx context.Context, address string) (*WebPageContent, error) {
+// Returns the main content, and the HTTP status code (0 if not available).
+func (c *WebClient) Get(ctx context.Context, address string) (*WebPageContent, int, error) {
 	if !checkRobotsTxt(address) {
-		return &WebPageContent{Content: fmt.Sprintf("Unable to read %s due to robots.txt", address), Source: address}, nil
+		return &WebPageContent{Content: fmt.Sprintf("Unable to read %s due to robots.txt", address), Source: address}, 0, nil
 	}
 
-	htmlContent, err := c.fetchHTML(ctx, address)
+	htmlContent, status, err := c.fetchHTMLWithStatus(ctx, address)
 	if err != nil {
 		msg := fmt.Sprintf("Could not retrieve %s", address)
-		return &WebPageContent{Content: msg, Source: address}, nil
+		return &WebPageContent{Content: msg, Source: address}, status, nil
 	}
 
 	readerContent, err := extractMainContent(htmlContent, address)
 	if err != nil {
 		msg := fmt.Sprintf("Could not parse %s", address)
-		return &WebPageContent{Content: msg, Source: address}, nil
+		return &WebPageContent{Content: msg, Source: address}, status, nil
 	}
 
-	return readerContent, nil
+	return readerContent, status, nil
 }
 
 // CheckRobotsTxt checks if the target website allows scraping by checking its robots.txt file.
@@ -105,8 +105,8 @@ func checkRobotsTxt(u string) bool {
 }
 
 // fetchWebContent retrieves and parses a web page without any caching or
-// database lookups.
-func fetchWebContent(address string) (*WebPageContent, error) {
+// database lookups. Returns content, status code, error.
+func fetchWebContent(address string) (*WebPageContent, int, error) {
 	client := NewWebClient()
 	return client.Get(context.Background(), address)
 }
@@ -136,7 +136,7 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 	}
 
 	// Fetch new content
-	pg, err := fetchWebContent(address)
+	pg, status, err := fetchWebContent(address)
 	if err != nil {
 		return nil, err
 	}
@@ -144,8 +144,15 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 		return nil, fmt.Errorf("no content")
 	}
 
-	if strings.Contains(pg.Content, "Could not retrieve") {
-		if _, blErr := db.Exec(ctx, `INSERT INTO web_blacklist (url) VALUES ($1) ON CONFLICT DO NOTHING`, address); blErr != nil {
+	// Blacklist if HTTP status is not 200, or robots.txt disallowed
+	if status != 200 {
+		// Extract top-level domain (scheme + host)
+		baseURL, err := url.Parse(address)
+		blDomain := address
+		if err == nil {
+			blDomain = baseURL.Scheme + "://" + baseURL.Host
+		}
+		if _, blErr := db.Exec(ctx, `INSERT INTO web_blacklist (url) VALUES ($1) ON CONFLICT DO NOTHING`, blDomain); blErr != nil {
 			log.Printf("failed to insert web_blacklist: %v", blErr)
 		}
 	}
@@ -159,8 +166,8 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 	return pg, nil
 }
 
-// fetchHTML retrieves the HTML content of a given URL using chromedp.
-func (c *WebClient) fetchHTML(ctx context.Context, address string) (string, error) {
+// fetchHTMLWithStatus retrieves the HTML content and HTTP status code of a given URL using chromedp and a fallback HTTP GET.
+func (c *WebClient) fetchHTMLWithStatus(ctx context.Context, address string) (string, int, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 	)
@@ -175,7 +182,9 @@ func (c *WebClient) fetchHTML(ctx context.Context, address string) (string, erro
 	defer cancel()
 
 	var htmlContent string
+	var statusCode int = 0
 	ua := c.userAgents[rand.Intn(len(c.userAgents))]
+	// Remove unused variables
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(address),
 		chromedp.ActionFunc(func(ctx context.Context) error {
@@ -190,15 +199,39 @@ func (c *WebClient) fetchHTML(ctx context.Context, address string) (string, erro
 			}
 			return network.SetExtraHTTPHeaders(network.Headers(headers)).Do(ctx)
 		}),
+		network.Enable(),
 		chromedp.WaitReady("body"),
 		chromedp.OuterHTML("html", &htmlContent),
 	)
 
-	if err != nil {
-		return "", fmt.Errorf("error retrieving page: %w", err)
+	// Fallback: use HTTP GET to get status code if chromedp did not error
+	if err == nil {
+		req, _ := http.NewRequestWithContext(ctx, "GET", address, nil)
+		req.Header.Set("User-Agent", ua)
+		resp, httpErr := c.httpClient.Do(req)
+		if httpErr == nil {
+			statusCode = resp.StatusCode
+			resp.Body.Close()
+		}
+	} else {
+		// If chromedp failed, try HTTP GET for both content and status
+		req, _ := http.NewRequestWithContext(ctx, "GET", address, nil)
+		req.Header.Set("User-Agent", ua)
+		resp, httpErr := c.httpClient.Do(req)
+		if httpErr != nil {
+			return "", 0, fmt.Errorf("error retrieving page: %w", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		htmlContent = string(body)
+		statusCode = resp.StatusCode
+		if statusCode != 200 {
+			return htmlContent, statusCode, fmt.Errorf("non-200 status: %d", statusCode)
+		}
+		return htmlContent, statusCode, nil
 	}
 
-	return htmlContent, nil
+	return htmlContent, statusCode, nil
 }
 
 // extractMainContent extracts the main content of a webpage, cleans it, and converts it to Markdown.

@@ -50,7 +50,7 @@
           </div>
         </div>
         <!-- input area - fixed at bottom -->
-        <div class="relative flex w-full items-end mx-4 px-4 pb-4 xl:px-45 bg-zinc-800">
+        <div class="relative flex w-full items-end mx-4 px-4 pb-4 xl:px-65 bg-zinc-800">
           <div class="relative flex w-full flex-auto flex-col">
             <!-- Main input container with modern styling -->
             <div class="relative mx-2.5 flex w-full">
@@ -62,7 +62,7 @@
                     v-model="userInput"
                     placeholder="Type a message..."
                     rows="1"
-                    class="block w-full resize-none bg-transparent rounded-xl p-4 pr-16 text-gray-200 placeholder-gray-400 border-0 min-h-12 no-focus-anywhere"
+                    class="block w-full resize-none bg-transparent rounded-xl p-4 pr-20 my-6 text-gray-200 placeholder-gray-400 border-0 min-h-12 no-focus-anywhere"
                     style="max-height: 240px; overflow-y: auto;"
                     @input="autoResize"
                     @keyup.enter="sendMessage"

@@ -20,6 +20,7 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/net/html"
 )
 
@@ -28,40 +29,6 @@ func init() {
 }
 
 var (
-	// These are the URLs we want to block from search results since they will likely fail
-	// with the current implementation. We should make this list configurable in the future.
-	unwantedURLs = []string{
-		"web.archive.org",
-		"www.youtube.com",
-		"www.youtube.com/watch",
-		"www.wired.com",
-		"www.techcrunch.com",
-		"www.wsj.com",
-		"www.nytimes.com",
-		"www.forbes.com",
-		"www.businessinsider.com",
-		"www.theverge.com",
-		"www.thehill.com",
-		"www.theatlantic.com",
-		"www.foxnews.com",
-		"www.theguardian.com",
-		"www.nbcnews.com",
-		"www.msn.com",
-		"www.sciencedaily.com",
-		"reuters.com",
-		"bbc.com",
-		"thenewstack.io",
-		"abcnews.go.com",
-		"apnews.com",
-		"bloomberg.com",
-		"polygon.com",
-		"reddit.com",
-		"indeed.com",
-		"test.com",
-		"medium.com",
-		// Add more URLs to block from search results
-	}
-
 	resultURLs []string
 )
 
@@ -112,7 +79,7 @@ func (c *WebClient) Get(ctx context.Context, address string) (*WebPageContent, e
 	return readerContent, nil
 }
 
-// CheckRobotsTxt checks if the target website allows scraping by "et-bot".
+// CheckRobotsTxt checks if the target website allows scraping by checking its robots.txt file.
 func checkRobotsTxt(u string) bool {
 	baseURL, err := url.Parse(u)
 	if err != nil {
@@ -137,10 +104,53 @@ func checkRobotsTxt(u string) bool {
 	return true
 }
 
-// WebGetHandler retrieves the reader view content of a given URL.
-func WebGetHandler(address string) (*WebPageContent, error) {
+// fetchWebContent retrieves and parses a web page without any caching or
+// database lookups.
+func fetchWebContent(address string) (*WebPageContent, error) {
 	client := NewWebClient()
 	return client.Get(context.Background(), address)
+}
+
+// WebGetHandler retrieves the reader view content of a given URL. It first
+// checks the web_blacklist and web_content tables to avoid unnecessary
+// requests and store results for future use.
+func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageContent, error) {
+	// Check blacklist
+	var tmp int
+	err := db.QueryRow(ctx, "SELECT 1 FROM web_blacklist WHERE url = $1", address).Scan(&tmp)
+	if err == nil {
+		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted in database", address), Source: address}, nil
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return nil, err
+	}
+
+	// Check if already indexed
+	var title, content string
+	err = db.QueryRow(ctx, "SELECT title, content FROM web_content WHERE url = $1", address).Scan(&title, &content)
+	if err == nil {
+		return &WebPageContent{Title: title, Content: content, Source: address}, nil
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return nil, err
+	}
+
+	// Fetch new content
+	pg, err := fetchWebContent(address)
+	if err != nil {
+		return nil, err
+	}
+	if pg == nil {
+		return nil, fmt.Errorf("no content")
+	}
+
+	// Persist to database (best effort)
+	_, dbErr := db.Exec(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO NOTHING`, address, pg.Title, pg.Content)
+	if dbErr != nil {
+		log.Printf("failed to insert web_content: %v", dbErr)
+	}
+
+	return pg, nil
 }
 
 // fetchHTML retrieves the HTML content of a given URL using chromedp.
@@ -447,7 +457,7 @@ func cleanURL(urlStr string) string {
 }
 
 // SearchDDG performs a search on DuckDuckGo and returns the result URLs.
-func SearchDDG(query string) []string {
+func SearchDDG(ctx context.Context, db *pgx.Conn, query string) []string {
 	ua := NewWebClient().userAgents
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(),
 		append(chromedp.DefaultExecAllocatorOptions[:],
@@ -486,7 +496,7 @@ func SearchDDG(query string) []string {
 		urls = append(urls, u)
 	}
 
-	resultURLs = RemoveUnwantedURLs(urls)
+	resultURLs = RemoveUnwantedURLs(ctx, db, urls)
 	// If resultURLs contains cnn.com, replace the URL with https://lite.cnn.com
 	for i, u := range resultURLs {
 		if strings.Contains(u, "https://www.cnn.com") {
@@ -498,10 +508,10 @@ func SearchDDG(query string) []string {
 }
 
 // GetSearchResults retrieves the content of multiple URLs and returns it as a concatenated string.
-func GetSearchResults(urls []string) string {
+func GetSearchResults(ctx context.Context, db *pgx.Conn, urls []string) string {
 	var result strings.Builder
 	for _, u := range urls {
-		content, err := WebGetHandler(u)
+		content, err := WebGetHandler(ctx, db, u)
 		if err != nil {
 			log.Printf("Error getting search result for URL %s: %v", u, err)
 			continue
@@ -517,12 +527,26 @@ func GetSearchResults(urls []string) string {
 }
 
 // RemoveUnwantedURLs filters out unwanted URLs from the given list.
-func RemoveUnwantedURLs(urls []string) []string {
+func RemoveUnwantedURLs(ctx context.Context, db *pgx.Conn, urls []string) []string {
+	rows, err := db.Query(ctx, "SELECT url FROM web_blacklist")
+	if err != nil {
+		log.Printf("failed to load blacklist: %v", err)
+		return urls
+	}
+	var blacklist []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err == nil {
+			blacklist = append(blacklist, u)
+		}
+	}
+	rows.Close()
+
 	var filteredURLs []string
 	for _, u := range urls {
 		log.Printf("Checking URL: %s", u)
 		unwanted := false
-		for _, unwantedURL := range unwantedURLs {
+		for _, unwantedURL := range blacklist {
 			if strings.Contains(u, unwantedURL) {
 				log.Printf("URL %s contains unwanted URL %s", u, unwantedURL)
 				unwanted = true
@@ -630,7 +654,7 @@ func extractURLsFromHTML(htmlContent string) ([]string, error) {
 }
 
 // GetSearXNGResults performs a search on a SearXNG instance and returns the result URLs.
-func GetSearXNGResults(endpoint string, query string) []string {
+func GetSearXNGResults(ctx context.Context, db *pgx.Conn, endpoint string, query string) []string {
 	htmlContent, err := postRequest(endpoint, query)
 	if err != nil {
 		log.Printf("Error: %v\n", err)
@@ -642,7 +666,7 @@ func GetSearXNGResults(endpoint string, query string) []string {
 		return nil
 	}
 	// Remove unwanted URLs
-	urls = RemoveUnwantedURLs(urls)
+	urls = RemoveUnwantedURLs(ctx, db, urls)
 	for i, u := range resultURLs {
 		if strings.Contains(u, "https://www.cnn.com") {
 			resultURLs[i] = strings.Replace(u, "https://www.cnn.com", "https://lite.cnn.com", 1)

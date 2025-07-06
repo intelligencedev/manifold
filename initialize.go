@@ -610,6 +610,28 @@ func CreateModelsTable(ctx context.Context, db *pgx.Conn) error {
 	return nil
 }
 
+// CreateWebTables initializes tables used for web content fetching and blacklisting.
+func CreateWebTables(ctx context.Context, db *pgx.Conn) error {
+	_, err := db.Exec(ctx, `
+        CREATE TABLE IF NOT EXISTS web_content (
+            url TEXT PRIMARY KEY,
+            title TEXT,
+            content TEXT,
+            fetched_at TIMESTAMP DEFAULT NOW()
+        )`)
+	if err != nil {
+		return fmt.Errorf("failed to create web_content table: %w", err)
+	}
+	_, err = db.Exec(ctx, `
+        CREATE TABLE IF NOT EXISTS web_blacklist (
+            url TEXT PRIMARY KEY
+        )`)
+	if err != nil {
+		return fmt.Errorf("failed to create web_blacklist table: %w", err)
+	}
+	return nil
+}
+
 func ScanGGUFModels(modelsDir string) ([]LanguageModel, error) {
 	var ggufModels []LanguageModel
 

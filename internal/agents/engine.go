@@ -987,7 +987,7 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 	return resp.Result, nil
 }
 
-func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpkg.Config) (string, error) {
+func (ae *AgentEngine) runWebSearch(ctx context.Context, arg string, cfg *configpkg.Config) (string, error) {
 	var req struct {
 		Query string `json:"query"`
 	}
@@ -1004,9 +1004,9 @@ func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpk
 		if cfg.Tools.Search.Endpoint == "" {
 			return "", fmt.Errorf("sxng_url required")
 		}
-		urls = tools.GetSearXNGResults(cfg.Tools.Search.Endpoint, req.Query)
+		urls = tools.GetSearXNGResults(ctx, ae.DB, cfg.Tools.Search.Endpoint, req.Query)
 	} else {
-		urls = tools.SearchDDG(req.Query)
+		urls = tools.SearchDDG(ctx, ae.DB, req.Query)
 	}
 
 	if urls == nil {
@@ -1022,10 +1022,10 @@ func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpk
 		urls = urls[:resultSize]
 	}
 
-	return tools.GetSearchResults(urls), nil
+	return tools.GetSearchResults(ctx, ae.DB, urls), nil
 }
 
-func (ae *AgentEngine) runWebFetch(_ context.Context, arg string) (string, error) {
+func (ae *AgentEngine) runWebFetch(ctx context.Context, arg string) (string, error) {
 	var req struct {
 		URL string `json:"url"`
 	}
@@ -1035,7 +1035,7 @@ func (ae *AgentEngine) runWebFetch(_ context.Context, arg string) (string, error
 	if req.URL == "" {
 		return "", fmt.Errorf("url required")
 	}
-	pg, err := tools.WebGetHandler(req.URL)
+	pg, err := tools.WebGetHandler(ctx, ae.DB, req.URL)
 	if err != nil {
 		return "", err
 	}

@@ -144,6 +144,12 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 		return nil, fmt.Errorf("no content")
 	}
 
+	if strings.Contains(pg.Content, "Could not retrieve") {
+		if _, blErr := db.Exec(ctx, `INSERT INTO web_blacklist (url) VALUES ($1) ON CONFLICT DO NOTHING`, address); blErr != nil {
+			log.Printf("failed to insert web_blacklist: %v", blErr)
+		}
+	}
+
 	// Persist to database (best effort)
 	_, dbErr := db.Exec(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO NOTHING`, address, pg.Title, pg.Content)
 	if dbErr != nil {

@@ -16,7 +16,6 @@
     "@codemirror/theme-one-dark": "^6.1.2",
     "@codemirror/view": "^6.36.4",
     "@dagrejs/dagre": "^1.1.4",
-    "@datadog/datadog-api-client": "^1.31.0",
     "@huggingface/hub": "^1.0.1",
     "@tailwindcss/vite": "^4.1.7",
     "@types/dompurify": "^3.2.0",

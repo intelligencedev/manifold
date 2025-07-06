@@ -72,7 +72,7 @@
                 <div class="absolute right-2 bottom-1 flex items-center">
                   <BaseButton
                   @click="sendMessage"
-                  class="mr-4 mb-1 flex items-center justify-center rounded-lg transition-colors hover:opacity-70 disabled:opacity-50 bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
+                  class="mr-4 mb-4 flex items-center justify-center rounded-lg transition-colors hover:opacity-70 disabled:opacity-50 bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
                   :disabled="!userInput.trim()"
                   >
                   <span class="sr-only">Send</span>

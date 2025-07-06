@@ -17,9 +17,9 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pgvector/pgvector-go"
 
+	openai "github.com/sashabaranov/go-openai"
 	configpkg "manifold/internal/config"
-	"manifold/internal/llm"
-	embeddings "manifold/internal/llm"
+	llm "manifold/internal/llm"
 	"manifold/internal/sefii"
 )
 
@@ -298,7 +298,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 
 	// 2. Compute the embedding.
 	embeddingInput := config.Embeddings.EmbedPrefix + content + " " + noteContext + " " + strings.Join(keywords, " ") + " " + strings.Join(tags, " ")
-	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
+	embeds, err := llm.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
 	if err != nil || len(embeds) == 0 {
 		return 0, fmt.Errorf("failed to generate embedding: %w", err)
 	}
@@ -375,7 +375,7 @@ func (ae *AgenticEngine) generateLinks(ctx context.Context, newMemoryID int64, k
 
 // SearchAgenticMemories performs a vector-based search on agentic_memories.
 func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *configpkg.Config, queryText string, limit int) ([]AgenticMemory, error) {
-	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{queryText})
+	embeds, err := llm.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{queryText})
 	if err != nil || len(embeds) == 0 {
 		return nil, fmt.Errorf("failed to generate query embedding: %w", err)
 	}
@@ -582,7 +582,7 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 	k int,
 ) ([]AgenticMemory, error) {
 
-	embeds, err := embeddings.GenerateEmbeddings(cfg.Embeddings.Host, cfg.Embeddings.APIKey, []string{query})
+	embeds, err := llm.GenerateEmbeddings(cfg.Embeddings.Host, cfg.Embeddings.APIKey, []string{query})
 	if err != nil || len(embeds) == 0 {
 		return nil, err
 	}
@@ -980,7 +980,7 @@ func (ae *AgenticEngine) UpdateMemoryWithEvolution(
 	}
 
 	// Generate embeddings for similarity calculation
-	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{oldContent, newContent})
+	embeds, err := llm.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{oldContent, newContent})
 	if err != nil {
 		log.Printf("Warning: could not calculate evolution confidence: %v", err)
 		// Track evolution with default confidence
@@ -1095,7 +1095,7 @@ SEVERITY: 0.0-1.0 (how severe the contradiction is)
 DESCRIPTION: Brief explanation of the contradiction (if any)`, content1, content2)
 
 	// Use the LLM API to analyze the contradiction
-	messages := []llm.Message{
+	messages := []openai.ChatCompletionMessage{
 		{Role: "system", Content: "You are an expert at analyzing contradictions in information. Analyze the following memories and determine if they contradict each other."},
 		{Role: "user", Content: prompt},
 	}

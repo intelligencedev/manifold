@@ -3,7 +3,6 @@ module manifold
 go 1.24.3
 
 require (
-	github.com/DataDog/datadog-api-client-go/v2 v2.37.1
 	github.com/JohannesKaufmann/html-to-markdown v1.6.0
 	github.com/chromedp/cdproto v0.0.0-20250509201441-70372ae9ef75
 	github.com/chromedp/chromedp v0.13.6
@@ -19,10 +18,9 @@ require (
 	github.com/metoro-io/mcp-golang v0.12.0
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/pterm/pterm v0.12.80
+	github.com/sashabaranov/go-openai v1.38.2
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/stretchr/testify v1.10.0
-	go.opentelemetry.io/otel v1.35.0
-	go.opentelemetry.io/otel/trace v1.35.0
 	golang.org/x/crypto v0.38.0
 	golang.org/x/net v0.40.0
 	gopkg.in/yaml.v2 v2.4.0
@@ -32,7 +30,6 @@ require (
 	atomicgo.dev/cursor v0.2.0 // indirect
 	atomicgo.dev/keyboard v0.2.9 // indirect
 	atomicgo.dev/schedule v0.1.0 // indirect
-	github.com/DataDog/zstd v1.5.2 // indirect
 	github.com/PuerkitoBio/goquery v1.9.2 // indirect
 	github.com/StackExchange/wmi v1.2.1 // indirect
 	github.com/andybalholm/cascadia v1.3.2 // indirect
@@ -46,7 +43,6 @@ require (
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
 	github.com/gobwas/ws v1.4.0 // indirect
-	github.com/goccy/go-json v0.10.2 // indirect
 	github.com/gookit/color v1.5.4 // indirect
 	github.com/gorilla/context v1.1.2 // indirect
 	github.com/gorilla/securecookie v1.1.2 // indirect
@@ -78,7 +74,6 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/oauth2 v0.21.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
 	golang.org/x/term v0.32.0 // indirect

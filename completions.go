@@ -12,8 +12,19 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	llm "manifold/internal/llm"
+	openai "github.com/sashabaranov/go-openai"
 )
+
+// ErrorData mirrors the error structure returned by the OpenAI API.
+type ErrorData struct {
+	Code    any    `json:"code"`
+	Message string `json:"message"`
+}
+
+// ErrorResponse wraps an error returned by the OpenAI API.
+type ErrorResponse struct {
+	Error ErrorData `json:"error"`
+}
 
 func completionsHandler(c echo.Context, config *Config) error {
 	// Set up the OpenAI API client
@@ -22,8 +33,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 	// Read the original request body
 	bodyBytes, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, llm.ErrorResponse{
-			Error: llm.ErrorData{
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: ErrorData{
 				Message: "Error reading request body: " + err.Error(),
 			},
 		})
@@ -33,8 +44,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 	openAIURL := config.Completions.DefaultHost
 	req, err := http.NewRequest("POST", openAIURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-			Error: llm.ErrorData{
+		return c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error: ErrorData{
 				Message: "Error creating proxy request: " + err.Error(),
 			},
 		})
@@ -45,13 +56,13 @@ func completionsHandler(c echo.Context, config *Config) error {
 	req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
 
 	// Check if this is a streaming request
-	var payload llm.CompletionRequest
+	var payload openai.ChatCompletionRequest
 
 	// Only set the default model if the endpoint is OpenAI's API
 	if strings.Contains(openAIURL, "api.openai.com") {
 		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-			return c.JSON(http.StatusBadRequest, llm.ErrorResponse{
-				Error: llm.ErrorData{
+			return c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error: ErrorData{
 					Message: "Invalid JSON in request: " + err.Error(),
 				},
 			})
@@ -64,8 +75,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 			// Re-marshal the body with the updated model
 			updatedBody, err := json.Marshal(payload)
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-					Error: llm.ErrorData{
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{
+					Error: ErrorData{
 						Message: "Error updating request body: " + err.Error(),
 					},
 				})
@@ -74,8 +85,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 			// Update the request with the new body
 			req, err = http.NewRequest("POST", openAIURL, bytes.NewBuffer(updatedBody))
 			if err != nil {
-				return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-					Error: llm.ErrorData{
+				return c.JSON(http.StatusInternalServerError, ErrorResponse{
+					Error: ErrorData{
 						Message: "Error creating updated request: " + err.Error(),
 					},
 				})
@@ -88,8 +99,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 	} else {
 		// For non-OpenAI endpoints, just unmarshal to check if it's a streaming request
 		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-			return c.JSON(http.StatusBadRequest, llm.ErrorResponse{
-				Error: llm.ErrorData{
+			return c.JSON(http.StatusBadRequest, ErrorResponse{
+				Error: ErrorData{
 					Message: "Invalid JSON in request: " + err.Error(),
 				},
 			})
@@ -106,8 +117,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 		// Make sure the writer supports flushing
 		flusher, ok := c.Response().Writer.(http.Flusher)
 		if !ok {
-			return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-				Error: llm.ErrorData{
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error: ErrorData{
 					Message: "Streaming not supported",
 				},
 			})
@@ -116,8 +127,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 		// Make the request to OpenAI
 		resp, err := client.Do(req)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-				Error: llm.ErrorData{
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error: ErrorData{
 					Message: "Error forwarding request to OpenAI: " + err.Error(),
 				},
 			})
@@ -157,8 +168,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 		}
 
 		if err := scanner.Err(); err != nil {
-			return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-				Error: llm.ErrorData{
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error: ErrorData{
 					Message: "Error reading stream from OpenAI: " + err.Error(),
 				},
 			})
@@ -169,8 +180,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 		// Non-streaming request
 		resp, err := client.Do(req)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-				Error: llm.ErrorData{
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error: ErrorData{
 					Message: "Error forwarding request to OpenAI: " + err.Error(),
 				},
 			})
@@ -180,8 +191,8 @@ func completionsHandler(c echo.Context, config *Config) error {
 		// Read the response body
 		respBody, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return c.JSON(http.StatusInternalServerError, llm.ErrorResponse{
-				Error: llm.ErrorData{
+			return c.JSON(http.StatusInternalServerError, ErrorResponse{
+				Error: ErrorData{
 					Message: "Error reading response from OpenAI: " + err.Error(),
 				},
 			})

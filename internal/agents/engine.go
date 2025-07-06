@@ -2,11 +2,9 @@
 package agents
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -24,11 +22,12 @@ import (
 	a2aclient "manifold/internal/a2a/client"
 	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
-	completions "manifold/internal/llm"
-	embeddings "manifold/internal/llm"
+	llm "manifold/internal/llm"
 	"manifold/internal/mcp"
 	tools "manifold/internal/tools"
 	"manifold/internal/util"
+
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/pgvector/pgvector-go"
 )
@@ -184,9 +183,12 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
 
-		session, err := engine.RunSession(ctx, cfg, req)
+		session, err := engine.RunSessionWithHook(ctx, cfg, req, func(st AgentStep) {
+			// Optional: log or process each step as it is generated
+			log.Printf("Step %d: %s | Action: %s | Input: %s", st.Index, st.Thought, st.Action, st.ActionInput)
+		})
 		if err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
+			return c.String(http.StatusInternalServerError, err.Error())
 		}
 		return c.JSON(200, ReActResponse{
 			SessionID: session.ID.String(),
@@ -268,7 +270,7 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 			}
 
 			// Generate all embeddings in one call
-			embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, embedTexts)
+			embeds, err := llm.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, embedTexts)
 			if err == nil && len(embeds) == len(toolsToEmbed) {
 				// Use a wait group to handle concurrent inserts
 				var wg sync.WaitGroup
@@ -548,13 +550,13 @@ Tools:
 	}
 
 	// Store conversation history across turns
-	var conversationHistory []completions.Message
+	var conversationHistory []openai.ChatCompletionMessage
 
 	// Add system prompt only once at the beginning
-	conversationHistory = append(conversationHistory, completions.Message{Role: "system", Content: sysPrompt})
+	conversationHistory = append(conversationHistory, openai.ChatCompletionMessage{Role: "system", Content: sysPrompt})
 
 	for i := 0; i < req.MaxSteps; i++ {
-		var currentMessages []completions.Message
+		var currentMessages []openai.ChatCompletionMessage
 
 		// Start with the existing conversation history
 		currentMessages = append(currentMessages, conversationHistory...)
@@ -575,13 +577,13 @@ Tools:
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
 			// Add memory as a separate system message for this turn
-			currentMessages = append(currentMessages, completions.Message{Role: "system", Content: memBuf.String()})
+			currentMessages = append(currentMessages, openai.ChatCompletionMessage{Role: "system", Content: memBuf.String()})
 		} else {
 			log.Printf("No memories found")
 		}
 
 		// For the current turn, add the user message
-		currentMessages = append(currentMessages, completions.Message{Role: "user", Content: "Next step?"})
+		currentMessages = append(currentMessages, openai.ChatCompletionMessage{Role: "user", Content: "Next step?"})
 
 		// Print the prompt for debugging
 		log.Println("=====================================")
@@ -667,7 +669,7 @@ Tools:
 		}
 
 		// Add the assistant's response to conversation history
-		assistantMessage := completions.Message{
+		assistantMessage := openai.ChatCompletionMessage{
 			Role: "assistant",
 			Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s",
 				thought, action, input),
@@ -675,7 +677,7 @@ Tools:
 		conversationHistory = append(conversationHistory, assistantMessage)
 
 		// Add the observation as a user message in the conversation history
-		userMessage := completions.Message{
+		userMessage := openai.ChatCompletionMessage{
 			Role:    "user",
 			Content: fmt.Sprintf("Observation: %s\n\nNext step?", obs),
 		}
@@ -697,7 +699,7 @@ Tools:
 	return sess, nil
 }
 
-func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []completions.Message) (string, error) {
+func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []openai.ChatCompletionMessage) (string, error) {
 
 	fleet := ae.fleet
 	assistant := fleet.GetWorker(assistantName)
@@ -723,39 +725,27 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(ae.Config.Completions.CtxSize-promptTokens-1024, 1024)
 
-	var body []byte
+	log.Printf("Calling LLM %s (%s) with %d tokens", assistant.Name, assistant.Model, promptTokens)
 
-	if ae.Config.Completions.Backend != "mlx" {
-		body, _ = json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, Temperature: ae.Config.Completions.Temperature})
+	// Check if this is an MLX backend and handle parameters accordingly
+	endpoint := assistant.Endpoint
+	isMLX := strings.Contains(strings.ToLower(endpoint), "mlx") ||
+		ae.Config.Completions.Backend == "mlx" ||
+		strings.Contains(strings.ToLower(model), "mlx")
+
+	var response string
+	var err error
+	if isMLX {
+		// For MLX backends, use the MLX-specific parameter formatting
+		response, err = llm.CallMLX(ctx, endpoint, ae.Config.Completions.APIKey, msgs, maxTokens, ae.Config.Completions.Temperature)
 	} else {
-		body, _ = json.Marshal(completions.CompletionRequest{Messages: msgs, Temperature: ae.Config.Completions.Temperature, MaxTokens: maxTokens})
+		response, err = llm.CallLLM(ctx, assistant.Endpoint, ae.Config.Completions.APIKey, model, msgs, maxTokens, ae.Config.Completions.Temperature)
 	}
-
-	req, _ := http.NewRequestWithContext(ctx, "POST", assistant.Endpoint, bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
-
-	// Print the request for debugging
-	log.Printf("Calling LLM %s (%s) with %d tokens", assistant.Name, assistant.Model, util.CountTokens(string(body)))
-
-	resp, err := ae.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("llm %d: %s", resp.StatusCode, string(b))
-	}
-	var cr completions.CompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
-		return "", err
-	}
-	if len(cr.Choices) == 0 {
-		return "", fmt.Errorf("no choices")
-	}
-	// Remove <think> and </think> tags
-	response := strings.ReplaceAll(cr.Choices[0].Message.Content, "<think>", "")
+
+	response = strings.ReplaceAll(response, "<think>", "")
 	response = strings.ReplaceAll(response, "</think>", "")
 	return strings.TrimSpace(response), nil
 }
@@ -827,7 +817,7 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 
 		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
 
-		return ae.callLLM(ctx, worker.Name, worker.Model, []completions.Message{
+		return ae.callLLM(ctx, worker.Name, worker.Model, []openai.ChatCompletionMessage{
 			{Role: "user", Content: msg},
 		})
 	case "code_eval":

@@ -41,7 +41,7 @@
       <!-- Chat/Main area -->
       <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
         <!-- messages -->
-        <div ref="messageContainer" class="message-area-scroll flex-1 overflow-y-auto space-y-6 p-4 2xl:px-65 xl:px-45">
+        <div ref="messageContainer" class="w-full message-area-scroll flex-1 overflow-y-auto space-y-6 p-4 xl:px-65">
           <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : ''">
             <div class="p-6 rounded-lg" :class="msg.role==='user' ? 'bg-teal-600 inline-block px-3 py-2 w-1/2 text-left' : ''">
               <div v-if="msg.role === 'assistant' && renderMode === 'markdown'" class="markdown-content" v-html="formatMessage(msg.content)" />
@@ -50,10 +50,48 @@
           </div>
         </div>
         <!-- input area - fixed at bottom -->
-        <div class="mb-10 px-4 bg-zinc-800 2xl:px-65 xl:px-45">
-            <BaseTextarea v-model="userInput" placeholder="Type a message..." class="w-full bg-zinc-700 border-teal-700 border-1 rounded-lg" />
-          <div class="mt-2 px-6">
-            <BaseButton class="bg-teal-700 hover:bg-teal-600 w-full" @click="sendMessage">Send</BaseButton>
+        <div class="relative flex w-full items-end mx-4 px-4 pb-4 xl:px-45 bg-zinc-800">
+          <div class="relative flex w-full flex-auto flex-col">
+            <!-- Main input container with modern styling -->
+            <div class="relative mx-2.5 flex w-full">
+              <div class="relative flex w-full flex-auto bg-zinc-700 rounded-xl border border-zinc-600 transition-colors">
+                <!-- Textarea container -->
+                <div class="flex-1 relative">
+                  <textarea
+                    ref="textareaRef"
+                    v-model="userInput"
+                    placeholder="Type a message..."
+                    rows="1"
+                    class="block w-full resize-none bg-transparent rounded-xl p-4 pr-16 text-gray-200 placeholder-gray-400 border-0 min-h-12 no-focus-anywhere"
+                    style="max-height: 240px; overflow-y: auto;"
+                    @input="autoResize"
+                    @keyup.enter="sendMessage"
+                  />
+                </div>
+                <!-- Send button positioned inside the input -->
+                <div class="absolute right-2 bottom-2 flex items-center">
+                  <BaseButton
+                    @click="sendMessage"
+                    class="mr-4 mb-1 flex items-center justify-center rounded-lg transition-colors hover:opacity-70 disabled:opacity-50 bg-teal-600 hover:bg-teal-700 text-white h-8 w-8 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
+                    :disabled="!userInput.trim()"
+                  >
+                    <span class="sr-only">Send</span>
+                    <svg xmlns="http://www.w3.org/2000/svg"
+                         class="h-4 w-4"
+                         fill="none"
+                         viewBox="0 0 24 24"
+                         stroke="currentColor">
+                      <path stroke-linecap="round"
+                            stroke-linejoin="round"
+                            stroke-width="2"
+                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                  </BaseButton>
+                </div>
+              </div>
+            </div>
+            <!-- Spacer to maintain layout -->
+            <div style="height: 12px;"></div>
           </div>
         </div>
       </div>
@@ -98,6 +136,7 @@ const agentMaxSteps = computed(() => configStore.config?.Completions?.Agent?.Max
 const messages = computed(() => chatStore.messages)
 const userInput = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const showApiKey = ref(false)
 const isLoadingModel = ref(false) // Track model loading state
 
@@ -336,6 +375,9 @@ async function sendMessage() {
   const prompt = userInput.value.trim()
   chatStore.addMessage({ role: 'user', content: prompt })
   userInput.value = ''
+  
+  // Reset textarea height after clearing input
+  resetTextareaHeight()
 
   // Create the assistant message and add it to the messages array
   chatStore.addMessage({ role: 'assistant', content: '' })
@@ -422,9 +464,68 @@ async function sendMessage() {
     chatStore.updateLastAssistantMessage('Error fetching response.')
   }
 }
+
+// Auto-resize textarea function
+function autoResize() {
+  if (textareaRef.value) {
+    textareaRef.value.style.height = 'auto'
+    const scrollHeight = textareaRef.value.scrollHeight
+    const maxHeight = 240 // 10 lines * 24px line-height
+    textareaRef.value.style.height = Math.min(scrollHeight, maxHeight) + 'px'
+  }
+}
+
+// Reset textarea to original height
+function resetTextareaHeight() {
+  if (textareaRef.value) {
+    textareaRef.value.style.height = ''
+    textareaRef.value.style.removeProperty('height')
+  }
+}
 </script>
 
 <style>
+/* NUCLEAR OPTION - Remove ALL possible focus styles */
+.no-focus-anywhere,
+.no-focus-anywhere:focus,
+.no-focus-anywhere:focus-visible,
+.no-focus-anywhere:focus-within,
+.no-focus-anywhere:active,
+.no-focus-anywhere:hover {
+  outline: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  border-width: 0 !important;
+  ring: none !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
+}
+
+/* Target all possible textarea states */
+textarea.no-focus-anywhere,
+textarea.no-focus-anywhere:focus,
+textarea.no-focus-anywhere:focus-visible,
+textarea.no-focus-anywhere:focus-within,
+textarea.no-focus-anywhere:active,
+textarea.no-focus-anywhere:hover {
+  outline: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  border-width: 0 !important;
+  ring: none !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
+}
+
+/* Override any Tailwind focus utilities */
+.no-focus-anywhere:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color) !important;
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(0px + var(--tw-ring-offset-width)) var(--tw-ring-color) !important;
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000) !important;
+}
+
 /* Styling for code blocks similar to ResponseNode */
 .markdown-content pre {
   background: rgba(45, 45, 55, 0.6);
@@ -489,5 +590,23 @@ async function sendMessage() {
 .message-area-scroll::-webkit-scrollbar-thumb {
   background-color: oklch(60% 0.118 184.704);
   border-radius: 9999px;
+}
+
+/* Scrollbar styling for textarea */
+.no-focus-anywhere {
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none !important; /* IE and Edge */
+}
+
+.no-focus-anywhere::-webkit-scrollbar {
+  display: none !important; /* Chrome, Safari, Opera */
+}
+
+.no-focus-anywhere::-webkit-scrollbar-track {
+  display: none !important;
+}
+
+.no-focus-anywhere::-webkit-scrollbar-thumb {
+  display: none !important;
 }
 </style>

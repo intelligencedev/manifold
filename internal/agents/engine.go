@@ -735,6 +735,9 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
 
+	// Print the request for debugging
+	log.Printf("Calling LLM %s (%s) with %d tokens", assistant.Name, assistant.Model, util.CountTokens(string(body)))
+
 	resp, err := ae.HTTPClient.Do(req)
 	if err != nil {
 		return "", err

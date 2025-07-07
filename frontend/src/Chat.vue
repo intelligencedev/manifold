@@ -65,7 +65,7 @@
                     class="block w-full resize-none bg-transparent rounded-xl p-4 pr-20 my-6 text-gray-200 placeholder-gray-400 border-0 min-h-12 no-focus-anywhere"
                     style="max-height: 240px; overflow-y: auto;"
                     @input="autoResize"
-                    @keyup.enter="sendMessage"
+                    @keydown="handleTextareaKeydown"
                   />
                 </div>
                 <!-- Send button positioned inside the input -->
@@ -97,6 +97,18 @@
 </template>
 
 <script setup lang="ts">
+function handleTextareaKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' || e.key === 'Return') {
+    if (e.shiftKey) {
+      // Allow newline
+      return
+    } else {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+}
+
 import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import Header from './components/layout/Header.vue'
 import BaseButton from './components/base/BaseButton.vue'

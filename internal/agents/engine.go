@@ -337,9 +337,13 @@ func (ae *AgentEngine) addToolAgents() {
 				sb.WriteString("\n")
 			}
 		}
-		sb.WriteString("Available tools on this server:\n")
+		sb.WriteString("Available tools on this server (with schemas):\n")
 		for _, t := range tools {
-			sb.WriteString(fmt.Sprintf("- %s: %s\n", t.Name, t.Description))
+			schema, err := json.MarshalIndent(t.InputSchema, "  ", "  ")
+			if err != nil {
+				schema = []byte("{}")
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %s\n  schema: %s\n", t.Name, t.Description, string(schema)))
 		}
 
 		worker := configpkg.FleetWorker{
@@ -398,109 +402,18 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		"- finish       • end and output final answer",
 	)
 
-	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are the ONLY assistant in your team with access to the tools. The other assistants can only think and reply to your requests for help from your team. You are the ONLY one that makes the tool calls. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
+	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
 
 IMPORTANT: If you get stuck, or detect a loop, ask for assistance from another expert and ensure you give them all of the information necessary for them to help you.
 
 Objective: %s
 
 IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.
-Assistants are specialized workers that can help with specific tasks, such as code generation, data analysis, or document analysis.
-Assistants can only take your instructions and respond using their knowledge expertise. They cannot execute code or perform actions directly.
+Assistants are specialized workers that can help with specific tasks.
 - ask_assistant_worker • get help from specialized assistant worker
 {"properties":{"name":{"description":"Name of the worker to ask","type":"string"},"model":{"description":"Optional model to use. Leave empty unless explicitly requested.","type":"string"},"msg":{"description":"Message to send to the worker. Detailed task or help query.","type":"string"}},"required":["name","msg"],"type":"object"}
 
 Always use the manifold::cli tool to run commands, and the code_eval tool to run Python code when making your own tools.
-
-The manifold cli tool:
-- manifold::cli • Execute a raw CLI command
-{"properties":{"command":{"description":"Command string to execute","type":"string"},"dir":{"description":"Optional working directory","type":"string"}},"required":["command"],"type":"object"}
-
-The manifold web search tool:
-- web_search • Search the web for information
-{"properties":{"query":{"description":"Search query","type":"string"}},"required":["query"],"type":"object"}
-
-Below is a list of available CLI commands using the manifold::cli tool schema you should use.
-
-// ── Listing & navigation ────────────────────────────────────────────────
-{"command":"ls -la PATH"}
-{"command":"find PATH -type f"}
-{"command":"find PATH -type d"}
-{"command":"tree PATH"}
-
-// ── Search & pattern matching ───────────────────────────────────────────
-{"command":"grep -rn \"PATTERN\" PATH"}
-{"command":"find PATH -name \"*.ext\" -exec grep -l \"PATTERN\" {} \\;"}
-{"command":"find PATH -name \"FILENAME\""}
-{"command":"find PATH -name \"*PATTERN*\""}
-
-// ── File reading & paging ───────────────────────────────────────────────
-{"command":"cat FILE"}
-{"command":"head -n N FILE"}
-{"command":"tail -n N FILE"}
-{"command":"less FILE"}
-{"command":"sed -n 'START,ENDp' FILE"}
-
-// ── File creation & simple writes ───────────────────────────────────────
-{"command":"echo \"TEXT\"  > FILE"}
-{"command":"echo \"TEXT\" >> FILE"}
-{"command":"cat > FILE <<'EOF'  # …content…  EOF"}
-{"command":"touch FILE"}
-
-// ── Precise non-interactive edits ───────────────────────────────────────
-{"command":"sed -i 's/OLD/NEW/g' FILE"}
-{"command":"sed -i 'Ns/OLD/NEW/' FILE"}
-{"command":"sed -i '/PATTERN/s/OLD/NEW/g' FILE"}
-{"command":"sed -i '/PATTERN/d' FILE"}
-{"command":"awk '{gsub(/OLD/,\"NEW\");print}' FILE > NEWFILE"}
-
-// ── Text manipulation utilities ────────────────────────────────────────
-{"command":"cut -d'DELIM' -f N FILE"}
-{"command":"awk -F'DELIM' '{print $N}' FILE"}
-{"command":"sort FILE"}
-{"command":"uniq FILE"}
-{"command":"tr 'a-z' 'A-Z' < FILE"}
-
-// ── Basic file operations ───────────────────────────────────────────────
-{"command":"cp FILE DEST"}
-{"command":"cp -r DIR DEST"}
-{"command":"mv FILE DEST"}
-{"command":"rm FILE"}
-{"command":"rm -rf DIR"}
-{"command":"mkdir -p PATH"}
-{"command":"chmod +x FILE"}
-{"command":"ln -s TARGET LINK"}
-
-// ── Line/chunk utilities ────────────────────────────────────────────────
-{"command":"nl FILE"}
-{"command":"wc -l FILE"}
-{"command":"split -l N FILE PREFIX"}
-
-// ── Backup & versioning ────────────────────────────────────────────────
-{"command":"cp FILE FILE.bak"}
-{"command":"diff FILE1 FILE2"}
-{"command":"patch FILE < PATCHFILE"}
-
-// ── Process control & chaining ──────────────────────────────────────────
-{"command":"COMMAND1 && COMMAND2"}
-{"command":"COMMAND1 || COMMAND2"}
-{"command":"COMMAND1 | COMMAND2"}
-
-// ── File information ────────────────────────────────────────────────────
-{"command":"stat FILE"}
-{"command":"file FILE"}
-{"command":"du -sh PATH"}
-
-// ── Pattern-based batch operations ──────────────────────────────────────
-{"command":"find PATH -name \"*.ext\" -delete"}
-{"command":"for f in *.txt; do mv \"$f\" \"${f%%.txt}.bak\"; done"}
-
-// ── Text analysis helpers ───────────────────────────────────────────────
-{"command":"grep -c \"PATTERN\" FILE"}
-{"command":"grep -v \"PATTERN\" FILE"}
-{"command":"grep -A N -B N \"PATTERN\" FILE"}
-{"command":"grep -E \"REGEX\" FILE"}
-{"command":"awk '/PATTERN/{print NR\": \"$0}' FILE"}
 
 Rules:
 - Never invoke interactive editors (vim, nano, etc.).  
@@ -508,13 +421,14 @@ Rules:
 - Track and reference original line numbers in your reasoning.  
 - For non-code text, skip language checkers but still diff/patch/verify.
 - Never use search engines or external APIs directly; use the web_search tool instead.
+- When using the web_search tool, input the ideal search query related to the task. Never use google search or a url directly as your query. The web_search tool will handle search with a query only.
 
 Prefer to answer directly (with Thought + finish) for narrative tasks
 such as writing, explaining, or summarising natural-language text.
 Only fall back to a tool for *computational* or *programmatic*
 work (e.g. data transformation, heavy math, file parsing).
 
-Always consider using the tools first. If no tool is available that can be used to complete the task, make your own using the code_eval tool.
+Always consider using the tools or asking assistantsfirst. If no tool is available that can be used to complete the task, make your own using the code_eval tool.
 If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or create your own using the code_eval tool.
 
 You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
@@ -534,7 +448,7 @@ IMPORTANT: NEVER omit the three headers below – the server will error out:
   Action: …
   Action Input: …
 
-ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach.
+ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final response, always check if the task is complete and if not, continue working on it.
 
 Format for every turn:
 Thought: <reasoning>
@@ -815,8 +729,52 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			return "", fmt.Errorf("unknown worker: %s", req.Name)
 		}
 
-		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
+		// If this is a tool-agent, run a sub-agent session with only that server's tools
+		if worker.Role == "tool-agent" {
+			// Try to find the server this tool-agent represents
+			var serverName string
+			// Prefer exact match by AgentName, fallback to worker.Name
+			for srv, cfg := range ae.serverCfgs {
+				if cfg.AgentName == worker.Name || srv == worker.Name {
+					serverName = srv
+					break
+				}
+			}
+			if serverName == "" {
+				// fallback: try to match by worker.Name
+				serverName = worker.Name
+			}
 
+			// Shallow copy the engine and restrict to only this server's tools
+			subEngine := *ae
+			subEngine.mcpTools = make(map[string]ToolInfo)
+			subEngine.serverTools = make(map[string][]ToolInfo)
+			subEngine.serverCfgs = make(map[string]mcp.ServerConfig)
+
+			// Copy only the relevant tools/configs
+			for _, t := range ae.serverTools[serverName] {
+				subEngine.mcpTools[t.Name] = t
+			}
+			subEngine.serverTools[serverName] = ae.serverTools[serverName]
+			if cfg, ok := ae.serverCfgs[serverName]; ok {
+				subEngine.serverCfgs[serverName] = cfg
+			}
+
+			// Run a sub-agent session
+			subReq := ReActRequest{
+				Objective: req.Msg,
+				MaxSteps:  5, // or configurable
+				Model:     worker.Model,
+			}
+			subSession, err := subEngine.RunSessionWithHook(ctx, subEngine.Config, subReq, nil)
+			if err != nil {
+				return "", err
+			}
+			return subSession.Result, nil
+		}
+
+		// Otherwise, fallback to LLM call as before
+		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
 		return ae.callLLM(ctx, worker.Name, worker.Model, []openai.ChatCompletionMessage{
 			{Role: "user", Content: msg},
 		})
@@ -982,7 +940,7 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 		return "", err
 	}
 	if resp.Error != "" {
-		return "", fmt.Errorf(resp.Error)
+		return "", fmt.Errorf("%s", resp.Error)
 	}
 	return resp.Result, nil
 }

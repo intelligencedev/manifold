@@ -115,17 +115,26 @@ func fetchWebContent(address string) (*WebPageContent, int, error) {
 // checks the web_blacklist and web_content tables to avoid unnecessary
 // requests and store results for future use.
 func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageContent, error) {
-	// Check blacklist
+	// Validate the input URL before any DB operation
+	parsedURL, err := url.Parse(address)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return &WebPageContent{Content: fmt.Sprintf("Invalid URL: %s", address), Source: address}, nil
+	}
+
+	// Extract top-level domain (scheme + host)
+	topLevel := parsedURL.Scheme + "://" + parsedURL.Host
+
+	// Check blacklist using top-level domain
 	var tmp int
-	err := db.QueryRow(ctx, "SELECT 1 FROM web_blacklist WHERE url = $1", address).Scan(&tmp)
+	err = db.QueryRow(ctx, "SELECT 1 FROM web_blacklist WHERE url = $1", topLevel).Scan(&tmp)
 	if err == nil {
-		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted in database", address), Source: address}, nil
+		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted in database", topLevel), Source: address}, nil
 	}
 	if err != nil && err != pgx.ErrNoRows {
 		return nil, err
 	}
 
-	// Check if already indexed
+	// Check if already indexed (by full URL)
 	var title, content string
 	err = db.QueryRow(ctx, "SELECT title, content FROM web_content WHERE url = $1", address).Scan(&title, &content)
 	if err == nil {
@@ -146,21 +155,22 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 
 	// Blacklist if HTTP status is not 200, or robots.txt disallowed
 	if status != 200 {
-		// Extract top-level domain (scheme + host)
-		baseURL, err := url.Parse(address)
-		blDomain := address
-		if err == nil {
-			blDomain = baseURL.Scheme + "://" + baseURL.Host
+		// Only insert valid top-level domains
+		if parsedURL.Scheme != "" && parsedURL.Host != "" {
+			_, dbErr := db.Exec(ctx, `INSERT INTO web_blacklist (url) VALUES ($1) ON CONFLICT DO NOTHING`, topLevel)
+			if dbErr != nil {
+				log.Printf("failed to insert web_blacklist: %v", dbErr)
+			}
 		}
-		if _, blErr := db.Exec(ctx, `INSERT INTO web_blacklist (url) VALUES ($1) ON CONFLICT DO NOTHING`, blDomain); blErr != nil {
-			log.Printf("failed to insert web_blacklist: %v", blErr)
-		}
+		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted due to HTTP status %d", topLevel, status), Source: address}, nil
 	}
 
-	// Persist to database (best effort)
-	_, dbErr := db.Exec(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO NOTHING`, address, pg.Title, pg.Content)
-	if dbErr != nil {
-		log.Printf("failed to insert web_content: %v", dbErr)
+	// Persist to database (best effort, only for valid URLs)
+	if parsedURL.Scheme != "" && parsedURL.Host != "" {
+		_, dbErr := db.Exec(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO NOTHING`, address, pg.Title, pg.Content)
+		if dbErr != nil {
+			log.Printf("failed to insert web_content: %v", dbErr)
+		}
 	}
 
 	return pg, nil

@@ -86,7 +86,7 @@ func runInContainerRaw(codeFile, code string, install []string, runCmd string, d
 		return "", err
 	}
 	if resp.Error != "" {
-		return "", fmt.Errorf(resp.Error)
+		return "", fmt.Errorf("%s", resp.Error)
 	}
 	return resp.Result, nil
 }

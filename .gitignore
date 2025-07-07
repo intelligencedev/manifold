@@ -42,3 +42,4 @@ sample/*
 pgvec.sh
 mcp/mcpenv
 scripts/*
+docs/models/models.md

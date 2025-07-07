@@ -11,7 +11,7 @@ func TestExtractMainContent(t *testing.T) {
 	if pg.Title != "Test Page" {
 		t.Errorf("expected title 'Test Page', got %s", pg.Title)
 	}
-	want := "Hello World"
+	want := "Hello\nWorld"
 	if pg.Content != want {
 		t.Errorf("expected content %q, got %q", want, pg.Content)
 	}

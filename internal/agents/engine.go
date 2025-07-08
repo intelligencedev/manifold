@@ -186,7 +186,7 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 		session, err := engine.RunSessionWithHook(ctx, cfg, req, func(st AgentStep) {
 			// Optional: log or process each step as it is generated
 			log.Printf("Step %d: %s | Action: %s | Input: %s", st.Index, st.Thought, st.Action, st.ActionInput)
-		})
+		}, false)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
@@ -330,21 +330,9 @@ func (ae *AgentEngine) addToolAgents() {
 		if name == "" {
 			name = srv
 		}
-		var sb strings.Builder
-		if cfg.Instructions != "" {
-			sb.WriteString(cfg.Instructions)
-			if !strings.HasSuffix(cfg.Instructions, "\n") {
-				sb.WriteString("\n")
-			}
-		}
-		sb.WriteString("Available tools on this server (with schemas):\n")
-		for _, t := range tools {
-			schema, err := json.MarshalIndent(t.InputSchema, "  ", "  ")
-			if err != nil {
-				schema = []byte("{}")
-			}
-			sb.WriteString(fmt.Sprintf("- %s: %s\n  schema: %s\n", t.Name, t.Description, string(schema)))
-		}
+
+		// Keep the instructions concise for the orchestrator.
+		instructions := strings.TrimSpace(cfg.Instructions)
 
 		worker := configpkg.FleetWorker{
 			Name:         name,
@@ -353,17 +341,17 @@ func (ae *AgentEngine) addToolAgents() {
 			Model:        ae.Config.Completions.CompletionsModel,
 			CtxSize:      ae.Config.Completions.CtxSize,
 			Temperature:  ae.Config.Completions.Temperature,
-			Instructions: sb.String(),
+			Instructions: instructions,
 		}
 		ae.fleet.AddWorker(worker)
 	}
 }
 
 func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, req ReActRequest) (*AgentSession, error) {
-	return ae.RunSessionWithHook(ctx, cfg, req, nil)
+	return ae.RunSessionWithHook(ctx, cfg, req, nil, false)
 }
 
-func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Config, req ReActRequest, hook StepHook) (*AgentSession, error) {
+func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Config, req ReActRequest, hook StepHook, includeToolSchemas bool) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
 	var td []string
@@ -374,7 +362,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		td = append(td, fmt.Sprintf("- %s (%s) • %s", worker.Name, worker.Role, worker.Instructions))
 	}
 
-	useToolList := len(ae.serverTools) == 0
+	useToolList := includeToolSchemas || len(ae.serverTools) == 0
 	if useToolList {
 		toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
 		if toolLimit <= 0 {
@@ -766,7 +754,7 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 				MaxSteps:  5, // or configurable
 				Model:     worker.Model,
 			}
-			subSession, err := subEngine.RunSessionWithHook(ctx, subEngine.Config, subReq, nil)
+			subSession, err := subEngine.RunSessionWithHook(ctx, subEngine.Config, subReq, nil, true)
 			if err != nil {
 				return "", err
 			}

@@ -71,7 +71,7 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 
 			// Flush to ensure client receives it immediately
 			flusher.Flush()
-		})
+		}, false)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
 		}

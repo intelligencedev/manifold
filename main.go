@@ -69,6 +69,17 @@ func main() {
 	}
 	logger.Info("Successfully connected to database")
 
+	// Ensure web tables exist
+	conn, err := dbpool.Acquire(ctx)
+	if err != nil {
+		logger.Fatal(fmt.Sprintf("Failed to acquire db connection: %v", err))
+	}
+	if err := CreateWebTables(ctx, conn.Conn()); err != nil {
+		conn.Release()
+		logger.Fatal(fmt.Sprintf("Failed to create web tables: %v", err))
+	}
+	conn.Release()
+
 	// Initialize user database
 	if err := initUserDB(config); err != nil {
 		logger.Fatal(fmt.Sprintf("Failed to initialize user database: %v", err))

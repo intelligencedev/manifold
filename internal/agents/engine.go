@@ -2,11 +2,9 @@
 package agents
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -24,11 +22,12 @@ import (
 	a2aclient "manifold/internal/a2a/client"
 	configpkg "manifold/internal/config"
 	"manifold/internal/documents"
-	completions "manifold/internal/llm"
-	embeddings "manifold/internal/llm"
+	llm "manifold/internal/llm"
 	"manifold/internal/mcp"
 	tools "manifold/internal/tools"
 	"manifold/internal/util"
+
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/pgvector/pgvector-go"
 )
@@ -72,8 +71,10 @@ type AgentEngine struct {
 	MemoryEngine MemoryEngine
 	HTTPClient   *http.Client
 
-	mcpMgr   *mcp.Manager
-	mcpTools map[string]ToolInfo
+	mcpMgr      *mcp.Manager
+	mcpTools    map[string]ToolInfo
+	serverTools map[string][]ToolInfo
+	serverCfgs  map[string]mcp.ServerConfig
 
 	a2aClients map[string]*a2aclient.A2AClient
 
@@ -81,9 +82,11 @@ type AgentEngine struct {
 }
 
 var (
-	mcpToolsOnce   sync.Once
-	cachedMCPTools map[string]ToolInfo
-	cachedToolsErr error
+	mcpToolsOnce      sync.Once
+	cachedMCPTools    map[string]ToolInfo
+	cachedToolsErr    error
+	cachedServerTools map[string][]ToolInfo
+	cachedServerCfgs  map[string]mcp.ServerConfig
 )
 
 func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
@@ -120,13 +123,15 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	eng := &AgentEngine{
-		Config:     cfg,
-		DB:         db,
-		HTTPClient: &http.Client{Timeout: 180 * time.Second},
-		mcpMgr:     mgr,
-		mcpTools:   make(map[string]ToolInfo),
-		a2aClients: make(map[string]*a2aclient.A2AClient),
-		fleet:      agentFleet,
+		Config:      cfg,
+		DB:          db,
+		HTTPClient:  &http.Client{Timeout: 180 * time.Second},
+		mcpMgr:      mgr,
+		mcpTools:    make(map[string]ToolInfo),
+		serverTools: make(map[string][]ToolInfo),
+		serverCfgs:  make(map[string]mcp.ServerConfig),
+		a2aClients:  make(map[string]*a2aclient.A2AClient),
+		fleet:       agentFleet,
 	}
 
 	if cfg.AgenticMemory.Enabled {
@@ -139,6 +144,7 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	_ = eng.discoverMCPTools(ctx)
+	eng.addToolAgents()
 
 	return eng, nil
 }
@@ -177,9 +183,12 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.JSON(500, map[string]string{"error": err.Error()})
 		}
 
-		session, err := engine.RunSession(ctx, cfg, req)
+		session, err := engine.RunSessionWithHook(ctx, cfg, req, func(st AgentStep) {
+			// Optional: log or process each step as it is generated
+			log.Printf("Step %d: %s | Action: %s | Input: %s", st.Index, st.Thought, st.Action, st.ActionInput)
+		})
 		if err != nil {
-			return c.JSON(500, map[string]string{"error": err.Error()})
+			return c.String(http.StatusInternalServerError, err.Error())
 		}
 		return c.JSON(200, ReActResponse{
 			SessionID: session.ID.String(),
@@ -203,6 +212,8 @@ type ToolInfo struct {
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	mcpToolsOnce.Do(func() {
 		cachedMCPTools = make(map[string]ToolInfo)
+		cachedServerTools = make(map[string][]ToolInfo)
+		cachedServerCfgs = make(map[string]mcp.ServerConfig)
 		var toolsToEmbed []struct {
 			name        string
 			description string
@@ -214,6 +225,9 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 			if err != nil {
 				cachedToolsErr = err
 				continue
+			}
+			if cfg, ok := ae.mcpMgr.Config(srv); ok {
+				cachedServerCfgs[srv] = cfg
 			}
 			b, _ := json.Marshal(ts)
 			var tools []map[string]interface{}
@@ -231,11 +245,13 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 					inputSchema = schema
 				}
 				toolName := fmt.Sprintf("%s::%s", srv, name)
-				cachedMCPTools[toolName] = ToolInfo{
+				info := ToolInfo{
 					Name:        toolName,
 					Description: desc,
 					InputSchema: inputSchema,
 				}
+				cachedMCPTools[toolName] = info
+				cachedServerTools[srv] = append(cachedServerTools[srv], info)
 
 				// Collect tools for embedding
 				toolsToEmbed = append(toolsToEmbed, struct {
@@ -254,7 +270,7 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 			}
 
 			// Generate all embeddings in one call
-			embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, embedTexts)
+			embeds, err := llm.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, embedTexts)
 			if err == nil && len(embeds) == len(toolsToEmbed) {
 				// Use a wait group to handle concurrent inserts
 				var wg sync.WaitGroup
@@ -288,7 +304,59 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	for k, v := range cachedMCPTools {
 		ae.mcpTools[k] = v
 	}
+	if ae.serverTools == nil {
+		ae.serverTools = make(map[string][]ToolInfo)
+	}
+	for srv, tools := range cachedServerTools {
+		ae.serverTools[srv] = tools
+	}
+	if ae.serverCfgs == nil {
+		ae.serverCfgs = make(map[string]mcp.ServerConfig)
+	}
+	for srv, cfg := range cachedServerCfgs {
+		ae.serverCfgs[srv] = cfg
+	}
 	return nil
+}
+
+// addToolAgents creates a fleet worker for each MCP server summarizing its tools.
+func (ae *AgentEngine) addToolAgents() {
+	for srv, tools := range ae.serverTools {
+		if len(tools) == 0 {
+			continue
+		}
+		cfg, _ := ae.serverCfgs[srv]
+		name := cfg.AgentName
+		if name == "" {
+			name = srv
+		}
+		var sb strings.Builder
+		if cfg.Instructions != "" {
+			sb.WriteString(cfg.Instructions)
+			if !strings.HasSuffix(cfg.Instructions, "\n") {
+				sb.WriteString("\n")
+			}
+		}
+		sb.WriteString("Available tools on this server (with schemas):\n")
+		for _, t := range tools {
+			schema, err := json.MarshalIndent(t.InputSchema, "  ", "  ")
+			if err != nil {
+				schema = []byte("{}")
+			}
+			sb.WriteString(fmt.Sprintf("- %s: %s\n  schema: %s\n", t.Name, t.Description, string(schema)))
+		}
+
+		worker := configpkg.FleetWorker{
+			Name:         name,
+			Role:         "tool-agent",
+			Endpoint:     ae.Config.Completions.DefaultHost,
+			Model:        ae.Config.Completions.CompletionsModel,
+			CtxSize:      ae.Config.Completions.CtxSize,
+			Temperature:  ae.Config.Completions.Temperature,
+			Instructions: sb.String(),
+		}
+		ae.fleet.AddWorker(worker)
+	}
 }
 
 func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, req ReActRequest) (*AgentSession, error) {
@@ -306,22 +374,25 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		td = append(td, fmt.Sprintf("- %s (%s) • %s", worker.Name, worker.Role, worker.Instructions))
 	}
 
-	toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
-	if toolLimit <= 0 {
-		toolLimit = len(ae.mcpTools)
-	}
-	relTools, err := ae.getRelevantTools(ctx, req.Objective, toolLimit)
-	if err != nil || len(relTools) == 0 {
-		for _, v := range ae.mcpTools {
-			relTools = append(relTools, v)
+	useToolList := len(ae.serverTools) == 0
+	if useToolList {
+		toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
+		if toolLimit <= 0 {
+			toolLimit = len(ae.mcpTools)
 		}
-	}
-	for _, t := range relTools {
-		schema, err := json.Marshal(t.InputSchema)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal input schema: %v", err)
+		relTools, err := ae.getRelevantTools(ctx, req.Objective, toolLimit)
+		if err != nil || len(relTools) == 0 {
+			for _, v := range ae.mcpTools {
+				relTools = append(relTools, v)
+			}
 		}
-		td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
+		for _, t := range relTools {
+			schema, err := json.Marshal(t.InputSchema)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal input schema: %v", err)
+			}
+			td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
+		}
 	}
 	td = append(td,
 		"- ask_assistant_worker • get help from specialized assistant worker",
@@ -331,109 +402,18 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		"- finish       • end and output final answer",
 	)
 
-	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are the ONLY assistant in your team with access to the tools. The other assistants can only think and reply to your requests for help from your team. You are the ONLY one that makes the tool calls. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
+	objective := fmt.Sprintf("You MUST format an action and call tools directly. Format for every turn:\nThought: <reasoning>\nAction:  <tool>\nAction Input: <JSON | text>\n\n", req.Objective)
+
+	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
 
 IMPORTANT: If you get stuck, or detect a loop, ask for assistance from another expert and ensure you give them all of the information necessary for them to help you.
 
-Objective: %s
-
 IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.
-Assistants are specialized workers that can help with specific tasks, such as code generation, data analysis, or document analysis.
-Assistants can only take your instructions and respond using their knowledge expertise. They cannot execute code or perform actions directly.
+Assistants are specialized workers that can help with specific tasks.
 - ask_assistant_worker • get help from specialized assistant worker
 {"properties":{"name":{"description":"Name of the worker to ask","type":"string"},"model":{"description":"Optional model to use. Leave empty unless explicitly requested.","type":"string"},"msg":{"description":"Message to send to the worker. Detailed task or help query.","type":"string"}},"required":["name","msg"],"type":"object"}
 
 Always use the manifold::cli tool to run commands, and the code_eval tool to run Python code when making your own tools.
-
-The manifold cli tool:
-- manifold::cli • Execute a raw CLI command
-{"properties":{"command":{"description":"Command string to execute","type":"string"},"dir":{"description":"Optional working directory","type":"string"}},"required":["command"],"type":"object"}
-
-The manifold web search tool:
-- web_search • Search the web for information
-{"properties":{"query":{"description":"Search query","type":"string"}},"required":["query"],"type":"object"}
-
-Below is a list of available CLI commands using the manifold::cli tool schema you should use.
-
-// ── Listing & navigation ────────────────────────────────────────────────
-{"command":"ls -la PATH"}
-{"command":"find PATH -type f"}
-{"command":"find PATH -type d"}
-{"command":"tree PATH"}
-
-// ── Search & pattern matching ───────────────────────────────────────────
-{"command":"grep -rn \"PATTERN\" PATH"}
-{"command":"find PATH -name \"*.ext\" -exec grep -l \"PATTERN\" {} \\;"}
-{"command":"find PATH -name \"FILENAME\""}
-{"command":"find PATH -name \"*PATTERN*\""}
-
-// ── File reading & paging ───────────────────────────────────────────────
-{"command":"cat FILE"}
-{"command":"head -n N FILE"}
-{"command":"tail -n N FILE"}
-{"command":"less FILE"}
-{"command":"sed -n 'START,ENDp' FILE"}
-
-// ── File creation & simple writes ───────────────────────────────────────
-{"command":"echo \"TEXT\"  > FILE"}
-{"command":"echo \"TEXT\" >> FILE"}
-{"command":"cat > FILE <<'EOF'  # …content…  EOF"}
-{"command":"touch FILE"}
-
-// ── Precise non-interactive edits ───────────────────────────────────────
-{"command":"sed -i 's/OLD/NEW/g' FILE"}
-{"command":"sed -i 'Ns/OLD/NEW/' FILE"}
-{"command":"sed -i '/PATTERN/s/OLD/NEW/g' FILE"}
-{"command":"sed -i '/PATTERN/d' FILE"}
-{"command":"awk '{gsub(/OLD/,\"NEW\");print}' FILE > NEWFILE"}
-
-// ── Text manipulation utilities ────────────────────────────────────────
-{"command":"cut -d'DELIM' -f N FILE"}
-{"command":"awk -F'DELIM' '{print $N}' FILE"}
-{"command":"sort FILE"}
-{"command":"uniq FILE"}
-{"command":"tr 'a-z' 'A-Z' < FILE"}
-
-// ── Basic file operations ───────────────────────────────────────────────
-{"command":"cp FILE DEST"}
-{"command":"cp -r DIR DEST"}
-{"command":"mv FILE DEST"}
-{"command":"rm FILE"}
-{"command":"rm -rf DIR"}
-{"command":"mkdir -p PATH"}
-{"command":"chmod +x FILE"}
-{"command":"ln -s TARGET LINK"}
-
-// ── Line/chunk utilities ────────────────────────────────────────────────
-{"command":"nl FILE"}
-{"command":"wc -l FILE"}
-{"command":"split -l N FILE PREFIX"}
-
-// ── Backup & versioning ────────────────────────────────────────────────
-{"command":"cp FILE FILE.bak"}
-{"command":"diff FILE1 FILE2"}
-{"command":"patch FILE < PATCHFILE"}
-
-// ── Process control & chaining ──────────────────────────────────────────
-{"command":"COMMAND1 && COMMAND2"}
-{"command":"COMMAND1 || COMMAND2"}
-{"command":"COMMAND1 | COMMAND2"}
-
-// ── File information ────────────────────────────────────────────────────
-{"command":"stat FILE"}
-{"command":"file FILE"}
-{"command":"du -sh PATH"}
-
-// ── Pattern-based batch operations ──────────────────────────────────────
-{"command":"find PATH -name \"*.ext\" -delete"}
-{"command":"for f in *.txt; do mv \"$f\" \"${f%%.txt}.bak\"; done"}
-
-// ── Text analysis helpers ───────────────────────────────────────────────
-{"command":"grep -c \"PATTERN\" FILE"}
-{"command":"grep -v \"PATTERN\" FILE"}
-{"command":"grep -A N -B N \"PATTERN\" FILE"}
-{"command":"grep -E \"REGEX\" FILE"}
-{"command":"awk '/PATTERN/{print NR\": \"$0}' FILE"}
 
 Rules:
 - Never invoke interactive editors (vim, nano, etc.).  
@@ -441,13 +421,14 @@ Rules:
 - Track and reference original line numbers in your reasoning.  
 - For non-code text, skip language checkers but still diff/patch/verify.
 - Never use search engines or external APIs directly; use the web_search tool instead.
+- When using the web_search tool, input the ideal search query related to the task. Never use google search or a url directly as your query. The web_search tool will handle search with a query only.
 
 Prefer to answer directly (with Thought + finish) for narrative tasks
 such as writing, explaining, or summarising natural-language text.
 Only fall back to a tool for *computational* or *programmatic*
 work (e.g. data transformation, heavy math, file parsing).
 
-Always consider using the tools first. If no tool is available that can be used to complete the task, make your own using the code_eval tool.
+Always consider using the tools or asking assistantsfirst. If no tool is available that can be used to complete the task, make your own using the code_eval tool.
 If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or create your own using the code_eval tool.
 
 You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
@@ -467,15 +448,17 @@ IMPORTANT: NEVER omit the three headers below – the server will error out:
   Action: …
   Action Input: …
 
-ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach.
+ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final response, always check if the task is complete and if not, continue working on it.
 
-Format for every turn:
+You MUST format an action and call tools directly. This is mandatory! Format for every turn:
 Thought: <reasoning>
 Action:  <tool>
 Action Input: <JSON | text>
 
 Tools:
-%s`, req.Objective, strings.Join(td, "\n"))
+%s
+
+The task is to use all necessary means to achieve the following objective: %s`, strings.Join(td, "\n"), objective)
 
 	model := req.Model
 	if model == "" {
@@ -483,13 +466,13 @@ Tools:
 	}
 
 	// Store conversation history across turns
-	var conversationHistory []completions.Message
+	var conversationHistory []openai.ChatCompletionMessage
 
 	// Add system prompt only once at the beginning
-	conversationHistory = append(conversationHistory, completions.Message{Role: "system", Content: sysPrompt})
+	conversationHistory = append(conversationHistory, openai.ChatCompletionMessage{Role: "system", Content: sysPrompt})
 
 	for i := 0; i < req.MaxSteps; i++ {
-		var currentMessages []completions.Message
+		var currentMessages []openai.ChatCompletionMessage
 
 		// Start with the existing conversation history
 		currentMessages = append(currentMessages, conversationHistory...)
@@ -510,13 +493,13 @@ Tools:
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
 			// Add memory as a separate system message for this turn
-			currentMessages = append(currentMessages, completions.Message{Role: "system", Content: memBuf.String()})
+			currentMessages = append(currentMessages, openai.ChatCompletionMessage{Role: "system", Content: memBuf.String()})
 		} else {
 			log.Printf("No memories found")
 		}
 
 		// For the current turn, add the user message
-		currentMessages = append(currentMessages, completions.Message{Role: "user", Content: "Next step?"})
+		currentMessages = append(currentMessages, openai.ChatCompletionMessage{Role: "user", Content: "Next step?"})
 
 		// Print the prompt for debugging
 		log.Println("=====================================")
@@ -540,7 +523,7 @@ Tools:
 			// treat entire reply as the final answer
 			step := AgentStep{
 				Index:       len(sess.Steps) + 1,
-				Thought:     "LLM reply lacked proper headers; treating as final answer.",
+				Thought:     "Responding...",
 				Action:      "finish",
 				ActionInput: strings.TrimSpace(out),
 				Observation: "",
@@ -602,7 +585,7 @@ Tools:
 		}
 
 		// Add the assistant's response to conversation history
-		assistantMessage := completions.Message{
+		assistantMessage := openai.ChatCompletionMessage{
 			Role: "assistant",
 			Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s",
 				thought, action, input),
@@ -610,7 +593,7 @@ Tools:
 		conversationHistory = append(conversationHistory, assistantMessage)
 
 		// Add the observation as a user message in the conversation history
-		userMessage := completions.Message{
+		userMessage := openai.ChatCompletionMessage{
 			Role:    "user",
 			Content: fmt.Sprintf("Observation: %s\n\nNext step?", obs),
 		}
@@ -632,7 +615,7 @@ Tools:
 	return sess, nil
 }
 
-func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []completions.Message) (string, error) {
+func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []openai.ChatCompletionMessage) (string, error) {
 
 	fleet := ae.fleet
 	assistant := fleet.GetWorker(assistantName)
@@ -641,6 +624,7 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 			Name:         "default",
 			Role:         "assistant",
 			Endpoint:     ae.Config.Completions.DefaultHost,
+			ApiKey:       ae.Config.Completions.APIKey,
 			Model:        model,
 			CtxSize:      ae.Config.Completions.CtxSize,
 			Temperature:  ae.Config.Completions.Temperature,
@@ -657,36 +641,27 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(ae.Config.Completions.CtxSize-promptTokens-1024, 1024)
 
-	var body []byte
+	log.Printf("Calling LLM %s (%s) with %d tokens", assistant.Name, assistant.Model, promptTokens)
 
-	if ae.Config.Completions.Backend != "mlx" {
-		body, _ = json.Marshal(completions.CompletionRequest{Model: model, Messages: msgs, Temperature: ae.Config.Completions.Temperature})
+	// Check if this is an MLX backend and handle parameters accordingly
+	endpoint := assistant.Endpoint
+	isMLX := strings.Contains(strings.ToLower(endpoint), "mlx") ||
+		ae.Config.Completions.Backend == "mlx" ||
+		strings.Contains(strings.ToLower(model), "mlx")
+
+	var response string
+	var err error
+	if isMLX {
+		// For MLX backends, use the MLX-specific parameter formatting
+		response, err = llm.CallMLX(ctx, endpoint, ae.Config.Completions.APIKey, msgs, maxTokens, ae.Config.Completions.Temperature)
 	} else {
-		body, _ = json.Marshal(completions.CompletionRequest{Messages: msgs, Temperature: ae.Config.Completions.Temperature, MaxTokens: maxTokens})
+		response, err = llm.CallLLM(ctx, assistant.Endpoint, ae.Config.Completions.APIKey, model, msgs, maxTokens, ae.Config.Completions.Temperature)
 	}
-
-	req, _ := http.NewRequestWithContext(ctx, "POST", assistant.Endpoint, bytes.NewBuffer(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ae.Config.Completions.APIKey)
-
-	resp, err := ae.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("llm %d: %s", resp.StatusCode, string(b))
-	}
-	var cr completions.CompletionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&cr); err != nil {
-		return "", err
-	}
-	if len(cr.Choices) == 0 {
-		return "", fmt.Errorf("no choices")
-	}
-	// Remove <think> and </think> tags
-	response := strings.ReplaceAll(cr.Choices[0].Message.Content, "<think>", "")
+
+	response = strings.ReplaceAll(response, "<think>", "")
 	response = strings.ReplaceAll(response, "</think>", "")
 	return strings.TrimSpace(response), nil
 }
@@ -756,9 +731,53 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			return "", fmt.Errorf("unknown worker: %s", req.Name)
 		}
 
-		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
+		// If this is a tool-agent, run a sub-agent session with only that server's tools
+		if worker.Role == "tool-agent" {
+			// Try to find the server this tool-agent represents
+			var serverName string
+			// Prefer exact match by AgentName, fallback to worker.Name
+			for srv, cfg := range ae.serverCfgs {
+				if cfg.AgentName == worker.Name || srv == worker.Name {
+					serverName = srv
+					break
+				}
+			}
+			if serverName == "" {
+				// fallback: try to match by worker.Name
+				serverName = worker.Name
+			}
 
-		return ae.callLLM(ctx, worker.Name, worker.Model, []completions.Message{
+			// Shallow copy the engine and restrict to only this server's tools
+			subEngine := *ae
+			subEngine.mcpTools = make(map[string]ToolInfo)
+			subEngine.serverTools = make(map[string][]ToolInfo)
+			subEngine.serverCfgs = make(map[string]mcp.ServerConfig)
+
+			// Copy only the relevant tools/configs
+			for _, t := range ae.serverTools[serverName] {
+				subEngine.mcpTools[t.Name] = t
+			}
+			subEngine.serverTools[serverName] = ae.serverTools[serverName]
+			if cfg, ok := ae.serverCfgs[serverName]; ok {
+				subEngine.serverCfgs[serverName] = cfg
+			}
+
+			// Run a sub-agent session
+			subReq := ReActRequest{
+				Objective: req.Msg,
+				MaxSteps:  5, // or configurable
+				Model:     worker.Model,
+			}
+			subSession, err := subEngine.RunSessionWithHook(ctx, subEngine.Config, subReq, nil)
+			if err != nil {
+				return "", err
+			}
+			return subSession.Result, nil
+		}
+
+		// Otherwise, fallback to LLM call as before
+		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
+		return ae.callLLM(ctx, worker.Name, worker.Model, []openai.ChatCompletionMessage{
 			{Role: "user", Content: msg},
 		})
 	case "code_eval":
@@ -923,12 +942,12 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 		return "", err
 	}
 	if resp.Error != "" {
-		return "", fmt.Errorf(resp.Error)
+		return "", fmt.Errorf("%s", resp.Error)
 	}
 	return resp.Result, nil
 }
 
-func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpkg.Config) (string, error) {
+func (ae *AgentEngine) runWebSearch(ctx context.Context, arg string, cfg *configpkg.Config) (string, error) {
 	var req struct {
 		Query string `json:"query"`
 	}
@@ -945,9 +964,9 @@ func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpk
 		if cfg.Tools.Search.Endpoint == "" {
 			return "", fmt.Errorf("sxng_url required")
 		}
-		urls = tools.GetSearXNGResults(cfg.Tools.Search.Endpoint, req.Query)
+		urls = tools.GetSearXNGResults(ctx, ae.DB, cfg.Tools.Search.Endpoint, req.Query)
 	} else {
-		urls = tools.SearchDDG(req.Query)
+		urls = tools.SearchDDG(ctx, ae.DB, req.Query)
 	}
 
 	if urls == nil {
@@ -963,10 +982,10 @@ func (ae *AgentEngine) runWebSearch(_ context.Context, arg string, cfg *configpk
 		urls = urls[:resultSize]
 	}
 
-	return tools.GetSearchResults(urls), nil
+	return tools.GetSearchResults(ctx, ae.DB, urls), nil
 }
 
-func (ae *AgentEngine) runWebFetch(_ context.Context, arg string) (string, error) {
+func (ae *AgentEngine) runWebFetch(ctx context.Context, arg string) (string, error) {
 	var req struct {
 		URL string `json:"url"`
 	}
@@ -976,7 +995,7 @@ func (ae *AgentEngine) runWebFetch(_ context.Context, arg string) (string, error
 	if req.URL == "" {
 		return "", fmt.Errorf("url required")
 	}
-	pg, err := tools.WebGetHandler(req.URL)
+	pg, err := tools.WebGetHandler(ctx, ae.DB, req.URL)
 	if err != nil {
 		return "", err
 	}

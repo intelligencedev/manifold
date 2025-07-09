@@ -181,6 +181,7 @@ export function useCompletionsApi() {
       { 
         temperature, 
         max_tokens: max_completion_tokens,
+        cache_prompt: true,
         functions: provider === 'openai' ? functionsConfig.openai : functionsConfig.local,
         function_call: provider === 'openai' ? "auto" : { name: "agentic_retrieve" }
       }

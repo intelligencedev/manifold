@@ -115,18 +115,43 @@ export function useMessageBus(props, emit) {
 
     // SUBSCRIBE mode
     if (mode.value === 'subscribe') {
-      if (!topic.value) {
+      let subscribeTopic = topic.value
+      // Template detection for topic from upstream
+      if (/^\s*TOPIC\s*:/i.test(upstream)) {
+        const topicMatch = upstream.match(/TOPIC\s*:\s*(.+)/i)
+        if (topicMatch) {
+          subscribeTopic = topicMatch[1].trim()
+          // Optionally reflect parsed topic in UI
+          props.data.inputs.topic = subscribeTopic
+          console.log(`MessageBusNode ${props.id}: parsed subscribe template → topic="${subscribeTopic}"`)
+        }
+      }
+
+      if (!subscribeTopic) {
         console.warn(`MessageBusNode ${props.id}: subscribe topic empty.`)
         return { stopPropagation: true }
       }
 
-      const busData = bus.consume(topic.value)
+      const busData = bus.consume(subscribeTopic)
       if (busData === null && !upstream) {
-        console.log(`MessageBusNode ${props.id}: waiting for "${topic.value}"…`)
+        console.log(`MessageBusNode ${props.id}: waiting for "${subscribeTopic}"…`)
         return { stopPropagation: true }
       }
 
-      const combined = [upstream, busData].filter(Boolean).join('\n').trim()
+      // Remove TOPIC: line from upstream if present
+      let messageOnly = upstream
+      if (/^\s*TOPIC\s*:/i.test(upstream)) {
+        // Remove TOPIC: ... (and optional MESSAGE: ...)
+        const messageMatch = upstream.match(/MESSAGE\s*:\s*([\s\S]*)/i)
+        if (messageMatch) {
+          messageOnly = messageMatch[1].trim()
+        } else {
+          // Remove just the TOPIC: line
+          messageOnly = upstream.replace(/^\s*TOPIC\s*:.+$/im, '').trim()
+        }
+      }
+
+      const combined = [messageOnly, busData].filter(Boolean).join('\n').trim()
       props.data.outputs.result.output = combined
       return null
     }

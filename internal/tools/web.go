@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -19,46 +20,35 @@ import (
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 	"github.com/chromedp/chromedp/kb"
+	"github.com/jackc/pgx/v5"
 	"golang.org/x/net/html"
 )
 
-var (
-	// These are the URLs we want to block from search results since they will likely fail
-	// with the current implementation. We should make this list configurable in the future.
-	unwantedURLs = []string{
-		"web.archive.org",
-		"www.youtube.com",
-		"www.youtube.com/watch",
-		"www.wired.com",
-		"www.techcrunch.com",
-		"www.wsj.com",
-		"www.nytimes.com",
-		"www.forbes.com",
-		"www.businessinsider.com",
-		"www.theverge.com",
-		"www.thehill.com",
-		"www.theatlantic.com",
-		"www.foxnews.com",
-		"www.theguardian.com",
-		"www.nbcnews.com",
-		"www.msn.com",
-		"www.sciencedaily.com",
-		"reuters.com",
-		"bbc.com",
-		"thenewstack.io",
-		"abcnews.go.com",
-		"apnews.com",
-		"bloomberg.com",
-		"polygon.com",
-		"reddit.com",
-		"indeed.com",
-		"test.com",
-		"medium.com",
-		// Add more URLs to block from search results
-	}
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
+var (
 	resultURLs []string
 )
+
+// WebClient fetches and parses web pages for the agents.
+type WebClient struct {
+	httpClient *http.Client
+	userAgents []string
+}
+
+// NewWebClient creates a WebClient with sane defaults.
+func NewWebClient() *WebClient {
+	return &WebClient{
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+		userAgents: []string{
+			"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+			"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+			"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+		},
+	}
+}
 
 // WebPageContent represents the content of a webpage.
 type WebPageContent struct {
@@ -67,7 +57,29 @@ type WebPageContent struct {
 	Source  string
 }
 
-// CheckRobotsTxt checks if the target website allows scraping by "et-bot".
+// Get retrieves the main content from the given address.
+// Returns the main content, and the HTTP status code (0 if not available).
+func (c *WebClient) Get(ctx context.Context, address string) (*WebPageContent, int, error) {
+	if !checkRobotsTxt(address) {
+		return &WebPageContent{Content: fmt.Sprintf("Unable to read %s due to robots.txt", address), Source: address}, 0, nil
+	}
+
+	htmlContent, status, err := c.fetchHTMLWithStatus(ctx, address)
+	if err != nil {
+		msg := fmt.Sprintf("Could not retrieve %s", address)
+		return &WebPageContent{Content: msg, Source: address}, status, nil
+	}
+
+	readerContent, err := extractMainContent(htmlContent, address)
+	if err != nil {
+		msg := fmt.Sprintf("Could not parse %s", address)
+		return &WebPageContent{Content: msg, Source: address}, status, nil
+	}
+
+	return readerContent, status, nil
+}
+
+// CheckRobotsTxt checks if the target website allows scraping by checking its robots.txt file.
 func checkRobotsTxt(u string) bool {
 	baseURL, err := url.Parse(u)
 	if err != nil {
@@ -75,65 +87,119 @@ func checkRobotsTxt(u string) bool {
 		return false
 	}
 
-	robotsUrl := url.URL{Scheme: baseURL.Scheme, Host: baseURL.Host, Path: "/robots.txt"}
-	resp, err := http.Get(robotsUrl.String())
+	robotsURL := url.URL{Scheme: baseURL.Scheme, Host: baseURL.Host, Path: "/robots.txt"}
+	resp, err := http.Get(robotsURL.String())
 	if err != nil {
-		log.Printf("Failed to fetch robots.txt for %s: %v", baseURL.String(), err)
-		return false
+		// If robots.txt cannot be fetched assume allowed
+		return true
 	}
 	defer resp.Body.Close()
 
-	// Check if the status code is 200
-	if resp.StatusCode != 200 {
-		log.Printf("Failed to fetch robots.txt for %s: %v", baseURL.String(), err)
-		// We assume it's allowed if not found
+	if resp.StatusCode != http.StatusOK {
+		// Treat non-200 as missing robots.txt and allow
 		return true
 	}
 
-	log.Printf("URL: %s\n", robotsUrl.String())
+	log.Printf("robots.txt checked: %s\n", robotsURL.String())
 	return true
 }
 
-// WebGetHandler retrieves the reader view content of a given URL.
-func WebGetHandler(address string) (*WebPageContent, error) {
-	if !checkRobotsTxt(address) {
-		return nil, errors.New("scraping not allowed according to robots.txt")
-	}
-
-	htmlContent, err := fetchHTML(address)
-	if err != nil {
-		return nil, err
-	}
-
-	readerContent, err := extractMainContent(htmlContent, address)
-	if err != nil {
-		return nil, err
-	}
-
-	return readerContent, nil
+// fetchWebContent retrieves and parses a web page without any caching or
+// database lookups. Returns content, status code, error.
+func fetchWebContent(address string) (*WebPageContent, int, error) {
+	client := NewWebClient()
+	return client.Get(context.Background(), address)
 }
 
-// fetchHTML retrieves the HTML content of a given URL using chromedp.
-func fetchHTML(address string) (string, error) {
+// WebGetHandler retrieves the reader view content of a given URL. It first
+// checks the web_blacklist and web_content tables to avoid unnecessary
+// requests and store results for future use.
+func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageContent, error) {
+	// Validate the input URL before any DB operation
+	parsedURL, err := url.Parse(address)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return &WebPageContent{Content: fmt.Sprintf("Invalid URL: %s", address), Source: address}, nil
+	}
+
+	// Extract top-level domain (scheme + host)
+	topLevel := parsedURL.Scheme + "://" + parsedURL.Host
+
+	// Check blacklist using top-level domain
+	var tmp int
+	err = db.QueryRow(ctx, "SELECT 1 FROM web_blacklist WHERE url = $1", topLevel).Scan(&tmp)
+	if err == nil {
+		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted in database", topLevel), Source: address}, nil
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return nil, err
+	}
+
+	// Check if already indexed (by full URL)
+	var title, content string
+	err = db.QueryRow(ctx, "SELECT title, content FROM web_content WHERE url = $1", address).Scan(&title, &content)
+	if err == nil {
+		return &WebPageContent{Title: title, Content: content, Source: address}, nil
+	}
+	if err != nil && err != pgx.ErrNoRows {
+		return nil, err
+	}
+
+	// Fetch new content
+	pg, status, err := fetchWebContent(address)
+	if err != nil {
+		return nil, err
+	}
+	if pg == nil {
+		return nil, fmt.Errorf("no content")
+	}
+
+	// Blacklist if HTTP status is not 200, or robots.txt disallowed
+	if status != 200 {
+		// Only insert valid top-level domains
+		if parsedURL.Scheme != "" && parsedURL.Host != "" {
+			_, dbErr := db.Exec(ctx, `INSERT INTO web_blacklist (url) VALUES ($1) ON CONFLICT DO NOTHING`, topLevel)
+			if dbErr != nil {
+				log.Printf("failed to insert web_blacklist: %v", dbErr)
+			}
+		}
+		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted due to HTTP status %d", topLevel, status), Source: address}, nil
+	}
+
+	// Persist to database (best effort, only for valid URLs)
+	if parsedURL.Scheme != "" && parsedURL.Host != "" {
+		_, dbErr := db.Exec(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO NOTHING`, address, pg.Title, pg.Content)
+		if dbErr != nil {
+			log.Printf("failed to insert web_content: %v", dbErr)
+		}
+	}
+
+	return pg, nil
+}
+
+// fetchHTMLWithStatus retrieves the HTML content and HTTP status code of a given URL using chromedp and a fallback HTTP GET.
+func (c *WebClient) fetchHTMLWithStatus(ctx context.Context, address string) (string, int, error) {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
 	)
 
-	allocCtx, cancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	allocCtx, cancel := chromedp.NewExecAllocator(ctx, opts...)
 	defer cancel()
 
-	ctx, cancel := chromedp.NewContext(allocCtx)
+	ctx, cancel = chromedp.NewContext(allocCtx)
 	defer cancel()
 
 	ctx, cancel = context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	var htmlContent string
+	var statusCode int = 0
+	ua := c.userAgents[rand.Intn(len(c.userAgents))]
+	// Remove unused variables
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(address),
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			headers := map[string]interface{}{
-				"User-Agent":      "et-bot", // Set user agent to et-bot
+				"User-Agent":      ua,
 				"Referer":         "https://www.duckduckgo.com/",
 				"Accept-Language": "en-US,en;q=0.9",
 				"X-Forwarded-For": "203.0.113.195",
@@ -143,15 +209,39 @@ func fetchHTML(address string) (string, error) {
 			}
 			return network.SetExtraHTTPHeaders(network.Headers(headers)).Do(ctx)
 		}),
+		network.Enable(),
 		chromedp.WaitReady("body"),
 		chromedp.OuterHTML("html", &htmlContent),
 	)
 
-	if err != nil {
-		return "", fmt.Errorf("error retrieving page: %w", err)
+	// Fallback: use HTTP GET to get status code if chromedp did not error
+	if err == nil {
+		req, _ := http.NewRequestWithContext(ctx, "GET", address, nil)
+		req.Header.Set("User-Agent", ua)
+		resp, httpErr := c.httpClient.Do(req)
+		if httpErr == nil {
+			statusCode = resp.StatusCode
+			resp.Body.Close()
+		}
+	} else {
+		// If chromedp failed, try HTTP GET for both content and status
+		req, _ := http.NewRequestWithContext(ctx, "GET", address, nil)
+		req.Header.Set("User-Agent", ua)
+		resp, httpErr := c.httpClient.Do(req)
+		if httpErr != nil {
+			return "", 0, fmt.Errorf("error retrieving page: %w", err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		htmlContent = string(body)
+		statusCode = resp.StatusCode
+		if statusCode != 200 {
+			return htmlContent, statusCode, fmt.Errorf("non-200 status: %d", statusCode)
+		}
+		return htmlContent, statusCode, nil
 	}
 
-	return htmlContent, nil
+	return htmlContent, statusCode, nil
 }
 
 // extractMainContent extracts the main content of a webpage, cleans it, and converts it to Markdown.
@@ -416,12 +506,12 @@ func cleanURL(urlStr string) string {
 }
 
 // SearchDDG performs a search on DuckDuckGo and returns the result URLs.
-func SearchDDG(query string) []string {
+func SearchDDG(ctx context.Context, db *pgx.Conn, query string) []string {
+	ua := NewWebClient().userAgents
 	ctx, cancel := chromedp.NewExecAllocator(context.Background(),
 		append(chromedp.DefaultExecAllocatorOptions[:],
 			chromedp.Flag("headless", true),
-			// NORMAL UA – DuckDuckGo blocks “HeadlessChrome”
-			chromedp.UserAgent(`Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36`),
+			chromedp.UserAgent(ua[rand.Intn(len(ua))]),
 		)...,
 	)
 	defer cancel()
@@ -455,7 +545,7 @@ func SearchDDG(query string) []string {
 		urls = append(urls, u)
 	}
 
-	resultURLs = RemoveUnwantedURLs(urls)
+	resultURLs = RemoveUnwantedURLs(ctx, db, urls)
 	// If resultURLs contains cnn.com, replace the URL with https://lite.cnn.com
 	for i, u := range resultURLs {
 		if strings.Contains(u, "https://www.cnn.com") {
@@ -467,10 +557,10 @@ func SearchDDG(query string) []string {
 }
 
 // GetSearchResults retrieves the content of multiple URLs and returns it as a concatenated string.
-func GetSearchResults(urls []string) string {
+func GetSearchResults(ctx context.Context, db *pgx.Conn, urls []string) string {
 	var result strings.Builder
 	for _, u := range urls {
-		content, err := WebGetHandler(u)
+		content, err := WebGetHandler(ctx, db, u)
 		if err != nil {
 			log.Printf("Error getting search result for URL %s: %v", u, err)
 			continue
@@ -486,12 +576,26 @@ func GetSearchResults(urls []string) string {
 }
 
 // RemoveUnwantedURLs filters out unwanted URLs from the given list.
-func RemoveUnwantedURLs(urls []string) []string {
+func RemoveUnwantedURLs(ctx context.Context, db *pgx.Conn, urls []string) []string {
+	rows, err := db.Query(ctx, "SELECT url FROM web_blacklist")
+	if err != nil {
+		log.Printf("failed to load blacklist: %v", err)
+		return urls
+	}
+	var blacklist []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err == nil {
+			blacklist = append(blacklist, u)
+		}
+	}
+	rows.Close()
+
 	var filteredURLs []string
 	for _, u := range urls {
 		log.Printf("Checking URL: %s", u)
 		unwanted := false
-		for _, unwantedURL := range unwantedURLs {
+		for _, unwantedURL := range blacklist {
 			if strings.Contains(u, unwantedURL) {
 				log.Printf("URL %s contains unwanted URL %s", u, unwantedURL)
 				unwanted = true
@@ -599,7 +703,7 @@ func extractURLsFromHTML(htmlContent string) ([]string, error) {
 }
 
 // GetSearXNGResults performs a search on a SearXNG instance and returns the result URLs.
-func GetSearXNGResults(endpoint string, query string) []string {
+func GetSearXNGResults(ctx context.Context, db *pgx.Conn, endpoint string, query string) []string {
 	htmlContent, err := postRequest(endpoint, query)
 	if err != nil {
 		log.Printf("Error: %v\n", err)
@@ -611,7 +715,7 @@ func GetSearXNGResults(endpoint string, query string) []string {
 		return nil
 	}
 	// Remove unwanted URLs
-	urls = RemoveUnwantedURLs(urls)
+	urls = RemoveUnwantedURLs(ctx, db, urls)
 	for i, u := range resultURLs {
 		if strings.Contains(u, "https://www.cnn.com") {
 			resultURLs[i] = strings.Replace(u, "https://www.cnn.com", "https://lite.cnn.com", 1)

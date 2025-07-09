@@ -77,7 +77,6 @@ Retrieve the current configuration.
 - GET /api/web-content
 - GET /api/web-search
 - POST /api/code/eval
-- POST /api/datadog
 - POST /api/comfy-proxy
 
 ### Agentic Memory

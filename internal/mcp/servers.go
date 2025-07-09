@@ -23,10 +23,14 @@ type MCPClient interface {
 var _ MCPClient = (*clientpkg.Client)(nil)
 
 // ServerConfig holds the command, args, and env for an MCP server.
+// ServerConfig holds configuration for launching an MCP server and the
+// corresponding tool agent that represents it.
 type ServerConfig struct {
-	Command string            `yaml:"command"`
-	Args    []string          `yaml:"args"`
-	Env     map[string]string `yaml:"env"`
+	Command      string            `yaml:"command"`
+	Args         []string          `yaml:"args"`
+	Env          map[string]string `yaml:"env"`
+	AgentName    string            `yaml:"agent_name,omitempty"`
+	Instructions string            `yaml:"instructions,omitempty"`
 }
 
 // serversConfig is used only for unmarshaling the mcpServers section.
@@ -99,6 +103,7 @@ func cleanupAll(funcs map[string]func() error) {
 type Manager struct {
 	clients  map[string]MCPClient
 	cleanups map[string]func() error
+	configs  map[string]ServerConfig
 }
 
 // NewManager loads config, starts clients, and returns a Manager.
@@ -114,6 +119,7 @@ func NewManager(ctx context.Context, configPath string) (*Manager, error) {
 	return &Manager{
 		clients:  clients,
 		cleanups: cleanups,
+		configs:  cfgs,
 	}, nil
 }
 
@@ -130,6 +136,12 @@ func (m *Manager) List() []string {
 func (m *Manager) Client(name string) (MCPClient, bool) {
 	c, ok := m.clients[name]
 	return c, ok
+}
+
+// Config returns the ServerConfig for the named server, if available.
+func (m *Manager) Config(name string) (ServerConfig, bool) {
+	cfg, ok := m.configs[name]
+	return cfg, ok
 }
 
 // ListTools pages through the tools available on the named server.

@@ -41,7 +41,7 @@
       <!-- Chat/Main area -->
       <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
         <!-- messages -->
-        <div ref="messageContainer" class="message-area-scroll flex-1 overflow-y-auto space-y-6 p-4 2xl:px-65 xl:px-45">
+        <div ref="messageContainer" class="w-full message-area-scroll flex-1 overflow-y-auto space-y-6 p-4 xl:px-65">
           <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : ''">
             <div class="p-6 rounded-lg" :class="msg.role==='user' ? 'bg-teal-600 inline-block px-3 py-2 w-1/2 text-left' : ''">
               <div v-if="msg.role === 'assistant' && renderMode === 'markdown'" class="markdown-content" v-html="formatMessage(msg.content)" />
@@ -50,10 +50,45 @@
           </div>
         </div>
         <!-- input area - fixed at bottom -->
-        <div class="mb-10 px-4 bg-zinc-800 2xl:px-65 xl:px-45">
-            <BaseTextarea v-model="userInput" placeholder="Type a message..." class="w-full bg-zinc-700 border-teal-700 border-1 rounded-lg" />
-          <div class="mt-2 px-6">
-            <BaseButton class="bg-teal-700 hover:bg-teal-600 w-full" @click="sendMessage">Send</BaseButton>
+        <div class="relative flex w-full items-end mx-4 px-4 pb-4 xl:px-65 bg-zinc-800">
+          <div class="relative flex w-full flex-auto flex-col">
+            <!-- Main input container with modern styling -->
+            <div class="relative mx-2.5 flex w-full">
+              <div class="relative flex w-full flex-auto bg-zinc-700 rounded-xl border border-zinc-600 transition-colors">
+                <!-- Textarea container -->
+                <div class="flex-1 relative">
+                  <textarea
+                    ref="textareaRef"
+                    v-model="userInput"
+                    placeholder="Type a message..."
+                    rows="1"
+                    class="block w-full resize-none bg-transparent rounded-xl p-4 pr-20 my-6 text-gray-200 placeholder-gray-400 border-0 min-h-12 no-focus-anywhere"
+                    style="max-height: 240px; overflow-y: auto;"
+                    @input="autoResize"
+                    @keydown="handleTextareaKeydown"
+                  />
+                </div>
+                <!-- Send button positioned inside the input -->
+                <div class="absolute right-2 bottom-1 flex items-center">
+                  <BaseButton
+                  @click="sendMessage"
+                  class="mr-4 mb-4 flex items-center justify-center rounded-lg transition-colors hover:opacity-70 disabled:opacity-50 bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
+                  :disabled="!userInput.trim()"
+                  >
+                  <span class="sr-only">Send</span>
+                  <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"
+                     class="h-9 w-9">
+                    <!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ -->
+                    <path fill="currentColor" fill-rule="evenodd"
+                      d="M17.53 10.03a.75.75 0 0 0 0-1.06l-5-5a.75.75 0 0 0-1.06 0l-5 5a.75.75 0 1 0 1.06 1.06l3.72-3.72v8.19c0 .713-.22 1.8-.859 2.687c-.61.848-1.635 1.563-3.391 1.563a.75.75 0 0 0 0 1.5c2.244 0 3.72-.952 4.609-2.187c.861-1.196 1.141-2.61 1.141-3.563V6.31l3.72 3.72a.75.75 0 0 0 1.06 0"
+                      clip-rule="evenodd" />
+                  </svg>
+                  </BaseButton>
+                </div>
+              </div>
+            </div>
+            <!-- Spacer to maintain layout -->
+            <div style="height: 12px;"></div>
           </div>
         </div>
       </div>
@@ -62,6 +97,18 @@
 </template>
 
 <script setup lang="ts">
+function handleTextareaKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' || e.key === 'Return') {
+    if (e.shiftKey) {
+      // Allow newline
+      return
+    } else {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
+}
+
 import { ref, watch, nextTick, onMounted, computed } from 'vue'
 import Header from './components/layout/Header.vue'
 import BaseButton from './components/base/BaseButton.vue'
@@ -98,6 +145,7 @@ const agentMaxSteps = computed(() => configStore.config?.Completions?.Agent?.Max
 const messages = computed(() => chatStore.messages)
 const userInput = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const showApiKey = ref(false)
 const isLoadingModel = ref(false) // Track model loading state
 
@@ -298,6 +346,8 @@ watch(messages, () => {
       codeBlocks.forEach(block => {
         hljs.highlightElement(block as HTMLElement)
       })
+      // Add copy buttons after highlighting
+      addCopyButtons()
     }
   })
 }, { deep: true })
@@ -331,11 +381,55 @@ function formatMessage(content: string) {
   return marked(content)
 }
 
+// Add copy buttons to code blocks
+function addCopyButtons() {
+  if (!messageContainer.value) return
+  const pres = messageContainer.value.querySelectorAll('pre')
+  pres.forEach(pre => {
+    // avoid duplicate
+    if (pre.querySelector('.copy-btn')) return
+    // ensure relative positioning
+    (pre as HTMLElement).style.position = 'relative'
+    const btn = document.createElement('button')
+    btn.innerText = 'Copy'
+    btn.className = 'copy-btn absolute top-2 right-2 bg-zinc-700 hover:bg-zinc-600 text-xs text-gray-200 px-2 py-1 rounded'
+    btn.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText((pre.querySelector('code')?.textContent) || '')
+        btn.innerText = 'Copied'
+        setTimeout(() => { btn.innerText = 'Copy' }, 2000)
+      } catch (e) {
+        console.error('Copy failed', e)
+      }
+    }
+    pre.appendChild(btn)
+  })
+}
+
+// Watch messages for new code blocks
+ watch(messages, () => {
+   nextTick(() => {
+     if (messageContainer.value) {
+       messageContainer.value.scrollTop = messageContainer.value.scrollHeight
+       // Highlight code blocks in messages
+       const codeBlocks = messageContainer.value.querySelectorAll('pre code:not(.hljs)')
+       codeBlocks.forEach(block => {
+         hljs.highlightElement(block as HTMLElement)
+       })
+      // Add copy buttons after highlighting
+      addCopyButtons()
+     }
+   })
+ }, { deep: true })
+
 async function sendMessage() {
   if (!userInput.value.trim()) return
   const prompt = userInput.value.trim()
   chatStore.addMessage({ role: 'user', content: prompt })
   userInput.value = ''
+  
+  // Reset textarea height after clearing input
+  resetTextareaHeight()
 
   // Create the assistant message and add it to the messages array
   chatStore.addMessage({ role: 'assistant', content: '' })
@@ -422,9 +516,66 @@ async function sendMessage() {
     chatStore.updateLastAssistantMessage('Error fetching response.')
   }
 }
+
+// Auto-resize textarea function
+function autoResize() {
+  if (textareaRef.value) {
+    textareaRef.value.style.height = 'auto'
+    const scrollHeight = textareaRef.value.scrollHeight
+    const maxHeight = 240 // 10 lines * 24px line-height
+    textareaRef.value.style.height = Math.min(scrollHeight, maxHeight) + 'px'
+  }
+}
+
+// Reset textarea to original height
+function resetTextareaHeight() {
+  if (textareaRef.value) {
+    textareaRef.value.style.height = ''
+    textareaRef.value.style.removeProperty('height')
+  }
+}
 </script>
 
 <style>
+/* NUCLEAR OPTION - Remove ALL possible focus styles */
+.no-focus-anywhere,
+.no-focus-anywhere:focus,
+.no-focus-anywhere:focus-visible,
+.no-focus-anywhere:focus-within,
+.no-focus-anywhere:active,
+.no-focus-anywhere:hover {
+  outline: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  border-width: 0 !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
+}
+
+/* Target all possible textarea states */
+textarea.no-focus-anywhere,
+textarea.no-focus-anywhere:focus,
+textarea.no-focus-anywhere:focus-visible,
+textarea.no-focus-anywhere:focus-within,
+textarea.no-focus-anywhere:active,
+textarea.no-focus-anywhere:hover {
+  outline: none !important;
+  box-shadow: none !important;
+  border: 0 !important;
+  border-color: transparent !important;
+  border-width: 0 !important;
+  --tw-ring-shadow: none !important;
+  --tw-ring-offset-shadow: none !important;
+}
+
+/* Override any Tailwind focus utilities */
+.no-focus-anywhere:focus {
+  --tw-ring-offset-shadow: var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color) !important;
+  --tw-ring-shadow: var(--tw-ring-inset) 0 0 0 calc(0px + var(--tw-ring-offset-width)) var(--tw-ring-color) !important;
+  box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000) !important;
+}
+
 /* Styling for code blocks similar to ResponseNode */
 .markdown-content pre {
   background: rgba(45, 45, 55, 0.6);
@@ -444,6 +595,10 @@ async function sendMessage() {
   background: rgba(73, 49, 99, 0.3);
   padding: 2px 5px;
   border-radius: 4px;
+}
+
+.markdown-content {
+  line-height: 1.8;
 }
 
 .markdown-content pre code {
@@ -489,5 +644,23 @@ async function sendMessage() {
 .message-area-scroll::-webkit-scrollbar-thumb {
   background-color: oklch(60% 0.118 184.704);
   border-radius: 9999px;
+}
+
+/* Scrollbar styling for textarea */
+.no-focus-anywhere {
+  scrollbar-width: none !important; /* Firefox */
+  -ms-overflow-style: none !important; /* IE and Edge */
+}
+
+.no-focus-anywhere::-webkit-scrollbar {
+  display: none !important; /* Chrome, Safari, Opera */
+}
+
+.no-focus-anywhere::-webkit-scrollbar-track {
+  display: none !important;
+}
+
+.no-focus-anywhere::-webkit-scrollbar-thumb {
+  display: none !important;
 }
 </style>

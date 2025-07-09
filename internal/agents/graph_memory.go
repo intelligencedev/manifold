@@ -13,7 +13,7 @@ import (
 	"github.com/pgvector/pgvector-go"
 
 	configpkg "manifold/internal/config"
-	embeddings "manifold/internal/llm"
+	llm "manifold/internal/llm"
 	"manifold/internal/sefii"
 )
 
@@ -212,7 +212,7 @@ func (eae *EnhancedAgenticEngine) IngestEnhancedMemory(
 
 	// Generate embedding
 	embeddingInput := config.Embeddings.EmbedPrefix + content + " " + summaryOutput.Summary + " " + strings.Join(summaryOutput.Keywords, " ")
-	embeds, err := embeddings.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
+	embeds, err := llm.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{embeddingInput})
 	if err != nil || len(embeds) == 0 {
 		return 0, fmt.Errorf("failed to generate embedding: %w", err)
 	}

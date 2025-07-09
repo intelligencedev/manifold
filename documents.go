@@ -132,6 +132,7 @@ func webContentHandler(c echo.Context) error {
 		return respondWithError(c, http.StatusBadRequest, "URLs are required")
 	}
 	urls := strings.Split(urlsParam, ",")
+	cfg := c.Get("config").(*Config)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	results := make(map[string]interface{})
@@ -141,7 +142,16 @@ func webContentHandler(c echo.Context) error {
 			wg.Add(1)
 			go func(url string) {
 				defer wg.Done()
-				content, err := tools.WebGetHandler(url)
+				ctx := c.Request().Context()
+				conn, err := cfg.DBPool.Acquire(ctx)
+				if err != nil {
+					mu.Lock()
+					results[url] = map[string]string{"error": fmt.Sprintf("db error: %v", err)}
+					mu.Unlock()
+					return
+				}
+				defer conn.Release()
+				content, err := tools.WebGetHandler(ctx, conn.Conn(), url)
 				mu.Lock()
 				defer mu.Unlock()
 				if err != nil {
@@ -183,15 +193,25 @@ func webSearchHandler(c echo.Context, config *Config) error {
 	}
 
 	var results []string
-
+	ctx := c.Request().Context()
 	if searchBackend == "sxng" {
 		sxngURL := c.QueryParam("sxng_url")
 		if sxngURL == "" {
 			return respondWithError(c, http.StatusBadRequest, "sxng_url is required when search_backend is sxng")
 		}
-		results = tools.GetSearXNGResults(sxngURL, query)
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return respondWithError(c, http.StatusInternalServerError, "db connection error")
+		}
+		defer conn.Release()
+		results = tools.GetSearXNGResults(ctx, conn.Conn(), sxngURL, query)
 	} else {
-		results = tools.SearchDDG(query)
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return respondWithError(c, http.StatusInternalServerError, "db connection error")
+		}
+		defer conn.Release()
+		results = tools.SearchDDG(ctx, conn.Conn(), query)
 	}
 
 	if results == nil {

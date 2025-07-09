@@ -358,17 +358,12 @@ export function useAgentNode(props, emit) {
 
     try {
       let finalPrompt = props.data.inputs.user_prompt;
+      const currentProvider = provider.value;
 
       // --- aggregate text from all connected source nodes ---
       const incomingEdges = getEdges.value.filter(
         (edge) => edge.target === props.id,
       );
-      for (const edge of incomingEdges) {
-        const sourceNode = findNode(edge.source);
-        if (sourceNode?.data?.outputs?.result?.output) {
-          finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
-        }
-      }
 
       // --- Regular API call with streaming ---
       let visionContent = null;
@@ -381,15 +376,53 @@ export function useAgentNode(props, emit) {
         .map((node) => node.data.outputs.result.dataUrl);
 
       if (imageDataUrls.length) {
-        visionContent = [{ type: "text", text: finalPrompt }];
-        imageDataUrls.forEach((url) => {
-          visionContent.push({ type: "image_url", image_url: { url } });
-        });
+        visionContent = [];
+        // For llama-server and mlx_lm.server, pass images directly without uploading
+        if (["llama-server", "mlx_lm.server"].includes(currentProvider)) {
+          for (const dataUrl of imageDataUrls) {
+            visionContent.push({ type: "image_url", image_url: { url: dataUrl } });
+          }
+        } else {
+          // For other providers (OpenAI, etc.), try to upload images first
+          const uploadEndpoint = `${new URL(props.data.inputs.endpoint).origin}/api/upload`;
+          for (const dataUrl of imageDataUrls) {
+            let fileUrl = dataUrl;
+            if (dataUrl.startsWith("data:")) {
+              try {
+                const blob = await (await fetch(dataUrl)).blob();
+                const formData = new FormData();
+                formData.append("file", blob);
+                const uploadResp = await fetch(uploadEndpoint, { method: "POST", body: formData });
+                if (uploadResp.ok) {
+                  const json = await uploadResp.json();
+                  fileUrl = json.url;
+                } else {
+                  console.error("Image upload failed:", uploadResp.statusText);
+                  // Fall back to using the data URL directly
+                  fileUrl = dataUrl;
+                }
+              } catch (e) {
+                console.error("Error uploading image:", e);
+                // Fall back to using the data URL directly
+                fileUrl = dataUrl;
+              }
+            }
+            visionContent.push({ type: "image_url", image_url: { url: fileUrl } });
+          }
+        }
+        // Always append the user prompt as a text part after all images
+        visionContent.push({ type: "text", text: finalPrompt });
+      } else {
+        for (const edge of incomingEdges) {
+          const sourceNode = findNode(edge.source);
+          if (sourceNode?.data?.outputs?.result?.output) {
+            finalPrompt += `\n\n${sourceNode.data.outputs.result.output}`;
+          }
+        }
       }
 
       let requestBody = {
         messages: [
-          { role: "system", content: props.data.inputs.system_prompt },
           {
             role: "user",
             content: visionContent ? visionContent : finalPrompt,
@@ -399,7 +432,6 @@ export function useAgentNode(props, emit) {
       };
 
       const modelName = props.data.inputs.model.toLowerCase();
-      const currentProvider = provider.value;
 
       // Only include model parameter for OpenAI provider
       if (currentProvider === "openai") {
@@ -426,6 +458,12 @@ export function useAgentNode(props, emit) {
         if (props.data.inputs.min_p !== undefined && props.data.inputs.min_p !== null && props.data.inputs.min_p !== '') requestBody.min_p = props.data.inputs.min_p;
         // Only include top_k for mlx_lm.server
         if (currentProvider === 'mlx_lm.server' && props.data.inputs.top_k !== undefined && props.data.inputs.top_k !== null && props.data.inputs.top_k !== '') requestBody.top_k = props.data.inputs.top_k;
+      }
+
+      // Add vision-specific parameters when images are present
+      if (visionContent && ["llama-server", "mlx_lm.server"].includes(currentProvider)) {
+        requestBody.cache_prompt = true;
+        requestBody.stream = true;
       }
 
       const canStream =
@@ -646,6 +684,10 @@ export function useAgentNode(props, emit) {
               }
 
               if (deltaContent) {
+                // Check and remove any stop tokens that might have leaked through
+                if (deltaContent.includes("<|im_end|>")) {
+                  deltaContent = deltaContent.replace(/<\|im_end\|>/g, "");
+                }
                 accumulatedContent += deltaContent;
                 onResponseUpdate(accumulatedContent, accumulatedContent);
               }

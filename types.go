@@ -19,24 +19,6 @@ type FileData struct {
 	Content string `json:"content"` // Full file content.
 }
 
-// DatadogNodeRequest represents the structure of the incoming request from the frontend.
-type DatadogNodeRequest struct {
-	APIKey    string `json:"apiKey"`
-	AppKey    string `json:"appKey"`
-	Site      string `json:"site"`
-	Operation string `json:"operation"`
-	Query     string `json:"query"`
-	FromTime  string `json:"fromTime"`
-	ToTime    string `json:"toTime"`
-}
-
-// DatadogNodeResponse represents the structure of the response sent back to the frontend.
-type DatadogNodeResponse struct {
-	Result struct {
-		Output interface{} `json:"output"`
-	} `json:"result"`
-}
-
 // ProcessTextRequest defines the JSON structure for the text processing request in the rad pipeline
 type ProcessTextRequest struct {
 	Text         string `json:"text"`

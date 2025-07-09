@@ -203,6 +203,7 @@ func registerWorkflowEndpoints(api *echo.Group, config *Config) {
 	workflowGroup := api.Group("/workflows")
 	workflowGroup.GET("/templates", listWorkflowTemplatesHandler(config))
 	workflowGroup.GET("/templates/:id", getWorkflowTemplateHandler(config))
+	workflowGroup.POST("/templates", createWorkflowTemplateHandler(config))
 }
 
 // registerEvolveEndpoints registers routes for the AlphaEvolve system.
@@ -343,5 +344,43 @@ func getWorkflowTemplateHandler(config *Config) echo.HandlerFunc {
 		}
 
 		return c.JSON(http.StatusOK, templateData)
+	}
+}
+
+// createWorkflowTemplateHandler handles saving a new workflow template.
+func createWorkflowTemplateHandler(config *Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		// Parse request body
+		var req struct {
+			Name string      `json:"name"`
+			Flow interface{} `json:"flow"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request"})
+		}
+		// Validate template name to prevent directory traversal
+		if req.Name == "" || strings.Contains(req.Name, "..") || strings.Contains(req.Name, "/") {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid template name"})
+		}
+		templatesDir := filepath.Join(config.DataPath, "workflows")
+		if err := os.MkdirAll(templatesDir, 0755); err != nil {
+			log.Printf("Error creating workflows directory: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to create templates directory"})
+		}
+		filename := req.Name
+		if !strings.HasSuffix(filename, ".json") {
+			filename += ".json"
+		}
+		path := filepath.Join(templatesDir, filename)
+		data, err := json.MarshalIndent(req.Flow, "", "  ")
+		if err != nil {
+			log.Printf("Error marshalling flow data: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to marshal flow data"})
+		}
+		if err := os.WriteFile(path, data, 0644); err != nil {
+			log.Printf("Error writing template file: %v", err)
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to save template file"})
+		}
+		return c.JSON(http.StatusOK, map[string]string{"message": "Template saved"})
 	}
 }

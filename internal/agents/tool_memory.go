@@ -6,7 +6,7 @@ import (
 
 	"github.com/pgvector/pgvector-go"
 
-	embeddings "manifold/internal/llm"
+	llm "manifold/internal/llm"
 )
 
 // ensureToolMemoryTable creates the tool_memory table if it doesn't exist.
@@ -38,7 +38,7 @@ func (ae *AgentEngine) getRelevantTools(ctx context.Context, objective string, k
 		return nil, err
 	}
 	searchQuery := fmt.Sprintf("%s%s", ae.Config.Embeddings.SearchPrefix, objective)
-	embeds, err := embeddings.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, []string{searchQuery})
+	embeds, err := llm.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, []string{searchQuery})
 	if err != nil || len(embeds) == 0 {
 		return nil, err
 	}

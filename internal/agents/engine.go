@@ -402,11 +402,11 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		"- finish       • end and output final answer",
 	)
 
+	objective := fmt.Sprintf("You MUST format an action and call tools directly. Format for every turn:\nThought: <reasoning>\nAction:  <tool>\nAction Input: <JSON | text>\n\n", req.Objective)
+
 	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
 
 IMPORTANT: If you get stuck, or detect a loop, ask for assistance from another expert and ensure you give them all of the information necessary for them to help you.
-
-Objective: %s
 
 IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.
 Assistants are specialized workers that can help with specific tasks.
@@ -450,13 +450,15 @@ IMPORTANT: NEVER omit the three headers below – the server will error out:
 
 ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final response, always check if the task is complete and if not, continue working on it.
 
-Format for every turn:
+You MUST format an action and call tools directly. This is mandatory! Format for every turn:
 Thought: <reasoning>
 Action:  <tool>
 Action Input: <JSON | text>
 
 Tools:
-%s`, req.Objective, strings.Join(td, "\n"))
+%s
+
+The task is to use all necessary means to achieve the following objective: %s`, strings.Join(td, "\n"), objective)
 
 	model := req.Model
 	if model == "" {
@@ -521,7 +523,7 @@ Tools:
 			// treat entire reply as the final answer
 			step := AgentStep{
 				Index:       len(sess.Steps) + 1,
-				Thought:     "LLM reply lacked proper headers; treating as final answer.",
+				Thought:     "Responding...",
 				Action:      "finish",
 				ActionInput: strings.TrimSpace(out),
 				Observation: "",

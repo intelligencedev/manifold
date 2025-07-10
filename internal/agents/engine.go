@@ -366,13 +366,120 @@ func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, re
 func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Config, req ReActRequest, hook StepHook) (*AgentSession, error) {
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
-	var td []string
+	var prompt []string
+
+	prompt = append(prompt, `
+	You are a helpful assistant in a sandboxed environment with access to various tools:
+
+	- code_eval: run python code in sandbox
+
+	You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
+	The code_eval tool supports third-party libraries, so you can include them in the dependencies array.
+	The code should be valid and executable in Python. The code should always return a string with the results.
+
+	If no dependencies are needed, the dependencies array must be empty (e.g., []).
+
+	The json object should be formatted in a single line as follows:
+		{
+			"language": "python",
+			"code": "<python code>",
+			"dependencies": ["<dependency1>", "<dependency2>"]
+		}
+
+	For example (using third party libraries):
+		{
+			"language": "python",
+			"code": "import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__':\n    main()",
+			"dependencies": ["requests", "beautifulsoup4", "markdownify"]
+		}
+
+	- web_search: search the web/internet for information
+	  schema:
+		{
+			"query": {
+				"description": "The search query",
+				"type": "string"
+			}
+		}
+		You can use the web_search tool to search the web for information related to the task.
+		You should never use a search engine directly, always use the web_search tool.
+		When using the web_search tool, input the ideal search query related to the task.
+		Always retrieve the content of the first 3 results, unless the task requires more.
+		You can use the web_fetch tool to fetch the content of a webpage from a URL.
+
+	- web_fetch: fetch webpage content from a URL
+	  schema:
+	  	{
+			"url": {
+				"description": "The URL of the webpage to fetch",
+				"type": "string"
+			}
+		}
+		You can use the web_fetch tool to fetch the content of a webpage.
+
+	- finish: end and output final answer directly responding to the user
+
+	- ask_assistant_worker: get help from specialized assistant worker
+	  schema:
+		{
+		  "properties": {
+			"name": {
+			  "description": "Name of the worker to ask",
+			  "type": "string"
+			},
+			"model": {
+			  "description": "Optional model to use. Leave empty unless explicitly requested.",
+			  "type": "string"
+			},
+			"msg": {
+			  "description": "Message to send to the worker. Detailed task or help query.",
+			  "type": "string"
+			}
+		  },
+		  "required": ["name", "msg"],
+		  "type": "object"
+		}
+
+	`)
 
 	// Append agent fleet
-	td = append(td, "Available specialized assistant workers:")
+	assistantWorkers := "Available specialized assistant workers:\n"
 	for _, worker := range ae.fleet.ListWorkers() {
-		td = append(td, fmt.Sprintf("- %s (%s) • %s", worker.Name, worker.Role, worker.Instructions))
+		assistantWorkers += fmt.Sprintf("- %s (%s) • %s\n", worker.Name, worker.Role, worker.Instructions)
 	}
+
+	prompt = append(prompt, assistantWorkers)
+
+	prompt = append(prompt, `
+	If there is a specialized assistant worker available that can help with the task,
+	you call it with the ask_assistant_worker tool. If you get stuck, or detect a loop,
+	ask for assistance from another worker and ensure you give them all of the information
+	necessary for them to help you.
+
+	Rules:
+	- Never invoke interactive editors (vim, nano, etc).
+	- Keep patches minimal; do not reformat entire files unless required.
+	- Track and reference original line numbers in your reasoning.
+	- For non-code text, skip language checkers but still diff/patch/verify.
+
+	IMPORTANT: If no tool is available that can be used to complete the task, make your own using the code_eval tool.
+
+	IMPORTANT: If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or create your own using the code_eval tool.
+
+	IMPORTANT: NEVER omit the three headers below – the server will error out:
+	Thought: …
+	Action: …
+	Action Input: …
+
+	ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final response, always check if the task is complete and if not, continue working on it.
+
+	Format for every turn:
+	Thought: <reasoning>
+	Action:  <tool>
+	Action Input: <JSON | text>
+
+	Tools:
+%s`, strings.Join(prompt, "\n"))
 
 	useToolList := len(ae.serverTools) == 0
 	if useToolList {
@@ -391,74 +498,12 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal input schema: %v", err)
 			}
-			td = append(td, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
+			prompt = append(prompt, fmt.Sprintf("- %s • %s", t.Name, t.Description), string(schema))
 		}
 	}
-	td = append(td,
-		"- ask_assistant_worker • get help from specialized assistant worker",
-		"- code_eval    • run code in sandbox",
-		"- web_search   • search the web",
-		"- web_fetch    • fetch webpage content",
-		"- finish       • end and output final answer",
-	)
 
-	objective := fmt.Sprintf("You MUST format an action and call tools directly. Format for every turn:\nThought: <reasoning>\nAction:  <tool>\nAction Input: <JSON | text>\n\n", req.Objective)
-
-	sysPrompt := fmt.Sprintf(`You are a helpful assistant in a sandboxed environment with access to various tools. You are encouraged to get feedback from your team before proceeding with tasks by using the ask_assistant_worker tool.
-
-IMPORTANT: If you get stuck, or detect a loop, ask for assistance from another expert and ensure you give them all of the information necessary for them to help you.
-
-IMPORTANT: If there is a specialized assistant worker available that can help with the task, you call it with the ask_assistant_worker tool.
-Assistants are specialized workers that can help with specific tasks.
-- ask_assistant_worker • get help from specialized assistant worker
-{"properties":{"name":{"description":"Name of the worker to ask","type":"string"},"model":{"description":"Optional model to use. Leave empty unless explicitly requested.","type":"string"},"msg":{"description":"Message to send to the worker. Detailed task or help query.","type":"string"}},"required":["name","msg"],"type":"object"}
-
-Always use the manifold::cli tool to run commands, and the code_eval tool to run Python code when making your own tools.
-
-Rules:
-- Never invoke interactive editors (vim, nano, etc.).  
-- Keep patches minimal; do not reformat entire files unless required.  
-- Track and reference original line numbers in your reasoning.  
-- For non-code text, skip language checkers but still diff/patch/verify.
-- Never use search engines or external APIs directly; use the web_search tool instead.
-- When using the web_search tool, input the ideal search query related to the task. Never use google search or a url directly as your query. The web_search tool will handle search with a query only.
-
-Prefer to answer directly (with Thought + finish) for narrative tasks
-such as writing, explaining, or summarising natural-language text.
-Only fall back to a tool for *computational* or *programmatic*
-work (e.g. data transformation, heavy math, file parsing).
-
-Always consider using the tools or asking assistantsfirst. If no tool is available that can be used to complete the task, make your own using the code_eval tool.
-If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or create your own using the code_eval tool.
-
-You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
-The code_eval tool supports third-party libraries, so you can include them in the dependencies array. 
-The code should be valid and executable in Python. The code should always return a string with the result of the execution, 
-so that it can be used for the next task.
-
-If no dependencies are needed, the dependencies array must be empty (e.g., []).
-The json object should be formatted in a single line as follows:
-{"language":"python","code":"<python code>","dependencies":["<dependency1>","<dependency2>"]}
-
-For example (using third party libraries):
-{"language":"python","code":"import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__':\n    main()","dependencies":["requests","beautifulsoup4","markdownify"]}
-
-IMPORTANT: NEVER omit the three headers below – the server will error out:
-  Thought: …
-  Action: …
-  Action Input: …
-
-ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final response, always check if the task is complete and if not, continue working on it.
-
-You MUST format an action and call tools directly. This is mandatory! Format for every turn:
-Thought: <reasoning>
-Action:  <tool>
-Action Input: <JSON | text>
-
-Tools:
-%s
-
-The task is to use all necessary means to achieve the following objective: %s`, strings.Join(td, "\n"), objective)
+	// Append the user's objective to the system prompt
+	sysPrompt := fmt.Sprintf("%s\nObjective: %s", strings.Join(prompt, "\n"), req.Objective)
 
 	model := req.Model
 	if model == "" {

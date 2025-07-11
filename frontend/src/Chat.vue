@@ -20,6 +20,10 @@
           <template v-if="['openai','llama-server','mlx_lm.server'].includes(provider)">
             <div class="grid grid-cols-2 gap-2 mt-2">
               <BaseInput label="Presence Penalty" type="number" v-model.number="presence_penalty" step="0.01" min="-2" max="2" />
+          <template v-if="['openai','llama-server','mlx_lm.server'].includes(provider)">
+            <div class="grid grid-cols-2 gap-2 mt-2">
+              <BaseInput label="Presence Penalty" type="number" v-model.number="presence_penalty" step="0.01" min="-2" max="2" />
+              <BaseInput label="Top P" type="number" v-model.number="top_p" step="0.01" min="0" max="1" />
               <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" />
               <BaseInput label="Min P" type="number" v-model.number="min_p" step="0.01" min="0" max="1" />
             </div>
@@ -28,7 +32,6 @@
               Debug: Provider = {{ provider }}
             </div>
           </template>
-      <!-- Chat/Main area -->
       <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
         <!-- messages -->
         <div ref="messageContainer" class="w-full message-area-scroll flex-1 overflow-y-auto space-y-6 p-4 xl:px-65">

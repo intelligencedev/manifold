@@ -17,27 +17,17 @@
             <span v-if="isLoadingModel" class="absolute right-10 top-1/2 transform -translate-y-1/2 text-xs text-blue-400">Loading...</span>
           </div>
           <div class="grid grid-cols-2 gap-2 space-y-6">
-            <BaseInput label="Max Tokens" type="number" v-model.number="max_completion_tokens" min="1" />
-            <BaseInput label="Temperature" type="number" v-model.number="temperature" step="0.1" min="0" max="2" />
-          </div>
-          <!-- Extra LLM params for openai, llama-server, mlx_lm.server -->
           <template v-if="['openai','llama-server','mlx_lm.server'].includes(provider)">
             <div class="grid grid-cols-2 gap-2 mt-2">
               <BaseInput label="Presence Penalty" type="number" v-model.number="presence_penalty" step="0.01" min="-2" max="2" />
               <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" />
-              <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" :disabled="provider !== 'mlx_lm.server'" />
               <BaseInput label="Min P" type="number" v-model.number="min_p" step="0.01" min="0" max="1" />
             </div>
             <!-- Debug info -->
             <div class="text-xs text-gray-400 mt-2">
-              Debug: Provider = {{ provider }}, Top K disabled = {{ provider !== 'mlx_lm.server' }}
+              Debug: Provider = {{ provider }}
             </div>
           </template>
-          <BaseDropdown label="Predefined System Prompt" v-model="selectedSystemPrompt" :options="systemPromptOptionsList" />
-          <BaseTextarea label="System Prompt" v-model="system_prompt" />
-          <BaseDropdown label="Render Mode" v-model="renderMode" :options="renderModeOptions" />
-        </div>
-      </div>
       <!-- Chat/Main area -->
       <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
         <!-- messages -->

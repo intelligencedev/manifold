@@ -15,7 +15,7 @@ export const useChatStore = defineStore('chat', () => {
   const endpoint = ref('http://localhost:8080/api/v1/chat/completions')
   const api_key = ref('')
   const model = ref('local')
-  const max_completion_tokens = ref(8192)
+  const top_k = ref(0)
   const temperature = ref(0.6)
   const enableToolCalls = ref(false)
   const selectedSystemPrompt = ref('friendly_assistant')

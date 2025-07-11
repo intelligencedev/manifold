@@ -34,7 +34,7 @@
             </div>
           </template>
           <BaseDropdown label="Predefined System Prompt" v-model="selectedSystemPrompt" :options="systemPromptOptionsList" />
-          <BaseTextarea label="System Prompt" v-model="system_prompt" />
+              <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" />
           <BaseDropdown label="Render Mode" v-model="renderMode" :options="renderModeOptions" />
         </div>
       </div>

@@ -24,7 +24,7 @@
           <template v-if="['openai','llama-server','mlx_lm.server'].includes(provider)">
             <div class="grid grid-cols-2 gap-2 mt-2">
               <BaseInput label="Presence Penalty" type="number" v-model.number="presence_penalty" step="0.01" min="-2" max="2" />
-              <BaseInput label="Top P" type="number" v-model.number="top_p" step="0.01" min="0" max="1" />
+              <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" />
               <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" :disabled="provider !== 'mlx_lm.server'" />
               <BaseInput label="Min P" type="number" v-model.number="min_p" step="0.01" min="0" max="1" />
             </div>

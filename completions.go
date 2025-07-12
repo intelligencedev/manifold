@@ -11,8 +11,6 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
-
-	openai "github.com/sashabaranov/go-openai"
 )
 
 // ErrorData mirrors the error structure returned by the OpenAI API.
@@ -55,22 +53,21 @@ func completionsHandler(c echo.Context, config *Config) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
 
-	// Check if this is a streaming request
-	var payload openai.ChatCompletionRequest
+	// Check if this is a streaming request by parsing the raw JSON
+	var payload map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
+		return c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error: ErrorData{
+				Message: "Invalid JSON in request: " + err.Error(),
+			},
+		})
+	}
 
 	// Only set the default model if the endpoint is OpenAI's API
 	if strings.Contains(openAIURL, "api.openai.com") {
-		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
-				Error: ErrorData{
-					Message: "Invalid JSON in request: " + err.Error(),
-				},
-			})
-		}
-
 		// Set the model only if model is empty and we're using OpenAI
-		if payload.Model == "" {
-			payload.Model = config.Completions.CompletionsModel
+		if model, exists := payload["model"]; !exists || model == "" {
+			payload["model"] = config.Completions.CompletionsModel
 
 			// Re-marshal the body with the updated model
 			updatedBody, err := json.Marshal(payload)
@@ -96,19 +93,17 @@ func completionsHandler(c echo.Context, config *Config) error {
 			req.Header.Set("Content-Type", "application/json")
 			req.Header.Set("Authorization", "Bearer "+config.Completions.APIKey)
 		}
-	} else {
-		// For non-OpenAI endpoints, just unmarshal to check if it's a streaming request
-		if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-			return c.JSON(http.StatusBadRequest, ErrorResponse{
-				Error: ErrorData{
-					Message: "Invalid JSON in request: " + err.Error(),
-				},
-			})
-		}
 	}
 
 	// Handle streaming differently than non-streaming
-	if payload.Stream {
+	isStream := false
+	if stream, exists := payload["stream"]; exists {
+		if streamBool, ok := stream.(bool); ok {
+			isStream = streamBool
+		}
+	}
+
+	if isStream {
 		// Set response headers for streaming
 		c.Response().Header().Set(echo.HeaderContentType, "text/event-stream")
 		c.Response().Header().Set("Cache-Control", "no-cache")

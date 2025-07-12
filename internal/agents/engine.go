@@ -27,8 +27,6 @@ import (
 	tools "manifold/internal/tools"
 	"manifold/internal/util"
 
-	openai "github.com/sashabaranov/go-openai"
-
 	"github.com/pgvector/pgvector-go"
 )
 
@@ -409,7 +407,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 
 	- web_fetch: fetch webpage content from a URL
 	  schema:
-	  	{
+		{
 			"url": {
 				"description": "The URL of the webpage to fetch",
 				"type": "string"
@@ -511,13 +509,13 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 	}
 
 	// Store conversation history across turns
-	var conversationHistory []openai.ChatCompletionMessage
+	var conversationHistory []llm.ChatCompletionMessage
 
 	// Add system prompt only once at the beginning
-	conversationHistory = append(conversationHistory, openai.ChatCompletionMessage{Role: "system", Content: sysPrompt})
+	conversationHistory = append(conversationHistory, llm.ChatCompletionMessage{Role: "system", Content: sysPrompt})
 
 	for i := 0; i < req.MaxSteps; i++ {
-		var currentMessages []openai.ChatCompletionMessage
+		var currentMessages []llm.ChatCompletionMessage
 
 		// Start with the existing conversation history
 		currentMessages = append(currentMessages, conversationHistory...)
@@ -538,13 +536,13 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 				fmt.Fprintf(&memBuf, "%d. %s\n", i+1, truncate(m.NoteContext, 200))
 			}
 			// Add memory as a separate system message for this turn
-			currentMessages = append(currentMessages, openai.ChatCompletionMessage{Role: "system", Content: memBuf.String()})
+			currentMessages = append(currentMessages, llm.ChatCompletionMessage{Role: "system", Content: memBuf.String()})
 		} else {
 			log.Printf("No memories found")
 		}
 
 		// For the current turn, add the user message
-		currentMessages = append(currentMessages, openai.ChatCompletionMessage{Role: "user", Content: "Next step?"})
+		currentMessages = append(currentMessages, llm.ChatCompletionMessage{Role: "user", Content: "Next step?"})
 
 		// Print the prompt for debugging
 		log.Println("=====================================")
@@ -630,7 +628,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		}
 
 		// Add the assistant's response to conversation history
-		assistantMessage := openai.ChatCompletionMessage{
+		assistantMessage := llm.ChatCompletionMessage{
 			Role: "assistant",
 			Content: fmt.Sprintf("Thought: %s\nAction: %s\nAction Input: %s",
 				thought, action, input),
@@ -638,7 +636,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 		conversationHistory = append(conversationHistory, assistantMessage)
 
 		// Add the observation as a user message in the conversation history
-		userMessage := openai.ChatCompletionMessage{
+		userMessage := llm.ChatCompletionMessage{
 			Role:    "user",
 			Content: fmt.Sprintf("Observation: %s\n\nNext step?", obs),
 		}
@@ -660,7 +658,7 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 	return sess, nil
 }
 
-func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []openai.ChatCompletionMessage) (string, error) {
+func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []llm.ChatCompletionMessage) (string, error) {
 
 	fleet := ae.fleet
 	assistant := fleet.GetWorker(assistantName)
@@ -822,7 +820,7 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 
 		// Otherwise, fallback to LLM call as before
 		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
-		return ae.callLLM(ctx, worker.Name, worker.Model, []openai.ChatCompletionMessage{
+		return ae.callLLM(ctx, worker.Name, worker.Model, []llm.ChatCompletionMessage{
 			{Role: "user", Content: msg},
 		})
 	case "code_eval":

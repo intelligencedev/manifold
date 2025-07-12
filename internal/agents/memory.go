@@ -17,7 +17,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/pgvector/pgvector-go"
 
-	openai "github.com/sashabaranov/go-openai"
 	configpkg "manifold/internal/config"
 	llm "manifold/internal/llm"
 	"manifold/internal/sefii"
@@ -190,28 +189,28 @@ func NewAgenticEngine(db *pgx.Conn) *AgenticEngine {
 func (ae *AgenticEngine) EnsureAgenticMemoryTable(ctx context.Context, embeddingDim int) error {
 	// 1) create if missing
 	_, err := ae.DB.Exec(ctx, fmt.Sprintf(`
-        CREATE TABLE IF NOT EXISTS agentic_memories (
-            id           SERIAL PRIMARY KEY,
-            workflow_id  UUID,                       -- <<< NEW
-            content      TEXT        NOT NULL,
-            note_context TEXT,
-            keywords     TEXT[],
-            tags         TEXT[],
-            timestamp    TIMESTAMP,
-            embedding    vector(%d) NOT NULL,
-            links        INTEGER[]
-        );`, embeddingDim))
+		CREATE TABLE IF NOT EXISTS agentic_memories (
+			id           SERIAL PRIMARY KEY,
+			workflow_id  UUID,                       -- <<< NEW
+			content      TEXT        NOT NULL,
+			note_context TEXT,
+			keywords     TEXT[],
+			tags         TEXT[],
+			timestamp    TIMESTAMP,
+			embedding    vector(%d) NOT NULL,
+			links        INTEGER[]
+		);`, embeddingDim))
 	if err != nil {
 		return err
 	}
 
 	// 2) patch older deployments that don’t have workflow_id yet
 	_, _ = ae.DB.Exec(ctx, `ALTER TABLE agentic_memories
-                            ADD COLUMN IF NOT EXISTS workflow_id UUID;`)
+							ADD COLUMN IF NOT EXISTS workflow_id UUID;`)
 	// 3) index for fast “same-session” look-ups
 	_, _ = ae.DB.Exec(ctx, `
-        CREATE INDEX IF NOT EXISTS agentic_memories_workflow_ts_idx
-        ON agentic_memories (workflow_id, timestamp DESC);`)
+		CREATE INDEX IF NOT EXISTS agentic_memories_workflow_ts_idx
+		ON agentic_memories (workflow_id, timestamp DESC);`)
 
 	// Create memory evolution table for tracking concept development
 	_, err = ae.DB.Exec(ctx, `
@@ -308,10 +307,10 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	currentTime := time.Now()
 	var newID int64
 	insertQuery := `
-        INSERT INTO agentic_memories
-            (workflow_id, content, note_context, keywords, tags, timestamp, embedding, links)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        RETURNING id`
+		INSERT INTO agentic_memories
+			(workflow_id, content, note_context, keywords, tags, timestamp, embedding, links)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		RETURNING id`
 	emptyLinks := []int64{}
 	err = ae.DB.QueryRow(ctx, insertQuery, workflowID, content, noteContext, keywords, tags, currentTime, vec, emptyLinks).Scan(&newID)
 	if err != nil {
@@ -349,11 +348,11 @@ func (ae *AgenticEngine) generateLinks(ctx context.Context, newMemoryID int64, k
 
 	// Vector search in agentic_memories (excluding the new note).
 	searchQuery := `
-        SELECT id FROM agentic_memories 
-        WHERE id <> $1 
-        ORDER BY embedding <-> $2
-        LIMIT $3
-    `
+		SELECT id FROM agentic_memories 
+		WHERE id <> $1 
+		ORDER BY embedding <-> $2
+		LIMIT $3
+	`
 	rows, err := ae.DB.Query(ctx, searchQuery, newMemoryID, newEmbedding, k)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search similar agentic memories: %w", err)
@@ -383,11 +382,11 @@ func (ae *AgenticEngine) SearchAgenticMemories(ctx context.Context, config *conf
 
 	// Cast keywords and tags to text to force string output.
 	searchQuery := `
-        SELECT id, workflow_id, content, note_context, keywords::text, tags::text, timestamp, embedding, links
-        FROM agentic_memories
-        ORDER BY embedding <-> $1
-        LIMIT $2
-    `
+		SELECT id, workflow_id, content, note_context, keywords::text, tags::text, timestamp, embedding, links
+		FROM agentic_memories
+		ORDER BY embedding <-> $1
+		LIMIT $2
+	`
 	rows, err := ae.DB.Query(ctx, searchQuery, queryVec, limit)
 	if err != nil {
 		return nil, err
@@ -589,11 +588,11 @@ func (ae *AgenticEngine) SearchWithinWorkflow(
 
 	qvec := pgvector.NewVector(embeds[0])
 	rows, err := ae.DB.Query(ctx, `
-        SELECT id, workflow_id, content, note_context, timestamp
-        FROM agentic_memories
-        WHERE workflow_id = $1
-        ORDER BY embedding <-> $2
-        LIMIT $3`,
+		SELECT id, workflow_id, content, note_context, timestamp
+		FROM agentic_memories
+		WHERE workflow_id = $1
+		ORDER BY embedding <-> $2
+		LIMIT $3`,
 		workflowID, qvec, k)
 	if err != nil {
 		return nil, err
@@ -686,7 +685,7 @@ func (ae *AgenticEngine) DiscoverMemoryClusters(ctx context.Context, cfg *config
 			var mem AgenticMemory
 			err := ae.DB.QueryRow(ctx, `
 				SELECT id, workflow_id, content, note_context, keywords, tags, timestamp, embedding, 
-				       COALESCE(links, ARRAY[]::INTEGER[])
+					   COALESCE(links, ARRAY[]::INTEGER[])
 				FROM agentic_memories WHERE id = $1`, nodeID).Scan(
 				&mem.ID, &mem.WorkflowID, &mem.Content, &mem.NoteContext,
 				&mem.Keywords, &mem.Tags, &mem.Timestamp, &mem.Embedding, &mem.Links)
@@ -1022,7 +1021,7 @@ func (ae *AgenticEngine) DetectMemoryContradictions(ctx context.Context, config 
 			  AND NOT EXISTS (
 				  SELECT 1 FROM memory_contradictions mc 
 				  WHERE (mc.memory1_id = m1.id AND mc.memory2_id = m2.id)
-				     OR (mc.memory1_id = m2.id AND mc.memory2_id = m1.id)
+					 OR (mc.memory1_id = m2.id AND mc.memory2_id = m1.id)
 			  )
 		)
 		SELECT id1, content1, id2, content2, distance
@@ -1095,7 +1094,7 @@ SEVERITY: 0.0-1.0 (how severe the contradiction is)
 DESCRIPTION: Brief explanation of the contradiction (if any)`, content1, content2)
 
 	// Use the LLM API to analyze the contradiction
-	messages := []openai.ChatCompletionMessage{
+	messages := []llm.ChatCompletionMessage{
 		{Role: "system", Content: "You are an expert at analyzing contradictions in information. Analyze the following memories and determine if they contradict each other."},
 		{Role: "user", Content: prompt},
 	}
@@ -1159,7 +1158,7 @@ func (ae *AgenticEngine) GetMemoryEvolutions(ctx context.Context, memoryID int64
 func (ae *AgenticEngine) GetPendingContradictions(ctx context.Context, workflowID uuid.UUID) ([]MemoryContradiction, error) {
 	rows, err := ae.DB.Query(ctx, `
 		SELECT mc.id, mc.memory1_id, mc.memory2_id, mc.conflict_type, mc.severity, 
-		       mc.description, mc.status, mc.detected_at, mc.resolved_at
+			   mc.description, mc.status, mc.detected_at, mc.resolved_at
 		FROM memory_contradictions mc
 		JOIN agentic_memories m1 ON mc.memory1_id = m1.id
 		JOIN agentic_memories m2 ON mc.memory2_id = m2.id

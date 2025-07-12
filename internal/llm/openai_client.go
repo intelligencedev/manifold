@@ -9,56 +9,82 @@ import (
 	"net/http"
 	"strings"
 
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/shared"
 )
 
+// ChatCompletionMessage represents a message compatible with the old API
+type ChatCompletionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // CallLLM sends a chat completion request using the OpenAI Go SDK.
-func CallLLM(ctx context.Context, endpoint, apiKey, model string, msgs []openai.ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
-	cfg := openai.DefaultConfig(apiKey)
+func CallLLM(ctx context.Context, endpoint, apiKey, model string, msgs []ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
+	// Initialize client with API key and optional base URL
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if endpoint != "" {
-		cfg.BaseURL = endpoint
+		opts = append(opts, option.WithBaseURL(endpoint))
 	}
-	client := openai.NewClientWithConfig(cfg)
+	client := openai.NewClient(opts...)
 
-	req := openai.ChatCompletionRequest{
-		Model:       model,
-		Messages:    msgs,
-		MaxTokens:   maxTokens,
-		Temperature: float32(temperature),
+	// Convert old SDK messages to new SDK params
+	var newMsgs []openai.ChatCompletionMessageParamUnion
+	for _, m := range msgs {
+		switch strings.ToLower(m.Role) {
+		case "system":
+			newMsgs = append(newMsgs, openai.SystemMessage(m.Content))
+		case "user":
+			newMsgs = append(newMsgs, openai.UserMessage(m.Content))
+		case "assistant":
+			newMsgs = append(newMsgs, openai.AssistantMessage(m.Content))
+		default:
+			newMsgs = append(newMsgs, openai.UserMessage(m.Content))
+		}
 	}
 
-	resp, err := client.CreateChatCompletion(ctx, req)
+	// Prepare parameters
+	params := openai.ChatCompletionNewParams{
+		Model:       shared.ChatModel(model),
+		Messages:    newMsgs,
+		MaxTokens:   param.NewOpt(int64(maxTokens)),
+		Temperature: param.NewOpt(temperature),
+	}
+
+	// Call the ChatCompletion endpoint
+	resp, err := client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return "", err
 	}
 	if len(resp.Choices) == 0 {
-		return "", fmt.Errorf("no choices")
+		return "", fmt.Errorf("no choices returned")
 	}
 	return resp.Choices[0].Message.Content, nil
 }
 
 // CallMLX sends a chat completion request specifically formatted for MLX backends.
-// MLX backends require different parameter formatting - they omit the model field and include maxTokens directly.
-func CallMLX(ctx context.Context, endpoint, apiKey string, msgs []openai.ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
+func CallMLX(ctx context.Context, endpoint, apiKey string, msgs []ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
 	// Use custom HTTP client for MLX backends as they may have different endpoint structures
 	return callMLXWithHTTP(ctx, endpoint, apiKey, msgs, maxTokens, temperature)
 }
 
 // GetEndpointModels retrieves the available models using the OpenAI client.
 func GetEndpointModels(ctx context.Context, endpoint, apiKey string) ([]string, error) {
-	cfg := openai.DefaultConfig(apiKey)
+	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if endpoint != "" {
-		cfg.BaseURL = endpoint
+		opts = append(opts, option.WithBaseURL(endpoint))
 	}
-	client := openai.NewClientWithConfig(cfg)
+	client := openai.NewClient(opts...)
 
-	models, err := client.ListModels(ctx)
+	models, err := client.Models.List(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	ids := make([]string, 0, len(models.Models))
-	for _, m := range models.Models {
+	var ids []string
+	for _, m := range models.Data {
 		ids = append(ids, m.ID)
 	}
 	return ids, nil
@@ -87,13 +113,13 @@ type mlxResponse struct {
 }
 
 // callMLXWithHTTP makes a raw HTTP request to MLX backends with proper parameter formatting
-func callMLXWithHTTP(ctx context.Context, endpoint, apiKey string, msgs []openai.ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
-	// Convert OpenAI messages to MLX format
+func callMLXWithHTTP(ctx context.Context, endpoint, apiKey string, msgs []ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
+	// Convert ChatCompletionMessage to MLX format
 	mlxMessages := make([]mlxMessage, len(msgs))
-	for i, msg := range msgs {
+	for i, m := range msgs {
 		mlxMessages[i] = mlxMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
+			Role:    m.Role,
+			Content: m.Content,
 		}
 	}
 

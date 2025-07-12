@@ -25,7 +25,7 @@
             <div class="grid grid-cols-2 gap-2 mt-2">
               <BaseInput label="Presence Penalty" type="number" v-model.number="presence_penalty" step="0.01" min="-2" max="2" />
               <BaseInput label="Top P" type="number" v-model.number="top_p" step="0.01" min="0" max="1" />
-              <BaseInput label="Top K" type="number" v-model.number="top_k" min="0" :disabled="provider !== 'mlx_lm.server'" />
+<BaseInput label="Top K" type="number" v-model.number="top_k" min="0" />
               <BaseInput label="Min P" type="number" v-model.number="min_p" step="0.01" min="0" max="1" />
             </div>
             <!-- Debug info -->
@@ -499,7 +499,7 @@ async function sendMessage() {
     if (top_p.value !== undefined && top_p.value !== null && top_p.value !== '') config.top_p = top_p.value
     if (min_p.value !== undefined && min_p.value !== null && min_p.value !== '') config.min_p = min_p.value
     // Only include top_k for mlx_lm.server
-    if (provider.value === 'mlx_lm.server' && top_k.value !== undefined && top_k.value !== null && top_k.value !== '') config.top_k = top_k.value
+    if (top_k.value !== undefined && top_k.value !== null && top_k.value !== '') config.top_k = top_k.value
   }
 
   try {

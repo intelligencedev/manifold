@@ -21,6 +21,22 @@ type ChatCompletionMessage struct {
 	Content string `json:"content"`
 }
 
+// isThinkingModel returns true if the model matches the "o<int>-*" pattern (e.g., o4-mini, o1-pro)
+func isThinkingModel(model string) bool {
+	model = strings.ToLower(model)
+	if strings.HasPrefix(model, "o") {
+		// Check for o<int>-* pattern
+		rest := model[1:]
+		i := 0
+		for ; i < len(rest) && rest[i] >= '0' && rest[i] <= '9'; i++ {
+		}
+		if i > 0 && i < len(rest) && rest[i] == '-' {
+			return true
+		}
+	}
+	return false
+}
+
 // CallLLM sends a chat completion request using the OpenAI Go SDK.
 func CallLLM(ctx context.Context, endpoint, apiKey, model string, msgs []ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
 	// Initialize client with API key and optional base URL
@@ -49,8 +65,12 @@ func CallLLM(ctx context.Context, endpoint, apiKey, model string, msgs []ChatCom
 	params := openai.ChatCompletionNewParams{
 		Model:       shared.ChatModel(model),
 		Messages:    newMsgs,
-		MaxTokens:   param.NewOpt(int64(maxTokens)),
 		Temperature: param.NewOpt(temperature),
+	}
+	if isThinkingModel(model) {
+		params.MaxCompletionTokens = param.NewOpt(int64(maxTokens))
+	} else {
+		params.MaxTokens = param.NewOpt(int64(maxTokens))
 	}
 
 	// Call the ChatCompletion endpoint

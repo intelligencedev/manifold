@@ -60,9 +60,9 @@ func StartLocalServices(config *Config) error {
 		return fmt.Errorf("failed to start completions service: %v", err)
 	}
 
-	config.Embeddings.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/embeddings", 32184)
-	config.Reranker.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/rerank", 32185)
-	config.Completions.DefaultHost = fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", 32186)
+	// config.Embeddings.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/embeddings", 32184)
+	// config.Reranker.Host = fmt.Sprintf("http://127.0.0.1:%d/v1/rerank", 32185)
+	// config.Completions.DefaultHost = fmt.Sprintf("http://127.0.0.1:%d/v1", 32186)
 
 	return nil
 }

@@ -23,7 +23,7 @@
     "@vue-flow/core": "^1.41.7",
     "@vue-flow/node-resizer": "^1.4.0",
     "animejs": "^4.0.0",
-    "axios": "^1.8.3",
+    "axios": "^1.8.4",
     "d3": "^7.9.0",
     "dompurify": "^3.2.4",
     "highlight.js": "^11.11.1",

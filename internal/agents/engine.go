@@ -462,14 +462,20 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 
 	IMPORTANT: If no tool is available that can be used to complete the task, make your own using the code_eval tool.
 
-	IMPORTANT: If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or create your own using the code_eval tool.
+	IMPORTANT: If a tool call fails, do not end with a final response, always attempt to correct by using a different tool or 
+	create your own using the code_eval tool.
 
 	IMPORTANT: NEVER omit the three headers below – the server will error out:
 	Thought: …
 	Action: …
 	Action Input: …
 
-	ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final response, always check if the task is complete and if not, continue working on it.
+	ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final 
+	response, always check if the task is complete and if not, continue working on it.
+
+	IMPORTANT: The user cannot see your thoughts, actions, or action inputs. So you should always provide a final response that is 
+	clear and concise, summarizing the results of your actions returning all of the information you have gathered 
+	ONLY if it is relevant to the user's query.
 
 	Format for every turn:
 	Thought: <reasoning>

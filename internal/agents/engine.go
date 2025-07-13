@@ -77,6 +77,11 @@ type AgentEngine struct {
 	a2aClients map[string]*a2aclient.A2AClient
 
 	fleet *Fleet // map of fleet name to Fleet instance
+
+	// Isolation controls - when set, this engine is restricted to specific servers
+	isolatedToServer  string
+	recursionDepth    int
+	skipAddToolAgents bool
 }
 
 var (
@@ -85,6 +90,8 @@ var (
 	cachedToolsErr    error
 	cachedServerTools map[string][]ToolInfo
 	cachedServerCfgs  map[string]mcp.ServerConfig
+	lastCacheTime     time.Time
+	cacheTTL          = 5 * time.Minute // TTL for schema cache
 )
 
 func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
@@ -142,7 +149,9 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 	}
 
 	_ = eng.discoverMCPTools(ctx)
-	eng.addToolAgents()
+	if !eng.skipAddToolAgents {
+		eng.addToolAgents()
+	}
 
 	return eng, nil
 }
@@ -208,10 +217,45 @@ type ToolInfo struct {
 // (You must also update the AgentEngine struct definition above to: mcpTools map[string]ToolInfo)
 
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
+	// Check if cache is still valid
+	if time.Since(lastCacheTime) < cacheTTL && cachedMCPTools != nil {
+		// Use cached data
+		if ae.mcpTools == nil {
+			ae.mcpTools = make(map[string]ToolInfo)
+		}
+		if ae.serverTools == nil {
+			ae.serverTools = make(map[string][]ToolInfo)
+		}
+		if ae.serverCfgs == nil {
+			ae.serverCfgs = make(map[string]mcp.ServerConfig)
+		}
+
+		// Only populate if this is not an isolated engine or if it matches the isolated server
+		for k, v := range cachedMCPTools {
+			if ae.isolatedToServer == "" || strings.HasPrefix(k, ae.isolatedToServer+"::") {
+				ae.mcpTools[k] = v
+			}
+		}
+		for srv, tools := range cachedServerTools {
+			if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
+				ae.serverTools[srv] = tools
+			}
+		}
+		for srv, cfg := range cachedServerCfgs {
+			if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
+				ae.serverCfgs[srv] = cfg
+			}
+		}
+		return cachedToolsErr
+	}
+
+	// Refresh cache
 	mcpToolsOnce.Do(func() {
 		cachedMCPTools = make(map[string]ToolInfo)
 		cachedServerTools = make(map[string][]ToolInfo)
 		cachedServerCfgs = make(map[string]mcp.ServerConfig)
+		lastCacheTime = time.Now()
+
 		var toolsToEmbed []struct {
 			name        string
 			description string
@@ -251,16 +295,18 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 				cachedMCPTools[toolName] = info
 				cachedServerTools[srv] = append(cachedServerTools[srv], info)
 
-				// Collect tools for embedding
-				toolsToEmbed = append(toolsToEmbed, struct {
-					name        string
-					description string
-				}{name: toolName, description: desc})
+				// Collect tools for embedding only if not isolated
+				if ae.isolatedToServer == "" {
+					toolsToEmbed = append(toolsToEmbed, struct {
+						name        string
+						description string
+					}{name: toolName, description: desc})
+				}
 			}
 		}
 
-		// Generate embeddings in a single batch if tool memory table exists
-		if len(toolsToEmbed) > 0 && ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions) == nil {
+		// Generate embeddings in a single batch if tool memory table exists and not isolated
+		if len(toolsToEmbed) > 0 && ae.isolatedToServer == "" && ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions) == nil {
 			// Prepare text for embedding
 			var embedTexts []string
 			for _, tool := range toolsToEmbed {
@@ -296,29 +342,49 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 	if cachedToolsErr != nil {
 		return cachedToolsErr
 	}
+
+	// Populate this engine's maps based on isolation settings
 	if ae.mcpTools == nil {
 		ae.mcpTools = make(map[string]ToolInfo)
 	}
 	for k, v := range cachedMCPTools {
-		ae.mcpTools[k] = v
+		if ae.isolatedToServer == "" || strings.HasPrefix(k, ae.isolatedToServer+"::") {
+			ae.mcpTools[k] = v
+		}
 	}
 	if ae.serverTools == nil {
 		ae.serverTools = make(map[string][]ToolInfo)
 	}
 	for srv, tools := range cachedServerTools {
-		ae.serverTools[srv] = tools
+		if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
+			ae.serverTools[srv] = tools
+		}
 	}
 	if ae.serverCfgs == nil {
 		ae.serverCfgs = make(map[string]mcp.ServerConfig)
 	}
 	for srv, cfg := range cachedServerCfgs {
-		ae.serverCfgs[srv] = cfg
+		if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
+			ae.serverCfgs[srv] = cfg
+		}
 	}
+
+	// Orchestrator (isolatedToServer == "") must NOT have direct access to MCP tools
+	// This ensures the orchestrator can only route through ask_assistant_worker
+	if ae.isolatedToServer == "" {
+		ae.mcpTools = make(map[string]ToolInfo)
+	}
+
 	return nil
 }
 
 // addToolAgents creates a fleet worker for each MCP server summarizing its tools.
 func (ae *AgentEngine) addToolAgents() {
+	// Skip adding tool agents for isolated engines or when explicitly disabled
+	if ae.isolatedToServer != "" || ae.skipAddToolAgents {
+		return
+	}
+
 	for srv, tools := range ae.serverTools {
 		if len(tools) == 0 {
 			continue
@@ -328,6 +394,39 @@ func (ae *AgentEngine) addToolAgents() {
 		if name == "" {
 			name = srv
 		}
+
+		// Build capability summary for better LLM matching
+		var capabilities []string
+		for _, tool := range tools {
+			// Extract key capabilities from tool descriptions
+			desc := strings.ToLower(tool.Description)
+			if strings.Contains(desc, "web") || strings.Contains(desc, "http") || strings.Contains(desc, "fetch") {
+				capabilities = append(capabilities, "web content")
+			}
+			if strings.Contains(desc, "search") {
+				capabilities = append(capabilities, "search")
+			}
+			if strings.Contains(desc, "file") || strings.Contains(desc, "read") || strings.Contains(desc, "write") {
+				capabilities = append(capabilities, "file operations")
+			}
+			if strings.Contains(desc, "database") || strings.Contains(desc, "sql") {
+				capabilities = append(capabilities, "database")
+			}
+			if strings.Contains(desc, "code") || strings.Contains(desc, "execute") {
+				capabilities = append(capabilities, "code execution")
+			}
+		}
+
+		// Remove duplicates
+		seen := make(map[string]bool)
+		var uniqueCaps []string
+		for _, cap := range capabilities {
+			if !seen[cap] {
+				uniqueCaps = append(uniqueCaps, cap)
+				seen[cap] = true
+			}
+		}
+
 		var sb strings.Builder
 		if cfg.Instructions != "" {
 			sb.WriteString(cfg.Instructions)
@@ -335,14 +434,12 @@ func (ae *AgentEngine) addToolAgents() {
 				sb.WriteString("\n")
 			}
 		}
-		sb.WriteString("Available tools on this server (with schemas):\n")
-		for _, t := range tools {
-			schema, err := json.MarshalIndent(t.InputSchema, "  ", "  ")
-			if err != nil {
-				schema = []byte("{}")
-			}
-			sb.WriteString(fmt.Sprintf("- %s: %s\n  schema: %s\n", t.Name, t.Description, string(schema)))
+
+		// Add capability summary
+		if len(uniqueCaps) > 0 {
+			sb.WriteString(fmt.Sprintf("I can handle: %s. ", strings.Join(uniqueCaps, ", ")))
 		}
+		sb.WriteString(fmt.Sprintf("I have access to %d specialized tools from the %s server. Use me for tasks related to my capabilities.", len(tools), srv))
 
 		worker := configpkg.FleetWorker{
 			Name:         name,
@@ -366,92 +463,96 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 
 	var sysPromptBuilder strings.Builder
 
-	sysPromptBuilder.WriteString(`
-You are a helpful assistant in a sandboxed environment with access to various tools:
+	// Only show generic tools and agent fleet for non-isolated engines
+	if ae.isolatedToServer == "" {
+		sysPromptBuilder.WriteString(`
+You are the *orchestrator* agent.
+**You do not have direct tool access.**
 
-- code_eval: run python code in sandbox
+The ONLY actions you may emit are:
+  • ask_assistant_worker – delegate a sub-task to the named tool-agent
+  • finish               – return the final answer to the user
 
-You can use the code_eval tool with python to successfully complete the task if no other tool is suitable.
-The code_eval tool supports third-party libraries, so you can include them in the dependencies array.
-The code should be valid and executable in Python. The code should always return a string with the results.
-
-If no dependencies are needed, the dependencies array must be empty (e.g., []).
-
-The json object should be formatted in a single line as follows:
-	{
-		"language": "python",
-		"code": "<python code>",
-		"dependencies": ["<dependency1>", "<dependency2>"]
-	}
-
-For example (using third party libraries):
-	{
-		"language": "python",
-		"code": "import requests\nfrom bs4 import BeautifulSoup\nfrom markdownify import markdownify as md\n\ndef main():\n    url = 'https://en.wikipedia.org/wiki/Technological_singularity'\n    response = requests.get(url)\n    response.raise_for_status()\n\n    soup = BeautifulSoup(response.text, 'html.parser')\n    content = soup.find('div', id='mw-content-text')\n\n    # Convert HTML content to Markdown\n    markdown = md(str(content), heading_style=\"ATX\")\n    print(markdown)\n\nif __name__':\n    main()",
-		"dependencies": ["requests", "beautifulsoup4", "markdownify"]
-	}
-
-- web_search: search the web/internet for information
-  schema:
-	{
-		"query": {
-			"description": "The search query",
-			"type": "string"
-		}
-	}
-	You can use the web_search tool to search the web for information related to the task.
-	You should never use a search engine directly, always use the web_search tool.
-	When using the web_search tool, input the ideal search query related to the task.
-	Always retrieve the content of the first 3 results, unless the task requires more.
-	You can use the web_fetch tool to fetch the content of a webpage from a URL.
-
-- web_fetch: fetch webpage content from a URL
-  schema:
-	{
-		"url": {
-			"description": "The URL of the webpage to fetch",
-			"type": "string"
-		}
-	}
-	You can use the web_fetch tool to fetch the content of a webpage.
-
-- finish: end and output final answer directly responding to the user
+⭐ NEVER call any other tool names or MCP APIs – your request will be rejected.
 
 - ask_assistant_worker: get help from specialized assistant worker
   schema:
-	{
-	  "properties": {
-		"name": {
-		  "description": "Name of the worker to ask",
-		  "type": "string"
-		},
-		"model": {
-		  "description": "Optional model to use. Leave empty unless explicitly requested.",
-		  "type": "string"
-		},
-		"msg": {
-		  "description": "Message to send to the worker. Detailed task or help query.",
-		  "type": "string"
-		}
-	  },
-	  "required": ["name", "msg"],
-	  "type": "object"
-	}
+    {
+      "properties": {
+        "name": {
+          "description": "Name of the worker to ask",
+          "type": "string"
+        },
+        "model": {
+          "description": "Optional model to use. Leave empty unless explicitly requested.",
+          "type": "string"
+        },
+        "msg": {
+          "description": "Message to send to the worker. Detailed task or help query.",
+          "type": "string"
+        }
+      },
+      "required": ["name", "msg"],
+      "type": "object"
+    }
+
+- finish: end and output final answer directly responding to the user
 
 `)
 
-	// Append agent fleet
-	sysPromptBuilder.WriteString("Available specialized assistant workers:\n")
-	for _, worker := range ae.fleet.ListWorkers() {
-		sysPromptBuilder.WriteString(fmt.Sprintf("- %s (%s) • %s\n", worker.Name, worker.Role, worker.Instructions))
-	}
+		// Append agent fleet
+		sysPromptBuilder.WriteString("Available specialized assistant workers (MUST use ask_assistant_worker to invoke):\n")
+		for _, worker := range ae.fleet.ListWorkers() {
+			sysPromptBuilder.WriteString(fmt.Sprintf("- %s • %s\n", worker.Name, worker.Instructions))
+		}
 
-	sysPromptBuilder.WriteString(`
+		sysPromptBuilder.WriteString(`
+IMPORTANT: The workers listed above are NOT direct tools. You MUST use ask_assistant_worker to invoke them.
+
+Example: To use any worker, call:
+Action: ask_assistant_worker
+Action Input: {"name": "worker_name", "msg": "your detailed request here"}
+
+NEVER call workers as direct tools. ALWAYS use ask_assistant_worker to delegate to them.
+
 If there is a specialized assistant worker available that can help with the task,
 you call it with the ask_assistant_worker tool. If you get stuck, or detect a loop,
 ask for assistance from another worker and ensure you give them all of the information
 necessary for them to help you.
+`)
+	} else {
+		// For isolated tool-agents, provide focused instructions
+		sysPromptBuilder.WriteString(`
+You are a specialized tool-agent. Use ONLY the tools listed below.
+When the task is done reply exactly:
 
+Thought: <your reasoning>
+Action: finish
+Action Input: <concise result text>
+
+Available tools:
+- code_eval: run python code in sandbox
+  schema:
+    {
+        "language": {
+            "description": "Programming language (python, go, javascript, sh, shell, bash)",
+            "type": "string"
+        },
+        "code": {
+            "description": "Code to execute",
+            "type": "string"
+        },
+        "dependencies": {
+            "description": "List of dependencies to install",
+            "type": "array",
+            "items": {"type": "string"}
+        }
+    }
+- finish: end and output final answer directly responding to the user
+`)
+	}
+
+	sysPromptBuilder.WriteString(`
 Rules:
 - Never invoke interactive editors (vim, nano, etc).
 - Keep patches minimal; do not reformat entire files unless required.
@@ -481,18 +582,33 @@ Action:  <tool>
 Action Input: <JSON | text>
 `)
 
-	useToolList := len(ae.serverTools) == 0
+	// Only expose individual MCP tools if this is an isolated tool-agent engine
+	// This prevents the main orchestrator from being overwhelmed with tool schemas
+	// when specialized tool assistants are available
+	useToolList := ae.isolatedToServer != "" && len(ae.mcpTools) > 0
 	if useToolList {
-		toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
-		if toolLimit <= 0 {
-			toolLimit = len(ae.mcpTools)
-		}
-		relTools, err := ae.getRelevantTools(ctx, req.Objective, toolLimit)
-		if err != nil || len(relTools) == 0 {
+		var relTools []ToolInfo
+
+		// For small tool sets, show all tools; for larger sets, use relevance filtering
+		if len(ae.mcpTools) <= 15 {
 			for _, v := range ae.mcpTools {
 				relTools = append(relTools, v)
 			}
+		} else {
+			toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
+			if toolLimit <= 0 || toolLimit > len(ae.mcpTools) {
+				toolLimit = len(ae.mcpTools)
+			}
+			var err error
+			relTools, err = ae.getRelevantTools(ctx, req.Objective, toolLimit)
+			if err != nil || len(relTools) == 0 {
+				for _, v := range ae.mcpTools {
+					relTools = append(relTools, v)
+				}
+			}
 		}
+
+		sysPromptBuilder.WriteString("\nAdditional tools:\n")
 		for _, t := range relTools {
 			schema, err := json.Marshal(t.InputSchema)
 			if err != nil {
@@ -523,7 +639,7 @@ Action Input: <JSON | text>
 		var currentMessages []llm.ChatCompletionMessage
 
 		// Start with the existing conversation history
-		currentMessages = append(currentMessages, conversationHistory...)
+		currentMessages = append(conversationHistory)
 
 		// Only query memories if agentic memory is enabled
 		var mems []AgenticMemory
@@ -566,6 +682,12 @@ Action Input: <JSON | text>
 			return nil, err
 		}
 		thought, action, input := parseReAct(out)
+
+		// If no action was parsed but the response contains "task is complete", treat as finish
+		if action == "" && strings.Contains(strings.ToLower(out), "task is complete") {
+			action = "finish"
+			input = strings.TrimSpace(out)
+		}
 
 		if action == "" {
 			// treat entire reply as the final answer
@@ -760,10 +882,34 @@ func parseReAct(s string) (thought, action, input string) {
 }
 
 func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name, arg string) (string, error) {
+	// ─────────── Hard gate for the orchestrator ───────────
+	if ae.isolatedToServer == "" { // top-level orchestrator
+		lname := strings.ToLower(name)
+		if lname == "finish" {
+			return arg, nil
+		}
+		if lname == "ask_assistant_worker" {
+			// handled further below in the switch
+		} else {
+			return "", fmt.Errorf(
+				"orchestrator cannot call '%s' directly – delegate with ask_assistant_worker", name)
+		}
+	}
+
 	switch strings.ToLower(name) {
 	case "finish":
 		return arg, nil
 	case "ask_assistant_worker":
+		// Prevent isolated engines from using ask_assistant_worker to avoid recursion
+		if ae.isolatedToServer != "" {
+			return "", fmt.Errorf("ask_assistant_worker is not available for specialized tool agents")
+		}
+
+		// Check recursion depth to prevent infinite loops
+		if ae.recursionDepth >= 2 {
+			return "", fmt.Errorf("maximum recursion depth reached, cannot delegate further")
+		}
+
 		// parse the arg as a JSON object
 		var req struct {
 			Name  string `json:"name"`
@@ -781,46 +927,36 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 
 		// If this is a tool-agent, run a sub-agent session with only that server's tools
 		if worker.Role == "tool-agent" {
-			// Try to find the server this tool-agent represents
-			var serverName string
-			// Prefer exact match by AgentName, fallback to worker.Name
-			for srv, cfg := range ae.serverCfgs {
-				if cfg.AgentName == worker.Name || srv == worker.Name {
-					serverName = srv
-					break
-				}
-			}
-			if serverName == "" {
-				// fallback: try to match by worker.Name
-				serverName = worker.Name
-			}
+			// Create isolated engine for this specific server/tool-agent
+			isolatedEngine := ae.newIsolatedToolEngine(worker.Name)
 
-			// Shallow copy the engine and restrict to only this server's tools
-			subEngine := *ae
-			subEngine.mcpTools = make(map[string]ToolInfo)
-			subEngine.serverTools = make(map[string][]ToolInfo)
-			subEngine.serverCfgs = make(map[string]mcp.ServerConfig)
-
-			// Copy only the relevant tools/configs
-			for _, t := range ae.serverTools[serverName] {
-				subEngine.mcpTools[t.Name] = t
-			}
-			subEngine.serverTools[serverName] = ae.serverTools[serverName]
-			if cfg, ok := ae.serverCfgs[serverName]; ok {
-				subEngine.serverCfgs[serverName] = cfg
-			}
-
-			// Run a sub-agent session
+			// Create a new ReActRequest for the sub-agent session with proper context
 			subReq := ReActRequest{
-				Objective: req.Msg,
-				MaxSteps:  5, // or configurable
-				Model:     worker.Model,
+				Objective: fmt.Sprintf("[SYSTEM] You have been invoked by another agent to accomplish the following objective. You must respond with Thought/Action/Action Input as usual.\n\nObjective: %s", req.Msg),
+				Model:     req.Model,
+				MaxSteps:  cfg.Completions.ReactAgentConfig.MaxSteps,
 			}
-			subSession, err := subEngine.RunSessionWithHook(ctx, subEngine.Config, subReq, nil)
+
+			// Run the sub-agent session with configurable timeout to prevent blocking
+			// Calculate timeout based on sub-request max steps (30 seconds per step minimum)
+			timeout := time.Duration(max(subReq.MaxSteps*30, 120)) * time.Second
+			ctx, cancel := context.WithTimeout(ctx, timeout)
+			defer cancel()
+
+			// Print debug info
+			log.Printf("Running isolated sub-agent session for worker %s with %d tools",
+				worker.Name, len(isolatedEngine.mcpTools))
+
+			// Run the sub-agent session
+			subSession, err := isolatedEngine.RunSessionWithHook(ctx, cfg, subReq, nil)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("failed to run sub-agent session: %w", err)
 			}
-			return subSession.Result, nil
+			// Return the result of the sub-agent session
+			if subSession.Completed {
+				return subSession.Result, nil
+			}
+			return "", fmt.Errorf("sub-agent session did not complete: %s", subSession.Result)
 		}
 
 		// Otherwise, fallback to LLM call as before
@@ -837,10 +973,15 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 	case "stage_path":
 		return ae.stagePath(arg)
 	default:
+		// Check if this is an MCP tool first
 		if _, ok := ae.mcpTools[name]; ok {
+			// Only isolated tool-agents can call MCP tools directly
+			if ae.isolatedToServer == "" {
+				return "", fmt.Errorf("orchestrator cannot call MCP tools directly - use ask_assistant_worker to delegate to appropriate tool-agent instead")
+			}
+
 			// special-case: fix web_content when the LLM passes a bare string
 			if strings.HasSuffix(name, "::web_content") && !json.Valid([]byte(arg)) {
-
 				arg = fmt.Sprintf(`{"urls":["%s"]}`, strings.TrimSpace(arg))
 			}
 			norm, err := ae.normalizeMCPArg(arg)
@@ -849,6 +990,12 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			}
 			return ae.callMCP(ctx, name, norm)
 		}
+
+		// If orchestrator tries to call any tool with "::" that's not in mcpTools, block it
+		if ae.isolatedToServer == "" && strings.Contains(name, "::") {
+			return "", fmt.Errorf("orchestrator cannot call MCP tools directly - use ask_assistant_worker to delegate to appropriate tool-agent instead")
+		}
+
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
 }
@@ -957,6 +1104,12 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 	if err := json.Unmarshal([]byte(arg), &req); err != nil {
 		return "", fmt.Errorf("code_eval expects JSON {language, code, dependencies}: %v", err)
 	}
+
+	// Default to Python if language is not specified
+	if req.Language == "" {
+		req.Language = "python"
+	}
+
 	var (
 		resp *tools.CodeEvalResponse
 		err  error
@@ -978,6 +1131,30 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 		}
 	case "javascript":
 		result, err := tools.RunNodeRaw(ae.Config, req.Code, req.Dependencies)
+		if err != nil {
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &tools.CodeEvalResponse{Result: result}
+		}
+	case "sh", "shell", "bash":
+		// Simple shell execution - wrap the code in a basic shell runner
+		result, err := tools.RunPythonRaw(ae.Config, fmt.Sprintf(`
+import subprocess
+import sys
+try:
+    result = subprocess.run(%q, shell=True, capture_output=True, text=True, timeout=30)
+    if result.returncode == 0:
+        print(result.stdout)
+    else:
+        print(f"Error (exit code {result.returncode}): {result.stderr}", file=sys.stderr)
+        sys.exit(result.returncode)
+except subprocess.TimeoutExpired:
+    print("Command timed out after 30 seconds", file=sys.stderr)
+    sys.exit(1)
+except Exception as e:
+    print(f"Failed to execute command: {e}", file=sys.stderr)
+    sys.exit(1)
+`, req.Code), []string{})
 		if err != nil {
 			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
@@ -1094,4 +1271,88 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// newIsolatedToolEngine creates a new AgentEngine instance isolated to a specific MCP server
+// This prevents tool-agents from accessing tools from other servers and avoids recursion
+func (ae *AgentEngine) newIsolatedToolEngine(agentName string) *AgentEngine {
+	clone := *ae // shallow copy is fine for read-only fields
+
+	// Resolve the actual server key from the agent name
+	server := ae.serverKeyFromAgent(agentName)
+
+	// Create isolated maps for this server only
+	clone.serverTools = make(map[string][]ToolInfo)
+	clone.serverCfgs = make(map[string]mcp.ServerConfig)
+	clone.mcpTools = make(map[string]ToolInfo)
+	clone.fleet = NewFleet() // prevent recursive ask-assistant loops
+	clone.isolatedToServer = server
+	clone.recursionDepth = ae.recursionDepth + 1
+	clone.skipAddToolAgents = true // prevent recursive tool agent creation
+
+	// Copy only this server's data
+	if tools, exists := ae.serverTools[server]; exists {
+		clone.serverTools[server] = tools
+		// Populate mcpTools with this server's tools
+		for _, tool := range tools {
+			clone.mcpTools[tool.Name] = tool
+		}
+	}
+	if cfg, exists := ae.serverCfgs[server]; exists {
+		clone.serverCfgs[server] = cfg
+	}
+
+	return &clone
+}
+
+// refreshCache forces a refresh of the MCP tools cache
+// This can be called via an admin endpoint to reload tools without restart
+func (ae *AgentEngine) refreshCache(ctx context.Context) error {
+	// Reset the once and cache
+	mcpToolsOnce = sync.Once{}
+	cachedMCPTools = nil
+	cachedServerTools = nil
+	cachedServerCfgs = nil
+	lastCacheTime = time.Time{}
+
+	return ae.discoverMCPTools(ctx)
+}
+
+// AdminRefreshCacheHandler provides an HTTP endpoint to refresh the MCP tools cache
+// This can be added to an admin router to allow cache refresh without restart
+// Example usage: router.POST("/admin/refresh-cache", AdminRefreshCacheHandler(cfg))
+func AdminRefreshCacheHandler(cfg *configpkg.Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		ctx := c.Request().Context()
+		if cfg.DBPool == nil {
+			return c.JSON(500, map[string]string{"error": "database connection pool not initialized"})
+		}
+		poolConn, err := cfg.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": "failed to acquire database connection"})
+		}
+		defer poolConn.Release()
+
+		engine, err := NewEngine(ctx, cfg, poolConn.Conn())
+		if err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+
+		if err := engine.refreshCache(ctx); err != nil {
+			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(200, map[string]string{"status": "cache refreshed successfully"})
+	}
+}
+
+// serverKeyFromAgent resolves the actual server key from either the agent name or server name
+// This handles cases where AgentName is overridden in config
+func (ae *AgentEngine) serverKeyFromAgent(name string) string {
+	for srv, cfg := range ae.serverCfgs {
+		if cfg.AgentName == name || srv == name {
+			return srv
+		}
+	}
+	return name // fallback to original name
 }

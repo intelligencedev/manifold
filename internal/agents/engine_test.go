@@ -1,10 +1,12 @@
 package agents
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	configpkg "manifold/internal/config"
@@ -69,5 +71,40 @@ func TestStagePath(t *testing.T) {
 	}
 	if _, err := os.Stat(copied); err != nil {
 		t.Errorf("copied file missing: %v", err)
+	}
+}
+
+func TestExecToolOrchestratorBlocksDirectCalls(t *testing.T) {
+	ae := &AgentEngine{isolatedToServer: ""} // orchestrator
+
+	tests := []string{
+		"code_eval",
+		"web_search",
+		"web_fetch",
+		"stage_path",
+		"some_mcp_tool::action",
+		"random_tool",
+	}
+
+	for _, toolName := range tests {
+		t.Run(toolName, func(t *testing.T) {
+			_, err := ae.execTool(context.Background(), nil, toolName, "{}")
+			if err == nil || !strings.Contains(err.Error(), "orchestrator cannot call") {
+				t.Fatalf("expected orchestrator to block direct tool call to %s, got: %v", toolName, err)
+			}
+		})
+	}
+}
+
+func TestExecToolOrchestratorAllowsFinishAndWorker(t *testing.T) {
+	ae := &AgentEngine{isolatedToServer: ""} // orchestrator
+
+	// Test finish is allowed
+	result, err := ae.execTool(context.Background(), nil, "finish", "test result")
+	if err != nil {
+		t.Fatalf("expected finish to be allowed, got error: %v", err)
+	}
+	if result != "test result" {
+		t.Errorf("expected 'test result', got '%s'", result)
 	}
 }

@@ -26,8 +26,6 @@ import (
 	"manifold/internal/mcp"
 	tools "manifold/internal/tools"
 	"manifold/internal/util"
-
-	"github.com/pgvector/pgvector-go"
 )
 
 type ReActRequest struct {
@@ -256,11 +254,6 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 		cachedServerCfgs = make(map[string]mcp.ServerConfig)
 		lastCacheTime = time.Now()
 
-		var toolsToEmbed []struct {
-			name        string
-			description string
-		}
-
 		// First, collect all tools and their info
 		for _, srv := range ae.mcpMgr.List() {
 			ts, err := ae.mcpMgr.ListTools(ctx, srv)
@@ -294,47 +287,6 @@ func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
 				}
 				cachedMCPTools[toolName] = info
 				cachedServerTools[srv] = append(cachedServerTools[srv], info)
-
-				// Collect tools for embedding only if not isolated
-				if ae.isolatedToServer == "" {
-					toolsToEmbed = append(toolsToEmbed, struct {
-						name        string
-						description string
-					}{name: toolName, description: desc})
-				}
-			}
-		}
-
-		// Generate embeddings in a single batch if tool memory table exists and not isolated
-		if len(toolsToEmbed) > 0 && ae.isolatedToServer == "" && ae.ensureToolMemoryTable(ctx, ae.Config.Embeddings.Dimensions) == nil {
-			// Prepare text for embedding
-			var embedTexts []string
-			for _, tool := range toolsToEmbed {
-				embedTexts = append(embedTexts, ae.Config.Embeddings.EmbedPrefix+tool.description)
-			}
-
-			// Generate all embeddings in one call
-			embeds, err := llm.GenerateEmbeddings(ae.Config.Embeddings.Host, ae.Config.Embeddings.APIKey, embedTexts)
-			if err == nil && len(embeds) == len(toolsToEmbed) {
-				// Use a wait group to handle concurrent inserts
-				var wg sync.WaitGroup
-				// Use a semaphore to limit concurrency to avoid overwhelming the database
-				sem := make(chan struct{}, 10) // Allow up to 10 concurrent operations
-
-				for i, tool := range toolsToEmbed {
-					wg.Add(1)
-					sem <- struct{}{} // Acquire semaphore
-
-					go func(index int, toolName, desc string, embedding []float32) {
-						defer wg.Done()
-						defer func() { <-sem }() // Release semaphore
-
-						vec := pgvector.NewVector(embedding)
-						_ = ae.upsertToolMemory(ctx, toolName, desc, vec)
-					}(i, tool.name, tool.description, embeds[i])
-				}
-
-				wg.Wait() // Wait for all insertions to complete
 			}
 		}
 	})
@@ -467,13 +419,57 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 	if ae.isolatedToServer == "" {
 		sysPromptBuilder.WriteString(`
 You are the *orchestrator* agent.
-**You do not have direct tool access.**
+You have access to basic tools and can delegate specialized tasks to tool-agents.
 
-The ONLY actions you may emit are:
-  • ask_assistant_worker – delegate a sub-task to the named tool-agent
-  • finish               – return the final answer to the user
+Available tools:
+- code_eval: run python code in sandbox
+  schema:
+    {
+        "language": {
+            "description": "Programming language (python, go, javascript, sh, shell, bash)",
+            "type": "string"
+        },
+        "code": {
+            "description": "Code to execute",
+            "type": "string"
+        },
+        "dependencies": {
+            "description": "List of dependencies to install",
+            "type": "array",
+            "items": {"type": "string"}
+        }
+    }
 
-⭐ NEVER call any other tool names or MCP APIs – your request will be rejected.
+- web_search: search the web/internet for information
+  schema:
+    {
+        "query": {
+            "description": "The search query",
+            "type": "string"
+        }
+    }
+
+- web_fetch: fetch webpage content from a URL
+  schema:
+    {
+        "url": {
+            "description": "The URL of the webpage to fetch",
+            "type": "string"
+        }
+    }
+
+- stage_path: stage files/directories for tool access
+  schema:
+    {
+        "src": {
+            "description": "Source file or directory path",
+            "type": "string"
+        },
+        "dest": {
+            "description": "Optional destination name",
+            "type": "string"
+        }
+    }
 
 - ask_assistant_worker: get help from specialized assistant worker
   schema:
@@ -497,6 +493,20 @@ The ONLY actions you may emit are:
     }
 
 - finish: end and output final answer directly responding to the user
+
+⭐ For specialized tasks requiring MCP tools, delegate to tool-agents via ask_assistant_worker.
+
+IMPORTANT: When you delegate a task to a worker and receive a successful result in the observation, 
+you should immediately finish with that result. Do not ask the user what to do next - provide the 
+complete answer you received from the worker.
+
+Example workflow:
+1. User asks: "List files in /tmp"
+2. You delegate: ask_assistant_worker with name "file_browser" and msg "List files in /tmp"
+3. Worker returns: "Files in /tmp: file1.txt, file2.log, folder1/"
+4. You finish immediately: "Files in /tmp: file1.txt, file2.log, folder1/"
+
+Always include the worker's actual output in your final response.
 
 `)
 
@@ -589,23 +599,9 @@ Action Input: <JSON | text>
 	if useToolList {
 		var relTools []ToolInfo
 
-		// For small tool sets, show all tools; for larger sets, use relevance filtering
-		if len(ae.mcpTools) <= 15 {
-			for _, v := range ae.mcpTools {
-				relTools = append(relTools, v)
-			}
-		} else {
-			toolLimit := ae.Config.Completions.ReactAgentConfig.NumTools
-			if toolLimit <= 0 || toolLimit > len(ae.mcpTools) {
-				toolLimit = len(ae.mcpTools)
-			}
-			var err error
-			relTools, err = ae.getRelevantTools(ctx, req.Objective, toolLimit)
-			if err != nil || len(relTools) == 0 {
-				for _, v := range ae.mcpTools {
-					relTools = append(relTools, v)
-				}
-			}
+		// Show all available MCP tools for this isolated tool-agent
+		for _, v := range ae.mcpTools {
+			relTools = append(relTools, v)
 		}
 
 		sysPromptBuilder.WriteString("\nAdditional tools:\n")
@@ -663,7 +659,12 @@ Action Input: <JSON | text>
 		}
 
 		// For the current turn, add the user message
-		currentMessages = append(currentMessages, llm.ChatCompletionMessage{Role: "user", Content: "Next step?"})
+		userContent := "Next step?"
+		if i == 0 {
+			// For the first step, include the actual user objective
+			userContent = req.Objective
+		}
+		currentMessages = append(currentMessages, llm.ChatCompletionMessage{Role: "user", Content: userContent})
 
 		// Print the prompt for debugging
 		log.Println("=====================================")
@@ -885,14 +886,24 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 	// ─────────── Hard gate for the orchestrator ───────────
 	if ae.isolatedToServer == "" { // top-level orchestrator
 		lname := strings.ToLower(name)
-		if lname == "finish" {
-			return arg, nil
+		// Allow orchestrator to call generic tools and delegation
+		allowedTools := map[string]bool{
+			"finish":               true,
+			"ask_assistant_worker": true,
+			"code_eval":            true,
+			"web_search":           true,
+			"web_fetch":            true,
+			"stage_path":           true,
 		}
-		if lname == "ask_assistant_worker" {
-			// handled further below in the switch
-		} else {
+
+		if !allowedTools[lname] {
+			// Block MCP tools and unknown tools
+			if strings.Contains(name, "::") {
+				return "", fmt.Errorf(
+					"orchestrator cannot call MCP tool '%s' directly – delegate with ask_assistant_worker", name)
+			}
 			return "", fmt.Errorf(
-				"orchestrator cannot call '%s' directly – delegate with ask_assistant_worker", name)
+				"orchestrator cannot call '%s' directly – use available tools or delegate with ask_assistant_worker", name)
 		}
 	}
 

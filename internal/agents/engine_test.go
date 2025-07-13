@@ -77,26 +77,39 @@ func TestStagePath(t *testing.T) {
 func TestExecToolOrchestratorBlocksDirectCalls(t *testing.T) {
 	ae := &AgentEngine{isolatedToServer: ""} // orchestrator
 
-	tests := []string{
-		"code_eval",
-		"web_search",
-		"web_fetch",
-		"stage_path",
+	// Test that MCP tools are blocked
+	mcpTests := []string{
 		"some_mcp_tool::action",
-		"random_tool",
+		"manifold::cli",
+		"postgres::query",
 	}
 
-	for _, toolName := range tests {
+	for _, toolName := range mcpTests {
+		t.Run(toolName, func(t *testing.T) {
+			_, err := ae.execTool(context.Background(), nil, toolName, "{}")
+			if err == nil || !strings.Contains(err.Error(), "orchestrator cannot call MCP tool") {
+				t.Fatalf("expected orchestrator to block MCP tool call to %s, got: %v", toolName, err)
+			}
+		})
+	}
+
+	// Test that unknown tools are blocked
+	unknownTests := []string{
+		"random_tool",
+		"unknown_action",
+	}
+
+	for _, toolName := range unknownTests {
 		t.Run(toolName, func(t *testing.T) {
 			_, err := ae.execTool(context.Background(), nil, toolName, "{}")
 			if err == nil || !strings.Contains(err.Error(), "orchestrator cannot call") {
-				t.Fatalf("expected orchestrator to block direct tool call to %s, got: %v", toolName, err)
+				t.Fatalf("expected orchestrator to block unknown tool call to %s, got: %v", toolName, err)
 			}
 		})
 	}
 }
 
-func TestExecToolOrchestratorAllowsFinishAndWorker(t *testing.T) {
+func TestExecToolOrchestratorAllowsGenericTools(t *testing.T) {
 	ae := &AgentEngine{isolatedToServer: ""} // orchestrator
 
 	// Test finish is allowed
@@ -106,5 +119,24 @@ func TestExecToolOrchestratorAllowsFinishAndWorker(t *testing.T) {
 	}
 	if result != "test result" {
 		t.Errorf("expected 'test result', got '%s'", result)
+	}
+
+	// Test generic tools are allowed (these will fail during execution but should pass the gate)
+	genericTools := []string{
+		"code_eval",
+		"web_search",
+		"web_fetch",
+		"stage_path",
+	}
+
+	for _, toolName := range genericTools {
+		t.Run(toolName, func(t *testing.T) {
+			// These will fail in execution but should pass the orchestrator gate
+			_, err := ae.execTool(context.Background(), nil, toolName, "{}")
+			// Should not get the "orchestrator cannot call" error
+			if err != nil && strings.Contains(err.Error(), "orchestrator cannot call") {
+				t.Fatalf("expected generic tool %s to be allowed through orchestrator gate, got: %v", toolName, err)
+			}
+		})
 	}
 }

@@ -424,73 +424,73 @@ You have access to basic tools and can delegate specialized tasks to tool-agents
 Available tools:
 - code_eval: run python code in sandbox
   schema:
-    {
-        "language": {
-            "description": "Programming language (python, go, javascript, sh, shell, bash)",
-            "type": "string"
-        },
-        "code": {
-            "description": "Code to execute",
-            "type": "string"
-        },
-        "dependencies": {
-            "description": "List of dependencies to install",
-            "type": "array",
-            "items": {"type": "string"}
-        }
-    }
+	{
+		"language": {
+			"description": "Programming language (python, go, javascript, sh, shell, bash)",
+			"type": "string"
+		},
+		"code": {
+			"description": "Code to execute",
+			"type": "string"
+		},
+		"dependencies": {
+			"description": "List of dependencies to install",
+			"type": "array",
+			"items": {"type": "string"}
+		}
+	}
 
 - web_search: search the web/internet for information
   schema:
-    {
-        "query": {
-            "description": "The search query",
-            "type": "string"
-        }
-    }
+	{
+		"query": {
+			"description": "The search query",
+			"type": "string"
+		}
+	}
 
 - web_fetch: fetch webpage content from a URL
   schema:
-    {
-        "url": {
-            "description": "The URL of the webpage to fetch",
-            "type": "string"
-        }
-    }
+	{
+		"url": {
+			"description": "The URL of the webpage to fetch",
+			"type": "string"
+		}
+	}
 
 - stage_path: stage files/directories for tool access
   schema:
-    {
-        "src": {
-            "description": "Source file or directory path",
-            "type": "string"
-        },
-        "dest": {
-            "description": "Optional destination name",
-            "type": "string"
-        }
-    }
+	{
+		"src": {
+			"description": "Source file or directory path",
+			"type": "string"
+		},
+		"dest": {
+			"description": "Optional destination name",
+			"type": "string"
+		}
+	}
 
 - ask_assistant_worker: get help from specialized assistant worker
   schema:
-    {
-      "properties": {
-        "name": {
-          "description": "Name of the worker to ask",
-          "type": "string"
-        },
-        "model": {
-          "description": "Optional model to use. Leave empty unless explicitly requested.",
-          "type": "string"
-        },
-        "msg": {
-          "description": "Message to send to the worker. Detailed task or help query.",
-          "type": "string"
-        }
-      },
-      "required": ["name", "msg"],
-      "type": "object"
-    }
+	{
+	  "properties": {
+		"name": {
+		  "description": "Name of the worker to ask",
+		  "type": "string"
+		},
+		"model": {
+		  "description": "Optional model to use. Leave empty unless explicitly requested.",
+		  "type": "string"
+		},
+		"msg": {
+		  "description": "Message to send to the worker. Detailed task or help query.",
+		  "type": "string"
+		}
+	  },
+	  "required": ["name", "msg"],
+	  "type": "object"
+	}
 
 - finish: end and output final answer directly responding to the user
 
@@ -543,21 +543,21 @@ Action Input: <concise result text>
 Available tools:
 - code_eval: run python code in sandbox
   schema:
-    {
-        "language": {
-            "description": "Programming language (python, go, javascript, sh, shell, bash)",
-            "type": "string"
-        },
-        "code": {
-            "description": "Code to execute",
-            "type": "string"
-        },
-        "dependencies": {
-            "description": "List of dependencies to install",
-            "type": "array",
-            "items": {"type": "string"}
-        }
-    }
+	{
+		"language": {
+			"description": "Programming language (python, go, javascript, sh, shell, bash)",
+			"type": "string"
+		},
+		"code": {
+			"description": "Code to execute",
+			"type": "string"
+		},
+		"dependencies": {
+			"description": "List of dependencies to install",
+			"type": "array",
+			"items": {"type": "string"}
+		}
+	}
 - finish: end and output final answer directly responding to the user
 `)
 	}
@@ -666,17 +666,7 @@ Action Input: <JSON | text>
 		}
 		currentMessages = append(currentMessages, llm.ChatCompletionMessage{Role: "user", Content: userContent})
 
-		// Print the prompt for debugging
-		log.Println("=====================================")
-		log.Println("Prompt:")
-		for _, m := range currentMessages {
-			if m.Role == "user" {
-				log.Printf("User: %s", m.Content)
-			} else {
-				log.Printf("Assistant: %s", m.Content)
-			}
-		}
-		log.Println("=====================================")
+		// Debug printing disabled except for LLM call token count
 
 		out, err := ae.callLLM(ctx, "", model, currentMessages)
 		if err != nil {
@@ -1153,18 +1143,18 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 import subprocess
 import sys
 try:
-    result = subprocess.run(%q, shell=True, capture_output=True, text=True, timeout=30)
-    if result.returncode == 0:
-        print(result.stdout)
-    else:
-        print(f"Error (exit code {result.returncode}): {result.stderr}", file=sys.stderr)
-        sys.exit(result.returncode)
+	result = subprocess.run(%q, shell=True, capture_output=True, text=True, timeout=30)
+	if result.returncode == 0:
+		print(result.stdout)
+	else:
+		print(f"Error (exit code {result.returncode}): {result.stderr}", file=sys.stderr)
+		sys.exit(result.returncode)
 except subprocess.TimeoutExpired:
-    print("Command timed out after 30 seconds", file=sys.stderr)
-    sys.exit(1)
+	print("Command timed out after 30 seconds", file=sys.stderr)
+	sys.exit(1)
 except Exception as e:
-    print(f"Failed to execute command: {e}", file=sys.stderr)
-    sys.exit(1)
+	print(f"Failed to execute command: {e}", file=sys.stderr)
+	sys.exit(1)
 `, req.Code), []string{})
 		if err != nil {
 			resp = &tools.CodeEvalResponse{Error: err.Error()}

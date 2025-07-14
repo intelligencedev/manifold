@@ -7,7 +7,7 @@ import { useNodeBase } from './useNodeBase'
  */
 export function useFlowControl(props, emit) {
   const { getEdges, findNode } = useVueFlow()
-  const { isHovered, resizeHandleStyle, computedContainerStyle } = useNodeBase(props, emit)
+  const { isHovered, resizeHandleStyle, computedContainerStyle, onResize } = useNodeBase(props, emit)
 
   // Initialize inputs with sensible defaults if missing or incomplete
   if (!props.data.inputs || Object.keys(props.data.inputs).length === 0) {
@@ -16,7 +16,8 @@ export function useFlowControl(props, emit) {
       targetNodeId: '',
       delimiter: '',
       waitTime: 5,
-      combineMode: 'newline'
+      combineMode: 'newline',
+      noPassthrough: false
     }
   } else {
     if (!props.data.inputs.mode) props.data.inputs.mode = 'RunAllChildren'
@@ -24,6 +25,7 @@ export function useFlowControl(props, emit) {
     if (props.data.inputs.delimiter === undefined) props.data.inputs.delimiter = ''
     if (props.data.inputs.waitTime === undefined) props.data.inputs.waitTime = 5
     if (props.data.inputs.combineMode === undefined) props.data.inputs.combineMode = 'newline'
+    if (props.data.inputs.noPassthrough === undefined) props.data.inputs.noPassthrough = false
   }
 
   // Initialize outputs if they don't exist or ensure output structure is consistent
@@ -59,6 +61,11 @@ export function useFlowControl(props, emit) {
   const combineMode = computed({
     get: () => props.data.inputs.combineMode || 'newline',
     set: (value) => { props.data.inputs.combineMode = value },
+  })
+
+  const noPassthrough = computed({
+    get: () => props.data.inputs.noPassthrough || false,
+    set: (value) => { props.data.inputs.noPassthrough = value },
   })
 
   // Mode options
@@ -129,6 +136,12 @@ export function useFlowControl(props, emit) {
       }
     }
 
+    // Clear output if no passthrough is enabled for applicable modes
+    if (noPassthrough.value && (mode.value === 'RunAllChildren' || mode.value === 'JumpToNode')) {
+      console.log(`FlowControl (${props.id}): No passthrough enabled, clearing output for ${mode.value} mode`)
+      props.data.outputs.result.output = ''
+    }
+
     if (mode.value === 'RunAllChildren') {
       // No special action needed here. The main workflow runner will
       // process outgoing edges and continue execution concurrently.
@@ -149,7 +162,7 @@ export function useFlowControl(props, emit) {
       }
 
       // Set up the output data to be passed to the target node
-      const outputToPass = props.data.outputs.result.output || ''
+      const outputToPass = noPassthrough.value ? '' : (props.data.outputs.result.output || '')
       
       // Store our output in the target node's data so it can use it as input
       // This creates a virtual source connection from this flow control node to the target
@@ -165,7 +178,8 @@ export function useFlowControl(props, emit) {
           timestamp: Date.now()
         }
         
-        console.log(`FlowControl (${props.id}): Set as virtual source for ${targetId} with output: "${outputToPass.substring(0, 50)}${outputToPass.length > 50 ? '...' : ''}"`)
+        const outputPreview = outputToPass ? `"${outputToPass.substring(0, 50)}${outputToPass.length > 50 ? '...' : ''}"` : '(empty - no passthrough)'
+        console.log(`FlowControl (${props.id}): Set as virtual source for ${targetId} with output: ${outputPreview}`)
       }
 
       console.log(`FlowControl (${props.id}): JumpToNode mode signaling jump to -> ${targetId}`)
@@ -331,6 +345,7 @@ export function useFlowControl(props, emit) {
     delimiter,
     waitTime,
     combineMode,
+    noPassthrough,
     
     // Options
     modeOptions,
@@ -344,6 +359,7 @@ export function useFlowControl(props, emit) {
     // Event handlers
     handleTextareaMouseEnter,
     handleTextareaMouseLeave,
+    onResize,
     
     // Core functionality
     run

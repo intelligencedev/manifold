@@ -41,6 +41,15 @@
       </div>
     </div>
 
+    <!-- No Passthrough Checkbox for applicable modes -->
+    <div v-if="mode === 'RunAllChildren' || mode === 'JumpToNode'" class="mb-2">
+      <label class="flex items-center text-sm text-gray-200">
+        <input type="checkbox" v-model="noPassthrough" class="mr-2 focus:ring-blue-500 h-4 w-4 text-blue-600 border-gray-300 rounded" />
+        <span>No Passthrough</span>
+      </label>
+      <p class="text-xs text-gray-400 mt-1">When checked, no data will be passed to subsequent nodes</p>
+    </div>
+
     <!-- Input/Output Handles -->
     <Handle style="width:12px; height:12px" v-if="data.hasInputs" type="target" position="left" />
     <Handle style="width:12px; height:12px" v-if="data.hasOutputs" type="source" position="right" />
@@ -75,6 +84,7 @@ const props = defineProps({
         delimiter: '',
         waitTime: 5,
         combineMode: 'newline',
+        noPassthrough: false,
       },
       outputs: {},
       style: {}, // BaseNode handles styling
@@ -90,6 +100,7 @@ const {
   delimiter,
   waitTime,
   combineMode,
+  noPassthrough,
   modeOptions,
   combineModeOptions,
   isHovered, // from useNodeBase via useFlowControl

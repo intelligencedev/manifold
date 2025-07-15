@@ -508,6 +508,11 @@ Example workflow:
 
 Always include the worker's actual output in your final response.
 
+NEVER finalize the conversation with a plan or what you intend on doing. 
+Your FINAL response must be a confirmation that the plan was executed and the user's query was addressed. 
+You must return the results.
+Always format your final response using markdown syntax. 
+Use markdown syntax to stylize lists, headers, tables, code blocks, apply italics and bold text, etc.
 `)
 
 		// Append agent fleet
@@ -585,6 +590,9 @@ response, always check if the task is complete and if not, continue working on i
 IMPORTANT: The user cannot see your thoughts, actions, or action inputs. So you should always provide a final response that is 
 clear and concise, summarizing the results of your actions returning all of the information you have gathered 
 ONLY if it is relevant to the user's query.
+
+Always format your final response using markdown syntax. 
+Use markdown syntax to stylize lists, headers, tables, code blocks, apply italics and bold text, etc.
 
 Format for every turn:
 Thought: <reasoning>
@@ -701,6 +709,21 @@ Action Input: <JSON | text>
 			break
 		}
 
+		// Create a preliminary step with thought, action, and input but no observation yet
+		// This allows the frontend to display the thought immediately
+		preliminaryStep := AgentStep{
+			Index:       len(sess.Steps) + 1,
+			Thought:     thought,
+			Action:      action,
+			ActionInput: input,
+			Observation: "", // Will be filled in after tool execution
+		}
+
+		// Call the hook immediately with the preliminary step to send thought to frontend
+		if hook != nil {
+			hook(preliminaryStep)
+		}
+
 		obs, err := ae.execTool(ctx, cfg, action, input)
 		if err != nil {
 			obs = "error: " + err.Error()
@@ -741,9 +764,8 @@ Action Input: <JSON | text>
 		sess.Steps = append(sess.Steps, step)
 		_ = ae.persistStep(ctx, sess.ID, step)
 
-		if hook != nil {
-			hook(step)
-		}
+		// Note: We don't call the hook here again since we already called it with the preliminary step
+		// The hook was called immediately after LLM response to send the thought to frontend
 
 		// Add the assistant's response to conversation history
 		assistantMessage := llm.ChatCompletionMessage{

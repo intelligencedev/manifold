@@ -25,7 +25,7 @@ import (
 	hostinfopkg "manifold/internal/tools"
 )
 
-//go:embed sandbox/Dockerfile
+//go:embed containers/code_sandbox/Dockerfile
 var sandboxDockerfile string
 
 // downloadFile downloads a file from a URL to a local filepath.

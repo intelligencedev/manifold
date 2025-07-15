@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="containerRef"
     :style="computedContainerStyle"
     class="node-container bg-zinc-900 flex flex-col"
     @mouseenter="isHovered = true"
@@ -29,6 +30,7 @@
 <script setup>
 import { NodeResizer } from '@vue-flow/node-resizer'
 import { useNodeBase } from '@/composables/useNodeBase'
+import { useDisableNodeDragOnInput } from '@/composables/useDisableNodeDragOnInput'
 
 const props = defineProps({
   id: {
@@ -52,6 +54,7 @@ const props = defineProps({
 const emit = defineEmits(['resize'])
 
 const { isHovered, resizeHandleStyle, computedContainerStyle, width, height, onResize } = useNodeBase(props, emit)
+const containerRef = useDisableNodeDragOnInput(props.id)
 </script>
 
 <style scoped>

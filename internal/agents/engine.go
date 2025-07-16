@@ -724,7 +724,7 @@ Action Input: <JSON | text>
 			hook(preliminaryStep)
 		}
 
-		obs, err := ae.execTool(ctx, cfg, action, input)
+		obs, err := ae.execTool(ctx, cfg, action, input, hook)
 		if err != nil {
 			obs = "error: " + err.Error()
 		}
@@ -894,7 +894,7 @@ func parseReAct(s string) (thought, action, input string) {
 	return
 }
 
-func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name, arg string) (string, error) {
+func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name, arg string, hook StepHook) (string, error) {
 	// ─────────── Hard gate for the orchestrator ───────────
 	if ae.isolatedToServer == "" { // top-level orchestrator
 		lname := strings.ToLower(name)
@@ -970,8 +970,17 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			log.Printf("Running isolated sub-agent session for worker %s with %d tools",
 				worker.Name, len(isolatedEngine.mcpTools))
 
-			// Run the sub-agent session
-			subSession, err := isolatedEngine.RunSessionWithHook(ctx, cfg, subReq, nil)
+			// Pass the parent's hook down to the sub-agent session
+			// Create a wrapper hook that adds a prefix for sub-agent thoughts
+			var wrappedHook StepHook
+			if hook != nil {
+				wrappedHook = func(step AgentStep) {
+					// Add a prefix to distinguish sub-agent thoughts
+					step.Thought = fmt.Sprintf("[%s] %s", worker.Name, step.Thought)
+					hook(step)
+				}
+			}
+			subSession, err := isolatedEngine.RunSessionWithHook(ctx, cfg, subReq, wrappedHook)
 			if err != nil {
 				return "", fmt.Errorf("failed to run sub-agent session: %w", err)
 			}

@@ -86,7 +86,7 @@ func TestExecToolOrchestratorBlocksDirectCalls(t *testing.T) {
 
 	for _, toolName := range mcpTests {
 		t.Run(toolName, func(t *testing.T) {
-			_, err := ae.execTool(context.Background(), nil, toolName, "{}")
+			_, err := ae.execTool(context.Background(), nil, toolName, "{}", nil)
 			if err == nil || !strings.Contains(err.Error(), "orchestrator cannot call MCP tool") {
 				t.Fatalf("expected orchestrator to block MCP tool call to %s, got: %v", toolName, err)
 			}
@@ -101,7 +101,7 @@ func TestExecToolOrchestratorBlocksDirectCalls(t *testing.T) {
 
 	for _, toolName := range unknownTests {
 		t.Run(toolName, func(t *testing.T) {
-			_, err := ae.execTool(context.Background(), nil, toolName, "{}")
+			_, err := ae.execTool(context.Background(), nil, toolName, "{}", nil)
 			if err == nil || !strings.Contains(err.Error(), "orchestrator cannot call") {
 				t.Fatalf("expected orchestrator to block unknown tool call to %s, got: %v", toolName, err)
 			}
@@ -113,7 +113,7 @@ func TestExecToolOrchestratorAllowsGenericTools(t *testing.T) {
 	ae := &AgentEngine{isolatedToServer: ""} // orchestrator
 
 	// Test finish is allowed
-	result, err := ae.execTool(context.Background(), nil, "finish", "test result")
+	result, err := ae.execTool(context.Background(), nil, "finish", "test result", nil)
 	if err != nil {
 		t.Fatalf("expected finish to be allowed, got error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestExecToolOrchestratorAllowsGenericTools(t *testing.T) {
 	for _, toolName := range genericTools {
 		t.Run(toolName, func(t *testing.T) {
 			// These will fail in execution but should pass the orchestrator gate
-			_, err := ae.execTool(context.Background(), nil, toolName, "{}")
+			_, err := ae.execTool(context.Background(), nil, toolName, "{}", nil)
 			// Should not get the "orchestrator cannot call" error
 			if err != nil && strings.Contains(err.Error(), "orchestrator cannot call") {
 				t.Fatalf("expected generic tool %s to be allowed through orchestrator gate, got: %v", toolName, err)

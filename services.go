@@ -299,16 +299,9 @@ func getLlamaServerBinaryPath(config *Config) (string, error) {
 
 // StartPGVectorContainer starts a Docker container running PGVector if Docker is available
 func StartPGVectorContainer(config *Config) error {
-	// Check if Docker is installed
-	_, err := exec.LookPath("docker")
-	if err != nil {
-		return fmt.Errorf("docker is not installed or not in PATH: %w", err)
-	}
-
-	// Check if Docker is running
-	checkCmd := exec.Command("docker", "info")
-	if err := checkCmd.Run(); err != nil {
-		return fmt.Errorf("docker is not running: %w", err)
+	// Ensure the pg-manifold Docker image exists
+	if err := EnsurePGVectorImage(); err != nil {
+		return fmt.Errorf("failed to ensure pg-manifold image: %w", err)
 	}
 
 	pterm.Info.Println("Docker is available, checking PGVector container...")

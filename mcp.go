@@ -9,6 +9,7 @@ import (
 	"manifold/internal/mcp"
 
 	"github.com/labstack/echo/v4"
+	"github.com/pterm/pterm"
 )
 
 // InternalMCPHandler manages the routes for internal MCP tools.
@@ -24,11 +25,22 @@ func NewInternalMCPHandler(config *Config) (*InternalMCPHandler, error) {
 	configDir := filepath.Dir(configPath)
 
 	ctx := context.Background()
+
+	// Add better error handling and logging for MCP configuration issues
+	pterm.Info.Println("Loading MCP server configurations...")
 	mcpMgr, err := mcp.NewManager(ctx, configPath)
 	if err != nil {
+		pterm.Error.Printf("Failed to initialize MCP manager: %v\n", err)
+		pterm.Warning.Println("This could be due to:")
+		pterm.Warning.Println("  - Invalid MCP server configuration in config.yaml")
+		pterm.Warning.Println("  - MCP servers not responding or unavailable")
+		pterm.Warning.Println("  - Docker containers not running")
+		pterm.Warning.Println("  - Network connectivity issues")
+		pterm.Info.Println("MCP functionality will be disabled until configuration issues are resolved")
 		return nil, fmt.Errorf("creating MCP manager: %w", err)
 	}
 
+	pterm.Success.Println("MCP handler initialized successfully")
 	return &InternalMCPHandler{
 		config:    config,
 		mcpMgr:    mcpMgr,

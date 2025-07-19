@@ -194,6 +194,12 @@ func StopAllServices() {
 	servicesMutex.Lock()
 	defer servicesMutex.Unlock()
 
+	// Check if there are actually any services to stop
+	if len(services) == 0 {
+		pterm.Info.Println("No services to stop")
+		return
+	}
+
 	for name, service := range services {
 		pterm.Info.Printf("Stopping %s service...\n", name)
 		if service.Cancel != nil {

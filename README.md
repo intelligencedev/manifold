@@ -163,6 +163,8 @@ Ensure to update the values to match your environment.
 
 For development it is not necessary to build the application. See development notes at the bottom of this guide.
 
+#### Production Build
+
 Execute the following commands:
 
 ```bash
@@ -172,11 +174,29 @@ $ npm install
 $ npm run build
 $ cd ..
 $ go build -ldflags="-s -w" -trimpath -o ./dist/manifold .
-$ cd dist
 
-# 1. Place config.yaml in the same path as the binary
-# 2. Run the binary
-$ ./manifold
+# 1. Copy config.yaml to the dist directory (optional)
+$ cp config.yaml ./dist/
+
+# 2. Run the binary (multiple options available)
+$ ./dist/manifold                           # Run from project root
+# $ cd dist && ./manifold                   # Run from dist directory
+# $ ./dist/manifold -config=config.yaml    # Specify config path explicitly
+```
+
+#### Development Mode
+
+For development, you can run directly without building:
+
+```bash
+$ cd frontend
+$ nvm use 20
+$ npm install
+$ npm run build
+$ cd ..
+
+# Run from project root where config.yaml is located
+$ go run . -config=config.yaml
 ```
 
 This sequence will:
@@ -184,7 +204,8 @@ This sequence will:
 - Switch Node.js to version 20.
 - Build frontend assets.
 - Compile the Go backend, generating the executable.
-- Launch Manifold from the `dist` directory.
+- Copy the configuration file to the dist directory (for production deployment).
+- Launch Manifold with the configuration file.
 
 Upon first execution, Manifold creates necessary directories and files (e.g., `data`).
 
@@ -200,36 +221,18 @@ Note that Manifold builds the frontend and embeds it in its binary. When buildin
 
 Create or update your configuration based on the provided `config.yaml.example` in the repository. Manifold uses a flexible configuration system that supports both YAML files and environment variables.
 
-Ensure you rename the file or create a new `config.yaml` with your unique configuration, and the file is present in the same path as the Manifold binary.
+**Important**: The `config.yaml` file location depends on how you run Manifold:
+- **Recommended**: Keep `config.yaml` in the project root and run `./dist/manifold` from there
+- **Alternative**: Copy `config.yaml` to the dist directory and run from there (`cd dist && ./manifold`)
+- **Flexible**: Use the `-config` flag to specify any path: `./dist/manifold -config=/path/to/config.yaml`
+
+**Note**: Manifold embeds all necessary files for MCP server Docker image building, so it will work correctly regardless of which directory you run it from.
 
 **Crucial Points:**
 
 - Update database credentials (`myuser`, `changeme`) according to your PGVector setup.
 - When `single_node_instance` is enabled, Manifold auto-manages the lifecycle of llama-server instances.
 - When using external API services (OpenAI, Claude, etc.), provide the corresponding API keys.
-
----
-
-## Accessing Manifold
-
-Launch your browser and navigate to:
-
-```
-http://localhost:8080
-```
-
-> Replace the host configuration if you customized it in `config.yaml`.
-
-### Default Authentication Credentials
-
-When you first access Manifold, use these default credentials to log in:
-
-```
-Username: admin
-Password: M@nif0ld@dminStr0ngP@ssw0rd
-```
-
-> **⚠️ IMPORTANT SECURITY WARNING:** These are publicly known default credentials. Immediately after logging in, change your password by clicking on your account name in the top right corner and selecting "Change Password".
 
 ---
 
@@ -249,14 +252,16 @@ Any inference engine that serves the standard completions endpoints will work su
 
 Manifold provides a Docker image for the Model Context Protocol (MCP) server component, allowing you to run the MCP server in containerized environments.
 
-To build the Docker image:
+**Automatic Building**: Manifold automatically builds the MCP Docker image when needed during startup. All required files (Dockerfile, source code, dependencies) are embedded in the Manifold binary, so no manual building is required.
+
+If you want to manually build the Docker image:
 
 ```bash
 # Navigate to the manifold root directory
 $ cd manifold
 
-# Build the Docker image with the intelligencedev/manifold:latest tag
-$ docker build -t intelligencedev/manifold-mcp:latest -f manifold-mcp.Dockerfile .
+# Build the Docker image with the intelligencedev/manifold-mcp:latest tag
+$ docker build -t intelligencedev/manifold-mcp:latest -f mcpserver.Dockerfile .
 ```
 
 Once built, you can configure the MCP server in your `config.yaml`:
@@ -295,6 +300,7 @@ When one or more `mcpServers` are configured, Manifold queries each server at st
 - **Port Conflict:** If port 8080 is occupied, either terminate conflicting processes or choose a new port in `config.yaml`.
 - **PGVector Connectivity:** Confirm your `database.connection_string` matches PGVector container credentials.
 - **Missing Config File:** Ensure `config.yaml` exists in the correct directory. Manifold will not launch without it.
+- **Docker Issues:** Ensure Docker is installed and running. Manifold embeds all necessary files for building Docker images automatically.
 
 ---
 

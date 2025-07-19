@@ -34,6 +34,21 @@ var pgsqlDockerfile string
 //go:embed mcpserver.Dockerfile
 var mcpserverDockerfile string
 
+//go:embed go.mod
+var goModContent string
+
+//go:embed go.sum
+var goSumContent string
+
+//go:embed cmd/mcp-manifold/main.go
+var mcpMainGo string
+
+//go:embed cmd/mcp-manifold/handlers.go
+var mcpHandlersGo string
+
+//go:embed cmd/mcp-manifold/tools.go
+var mcpToolsGo string
+
 // downloadFile downloads a file from a URL to a local filepath.
 // It creates parent directories if they don't exist.
 func downloadFile(url, filePath string) error {
@@ -303,29 +318,39 @@ func EnsureMCPServerImage() error {
 		return fmt.Errorf("failed to write Dockerfile: %w", err)
 	}
 
-	// Copy go.mod and go.sum to temp directory for the build context
-	// We need to get the current working directory to find these files
-	currentDir, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("failed to get current working directory: %w", err)
+	// Write embedded go.mod to temp directory
+	if err := os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		return fmt.Errorf("failed to write go.mod: %w", err)
 	}
 
-	// Copy go.mod
-	if err := copyFile(filepath.Join(currentDir, "go.mod"), filepath.Join(tempDir, "go.mod")); err != nil {
-		return fmt.Errorf("failed to copy go.mod: %w", err)
+	// Write embedded go.sum to temp directory
+	if err := os.WriteFile(filepath.Join(tempDir, "go.sum"), []byte(goSumContent), 0644); err != nil {
+		return fmt.Errorf("failed to write go.sum: %w", err)
 	}
 
-	// Copy go.sum
-	if err := copyFile(filepath.Join(currentDir, "go.sum"), filepath.Join(tempDir, "go.sum")); err != nil {
-		return fmt.Errorf("failed to copy go.sum: %w", err)
+	// Create cmd/mcp-manifold directory and write embedded source files
+	mcpDir := filepath.Join(tempDir, "cmd", "mcp-manifold")
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
+		return fmt.Errorf("failed to create mcp-manifold directory: %w", err)
 	}
 
-	// Copy the cmd/mcp-manifold directory
-	mcpSourceDir := filepath.Join(currentDir, "cmd", "mcp-manifold")
-	mcpDestDir := filepath.Join(tempDir, "cmd", "mcp-manifold")
-	if err := copyDir(mcpSourceDir, mcpDestDir); err != nil {
-		return fmt.Errorf("failed to copy mcp-manifold source: %w", err)
+	// Write embedded mcp-manifold source files
+	mcpFiles := map[string]string{
+		"main.go":     mcpMainGo,
+		"handlers.go": mcpHandlersGo,
+		"tools.go":    mcpToolsGo,
 	}
+
+	for filename, content := range mcpFiles {
+		filePath := filepath.Join(mcpDir, filename)
+		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", filename, err)
+		}
+		pterm.Debug.Printf("Created %s (%d bytes)", filename, len(content))
+	}
+
+	pterm.Debug.Printf("Build context prepared in: %s", tempDir)
+	pterm.Debug.Printf("Dockerfile path: %s", dockerfilePath)
 
 	// Build the Docker image
 	buildCmd := exec.Command("docker", "build", "-t", "intelligencedev/manifold-mcp:latest", "-f", dockerfilePath, ".")

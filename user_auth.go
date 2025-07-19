@@ -19,14 +19,15 @@ type UserDB struct {
 
 // User represents a user in the database
 type User struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	Email        string    `json:"email,omitempty"`
-	PasswordHash string    `json:"-"` // Never expose in JSON
-	FullName     string    `json:"fullName,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	Role         string    `json:"role"`
+	ID                  string    `json:"id"`
+	Username            string    `json:"username"`
+	Email               string    `json:"email,omitempty"`
+	PasswordHash        string    `json:"-"` // Never expose in JSON
+	FullName            string    `json:"fullName,omitempty"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
+	Role                string    `json:"role"`
+	ForcePasswordChange bool      `json:"forcePasswordChange"`
 }
 
 // NewUserDB creates a new UserDB instance
@@ -58,7 +59,8 @@ func (udb *UserDB) InitSchema(ctx context.Context) error {
 			full_name TEXT,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-			role TEXT DEFAULT 'user'
+			role TEXT DEFAULT 'user',
+			force_password_change BOOLEAN DEFAULT FALSE
 		)
 	`)
 	return err
@@ -104,23 +106,74 @@ func (udb *UserDB) CreateUser(ctx context.Context, username, password, email, fu
 	// Insert the new user
 	now := time.Now().UTC()
 	_, err = udb.db.ExecContext(ctx, `
-		INSERT INTO users (id, username, email, password_hash, full_name, created_at, updated_at, role) 
-		VALUES ($1, $2, $3, $4, $5, $6, $6, $7)`,
-		id, username, email, string(hashedPassword), fullName, now, "user",
+		INSERT INTO users (id, username, email, password_hash, full_name, created_at, updated_at, role, force_password_change) 
+		VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8)`,
+		id, username, email, string(hashedPassword), fullName, now, "user", false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating user: %w", err)
 	}
 
 	return &User{
-		ID:           id,
-		Username:     username,
-		Email:        email,
-		PasswordHash: string(hashedPassword),
-		FullName:     fullName,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		Role:         "user",
+		ID:                  id,
+		Username:            username,
+		Email:               email,
+		PasswordHash:        string(hashedPassword),
+		FullName:            fullName,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		Role:                "user",
+		ForcePasswordChange: false,
+	}, nil
+}
+
+// CreateUserWithoutPassword creates a new user in the database without a password (for initial setup)
+func (udb *UserDB) CreateUserWithoutPassword(ctx context.Context, username, email, fullName string) (*User, error) {
+	// Check if username already exists
+	var exists bool
+	err := udb.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)", username).Scan(&exists)
+	if err != nil {
+		return nil, fmt.Errorf("error checking username: %w", err)
+	}
+	if exists {
+		return nil, errors.New("username already exists")
+	}
+
+	// Check if email exists if provided
+	if email != "" {
+		err = udb.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)", email).Scan(&exists)
+		if err != nil {
+			return nil, fmt.Errorf("error checking email: %w", err)
+		}
+		if exists {
+			return nil, errors.New("email already exists")
+		}
+	}
+
+	// Generate a unique ID for the user
+	id := generateUniqueID()
+
+	// Insert the new user without password hash
+	now := time.Now().UTC()
+	_, err = udb.db.ExecContext(ctx, `
+		INSERT INTO users (id, username, email, password_hash, full_name, created_at, updated_at, role, force_password_change) 
+		VALUES ($1, $2, $3, '', $4, $5, $5, $6, TRUE)`,
+		id, username, email, fullName, now, "user",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating user: %w", err)
+	}
+
+	return &User{
+		ID:                  id,
+		Username:            username,
+		Email:               email,
+		PasswordHash:        "",
+		FullName:            fullName,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+		Role:                "user",
+		ForcePasswordChange: true,
 	}, nil
 }
 
@@ -128,7 +181,7 @@ func (udb *UserDB) CreateUser(ctx context.Context, username, password, email, fu
 func (udb *UserDB) GetUserByUsername(ctx context.Context, username string) (*User, error) {
 	var user User
 	err := udb.db.QueryRowContext(ctx, `
-		SELECT id, username, email, password_hash, full_name, created_at, updated_at, role 
+		SELECT id, username, email, password_hash, full_name, created_at, updated_at, role, force_password_change 
 		FROM users WHERE username = $1`,
 		username,
 	).Scan(
@@ -140,6 +193,7 @@ func (udb *UserDB) GetUserByUsername(ctx context.Context, username string) (*Use
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&user.Role,
+		&user.ForcePasswordChange,
 	)
 
 	if err == sql.ErrNoRows {
@@ -155,7 +209,7 @@ func (udb *UserDB) GetUserByUsername(ctx context.Context, username string) (*Use
 func (udb *UserDB) GetUserByID(ctx context.Context, id string) (*User, error) {
 	var user User
 	err := udb.db.QueryRowContext(ctx, `
-		SELECT id, username, email, password_hash, full_name, created_at, updated_at, role 
+		SELECT id, username, email, password_hash, full_name, created_at, updated_at, role, force_password_change 
 		FROM users WHERE id = $1`,
 		id,
 	).Scan(
@@ -167,6 +221,7 @@ func (udb *UserDB) GetUserByID(ctx context.Context, id string) (*User, error) {
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&user.Role,
+		&user.ForcePasswordChange,
 	)
 
 	if err == sql.ErrNoRows {
@@ -198,9 +253,20 @@ func (udb *UserDB) UpdatePassword(ctx context.Context, id string, newPassword st
 
 	_, err = udb.db.ExecContext(ctx, `
 		UPDATE users 
-		SET password_hash = $2, updated_at = NOW() 
+		SET password_hash = $2, force_password_change = FALSE, updated_at = NOW() 
 		WHERE id = $1`,
 		id, string(hashedPassword),
+	)
+	return err
+}
+
+// SetForcePasswordChange updates the force_password_change flag for a user
+func (udb *UserDB) SetForcePasswordChange(ctx context.Context, id string, force bool) error {
+	_, err := udb.db.ExecContext(ctx, `
+		UPDATE users 
+		SET force_password_change = $2, updated_at = NOW() 
+		WHERE id = $1`,
+		id, force,
 	)
 	return err
 }

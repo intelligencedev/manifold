@@ -27,6 +27,10 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	e.POST("/api/auth/login", loginHandler)
 	e.POST("/api/auth/register", registerHandler)
 
+	// Admin setup routes - publicly accessible for initial setup
+	e.GET("/api/auth/admin-setup-status", checkAdminSetupHandler)
+	e.POST("/api/auth/admin-setup", setupAdminPasswordHandler)
+
 	// Serve static frontend files.
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
 	e.Static("/tmp", config.DataPath+"/tmp")
@@ -41,7 +45,8 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	restricted.GET("", restrictedHandler) // Sample protected route
 	restricted.GET("/user", getUserInfoHandler)
 	restricted.POST("/logout", logoutHandler)
-	restricted.POST("/change-password", changePasswordHandler) // New endpoint for changing password
+	restricted.POST("/change-password", changePasswordHandler)                     // Regular password change endpoint
+	restricted.POST("/first-time-password-change", firstTimePasswordChangeHandler) // First-time password change endpoint
 
 	// Register other API endpoints
 	registerAPIEndpoints(api, config)

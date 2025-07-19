@@ -184,14 +184,12 @@ func createDefaultAdmin(config *Config) {
 	pterm.Info.Println("Checking if admin user exists...")
 	_, err := userDB.GetUserByUsername(ctx, "admin")
 
-	// If admin doesn't exist, create it with a default password
+	// If admin doesn't exist, create it without a password (password_hash will be empty)
 	if err != nil {
-		pterm.Info.Println("Admin user not found, creating default admin user...")
+		pterm.Info.Println("Admin user not found, creating admin user without password...")
 
-		// Default admin password - in production, this should be changed immediately after first login
-		defaultPassword := "M@nif0ld@dminStr0ngP@ssw0rd"
-
-		user, err := userDB.CreateUser(ctx, "admin", defaultPassword, "", "Administrator")
+		// Create admin user with empty password hash - user must set password on first access
+		user, err := userDB.CreateUserWithoutPassword(ctx, "admin", "", "Administrator")
 		if err != nil {
 			pterm.Error.Printf("Failed to create default admin user: %v\n", err)
 			return
@@ -205,8 +203,16 @@ func createDefaultAdmin(config *Config) {
 			return
 		}
 
+		// Set force password change flag
+		pterm.Info.Println("Setting force password change flag...")
+		err = userDB.SetForcePasswordChange(ctx, user.ID, true)
+		if err != nil {
+			pterm.Error.Printf("Failed to set force password change flag: %v\n", err)
+			return
+		}
+
 		pterm.Success.Println("Default admin user created successfully.")
-		pterm.Warning.Println("Please change the default admin password after first login!")
+		pterm.Warning.Println("Admin user must set their password on first access to the application.")
 	} else {
 		pterm.Info.Println("Admin user already exists")
 	}

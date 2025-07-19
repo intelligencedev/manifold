@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 
@@ -128,21 +129,57 @@ func registerMCPEndpoints(api *echo.Group, config *Config) {
 	// Create an MCP subgroup for all MCP-related endpoints
 	mcpGroup := api.Group("/mcp")
 
-	// Set up the internal MCP handler with server management
-	internalMCPHandler, err := NewInternalMCPHandler(config)
-	if err != nil {
-		log.Printf("Error creating internal MCP handler: %v", err)
-		return
+	// Create a lazy-loading MCP handler that initializes on first use
+	var internalMCPHandler *InternalMCPHandler
+	var handlerErr error
+	var initOnce sync.Once
+
+	getHandler := func() (*InternalMCPHandler, error) {
+		initOnce.Do(func() {
+			internalMCPHandler, handlerErr = NewInternalMCPHandler(config)
+		})
+		return internalMCPHandler, handlerErr
 	}
 
-	// Register routes to interact with the configured MCP servers
-	// This gives access to our new mcp-manifold server through the Manager
-	mcpGroup.GET("/servers", internalMCPHandler.listServersHandler)
-	mcpGroup.GET("/servers/:name/tools", internalMCPHandler.listServerToolsHandler)
-	mcpGroup.POST("/servers/:name/tools/:tool", internalMCPHandler.callServerToolHandler)
+	// Register routes with lazy initialization
+	mcpGroup.GET("/servers", func(c echo.Context) error {
+		handler, err := getHandler()
+		if err != nil {
+			log.Printf("MCP handler initialization failed: %v", err)
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"error":   "MCP functionality is currently unavailable",
+				"details": "MCP server configuration error - check server logs for details",
+			})
+		}
+		return handler.listServersHandler(c)
+	})
+
+	mcpGroup.GET("/servers/:name/tools", func(c echo.Context) error {
+		handler, err := getHandler()
+		if err != nil {
+			log.Printf("MCP handler initialization failed: %v", err)
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"error":   "MCP functionality is currently unavailable",
+				"details": "MCP server configuration error - check server logs for details",
+			})
+		}
+		return handler.listServerToolsHandler(c)
+	})
+
+	mcpGroup.POST("/servers/:name/tools/:tool", func(c echo.Context) error {
+		handler, err := getHandler()
+		if err != nil {
+			log.Printf("MCP handler initialization failed: %v", err)
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"error":   "MCP functionality is currently unavailable",
+				"details": "MCP server configuration error - check server logs for details",
+			})
+		}
+		return handler.callServerToolHandler(c)
+	})
 
 	// Admin endpoint to refresh MCP tools cache
-	mcpGroup.POST("/admin/refresh-cache", agentspkg.AdminRefreshCacheHandler(config))
+	// mcpGroup.POST("/admin/refresh-cache", agentspkg.AdminRefreshCacheHandler(config))
 }
 
 // registerCompletionsEndpoints registers routes for completions-related functionality.

@@ -31,6 +31,9 @@ var sandboxDockerfile string
 //go:embed pgsql.Dockerfile
 var pgsqlDockerfile string
 
+//go:embed mcpserver.Dockerfile
+var mcpserverDockerfile string
+
 // downloadFile downloads a file from a URL to a local filepath.
 // It creates parent directories if they don't exist.
 func downloadFile(url, filePath string) error {
@@ -258,6 +261,133 @@ func EnsurePGVectorImage() error {
 
 	pterm.Success.Println("intelligencedev/pg-manifold:latest image successfully built")
 	return nil
+}
+
+// EnsureMCPServerImage checks if the manifold-mcp Docker image exists,
+// and builds it if it doesn't exist using the embedded Dockerfile.
+func EnsureMCPServerImage() error {
+	// Check if Docker is installed
+	_, err := exec.LookPath("docker")
+	if err != nil {
+		return fmt.Errorf("docker is not installed or not in PATH: %w", err)
+	}
+
+	// Check if Docker is running
+	checkCmd := exec.Command("docker", "info")
+	if err := checkCmd.Run(); err != nil {
+		return fmt.Errorf("docker is not running: %w", err)
+	}
+
+	pterm.Info.Println("Docker is available, checking for manifold-mcp image...")
+
+	// Check if the image exists
+	checkImageCmd := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "intelligencedev/manifold-mcp:latest")
+	output, err := checkImageCmd.Output()
+	if err == nil && len(output) > 0 {
+		pterm.Success.Println("intelligencedev/manifold-mcp:latest image already exists")
+		return nil
+	}
+
+	pterm.Info.Println("intelligencedev/manifold-mcp:latest image not found, building it...")
+
+	// Create a temporary directory to store the Dockerfile and build context
+	tempDir, err := os.MkdirTemp("", "mcpserver-build-")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory for Dockerfile: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Write the embedded Dockerfile to the temporary directory
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	if err := os.WriteFile(dockerfilePath, []byte(mcpserverDockerfile), 0644); err != nil {
+		return fmt.Errorf("failed to write Dockerfile: %w", err)
+	}
+
+	// Copy go.mod and go.sum to temp directory for the build context
+	// We need to get the current working directory to find these files
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+
+	// Copy go.mod
+	if err := copyFile(filepath.Join(currentDir, "go.mod"), filepath.Join(tempDir, "go.mod")); err != nil {
+		return fmt.Errorf("failed to copy go.mod: %w", err)
+	}
+
+	// Copy go.sum
+	if err := copyFile(filepath.Join(currentDir, "go.sum"), filepath.Join(tempDir, "go.sum")); err != nil {
+		return fmt.Errorf("failed to copy go.sum: %w", err)
+	}
+
+	// Copy the cmd/mcp-manifold directory
+	mcpSourceDir := filepath.Join(currentDir, "cmd", "mcp-manifold")
+	mcpDestDir := filepath.Join(tempDir, "cmd", "mcp-manifold")
+	if err := copyDir(mcpSourceDir, mcpDestDir); err != nil {
+		return fmt.Errorf("failed to copy mcp-manifold source: %w", err)
+	}
+
+	// Build the Docker image
+	buildCmd := exec.Command("docker", "build", "-t", "intelligencedev/manifold-mcp:latest", "-f", dockerfilePath, ".")
+	buildCmd.Dir = tempDir
+
+	// Capture and display the build output
+	var stdoutBuf, stderrBuf bytes.Buffer
+	buildCmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	buildCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	pterm.Info.Println("Building intelligencedev/manifold-mcp Docker image...")
+	if err := buildCmd.Run(); err != nil {
+		return fmt.Errorf("failed to build manifold-mcp image: %w\n%s", err, stderrBuf.String())
+	}
+
+	pterm.Success.Println("intelligencedev/manifold-mcp:latest image successfully built")
+	return nil
+}
+
+// copyFile copies a single file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	return err
+}
+
+// copyDir recursively copies a directory from src to dst
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Get the relative path
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		return copyFile(path, dstPath)
+	})
 }
 
 // InitializeLlamaCpp downloads and sets up llama.cpp binaries if they don't exist
@@ -546,6 +676,17 @@ func InitializeApplication(config *Config) error {
 			}
 		}()
 
+		// Ensure MCP server Docker image exists
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pterm.Info.Println("Checking MCP server Docker image...")
+			if err := EnsureMCPServerImage(); err != nil {
+				addError(fmt.Errorf("MCP server image initialization error: %w", err))
+				pterm.Warning.Printf("Failed to initialize MCP server Docker image: %v\n", err)
+			}
+		}()
+
 		// Start PGVector container in a goroutine
 		wg.Add(1)
 		go func() {
@@ -593,49 +734,43 @@ func InitializeApplication(config *Config) error {
 	// Use the existing connection pool rather than creating a new connection
 	ctx := context.Background()
 
-	// We'll use the pool that was already created in main.go
+	// Use the existing connection pool (should always be available now)
 	if config.DBPool == nil {
-		// If the pool doesn't exist yet (which shouldn't happen), create a backup connection temporarily
-		pterm.Warning.Println("Database pool not initialized, creating a temporary connection")
-		db, err := sefii.Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			pterm.Fatal.Println(err)
-		}
-		defer db.Close(ctx)
-
-		_, err = db.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-		if err != nil {
-			panic(err)
-		}
-		err = pgxvector.RegisterTypes(ctx, db)
-		if err != nil {
-			panic(err)
-		}
-
-		engine := sefii.NewEngine(db)
-		engine.EnsureTable(ctx, config.Embeddings.Dimensions)
-		engine.EnsureInvertedIndexTable(ctx)
-	} else {
-		// Use the existing connection pool
-		conn, err := config.DBPool.Acquire(ctx)
-		if err != nil {
-			pterm.Fatal.Println("Failed to acquire connection from pool:", err)
-		}
-		defer conn.Release()
-
-		_, err = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-		if err != nil {
-			panic(err)
-		}
-		err = pgxvector.RegisterTypes(ctx, conn.Conn())
-		if err != nil {
-			panic(err)
-		}
-
-		engine := sefii.NewEngine(conn.Conn())
-		engine.EnsureTable(ctx, config.Embeddings.Dimensions)
-		engine.EnsureInvertedIndexTable(ctx)
+		return fmt.Errorf("database pool not initialized - this should not happen")
 	}
+
+	pterm.Info.Println("Acquiring database connection for initialization...")
+	conn, err := config.DBPool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire connection from pool: %w", err)
+	}
+	defer conn.Release()
+
+	pterm.Info.Println("Creating vector extension...")
+	_, err = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
+	if err != nil {
+		return fmt.Errorf("failed to create vector extension: %w", err)
+	}
+
+	pterm.Info.Println("Registering pgvector types...")
+	err = pgxvector.RegisterTypes(ctx, conn.Conn())
+	if err != nil {
+		return fmt.Errorf("failed to register pgvector types: %w", err)
+	}
+
+	pterm.Info.Println("Creating sefii engine...")
+	engine := sefii.NewEngine(conn.Conn())
+
+	pterm.Info.Println("Ensuring sefii table...")
+	if err := engine.EnsureTable(ctx, config.Embeddings.Dimensions); err != nil {
+		return fmt.Errorf("failed to ensure sefii table: %w", err)
+	}
+
+	pterm.Info.Println("Ensuring inverted index table...")
+	if err := engine.EnsureInvertedIndexTable(ctx); err != nil {
+		return fmt.Errorf("failed to ensure inverted index table: %w", err)
+	}
+	pterm.Info.Println("Database initialization completed successfully")
 
 	// Start local services if SingleNodeInstance is true
 	if config.SingleNodeInstance {

@@ -140,6 +140,9 @@ func registerMCPEndpoints(api *echo.Group, config *Config) {
 	mcpGroup.GET("/servers", internalMCPHandler.listServersHandler)
 	mcpGroup.GET("/servers/:name/tools", internalMCPHandler.listServerToolsHandler)
 	mcpGroup.POST("/servers/:name/tools/:tool", internalMCPHandler.callServerToolHandler)
+
+	// Admin endpoint to refresh MCP tools cache
+	mcpGroup.POST("/admin/refresh-cache", agentspkg.AdminRefreshCacheHandler(config))
 }
 
 // registerCompletionsEndpoints registers routes for completions-related functionality.

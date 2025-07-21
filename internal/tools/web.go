@@ -52,6 +52,7 @@ func NewWebClient() *WebClient {
 
 // WebPageContent represents the content of a webpage.
 type WebPageContent struct {
+	ID      int64 // Database ID for easy retrieval
 	Title   string
 	Content string // Markdown content
 	Source  string
@@ -135,10 +136,11 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 	}
 
 	// Check if already indexed (by full URL)
+	var id int64
 	var title, content string
-	err = db.QueryRow(ctx, "SELECT title, content FROM web_content WHERE url = $1", address).Scan(&title, &content)
+	err = db.QueryRow(ctx, "SELECT id, title, content FROM web_content WHERE url = $1", address).Scan(&id, &title, &content)
 	if err == nil {
-		return &WebPageContent{Title: title, Content: content, Source: address}, nil
+		return &WebPageContent{ID: id, Title: title, Content: content, Source: address}, nil
 	}
 	if err != nil && err != pgx.ErrNoRows {
 		return nil, err
@@ -167,13 +169,35 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 
 	// Persist to database (best effort, only for valid URLs)
 	if parsedURL.Scheme != "" && parsedURL.Host != "" {
-		_, dbErr := db.Exec(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO NOTHING`, address, pg.Title, pg.Content)
+		var insertedID int64
+		dbErr := db.QueryRow(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO UPDATE SET title = EXCLUDED.title, content = EXCLUDED.content, fetched_at = NOW() RETURNING id`, address, pg.Title, pg.Content).Scan(&insertedID)
 		if dbErr != nil {
-			log.Printf("failed to insert web_content: %v", dbErr)
+			log.Printf("failed to insert/update web_content: %v", dbErr)
+		} else {
+			pg.ID = insertedID
 		}
 	}
 
 	return pg, nil
+}
+
+// WebGetByIDHandler retrieves web content by its database ID.
+func WebGetByIDHandler(ctx context.Context, db *pgx.Conn, id int64) (*WebPageContent, error) {
+	var title, content, url string
+	err := db.QueryRow(ctx, "SELECT title, content, url FROM web_content WHERE id = $1", id).Scan(&title, &content, &url)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, fmt.Errorf("web content with ID %d not found", id)
+		}
+		return nil, err
+	}
+
+	return &WebPageContent{
+		ID:      id,
+		Title:   title,
+		Content: content,
+		Source:  url,
+	}, nil
 }
 
 // fetchHTMLWithStatus retrieves the HTML content and HTTP status code of a given URL using chromedp and a fallback HTTP GET.

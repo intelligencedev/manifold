@@ -3,9 +3,32 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log"
+	"os"
+
+	"manifold/internal/file_editor"
 
 	mcp "github.com/mark3labs/mcp-go/mcp"
 )
+
+// Global file editor instance
+var globalEditor *file_editor.Editor
+
+// Initialize the file editor with DATA_PATH from environment or default workspace
+func init() {
+	workspaceRoot := os.Getenv("DATA_PATH")
+	if workspaceRoot == "" {
+		workspaceRoot = "/tmp/manifold-workspace" // Default workspace
+		os.MkdirAll(workspaceRoot, 0755)
+	}
+
+	var err error
+	globalEditor, err = file_editor.NewEditor(workspaceRoot)
+	if err != nil {
+		log.Printf("Warning: Could not initialize file editor: %v", err)
+	}
+}
 
 // handleCalculateTool handles the calculate tool
 func handleCalculateTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -332,4 +355,108 @@ func mapToStruct(in map[string]interface{}, out interface{}) error {
 		return err
 	}
 	return json.Unmarshal(b, out)
+}
+
+// handleEditFileTool handles the new enhanced file editing tool
+func handleEditFileTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if globalEditor == nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "File editor not available - initialization failed",
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Parse arguments into EditRequest
+	var req file_editor.EditRequest
+	if err := mapToStruct(request.Params.Arguments, &req); err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Error parsing arguments: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Perform the edit operation
+	response, err := globalEditor.Edit(ctx, req)
+	if err != nil {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Internal error: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	}
+
+	// Format the response
+	return formatFileEditorResponse(response), nil
+}
+
+// formatFileEditorResponse converts EditResponse to MCP CallToolResult
+func formatFileEditorResponse(response file_editor.EditResponse) *mcp.CallToolResult {
+	if !response.Success {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Error: %s", response.Error),
+				},
+			},
+			IsError: true,
+		}
+	}
+
+	var content []mcp.Content
+
+	// Add main message
+	if response.Message != "" {
+		content = append(content, mcp.TextContent{
+			Type: "text",
+			Text: response.Message,
+		})
+	}
+
+	// Add file content if present (for read operations)
+	if response.Content != "" {
+		content = append(content, mcp.TextContent{
+			Type: "text",
+			Text: fmt.Sprintf("Content:\n%s", response.Content),
+		})
+	}
+
+	// Add search matches if present
+	if len(response.Matches) > 0 {
+		matchText := "Matches:\n"
+		for _, match := range response.Matches {
+			matchText += fmt.Sprintf("Line %d: %s\n", match.LineNumber, match.Line)
+		}
+		content = append(content, mcp.TextContent{
+			Type: "text",
+			Text: matchText,
+		})
+	}
+
+	// Add diff if present (for preview operations)
+	if response.Diff != "" {
+		content = append(content, mcp.TextContent{
+			Type: "text",
+			Text: fmt.Sprintf("Diff preview:\n%s", response.Diff),
+		})
+	}
+
+	return &mcp.CallToolResult{
+		Content: content,
+		IsError: false,
+	}
 }

@@ -833,15 +833,54 @@ func CreateModelsTable(ctx context.Context, db *pgx.Conn) error {
 
 // CreateWebTables initializes tables used for web content fetching and blacklisting.
 func CreateWebTables(ctx context.Context, db *pgx.Conn) error {
-	_, err := db.Exec(ctx, `
-        CREATE TABLE IF NOT EXISTS web_content (
-            url TEXT PRIMARY KEY,
-            title TEXT,
-            content TEXT,
-            fetched_at TIMESTAMP DEFAULT NOW()
-        )`)
+	// Check if web_content table exists
+	var tableExists bool
+	err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables 
+			WHERE table_name = 'web_content'
+		)`).Scan(&tableExists)
 	if err != nil {
-		return fmt.Errorf("failed to create web_content table: %w", err)
+		return fmt.Errorf("failed to check if web_content table exists: %w", err)
+	}
+
+	if !tableExists {
+		// Create new table with proper schema including ID column
+		_, err := db.Exec(ctx, `
+			CREATE TABLE web_content (
+				id BIGSERIAL PRIMARY KEY,
+				url TEXT UNIQUE NOT NULL,
+				title TEXT,
+				content TEXT,
+				fetched_at TIMESTAMP DEFAULT NOW()
+			)`)
+		if err != nil {
+			return fmt.Errorf("failed to create web_content table: %w", err)
+		}
+		pterm.Info.Println("Created web_content table with id column")
+	} else {
+		// Table exists, check if id column exists and add it if it doesn't (migration)
+		var hasID bool
+		err = db.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns 
+				WHERE table_name = 'web_content' 
+				AND column_name = 'id'
+			)`).Scan(&hasID)
+		if err != nil {
+			return fmt.Errorf("failed to check for id column: %w", err)
+		}
+
+		if !hasID {
+			// Add the id column as primary key
+			_, err = db.Exec(ctx, `
+				ALTER TABLE web_content 
+				ADD COLUMN id BIGSERIAL PRIMARY KEY`)
+			if err != nil {
+				return fmt.Errorf("failed to add id column to web_content table: %w", err)
+			}
+			pterm.Info.Println("Added 'id' column to existing web_content table")
+		}
 	}
 	_, err = db.Exec(ctx, `
         CREATE TABLE IF NOT EXISTS web_blacklist (

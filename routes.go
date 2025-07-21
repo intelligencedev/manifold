@@ -224,8 +224,9 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agentspkg.AgenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agentspkg.AgenticMemorySearchHandler(config))
-
+	agenticGroup.POST("/hybrid-search", agentspkg.AgenticMemoryHybridSearchHandler(config)) // NEW: Advanced hybrid search
 	agenticGroup.POST("/update/:id", agentspkg.AgenticMemoryUpdateHandler(config))
+
 	// New graph-based memory endpoints
 	memoryGroup := api.Group("/memory")
 	memoryGroup.GET("/path/:sourceId/:targetId", agentspkg.FindMemoryPathHandler(config))

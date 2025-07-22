@@ -107,6 +107,7 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.POST("/split-text", splitTextHandler)
 	api.POST("/save-file", saveFileHandler)
 	api.POST("/open-file", openFileHandler)
+	api.POST("/db/query", postgresQueryHandler)
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", func(c echo.Context) error {
 		return webSearchHandler(c, config)

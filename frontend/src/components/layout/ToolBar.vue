@@ -21,8 +21,11 @@
         </div>
       </div>
       <div class="flex-1 flex justify-center items-center">
-        <button @click="$emit('run')" class="px-4 py-1 bg-teal-600 text-white rounded-xl text-base font-bold hover:bg-teal-500 transition">
-          Run
+        <button @click="isRunning ? $emit('stop') : $emit('run')" class="px-4 py-1 bg-teal-600 text-white rounded-xl text-base font-bold hover:bg-teal-500 transition flex items-center justify-center">
+          <template v-if="!isRunning">Run</template>
+          <template v-else>
+            <StopIcon class="w-5 h-5" />
+          </template>
         </button>
       </div>
       <div class="flex-1 flex justify-center">
@@ -40,10 +43,16 @@
 
 <script setup>
 import LayoutControls from '@/components/layout/LayoutControls.vue'
+import StopIcon from '@/components/icons/StopIcon.vue'
+import { useWorkflowStore } from '@/stores/workflowStore'
+import { computed } from 'vue'
 
 defineOptions({ inheritAttrs: false })
 const props = defineProps({
   modelValue: Boolean
 })
-const emit = defineEmits(['update:modelValue', 'run', 'update-layout', 'update-edge-type'])
+const emit = defineEmits(['update:modelValue', 'run', 'stop', 'update-layout', 'update-edge-type'])
+
+const workflowStore = useWorkflowStore()
+const isRunning = computed(() => workflowStore.isRunning)
 </script>

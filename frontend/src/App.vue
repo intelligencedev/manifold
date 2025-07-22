@@ -133,7 +133,8 @@
           <!-- Run Workflow ToolBar -->
           <ToolBar
             v-model="autoPanEnabled"
-            @run="runWorkflow"
+            @run="startWorkflow"
+            @stop="stopWorkflow"
             @update-layout="updateLayout"
             @update-edge-type="updateEdgeType"
           />
@@ -168,6 +169,7 @@ import SpecialEdge from './components/SpecialEdge.vue';
 import ToolBar from '@/components/layout/ToolBar.vue';
 import { useConfigStore } from '@/stores/configStore';
 import { useModeStore } from '@/stores/modeStore';
+import { useWorkflowStore } from '@/stores/workflowStore';
 
 // Import Login component
 import Login from './components/Login.vue';
@@ -229,6 +231,7 @@ const needsAdminSetup = ref(false); // Track if admin needs initial password set
 const modeStore = useModeStore();
 const mode = computed(() => modeStore.mode);
 const toggleMode = () => modeStore.toggleMode();
+const workflowStore = useWorkflowStore();
 
 // Destructure fitView along with other methods
 const { findNode, getNodes, getEdges, toObject, fromObject, fitView, updateNodeData } = useVueFlow();
@@ -640,6 +643,10 @@ function changeEdgeStyles(nodeId: string) {
 async function runWorkflowConcurrently() {
   console.log('Starting workflow execution...');
   resetEdgeStyles(); // Reset styles at the beginning
+  if (workflowStore.stopRequested) {
+    console.log('Workflow stop requested before start.');
+    return;
+  }
 
   // 1. Build adjacency list and compute in-degrees
   type ChildEdge = { target: string; handle: string | null }; // handle might be null
@@ -679,6 +686,9 @@ async function runWorkflowConcurrently() {
 
   // Define node execution function to support concurrent execution
   async function executeNode(nodeId: string) {
+    if (workflowStore.stopRequested) {
+      return null;
+    }
     if (processed.has(nodeId)) {
       return null; // Skip if already processed
     }
@@ -757,7 +767,7 @@ async function runWorkflowConcurrently() {
   }
 
   // Process the queue with support for parallel execution
-  while (queue.length > 0 && executionSteps < executionLimit) {
+  while (queue.length > 0 && executionSteps < executionLimit && !workflowStore.stopRequested) {
     executionSteps++;
     const nodeId = queue.shift()!;
 
@@ -814,7 +824,7 @@ async function runWorkflowConcurrently() {
         console.log(`Starting sub-workflow execution from node ${jumpTargetId}`);
         
         // Inner execution loop for this branch
-        while (subQueue.length > 0 && subExecutionSteps < subExecutionLimit) {
+        while (subQueue.length > 0 && subExecutionSteps < subExecutionLimit && !workflowStore.stopRequested) {
           subExecutionSteps++;
           const subNodeId = subQueue.shift()!;
           
@@ -1104,6 +1114,20 @@ async function runWorkflow() {
   console.log('Running workflow with current nodes and edges:', nodes.value.map(n=>n.id), edges.value.map(e=>e.id));
   await runWorkflowConcurrently(); // Use the refactored execution logic
   console.log('Workflow execution complete.');
+}
+
+async function startWorkflow() {
+  if (workflowStore.isRunning) return;
+  workflowStore.start();
+  try {
+    await runWorkflow();
+  } finally {
+    workflowStore.stop();
+  }
+}
+
+function stopWorkflow() {
+  workflowStore.stop();
 }
 
 // Define custom edge types.

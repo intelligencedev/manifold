@@ -24,6 +24,7 @@
       v-model="query"
       rows="4"
       class="mb-2"
+      autocomplete="off"
     />
 
     <Handle v-if="data.hasInputs" type="target" position="left" id="input" style="width:12px;height:12px" />

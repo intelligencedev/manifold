@@ -1,5 +1,6 @@
-import { computed, onMounted } from 'vue'
-import { useNodeBase } from './useNodeBase'
+import { computed, onMounted, watch } from 'vue'
+import { useNodeBase } from './useNodeBase.js'
+import { useConfigStore } from '@/stores/configStore'
 
 export function usePostgresNode(props, emit) {
   const {
@@ -9,6 +10,9 @@ export function usePostgresNode(props, emit) {
     computedContainerStyle,
     onResize: baseOnResize
   } = useNodeBase(props, emit)
+
+  // Config store for loading default connection string
+  const configStore = useConfigStore()
 
   if (!props.data.style) {
     props.data.style = {
@@ -65,9 +69,24 @@ export function usePostgresNode(props, emit) {
     }
   }
 
+  // Load default connection string from config if not set
   onMounted(() => {
     if (!props.data.run) props.data.run = run
+    if (!props.data.inputs.conn_string && configStore.config?.Database?.ConnectionString) {
+      props.data.inputs.conn_string = configStore.config.Database.ConnectionString
+    }
   })
+
+  // Also watch for config changes and update if not set
+  watch(
+    () => configStore.config?.Database?.ConnectionString,
+    (newConnString) => {
+      if (!props.data.inputs.conn_string && newConnString) {
+        props.data.inputs.conn_string = newConnString
+      }
+    },
+    { immediate: true }
+  )
 
   function onResize(event) {
     customStyle.value.width = `${event.width}px`

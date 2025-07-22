@@ -60,7 +60,7 @@ func postgresQueryHandler(c echo.Context) error {
 		q = poolConn
 		cleanup = poolConn.Release
 	} else {
-		var conn *pgx.Conn
+		var conn connector
 		conn, err = connectFunc(ctx, req.ConnString)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to connect to database"})

@@ -34,6 +34,7 @@ func (r *fakeRows) Close()                                       {}
 func (r *fakeRows) Err() error                                   { return nil }
 func (r *fakeRows) CommandTag() pgconn.CommandTag                { return pgconn.CommandTag{} }
 func (r *fakeRows) FieldDescriptions() []pgconn.FieldDescription { return r.fields }
+func (r *fakeRows) Conn() *pgx.Conn                              { return nil }
 func (r *fakeRows) Next() bool {
 	if r.idx >= len(r.data) {
 		return false
@@ -62,7 +63,7 @@ func TestPostgresQueryHandler_InvalidBody(t *testing.T) {
 }
 
 func TestPostgresQueryHandler_Success(t *testing.T) {
-	rows := &fakeRows{fields: []pgconn.FieldDescription{{Name: []byte("id")}}, data: [][]any{{1}}}
+	rows := &fakeRows{fields: []pgconn.FieldDescription{{Name: "id"}}, data: [][]any{{1}}}
 	fakeConn := &fakeQuerier{rows: rows}
 	connectFunc = func(ctx context.Context, cs string) (connector, error) { return fakeConn, nil }
 	defer func() { connectFunc = func(ctx context.Context, cs string) (connector, error) { return nil, nil } }()

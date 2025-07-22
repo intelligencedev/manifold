@@ -131,7 +131,7 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 	if err == nil {
 		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted in database", topLevel), Source: address}, nil
 	}
-	if err != nil && err != pgx.ErrNoRows {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 
@@ -142,7 +142,7 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 	if err == nil {
 		return &WebPageContent{ID: id, Title: title, Content: content, Source: address}, nil
 	}
-	if err != nil && err != pgx.ErrNoRows {
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, err
 	}
 

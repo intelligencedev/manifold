@@ -4,12 +4,19 @@
       <div :style="data.labelStyle" class="node-label">{{ data.type }}</div>
     </template>
 
-    <BaseInput
-      :id="`${data.id}-conn`"
-      label="Connection String"
-      v-model="connString"
-      class="mb-2"
-    />
+
+    <div class="relative mb-2">
+      <BaseInput
+        :id="`${data.id}-conn`"
+        label="Connection String"
+        v-model="connString"
+        :type="showConnString ? 'text' : 'password'"
+      >
+        <template #suffix>
+          <BaseTogglePassword v-model="showConnString" />
+        </template>
+      </BaseInput>
+    </div>
 
     <BaseTextarea
       :id="`${data.id}-query`"
@@ -24,12 +31,14 @@
   </BaseNode>
 </template>
 
+
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Handle } from '@vue-flow/core'
 import BaseNode from '@/components/base/BaseNode.vue'
 import BaseInput from '@/components/base/BaseInput.vue'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
+import BaseTogglePassword from '@/components/base/BaseTogglePassword.vue'
 import { usePostgresNode } from '@/composables/usePostgresNode'
 
 const props = defineProps({
@@ -53,7 +62,9 @@ const props = defineProps({
 
 const emit = defineEmits(['update:data', 'resize'])
 
+
 const { connString, query, onResize, run } = usePostgresNode(props, emit)
+const showConnString = ref(false)
 
 onMounted(() => {
   if (!props.data.run) props.data.run = run

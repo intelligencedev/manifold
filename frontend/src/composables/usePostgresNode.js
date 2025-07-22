@@ -1,8 +1,10 @@
 import { computed, onMounted, watch } from 'vue'
 import { useNodeBase } from './useNodeBase.js'
 import { useConfigStore } from '@/stores/configStore'
+import { useVueFlow } from '@vue-flow/core'
 
 export function usePostgresNode(props, emit) {
+  const { getEdges, findNode } = useVueFlow()
   const {
     isHovered,
     customStyle,
@@ -44,9 +46,20 @@ export function usePostgresNode(props, emit) {
 
   async function run() {
     try {
+      // --- Aggregate query from connected source nodes (like TextNode) ---
+      const incomingEdges = getEdges.value.filter(edge => edge.target === props.id)
+      let finalQuery = query.value
+      if (incomingEdges.length > 0) {
+        // For now, just use the first connected source node's output
+        const sourceNode = findNode(incomingEdges[0].source)
+        if (sourceNode && sourceNode.data?.outputs?.result?.output) {
+          finalQuery = finalQuery + sourceNode.data.outputs.result.output
+        }
+      }
+
       const payload = {
         conn_string: connString.value,
-        query: query.value
+        query: finalQuery
       }
       const response = await fetch(`${window.location.origin}/api/db/query`, {
         method: 'POST',

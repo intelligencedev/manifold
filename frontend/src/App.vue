@@ -127,6 +127,9 @@
           <template #node-messageBusNode="messageBusNodeProps">
             <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
           </template>
+          <template #node-postgresNode="postgresNodeProps">
+            <PostgresNode v-bind="postgresNodeProps" @contextmenu.native.prevent="showContextMenu($event, postgresNodeProps.id)" />
+          </template>
 
           <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
 
@@ -207,6 +210,7 @@ import ttsNode from './components/nodes/ttsNode.vue';
 import MCPClient from './components/nodes/MCPClient.vue';
 import Mermaid from './components/nodes/Mermaid.vue';
 import MessageBusNode from './components/MessageBusNode.vue';
+import PostgresNode from './components/nodes/PostgresNode.vue';
 
 // --- SETUP ---
 interface BgColorInterface {

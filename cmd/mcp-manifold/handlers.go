@@ -335,7 +335,10 @@ func handleLintCodeTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.
 	}, nil
 }
 
-func handleFileTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleFileTool handles the file tool (currently unused)
+//
+//nolint:unused
+func handleFileTool(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var args FileToolArgs
 	if err := mapToStruct(request.Params.Arguments, &args); err != nil {
 		return nil, err

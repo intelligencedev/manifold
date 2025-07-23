@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 
-	openai "github.com/sashabaranov/go-openai"
 	llm "manifold/internal/llm"
 )
 
@@ -261,7 +260,7 @@ func (c DefaultLLMClient) Generate(ctx context.Context, prompt string) (string, 
 	log.Printf("[EVOLVE] Prompt length: %d characters", len(prompt))
 	log.Printf("[EVOLVE] Prompt preview: %.200s...", prompt)
 
-	msgs := []openai.ChatCompletionMessage{{Role: "user", Content: prompt}}
+	msgs := []llm.ChatCompletionMessage{{Role: "user", Content: prompt}}
 	response, err := llm.CallLLM(ctx, c.Endpoint, c.APIKey, c.Model, msgs, 1024, 0.2)
 
 	if err != nil {

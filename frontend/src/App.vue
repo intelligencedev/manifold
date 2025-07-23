@@ -5,8 +5,11 @@
     
     <!-- Authentication flow with transitions -->
     <Transition name="fade" mode="out-in" class="transition duration-100 flex flex-col h-full bg-slate-700">
-      <!-- Show Login component if not authenticated -->
-      <Login v-if="!isLoading && !isAuthenticated" @login-success="handleLoginSuccess" />
+      <!-- Show Admin Setup if admin needs initial password setup -->
+      <AdminSetup v-if="!isLoading && needsAdminSetup" @setup-complete="handleSetupComplete" />
+      
+      <!-- Show Login component if not authenticated and no admin setup needed -->
+      <Login v-else-if="!isLoading && !isAuthenticated" @login-success="handleLoginSuccess" />
       
       <!-- Show main app content when authenticated -->
       <div v-else-if="!isLoading && isAuthenticated" class="flex flex-col h-full bg-slate-700">
@@ -124,13 +127,17 @@
           <template #node-messageBusNode="messageBusNodeProps">
             <MessageBusNode v-bind="messageBusNodeProps" @contextmenu.native.prevent="showContextMenu($event, messageBusNodeProps.id)" />
           </template>
+          <template #node-postgresNode="postgresNodeProps">
+            <PostgresNode v-bind="postgresNodeProps" @contextmenu.native.prevent="showContextMenu($event, postgresNodeProps.id)" />
+          </template>
 
           <Background :color="bgColor" :variant="bgVariant" :gap="16" :size="1" :pattern-color="'#444'" />
 
           <!-- Run Workflow ToolBar -->
           <ToolBar
             v-model="autoPanEnabled"
-            @run="runWorkflow"
+            @run="startWorkflow"
+            @stop="stopWorkflow"
             @update-layout="updateLayout"
             @update-edge-type="updateEdgeType"
           />
@@ -165,9 +172,11 @@ import SpecialEdge from './components/SpecialEdge.vue';
 import ToolBar from '@/components/layout/ToolBar.vue';
 import { useConfigStore } from '@/stores/configStore';
 import { useModeStore } from '@/stores/modeStore';
+import { useWorkflowStore } from '@/stores/workflowStore';
 
 // Import Login component
 import Login from './components/Login.vue';
+import AdminSetup from './components/AdminSetup.vue';
 
 // Manifold custom components
 import { isNodeConnected } from './utils/nodeHelpers.js';
@@ -201,6 +210,7 @@ import ttsNode from './components/nodes/ttsNode.vue';
 import MCPClient from './components/nodes/MCPClient.vue';
 import Mermaid from './components/nodes/Mermaid.vue';
 import MessageBusNode from './components/MessageBusNode.vue';
+import PostgresNode from './components/nodes/PostgresNode.vue';
 
 // --- SETUP ---
 interface BgColorInterface {
@@ -219,9 +229,13 @@ const token = localStorage.getItem('jwt_token');
 const isAuthenticated = ref(!!token); // Initialize based on token existence
 const isLoading = ref(true); // Start with loading state
 const authToken = ref(token || '');
+const forcePasswordChange = ref(false); // Track if user needs to change password
+const username = ref(''); // Store username for display in FirstTimePasswordChange
+const needsAdminSetup = ref(false); // Track if admin needs initial password setup
 const modeStore = useModeStore();
 const mode = computed(() => modeStore.mode);
 const toggleMode = () => modeStore.toggleMode();
+const workflowStore = useWorkflowStore();
 
 // Destructure fitView along with other methods
 const { findNode, getNodes, getEdges, toObject, fromObject, fitView, updateNodeData } = useVueFlow();
@@ -237,11 +251,44 @@ onMounted(() => {
   checkAuthentication();
 });
 
+// Check if admin setup is needed
+async function checkAdminSetupStatus() {
+  try {
+    const response = await fetch('/api/auth/admin-setup-status');
+    if (response.ok) {
+      const data = await response.json();
+      needsAdminSetup.value = data.needsSetup;
+    } else {
+      console.error('Failed to check admin setup status');
+      needsAdminSetup.value = false;
+    }
+  } catch (error) {
+    console.error('Error checking admin setup status:', error);
+    needsAdminSetup.value = false;
+  }
+}
+
+// Handle successful admin setup
+function handleSetupComplete() {
+  needsAdminSetup.value = false;
+  isAuthenticated.value = false; // Show login form next
+  console.log('Admin setup completed, showing login form');
+}
+
 // Check if the user is already authenticated
 async function checkAuthentication() {
   isLoading.value = true; // Start loading
   
   try {
+    // First, check if admin setup is needed (before checking authentication)
+    await checkAdminSetupStatus();
+    
+    // If admin setup is needed, we don't need to check authentication
+    if (needsAdminSetup.value) {
+      isAuthenticated.value = false;
+      return;
+    }
+    
     // Check localStorage for token
     const token = localStorage.getItem('jwt_token');
     
@@ -263,15 +310,21 @@ async function checkAuthentication() {
       const userData = await response.json();
       authToken.value = token;
       isAuthenticated.value = true;
-      console.log('Authenticated as:', userData.username);
+      username.value = userData.username;
+      forcePasswordChange.value = userData.forcePasswordChange || false;
+      console.log('Authenticated as:', userData.username, 'Force password change:', userData.forcePasswordChange);
     } else {
       // Token is invalid or expired
       localStorage.removeItem('jwt_token');
       isAuthenticated.value = false;
+      forcePasswordChange.value = false;
+      username.value = '';
     }
   } catch (error) {
     console.error('Authentication check failed:', error);
     isAuthenticated.value = false;
+    forcePasswordChange.value = false;
+    username.value = '';
   } finally {
     // Always turn off loading state when done
     isLoading.value = false;
@@ -279,15 +332,17 @@ async function checkAuthentication() {
 }
 
 // Handle successful login
-function handleLoginSuccess(data) {
+function handleLoginSuccess(data: any) {
   isLoading.value = true; // Show loading state during transition
   
   // Short timeout to allow for a smooth transition
   setTimeout(() => {
     authToken.value = data.token;
     isAuthenticated.value = true;
+    username.value = data.username;
+    forcePasswordChange.value = data.forcePasswordChange || false;
     localStorage.setItem('jwt_token', data.token);
-    console.log('Login successful');
+    console.log('Login successful, Force password change:', data.forcePasswordChange);
     isLoading.value = false;
   }, 300);
 }
@@ -312,11 +367,20 @@ async function handleLogout() {
     localStorage.removeItem('jwt_token');
     authToken.value = '';
     isAuthenticated.value = false;
+    forcePasswordChange.value = false;
+    username.value = '';
   } catch (error) {
     console.error('Logout error:', error);
   } finally {
     isLoading.value = false;
   }
+}
+
+// Handle successful password change for first-time login
+function handlePasswordChanged() {
+  // Clear the force password change flag
+  forcePasswordChange.value = false;
+  console.log('Password changed successfully, user can now access the app');
 }
 
 // Watchers for debugging
@@ -583,6 +647,10 @@ function changeEdgeStyles(nodeId: string) {
 async function runWorkflowConcurrently() {
   console.log('Starting workflow execution...');
   resetEdgeStyles(); // Reset styles at the beginning
+  if (workflowStore.stopRequested) {
+    console.log('Workflow stop requested before start.');
+    return;
+  }
 
   // 1. Build adjacency list and compute in-degrees
   type ChildEdge = { target: string; handle: string | null }; // handle might be null
@@ -622,6 +690,9 @@ async function runWorkflowConcurrently() {
 
   // Define node execution function to support concurrent execution
   async function executeNode(nodeId: string) {
+    if (workflowStore.stopRequested) {
+      return null;
+    }
     if (processed.has(nodeId)) {
       return null; // Skip if already processed
     }
@@ -700,7 +771,7 @@ async function runWorkflowConcurrently() {
   }
 
   // Process the queue with support for parallel execution
-  while (queue.length > 0 && executionSteps < executionLimit) {
+  while (queue.length > 0 && executionSteps < executionLimit && !workflowStore.stopRequested) {
     executionSteps++;
     const nodeId = queue.shift()!;
 
@@ -757,7 +828,7 @@ async function runWorkflowConcurrently() {
         console.log(`Starting sub-workflow execution from node ${jumpTargetId}`);
         
         // Inner execution loop for this branch
-        while (subQueue.length > 0 && subExecutionSteps < subExecutionLimit) {
+        while (subQueue.length > 0 && subExecutionSteps < subExecutionLimit && !workflowStore.stopRequested) {
           subExecutionSteps++;
           const subNodeId = subQueue.shift()!;
           
@@ -1047,6 +1118,20 @@ async function runWorkflow() {
   console.log('Running workflow with current nodes and edges:', nodes.value.map(n=>n.id), edges.value.map(e=>e.id));
   await runWorkflowConcurrently(); // Use the refactored execution logic
   console.log('Workflow execution complete.');
+}
+
+async function startWorkflow() {
+  if (workflowStore.isRunning) return;
+  workflowStore.start();
+  try {
+    await runWorkflow();
+  } finally {
+    workflowStore.stop();
+  }
+}
+
+function stopWorkflow() {
+  workflowStore.stop();
 }
 
 // Define custom edge types.

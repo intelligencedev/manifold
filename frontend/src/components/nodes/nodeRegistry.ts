@@ -33,6 +33,7 @@ import WebSearchNode from './WebSearchNode.vue'
 import TtsNode from './ttsNode.vue'
 import MessageBusNode from '../MessageBusNode.vue'
 import FlowControl from '../FlowControl.vue'
+import PostgresNode from './PostgresNode.vue'
 
 export const nodeRegistry: NodeRegistration[] = [
   {
@@ -178,6 +179,12 @@ export const nodeRegistry: NodeRegistration[] = [
     component: MessageBusNode,
     category: 'Tools',
     defaultData: () => (MessageBusNode as any).props.data.default(),
+  },
+  {
+    type: 'postgresNode',
+    component: PostgresNode,
+    category: 'Tools',
+    defaultData: () => (PostgresNode as any).props.data.default(),
   },
 ]
 

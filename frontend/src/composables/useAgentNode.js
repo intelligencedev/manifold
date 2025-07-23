@@ -1,5 +1,6 @@
 import { ref, computed, watch, onMounted } from "vue";
 import { useConfigStore } from "@/stores/configStore";
+import { useWorkflowStore } from "@/stores/workflowStore";
 import { useCodeEditor } from "./useCodeEditor";
 import { useVueFlow } from "@vue-flow/core";
 import { useNodeBase } from "./useNodeBase";
@@ -13,6 +14,7 @@ export function useAgentNode(props, emit) {
   const { getEdges, findNode, updateNodeData } = useVueFlow();
   const configStore = useConfigStore();
   const { setEditorCode } = useCodeEditor();
+  const workflowStore = useWorkflowStore();
 
   // State variables
   const showApiKey = ref(false);
@@ -500,6 +502,7 @@ export function useAgentNode(props, emit) {
             "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify(anthropicRequestBody),
+          signal: workflowStore.signal,
         });
 
         if (!response.ok) {
@@ -513,6 +516,10 @@ export function useAgentNode(props, emit) {
 
         // Stream response and update UI
         while (true) {
+          if (workflowStore.stopRequested) {
+            await reader.cancel();
+            break;
+          }
           const { done, value } = await reader.read();
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
@@ -560,6 +567,7 @@ export function useAgentNode(props, emit) {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(proxyBody),
+          signal: workflowStore.signal,
         });
 
         if (!response.ok) {
@@ -573,6 +581,10 @@ export function useAgentNode(props, emit) {
         let accumulatedResponse = "";
 
         while (true) {
+          if (workflowStore.stopRequested) {
+            await reader.cancel();
+            break;
+          }
           const { done, value } = await reader.read();
           if (done) break;
 
@@ -590,6 +602,9 @@ export function useAgentNode(props, emit) {
           }
 
           while (true) {
+            if (workflowStore.stopRequested) {
+              break;
+            }
             // Trim any leading whitespace or commas
             buffer = buffer.trimStart();
             if (buffer.startsWith("]")) {
@@ -649,6 +664,7 @@ export function useAgentNode(props, emit) {
           method: "POST",
           headers: headers,
           body: JSON.stringify(requestBody),
+          signal: workflowStore.signal,
         });
 
         if (!sseResp.ok) {
@@ -664,6 +680,10 @@ export function useAgentNode(props, emit) {
         let accumulatedContent = "";
         try {
           while (true) {
+            if (workflowStore.stopRequested) {
+              await reader.cancel();
+              break;
+            }
             const { value, done } = await reader.read();
             if (done) break;
 
@@ -725,6 +745,7 @@ export function useAgentNode(props, emit) {
             Authorization: `Bearer ${props.data.inputs.api_key}`,
           },
           body: JSON.stringify(requestBody),
+          signal: workflowStore.signal,
         });
 
         if (!response.ok) {

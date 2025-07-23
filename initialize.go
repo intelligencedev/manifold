@@ -22,11 +22,30 @@ import (
 	"github.com/pterm/pterm"
 
 	"manifold/internal/sefii"
+	servicespkg "manifold/internal/services"
 	hostinfopkg "manifold/internal/tools"
 )
 
-//go:embed sandbox/Dockerfile
+//go:embed containers/code_sandbox/Dockerfile
 var sandboxDockerfile string
+
+//go:embed mcpserver.Dockerfile
+var mcpserverDockerfile string
+
+//go:embed go.mod
+var goModContent string
+
+//go:embed go.sum
+var goSumContent string
+
+//go:embed cmd/mcp-manifold/main.go
+var mcpMainGo string
+
+//go:embed cmd/mcp-manifold/handlers.go
+var mcpHandlersGo string
+
+//go:embed cmd/mcp-manifold/tools.go
+var mcpToolsGo string
 
 // downloadFile downloads a file from a URL to a local filepath.
 // It creates parent directories if they don't exist.
@@ -197,6 +216,143 @@ func EnsureCodeSandboxImage() error {
 
 	pterm.Success.Println("code-sandbox:latest image successfully built")
 	return nil
+}
+
+// EnsureMCPServerImage checks if the manifold-mcp Docker image exists,
+// and builds it if it doesn't exist using the embedded Dockerfile.
+func EnsureMCPServerImage() error {
+	// Check if Docker is installed
+	_, err := exec.LookPath("docker")
+	if err != nil {
+		return fmt.Errorf("docker is not installed or not in PATH: %w", err)
+	}
+
+	// Check if Docker is running
+	checkCmd := exec.Command("docker", "info")
+	if err := checkCmd.Run(); err != nil {
+		return fmt.Errorf("docker is not running: %w", err)
+	}
+
+	pterm.Info.Println("Docker is available, checking for manifold-mcp image...")
+
+	// Check if the image exists
+	checkImageCmd := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "intelligencedev/manifold-mcp:latest")
+	output, err := checkImageCmd.Output()
+	if err == nil && len(output) > 0 {
+		pterm.Success.Println("intelligencedev/manifold-mcp:latest image already exists")
+		return nil
+	}
+
+	pterm.Info.Println("intelligencedev/manifold-mcp:latest image not found, building it...")
+
+	// Create a temporary directory to store the Dockerfile and build context
+	tempDir, err := os.MkdirTemp("", "mcpserver-build-")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory for Dockerfile: %w", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Write the embedded Dockerfile to the temporary directory
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	if err := os.WriteFile(dockerfilePath, []byte(mcpserverDockerfile), 0644); err != nil {
+		return fmt.Errorf("failed to write Dockerfile: %w", err)
+	}
+
+	// Write embedded go.mod to temp directory
+	if err := os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte(goModContent), 0644); err != nil {
+		return fmt.Errorf("failed to write go.mod: %w", err)
+	}
+
+	// Write embedded go.sum to temp directory
+	if err := os.WriteFile(filepath.Join(tempDir, "go.sum"), []byte(goSumContent), 0644); err != nil {
+		return fmt.Errorf("failed to write go.sum: %w", err)
+	}
+
+	// Create cmd/mcp-manifold directory and write embedded source files
+	mcpDir := filepath.Join(tempDir, "cmd", "mcp-manifold")
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
+		return fmt.Errorf("failed to create mcp-manifold directory: %w", err)
+	}
+
+	// Write embedded mcp-manifold source files
+	mcpFiles := map[string]string{
+		"main.go":     mcpMainGo,
+		"handlers.go": mcpHandlersGo,
+		"tools.go":    mcpToolsGo,
+	}
+
+	for filename, content := range mcpFiles {
+		filePath := filepath.Join(mcpDir, filename)
+		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to write %s: %w", filename, err)
+		}
+		pterm.Debug.Printf("Created %s (%d bytes)", filename, len(content))
+	}
+
+	pterm.Debug.Printf("Build context prepared in: %s", tempDir)
+	pterm.Debug.Printf("Dockerfile path: %s", dockerfilePath)
+
+	// Build the Docker image
+	buildCmd := exec.Command("docker", "build", "-t", "intelligencedev/manifold-mcp:latest", "-f", dockerfilePath, ".")
+	buildCmd.Dir = tempDir
+
+	// Capture and display the build output
+	var stdoutBuf, stderrBuf bytes.Buffer
+	buildCmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
+	buildCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
+
+	pterm.Info.Println("Building intelligencedev/manifold-mcp Docker image...")
+	if err := buildCmd.Run(); err != nil {
+		return fmt.Errorf("failed to build manifold-mcp image: %w\n%s", err, stderrBuf.String())
+	}
+
+	pterm.Success.Println("intelligencedev/manifold-mcp:latest image successfully built")
+	return nil
+}
+
+// copyFile copies a single file from src to dst
+func copyFile(src, dst string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer sourceFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	destFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	return err
+}
+
+// copyDir recursively copies a directory from src to dst
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Get the relative path
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		dstPath := filepath.Join(dst, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(dstPath, info.Mode())
+		}
+
+		return copyFile(path, dstPath)
+	})
 }
 
 // InitializeLlamaCpp downloads and sets up llama.cpp binaries if they don't exist
@@ -485,12 +641,23 @@ func InitializeApplication(config *Config) error {
 			}
 		}()
 
+		// Ensure MCP server Docker image exists
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pterm.Info.Println("Checking MCP server Docker image...")
+			if err := EnsureMCPServerImage(); err != nil {
+				addError(fmt.Errorf("MCP server image initialization error: %w", err))
+				pterm.Warning.Printf("Failed to initialize MCP server Docker image: %v\n", err)
+			}
+		}()
+
 		// Start PGVector container in a goroutine
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			pterm.Info.Println("Initializing PGVector database container...")
-			if err := StartPGVectorContainer(config); err != nil {
+			if err := servicespkg.StartPGVectorContainer(config); err != nil {
 				addError(fmt.Errorf("PGVector container initialization error: %w", err))
 				pterm.Warning.Printf("Failed to initialize PGVector container: %v\n", err)
 			}
@@ -532,54 +699,48 @@ func InitializeApplication(config *Config) error {
 	// Use the existing connection pool rather than creating a new connection
 	ctx := context.Background()
 
-	// We'll use the pool that was already created in main.go
+	// Use the existing connection pool (should always be available now)
 	if config.DBPool == nil {
-		// If the pool doesn't exist yet (which shouldn't happen), create a backup connection temporarily
-		pterm.Warning.Println("Database pool not initialized, creating a temporary connection")
-		db, err := sefii.Connect(ctx, config.Database.ConnectionString)
-		if err != nil {
-			pterm.Fatal.Println(err)
-		}
-		defer db.Close(ctx)
-
-		_, err = db.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-		if err != nil {
-			panic(err)
-		}
-		err = pgxvector.RegisterTypes(ctx, db)
-		if err != nil {
-			panic(err)
-		}
-
-		engine := sefii.NewEngine(db)
-		engine.EnsureTable(ctx, config.Embeddings.Dimensions)
-		engine.EnsureInvertedIndexTable(ctx)
-	} else {
-		// Use the existing connection pool
-		conn, err := config.DBPool.Acquire(ctx)
-		if err != nil {
-			pterm.Fatal.Println("Failed to acquire connection from pool:", err)
-		}
-		defer conn.Release()
-
-		_, err = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
-		if err != nil {
-			panic(err)
-		}
-		err = pgxvector.RegisterTypes(ctx, conn.Conn())
-		if err != nil {
-			panic(err)
-		}
-
-		engine := sefii.NewEngine(conn.Conn())
-		engine.EnsureTable(ctx, config.Embeddings.Dimensions)
-		engine.EnsureInvertedIndexTable(ctx)
+		return fmt.Errorf("database pool not initialized - this should not happen")
 	}
+
+	pterm.Info.Println("Acquiring database connection for initialization...")
+	conn, err := config.DBPool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to acquire connection from pool: %w", err)
+	}
+	defer conn.Release()
+
+	pterm.Info.Println("Creating vector extension...")
+	_, err = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS vector")
+	if err != nil {
+		return fmt.Errorf("failed to create vector extension: %w", err)
+	}
+
+	pterm.Info.Println("Registering pgvector types...")
+	err = pgxvector.RegisterTypes(ctx, conn.Conn())
+	if err != nil {
+		return fmt.Errorf("failed to register pgvector types: %w", err)
+	}
+
+	pterm.Info.Println("Creating sefii engine...")
+	engine := sefii.NewEngine(conn.Conn())
+
+	pterm.Info.Println("Ensuring sefii table...")
+	if err := engine.EnsureTable(ctx, config.Embeddings.Dimensions); err != nil {
+		return fmt.Errorf("failed to ensure sefii table: %w", err)
+	}
+
+	pterm.Info.Println("Ensuring inverted index table...")
+	if err := engine.EnsureInvertedIndexTable(ctx); err != nil {
+		return fmt.Errorf("failed to ensure inverted index table: %w", err)
+	}
+	pterm.Info.Println("Database initialization completed successfully")
 
 	// Start local services if SingleNodeInstance is true
 	if config.SingleNodeInstance {
 		pterm.Info.Println("Running in single node mode, starting local services...")
-		if err := StartLocalServices(config); err != nil {
+		if err := servicespkg.StartLocalServices(config); err != nil {
 			pterm.Warning.Printf("Failed to start local services: %v\n", err)
 		}
 	}
@@ -612,15 +773,54 @@ func CreateModelsTable(ctx context.Context, db *pgx.Conn) error {
 
 // CreateWebTables initializes tables used for web content fetching and blacklisting.
 func CreateWebTables(ctx context.Context, db *pgx.Conn) error {
-	_, err := db.Exec(ctx, `
-        CREATE TABLE IF NOT EXISTS web_content (
-            url TEXT PRIMARY KEY,
-            title TEXT,
-            content TEXT,
-            fetched_at TIMESTAMP DEFAULT NOW()
-        )`)
+	// Check if web_content table exists
+	var tableExists bool
+	err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables 
+			WHERE table_name = 'web_content'
+		)`).Scan(&tableExists)
 	if err != nil {
-		return fmt.Errorf("failed to create web_content table: %w", err)
+		return fmt.Errorf("failed to check if web_content table exists: %w", err)
+	}
+
+	if !tableExists {
+		// Create new table with proper schema including ID column
+		_, err := db.Exec(ctx, `
+			CREATE TABLE web_content (
+				id BIGSERIAL PRIMARY KEY,
+				url TEXT UNIQUE NOT NULL,
+				title TEXT,
+				content TEXT,
+				fetched_at TIMESTAMP DEFAULT NOW()
+			)`)
+		if err != nil {
+			return fmt.Errorf("failed to create web_content table: %w", err)
+		}
+		pterm.Info.Println("Created web_content table with id column")
+	} else {
+		// Table exists, check if id column exists and add it if it doesn't (migration)
+		var hasID bool
+		err = db.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns 
+				WHERE table_name = 'web_content' 
+				AND column_name = 'id'
+			)`).Scan(&hasID)
+		if err != nil {
+			return fmt.Errorf("failed to check for id column: %w", err)
+		}
+
+		if !hasID {
+			// Add the id column as primary key
+			_, err = db.Exec(ctx, `
+				ALTER TABLE web_content 
+				ADD COLUMN id BIGSERIAL PRIMARY KEY`)
+			if err != nil {
+				return fmt.Errorf("failed to add id column to web_content table: %w", err)
+			}
+			pterm.Info.Println("Added 'id' column to existing web_content table")
+		}
 	}
 	_, err = db.Exec(ctx, `
         CREATE TABLE IF NOT EXISTS web_blacklist (

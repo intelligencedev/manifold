@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="containerRef"
     :style="computedContainerStyle"
     class="node-container note-node flex flex-col w-full h-full p-3 rounded-xl border text-gray-900 shadow relative"
     @mouseenter="isHovered = true"
@@ -51,7 +52,7 @@ import { watch, onMounted } from 'vue'
 import { Handle } from '@vue-flow/core'
 import { NodeResizer } from '@vue-flow/node-resizer'
 import { useNoteNode } from '@/composables/useNoteNode'
-import { useVueFlow } from '@vue-flow/core'
+import { useDisableNodeDragOnInput } from '@/composables/useDisableNodeDragOnInput'
 
 const props = defineProps({
   id: {
@@ -93,8 +94,6 @@ const emit = defineEmits([
   'resize'
 ])
 
-// Get the Vue Flow instance to control node dragging
-const { disableNodeDrag, enableNodeDrag } = useVueFlow()
 
 // Use the note node composable
 const {
@@ -113,6 +112,8 @@ const {
   handleTextareaMouseLeave,
   onResize
 } = useNoteNode(props, emit)
+// Disable drag when interacting with input fields
+const containerRef = useDisableNodeDragOnInput(props.id)
 
 // Watch for changes and emit them upward
 watch(
@@ -123,21 +124,4 @@ watch(
   { deep: true }
 )
 
-// Disable node dragging when interacting with textarea
-const onTextareaMouseDown = (event) => {
-  event.stopPropagation()
-  disableNodeDrag(props.id)
-}
-
-const onTextareaMouseUp = () => {
-  enableNodeDrag(props.id)
-}
-
-const onTextareaFocus = () => {
-  disableNodeDrag(props.id)
-}
-
-const onTextareaBlur = () => {
-  enableNodeDrag(props.id)
-}
 </script>

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/labstack/echo/v4"
 
@@ -26,6 +27,10 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	e.POST("/api/auth/login", loginHandler)
 	e.POST("/api/auth/register", registerHandler)
 
+	// Admin setup routes - publicly accessible for initial setup
+	e.GET("/api/auth/admin-setup-status", checkAdminSetupHandler)
+	e.POST("/api/auth/admin-setup", setupAdminPasswordHandler)
+
 	// Serve static frontend files.
 	e.GET("/*", echo.WrapHandler(http.FileServer(getFileSystem())))
 	e.Static("/tmp", config.DataPath+"/tmp")
@@ -40,7 +45,8 @@ func registerRoutes(e *echo.Echo, config *Config) {
 	restricted.GET("", restrictedHandler) // Sample protected route
 	restricted.GET("/user", getUserInfoHandler)
 	restricted.POST("/logout", logoutHandler)
-	restricted.POST("/change-password", changePasswordHandler) // New endpoint for changing password
+	restricted.POST("/change-password", changePasswordHandler)                     // Regular password change endpoint
+	restricted.POST("/first-time-password-change", firstTimePasswordChangeHandler) // First-time password change endpoint
 
 	// Register other API endpoints
 	registerAPIEndpoints(api, config)
@@ -101,6 +107,7 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 	api.POST("/split-text", splitTextHandler)
 	api.POST("/save-file", saveFileHandler)
 	api.POST("/open-file", openFileHandler)
+	api.POST("/db/query", postgresQueryHandler)
 	api.GET("/web-content", webContentHandler)
 	api.GET("/web-search", func(c echo.Context) error {
 		return webSearchHandler(c, config)
@@ -128,18 +135,57 @@ func registerMCPEndpoints(api *echo.Group, config *Config) {
 	// Create an MCP subgroup for all MCP-related endpoints
 	mcpGroup := api.Group("/mcp")
 
-	// Set up the internal MCP handler with server management
-	internalMCPHandler, err := NewInternalMCPHandler(config)
-	if err != nil {
-		log.Printf("Error creating internal MCP handler: %v", err)
-		return
+	// Create a lazy-loading MCP handler that initializes on first use
+	var internalMCPHandler *InternalMCPHandler
+	var handlerErr error
+	var initOnce sync.Once
+
+	getHandler := func() (*InternalMCPHandler, error) {
+		initOnce.Do(func() {
+			internalMCPHandler, handlerErr = NewInternalMCPHandler(config)
+		})
+		return internalMCPHandler, handlerErr
 	}
 
-	// Register routes to interact with the configured MCP servers
-	// This gives access to our new mcp-manifold server through the Manager
-	mcpGroup.GET("/servers", internalMCPHandler.listServersHandler)
-	mcpGroup.GET("/servers/:name/tools", internalMCPHandler.listServerToolsHandler)
-	mcpGroup.POST("/servers/:name/tools/:tool", internalMCPHandler.callServerToolHandler)
+	// Register routes with lazy initialization
+	mcpGroup.GET("/servers", func(c echo.Context) error {
+		handler, err := getHandler()
+		if err != nil {
+			log.Printf("MCP handler initialization failed: %v", err)
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"error":   "MCP functionality is currently unavailable",
+				"details": "MCP server configuration error - check server logs for details",
+			})
+		}
+		return handler.listServersHandler(c)
+	})
+
+	mcpGroup.GET("/servers/:name/tools", func(c echo.Context) error {
+		handler, err := getHandler()
+		if err != nil {
+			log.Printf("MCP handler initialization failed: %v", err)
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"error":   "MCP functionality is currently unavailable",
+				"details": "MCP server configuration error - check server logs for details",
+			})
+		}
+		return handler.listServerToolsHandler(c)
+	})
+
+	mcpGroup.POST("/servers/:name/tools/:tool", func(c echo.Context) error {
+		handler, err := getHandler()
+		if err != nil {
+			log.Printf("MCP handler initialization failed: %v", err)
+			return c.JSON(http.StatusServiceUnavailable, map[string]string{
+				"error":   "MCP functionality is currently unavailable",
+				"details": "MCP server configuration error - check server logs for details",
+			})
+		}
+		return handler.callServerToolHandler(c)
+	})
+
+	// Admin endpoint to refresh MCP tools cache
+	// mcpGroup.POST("/admin/refresh-cache", agentspkg.AdminRefreshCacheHandler(config))
 }
 
 // registerCompletionsEndpoints registers routes for completions-related functionality.
@@ -179,8 +225,9 @@ func registerAgenticMemoryEndpoints(api *echo.Group, config *Config) {
 	agenticGroup := api.Group("/agentic-memory")
 	agenticGroup.POST("/ingest", agentspkg.AgenticMemoryIngestHandler(config))
 	agenticGroup.POST("/search", agentspkg.AgenticMemorySearchHandler(config))
-
+	agenticGroup.POST("/hybrid-search", agentspkg.AgenticMemoryHybridSearchHandler(config)) // NEW: Advanced hybrid search
 	agenticGroup.POST("/update/:id", agentspkg.AgenticMemoryUpdateHandler(config))
+
 	// New graph-based memory endpoints
 	memoryGroup := api.Group("/memory")
 	memoryGroup.GET("/path/:sourceId/:targetId", agentspkg.FindMemoryPathHandler(config))

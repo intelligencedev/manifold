@@ -42,12 +42,18 @@ type serversConfig struct {
 func LoadServerConfigs(configPath string) (map[string]ServerConfig, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("reading config file: %w", err)
+		return nil, fmt.Errorf("reading config file %s: %w", configPath, err)
 	}
 	var scfg serversConfig
 	if err := yaml.Unmarshal(data, &scfg); err != nil {
-		return nil, fmt.Errorf("unmarshaling mcpServers: %w", err)
+		return nil, fmt.Errorf("unmarshaling mcpServers from %s: %w", configPath, err)
 	}
+
+	// Check if mcpServers section exists
+	if scfg.Servers == nil {
+		return make(map[string]ServerConfig), nil // Return empty map if no MCP servers configured
+	}
+
 	return scfg.Servers, nil
 }
 
@@ -61,6 +67,11 @@ func StartClientsFromConfig(ctx context.Context, configs map[string]ServerConfig
 	clients := make(map[string]MCPClient, len(configs))
 	cleanups := make(map[string]func() error, len(configs))
 
+	// If no configs, return empty maps without error
+	if len(configs) == 0 {
+		return clients, cleanups, nil
+	}
+
 	for name, cfg := range configs {
 		// Build environment slice
 		env := os.Environ()
@@ -68,18 +79,24 @@ func StartClientsFromConfig(ctx context.Context, configs map[string]ServerConfig
 			env = append(env, fmt.Sprintf("%s=%s", k, v))
 		}
 
+		// Validate server configuration
+		if cfg.Command == "" {
+			cleanupAll(cleanups)
+			return nil, nil, fmt.Errorf("MCP server %q: command cannot be empty", name)
+		}
+
 		// NewStdioMCPClient will launch the subprocess and wire up stdin/stdout.
 		client, err := clientpkg.NewStdioMCPClient(cfg.Command, env, cfg.Args...)
 		if err != nil {
 			cleanupAll(cleanups)
-			return nil, nil, fmt.Errorf("starting client for %q: %w", name, err)
+			return nil, nil, fmt.Errorf("starting MCP client for %q (command: %s %v): %w", name, cfg.Command, cfg.Args, err)
 		}
 
 		// Initialize the client (handshake)
 		if _, err := client.Initialize(ctx, mcp.InitializeRequest{}); err != nil {
 			client.Close()
 			cleanupAll(cleanups)
-			return nil, nil, fmt.Errorf("initializing client for %q: %w", name, err)
+			return nil, nil, fmt.Errorf("initializing MCP client for %q (command: %s %v): %w", name, cfg.Command, cfg.Args, err)
 		}
 
 		clients[name] = client

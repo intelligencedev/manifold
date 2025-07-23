@@ -1,6 +1,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { useConfigStore } from '@/stores/configStore'
+import { useWorkflowStore } from '@/stores/workflowStore'
 
 /**
  * Composable for managing AgentNode state and functionality
@@ -8,6 +9,7 @@ import { useConfigStore } from '@/stores/configStore'
 export function useReactAgent(props, emit) {
   const configStore = useConfigStore()
   const { getEdges, findNode, updateNodeData } = useVueFlow()
+  const workflowStore = useWorkflowStore()
   
   // State variables
   const isHovered = ref(false)
@@ -100,6 +102,9 @@ export function useReactAgent(props, emit) {
   // Node functionality
   async function run() {
     console.log('Running ReactAgent:', props.id);
+    if (workflowStore.stopRequested) {
+      return { error: 'stopped' };
+    }
     try {
       let finalPrompt = props.data.inputs.user_prompt;
       
@@ -130,7 +135,8 @@ export function useReactAgent(props, emit) {
           objective: finalPrompt,
           max_steps: agentMaxSteps.value,
           model: ''  // Using default model from the backend
-        })
+        }),
+        signal: workflowStore.signal
       });
       
       if (!sseResp.ok) {
@@ -147,6 +153,10 @@ export function useReactAgent(props, emit) {
 
       try {
         while (true) {
+          if (workflowStore.stopRequested) {
+            await reader.cancel();
+            break;
+          }
           const { value, done } = await reader.read();
           if (done) break;
           if (value === '[[EOF]]') {
@@ -168,6 +178,10 @@ export function useReactAgent(props, emit) {
         }
       } catch (e) {
         // ignore stream errors
+      }
+
+      if (workflowStore.stopRequested) {
+        return { error: 'stopped' };
       }
 
       // Set the final result with proper formatting

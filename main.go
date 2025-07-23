@@ -21,6 +21,7 @@ import (
 	"github.com/pterm/pterm"
 
 	configpkg "manifold/internal/config"
+	servicespkg "manifold/internal/services"
 )
 
 //go:embed frontend/dist
@@ -37,12 +38,7 @@ func main() {
 		logger.Fatal(fmt.Sprintf("Failed to load configuration: %v", err))
 	}
 
-	// Initialize application (create data directory, etc.).
-	if err := InitializeApplication(config); err != nil {
-		logger.Fatal(fmt.Sprintf("Failed to initialize application: %v", err))
-	}
-
-	// Initialize the database connection pool with CPU-based sizing
+	// Initialize the database connection pool with CPU-based sizing first
 	ctx := context.Background()
 	poolConfig, err := pgxpool.ParseConfig(config.Database.ConnectionString)
 	if err != nil {
@@ -62,6 +58,11 @@ func main() {
 	// Store the connection pool in the config for use throughout the application
 	config.DBPool = dbpool
 	logger.Info("Database connection pool initialized successfully")
+
+	// Initialize application (create data directory, etc.) after DB pool is ready
+	if err := InitializeApplication(config); err != nil {
+		logger.Fatal(fmt.Sprintf("Failed to initialize application: %v", err))
+	}
 
 	// Test the database connection
 	if err := dbpool.Ping(ctx); err != nil {
@@ -87,15 +88,19 @@ func main() {
 	defer userDB.Close()
 
 	// Create default admin user if it doesn't exist
+	logger.Info("Starting admin user creation...")
 	createDefaultAdmin(config)
+	logger.Info("Admin user creation completed")
 
 	// Create a new Echo instance
+	logger.Info("Creating Echo web server instance...")
 	e := echo.New()
 
 	// Remove banner and version info from Echo logs
 	e.HideBanner = true
 	e.HidePort = true
 
+	logger.Info("Configuring Echo middleware...")
 	// Make config accessible via context
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -125,14 +130,8 @@ func main() {
 	e.Use(session.Middleware(store))
 
 	// Register routes
+	logger.Info("Registering routes...")
 	registerRoutes(e, config)
-
-	// Create InternalMCPHandler for proper cleanup
-	internalMCPHandler, err := NewInternalMCPHandler(config)
-	if err != nil {
-		logger.Warn(fmt.Sprintf("Failed to initialize MCP handler: %v", err))
-		// Continue anyway, as MCP functionality is optional
-	}
 
 	// Start server in a goroutine
 	go func() {
@@ -152,19 +151,15 @@ func main() {
 
 	// Perform cleanup
 
-	// Close MCP handler if it was successfully created
-	if internalMCPHandler != nil {
-		logger.Info("Shutting down MCP handler...")
-		internalMCPHandler.Close()
+	// First, stop all local services if they were started
+	if config.SingleNodeInstance {
+		logger.Info("Shutting down local services...")
+		servicespkg.StopAllServices()
 	}
-
-	// First, stop all local services
-	logger.Info("Shutting down local services...")
-	StopAllServices()
 
 	// Stop PGVector container with explicit confirmation
 	logger.Info("Shutting down PGVector container...")
-	if err := StopPGVectorContainer(); err != nil {
+	if err := servicespkg.StopPGVectorContainer(); err != nil {
 		logger.Error(fmt.Sprintf("Error stopping PGVector container: %v", err))
 	} else {
 		logger.Info("PGVector container stopped successfully")
@@ -182,33 +177,44 @@ func main() {
 
 // createDefaultAdmin creates a default admin user if it doesn't exist
 func createDefaultAdmin(config *Config) {
+	pterm.Info.Println("Starting createDefaultAdmin function...")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Check if admin user exists
+	pterm.Info.Println("Checking if admin user exists...")
 	_, err := userDB.GetUserByUsername(ctx, "admin")
 
-	// If admin doesn't exist, create it with a default password
+	// If admin doesn't exist, create it without a password (password_hash will be empty)
 	if err != nil {
-		pterm.Info.Println("Creating default admin user...")
+		pterm.Info.Println("Admin user not found, creating admin user without password...")
 
-		// Default admin password - in production, this should be changed immediately after first login
-		defaultPassword := "M@nif0ld@dminStr0ngP@ssw0rd"
-
-		user, err := userDB.CreateUser(ctx, "admin", defaultPassword, "", "Administrator")
+		// Create admin user with empty password hash - user must set password on first access
+		user, err := userDB.CreateUserWithoutPassword(ctx, "admin", "", "Administrator")
 		if err != nil {
 			pterm.Error.Printf("Failed to create default admin user: %v\n", err)
 			return
 		}
 
 		// Update user role to admin in database
+		pterm.Info.Println("Updating user role to admin...")
 		_, err = userDB.db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = $1", user.ID)
 		if err != nil {
 			pterm.Error.Printf("Failed to set admin role: %v\n", err)
 			return
 		}
 
+		// Set force password change flag
+		pterm.Info.Println("Setting force password change flag...")
+		err = userDB.SetForcePasswordChange(ctx, user.ID, true)
+		if err != nil {
+			pterm.Error.Printf("Failed to set force password change flag: %v\n", err)
+			return
+		}
+
 		pterm.Success.Println("Default admin user created successfully.")
-		pterm.Warning.Println("Please change the default admin password after first login!")
+		pterm.Warning.Println("Admin user must set their password on first access to the application.")
+	} else {
+		pterm.Info.Println("Admin user already exists")
 	}
 }

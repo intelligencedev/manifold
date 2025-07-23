@@ -1,4 +1,4 @@
-package main
+package services
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pterm/pterm"
 
+	configpkg "manifold/internal/config"
 	hostinfopkg "manifold/internal/tools"
 )
 
@@ -35,7 +36,7 @@ var (
 )
 
 // StartLocalServices initializes and starts all required local services based on the configuration.
-func StartLocalServices(config *Config) error {
+func StartLocalServices(config *configpkg.Config) error {
 	if !config.SingleNodeInstance {
 		pterm.Info.Println("SingleNodeInstance is false, not starting local services")
 		return nil
@@ -68,12 +69,12 @@ func StartLocalServices(config *Config) error {
 }
 
 // startService is a helper function to start a specific service.
-func startService(startFunc func(*Config, string) error, config *Config, binaryPath string) error {
+func startService(startFunc func(*configpkg.Config, string) error, config *configpkg.Config, binaryPath string) error {
 	return startFunc(config, binaryPath)
 }
 
 // StartCompletionsService starts the local completions service using the Gemma model.
-func StartCompletionsService(config *Config, binaryPath string) error {
+func StartCompletionsService(config *configpkg.Config, binaryPath string) error {
 	return startLlamaService("completions", config, binaryPath, 32186, "completions", []string{
 		"--temp", "1.0",
 		"--ctx-size", "16384",
@@ -93,7 +94,7 @@ func StartCompletionsService(config *Config, binaryPath string) error {
 }
 
 // StartEmbeddingsService starts the local embeddings service.
-func StartEmbeddingsService(config *Config, binaryPath string) error {
+func StartEmbeddingsService(config *configpkg.Config, binaryPath string) error {
 	return startLlamaService("embeddings", config, binaryPath, 32184, "embeddings", []string{
 		"-c", "65536",
 		"-np", "8",
@@ -106,7 +107,7 @@ func StartEmbeddingsService(config *Config, binaryPath string) error {
 }
 
 // StartRerankerService starts the local reranker service.
-func StartRerankerService(config *Config, binaryPath string) error {
+func StartRerankerService(config *configpkg.Config, binaryPath string) error {
 	return startLlamaService("reranker", config, binaryPath, 32185, "reranker", []string{
 		"-c", "65536",
 		"-np", "8",
@@ -120,7 +121,7 @@ func StartRerankerService(config *Config, binaryPath string) error {
 }
 
 // startLlamaService is a generic function to start a LlamaService.
-func startLlamaService(name string, config *Config, binaryPath string, port int, serviceType string, additionalArgs []string) error {
+func startLlamaService(name string, config *configpkg.Config, binaryPath string, port int, serviceType string, additionalArgs []string) error {
 	servicesMutex.Lock()
 	defer servicesMutex.Unlock()
 
@@ -128,7 +129,7 @@ func startLlamaService(name string, config *Config, binaryPath string, port int,
 		return nil
 	}
 
-	modelPath := getModelPath(config, name)
+	modelPath := GetModelPath(config, name)
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		return fmt.Errorf("%s model not found at %s", name, modelPath)
 	}
@@ -176,7 +177,7 @@ func startLlamaService(name string, config *Config, binaryPath string, port int,
 }
 
 // getModelPath returns the model path for a given service name.
-func getModelPath(config *Config, serviceName string) string {
+func GetModelPath(config *configpkg.Config, serviceName string) string {
 	switch serviceName {
 	case "completions":
 		return filepath.Join(config.DataPath, "models", "gguf", "gemma-3-4b-it-Q8_0.gguf")
@@ -265,7 +266,7 @@ func monitorProcess(name string, cmd *exec.Cmd, shutdownChan chan struct{}) {
 }
 
 // getLlamaServerBinaryPath returns the path to the llama-server binary
-func getLlamaServerBinaryPath(config *Config) (string, error) {
+func getLlamaServerBinaryPath(config *configpkg.Config) (string, error) {
 	if config.DataPath == "" {
 		return "", fmt.Errorf("data path not configured")
 	}
@@ -304,7 +305,7 @@ func getLlamaServerBinaryPath(config *Config) (string, error) {
 }
 
 // StartPGVectorContainer starts a Docker container running PGVector if Docker is available
-func StartPGVectorContainer(config *Config) error {
+func StartPGVectorContainer(config *configpkg.Config) error {
 	// Ensure the pg-manifold Docker image exists
 	if err := EnsurePGVectorImage(); err != nil {
 		return fmt.Errorf("failed to ensure pg-manifold image: %w", err)
@@ -341,7 +342,7 @@ func StartPGVectorContainer(config *Config) error {
 		dbname := "manifold"   // default
 
 		if config != nil && config.Database.ConnectionString != "" {
-			if u, p, db, ok := parseConnectionString(config.Database.ConnectionString); ok {
+			if u, p, db, ok := ParseConnectionString(config.Database.ConnectionString); ok {
 				username = u
 				password = p
 				dbname = db
@@ -487,7 +488,7 @@ func StopPGVectorContainer() error {
 }
 
 // parseConnectionString attempts to extract username, password and database name from a connection string
-func parseConnectionString(conn string) (user, pass, db string, ok bool) {
+func ParseConnectionString(conn string) (user, pass, db string, ok bool) {
 	user, pass, db = "postgres", "postgres", "manifold"
 	at := strings.Index(conn, "@")
 	if at == -1 {

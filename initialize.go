@@ -22,14 +22,12 @@ import (
 	"github.com/pterm/pterm"
 
 	"manifold/internal/sefii"
+	servicespkg "manifold/internal/services"
 	hostinfopkg "manifold/internal/tools"
 )
 
 //go:embed containers/code_sandbox/Dockerfile
 var sandboxDockerfile string
-
-//go:embed pgsql.Dockerfile
-var pgsqlDockerfile string
 
 //go:embed mcpserver.Dockerfile
 var mcpserverDockerfile string
@@ -217,64 +215,6 @@ func EnsureCodeSandboxImage() error {
 	}
 
 	pterm.Success.Println("code-sandbox:latest image successfully built")
-	return nil
-}
-
-// EnsurePGVectorImage checks if the pg-manifold Docker image exists,
-// and builds it if it doesn't exist using the embedded Dockerfile.
-func EnsurePGVectorImage() error {
-	// Check if Docker is installed
-	_, err := exec.LookPath("docker")
-	if err != nil {
-		return fmt.Errorf("docker is not installed or not in PATH: %w", err)
-	}
-
-	// Check if Docker is running
-	checkCmd := exec.Command("docker", "info")
-	if err := checkCmd.Run(); err != nil {
-		return fmt.Errorf("docker is not running: %w", err)
-	}
-
-	pterm.Info.Println("Docker is available, checking for pg-manifold image...")
-
-	// Check if the image exists
-	checkImageCmd := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "intelligencedev/pg-manifold:latest")
-	output, err := checkImageCmd.Output()
-	if err == nil && len(output) > 0 {
-		pterm.Success.Println("intelligencedev/pg-manifold:latest image already exists")
-		return nil
-	}
-
-	pterm.Info.Println("intelligencedev/pg-manifold:latest image not found, building it...")
-
-	// Create a temporary directory to store the Dockerfile
-	tempDir, err := os.MkdirTemp("", "pgvector-build-")
-	if err != nil {
-		return fmt.Errorf("failed to create temp directory for Dockerfile: %w", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// Write the embedded Dockerfile to the temporary directory
-	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
-	if err := os.WriteFile(dockerfilePath, []byte(pgsqlDockerfile), 0644); err != nil {
-		return fmt.Errorf("failed to write Dockerfile: %w", err)
-	}
-
-	// Build the Docker image
-	buildCmd := exec.Command("docker", "build", "-t", "intelligencedev/pg-manifold:latest", "-f", dockerfilePath, ".")
-	buildCmd.Dir = tempDir
-
-	// Capture and display the build output
-	var stdoutBuf, stderrBuf bytes.Buffer
-	buildCmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
-	buildCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
-
-	pterm.Info.Println("Building intelligencedev/pg-manifold Docker image...")
-	if err := buildCmd.Run(); err != nil {
-		return fmt.Errorf("failed to build pg-manifold image: %w\n%s", err, stderrBuf.String())
-	}
-
-	pterm.Success.Println("intelligencedev/pg-manifold:latest image successfully built")
 	return nil
 }
 
@@ -717,7 +657,7 @@ func InitializeApplication(config *Config) error {
 		go func() {
 			defer wg.Done()
 			pterm.Info.Println("Initializing PGVector database container...")
-			if err := StartPGVectorContainer(config); err != nil {
+			if err := servicespkg.StartPGVectorContainer(config); err != nil {
 				addError(fmt.Errorf("PGVector container initialization error: %w", err))
 				pterm.Warning.Printf("Failed to initialize PGVector container: %v\n", err)
 			}
@@ -800,7 +740,7 @@ func InitializeApplication(config *Config) error {
 	// Start local services if SingleNodeInstance is true
 	if config.SingleNodeInstance {
 		pterm.Info.Println("Running in single node mode, starting local services...")
-		if err := StartLocalServices(config); err != nil {
+		if err := servicespkg.StartLocalServices(config); err != nil {
 			pterm.Warning.Printf("Failed to start local services: %v\n", err)
 		}
 	}

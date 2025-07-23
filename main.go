@@ -21,6 +21,7 @@ import (
 	"github.com/pterm/pterm"
 
 	configpkg "manifold/internal/config"
+	servicespkg "manifold/internal/services"
 )
 
 //go:embed frontend/dist
@@ -153,12 +154,12 @@ func main() {
 	// First, stop all local services if they were started
 	if config.SingleNodeInstance {
 		logger.Info("Shutting down local services...")
-		StopAllServices()
+		servicespkg.StopAllServices()
 	}
 
 	// Stop PGVector container with explicit confirmation
 	logger.Info("Shutting down PGVector container...")
-	if err := StopPGVectorContainer(); err != nil {
+	if err := servicespkg.StopPGVectorContainer(); err != nil {
 		logger.Error(fmt.Sprintf("Error stopping PGVector container: %v", err))
 	} else {
 		logger.Info("PGVector container stopped successfully")

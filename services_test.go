@@ -3,10 +3,13 @@ package main
 import (
 	"path/filepath"
 	"testing"
+
+	configpkg "manifold/internal/config"
+	servicespkg "manifold/internal/services"
 )
 
 func TestParseConnectionString_Valid(t *testing.T) {
-	user, pass, db, ok := parseConnectionString("postgres://u:p@host:5432/mydb")
+	user, pass, db, ok := servicespkg.ParseConnectionString("postgres://u:p@host:5432/mydb")
 	if !ok {
 		t.Fatal("expected ok true for valid connection string")
 	}
@@ -16,7 +19,7 @@ func TestParseConnectionString_Valid(t *testing.T) {
 }
 
 func TestParseConnectionString_WithQueryParams(t *testing.T) {
-	user, pass, db, ok := parseConnectionString("postgres://user:pass@host:5432/dbname?sslmode=disable")
+	user, pass, db, ok := servicespkg.ParseConnectionString("postgres://user:pass@host:5432/dbname?sslmode=disable")
 	if !ok {
 		t.Fatal("expected ok true for valid connection string with params")
 	}
@@ -27,7 +30,7 @@ func TestParseConnectionString_WithQueryParams(t *testing.T) {
 
 func TestParseConnectionString_MissingCredentials(t *testing.T) {
 	// Test with format: postgres://host:5432/testdb (no @ symbol)
-	user, pass, db, ok := parseConnectionString("postgres://host:5432/testdb")
+	user, pass, db, ok := servicespkg.ParseConnectionString("postgres://host:5432/testdb")
 	if ok {
 		// The current implementation returns ok=false for this format
 		// since it can't find the '@' symbol to separate credentials
@@ -39,7 +42,7 @@ func TestParseConnectionString_MissingCredentials(t *testing.T) {
 	}
 
 	// Test with properly formatted empty credentials: postgres://@host:5432/testdb
-	user, pass, db, ok = parseConnectionString("postgres://@host:5432/testdb")
+	user, pass, db, ok = servicespkg.ParseConnectionString("postgres://@host:5432/testdb")
 	if !ok {
 		t.Fatal("expected ok true for connection string with empty but properly formatted credentials")
 	}
@@ -53,7 +56,7 @@ func TestParseConnectionString_MissingCredentials(t *testing.T) {
 	}
 
 	// Test with username but no password: postgres://someuser@host:5432/testdb
-	user, pass, db, ok = parseConnectionString("postgres://someuser@host:5432/testdb")
+	user, pass, db, ok = servicespkg.ParseConnectionString("postgres://someuser@host:5432/testdb")
 	if !ok {
 		t.Fatal("expected ok true for connection string with username but no password")
 	}
@@ -67,7 +70,7 @@ func TestParseConnectionString_MissingCredentials(t *testing.T) {
 }
 
 func TestParseConnectionString_Invalid(t *testing.T) {
-	user, pass, db, ok := parseConnectionString("invalidformat")
+	user, pass, db, ok := servicespkg.ParseConnectionString("invalidformat")
 	if ok {
 		t.Fatal("expected ok false for invalid connection string")
 	}
@@ -78,7 +81,7 @@ func TestParseConnectionString_Invalid(t *testing.T) {
 }
 
 func TestGetModelPath(t *testing.T) {
-	cfg := &Config{DataPath: "/data"}
+	cfg := &configpkg.Config{DataPath: "/data"}
 	cases := []struct {
 		service string
 		expects string
@@ -89,7 +92,7 @@ func TestGetModelPath(t *testing.T) {
 		{"unknown", ""},
 	}
 	for _, c := range cases {
-		got := getModelPath(cfg, c.service)
+		got := servicespkg.GetModelPath(cfg, c.service)
 		if got != c.expects {
 			t.Errorf("getModelPath(%s) = %s; want %s", c.service, got, c.expects)
 		}

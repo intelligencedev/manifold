@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -487,35 +488,30 @@ func StopPGVectorContainer() error {
 	return nil
 }
 
-// parseConnectionString attempts to extract username, password and database name from a connection string
+// ParseConnectionString attempts to extract username, password, and database name from a connection string using net/url.
 func ParseConnectionString(conn string) (user, pass, db string, ok bool) {
 	user, pass, db = "postgres", "postgres", "manifold"
-	at := strings.Index(conn, "@")
-	if at == -1 {
+	u, err := url.Parse(conn)
+	if err != nil || u.Scheme == "" || u.Host == "" {
 		return user, pass, db, false
 	}
-	creds := conn[strings.Index(conn, "//")+2 : at]
-	hostAndDb := conn[at+1:]
-	colon := strings.Index(creds, ":")
-	if colon != -1 {
-		// If username is empty, keep default
-		if creds[:colon] != "" {
-			user = creds[:colon]
+	if u.User != nil {
+		if name := u.User.Username(); name != "" {
+			user = name
 		}
-		// If password is empty, keep default
-		if creds[colon+1:] != "" {
-			pass = creds[colon+1:]
+		if p, set := u.User.Password(); set && p != "" {
+			pass = p
 		}
-	} else if creds != "" {
-		user = creds
 	}
-	// If creds is empty (i.e., postgres://@host:5432/db), keep defaults and ok=true
-	slash := strings.LastIndex(hostAndDb, "/")
-	if slash != -1 && slash+1 < len(hostAndDb) {
-		db = hostAndDb[slash+1:]
-		q := strings.Index(db, "?")
-		if q != -1 {
-			db = db[:q]
+	// Path is like "/dbname"
+	if u.Path != "" && u.Path != "/" {
+		dbname := strings.TrimPrefix(u.Path, "/")
+		// Remove query params if present (shouldn't be, but for safety)
+		if idx := strings.Index(dbname, "?"); idx != -1 {
+			dbname = dbname[:idx]
+		}
+		if dbname != "" {
+			db = dbname
 		}
 	}
 	return user, pass, db, true

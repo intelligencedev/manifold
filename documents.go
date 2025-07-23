@@ -90,7 +90,19 @@ func saveFileHandler(c echo.Context) error {
 	if req.Filepath == "" {
 		return respondWithError(c, http.StatusBadRequest, "Parameter 'filepath' is required")
 	}
-	dir := filepath.Dir(req.Filepath)
+	cfg := c.Get("config").(*Config)
+
+	// Sanitize the path and ensure it resides inside the configured data directory
+	cleanPath := filepath.Clean(req.Filepath)
+	if !filepath.IsAbs(cleanPath) {
+		cleanPath = filepath.Join(cfg.DataPath, cleanPath)
+	}
+	baseDir := filepath.Clean(cfg.DataPath)
+	if !strings.HasPrefix(cleanPath, baseDir+string(os.PathSeparator)) && cleanPath != baseDir {
+		return respondWithError(c, http.StatusBadRequest, "Invalid filepath")
+	}
+
+	dir := filepath.Dir(cleanPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to create directory '%s': %v", dir, err))
 	}
@@ -101,8 +113,8 @@ func saveFileHandler(c echo.Context) error {
 	// 	content += "\n"
 	// }
 
-	if err := os.WriteFile(req.Filepath, []byte(content), 0644); err != nil {
-		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to save file '%s': %v", req.Filepath, err))
+	if err := os.WriteFile(cleanPath, []byte(content), 0644); err != nil {
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to save file '%s': %v", cleanPath, err))
 	}
 	return c.JSON(http.StatusOK, map[string]string{"message": "File saved successfully"})
 }
@@ -118,9 +130,20 @@ func openFileHandler(c echo.Context) error {
 	if req.Filepath == "" {
 		return respondWithError(c, http.StatusBadRequest, "Filepath is required")
 	}
-	content, err := os.ReadFile(req.Filepath)
+	cfg := c.Get("config").(*Config)
+
+	cleanPath := filepath.Clean(req.Filepath)
+	if !filepath.IsAbs(cleanPath) {
+		cleanPath = filepath.Join(cfg.DataPath, cleanPath)
+	}
+	baseDir := filepath.Clean(cfg.DataPath)
+	if !strings.HasPrefix(cleanPath, baseDir+string(os.PathSeparator)) && cleanPath != baseDir {
+		return respondWithError(c, http.StatusBadRequest, "Invalid filepath")
+	}
+
+	content, err := os.ReadFile(cleanPath)
 	if err != nil {
-		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to read file '%s': %v", req.Filepath, err))
+		return respondWithError(c, http.StatusInternalServerError, fmt.Sprintf("Failed to read file '%s': %v", cleanPath, err))
 	}
 	return c.String(http.StatusOK, string(content))
 }

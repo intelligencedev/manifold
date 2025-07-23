@@ -50,6 +50,7 @@ For now, Manifold supports OpenAI and supported local vision models via `llama.c
 
 ![web](docs/img/web.png)
 
+
 ## Powerful Document Ingestion and Retrieval
 
 Manifold features a powerful semantic and keyword document ingestion and retrieval engine. Ingest files, entire folders, and even LLM output. Retrieve relevant information for your AI assistant to use as reference.
@@ -233,6 +234,16 @@ Create or update your configuration based on the provided `config.yaml.example` 
 - Update database credentials (`myuser`, `changeme`) according to your PGVector setup.
 - When `single_node_instance` is enabled, Manifold auto-manages the lifecycle of llama-server instances.
 - When using external API services (OpenAI, Claude, etc.), provide the corresponding API keys.
+
+### File Handling and Security
+
+**Important:** All file operations (upload, save, open/read) performed via Manifold's API or UI are strictly limited to the configured data directory (as set in `config.yaml`). Any attempt to access or write files outside this directory—including path traversal attempts (e.g., using `../` in file paths)—will be rejected with an error. This is enforced for security and data integrity.
+
+- **Uploads and saves:** Files are always stored within the data directory or its subdirectories. The server will create necessary folders if they do not exist.
+- **Reads/opens:** Only files within the data directory can be accessed. Attempts to read files outside this directory will fail.
+- **Path traversal protection:** The backend sanitizes and validates all file paths to prevent directory escape or unauthorized access.
+
+If you need to change the data directory, update the `DataPath` setting in your `config.yaml`.
 
 ---
 

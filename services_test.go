@@ -31,13 +31,11 @@ func TestParseConnectionString_WithQueryParams(t *testing.T) {
 func TestParseConnectionString_MissingCredentials(t *testing.T) {
 	// Test with format: postgres://host:5432/testdb (no @ symbol)
 	user, pass, db, ok := servicespkg.ParseConnectionString("postgres://host:5432/testdb")
-	if ok {
-		// The current implementation returns ok=false for this format
-		// since it can't find the '@' symbol to separate credentials
-		t.Fatal("expected ok false for connection string missing @ symbol")
+	if !ok {
+		t.Fatal("expected ok true for connection string missing @ symbol (host-only)")
 	}
-	// Should still return default values
-	if user != "postgres" || pass != "postgres" || db != "manifold" {
+	// Should return default user/pass, but correct db
+	if user != "postgres" || pass != "postgres" || db != "testdb" {
 		t.Errorf("unexpected default values: user=%s, pass=%s, db=%s", user, pass, db)
 	}
 
@@ -66,6 +64,28 @@ func TestParseConnectionString_MissingCredentials(t *testing.T) {
 	}
 	if db != "testdb" {
 		t.Errorf("unexpected database name: got %s, expected: %s", db, "testdb")
+	}
+
+	// Test with password but no username: postgres://:somepass@host:5432/testdb
+	user, pass, db, ok = servicespkg.ParseConnectionString("postgres://:somepass@host:5432/testdb")
+	if !ok {
+		t.Fatal("expected ok true for connection string with password but no username")
+	}
+	// Should use default user, provided password
+	if user != "postgres" || pass != "somepass" {
+		t.Errorf("unexpected credentials: user=%s, pass=%s; expected user=postgres, pass=somepass", user, pass)
+	}
+	if db != "testdb" {
+		t.Errorf("unexpected database name: got %s, expected: %s", db, "testdb")
+	}
+
+	// Test with no db name: postgres://user:pass@host:5432
+	user, pass, db, ok = servicespkg.ParseConnectionString("postgres://user:pass@host:5432")
+	if !ok {
+		t.Fatal("expected ok true for connection string with no db name")
+	}
+	if user != "user" || pass != "pass" || db != "manifold" {
+		t.Errorf("unexpected parse: user=%s, pass=%s, db=%s; expected user=user, pass=pass, db=manifold", user, pass, db)
 	}
 }
 

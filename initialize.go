@@ -15,7 +15,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/jackc/pgx/v5"
 	pgxvector "github.com/pgvector/pgvector-go/pgx"
@@ -618,81 +619,34 @@ func InitializeApplication(config *Config) error {
 			return fmt.Errorf("failed to create temp directory: %w", err)
 		}
 
-		// Use WaitGroup to wait for concurrent initialization tasks
-		var wg sync.WaitGroup
-		var initErrors []error
-		var errorsMutex sync.Mutex
+		// Run setup steps concurrently
+		var g errgroup.Group
 
-		// Helper function to add errors
-		addError := func(err error) {
-			errorsMutex.Lock()
-			initErrors = append(initErrors, err)
-			errorsMutex.Unlock()
-		}
-
-		// Ensure code-sandbox Docker image exists
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		g.Go(func() error {
 			pterm.Info.Println("Checking code-sandbox Docker image...")
-			if err := EnsureCodeSandboxImage(); err != nil {
-				addError(fmt.Errorf("code-sandbox image initialization error: %w", err))
-				pterm.Warning.Printf("Failed to initialize code-sandbox Docker image: %v\n", err)
-			}
-		}()
+			return EnsureCodeSandboxImage()
+		})
 
-		// Ensure MCP server Docker image exists
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		g.Go(func() error {
 			pterm.Info.Println("Checking MCP server Docker image...")
-			if err := EnsureMCPServerImage(); err != nil {
-				addError(fmt.Errorf("MCP server image initialization error: %w", err))
-				pterm.Warning.Printf("Failed to initialize MCP server Docker image: %v\n", err)
-			}
-		}()
+			return EnsureMCPServerImage()
+		})
 
-		// Start PGVector container in a goroutine
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		g.Go(func() error {
 			pterm.Info.Println("Initializing PGVector database container...")
-			if err := servicespkg.StartPGVectorContainer(config); err != nil {
-				addError(fmt.Errorf("PGVector container initialization error: %w", err))
-				pterm.Warning.Printf("Failed to initialize PGVector container: %v\n", err)
-			}
-		}()
+			return servicespkg.StartPGVectorContainer(config)
+		})
 
-		// Initialize llama.cpp in a goroutine
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := InitializeLlamaCpp(config); err != nil {
-				addError(fmt.Errorf("llama.cpp initialization error: %w", err))
-				pterm.Warning.Printf("Failed to initialize llama.cpp: %v\n", err)
-			}
-		}()
+		g.Go(func() error {
+			return InitializeLlamaCpp(config)
+		})
 
-		// Download required models in a goroutine
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := downloadModels(config); err != nil {
-				addError(fmt.Errorf("model download error: %w", err))
-				pterm.Warning.Printf("Failed to download models: %v\n", err)
-			}
-		}()
+		g.Go(func() error {
+			return downloadModels(config)
+		})
 
-		// Wait for all initialization tasks to complete
-		wg.Wait()
-
-		// Check if there were any errors during initialization
-		if len(initErrors) > 0 {
-			pterm.Warning.Println("Some initialization tasks encountered errors:")
-			for _, err := range initErrors {
-				pterm.Warning.Println("- " + err.Error())
-			}
-			// Continue anyway since some errors might be non-fatal
+		if err := g.Wait(); err != nil {
+			return err
 		}
 	}
 

@@ -685,12 +685,6 @@ func InitializeApplication(config *Config) error {
 		return fmt.Errorf("failed to ensure sefii table: %w", err)
 	}
 
-	pterm.Info.Println("Ensuring inverted index table...")
-	if err := engine.EnsureInvertedIndexTable(ctx); err != nil {
-		return fmt.Errorf("failed to ensure inverted index table: %w", err)
-	}
-	pterm.Info.Println("Database initialization completed successfully")
-
 	// Start local services if SingleNodeInstance is true
 	if config.SingleNodeInstance {
 		pterm.Info.Println("Running in single node mode, starting local services...")

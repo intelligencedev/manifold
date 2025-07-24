@@ -2,6 +2,7 @@ package sefii
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -52,6 +53,9 @@ func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 		}
 		defer conn.Release()
 
+		// Add completions route to the config.Completions.DefaultHost
+		completionsEndpoint := fmt.Sprintf("%s/chat/completions", config.Completions.DefaultHost)
+
 		engine := NewEngine(conn.Conn())
 		err = engine.IngestDocument(
 			ctx,
@@ -63,7 +67,7 @@ func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 			config.Embeddings.Host,
 			config.Completions.CompletionsModel,
 			config.Embeddings.APIKey,
-			config.Completions.DefaultHost,
+			completionsEndpoint,
 			config.Completions.APIKey,
 			req.ChunkSize,
 			req.ChunkOverlap,

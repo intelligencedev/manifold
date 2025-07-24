@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"golang.org/x/crypto/bcrypt"
@@ -279,5 +280,5 @@ func VerifyPassword(hashedPassword, password string) bool {
 
 // generateUniqueID generates a unique ID for a user
 func generateUniqueID() string {
-	return fmt.Sprintf("user_%d", time.Now().UnixNano())
+	return uuid.NewString()
 }

@@ -28,6 +28,10 @@ frontend/src/system_templates.yaml
 *.out
 /vendor/
 
+# Binary files
+manifold
+mcp-manifold
+
 # IDE specific files
 .idea/
 .vscode/*

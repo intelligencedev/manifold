@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 export interface ChatMessage {
   role: string;
@@ -28,6 +28,25 @@ export const useChatStore = defineStore('chat', () => {
   // UI preferences
   const renderMode = ref('markdown')
   const selectedTheme = ref('atom-one-dark')
+
+  // Generation state
+  const isGenerating = ref(false)
+  const stopRequested = ref(false)
+  const controller = ref<AbortController | null>(null)
+
+  function startGeneration() {
+    controller.value = new AbortController()
+    stopRequested.value = false
+    isGenerating.value = true
+  }
+
+  function stopGeneration() {
+    stopRequested.value = true
+    if (controller.value) controller.value.abort()
+    isGenerating.value = false
+  }
+
+  const signal = computed(() => controller.value?.signal)
 
   // Methods to update chat state
   function addMessage(message: ChatMessage) {
@@ -68,9 +87,14 @@ export const useChatStore = defineStore('chat', () => {
     top_p,
     top_k,
     min_p,
+    isGenerating,
+    stopRequested,
+    signal,
     addMessage,
     updateLastAssistantMessage,
     clearMessages,
-    setSystemPrompt
+    setSystemPrompt,
+    startGeneration,
+    stopGeneration
   }
 })

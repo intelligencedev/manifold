@@ -508,6 +508,7 @@ Example workflow:
 
 Always include the worker's actual output in your final response.
 
+IMPORTANT: NEVER invoke ANY interactive shells, terminals, or REPLs. ALWAYS use absolute paths for file operations.
 NEVER finalize the conversation with a plan or what you intend on doing. 
 Your FINAL response must be a confirmation that the plan was executed and the user's query was addressed. 
 You must return the results.
@@ -569,10 +570,11 @@ Available tools:
 
 	sysPromptBuilder.WriteString(`
 Rules:
-- Never invoke interactive editors (vim, nano, etc).
+- Never invoke interactive editors (vim, nano, python idle, etc).
 - Keep patches minimal; do not reformat entire files unless required.
 - Track and reference original line numbers in your reasoning.
 - For non-code text, skip language checkers but still diff/patch/verify.
+- NEVER invoke ANY interactive shells, terminals, or REPLs. ALWAYS use absolute paths for file operations.
 
 IMPORTANT: If no tool is available that can be used to complete the task, make your own using the code_eval tool.
 
@@ -639,11 +641,11 @@ Action Input: <JSON | text>
 	// Add system prompt only once at the beginning
 	conversationHistory = append(conversationHistory, llm.ChatCompletionMessage{Role: "system", Content: sysPrompt})
 
-       for i := 0; i < req.MaxSteps; i++ {
-               if err := ctx.Err(); err != nil {
-                       return nil, err
-               }
-               var currentMessages []llm.ChatCompletionMessage
+	for i := 0; i < req.MaxSteps; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var currentMessages []llm.ChatCompletionMessage
 
 		// Start with the existing conversation history
 		currentMessages = append(conversationHistory)
@@ -679,13 +681,13 @@ Action Input: <JSON | text>
 
 		// Debug printing disabled except for LLM call token count
 
-               out, err := ae.callLLM(ctx, "", model, currentMessages)
-               if err != nil {
-                       if ctx.Err() != nil {
-                               return nil, ctx.Err()
-                       }
-                       return nil, err
-               }
+		out, err := ae.callLLM(ctx, "", model, currentMessages)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, err
+		}
 		thought, action, input := parseReAct(out)
 
 		// If no action was parsed but the response contains "task is complete", treat as finish
@@ -730,13 +732,13 @@ Action Input: <JSON | text>
 			hook(preliminaryStep)
 		}
 
-               obs, err := ae.execTool(ctx, cfg, action, input, hook)
-               if err != nil {
-                       if ctx.Err() != nil {
-                               return nil, ctx.Err()
-                       }
-                       obs = "error: " + err.Error()
-               }
+		obs, err := ae.execTool(ctx, cfg, action, input, hook)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			obs = "error: " + err.Error()
+		}
 
 		// if obs > config.Embeddings.Dimensions, split it before ingesting
 		if ae.Config.AgenticMemory.Enabled && ae.MemoryEngine != nil {
@@ -801,16 +803,16 @@ Action Input: <JSON | text>
 			break
 		}
 	}
-       if !sess.Completed {
-               if ctx.Err() != nil {
-                       return nil, ctx.Err()
-               }
-               sess.Result = "Max steps reached"
-       }
-       if err := ctx.Err(); err != nil {
-               return nil, err
-       }
-       return sess, nil
+	if !sess.Completed {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		sess.Result = "Max steps reached"
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return sess, nil
 }
 
 func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model string, msgs []llm.ChatCompletionMessage) (string, error) {
@@ -910,9 +912,9 @@ func parseReAct(s string) (thought, action, input string) {
 }
 
 func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name, arg string, hook StepHook) (string, error) {
-       if err := ctx.Err(); err != nil {
-               return "", err
-       }
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	// ─────────── Hard gate for the orchestrator ───────────
 	if ae.isolatedToServer == "" { // top-level orchestrator
 		lname := strings.ToLower(name)

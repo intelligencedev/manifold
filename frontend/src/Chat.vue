@@ -71,18 +71,26 @@
                 <!-- Send button positioned inside the input -->
                 <div class="absolute right-2 bottom-1 flex items-center">
                   <BaseButton
-                  @click="sendMessage"
-                  class="mr-4 mb-4 flex items-center justify-center rounded-lg transition-colors hover:opacity-70 disabled:opacity-50 bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
-                  :disabled="!userInput.trim()"
+                    v-if="!isGenerating"
+                    @click="sendMessage"
+                    class="mr-4 mb-4 flex items-center justify-center rounded-lg transition-colors hover:opacity-70 disabled:opacity-50 bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
+                    :disabled="!userInput.trim()"
                   >
-                  <span class="sr-only">Send</span>
-                  <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"
-                     class="h-9 w-9">
-                    <!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ -->
-                    <path fill="currentColor" fill-rule="evenodd"
-                      d="M17.53 10.03a.75.75 0 0 0 0-1.06l-5-5a.75.75 0 0 0-1.06 0l-5 5a.75.75 0 1 0 1.06 1.06l3.72-3.72v8.19c0 .713-.22 1.8-.859 2.687c-.61.848-1.635 1.563-3.391 1.563a.75.75 0 0 0 0 1.5c2.244 0 3.72-.952 4.609-2.187c.861-1.196 1.141-2.61 1.141-3.563V6.31l3.72 3.72a.75.75 0 0 0 1.06 0"
-                      clip-rule="evenodd" />
-                  </svg>
+                    <span class="sr-only">Send</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"
+                       class="h-9 w-9">
+                      <!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ -->
+                      <path fill="currentColor" fill-rule="evenodd"
+                        d="M17.53 10.03a.75.75 0 0 0 0-1.06l-5-5a.75.75 0 0 0-1.06 0l-5 5a.75.75 0 1 0 1.06 1.06l3.72-3.72v8.19c0 .713-.22 1.8-.859 2.687c-.61.848-1.635 1.563-3.391 1.563a.75.75 0 0 0 0 1.5c2.244 0 3.72-.952 4.609-2.187c.861-1.196 1.141-2.61 1.141-3.563V6.31l3.72 3.72a.75.75 0 0 0 1.06 0"
+                        clip-rule="evenodd" />
+                    </svg>
+                  </BaseButton>
+                  <BaseButton
+                    v-else
+                    @click="stopGeneration"
+                    class="mr-4 mb-4 flex items-center justify-center rounded-lg transition-colors bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
+                  >
+                    <StopIcon class="w-5 h-5" />
                   </BaseButton>
                 </div>
               </div>
@@ -116,6 +124,7 @@ import BaseInput from './components/base/BaseInput.vue'
 import BaseTextarea from './components/base/BaseTextarea.vue'
 import BaseDropdown from './components/base/BaseDropdown.vue'
 import BaseTogglePassword from './components/base/BaseTogglePassword.vue'
+import StopIcon from '@/components/icons/StopIcon.vue'
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import { useModeStore } from './stores/modeStore'
@@ -148,6 +157,7 @@ const messageContainer = ref<HTMLElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const showApiKey = ref(false)
 const isLoadingModel = ref(false) // Track model loading state
+const isGenerating = computed(() => chatStore.isGenerating)
 
 const providerOptions = [
   { value: 'llama-server', label: 'llama-server' },
@@ -433,6 +443,7 @@ async function sendMessage() {
 
   // Create the assistant message and add it to the messages array
   chatStore.addMessage({ role: 'assistant', content: '' })
+  chatStore.startGeneration()
 
   if (provider.value === 'react-agent') {
     try {
@@ -446,7 +457,8 @@ async function sendMessage() {
           objective: prompt,
           max_steps: agentMaxSteps.value,
           model: ''
-        })
+        }),
+        signal: chatStore.signal
       })
 
       if (!resp.ok || !resp.body) {
@@ -461,6 +473,10 @@ async function sendMessage() {
       let thoughts = ''
       let finalResult = ''
       while (true) {
+        if (chatStore.stopRequested) {
+          await reader.cancel()
+          break
+        }
         const { value, done } = await reader.read()
         if (done) break
         if (value === '[[EOF]]') {
@@ -481,6 +497,8 @@ async function sendMessage() {
     } catch (e) {
       console.error(e)
       chatStore.updateLastAssistantMessage('Error fetching response.')
+    } finally {
+      chatStore.stopGeneration()
     }
     return
   }
@@ -510,11 +528,17 @@ async function sendMessage() {
       assistantResponse += token
       // Update the last assistant message in the chatStore
       chatStore.updateLastAssistantMessage(assistantResponse)
-    })
+    }, chatStore.signal)
   } catch (e) {
     console.error(e)
     chatStore.updateLastAssistantMessage('Error fetching response.')
+  } finally {
+    chatStore.stopGeneration()
   }
+}
+
+function stopGeneration() {
+  chatStore.stopGeneration()
 }
 
 // Auto-resize textarea function

@@ -100,7 +100,7 @@ export function useCompletionsApi() {
    * @param {Function} onUpdate - Called when new tokens are received
    * @returns {Promise<Object>} - Final response
    */
-  async function callCompletionsAPI(agentConfig, prompt, onUpdate) {
+  async function callCompletionsAPI(agentConfig, prompt, onUpdate, abortSignal) {
     const { 
       provider, endpoint, api_key, model, system_prompt, 
       max_completion_tokens, temperature, enableToolCalls 
@@ -125,7 +125,7 @@ export function useCompletionsApi() {
         method: "POST",
         headers,
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(300000) // 5 minute timeout
+        signal: abortSignal || AbortSignal.timeout(300000) // 5 minute timeout
       });
       
       let fullResponse = '';
@@ -190,7 +190,8 @@ export function useCompletionsApi() {
     const responseData = await fetch(endpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify(initialBody)
+      body: JSON.stringify(initialBody),
+      signal: abortSignal
     });
     
     const result = await responseData.json();
@@ -244,7 +245,8 @@ export function useCompletionsApi() {
     const streamResponse = await fetch(endpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify(finalBody)
+      body: JSON.stringify(finalBody),
+      signal: abortSignal
     });
     
     let fullResponse = '';

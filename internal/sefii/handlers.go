@@ -20,12 +20,14 @@ func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
 func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		var req struct {
-			Text         string `json:"text"`
-			Language     string `json:"language"`
-			ChunkSize    int    `json:"chunk_size"`
-			ChunkOverlap int    `json:"chunk_overlap"`
-			FilePath     string `json:"file_path"`
-			DocTitle     string `json:"doc_title"`
+			Text             string `json:"text"`
+			Language         string `json:"language"`
+			ChunkSize        int    `json:"chunk_size"`
+			ChunkOverlap     int    `json:"chunk_overlap"`
+			FilePath         string `json:"file_path"`
+			DocTitle         string `json:"doc_title"`
+			GenerateSummary  *bool  `json:"generate_summary"`
+			GenerateKeywords *bool  `json:"generate_keywords"`
 		}
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
@@ -41,6 +43,15 @@ func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 		}
 		if req.ChunkOverlap == 0 {
 			req.ChunkOverlap = 100
+		}
+
+		genSummary := true
+		if req.GenerateSummary != nil {
+			genSummary = *req.GenerateSummary
+		}
+		genKeywords := true
+		if req.GenerateKeywords != nil {
+			genKeywords = *req.GenerateKeywords
 		}
 
 		ctx := c.Request().Context()
@@ -73,6 +84,8 @@ func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 			req.ChunkOverlap,
 			config.Embeddings.Dimensions,
 			config.Embeddings.EmbedPrefix,
+			genSummary,
+			genKeywords,
 		)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ingest document"})

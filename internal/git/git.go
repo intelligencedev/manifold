@@ -130,6 +130,8 @@ func processGitFiles(ctx context.Context, req struct {
 			req.ChunkOverlap,
 			cfg.Embeddings.Dimensions,
 			cfg.Embeddings.EmbedPrefix,
+			true,
+			true,
 		); err == nil {
 			successFiles = append(successFiles, file.Path)
 		} else {

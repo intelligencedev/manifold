@@ -351,8 +351,9 @@ func extractKeywords(ctx context.Context, summary string, endpoint string, model
 	return keywords, nil
 }
 
-// IngestDocument updated to include metadata tokens (filePath and docTitle)
-// in the inverted index.
+// IngestDocument ingests a document into the SEFII index. Summaries and
+// keyword generation can be toggled via the generateSummary and
+// generateKeywords flags.
 func (e *Engine) IngestDocument(
 	ctx context.Context,
 	text, languageStr, filePath, docTitle string,
@@ -360,6 +361,8 @@ func (e *Engine) IngestDocument(
 	embeddingsHost, model, apiKey, completionsHost, completionsAPIKey string,
 	chunkSize int, chunkOverlap int, embeddingDims int,
 	embedPrefix string,
+	generateSummary bool,
+	generateKeywords bool,
 ) error {
 
 	// ensure table
@@ -411,12 +414,16 @@ func (e *Engine) IngestDocument(
 		go func(idx int, content string) {
 			defer wg.Done()
 			var res chunkResult
-			if completionsHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(content)) > 10 {
+			if (generateSummary || generateKeywords) && completionsHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(content)) > 10 {
 				log.Printf("SEFII: Using completions endpoint: %s", completionsHost)
 				summaryOutput, err := SummarizeChunk(ctx, content, completionsHost, model, completionsAPIKey)
 				if err == nil {
-					res.summary = summaryOutput.Summary
-					res.keywords = summaryOutput.Keywords
+					if generateSummary {
+						res.summary = summaryOutput.Summary
+					}
+					if generateKeywords {
+						res.keywords = summaryOutput.Keywords
+					}
 				} else {
 					log.Printf("SEFII: Failed to summarize chunk %d: %v", idx, err)
 					res.err = err
@@ -467,9 +474,11 @@ func (e *Engine) IngestDocument(
 		// Create enhanced metadata object
 		chunkMetadata := map[string]string{
 			"docTitle":   docTitle,
-			"keywords":   strings.Join(uniqueKeywords, ","),
 			"chunkIndex": fmt.Sprintf("%d", i),
 			"language":   languageStr,
+		}
+		if generateKeywords && len(uniqueKeywords) > 0 {
+			chunkMetadata["keywords"] = strings.Join(uniqueKeywords, ",")
 		}
 
 		// Include summary in metadata if available
@@ -497,7 +506,7 @@ func (e *Engine) IngestDocument(
 	}
 
 	// Store document-level aggregated metadata
-	if len(allChunkKeywords) > 0 {
+	if generateKeywords && len(allChunkKeywords) > 0 {
 		err = e.StoreDocumentMetadata(ctx, filePath, map[string]interface{}{
 			"docTitle":           docTitle,
 			"language":           languageStr,
@@ -511,8 +520,12 @@ func (e *Engine) IngestDocument(
 		}
 	}
 
+	kwCount := 0
+	if generateKeywords {
+		kwCount = len(allChunkKeywords)
+	}
 	log.Printf("SEFII: Successfully ingested document with %d chunks, %d total keywords",
-		len(chunksText), len(allChunkKeywords))
+		len(chunksText), kwCount)
 
 	return nil
 }

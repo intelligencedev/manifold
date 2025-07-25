@@ -188,3 +188,41 @@ func CombinedRetrieveHandler(config *configpkg.Config) echo.HandlerFunc {
 		return c.JSON(http.StatusOK, map[string]interface{}{"chunks": chunks})
 	}
 }
+
+// SummarySearchHandler returns an Echo handler that performs summary-based searches.
+func SummarySearchHandler(config *configpkg.Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var req struct {
+			Query          string `json:"query"`
+			FilePathFilter string `json:"file_path_filter"`
+			Limit          int    `json:"limit"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.Query == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Query is required"})
+		}
+		if req.Limit == 0 {
+			req.Limit = 10
+		}
+
+		ctx := c.Request().Context()
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		defer conn.Release()
+
+		engine := NewEngine(conn.Conn())
+		chunks, err := engine.SearchBySummary(ctx, req.Query, req.FilePathFilter, req.Limit)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{"chunks": chunks})
+	}
+}

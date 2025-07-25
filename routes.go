@@ -202,6 +202,7 @@ func registerSEFIIEndpoints(api *echo.Group, config *Config) {
 	sefiiGroup.POST("/ingest", sefiipkg.IngestHandler(config))
 	sefiiGroup.POST("/search", sefiipkg.SearchHandler(config))
 	sefiiGroup.POST("/combined-retrieve", sefiipkg.CombinedRetrieveHandler(config))
+	sefiiGroup.POST("/summary-search", sefiipkg.SummarySearchHandler(config))
 }
 
 // registerAnthropicEndpoints registers routes for Anthropic-related functionality.

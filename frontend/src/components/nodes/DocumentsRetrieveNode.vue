@@ -47,6 +47,12 @@
     </template>
 
     <BaseCheckbox
+      :id="`${data.id}-use-summary-search`"
+      label="Use Summary-based Search"
+      v-model="use_summary_search"
+    />
+
+    <BaseCheckbox
       :id="`${data.id}-return-full-docs`"
       label="Return Full Docs"
       v-model="return_full_docs"
@@ -110,6 +116,7 @@ const {
   merge_mode,
   return_full_docs,
   updateFromSource,
+  use_summary_search,
   alpha,
   beta,
   onResize

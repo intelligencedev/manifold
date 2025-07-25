@@ -75,16 +75,16 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 	}
 
 	createTableQuery := fmt.Sprintf(`
-               CREATE TABLE documents (
-                       id SERIAL PRIMARY KEY,
-                       content TEXT NOT NULL,
-                       summary TEXT,
-                       embedding vector(%d) NOT NULL,
-                       tsv_content tsvector,
-                       file_path TEXT,
-                       metadata JSONB,
-                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               )
+			   CREATE TABLE documents (
+					   id SERIAL PRIMARY KEY,
+					   content TEXT NOT NULL,
+					   summary TEXT,
+					   embedding vector(%d) NOT NULL,
+					   tsv_content tsvector,
+					   file_path TEXT,
+					   metadata JSONB,
+					   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			   )
 	`, embeddingVectorSize)
 
 	if tableName == nil || *tableName == "" {
@@ -145,9 +145,9 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 
 	// Ensure vector index
 	indexQuery := `
-               CREATE INDEX IF NOT EXISTS documents_embedding_idx
-               ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
-       `
+			   CREATE INDEX IF NOT EXISTS documents_embedding_idx
+			   ON documents USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)
+	   `
 	if err := e.execWithRetry(ctx, indexQuery); err != nil {
 		return fmt.Errorf("failed to create ivfflat index on documents.embedding: %w", err)
 	}
@@ -180,11 +180,11 @@ func (e *Engine) EnsureDocumentMetadataTable(ctx context.Context) error {
 
 	if tableName == nil || *tableName == "" {
 		createTableQuery := `
-            CREATE TABLE document_metadata (
-                file_path TEXT PRIMARY KEY,
-                metadata JSONB NOT NULL
-            )
-        `
+			CREATE TABLE document_metadata (
+				file_path TEXT PRIMARY KEY,
+				metadata JSONB NOT NULL
+			)
+		`
 		if err := e.execWithRetry(ctx, createTableQuery); err != nil {
 			return fmt.Errorf("failed to create document_metadata table: %w", err)
 		}
@@ -210,9 +210,9 @@ func SummarizeChunk(ctx context.Context, content string, endpoint string, model 
 9. The summary should stand alone, but acknowledge that this is part of a larger document.
 10. Your output should use the following format only:
 
-    Summary: [1-2 sentence summary of the chunk]
-    Keywords: [comma-separated list of 3-5 keywords]
-    `
+	Summary: [1-2 sentence summary of the chunk]
+	Keywords: [comma-separated list of 3-5 keywords]
+	`
 
 	reqPayload := map[string]interface{}{
 		"model": model,
@@ -388,14 +388,44 @@ func (e *Engine) IngestDocument(
 		chunksText = splitter.AdaptiveSplit(text)
 	}
 
+	// Remove empty or too-short chunks
 	for i := 0; i < len(chunksText); i++ {
-		// Skip empty or extremely short chunks that could cause embedding issues
 		if len(strings.TrimSpace(chunksText[i])) < 10 {
 			log.Printf("Warning: Skipping too short chunk at index %d", i)
 			chunksText = append(chunksText[:i], chunksText[i+1:]...)
-			i-- // Adjust index after removing element
+			i--
 		}
 	}
+
+	// Concurrent summarization and keyword extraction
+	type chunkResult struct {
+		summary  string
+		keywords []string
+		err      error
+	}
+	results := make([]chunkResult, len(chunksText))
+	var wg sync.WaitGroup
+
+	for i, chunkContent := range chunksText {
+		wg.Add(1)
+		go func(idx int, content string) {
+			defer wg.Done()
+			var res chunkResult
+			if completionsHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(content)) > 10 {
+				log.Printf("SEFII: Using completions endpoint: %s", completionsHost)
+				summaryOutput, err := SummarizeChunk(ctx, content, completionsHost, model, completionsAPIKey)
+				if err == nil {
+					res.summary = summaryOutput.Summary
+					res.keywords = summaryOutput.Keywords
+				} else {
+					log.Printf("SEFII: Failed to summarize chunk %d: %v", idx, err)
+					res.err = err
+				}
+			}
+			results[idx] = res
+		}(i, chunkContent)
+	}
+	wg.Wait()
 
 	// Create embeddings
 	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, chunksText)
@@ -410,30 +440,13 @@ func (e *Engine) IngestDocument(
 	// Collect all keywords from chunks for document-level aggregation
 	var allChunkKeywords []string
 
-	summaryEndpoint := fmt.Sprintf("%s/chat/completions", completionsHost)
-
 	// Insert each chunk with enhanced metadata and FTS optimization
 	for i, chunkContent := range chunksText {
-		// Summarize and extract keywords from chunk if completions endpoints are provided
-		var chunkSummary string
-		var extractedKeywords []string
+		chunkSummary := results[i].summary
+		extractedKeywords := results[i].keywords
 
-		if completionsHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(chunkContent)) > 10 {
-
-			// Print the completions endpoint for debugging
-			log.Printf("SEFII: Using completions endpoint: %s", summaryEndpoint)
-
-			// Use the corrected endpoint format
-			summaryOutput, err := SummarizeChunk(ctx, chunkContent, summaryEndpoint, model, completionsAPIKey)
-			if err == nil {
-				chunkSummary = summaryOutput.Summary
-				extractedKeywords = summaryOutput.Keywords
-				// Collect keywords for document-level aggregation
-				allChunkKeywords = append(allChunkKeywords, extractedKeywords...)
-				log.Printf("SEFII: Generated summary and %d keywords for chunk %d", len(extractedKeywords), i)
-			} else {
-				log.Printf("SEFII: Failed to summarize chunk %d: %v", i, err)
-			}
+		if len(extractedKeywords) > 0 {
+			allChunkKeywords = append(allChunkKeywords, extractedKeywords...)
 		}
 
 		// Combine provided keywords with extracted keywords
@@ -465,18 +478,15 @@ func (e *Engine) IngestDocument(
 		}
 
 		// Create content optimized for both vector and FTS retrieval
-		// For vector embedding: prefix + original content
 		vectorContent := fmt.Sprintf("%s %s", embedPrefix, chunkContent)
-
-		// For FTS: enhanced search text with summary, keywords, and metadata
 		searchText := buildEnhancedSearchText(chunkContent, chunkSummary, uniqueKeywords, filePath, docTitle)
 
 		var chunkID int64
 		mdBytes, _ := json.Marshal(chunkMetadata)
 		err = e.DB.QueryRow(ctx,
 			`INSERT INTO documents (content, summary, embedding, tsv_content, file_path, metadata)
-             VALUES ($1, $2, $3, to_tsvector('english', $4), $5, $6)
-             RETURNING id`,
+			 VALUES ($1, $2, $3, to_tsvector('english', $4), $5, $6)
+			 RETURNING id`,
 			vectorContent, chunkSummary, pgvector.NewVector(embeds[i]), searchText, filePath, mdBytes).Scan(&chunkID)
 		if err != nil {
 			log.Printf("SEFII: Failed to insert chunk %d: %v", i, err)
@@ -486,9 +496,6 @@ func (e *Engine) IngestDocument(
 		log.Printf("SEFII: Successfully inserted chunk %d with ID %d", i, chunkID)
 	}
 
-	// Optionally, store document-level aggregated keywords
-	// This could be implemented by creating a special chunk ID or
-	// by storing in a separate document_metadata table
 	// Store document-level aggregated metadata
 	if len(allChunkKeywords) > 0 {
 		err = e.StoreDocumentMetadata(ctx, filePath, map[string]interface{}{
@@ -588,8 +595,13 @@ func (e *Engine) SearchChunks(ctx context.Context, query, filePathFilter string,
 	for rows.Next() {
 		var c Chunk
 		var mdBytes []byte
-		if err := rows.Scan(&c.ID, &c.Content, &c.Summary, &c.FilePath, &mdBytes); err != nil {
+		var summary *string // Use pointer to handle NULL values
+		if err := rows.Scan(&c.ID, &c.Content, &summary, &c.FilePath, &mdBytes); err != nil {
 			return nil, err
+		}
+		// Handle NULL summary
+		if summary != nil {
+			c.Summary = *summary
 		}
 		if len(mdBytes) > 0 {
 			meta := make(map[string]string)
@@ -774,8 +786,13 @@ func (e *Engine) fetchChunksByIDs(ctx context.Context, ids []int64) ([]Chunk, er
 	for rows.Next() {
 		var c Chunk
 		var mdBytes []byte
-		if err := rows.Scan(&c.ID, &c.Content, &c.Summary, &c.FilePath, &mdBytes); err != nil {
+		var summary *string // Use pointer to handle NULL values
+		if err := rows.Scan(&c.ID, &c.Content, &summary, &c.FilePath, &mdBytes); err != nil {
 			return nil, err
+		}
+		// Handle NULL summary
+		if summary != nil {
+			c.Summary = *summary
 		}
 		if len(mdBytes) > 0 {
 			meta := make(map[string]string)
@@ -931,8 +948,8 @@ func (e *Engine) SearchBySummary(ctx context.Context, query, filePathFilter stri
 	// Enhanced FTS query that gives higher weight to summary matches
 	sqlQuery := `
 		SELECT id, content, summary, file_path, metadata,
-		       (ts_rank(to_tsvector('english', COALESCE(summary, '')), q) * 2.0 + 
-		        ts_rank(tsv_content, q)) AS combined_rank
+			   (ts_rank(to_tsvector('english', COALESCE(summary, '')), q) * 2.0 + 
+				ts_rank(tsv_content, q)) AS combined_rank
 		FROM documents, plainto_tsquery('english', $1) q 
 		WHERE (to_tsvector('english', COALESCE(summary, '')) @@ q OR tsv_content @@ q)
 	`
@@ -958,9 +975,14 @@ func (e *Engine) SearchBySummary(ctx context.Context, query, filePathFilter stri
 	for rows.Next() {
 		var c Chunk
 		var mdBytes []byte
+		var summary *string // Use pointer to handle NULL values
 		var rank float64
-		if err := rows.Scan(&c.ID, &c.Content, &c.Summary, &c.FilePath, &mdBytes, &rank); err != nil {
+		if err := rows.Scan(&c.ID, &c.Content, &summary, &c.FilePath, &mdBytes, &rank); err != nil {
 			return nil, err
+		}
+		// Handle NULL summary
+		if summary != nil {
+			c.Summary = *summary
 		}
 		if len(mdBytes) > 0 {
 			meta := make(map[string]string)

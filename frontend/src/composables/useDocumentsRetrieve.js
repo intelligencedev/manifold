@@ -12,8 +12,14 @@ export function useDocumentsRetrieve(props) {
   const updateFromSource = ref(true)
   const alpha = ref(0.7)
   const beta = ref(0.3)
+  const use_summary_search = ref(false)
 
   async function retrieveDocuments(inputText) {
+    // Choose endpoint based on search mode
+    const endpoint = use_summary_search.value 
+      ? retrieve_endpoint.value.replace('/combined-retrieve', '/summary-search')
+      : retrieve_endpoint.value
+
     const payload = {
       query: inputText.trim(),
       file_path_filter: "",
@@ -27,7 +33,7 @@ export function useDocumentsRetrieve(props) {
       beta: merge_mode.value === 'weighted' ? Number(beta.value) : 0.3
     }
 
-    const response = await fetch(retrieve_endpoint.value, {
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -50,8 +56,31 @@ export function useDocumentsRetrieve(props) {
     
     if (responseData.chunks) {
       return responseData.chunks
-        .map(chunk => `${chunk.content}\n\nSource: ${chunk.file_path}\n---`)
-        .join('\n\n')
+        .map(chunk => {
+          let output = ''
+          
+          // Add summary if available
+          if (chunk.summary && chunk.summary.trim()) {
+            output += `Summary: ${chunk.summary}\n\n`
+          }
+          
+          // Add main content
+          output += chunk.content
+          
+          // Add metadata if available
+          if (chunk.metadata) {
+            const keywords = chunk.metadata.keywords
+            if (keywords) {
+              output += `\n\nKeywords: ${keywords}`
+            }
+          }
+          
+          // Add source
+          output += `\n\nSource: ${chunk.file_path}`
+          
+          return output
+        })
+        .join('\n\n---\n\n')
     }
     
     return 'No results found.'
@@ -85,6 +114,7 @@ export function useDocumentsRetrieve(props) {
     updateFromSource,
     alpha,
     beta,
+    use_summary_search,
     retrieveDocuments,
     formatOutput,
     getConnectedNodesText

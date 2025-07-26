@@ -3,7 +3,7 @@
     <Header :mode="mode" @toggle-mode="toggleMode" />
     <div class="flex flex-1 overflow-hidden">
       <!-- Sidebar for parameters/settings -->
-      <div class="bg-zinc-900 border-r border-zinc-700 w-80 min-w-[18rem] max-w-xs p-4 overflow-y-auto sidebar-scroll">
+      <div class="bg-zinc-900 border-r border-zinc-700 w-80 min-w-[18rem] p-4 overflow-y-auto sidebar-scroll">
         <div class="space-y-6">
           <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
           <BaseInput label="Endpoint" v-model="endpoint" @blur="fetchLocalServerModel" />
@@ -39,9 +39,9 @@
         </div>
       </div>
       <!-- Chat/Main area -->
-      <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden">
+      <div class="flex-1 flex flex-col bg-zinc-800 overflow-hidden max-w-4xl mx-auto" style="min-width: 600px;">
         <!-- messages -->
-        <div ref="messageContainer" class="w-full message-area-scroll flex-1 overflow-y-auto space-y-6 p-4 xl:px-65">
+        <div ref="messageContainer" class="w-full message-area-scroll flex-1 overflow-y-auto space-y-6 p-4">
           <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : ''">
             <div class="p-6 rounded-lg" :class="msg.role==='user' ? 'bg-teal-600 inline-block px-3 py-2 w-1/2 text-left' : ''">
               <template v-if="msg.role === 'assistant'">
@@ -55,53 +55,40 @@
           </div>
         </div>
         <!-- input area - fixed at bottom -->
-        <div class="relative flex w-full items-end mx-4 px-4 pb-4 xl:px-65 bg-zinc-800">
-          <div class="relative flex w-full flex-auto flex-col">
-            <!-- Main input container with modern styling -->
-            <div class="relative mx-2.5 flex w-full">
-              <div class="relative flex w-full flex-auto bg-zinc-700 rounded-xl border border-zinc-600 transition-colors">
-                <!-- Textarea container -->
-                <div class="flex-1 relative">
-                  <textarea
-                    ref="textareaRef"
-                    v-model="userInput"
-                    placeholder="Type a message..."
-                    rows="1"
-                    class="block w-full resize-none bg-transparent rounded-xl p-4 pr-20 my-6 text-gray-200 placeholder-gray-400 border-0 min-h-12 no-focus-anywhere"
-                    style="max-height: 240px; overflow-y: auto;"
-                    @input="autoResize"
-                    @keydown="handleTextareaKeydown"
-                  />
-                </div>
-                <!-- Send button positioned inside the input -->
-                <div class="absolute right-2 bottom-1 flex items-center">
-                  <BaseButton
-                    v-if="!isGenerating"
-                    @click="sendMessage"
-                    class="mr-4 mb-4 flex items-center justify-center rounded-lg transition-colors hover:opacity-70 disabled:opacity-50 bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
-                    :disabled="!userInput.trim()"
-                  >
-                    <span class="sr-only">Send</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24"
-                       class="h-9 w-9">
-                      <!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ -->
-                      <path fill="currentColor" fill-rule="evenodd"
-                        d="M17.53 10.03a.75.75 0 0 0 0-1.06l-5-5a.75.75 0 0 0-1.06 0l-5 5a.75.75 0 1 0 1.06 1.06l3.72-3.72v8.19c0 .713-.22 1.8-.859 2.687c-.61.848-1.635 1.563-3.391 1.563a.75.75 0 0 0 0 1.5c2.244 0 3.72-.952 4.609-2.187c.861-1.196 1.141-2.61 1.141-3.563V6.31l3.72 3.72a.75.75 0 0 0 1.06 0"
-                        clip-rule="evenodd" />
-                    </svg>
-                  </BaseButton>
-                  <BaseButton
-                    v-else
-                    @click="stopGeneration"
-                    class="mr-4 mb-4 flex items-center justify-center rounded-lg transition-colors bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
-                  >
-                    <StopIcon class="w-5 h-5" />
-                  </BaseButton>
-                </div>
-              </div>
+        <div class="flex w-full items-end p-4 bg-zinc-800">
+          <div class="relative flex w-full bg-zinc-700 rounded-xl border border-zinc-600">
+            <textarea
+              ref="textareaRef"
+              v-model="userInput"
+              placeholder="Type a message..."
+              rows="1"
+              class="block w-full resize-none bg-transparent rounded-xl p-4 pr-20 text-gray-200 placeholder-gray-400 border-0 min-h-12 no-focus-anywhere"
+              style="max-height: 240px; overflow-y: auto;"
+              @input="autoResize"
+              @keydown="handleTextareaKeydown"
+            />
+            <div class="absolute right-2 top-1/2 transform -translate-y-1/2">
+              <BaseButton
+                v-if="!isGenerating"
+                @click="sendMessage"
+                class="flex items-center justify-center rounded-lg bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
+                :disabled="!userInput.trim()"
+              >
+                <span class="sr-only">Send</span>
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" class="h-9 w-9">
+                  <path fill="currentColor" fill-rule="evenodd"
+                    d="M17.53 10.03a.75.75 0 0 0 0-1.06l-5-5a.75.75 0 0 0-1.06 0l-5 5a.75.75 0 1 0 1.06 1.06l3.72-3.72v8.19c0 .713-.22 1.8-.859 2.687c-.61.848-1.635 1.563-3.391 1.563a.75.75 0 0 0 0 1.5c2.244 0 3.72-.952 4.609-2.187c.861-1.196 1.141-2.61 1.141-3.563V6.31l3.72 3.72a.75.75 0 0 0 1.06 0"
+                    clip-rule="evenodd" />
+                </svg>
+              </BaseButton>
+              <BaseButton
+                v-else
+                @click="stopGeneration"
+                class="flex items-center justify-center rounded-lg bg-teal-600 hover:bg-teal-700 text-white h-10 w-10 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-zinc-700"
+              >
+                <StopIcon class="w-5 h-5" />
+              </BaseButton>
             </div>
-            <!-- Spacer to maintain layout -->
-            <div style="height: 12px;"></div>
           </div>
         </div>
       </div>
@@ -492,11 +479,21 @@ async function sendMessage() {
           await reader.cancel()
           break
         }
-        const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/)
-        if (thinkMatch) {
-          chatStore.addThought(thinkMatch[1])
-        } else {
-          finalResult = value
+        // Extract all <think>...</think> blocks
+        const thinkRegex = /<think>([\s\S]*?)<\/think>/g
+        let lastIndex = 0
+        let match
+        let nonThinkText = ''
+        while ((match = thinkRegex.exec(value)) !== null) {
+          chatStore.addThought(match[1])
+          lastIndex = thinkRegex.lastIndex
+        }
+        // Get any text outside <think> tags
+        if (lastIndex < value.length) {
+          nonThinkText = value.slice(lastIndex).trim()
+        }
+        if (nonThinkText) {
+          finalResult += nonThinkText
           chatStore.updateLastAssistantMessage(finalResult)
         }
       }

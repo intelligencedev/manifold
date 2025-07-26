@@ -1,13 +1,10 @@
 package sefii
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -195,157 +192,60 @@ func (e *Engine) EnsureDocumentMetadataTable(ctx context.Context) error {
 
 // summarizeChunk sends the chunk content to the completions endpoint to obtain a summary.
 func SummarizeChunk(ctx context.Context, content string, endpoint string, model string, apiKey string) (SummarizeOutput, error) {
+	// Prepare summary instruction prompt
 	summaryInstructions := `You are an expert text summarizer designed to create concise, informative summaries of document chunks for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the RAG system's effectiveness by enabling it to retrieve the most relevant text chunks based on user queries.
 
 **Instructions:**
-
 1. Analyze the provided text chunk and understand its main topics, key points, and important context.
 2. Generate a very concise summary (1-2 sentences maximum, no more than 50 words) that captures the essential information of the chunk.
 3. Focus on creating a summary that preserves the most important searchable elements that a user might query for.
-4. Extract 3-5 relevant keywords that represent the main topics and concepts in the text.
-5. Maintain factual accuracy while condensing information - never introduce facts not present in the original text.
-6. Prioritize unique, distinctive information in the chunk rather than general information that might appear in many chunks.
-7. If the chunk contains specialized terminology, technical concepts, names, dates, or quantitative data, preserve these elements in your summary as they are likely to be search targets.
-8. Avoid vague descriptions or overly general statements - be specific about the chunk's content.
-9. The summary should stand alone, but acknowledge that this is part of a larger document.
-10. Your output should use the following format only:
+4. Maintain factual accuracy while condensing information.
+5. The output format must be:
+	Summary: [text]
+	Keywords: [comma-separated keywords]`
 
-	Summary: [1-2 sentence summary of the chunk]
-	Keywords: [comma-separated list of 3-5 keywords]
-	`
-
-	reqPayload := map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "system", "content": summaryInstructions},
-			{"role": "user", "content": "Please summarize:\n" + content},
-		},
-		"max_completion_tokens": 2048,
-		"temperature":           0.6,
-		"stream":                false,
+	// Use SDK to get summary
+	msgs := []embeddings.ChatCompletionMessage{
+		{Role: "system", Content: summaryInstructions},
+		{Role: "user", Content: "Please summarize:\n" + content},
 	}
-	reqBytes, err := json.Marshal(reqPayload)
+	resp, err := embeddings.CallLLM(ctx, endpoint, apiKey, model, msgs, 2048, 0.6)
 	if err != nil {
 		return SummarizeOutput{}, err
 	}
-
-	if !strings.HasPrefix(endpoint, "http") {
-		endpoint = "http://" + endpoint
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
-	if err != nil {
-		return SummarizeOutput{}, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return SummarizeOutput{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return SummarizeOutput{}, fmt.Errorf("failed to summarize content, status: %d, body: %s", resp.StatusCode, body)
-	}
-
-	var respData struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		return SummarizeOutput{}, err
-	}
-	if len(respData.Choices) == 0 {
-		return SummarizeOutput{}, fmt.Errorf("no completion choices returned")
-	}
-
-	summaryText := respData.Choices[0].Message.Content
+	summaryText := resp
 	log.Printf("Summary: %s", summaryText)
 
-	// Call the keyword extraction function to retrieve a comma-delimited list of keywords.
+	// Extract keywords via SDK
 	keywords, err := extractKeywords(ctx, summaryText, endpoint, model, apiKey)
 	if err != nil {
 		return SummarizeOutput{}, err
 	}
 
-	return SummarizeOutput{
-		Summary:  summaryText,
-		Keywords: keywords,
-	}, nil
+	return SummarizeOutput{Summary: summaryText, Keywords: keywords}, nil
 }
 
 // extractKeywords calls the LLM with a tuned system prompt to extract keywords.
 // The LLM should return a comma delimited list of keywords which we then parse.
 func extractKeywords(ctx context.Context, summary string, endpoint string, model string, apiKey string) ([]string, error) {
-	keywordInstructions := `You are a specialized keyword extractor. Given the summary text of a code snippet, extract the most relevant keywords that represent the core concepts and functionality. Return the keywords as a comma-delimited list with no additional text.`
+	// Prepare keyword extraction prompt
+	keywordInstructions := `You are a specialized keyword extractor. Given the summary text of a document chunk, extract the most relevant keywords as a comma-delimited list.`
 
-	reqPayload := map[string]interface{}{
-		"model": model,
-		"messages": []map[string]string{
-			{"role": "system", "content": keywordInstructions},
-			{"role": "user", "content": "Please extract keywords from the following summary:\n" + summary},
-		},
-		"max_completion_tokens": 256,
-		"temperature":           0.6,
-		"stream":                false,
+	// Use SDK to extract keywords
+	msgs := []embeddings.ChatCompletionMessage{
+		{Role: "system", Content: keywordInstructions},
+		{Role: "user", Content: "Please extract keywords from the summary:\n" + summary},
 	}
-	reqBytes, err := json.Marshal(reqPayload)
+	resp, err := embeddings.CallLLM(ctx, endpoint, apiKey, model, msgs, 256, 0.6)
 	if err != nil {
 		return nil, err
 	}
 
-	if !strings.HasPrefix(endpoint, "http") {
-		endpoint = "http://" + endpoint
-	}
-
-	// Print the endpoint for debugging
-	log.Printf("Extracting keywords using endpoint: %s", endpoint)
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(reqBytes))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := http.DefaultClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("failed to extract keywords, status: %d, body: %s", resp.StatusCode, body)
-	}
-
-	var respData struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
-		return nil, err
-	}
-	if len(respData.Choices) == 0 {
-		return nil, fmt.Errorf("no keyword extraction choices returned")
-	}
-
-	keywordsText := respData.Choices[0].Message.Content
-	// Parse the comma-delimited list of keywords.
-	parts := strings.Split(keywordsText, ",")
+	parts := strings.Split(resp, ",")
 	var keywords []string
 	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed != "" {
-			keywords = append(keywords, trimmed)
+		if kw := strings.TrimSpace(part); kw != "" {
+			keywords = append(keywords, kw)
 		}
 	}
 	return keywords, nil
@@ -371,8 +271,8 @@ func (e *Engine) IngestDocument(
 		return err
 	}
 
-	// Convert string to Language type and get appropriate splitter
-	language := documentsv1.Language(languageStr)
+	// Determine language based on provided string and get appropriate splitter
+	language := documentsv1.DeduceLanguage(languageStr)
 	splitter, err := documentsv1.FromLanguage(language)
 	if err != nil {
 		// Fallback to default if language not supported

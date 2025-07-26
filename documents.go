@@ -59,8 +59,10 @@ func splitTextHandler(c echo.Context) error {
 		return respondWithError(c, http.StatusBadRequest, "Text is required")
 	}
 
-	splitterType := documentsv1.Language(req.Splitter)
-	if splitterType == "" {
+	// Determine splitter type based on provided string
+	splitterType := documentsv1.DeduceLanguage(req.Splitter)
+	// Fallback to default if no splitter specified
+	if req.Splitter == "" {
 		splitterType = documentsv1.DEFAULT
 	}
 

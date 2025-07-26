@@ -101,6 +101,11 @@ type WebSearchToolConfig struct {
 	ResultSize int    `yaml:"result_size"`        // Number of results to fetch
 }
 
+type IngestionConfig struct {
+	MaxWorkers  int  `yaml:"max_workers"`
+	UseAdvanced bool `yaml:"use_advanced_splitting"`
+}
+
 type ToolsConfig struct {
 	Search WebSearchToolConfig
 }
@@ -125,6 +130,7 @@ type Config struct {
 	AgenticMemory             AgenticMemoryConfig `yaml:"agentic_memory"`
 	A2A                       A2AConfig           `yaml:"a2a,omitempty"`
 	Tools                     ToolsConfig         `yaml:"tools,omitempty"`
+	Ingestion                 IngestionConfig     `yaml:"ingestion"`
 }
 
 // LoadConfig reads the configuration from a YAML file, unmarshals it into a Config struct,
@@ -151,6 +157,18 @@ func LoadConfig(filename string) (*Config, error) {
 	if config.Auth.TokenExpiry <= 0 {
 		config.Auth.TokenExpiry = 72 // Default to 72 hours
 		pterm.Info.Println("No token expiry specified, using default (72 hours).")
+	}
+
+	// Set default values for Ingestion if not provided
+	if config.Ingestion.MaxWorkers <= 0 {
+		config.Ingestion.MaxWorkers = 4 // Default to 4 workers
+		pterm.Info.Println("No max_workers specified for ingestion, using default (4).")
+	}
+
+	// Default to using advanced splitting for better code structure awareness
+	if !config.Ingestion.UseAdvanced {
+		config.Ingestion.UseAdvanced = true
+		pterm.Info.Println("Advanced splitting enabled by default for better code structure preservation.")
 	}
 
 	pterm.Success.Println("Configuration loaded successfully.")

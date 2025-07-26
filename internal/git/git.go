@@ -132,6 +132,7 @@ func processGitFiles(ctx context.Context, req struct {
 			cfg.Embeddings.EmbedPrefix,
 			true,
 			true,
+			cfg.Ingestion.MaxWorkers,
 		); err == nil {
 			successFiles = append(successFiles, file.Path)
 		} else {

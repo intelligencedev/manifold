@@ -203,6 +203,8 @@ func registerSEFIIEndpoints(api *echo.Group, config *Config) {
 	sefiiGroup.POST("/search", sefiipkg.SearchHandler(config))
 	sefiiGroup.POST("/combined-retrieve", sefiipkg.CombinedRetrieveHandler(config))
 	sefiiGroup.POST("/summary-search", sefiipkg.SummarySearchHandler(config))
+	sefiiGroup.POST("/contextual-search", sefiipkg.ContextualSearchHandler(config))
+	sefiiGroup.POST("/chunk-neighbors", sefiipkg.ChunkNeighborsHandler(config))
 }
 
 // registerAnthropicEndpoints registers routes for Anthropic-related functionality.

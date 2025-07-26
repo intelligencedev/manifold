@@ -263,6 +263,7 @@ func (e *Engine) IngestDocument(
 	embedPrefix string,
 	generateSummary bool,
 	generateKeywords bool,
+	maxWorkers int,
 ) error {
 
 	// ensure table
@@ -300,39 +301,72 @@ func (e *Engine) IngestDocument(
 		}
 	}
 
-	// Concurrent summarization and keyword extraction
+	// Concurrent summarization and keyword extraction with configurable worker pool
+	type chunkJob struct {
+		idx     int
+		content string
+	}
 	type chunkResult struct {
+		idx      int
 		summary  string
 		keywords []string
 		err      error
 	}
-	results := make([]chunkResult, len(chunksText))
+
+	jobs := make(chan chunkJob, len(chunksText))
+	results := make(chan chunkResult, len(chunksText))
 	var wg sync.WaitGroup
 
-	for i, chunkContent := range chunksText {
-		wg.Add(1)
-		go func(idx int, content string) {
-			defer wg.Done()
-			var res chunkResult
-			if (generateSummary || generateKeywords) && completionsHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(content)) > 10 {
-				log.Printf("SEFII: Using completions endpoint: %s", completionsHost)
-				summaryOutput, err := SummarizeChunk(ctx, content, completionsHost, model, completionsAPIKey)
-				if err == nil {
-					if generateSummary {
-						res.summary = summaryOutput.Summary
-					}
-					if generateKeywords {
-						res.keywords = summaryOutput.Keywords
-					}
-				} else {
-					log.Printf("SEFII: Failed to summarize chunk %d: %v", idx, err)
-					res.err = err
-				}
-			}
-			results[idx] = res
-		}(i, chunkContent)
+	// Set default maxWorkers if not configured
+	if maxWorkers <= 0 {
+		maxWorkers = 4
 	}
-	wg.Wait()
+
+	// Start worker goroutines
+	for w := 0; w < maxWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				var res chunkResult
+				res.idx = job.idx
+				if (generateSummary || generateKeywords) && completionsHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(job.content)) > 10 {
+					log.Printf("SEFII: Using completions endpoint: %s", completionsHost)
+					summaryOutput, err := SummarizeChunk(ctx, job.content, completionsHost, model, completionsAPIKey)
+					if err == nil {
+						if generateSummary {
+							res.summary = summaryOutput.Summary
+						}
+						if generateKeywords {
+							res.keywords = summaryOutput.Keywords
+						}
+					} else {
+						log.Printf("SEFII: Failed to summarize chunk %d: %v", job.idx, err)
+						res.err = err
+					}
+				}
+				results <- res
+			}
+		}()
+	}
+
+	// Send jobs to workers
+	for i, chunkContent := range chunksText {
+		jobs <- chunkJob{idx: i, content: chunkContent}
+	}
+	close(jobs)
+
+	// Wait for all workers to finish
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	resultMap := make([]chunkResult, len(chunksText))
+	for res := range results {
+		resultMap[res.idx] = res
+	}
 
 	// Create embeddings
 	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, chunksText)
@@ -349,8 +383,8 @@ func (e *Engine) IngestDocument(
 
 	// Insert each chunk with enhanced metadata and FTS optimization
 	for i, chunkContent := range chunksText {
-		chunkSummary := results[i].summary
-		extractedKeywords := results[i].keywords
+		chunkSummary := resultMap[i].summary
+		extractedKeywords := resultMap[i].keywords
 
 		if len(extractedKeywords) > 0 {
 			allChunkKeywords = append(allChunkKeywords, extractedKeywords...)

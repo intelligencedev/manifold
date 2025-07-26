@@ -20,6 +20,7 @@ type Splitter struct {
 	OverlapTokens int
 	Lang          Language
 	Tok           Tokenizer
+	detector      *BoundaryDetector
 }
 
 // Stream reads from r and emits chunks via emit.
@@ -27,23 +28,34 @@ func (s Splitter) Stream(r io.Reader, emit func(Chunk) error) error {
 	if s.Tok == nil {
 		s.Tok = RuneTokenizer{}
 	}
+
+	// Initialize boundary detector if not set
+	if s.detector == nil {
+		s.detector = NewBoundaryDetector(s.Lang)
+	}
+
 	scanner := bufio.NewScanner(r)
 	buf := strings.Builder{}
 	curTokens := 0
 	start := 0
 	idx := 0
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		tokens := s.Tok.Count(line) + 1 // newline token
-		boundary := false
-		switch s.Lang {
-		case Markdown:
-			boundary = strings.HasPrefix(line, "#")
-		case Go:
-			boundary = strings.HasPrefix(strings.TrimSpace(line), "func ")
+
+		// Use intelligent boundary detection
+		boundary := s.detector.IsBoundary(line)
+
+		// Also check for legacy patterns for backward compatibility
+		if !boundary {
+			boundary = s.isLegacyBoundary(line)
 		}
 
-		if curTokens+tokens > s.MaxTokens || (boundary && curTokens > 0) {
+		// Force split if we're over the token limit OR if we hit a logical boundary
+		shouldSplit := curTokens+tokens > s.MaxTokens || (boundary && curTokens > 0)
+
+		if shouldSplit {
 			if err := emit(Chunk{Index: idx, Text: buf.String(), StartToken: start, EndToken: start + curTokens}); err != nil {
 				return err
 			}
@@ -54,14 +66,28 @@ func (s Splitter) Stream(r io.Reader, emit func(Chunk) error) error {
 			buf.WriteString(text)
 			curTokens = s.Tok.Count(text)
 		}
+
 		buf.WriteString(line)
 		buf.WriteByte('\n')
 		curTokens += tokens
 	}
+
 	if buf.Len() > 0 {
 		emit(Chunk{Index: idx, Text: buf.String(), StartToken: start, EndToken: start + curTokens})
 	}
 	return scanner.Err()
+}
+
+// isLegacyBoundary provides backward compatibility with the old boundary detection
+func (s Splitter) isLegacyBoundary(line string) bool {
+	switch s.Lang {
+	case Markdown:
+		return strings.HasPrefix(line, "#")
+	case Go:
+		return strings.HasPrefix(strings.TrimSpace(line), "func ")
+	default:
+		return false
+	}
 }
 
 func lastTokens(text string, tok Tokenizer, n int) string {

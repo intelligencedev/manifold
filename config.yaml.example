@@ -66,6 +66,23 @@ data_path: '/data'
 single_node_instance: true
 
 # ===================================================================
+# INGESTION CONFIGURATION
+# ===================================================================
+
+# Document ingestion settings
+ingestion:
+  # Maximum number of concurrent workers for processing chunks during ingestion
+  # Controls parallelism for document splitting, summarization, keyword extraction, and embeddings
+  # Environment variable: MANIFOLD__INGESTION__MAX_WORKERS
+  max_workers: 4
+  
+  # Use advanced structure-aware splitting for better code organization
+  # When enabled, preserves logical boundaries like function/class definitions, import blocks, etc.
+  # Recommended for code repositories and structured documents
+  # Environment variable: MANIFOLD__INGESTION__USE_ADVANCED_SPLITTING
+  use_advanced_splitting: true
+
+# ===================================================================
 # DATABASE CONFIGURATION
 # ===================================================================
 

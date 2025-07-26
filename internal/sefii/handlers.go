@@ -86,6 +86,7 @@ func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 			config.Embeddings.EmbedPrefix,
 			genSummary,
 			genKeywords,
+			config.Ingestion.MaxWorkers,
 		)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to ingest document"})
@@ -237,5 +238,107 @@ func SummarySearchHandler(config *configpkg.Config) echo.HandlerFunc {
 		}
 
 		return c.JSON(http.StatusOK, map[string]interface{}{"chunks": chunks})
+	}
+}
+
+// ContextualSearchHandler returns an Echo handler that performs search with expanded context
+func ContextualSearchHandler(config *configpkg.Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var req struct {
+			Query          string `json:"query"`
+			FilePathFilter string `json:"file_path_filter"`
+			Limit          int    `json:"limit"`
+			ContextWindow  int    `json:"context_window"`   // Number of neighboring chunks to include
+			IncludeFullDoc bool   `json:"include_full_doc"` // Whether to include the complete document
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.Query == "" {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Query is required"})
+		}
+		if req.Limit == 0 {
+			req.Limit = 10
+		}
+		if req.ContextWindow < 0 {
+			req.ContextWindow = 0
+		}
+
+		ctx := c.Request().Context()
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		defer conn.Release()
+
+		engine := NewEngine(conn.Conn())
+		results, err := engine.SearchWithExpandedContext(
+			ctx,
+			req.Query,
+			req.FilePathFilter,
+			req.Limit,
+			req.ContextWindow,
+			req.IncludeFullDoc,
+			config.Embeddings.Host,
+			config.Embeddings.APIKey,
+		)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to search with context"})
+		}
+
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"results": results,
+			"total":   len(results),
+		})
+	}
+}
+
+// ChunkNeighborsHandler retrieves neighboring chunks for a specific chunk ID
+func ChunkNeighborsHandler(config *configpkg.Config) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var req struct {
+			ChunkID        int64 `json:"chunk_id"`
+			ContextWindow  int   `json:"context_window"`
+			IncludeFullDoc bool  `json:"include_full_doc"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+		if req.ChunkID == 0 {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "chunk_id is required"})
+		}
+		if req.ContextWindow <= 0 {
+			req.ContextWindow = 2 // Default to 2 chunks before and after
+		}
+
+		ctx := c.Request().Context()
+		if config.DBPool == nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database connection pool not initialized"})
+		}
+		conn, err := config.DBPool.Acquire(ctx)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to acquire database connection"})
+		}
+		defer conn.Release()
+
+		engine := NewEngine(conn.Conn())
+		results, err := engine.RetrieveWithContext(
+			ctx,
+			[]int64{req.ChunkID},
+			req.ContextWindow,
+			req.IncludeFullDoc,
+		)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to retrieve chunk context"})
+		}
+
+		if len(results) == 0 {
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "Chunk not found"})
+		}
+
+		return c.JSON(http.StatusOK, results[0])
 	}
 }

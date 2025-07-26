@@ -258,9 +258,9 @@ export function useAgentNode(props, emit) {
 
   // Add models list for Anthropic
   const claudeModels = [
+    "claude-sonnet-4-20250514",
+    "claude-opus-4-20250514",
     "claude-3-7-sonnet-latest",
-    "claude-3-5-sonnet-latest",
-    "claude-3-5-haiku-latest",
   ];
 
   // Add models list for Google Gemini

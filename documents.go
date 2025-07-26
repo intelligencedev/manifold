@@ -14,7 +14,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"manifold/internal/documents"
+	documentsv1 "manifold/internal/documents/v1deprecated"
 	tools "manifold/internal/tools"
 )
 
@@ -59,17 +59,17 @@ func splitTextHandler(c echo.Context) error {
 		return respondWithError(c, http.StatusBadRequest, "Text is required")
 	}
 
-	splitterType := documents.Language(req.Splitter)
+	splitterType := documentsv1.Language(req.Splitter)
 	if splitterType == "" {
-		splitterType = documents.DEFAULT
+		splitterType = documentsv1.DEFAULT
 	}
 
-	splitter, err := documents.FromLanguage(splitterType)
+	splitter, err := documentsv1.FromLanguage(splitterType)
 	if err != nil {
 		return respondWithError(c, http.StatusInternalServerError, err.Error())
 	}
 
-	if splitterType == documents.DEFAULT && req.ChunkSize > 0 {
+	if splitterType == documentsv1.DEFAULT && req.ChunkSize > 0 {
 		splitter.ChunkSize = req.ChunkSize
 	}
 

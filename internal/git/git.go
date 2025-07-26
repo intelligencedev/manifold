@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"manifold/internal/documents"
+	documentsv1 "manifold/internal/documents/v1deprecated"
 	"manifold/internal/sefii"
 
 	"github.com/jackc/pgx/v5"
@@ -25,7 +25,7 @@ func FilesHandler(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "repo_path query parameter is required"})
 	}
 
-	files, err := documents.GetGitFiles(repoPath)
+	files, err := documentsv1.GetGitFiles(repoPath)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to list Git files"})
 	}
@@ -102,7 +102,7 @@ func processGitFiles(ctx context.Context, req struct {
 }, cfg *cfg.Config, conn *pgx.Conn) ([]string, error) {
 	engine := sefii.NewEngine(conn)
 
-	gitFiles, err := documents.GetGitFiles(req.RepoPath)
+	gitFiles, err := documentsv1.GetGitFiles(req.RepoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get git files: %w", err)
 	}
@@ -113,7 +113,7 @@ func processGitFiles(ctx context.Context, req struct {
 			continue
 		}
 
-		language := documents.DeduceLanguage(file.Path)
+		language := documentsv1.DeduceLanguage(file.Path)
 		if err := engine.IngestDocument(
 			ctx,
 			file.Content,

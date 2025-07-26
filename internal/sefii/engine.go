@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"manifold/internal/documents"
+	documentsv1 "manifold/internal/documents/v1deprecated"
 	embeddings "manifold/internal/llm"
 
 	"github.com/jackc/pgx/v5"
@@ -372,11 +372,11 @@ func (e *Engine) IngestDocument(
 	}
 
 	// Convert string to Language type and get appropriate splitter
-	language := documents.Language(languageStr)
-	splitter, err := documents.FromLanguage(language)
+	language := documentsv1.Language(languageStr)
+	splitter, err := documentsv1.FromLanguage(language)
 	if err != nil {
 		// Fallback to default if language not supported
-		splitter, _ = documents.FromLanguage(documents.DEFAULT)
+		splitter, _ = documentsv1.FromLanguage(documentsv1.DEFAULT)
 	}
 
 	splitter.ChunkSize = chunkSize
@@ -384,7 +384,7 @@ func (e *Engine) IngestDocument(
 
 	// Use adaptive method for chunking based on language
 	var chunksText []string
-	if language == documents.DEFAULT {
+	if language == documentsv1.DEFAULT {
 		chunksText = splitter.SplitText(text)
 	} else {
 		// Use adaptive splitting for code and structured content

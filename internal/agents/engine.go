@@ -21,7 +21,7 @@ import (
 
 	a2aclient "manifold/internal/a2a/client"
 	configpkg "manifold/internal/config"
-	"manifold/internal/documents"
+	documentsv1 "manifold/internal/documents/v1deprecated"
 	llm "manifold/internal/llm"
 	"manifold/internal/mcp"
 	tools "manifold/internal/tools"
@@ -745,7 +745,7 @@ Action Input: <JSON | text>
 			// check if the observation is too long
 			if len(obs) > 500 {
 				// split the observation into chunks
-				chunks := documents.SplitTextByCount(obs, 500)
+				chunks := documentsv1.SplitTextByCount(obs, 500)
 				// ingest each chunk separately
 				for _, chunk := range chunks {
 					_, err := ae.MemoryEngine.IngestAgenticMemory(ctx, ae.Config, chunk, sess.ID)

@@ -9,6 +9,7 @@ export interface ChatMessage {
 export const useChatStore = defineStore('chat', () => {
   // Chat messages
   const messages = ref<ChatMessage[]>([])
+  const thoughts = ref<string[]>([])
   
   // Chat configuration
   const provider = ref('llama-server')
@@ -52,6 +53,14 @@ export const useChatStore = defineStore('chat', () => {
   function addMessage(message: ChatMessage) {
     messages.value.push(message)
   }
+
+  function addThought(thought: string) {
+    thoughts.value.push(thought)
+  }
+
+  function clearThoughts() {
+    thoughts.value = []
+  }
   
   function updateLastAssistantMessage(content: string) {
     for (let i = messages.value.length - 1; i >= 0; i--) {
@@ -90,6 +99,9 @@ export const useChatStore = defineStore('chat', () => {
     isGenerating,
     stopRequested,
     signal,
+    thoughts,
+    addThought,
+    clearThoughts,
     addMessage,
     updateLastAssistantMessage,
     clearMessages,

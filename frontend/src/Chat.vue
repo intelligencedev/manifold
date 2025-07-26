@@ -44,8 +44,13 @@
         <div ref="messageContainer" class="w-full message-area-scroll flex-1 overflow-y-auto space-y-6 p-4 xl:px-65">
           <div v-for="(msg, i) in messages" :key="i" :class="msg.role === 'user' ? 'text-right' : ''">
             <div class="p-6 rounded-lg" :class="msg.role==='user' ? 'bg-teal-600 inline-block px-3 py-2 w-1/2 text-left' : ''">
-              <div v-if="msg.role === 'assistant' && renderMode === 'markdown'" class="markdown-content" v-html="formatMessage(msg.content)" />
-              <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
+              <template v-if="msg.role === 'assistant'">
+                <div v-if="renderMode === 'markdown'" class="markdown-content" v-html="formatMessage(msg.content)" />
+                <div v-else class="whitespace-pre-wrap">{{ msg.content }}</div>
+              </template>
+              <template v-else>
+                <div class="whitespace-pre-wrap">{{ msg.content }}</div>
+              </template>
             </div>
           </div>
         </div>
@@ -100,6 +105,14 @@
           </div>
         </div>
       </div>
+      <!-- Thoughts panel -->
+      <div class="bg-zinc-900 border-l border-zinc-700 w-80 min-w-[18rem] max-w-xs p-4 overflow-y-auto sidebar-scroll" ref="thoughtsContainer">
+        <transition-group name="fade" tag="div" class="space-y-2">
+          <div v-for="(t,i) in thoughts" :key="i" class="think-wrapper">
+            <pre class="think-content">{{ t }}</pre>
+          </div>
+        </transition-group>
+      </div>
     </div>
   </div>
 </template>
@@ -152,9 +165,11 @@ const agentMaxSteps = computed(() => configStore.config?.Completions?.Agent?.Max
 
 // Use the messages from chatStore instead of local ref
 const messages = computed(() => chatStore.messages)
+const thoughts = computed(() => chatStore.thoughts)
 const userInput = ref('')
 const messageContainer = ref<HTMLElement | null>(null)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const thoughtsContainer = ref<HTMLElement | null>(null)
 const showApiKey = ref(false)
 const isLoadingModel = ref(false) // Track model loading state
 const isGenerating = computed(() => chatStore.isGenerating)
@@ -362,6 +377,14 @@ watch(messages, () => {
   })
 }, { deep: true })
 
+watch(thoughts, () => {
+  nextTick(() => {
+    if (thoughtsContainer.value) {
+      thoughtsContainer.value.scrollTop = thoughtsContainer.value.scrollHeight
+    }
+  })
+}, { deep: true })
+
 // Removed the old fetchLlamaServerModel function
 
 function createEventStreamSplitter () {
@@ -416,21 +439,6 @@ function addCopyButtons() {
   })
 }
 
-// Watch messages for new code blocks
- watch(messages, () => {
-   nextTick(() => {
-     if (messageContainer.value) {
-       messageContainer.value.scrollTop = messageContainer.value.scrollHeight
-       // Highlight code blocks in messages
-       const codeBlocks = messageContainer.value.querySelectorAll('pre code:not(.hljs)')
-       codeBlocks.forEach(block => {
-         hljs.highlightElement(block as HTMLElement)
-       })
-      // Add copy buttons after highlighting
-      addCopyButtons()
-     }
-   })
- }, { deep: true })
 
 async function sendMessage() {
   if (!userInput.value.trim()) return
@@ -444,6 +452,7 @@ async function sendMessage() {
   // Create the assistant message and add it to the messages array
   chatStore.addMessage({ role: 'assistant', content: '' })
   chatStore.startGeneration()
+  chatStore.clearThoughts()
 
   if (provider.value === 'react-agent') {
     try {
@@ -470,7 +479,7 @@ async function sendMessage() {
         .pipeThrough(createEventStreamSplitter())
         .getReader()
 
-      let thoughts = ''
+      chatStore.clearThoughts()
       let finalResult = ''
       while (true) {
         if (chatStore.stopRequested) {
@@ -485,15 +494,13 @@ async function sendMessage() {
         }
         const thinkMatch = value.match(/<think>([\s\S]*?)<\/think>/)
         if (thinkMatch) {
-          thoughts += thinkMatch[1] + '\n'
+          chatStore.addThought(thinkMatch[1])
         } else {
           finalResult = value
+          chatStore.updateLastAssistantMessage(finalResult)
         }
-        const combined = (thoughts ? `<think>${thoughts}</think>` : '') + (finalResult ? `\n${finalResult}` : '')
-        chatStore.updateLastAssistantMessage(combined)
       }
-      const finalResponse = (thoughts ? `<think>${thoughts}</think>` : '') + (finalResult ? `\n${finalResult}` : '')
-      chatStore.updateLastAssistantMessage(finalResponse)
+      chatStore.updateLastAssistantMessage(finalResult)
     } catch (e) {
       console.error(e)
       chatStore.updateLastAssistantMessage('Error fetching response.')
@@ -686,5 +693,32 @@ textarea.no-focus-anywhere:hover {
 
 .no-focus-anywhere::-webkit-scrollbar-thumb {
   display: none !important;
+}
+
+/* Agent thinking block styling */
+.think-wrapper {
+  color: #d8d0e8;
+  background: rgba(73,49,99,.25);
+  border-left: 3px solid #8a70b5;
+  margin: 12px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+.think-content {
+  white-space: pre-wrap;
+  padding: 10px;
+  background: rgba(45,35,65,.3);
+  margin: 0;
+}
+
+/* fade transition */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity .3s;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

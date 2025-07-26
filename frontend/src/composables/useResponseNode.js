@@ -144,89 +144,38 @@ export function useResponseNode(props, emit) {
   }
 
   function parseResponse(txt) {
-    const previousStates = thinkingBlocks.value.map(b => b.collapsed)
-
+    let processedText = txt
     if (selectedModelType.value === 'claude' && txt.includes('event:')) {
-      const processedText = processClaudeStreamingResponse(txt)
-      const blocks = []
-      const outside = []
-      const regex = /<(?:think|thinking)>([\s\S]*?)(?:<\/(?:think|thinking)>|$)/gi
-      let lastIndex = 0
-      let match
-      let blockIndex = 0
-
-      while ((match = regex.exec(processedText)) !== null) {
-        if (match.index > lastIndex) {
-          outside.push(processedText.slice(lastIndex, match.index))
-        }
-
-        const full = match[1].trimEnd()
-        const lines = full.split('\n')
-        const preview = lines.slice(-2).join('\n')
-        const wasCollapsed = blockIndex < previousStates.length ? previousStates[blockIndex] : true
-
-        blocks.push({
-          content: full,
-          preview,
-          hasMore: lines.length > 2,
-          collapsed: wasCollapsed
-        })
-
-        lastIndex = match.index + match[0].length
-        blockIndex++
-      }
-
-      if (lastIndex < processedText.length) {
-        outside.push(processedText.slice(lastIndex))
-      }
-
-      thinkingBlocks.value = blocks
-      outsideThinkingRaw.value = outside.join('')
-      return
+      processedText = processClaudeStreamingResponse(txt)
     }
 
-    const blocks = []
-    const outside = []
     const regex = /<(?:think|thinking)>([\s\S]*?)(?:<\/(?:think|thinking)>|$)/gi
-    let lastIndex = 0
     let match
-    let blockIndex = 0
+    let lastMatch = null
+    let lastIndex = 0
+    while ((match = regex.exec(processedText)) !== null) {
+      lastMatch = match
+      lastIndex = regex.lastIndex
+    }
 
-    while ((match = regex.exec(txt)) !== null) {
-      if (match.index > lastIndex) {
-        outside.push(txt.slice(lastIndex, match.index))
+    if (lastMatch) {
+      const full = lastMatch[1].trimEnd()
+      thinkingBlocks.value = [{ content: full }]
+      reRenderKey.value++
+      if (lastIndex < processedText.length) {
+        outsideThinkingRaw.value = processedText.slice(lastIndex)
+      } else {
+        outsideThinkingRaw.value = ''
       }
-
-      const full = match[1].trimEnd()
-      const lines = full.split('\n')
-      const preview = lines.slice(-2).join('\n')
-      const wasCollapsed = blockIndex < previousStates.length ? previousStates[blockIndex] : true
-
-      blocks.push({
-        content: full,
-        preview,
-        hasMore: lines.length > 2,
-        collapsed: wasCollapsed
-      })
-
-      lastIndex = match.index + match[0].length
-      blockIndex++
+    } else {
+      thinkingBlocks.value = []
+      outsideThinkingRaw.value = processedText
     }
-
-    if (lastIndex < txt.length) {
-      outside.push(txt.slice(lastIndex))
-    }
-
-    thinkingBlocks.value = blocks
-    outsideThinkingRaw.value = outside.join('')
   }
 
   const markdownOutsideThinking = computed(() => marked(outsideThinkingRaw.value))
   const htmlOutsideThinking = computed(() => DOMPurify.sanitize(outsideThinkingRaw.value))
 
-  function toggleThink(idx) {
-    thinkingBlocks.value[idx].collapsed = !thinkingBlocks.value[idx].collapsed
-  }
 
   const response = computed(() => props.data.inputs.response || '')
 
@@ -361,7 +310,7 @@ export function useResponseNode(props, emit) {
     htmlOutsideThinking,
     outsideThinkingRaw,
     thinkingBlocks,
-    toggleThink
+    reRenderKey
   }
 }
 

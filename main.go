@@ -19,8 +19,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 
+	otelecho "go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho"
+
 	configpkg "manifold/internal/config"
 	servicespkg "manifold/internal/services"
+	telemetric "manifold/internal/telemetry"
 )
 
 //go:embed frontend/dist
@@ -36,6 +39,13 @@ func main() {
 	if err != nil {
 		logger.Fatal(fmt.Sprintf("Failed to load configuration: %v", err))
 	}
+
+	// Setup OpenTelemetry
+	shutdownOTel, err := telemetric.Setup(context.Background(), config.OTel)
+	if err != nil {
+		logger.Errorf("Failed to setup OpenTelemetry: %v", err)
+	}
+	defer shutdownOTel(context.Background())
 
 	// Initialize the database connection pool with CPU-based sizing first
 	ctx := context.Background()
@@ -94,6 +104,10 @@ func main() {
 	// Create a new Echo instance
 	logger.Info("Creating Echo web server instance...")
 	e := echo.New()
+
+	if config.OTel.Enabled {
+		e.Use(otelecho.Middleware(config.OTel.ServiceName))
+	}
 
 	// Remove banner and version info from Echo logs
 	e.HideBanner = true

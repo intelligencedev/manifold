@@ -112,6 +112,14 @@ type ToolsConfig struct {
 	Search WebSearchToolConfig
 }
 
+// TelemetryConfig controls OpenTelemetry settings.
+type TelemetryConfig struct {
+	Enabled     bool   `yaml:"enabled"`
+	Endpoint    string `yaml:"endpoint"`
+	Insecure    bool   `yaml:"insecure"`
+	ServiceName string `yaml:"service_name"`
+}
+
 type Config struct {
 	Host                      string              `yaml:"host"`
 	Port                      int                 `yaml:"port"`
@@ -132,6 +140,7 @@ type Config struct {
 	AgenticMemory             AgenticMemoryConfig `yaml:"agentic_memory"`
 	A2A                       A2AConfig           `yaml:"a2a,omitempty"`
 	Tools                     ToolsConfig         `yaml:"tools,omitempty"`
+	OTel                      TelemetryConfig     `yaml:"otel"`
 	Ingestion                 IngestionConfig     `yaml:"ingestion"`
 }
 
@@ -171,6 +180,10 @@ func LoadConfig(filename string) (*Config, error) {
 	if !config.Ingestion.UseAdvanced {
 		config.Ingestion.UseAdvanced = true
 		pterm.Info.Println("Advanced splitting enabled by default for better code structure preservation.")
+	}
+
+	if config.OTel.ServiceName == "" {
+		config.OTel.ServiceName = "manifold"
 	}
 
 	pterm.Success.Println("Configuration loaded successfully.")

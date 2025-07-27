@@ -23,9 +23,11 @@ require (
 	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/crypto v0.38.0
-	golang.org/x/net v0.40.0
-	golang.org/x/sync v0.14.0
-	gopkg.in/yaml.v2 v2.4.0
+       golang.org/x/net v0.40.0
+       golang.org/x/sync v0.14.0
+       gopkg.in/yaml.v2 v2.4.0
+       go.opentelemetry.io/contrib/instrumentation/github.com/labstack/echo/otelecho v0.47.0
+       go.opentelemetry.io/otel v1.37.0
 )
 
 require (

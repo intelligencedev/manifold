@@ -9,7 +9,6 @@ import (
 	codeeval "manifold/internal/tools"
 
 	"github.com/labstack/echo/v4"
-	"github.com/sirupsen/logrus"
 )
 
 // evaluateCodeHandler is the HTTP handler that dispatches based on language.

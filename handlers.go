@@ -13,7 +13,6 @@ package main
 import (
 	"fmt"
 	"io/fs"
-	"log"
 	"net/http"
 
 	"github.com/labstack/echo/v4"

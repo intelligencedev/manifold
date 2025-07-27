@@ -18,7 +18,6 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/sirupsen/logrus"
 
 	configpkg "manifold/internal/config"
 	servicespkg "manifold/internal/services"

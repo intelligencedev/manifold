@@ -53,6 +53,9 @@ func main() {
 	}
 	defer shutdownOTel(context.Background())
 
+	// Add OpenTelemetry logrus bridge hook for log export
+	AddOTelLogrusHook(config.OTel.ServiceName)
+
 	// Initialize the database connection pool with CPU-based sizing first
 	ctx := context.Background()
 	poolConfig, err := pgxpool.ParseConfig(config.Database.ConnectionString)

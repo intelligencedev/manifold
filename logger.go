@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/bridges/otellogrus"
 )
 
 var log = logrus.New()
@@ -19,4 +20,10 @@ func init() {
 	} else {
 		log.SetLevel(logrus.InfoLevel)
 	}
+}
+
+// AddOTelLogrusHook adds OpenTelemetry logrus bridge hook to the logger
+func AddOTelLogrusHook(serviceName string) {
+	hook := otellogrus.NewHook(serviceName)
+	log.AddHook(hook)
 }

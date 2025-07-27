@@ -39,14 +39,19 @@
 
         <BaseDropdownMenu :show="showTemplatesMenu">
           <div class="templates-list">
-            <div 
-              v-for="(t, index) in templates" 
-              :key="t.template"
-              class="template-item"
-              @click="loadTemplate(t)"
+            <div
+              v-if="templates.length > 0"
+              class="templates-scroll"
             >
-              {{ t.name }}
-              <div v-if="index < templates.length - 1" class="template-divider"></div>
+              <div 
+                v-for="(t, index) in templates" 
+                :key="t.template"
+                class="template-item"
+                @click="loadTemplate(t)"
+              >
+                {{ t.name }}
+                <div v-if="index < templates.length - 1" class="template-divider"></div>
+              </div>
             </div>
             <div
               v-if="templates.length === 0"
@@ -135,14 +140,16 @@
           <div v-if="showMobileTemplatesMenu" class="bg-gray-900">
             <div class="templates-list mobile">
               <template v-if="templates.length > 0">
-                <div 
-                  v-for="(t, index) in templates" 
-                  :key="t.template"
-                  class="template-item mobile"
-                  @click="loadTemplate(t)"
-                >
-                  {{ t.name }}
-                  <div v-if="index < templates.length - 1" class="template-divider"></div>
+                <div class="templates-scroll mobile">
+                  <div 
+                    v-for="(t, index) in templates" 
+                    :key="t.template"
+                    class="template-item mobile"
+                    @click="loadTemplate(t)"
+                  >
+                    {{ t.name }}
+                    <div v-if="index < templates.length - 1" class="template-divider"></div>
+                  </div>
                 </div>
               </template>
               <div
@@ -627,6 +634,7 @@ defineExpose({ fetchTemplates });
 }
 
 /* Modal styles */
+/* Modal styles */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -641,6 +649,32 @@ defineExpose({ fetchTemplates });
   overflow-y: auto; /* Allow scrolling on smaller screens if needed */
   padding: 1rem 0; /* Add some vertical padding */
   will-change: opacity; /* Optimize for animations */
+}
+
+/* Custom scroll for templates list */
+.templates-scroll {
+  max-height: calc(5 * 48px); /* 5 items, each about 48px tall */
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #38b2ac #23272a;
+}
+.templates-scroll.mobile {
+  max-height: calc(5 * 48px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #38b2ac #23272a;
+}
+/* Custom scrollbar for Webkit browsers */
+.templates-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.templates-scroll::-webkit-scrollbar-thumb {
+  background: #38b2ac;
+  border-radius: 4px;
+}
+.templates-scroll::-webkit-scrollbar-track {
+  background: #23272a;
+  border-radius: 4px;
 }
 
 /* Adding @layer to ensure these styles take precedence */

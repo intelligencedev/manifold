@@ -50,5 +50,9 @@ func Setup(ctx context.Context, cfg Config) (func(context.Context) error, error)
 	)
 	otel.SetTracerProvider(tp)
 
+	// Register the global tracer provider
+	otel.SetTextMapPropagator(otel.GetTextMapPropagator())
+	otel.SetTracerProvider(tp)
+
 	return tp.Shutdown, nil
 }

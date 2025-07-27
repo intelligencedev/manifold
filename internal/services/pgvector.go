@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/pterm/pterm"
+	"github.com/sirupsen/logrus"
 )
 
 //go:embed pgsql.Dockerfile
@@ -28,17 +28,17 @@ func EnsurePGVectorImage() error {
 		return fmt.Errorf("docker is not running: %w", err)
 	}
 
-	pterm.Info.Println("Docker is available, checking for pg-manifold image...")
+	logrus.Info("Docker is available, checking for pg-manifold image...")
 
 	// Check if the image exists
 	checkImageCmd := exec.Command("docker", "images", "--format", "{{.Repository}}:{{.Tag}}", "intelligencedev/pg-manifold:latest")
 	output, err := checkImageCmd.Output()
 	if err == nil && len(output) > 0 {
-		pterm.Success.Println("intelligencedev/pg-manifold:latest image already exists")
+		logrus.Info("intelligencedev/pg-manifold:latest image already exists")
 		return nil
 	}
 
-	pterm.Info.Println("intelligencedev/pg-manifold:latest image not found, building it...")
+	logrus.Info("intelligencedev/pg-manifold:latest image not found, building it...")
 
 	tempDir, err := os.MkdirTemp("", "pgvector-build-")
 	if err != nil {
@@ -58,11 +58,11 @@ func EnsurePGVectorImage() error {
 	buildCmd.Stdout = io.MultiWriter(os.Stdout, &stdoutBuf)
 	buildCmd.Stderr = io.MultiWriter(os.Stderr, &stderrBuf)
 
-	pterm.Info.Println("Building intelligencedev/pg-manifold Docker image...")
+	logrus.Info("Building intelligencedev/pg-manifold Docker image...")
 	if err := buildCmd.Run(); err != nil {
 		return fmt.Errorf("failed to build pg-manifold image: %w\n%s", err, stderrBuf.String())
 	}
 
-	pterm.Success.Println("intelligencedev/pg-manifold:latest image successfully built")
+	logrus.Info("intelligencedev/pg-manifold:latest image successfully built")
 	return nil
 }

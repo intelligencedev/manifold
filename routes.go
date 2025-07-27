@@ -75,7 +75,7 @@ func registerAPIEndpoints(api *echo.Group, config *Config) {
 
 	// A2A protocol endpoints for worker nodes
 	if config.A2A.Role == "worker" {
-		log.Println("starting a2a server endpoints")
+		log.Info("starting a2a server endpoints")
 		registerA2AEndpoints(api, config)
 	}
 
@@ -150,7 +150,7 @@ func registerMCPEndpoints(api *echo.Group, config *Config) {
 	mcpGroup.GET("/servers", func(c echo.Context) error {
 		handler, err := getHandler()
 		if err != nil {
-			log.Printf("MCP handler initialization failed: %v", err)
+			log.Errorf("MCP handler initialization failed: %v", err)
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{
 				"error":   "MCP functionality is currently unavailable",
 				"details": "MCP server configuration error - check server logs for details",
@@ -162,7 +162,7 @@ func registerMCPEndpoints(api *echo.Group, config *Config) {
 	mcpGroup.GET("/servers/:name/tools", func(c echo.Context) error {
 		handler, err := getHandler()
 		if err != nil {
-			log.Printf("MCP handler initialization failed: %v", err)
+			log.Errorf("MCP handler initialization failed: %v", err)
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{
 				"error":   "MCP functionality is currently unavailable",
 				"details": "MCP server configuration error - check server logs for details",
@@ -174,7 +174,7 @@ func registerMCPEndpoints(api *echo.Group, config *Config) {
 	mcpGroup.POST("/servers/:name/tools/:tool", func(c echo.Context) error {
 		handler, err := getHandler()
 		if err != nil {
-			log.Printf("MCP handler initialization failed: %v", err)
+			log.Errorf("MCP handler initialization failed: %v", err)
 			return c.JSON(http.StatusServiceUnavailable, map[string]string{
 				"error":   "MCP functionality is currently unavailable",
 				"details": "MCP server configuration error - check server logs for details",

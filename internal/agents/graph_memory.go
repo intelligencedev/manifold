@@ -200,7 +200,15 @@ func (eae *EnhancedAgenticEngine) IngestEnhancedMemory(
 	log.Printf("Ingesting enhanced memory: type=%s, workflow=%s", nodeType, workflowID.String())
 
 	// Generate summary and keywords
-	summaryOutput, err := sefii.SummarizeChunk(ctx, content, config.Completions.DefaultHost, config.Completions.CompletionsModel, config.Completions.APIKey)
+	summaryEndpoint := config.Completions.SummaryHost
+	if summaryEndpoint == "" {
+		summaryEndpoint = config.Completions.DefaultHost
+	}
+	keywordsEndpoint := config.Completions.KeywordsHost
+	if keywordsEndpoint == "" {
+		keywordsEndpoint = config.Completions.DefaultHost
+	}
+	summaryOutput, err := sefii.SummarizeChunk(ctx, content, summaryEndpoint, keywordsEndpoint, config.Completions.CompletionsModel, config.Completions.APIKey)
 	if err != nil {
 		return 0, fmt.Errorf("failed to summarize content: %w", err)
 	}

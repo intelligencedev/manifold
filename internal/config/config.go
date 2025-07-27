@@ -69,6 +69,8 @@ type A2AConfig struct {
 
 type CompletionsConfig struct {
 	DefaultHost      string           `yaml:"default_host"`
+	SummaryHost      string           `yaml:"summary_host,omitempty"`
+	KeywordsHost     string           `yaml:"keywords_host,omitempty"`
 	Backend          string           `yaml:"backend"` // e.g., "openai", "llamacpp", "mlx"
 	CompletionsModel string           `yaml:"completions_model"`
 	Temperature      float64          `yaml:"temperature"`

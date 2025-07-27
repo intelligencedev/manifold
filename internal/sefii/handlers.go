@@ -64,8 +64,15 @@ func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 		}
 		defer conn.Release()
 
-		// Add completions route to the config.Completions.DefaultHost
-		completionsEndpoint := fmt.Sprintf("%s/chat/completions", config.Completions.DefaultHost)
+		// Determine endpoints for summarization and keywords
+		summaryEndpoint := config.Completions.SummaryHost
+		if summaryEndpoint == "" {
+			summaryEndpoint = config.Completions.DefaultHost
+		}
+		keywordsEndpoint := config.Completions.KeywordsHost
+		if keywordsEndpoint == "" {
+			keywordsEndpoint = config.Completions.DefaultHost
+		}
 
 		engine := NewEngine(conn.Conn())
 		err = engine.IngestDocument(
@@ -78,7 +85,8 @@ func IngestHandler(config *configpkg.Config) echo.HandlerFunc {
 			config.Embeddings.Host,
 			config.Completions.CompletionsModel,
 			config.Embeddings.APIKey,
-			completionsEndpoint,
+			summaryEndpoint,
+			keywordsEndpoint,
 			config.Completions.APIKey,
 			req.ChunkSize,
 			req.ChunkOverlap,

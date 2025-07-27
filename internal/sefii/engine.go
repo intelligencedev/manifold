@@ -190,8 +190,10 @@ func (e *Engine) EnsureDocumentMetadataTable(ctx context.Context) error {
 	return nil
 }
 
-// summarizeChunk sends the chunk content to the completions endpoint to obtain a summary.
-func SummarizeChunk(ctx context.Context, content string, endpoint string, model string, apiKey string) (SummarizeOutput, error) {
+// SummarizeChunk sends the chunk content to the summary and keyword endpoints to obtain
+// a summary and keywords. If the keyword endpoint is empty it falls back to the
+// summary endpoint.
+func SummarizeChunk(ctx context.Context, content string, summaryEndpoint string, keywordEndpoint string, model string, apiKey string) (SummarizeOutput, error) {
 	// Prepare summary instruction prompt
 	summaryInstructions := `You are an expert text summarizer designed to create concise, informative summaries of document chunks for use in a Retrieval-Augmented Generation (RAG) system. Your goal is to generate summaries that maximize the RAG system's effectiveness by enabling it to retrieve the most relevant text chunks based on user queries.
 
@@ -209,7 +211,7 @@ func SummarizeChunk(ctx context.Context, content string, endpoint string, model 
 		{Role: "system", Content: summaryInstructions},
 		{Role: "user", Content: "Please summarize:\n" + content},
 	}
-	resp, err := embeddings.CallLLM(ctx, endpoint, apiKey, model, msgs, 2048, 0.6)
+	resp, err := embeddings.CallLLM(ctx, summaryEndpoint, apiKey, model, msgs, 2048, 0.6)
 	if err != nil {
 		return SummarizeOutput{}, err
 	}
@@ -217,7 +219,11 @@ func SummarizeChunk(ctx context.Context, content string, endpoint string, model 
 	log.Printf("Summary: %s", summaryText)
 
 	// Extract keywords via SDK
-	keywords, err := extractKeywords(ctx, summaryText, endpoint, model, apiKey)
+	kwEndpoint := keywordEndpoint
+	if kwEndpoint == "" {
+		kwEndpoint = summaryEndpoint
+	}
+	keywords, err := extractKeywords(ctx, summaryText, kwEndpoint, model, apiKey)
 	if err != nil {
 		return SummarizeOutput{}, err
 	}
@@ -258,7 +264,8 @@ func (e *Engine) IngestDocument(
 	ctx context.Context,
 	text, languageStr, filePath, docTitle string,
 	keywords []string,
-	embeddingsHost, model, apiKey, completionsHost, completionsAPIKey string,
+	embeddingsHost, model, apiKey,
+	summaryHost, keywordsHost, completionsAPIKey string,
 	chunkSize int, chunkOverlap int, embeddingDims int,
 	embedPrefix string,
 	generateSummary bool,
@@ -330,9 +337,9 @@ func (e *Engine) IngestDocument(
 			for job := range jobs {
 				var res chunkResult
 				res.idx = job.idx
-				if (generateSummary || generateKeywords) && completionsHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(job.content)) > 10 {
-					log.Printf("SEFII: Using completions endpoint: %s", completionsHost)
-					summaryOutput, err := SummarizeChunk(ctx, job.content, completionsHost, model, completionsAPIKey)
+				if (generateSummary || generateKeywords) && summaryHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(job.content)) > 10 {
+					log.Printf("SEFII: Using summary endpoint: %s", summaryHost)
+					summaryOutput, err := SummarizeChunk(ctx, job.content, summaryHost, keywordsHost, model, completionsAPIKey)
 					if err == nil {
 						if generateSummary {
 							res.summary = summaryOutput.Summary

@@ -114,6 +114,15 @@ func processGitFiles(ctx context.Context, req struct {
 		}
 
 		language := documentsv1.DeduceLanguage(file.Path)
+		summaryEndpoint := cfg.Completions.SummaryHost
+		if summaryEndpoint == "" {
+			summaryEndpoint = cfg.Completions.DefaultHost
+		}
+		keywordsEndpoint := cfg.Completions.KeywordsHost
+		if keywordsEndpoint == "" {
+			keywordsEndpoint = cfg.Completions.DefaultHost
+		}
+
 		if err := engine.IngestDocument(
 			ctx,
 			file.Content,
@@ -124,7 +133,8 @@ func processGitFiles(ctx context.Context, req struct {
 			cfg.Embeddings.Host,
 			cfg.Completions.CompletionsModel,
 			cfg.Embeddings.APIKey,
-			cfg.Completions.DefaultHost,
+			summaryEndpoint,
+			keywordsEndpoint,
 			cfg.Completions.APIKey,
 			req.ChunkSize,
 			req.ChunkOverlap,

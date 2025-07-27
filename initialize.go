@@ -677,6 +677,20 @@ func InitializeApplication(config *Config) error {
 		return fmt.Errorf("failed to register pgvector types: %w", err)
 	}
 
+	pterm.Info.Println("Creating PostGIS extension for pgRouting...")
+	_, err = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS postgis")
+	if err != nil {
+		// You might want to log this as a warning or handle it as a fatal error
+		// depending on how critical PostGIS is on its own.
+		pterm.Warning.Printf("Could not create postgis extension: %v\n", err)
+	}
+
+	pterm.Info.Println("Creating pgRouting extension...")
+	_, err = conn.Exec(ctx, "CREATE EXTENSION IF NOT EXISTS pgrouting")
+	if err != nil {
+		return fmt.Errorf("failed to create pgrouting extension: %w", err)
+	}
+
 	pterm.Info.Println("Creating sefii engine...")
 	engine := sefii.NewEngine(conn.Conn())
 

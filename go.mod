@@ -14,8 +14,9 @@ require (
 	github.com/jaypipes/ghw v0.16.0
 	github.com/labstack/echo-contrib v0.17.4
 	github.com/labstack/echo-jwt/v4 v4.3.1
-	github.com/labstack/echo/v4 v4.13.3
-	github.com/mark3labs/mcp-go v0.27.1
+       github.com/labstack/echo/v4 v4.13.3
+       github.com/sirupsen/logrus v1.9.3
+       github.com/mark3labs/mcp-go v0.27.1
 	github.com/openai/openai-go v1.10.1
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/pterm/pterm v0.12.80

@@ -9,7 +9,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
-	"github.com/pterm/pterm"
+	"github.com/sirupsen/logrus"
 )
 
 // JWTCustomClaims are custom claims extending default ones
@@ -95,7 +95,7 @@ func initUserDB(config *Config) error {
 		return err
 	}
 
-	pterm.Success.Println("User database initialized successfully.")
+	log.WithField("component", "auth").Info("User database initialized successfully")
 	return nil
 }
 
@@ -173,13 +173,13 @@ func setupAdminPasswordHandler(c echo.Context) error {
 
 	// Update admin password
 	if err := userDB.UpdatePassword(ctx, user.ID, req.Password); err != nil {
-		pterm.Error.Printf("Failed to set admin password: %v\n", err)
+		log.WithField("component", "auth").WithError(err).Error("Failed to set admin password")
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Failed to set password",
 		})
 	}
 
-	pterm.Success.Printf("Admin password set successfully\n")
+	log.WithField("component", "auth").Info("Admin password set successfully")
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "Admin password set successfully",
@@ -207,7 +207,7 @@ func loginHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	user, err := userDB.GetUserByUsername(ctx, loginReq.Username)
 	if err != nil {
-		pterm.Debug.Printf("Login failed for user %s: %v\n", loginReq.Username, err)
+		log.WithFields(logrus.Fields{"component": "auth", "user": loginReq.Username}).WithError(err).Debug("login failed")
 		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
 			"error": "Invalid username or password",
 		})
@@ -215,7 +215,7 @@ func loginHandler(c echo.Context) error {
 
 	// Verify password
 	if !VerifyPassword(user.PasswordHash, loginReq.Password) {
-		pterm.Debug.Printf("Invalid password for user %s\n", loginReq.Username)
+		log.WithFields(logrus.Fields{"component": "auth", "user": loginReq.Username}).Debug("invalid password")
 		return c.JSON(http.StatusUnauthorized, map[string]interface{}{
 			"error": "Invalid username or password",
 		})
@@ -243,7 +243,7 @@ func loginHandler(c echo.Context) error {
 	// Generate encoded token using the secret signing key from config
 	tokenString, err := token.SignedString([]byte(config.Auth.SecretKey))
 	if err != nil {
-		pterm.Error.Printf("Error generating token: %v\n", err)
+		log.WithField("component", "auth").WithError(err).Error("Error generating token")
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Could not generate token",
 		})
@@ -292,7 +292,7 @@ func registerHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	user, err := userDB.CreateUser(ctx, registerReq.Username, registerReq.Password, registerReq.Email, registerReq.FullName)
 	if err != nil {
-		pterm.Error.Printf("User registration failed: %v\n", err)
+		log.WithField("component", "auth").WithError(err).Error("User registration failed")
 		return c.JSON(http.StatusBadRequest, map[string]interface{}{
 			"error": err.Error(),
 		})
@@ -367,7 +367,7 @@ func changePasswordHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	dbUser, err := userDB.GetUserByID(ctx, userID)
 	if err != nil {
-		pterm.Error.Printf("Failed to retrieve user with ID %s: %v\n", userID, err)
+		log.WithFields(logrus.Fields{"component": "auth", "user": userID}).WithError(err).Error("Failed to retrieve user")
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Failed to retrieve user information",
 		})
@@ -382,13 +382,13 @@ func changePasswordHandler(c echo.Context) error {
 
 	// Update password in database
 	if err := userDB.UpdatePassword(ctx, userID, req.NewPassword); err != nil {
-		pterm.Error.Printf("Failed to update password for user %s: %v\n", userID, err)
+		log.WithFields(logrus.Fields{"component": "auth", "user": userID}).WithError(err).Error("Failed to update password")
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Failed to update password",
 		})
 	}
 
-	pterm.Success.Printf("Password changed successfully for user %s\n", claims.Username)
+	log.WithFields(logrus.Fields{"component": "auth", "user": claims.Username}).Info("Password changed successfully")
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "Password changed successfully",
@@ -428,7 +428,7 @@ func firstTimePasswordChangeHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	dbUser, err := userDB.GetUserByID(ctx, userID)
 	if err != nil {
-		pterm.Error.Printf("Failed to retrieve user with ID %s: %v\n", userID, err)
+		log.WithFields(logrus.Fields{"component": "auth", "user": userID}).WithError(err).Error("Failed to retrieve user")
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Failed to retrieve user information",
 		})
@@ -443,13 +443,13 @@ func firstTimePasswordChangeHandler(c echo.Context) error {
 
 	// Update password in database and clear force change flag
 	if err := userDB.UpdatePassword(ctx, userID, req.NewPassword); err != nil {
-		pterm.Error.Printf("Failed to update password for user %s: %v\n", userID, err)
+		log.WithFields(logrus.Fields{"component": "auth", "user": userID}).WithError(err).Error("Failed to update password")
 		return c.JSON(http.StatusInternalServerError, map[string]interface{}{
 			"error": "Failed to update password",
 		})
 	}
 
-	pterm.Success.Printf("First-time password changed successfully for user %s\n", claims.Username)
+	log.WithFields(logrus.Fields{"component": "auth", "user": claims.Username}).Info("First-time password changed successfully")
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
 		"message": "Password changed successfully",

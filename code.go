@@ -2,7 +2,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"strings"
 
@@ -10,13 +9,15 @@ import (
 	codeeval "manifold/internal/tools"
 
 	"github.com/labstack/echo/v4"
+	"github.com/sirupsen/logrus"
 )
 
 // evaluateCodeHandler is the HTTP handler that dispatches based on language.
 func evaluateCodeHandler(c echo.Context) error {
+	logger := log.WithField("component", "code")
 	var req codeeval.CodeEvalRequest
 	if err := c.Bind(&req); err != nil {
-		log.Printf("Received language: [%s]", req.Language)
+		logger.WithField("language", req.Language).Debug("invalid request body")
 		return c.JSON(http.StatusBadRequest, codeeval.CodeEvalResponse{
 			Error: "Invalid request body: " + err.Error(),
 		})
@@ -24,7 +25,7 @@ func evaluateCodeHandler(c echo.Context) error {
 
 	// Trim and lower-case to avoid trailing spaces, etc.
 	lang := strings.ToLower(strings.TrimSpace(req.Language))
-	log.Printf("Received language: [%s]", lang)
+	logger.WithField("language", lang).Debug("received language")
 
 	var (
 		resp *codeeval.CodeEvalResponse

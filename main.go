@@ -18,7 +18,7 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/pterm/pterm"
+	"github.com/sirupsen/logrus"
 
 	configpkg "manifold/internal/config"
 	servicespkg "manifold/internal/services"
@@ -28,7 +28,7 @@ import (
 var frontendDist embed.FS
 
 func main() {
-	logger := pterm.DefaultLogger.WithLevel(pterm.LogLevelTrace)
+	logger := log.WithField("component", "server")
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
 
@@ -112,7 +112,7 @@ func main() {
 	// Configure middleware
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${time_rfc3339} ${method} ${uri} ${status}\n",
-		Output: pterm.DefaultLogger.Writer,
+		Output: log.Writer(),
 	}))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
@@ -177,44 +177,45 @@ func main() {
 
 // createDefaultAdmin creates a default admin user if it doesn't exist
 func createDefaultAdmin(config *Config) {
-	pterm.Info.Println("Starting createDefaultAdmin function...")
+	logger := log.WithField("component", "admin")
+	logger.Info("Starting createDefaultAdmin function")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Check if admin user exists
-	pterm.Info.Println("Checking if admin user exists...")
+	logger.Info("Checking if admin user exists")
 	_, err := userDB.GetUserByUsername(ctx, "admin")
 
 	// If admin doesn't exist, create it without a password (password_hash will be empty)
 	if err != nil {
-		pterm.Info.Println("Admin user not found, creating admin user without password...")
+		logger.Warn("Admin user not found, creating admin user without password")
 
 		// Create admin user with empty password hash - user must set password on first access
 		user, err := userDB.CreateUserWithoutPassword(ctx, "admin", "", "Administrator")
 		if err != nil {
-			pterm.Error.Printf("Failed to create default admin user: %v\n", err)
+			logger.WithError(err).Error("Failed to create default admin user")
 			return
 		}
 
 		// Update user role to admin in database
-		pterm.Info.Println("Updating user role to admin...")
+		logger.Info("Updating user role to admin")
 		_, err = userDB.db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = $1", user.ID)
 		if err != nil {
-			pterm.Error.Printf("Failed to set admin role: %v\n", err)
+			logger.WithError(err).Error("Failed to set admin role")
 			return
 		}
 
 		// Set force password change flag
-		pterm.Info.Println("Setting force password change flag...")
+		logger.Info("Setting force password change flag")
 		err = userDB.SetForcePasswordChange(ctx, user.ID, true)
 		if err != nil {
-			pterm.Error.Printf("Failed to set force password change flag: %v\n", err)
+			logger.WithError(err).Error("Failed to set force password change flag")
 			return
 		}
 
-		pterm.Success.Println("Default admin user created successfully.")
-		pterm.Warning.Println("Admin user must set their password on first access to the application.")
+		logger.Info("Default admin user created successfully")
+		logger.Warn("Admin user must set their password on first access to the application")
 	} else {
-		pterm.Info.Println("Admin user already exists")
+		logger.Info("Admin user already exists")
 	}
 }

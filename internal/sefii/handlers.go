@@ -2,7 +2,6 @@ package sefii
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"

@@ -28,11 +28,9 @@
         @mouseleave="$emit('enable-zoom')"
         :style="{ fontSize: `${currentFontSize}px` }"
       >
-        <transition name="fade" mode="out-in">
-          <div v-if="thinkingBlocks.length" :key="reRenderKey" class="think-wrapper">
-            <pre class="think-content">{{ thinkingBlocks[0].content }}</pre>
-          </div>
-        </transition>
+        <div v-if="thinkingBlocks.length" :key="reRenderKey" class="think-wrapper">
+          <pre class="think-content">{{ thinkingBlocks[0].content }}</pre>
+        </div>
 
         <div v-if="selectedRenderMode === 'markdown'" class="text-white tracking-wide" v-html="markdownOutsideThinking" />
         <pre v-else-if="selectedRenderMode === 'raw'" class="text-white tracking-wide">{{ outsideThinkingRaw }}</pre>
@@ -132,15 +130,8 @@ const {
   margin: 0;
 }
 
-/* fade transition */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity .3s;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
+
+/* Removed fade-in transition, no animation for thinking block */
 
 
 /* Markdown styling for headers and other elements */

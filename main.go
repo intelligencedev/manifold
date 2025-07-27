@@ -41,7 +41,13 @@ func main() {
 	}
 
 	// Setup OpenTelemetry
-	shutdownOTel, err := telemetric.Setup(context.Background(), config.OTel)
+	telemetryConfig := telemetric.Config{
+		Enabled:     config.OTel.Enabled,
+		Endpoint:    config.OTel.Endpoint,
+		Insecure:    config.OTel.Insecure,
+		ServiceName: config.OTel.ServiceName,
+	}
+	shutdownOTel, err := telemetric.Setup(context.Background(), telemetryConfig)
 	if err != nil {
 		logger.Errorf("Failed to setup OpenTelemetry: %v", err)
 	}
@@ -125,7 +131,7 @@ func main() {
 	// Configure middleware
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: "${time_rfc3339} ${method} ${uri} ${status}\n",
-		Output: log.Writer(),
+		Output: log.Out,
 	}))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},

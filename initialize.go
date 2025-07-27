@@ -707,8 +707,6 @@ func InitializeApplication(config *Config) error {
 		}
 	}
 
-	// Note: Signal handling removed from here - now centralized in main.go
-
 	return nil
 }
 

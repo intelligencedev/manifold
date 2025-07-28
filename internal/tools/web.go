@@ -1,13 +1,14 @@
 package tools
 
 import (
-        "bytes"
-        "context"
-        "errors"
-        "fmt"
-        "io"
-        logpkg "manifold/internal/logging"
-        "math/rand"
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	logpkg "manifold/internal/logging"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"os"

@@ -1,14 +1,14 @@
 package sefii
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"log"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
+        "context"
+        "encoding/json"
+        "fmt"
+        logpkg "manifold/internal/logging"
+        "path/filepath"
+        "strings"
+        "sync"
+        "time"
 
 	documentsv1 "manifold/internal/documents/v1deprecated"
 	embeddings "manifold/internal/llm"
@@ -57,7 +57,7 @@ func (e *Engine) execWithRetry(ctx context.Context, sqlQuery string, args ...int
 		if err == nil {
 			return nil
 		}
-		log.Printf("[ERROR] DB Exec failed (attempt %d/%d): %s", i+1, maxRetries, err)
+		logpkg.Log.Printf("[ERROR] DB Exec failed (attempt %d/%d): %s", i+1, maxRetries, err)
 		time.Sleep(time.Duration(i+1) * time.Second)
 	}
 	return fmt.Errorf("db exec failed after retries: %w", err)
@@ -124,19 +124,19 @@ func (e *Engine) EnsureTable(ctx context.Context, embeddingVectorSize int) error
 			if err := e.execWithRetry(ctx, `ALTER TABLE documents ADD COLUMN metadata JSONB`); err != nil {
 				return fmt.Errorf("failed to add metadata column: %w", err)
 			}
-			log.Println("Added column 'metadata' to table 'documents'")
+			logpkg.Log.Println("Added column 'metadata' to table 'documents'")
 		}
 		if !hasTSV {
 			if err := e.execWithRetry(ctx, `ALTER TABLE documents ADD COLUMN tsv_content tsvector`); err != nil {
 				return fmt.Errorf("failed to add tsv_content column: %w", err)
 			}
-			log.Println("Added column 'tsv_content' to table 'documents'")
+			logpkg.Log.Println("Added column 'tsv_content' to table 'documents'")
 		}
 		if !hasSummary {
 			if err := e.execWithRetry(ctx, `ALTER TABLE documents ADD COLUMN summary TEXT`); err != nil {
 				return fmt.Errorf("failed to add summary column: %w", err)
 			}
-			log.Println("Added column 'summary' to table 'documents'")
+			logpkg.Log.Println("Added column 'summary' to table 'documents'")
 		}
 	}
 
@@ -185,7 +185,7 @@ func (e *Engine) EnsureDocumentMetadataTable(ctx context.Context) error {
 		if err := e.execWithRetry(ctx, createTableQuery); err != nil {
 			return fmt.Errorf("failed to create document_metadata table: %w", err)
 		}
-		log.Println("Created document_metadata table")
+		logpkg.Log.Println("Created document_metadata table")
 	}
 	return nil
 }
@@ -216,7 +216,7 @@ func SummarizeChunk(ctx context.Context, content string, summaryEndpoint string,
 		return SummarizeOutput{}, err
 	}
 	summaryText := resp
-	log.Printf("Summary: %s", summaryText)
+	logpkg.Log.Printf("Summary: %s", summaryText)
 
 	// Extract keywords via SDK
 	kwEndpoint := keywordEndpoint
@@ -275,7 +275,7 @@ func (e *Engine) IngestDocument(
 
 	// ensure table
 	if err := e.EnsureTable(ctx, embeddingDims); err != nil {
-		log.Printf("SEFII: Failed to ensure table: %v", err)
+		logpkg.Log.Printf("SEFII: Failed to ensure table: %v", err)
 		return err
 	}
 
@@ -302,7 +302,7 @@ func (e *Engine) IngestDocument(
 	// Remove empty or too-short chunks
 	for i := 0; i < len(chunksText); i++ {
 		if len(strings.TrimSpace(chunksText[i])) < 10 {
-			log.Printf("Warning: Skipping too short chunk at index %d", i)
+			logpkg.Log.Printf("Warning: Skipping too short chunk at index %d", i)
 			chunksText = append(chunksText[:i], chunksText[i+1:]...)
 			i--
 		}
@@ -338,7 +338,7 @@ func (e *Engine) IngestDocument(
 				var res chunkResult
 				res.idx = job.idx
 				if (generateSummary || generateKeywords) && summaryHost != "" && completionsAPIKey != "" && len(strings.TrimSpace(job.content)) > 10 {
-					log.Printf("SEFII: Using summary endpoint: %s", summaryHost)
+					logpkg.Log.Printf("SEFII: Using summary endpoint: %s", summaryHost)
 					summaryOutput, err := SummarizeChunk(ctx, job.content, summaryHost, keywordsHost, model, completionsAPIKey)
 					if err == nil {
 						if generateSummary {
@@ -348,7 +348,7 @@ func (e *Engine) IngestDocument(
 							res.keywords = summaryOutput.Keywords
 						}
 					} else {
-						log.Printf("SEFII: Failed to summarize chunk %d: %v", job.idx, err)
+						logpkg.Log.Printf("SEFII: Failed to summarize chunk %d: %v", job.idx, err)
 						res.err = err
 					}
 				}
@@ -378,7 +378,7 @@ func (e *Engine) IngestDocument(
 	// Create embeddings
 	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, chunksText)
 	if err != nil {
-		log.Printf("SEFII: Failed to generate embeddings: %v", err)
+		logpkg.Log.Printf("SEFII: Failed to generate embeddings: %v", err)
 		return err
 	}
 	if len(embeds) != len(chunksText) {
@@ -439,11 +439,11 @@ func (e *Engine) IngestDocument(
 			 RETURNING id`,
 			vectorContent, chunkSummary, pgvector.NewVector(embeds[i]), searchText, filePath, mdBytes).Scan(&chunkID)
 		if err != nil {
-			log.Printf("SEFII: Failed to insert chunk %d: %v", i, err)
+			logpkg.Log.Printf("SEFII: Failed to insert chunk %d: %v", i, err)
 			return err
 		}
 
-		log.Printf("SEFII: Successfully inserted chunk %d with ID %d", i, chunkID)
+		logpkg.Log.Printf("SEFII: Successfully inserted chunk %d with ID %d", i, chunkID)
 	}
 
 	// Store document-level aggregated metadata
@@ -456,7 +456,7 @@ func (e *Engine) IngestDocument(
 			"processingTime":     time.Now().UTC(),
 		})
 		if err != nil {
-			log.Printf("SEFII: Failed to store document metadata: %v", err)
+			logpkg.Log.Printf("SEFII: Failed to store document metadata: %v", err)
 			// Don't fail the entire ingestion for metadata storage issues
 		}
 	}
@@ -465,7 +465,7 @@ func (e *Engine) IngestDocument(
 	if generateKeywords {
 		kwCount = len(allChunkKeywords)
 	}
-	log.Printf("SEFII: Successfully ingested document with %d chunks, %d total keywords",
+	logpkg.Log.Printf("SEFII: Successfully ingested document with %d chunks, %d total keywords",
 		len(chunksText), kwCount)
 
 	return nil
@@ -489,7 +489,7 @@ func (e *Engine) StoreDocumentMetadata(ctx context.Context, filePath string, met
 		return fmt.Errorf("failed to store document metadata: %w", err)
 	}
 
-	log.Printf("Stored document metadata for %s", filePath)
+	logpkg.Log.Printf("Stored document metadata for %s", filePath)
 	return nil
 }
 
@@ -498,18 +498,18 @@ func (e *Engine) getQueryEmbedding(query, embeddingsHost, apiKey string) ([]floa
 	e.cacheMutex.RLock()
 	if emb, ok := e.queryEmbeddingCache[query]; ok {
 		e.cacheMutex.RUnlock()
-		log.Printf("SEFII: Query embedding cache hit for %q", query)
+		logpkg.Log.Printf("SEFII: Query embedding cache hit for %q", query)
 		return emb, nil
 	}
 	e.cacheMutex.RUnlock()
 
 	embeds, err := embeddings.GenerateEmbeddings(embeddingsHost, apiKey, []string{query})
 	if err != nil {
-		log.Printf("SEFII: Failed to generate embedding for %q: %v", query, err)
+		logpkg.Log.Printf("SEFII: Failed to generate embedding for %q: %v", query, err)
 		return nil, err
 	}
 	if len(embeds) == 0 {
-		log.Printf("SEFII: No embeddings generated for %q", query)
+		logpkg.Log.Printf("SEFII: No embeddings generated for %q", query)
 		return nil, fmt.Errorf("failed to generate embedding")
 	}
 	e.cacheMutex.Lock()
@@ -624,7 +624,7 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 			}
 			vectorSet[id] = simScore
 		}
-		log.Printf("Vector search found %d chunks", len(vectorSet))
+		logpkg.Log.Printf("Vector search found %d chunks", len(vectorSet))
 	}
 
 	// 2) Full text search
@@ -651,7 +651,7 @@ func (e *Engine) SearchRelevantChunks(ctx context.Context,
 			}
 			invertedSet[id] = rank
 		}
-		log.Printf("FTS search found %d chunks", len(invertedSet))
+		logpkg.Log.Printf("FTS search found %d chunks", len(invertedSet))
 	}
 
 	// 3) Merge
@@ -952,6 +952,6 @@ func (e *Engine) SearchBySummary(ctx context.Context, query, filePathFilter stri
 		results = append(results, c)
 	}
 
-	log.Printf("Summary-weighted FTS search found %d chunks", len(results))
+	logpkg.Log.Printf("Summary-weighted FTS search found %d chunks", len(results))
 	return results, nil
 }

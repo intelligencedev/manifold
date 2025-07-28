@@ -1,13 +1,13 @@
 package tools
 
 import (
-	"bytes"
-	"context"
-	"errors"
-	"fmt"
-	"io"
-	"log"
-	"math/rand"
+        "bytes"
+        "context"
+        "errors"
+        "fmt"
+        "io"
+        logpkg "manifold/internal/logging"
+        "math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -84,7 +84,7 @@ func (c *WebClient) Get(ctx context.Context, address string) (*WebPageContent, i
 func checkRobotsTxt(u string) bool {
 	baseURL, err := url.Parse(u)
 	if err != nil {
-		log.Printf("Failed to parse baseURL: %v", err)
+		logpkg.Log.Printf("Failed to parse baseURL: %v", err)
 		return false
 	}
 
@@ -101,7 +101,7 @@ func checkRobotsTxt(u string) bool {
 		return true
 	}
 
-	log.Printf("robots.txt checked: %s\n", robotsURL.String())
+	logpkg.Log.Printf("robots.txt checked: %s\n", robotsURL.String())
 	return true
 }
 
@@ -161,7 +161,7 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 		if parsedURL.Scheme != "" && parsedURL.Host != "" {
 			_, dbErr := db.Exec(ctx, `INSERT INTO web_blacklist (url) VALUES ($1) ON CONFLICT DO NOTHING`, topLevel)
 			if dbErr != nil {
-				log.Printf("failed to insert web_blacklist: %v", dbErr)
+				logpkg.Log.Printf("failed to insert web_blacklist: %v", dbErr)
 			}
 		}
 		return &WebPageContent{Content: fmt.Sprintf("%s is blacklisted due to HTTP status %d", topLevel, status), Source: address}, nil
@@ -172,7 +172,7 @@ func WebGetHandler(ctx context.Context, db *pgx.Conn, address string) (*WebPageC
 		var insertedID int64
 		dbErr := db.QueryRow(ctx, `INSERT INTO web_content (url, title, content, fetched_at) VALUES ($1,$2,$3,NOW()) ON CONFLICT (url) DO UPDATE SET title = EXCLUDED.title, content = EXCLUDED.content, fetched_at = NOW() RETURNING id`, address, pg.Title, pg.Content).Scan(&insertedID)
 		if dbErr != nil {
-			log.Printf("failed to insert/update web_content: %v", dbErr)
+			logpkg.Log.Printf("failed to insert/update web_content: %v", dbErr)
 		} else {
 			pg.ID = insertedID
 		}
@@ -576,7 +576,7 @@ func SearchDDG(ctx context.Context, db *pgx.Conn, query string) []string {
 			resultURLs[i] = strings.Replace(u, "https://www.cnn.com", "https://lite.cnn.com", 1)
 		}
 	}
-	log.Println("Search results:", resultURLs)
+	logpkg.Log.Println("Search results:", resultURLs)
 	return resultURLs
 }
 
@@ -586,7 +586,7 @@ func GetSearchResults(ctx context.Context, db *pgx.Conn, urls []string) string {
 	for _, u := range urls {
 		content, err := WebGetHandler(ctx, db, u)
 		if err != nil {
-			log.Printf("Error getting search result for URL %s: %v", u, err)
+			logpkg.Log.Printf("Error getting search result for URL %s: %v", u, err)
 			continue
 		}
 		if content != nil && content.Content != "" {
@@ -603,7 +603,7 @@ func GetSearchResults(ctx context.Context, db *pgx.Conn, urls []string) string {
 func RemoveUnwantedURLs(ctx context.Context, db *pgx.Conn, urls []string) []string {
 	rows, err := db.Query(ctx, "SELECT url FROM web_blacklist")
 	if err != nil {
-		log.Printf("failed to load blacklist: %v", err)
+		logpkg.Log.Printf("failed to load blacklist: %v", err)
 		return urls
 	}
 	var blacklist []string
@@ -617,11 +617,11 @@ func RemoveUnwantedURLs(ctx context.Context, db *pgx.Conn, urls []string) []stri
 
 	var filteredURLs []string
 	for _, u := range urls {
-		log.Printf("Checking URL: %s", u)
+		logpkg.Log.Printf("Checking URL: %s", u)
 		unwanted := false
 		for _, unwantedURL := range blacklist {
 			if strings.Contains(u, unwantedURL) {
-				log.Printf("URL %s contains unwanted URL %s", u, unwantedURL)
+				logpkg.Log.Printf("URL %s contains unwanted URL %s", u, unwantedURL)
 				unwanted = true
 				break
 			}
@@ -630,7 +630,7 @@ func RemoveUnwantedURLs(ctx context.Context, db *pgx.Conn, urls []string) []stri
 			filteredURLs = append(filteredURLs, u)
 		}
 	}
-	log.Printf("Filtered URLs: %v", filteredURLs)
+	logpkg.Log.Printf("Filtered URLs: %v", filteredURLs)
 	return filteredURLs
 }
 
@@ -639,7 +639,7 @@ func GetPageScreen(chromeUrl string, pageAddress string) string {
 	instanceUrl := chromeUrl
 	allocatorCtx, cancel := chromedp.NewRemoteAllocator(context.Background(), instanceUrl)
 	defer cancel()
-	ctx, cancel := chromedp.NewContext(allocatorCtx, chromedp.WithLogf(log.Printf))
+	ctx, cancel := chromedp.NewContext(allocatorCtx, chromedp.WithLogf(logpkg.Log.Printf))
 	defer cancel()
 	ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -730,12 +730,12 @@ func extractURLsFromHTML(htmlContent string) ([]string, error) {
 func GetSearXNGResults(ctx context.Context, db *pgx.Conn, endpoint string, query string) []string {
 	htmlContent, err := postRequest(endpoint, query)
 	if err != nil {
-		log.Printf("Error: %v\n", err)
+		logpkg.Log.Printf("Error: %v\n", err)
 		return nil
 	}
 	urls, err := extractURLsFromHTML(htmlContent)
 	if err != nil {
-		log.Printf("Error extracting URLs: %v\n", err)
+		logpkg.Log.Printf("Error extracting URLs: %v\n", err)
 		return nil
 	}
 	// Remove unwanted URLs

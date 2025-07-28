@@ -2,10 +2,10 @@
 package agents
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"math"
+        "context"
+        "fmt"
+        logpkg "manifold/internal/logging"
+        "math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -84,7 +84,7 @@ func (ae *AgenticEngine) HybridSearchWithDBFunction(ctx context.Context, cfg *co
 	if opts.UseGraphExpansion && len(memories) > 0 {
 		expanded, err := ae.expandSearchResults(ctx, memories, opts.MaxHops, opts.Limit)
 		if err != nil {
-			log.Printf("Graph expansion failed: %v", err)
+			logpkg.Log.Printf("Graph expansion failed: %v", err)
 			// Continue with base results if expansion fails
 		} else {
 			memories = expanded
@@ -362,7 +362,7 @@ func (ae *AgenticEngine) EnsureAgenticMemoryTable(ctx context.Context, embedding
 		);
 	`)
 	if err != nil {
-		log.Printf("Warning: failed to create memory_evolution table: %v", err)
+		logpkg.Log.Printf("Warning: failed to create memory_evolution table: %v", err)
 	}
 
 	// Create memory contradictions table for conflict detection
@@ -383,7 +383,7 @@ func (ae *AgenticEngine) EnsureAgenticMemoryTable(ctx context.Context, embedding
 		);
 	`)
 	if err != nil {
-		log.Printf("Warning: failed to create memory_contradictions table: %v", err)
+		logpkg.Log.Printf("Warning: failed to create memory_contradictions table: %v", err)
 	}
 
 	// Create indices for performance
@@ -403,8 +403,8 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	content string,
 	workflowID uuid.UUID,
 ) (int64, error) {
-	log.Println("Ingesting agentic memory note...")
-	log.Println(content)
+	logpkg.Log.Println("Ingesting agentic memory note...")
+	logpkg.Log.Println(content)
 	// 1. Use an LLM (or completions endpoint) to generate note context, keywords, and tags.
 	summaryEndpoint := config.Completions.SummaryHost
 	if summaryEndpoint == "" {
@@ -417,7 +417,7 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 
 	summaryOutput, err := sefii.SummarizeChunk(ctx, content, summaryEndpoint, keywordsEndpoint, config.Completions.CompletionsModel, config.Completions.APIKey)
 	if err != nil {
-		log.Printf("AgenticMemory: Failed to summarize content: %v", err)
+		logpkg.Log.Printf("AgenticMemory: Failed to summarize content: %v", err)
 		// If summarization fails, proceed with empty context.
 		summaryOutput.Summary = ""
 	}
@@ -426,14 +426,14 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 
 	// if the keywords contain 'encoded data, encrypted text, unreadable content' then immediately return
 	if len(keywords) == 0 {
-		log.Printf("AgenticMemory: No keywords found in summary output")
+		logpkg.Log.Printf("AgenticMemory: No keywords found in summary output")
 		return 0, fmt.Errorf("no keywords found in summary output")
 	}
 	// If the keywords contain 'encoded data, encrypted text, unreadable content' then immediately return
 	if strings.Contains(strings.Join(keywords, " "), "encoded data") ||
 		strings.Contains(strings.Join(keywords, " "), "encrypted text") ||
 		strings.Contains(strings.Join(keywords, " "), "unreadable content") {
-		log.Printf("AgenticMemory: Keywords contain unreadable content")
+		logpkg.Log.Printf("AgenticMemory: Keywords contain unreadable content")
 		return 0, fmt.Errorf("keywords contain unreadable content")
 	}
 
@@ -466,12 +466,12 @@ func (ae *AgenticEngine) IngestAgenticMemory(
 	relatedIDs, err := ae.generateLinks(ctx, newID, 5)
 	// relatedIDs, err := ae.generateLinks(ctx, newID, 5, keywords)
 	if err != nil {
-		log.Printf("AgenticMemory: Failed to generate links: %v", err)
+		logpkg.Log.Printf("AgenticMemory: Failed to generate links: %v", err)
 	} else {
 		updateQuery := `UPDATE agentic_memories SET links = $1 WHERE id = $2`
 		_, err = ae.DB.Exec(ctx, updateQuery, relatedIDs, newID)
 		if err != nil {
-			log.Printf("AgenticMemory: Failed to update links: %v", err)
+			logpkg.Log.Printf("AgenticMemory: Failed to update links: %v", err)
 		}
 		// Optionally, call memory evolution here to update neighbor notes.
 	}
@@ -984,7 +984,7 @@ func (ae *AgenticEngine) DiscoverMemoryClusters(ctx context.Context, cfg *config
 	// Migrate existing memories to enhanced format if needed
 	err = ae.migrateToEnhancedMemories(ctx, wf)
 	if err != nil {
-		log.Printf("Warning: migration to enhanced memories failed: %v", err)
+		logpkg.Log.Printf("Warning: migration to enhanced memories failed: %v", err)
 	}
 
 	// Use pgRouting to find connected components (clusters)
@@ -1341,11 +1341,11 @@ func (ae *AgenticEngine) UpdateMemoryWithEvolution(
 	// Generate embeddings for similarity calculation
 	embeds, err := llm.GenerateEmbeddings(config.Embeddings.Host, config.Embeddings.APIKey, []string{oldContent, newContent})
 	if err != nil {
-		log.Printf("Warning: could not calculate evolution confidence: %v", err)
+		logpkg.Log.Printf("Warning: could not calculate evolution confidence: %v", err)
 		// Track evolution with default confidence
 		err = ae.TrackMemoryEvolution(ctx, memoryID, newMemoryID, evolutionType, 0.7)
 		if err != nil {
-			log.Printf("Warning: failed to track memory evolution: %v", err)
+			logpkg.Log.Printf("Warning: failed to track memory evolution: %v", err)
 		}
 		return newMemoryID, nil
 	}
@@ -1359,7 +1359,7 @@ func (ae *AgenticEngine) UpdateMemoryWithEvolution(
 	// Track the evolution
 	err = ae.TrackMemoryEvolution(ctx, memoryID, newMemoryID, evolutionType, confidence)
 	if err != nil {
-		log.Printf("Warning: failed to track memory evolution: %v", err)
+		logpkg.Log.Printf("Warning: failed to track memory evolution: %v", err)
 	}
 
 	return newMemoryID, nil
@@ -1415,7 +1415,7 @@ func (ae *AgenticEngine) DetectMemoryContradictions(ctx context.Context, config 
 				RETURNING id`,
 				id1, id2, "semantic_conflict", severity, description).Scan(&contradictionID)
 			if err != nil {
-				log.Printf("Warning: failed to record contradiction: %v", err)
+				logpkg.Log.Printf("Warning: failed to record contradiction: %v", err)
 				continue
 			}
 
@@ -1461,7 +1461,7 @@ DESCRIPTION: Brief explanation of the contradiction (if any)`, content1, content
 
 	response, err := llm.CallLLM(ctx, config.Completions.DefaultHost, config.Completions.APIKey, config.Completions.CompletionsModel, messages, 1024, 0.3)
 	if err != nil {
-		log.Printf("Warning: failed to analyze contradiction: %v", err)
+		logpkg.Log.Printf("Warning: failed to analyze contradiction: %v", err)
 		return false, 0.0, ""
 	}
 
@@ -1641,7 +1641,7 @@ func calculateBasicHealthScore(health *NetworkHealth) float64 {
 func (ae *AgenticEngine) migrateToEnhancedMemories(ctx context.Context, wf uuid.UUID) error {
 	// This is a placeholder implementation - in a real system this would
 	// migrate data from the basic agentic_memories table to enhanced tables
-	log.Printf("Enhanced memory migration requested for workflow %s", wf)
+	logpkg.Log.Printf("Enhanced memory migration requested for workflow %s", wf)
 	return nil
 }
 

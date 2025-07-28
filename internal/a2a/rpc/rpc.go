@@ -2,14 +2,14 @@
 package rpc
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"sync"
+        "bytes"
+        "context"
+        "encoding/json"
+        "fmt"
+        "io"
+        logpkg "manifold/internal/logging"
+        "net/http"
+        "sync"
 )
 
 // Custom context key types to avoid string collisions
@@ -62,7 +62,7 @@ func NewSSEWriter(w http.ResponseWriter) *SSEWriter {
 	// Get the flusher interface if supported
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		log.Printf("Warning: Streaming is not supported by the underlying http.ResponseWriter")
+            logpkg.Log.Warn("streaming not supported by underlying http.ResponseWriter")
 		// Return a dummy writer that will still work but won't flush
 		return &SSEWriter{w: w, f: nil}
 	}
@@ -217,7 +217,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 
 		if err := sseWriter.Send(response); err != nil {
-			log.Printf("Error sending SSE response: %v", err)
+                    logpkg.Log.WithError(err).Error("error sending SSE response")
 		}
 		return
 	}
@@ -233,7 +233,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding JSON-RPC response: %v", err)
+            logpkg.Log.WithError(err).Error("error encoding JSON-RPC response")
 	}
 }
 
@@ -258,14 +258,14 @@ func writeError(w http.ResponseWriter, id interface{}, code int, message string)
 		// Return error as SSE
 		sseWriter := NewSSEWriter(w)
 		if err := sseWriter.Send(response); err != nil {
-			log.Printf("Error sending SSE error response: %v", err)
+                    logpkg.Log.WithError(err).Error("error sending SSE error response")
 		}
 	} else {
 		// Return error as JSON
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK) // JSON-RPC always returns 200 OK
 		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("Error encoding JSON-RPC error response: %v", err)
+                    logpkg.Log.WithError(err).Error("error encoding JSON-RPC error response")
 		}
 	}
 }

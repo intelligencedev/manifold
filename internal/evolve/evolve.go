@@ -1,11 +1,11 @@
 package evolve
 
 import (
-	"bufio"
-	"context"
-	"fmt"
-	"log"
-	"os"
+        "bufio"
+        "context"
+        "fmt"
+        logpkg "manifold/internal/logging"
+        "os"
 	"regexp"
 	"sort"
 	"strings"
@@ -256,20 +256,20 @@ type DefaultLLMClient struct {
 
 // Generate sends the prompt to the completions endpoint.
 func (c DefaultLLMClient) Generate(ctx context.Context, prompt string) (string, error) {
-	log.Printf("[EVOLVE] LLM Generate called with endpoint: %s, model: %s", c.Endpoint, c.Model)
-	log.Printf("[EVOLVE] Prompt length: %d characters", len(prompt))
-	log.Printf("[EVOLVE] Prompt preview: %.200s...", prompt)
+    logpkg.Log.Debugf("[EVOLVE] LLM Generate called with endpoint: %s, model: %s", c.Endpoint, c.Model)
+    logpkg.Log.Debugf("[EVOLVE] Prompt length: %d characters", len(prompt))
+    logpkg.Log.Debugf("[EVOLVE] Prompt preview: %.200s...", prompt)
 
 	msgs := []llm.ChatCompletionMessage{{Role: "user", Content: prompt}}
 	response, err := llm.CallLLM(ctx, c.Endpoint, c.APIKey, c.Model, msgs, 1024, 0.2)
 
 	if err != nil {
-		log.Printf("[EVOLVE] LLM Generate failed: %v", err)
+            logpkg.Log.WithError(err).Error("[EVOLVE] LLM Generate failed")
 		return "", fmt.Errorf("LLM generation failed: %w", err)
 	}
 
-	log.Printf("[EVOLVE] LLM Generate success, response length: %d", len(response))
-	log.Printf("[EVOLVE] Response preview: %.200s...", response)
+    logpkg.Log.Debugf("[EVOLVE] LLM Generate success, response length: %d", len(response))
+    logpkg.Log.Debugf("[EVOLVE] Response preview: %.200s...", response)
 	return response, nil
 }
 
@@ -279,16 +279,16 @@ var diffRegexp = regexp.MustCompile(`<<<<<<< SEARCH\n(?s)(.*?)\n=======\n(?s)(.*
 
 // ParseLLMDiffOutput parses diff-style output into DiffBlocks.
 func ParseLLMDiffOutput(out string) ([]DiffBlock, error) {
-	log.Printf("[EVOLVE] Parsing LLM diff output, length: %d", len(out))
-	log.Printf("[EVOLVE] Raw LLM output: %s", out)
+    logpkg.Log.Debugf("[EVOLVE] Parsing LLM diff output, length: %d", len(out))
+    logpkg.Log.Tracef("[EVOLVE] Raw LLM output: %s", out)
 
 	matches := diffRegexp.FindAllStringSubmatch(out, -1)
 	if len(matches) == 0 {
-		log.Printf("[EVOLVE] No diff blocks found in LLM output")
+            logpkg.Log.Debug("[EVOLVE] No diff blocks found in LLM output")
 		return nil, fmt.Errorf("no diff blocks found")
 	}
 
-	log.Printf("[EVOLVE] Found %d diff blocks", len(matches))
+    logpkg.Log.Debugf("[EVOLVE] Found %d diff blocks", len(matches))
 	diffs := make([]DiffBlock, 0, len(matches))
 	for i, m := range matches {
 		if len(m) >= 3 {

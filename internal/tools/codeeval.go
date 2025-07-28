@@ -1,11 +1,11 @@
 package tools
 
 import (
-	"bytes"
-	"context"
-	"fmt"
-	"log"
-	"os"
+        "bytes"
+        "context"
+        "fmt"
+        logpkg "manifold/internal/logging"
+        "os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -150,7 +150,7 @@ func runDockerCommand(dockerArgs []string, timeout time.Duration) (*DockerExecRe
 	cmd.Stdout = &stdoutBuf
 	cmd.Stderr = &stderrBuf
 
-	log.Printf("Running docker command: docker %s", strings.Join(dockerArgs, " "))
+    logpkg.Log.Debugf("running docker command: docker %s", strings.Join(dockerArgs, " "))
 	err := cmd.Run()
 
 	response := &DockerExecResponse{

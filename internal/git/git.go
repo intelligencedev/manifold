@@ -2,12 +2,12 @@
 package git
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"net/http"
-	"path/filepath"
-	"strings"
+        "context"
+        "fmt"
+        logpkg "manifold/internal/logging"
+        "net/http"
+        "path/filepath"
+        "strings"
 
 	documentsv1 "manifold/internal/documents/v1deprecated"
 	"manifold/internal/sefii"
@@ -69,7 +69,7 @@ func FilesIngestHandler(cfg *cfg.Config) echo.HandlerFunc {
 
 		successFiles, err := processGitFiles(ctx, req, cfg, conn.Conn())
 		if err != nil {
-			log.Printf("Error processing Git files: %v", err)
+                logpkg.Log.WithError(err).Error("error processing Git files")
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to process Git files"})
 		}
 
@@ -146,7 +146,7 @@ func processGitFiles(ctx context.Context, req struct {
 		); err == nil {
 			successFiles = append(successFiles, file.Path)
 		} else {
-			log.Printf("Failed to ingest file %s: %v", file.Path, err)
+                logpkg.Log.WithError(err).Errorf("failed to ingest file %s", file.Path)
 		}
 	}
 

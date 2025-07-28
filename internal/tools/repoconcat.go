@@ -2,10 +2,10 @@
 package tools
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"os"
+        "context"
+        "fmt"
+        logpkg "manifold/internal/logging"
+        "os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -93,7 +93,7 @@ func (rc *RepoConcat) Concatenate(paths []string, types []string, recursive bool
 			defer wg.Done()
 			err := rc.processPath(ctx, path, types, recursive, ignorePattern, fileContents, fileStructure)
 			if err != nil {
-				log.Printf("Error processing path %s: %v\n", path, err) // Log, but don't return
+                            logpkg.Log.WithError(err).Warnf("error processing path %s", path) // Log, but don't return
 			}
 		}(path)
 	}

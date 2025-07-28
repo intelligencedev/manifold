@@ -1,17 +1,17 @@
 package imggen
 
 import (
-	"bufio"
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"os/exec"
-	"sync"
-	"time"
+        "bufio"
+        "bytes"
+        "context"
+        "encoding/json"
+        "fmt"
+        "io"
+        logpkg "manifold/internal/logging"
+        "net/http"
+        "os/exec"
+        "sync"
+        "time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -193,7 +193,7 @@ func logOutput(pipe io.ReadCloser, label string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
-		log.Printf("[%s] %s", label, scanner.Text())
+            logpkg.Log.Debugf("[%s] %s", label, scanner.Text())
 	}
 }
 
@@ -257,7 +257,7 @@ func waitForImage(baseURL, uuid string, c echo.Context) error {
 
 	// Construct the image URL
 	imageURL := fmt.Sprintf("%s/view?filename=%s_00001_.png&subfolder=&type=output", baseURL, uuid)
-	log.Printf("Waiting for image at %s", imageURL)
+    logpkg.Log.Infof("waiting for image at %s", imageURL)
 
 	// Set the actual image URL in a header so the client can use it
 	c.Response().Header().Set("X-Comfy-Image-Url", imageURL)

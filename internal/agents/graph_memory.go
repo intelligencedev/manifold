@@ -2,11 +2,11 @@
 package agents
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"strings"
-	"time"
+        "context"
+        "fmt"
+        logpkg "manifold/internal/logging"
+        "strings"
+        "time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -182,7 +182,7 @@ func (eae *EnhancedAgenticEngine) EnsureEnhancedMemoryTables(ctx context.Context
 	for _, indexSQL := range indexes {
 		_, err = eae.DB.Exec(ctx, indexSQL)
 		if err != nil {
-			log.Printf("Warning: failed to create index: %v", err)
+			logpkg.Log.Printf("Warning: failed to create index: %v", err)
 		}
 	}
 
@@ -197,7 +197,7 @@ func (eae *EnhancedAgenticEngine) IngestEnhancedMemory(
 	workflowID uuid.UUID,
 	nodeType string,
 ) (int64, error) {
-	log.Printf("Ingesting enhanced memory: type=%s, workflow=%s", nodeType, workflowID.String())
+	logpkg.Log.Printf("Ingesting enhanced memory: type=%s, workflow=%s", nodeType, workflowID.String())
 
 	// Generate summary and keywords
 	summaryEndpoint := config.Completions.SummaryHost
@@ -248,7 +248,7 @@ func (eae *EnhancedAgenticEngine) IngestEnhancedMemory(
 	// Build intelligent relationships using graph analysis
 	err = eae.buildIntelligentRelationships(ctx, config, newID, workflowID)
 	if err != nil {
-		log.Printf("Warning: failed to build relationships for memory %d: %v", newID, err)
+		logpkg.Log.Printf("Warning: failed to build relationships for memory %d: %v", newID, err)
 	}
 
 	return newID, nil
@@ -270,19 +270,19 @@ func (eae *EnhancedAgenticEngine) buildIntelligentRelationships(ctx context.Cont
 	// Strategy 1: Semantic similarity
 	err = eae.createSemanticRelationships(ctx, newNode, workflowID)
 	if err != nil {
-		log.Printf("Warning: semantic relationship creation failed: %v", err)
+		logpkg.Log.Printf("Warning: semantic relationship creation failed: %v", err)
 	}
 
 	// Strategy 2: Temporal relationships
 	err = eae.createTemporalRelationships(ctx, newNode, workflowID)
 	if err != nil {
-		log.Printf("Warning: temporal relationship creation failed: %v", err)
+		logpkg.Log.Printf("Warning: temporal relationship creation failed: %v", err)
 	}
 
 	// Strategy 3: Keyword-based conceptual links
 	err = eae.createConceptualRelationships(ctx, newNode, workflowID)
 	if err != nil {
-		log.Printf("Warning: conceptual relationship creation failed: %v", err)
+		logpkg.Log.Printf("Warning: conceptual relationship creation failed: %v", err)
 	}
 
 	return nil
@@ -322,7 +322,7 @@ func (eae *EnhancedAgenticEngine) createSemanticRelationships(ctx context.Contex
 				newNode.ID, similarID, RelationshipSimilar, cost, confidence,
 				fmt.Sprintf("Semantic similarity: %.3f", confidence))
 			if err != nil {
-				log.Printf("Warning: failed to create semantic relationship: %v", err)
+				logpkg.Log.Printf("Warning: failed to create semantic relationship: %v", err)
 			}
 		}
 	}
@@ -363,7 +363,7 @@ func (eae *EnhancedAgenticEngine) createTemporalRelationships(ctx context.Contex
 			recentID, newNode.ID, RelationshipTemporal, cost, confidence,
 			fmt.Sprintf("Created %.1f minutes apart", timeDiff))
 		if err != nil {
-			log.Printf("Warning: failed to create temporal relationship: %v", err)
+			logpkg.Log.Printf("Warning: failed to create temporal relationship: %v", err)
 		}
 	}
 
@@ -407,7 +407,7 @@ func (eae *EnhancedAgenticEngine) createConceptualRelationships(ctx context.Cont
 				newNode.ID, conceptualID, RelationshipReferences, cost, confidence,
 				fmt.Sprintf("Keyword overlap: %.1f%%", overlap*100))
 			if err != nil {
-				log.Printf("Warning: failed to create conceptual relationship: %v", err)
+				logpkg.Log.Printf("Warning: failed to create conceptual relationship: %v", err)
 			}
 		}
 	}

@@ -2,13 +2,13 @@
 package llm
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-	"strings"
-	"sync"
+    "bytes"
+    "encoding/json"
+    "fmt"
+    log "manifold/internal/logging"
+    "net/http"
+    "strings"
+    "sync"
 )
 
 // EmbeddingRequest defines the request structure for generating embeddings.
@@ -48,7 +48,7 @@ func GenerateEmbeddings(host string, apiKey string, chunks []string) ([][]float3
 
 			// Skip if chunk is too short to be meaningful
 			if len(strings.TrimSpace(chunk)) < 10 {
-				log.Printf("Warning: Text at index %d too short for embedding, using zero vector", i)
+                                log.Log.Debugf("text too short for embedding at index %d", i)
 				results[i] = make([]float32, 768)
 				return
 			}
@@ -62,12 +62,12 @@ func GenerateEmbeddings(host string, apiKey string, chunks []string) ([][]float3
 
 			singleEmbedding, err := FetchEmbeddings(host, embeddingRequest, apiKey)
 			if err != nil {
-				log.Printf("Warning: Failed to embed chunk %d: %v", i, err)
+                                log.Log.WithError(err).Warnf("failed to embed chunk %d", i)
 				results[i] = make([]float32, 768)
 			} else if len(singleEmbedding) > 0 {
 				results[i] = singleEmbedding[0]
 			} else {
-				log.Printf("Warning: Empty embedding result for chunk %d", i)
+                                log.Log.Warnf("empty embedding result for chunk %d", i)
 				results[i] = make([]float32, 768)
 			}
 		}(i, chunk)

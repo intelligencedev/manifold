@@ -1,14 +1,14 @@
 package sefii
 
 import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"sort"
+        "bytes"
+        "context"
+        "encoding/json"
+        "fmt"
+        "io"
+        logpkg "manifold/internal/logging"
+        "net/http"
+        "sort"
 
 	configpkg "manifold/internal/config"
 )
@@ -63,7 +63,7 @@ func ReRankChunks(ctx context.Context, config *configpkg.Config, query string, c
 	scoreMap := mapScores(rankResp.Results)
 	sortChunksByScore(chunks, scoreMap)
 
-	log.Printf("Reranking complete. Top score: %v", scoreMap[0])
+    logpkg.Log.Infof("Reranking complete. Top score: %v", scoreMap[0])
 	return chunks, nil
 }
 

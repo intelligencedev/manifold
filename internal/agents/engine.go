@@ -837,6 +837,19 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	for _, msg := range msgs {
 		promptTokens += util.CountTokens(msg.Content)
 	}
+	// if too long, summarize into ~8192 tokens
+	if promptTokens > 16000 {
+		summed, err := ae.summarizeConversation(ctx, msgs, model)
+		if err != nil {
+			return "", err
+		}
+		msgs = summed
+		// recompute token count
+		promptTokens = 0
+		for _, msg := range msgs {
+			promptTokens += util.CountTokens(msg.Content)
+		}
+	}
 
 	// Calculate max tokens dynamically: modelCtx - promptTokens - buffer
 	maxTokens := max(ae.Config.Completions.CtxSize-promptTokens-1024, 1024)
@@ -864,6 +877,82 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	response = strings.ReplaceAll(response, "<think>", "")
 	response = strings.ReplaceAll(response, "</think>", "")
 	return strings.TrimSpace(response), nil
+}
+
+// helper: send long conversation to summary endpoint and rebuild msgs
+func (ae *AgentEngine) summarizeConversation(ctx context.Context, msgs []llm.ChatCompletionMessage, model string) ([]llm.ChatCompletionMessage, error) {
+	// pick summary_worker if configured
+	var (
+		endpoint     string
+		apiKey       string
+		modelName    string
+		maxTokens    int
+		temperature  float64
+		instructions string
+	)
+	if w := ae.fleet.GetWorker("summary_worker"); w != nil {
+		endpoint = w.Endpoint
+		apiKey = ae.Config.Completions.APIKey
+		modelName = w.Model
+		maxTokens = 8192
+		temperature = w.Temperature
+		instructions = w.Instructions
+	} else {
+		endpoint = ae.Config.Completions.SummaryHost
+		if endpoint == "" {
+			endpoint = ae.Config.Completions.DefaultHost
+		}
+		apiKey = ae.Config.Completions.APIKey
+		modelName = model
+		maxTokens = 8192
+		temperature = ae.Config.Completions.Temperature
+		instructions = "You are an expert summarizer. Your task is to read the provided conversation history and generate a concise summary that accurately reflects the sequence and content of events. Ensure the summary preserves the chronological order and includes all key points discussed. Avoid adding opinions or information not present in the conversation."
+	}
+
+	// log the endpoint and model being used for summarization
+	log.Printf("Summarizing conversation with endpoint: %s, model: %s", endpoint, modelName)
+
+	// merge full conversation
+	var conv strings.Builder
+	for _, m := range msgs {
+		conv.WriteString(strings.ToUpper(m.Role) + ": " + m.Content + "\n\n")
+	}
+	summaryPrompt := []llm.ChatCompletionMessage{
+		{Role: "system", Content: instructions},
+		{Role: "user", Content: conv.String()},
+	}
+
+	// choose LLM call style
+	isMLX := strings.Contains(strings.ToLower(endpoint), "mlx") ||
+		ae.Config.Completions.Backend == "mlx" ||
+		strings.Contains(strings.ToLower(modelName), "mlx")
+
+	var summary string
+	var err error
+	if isMLX {
+		summary, err = llm.CallMLX(ctx, endpoint, apiKey, summaryPrompt, maxTokens, temperature)
+	} else {
+		summary, err = llm.CallLLM(ctx, endpoint, apiKey, modelName, summaryPrompt, maxTokens, temperature)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("summary failed: %w", err)
+	}
+
+	// keep the last user message
+	var lastUser llm.ChatCompletionMessage
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			lastUser = msgs[i]
+			break
+		}
+	}
+	newMsgs := []llm.ChatCompletionMessage{
+		{Role: "system", Content: "Conversation summary:\n" + summary},
+	}
+	if lastUser.Content != "" {
+		newMsgs = append(newMsgs, lastUser)
+	}
+	return newMsgs, nil
 }
 
 func parseReAct(s string) (thought, action, input string) {

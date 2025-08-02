@@ -5,10 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -414,6 +412,8 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
 
 	var sysPromptBuilder strings.Builder
+	now := time.Now().Format("2006-01-02 15:04:05 -0700 MST")
+	sysPromptBuilder.WriteString("Current datetime: " + now + "\n\n")
 
 	// Only show generic tools and agent fleet for non-isolated engines
 	if ae.isolatedToServer == "" {
@@ -422,80 +422,47 @@ You are the *orchestrator* agent. A highly proactive and autonomous assistant.
 You think deeply, act decisively, and never leave a problem half-solved.
 You have access to basic tools and can delegate specialized tasks to tool-agents.
 
-Available tools:
-- code_eval: run python code in sandbox
-  schema:
-	{
-		"language": {
-			"description": "Programming language (python, go, javascript, sh, shell, bash)",
-			"type": "string"
-		},
-		"code": {
-			"description": "Code to execute",
-			"type": "string"
-		},
-		"dependencies": {
-			"description": "List of dependencies to install",
-			"type": "array",
-			"items": {"type": "string"}
-		}
-	}
+Available tools (with usage examples):
+
+- code_eval: run code in a sandbox
+  Examples:
+	Action: code_eval
+	Action Input: {"language": "python", "code": "print(2 + 2)"}
+	Action: code_eval
+	Action Input: {"language": "go", "code": "fmt.Println(42)"}
+	Action: code_eval
+	Action Input: {"language": "bash", "code": "ls -l"}
 
 - web_search: search the web/internet for information
-  schema:
-	{
-		"query": {
-			"description": "The search query",
-			"type": "string"
-		}
-	}
+  Examples:
+	Action: web_search
+	Action Input: {"query": "golang error handling best practices"}
+	Action: web_search
+	Action Input: {"query": "latest news on AI"}
+	Action: web_search
+	Action Input: {"query": "how to write unit tests in go"}
 
 - web_fetch: fetch webpage content from a URL
-  schema:
-	{
-		"url": {
-			"description": "The URL of the webpage to fetch",
-			"type": "string"
-		}
-	}
-
-- stage_path: stage files/directories for tool access
-  schema:
-	{
-		"src": {
-			"description": "Source file or directory path",
-			"type": "string"
-		},
-		"dest": {
-			"description": "Optional destination name",
-			"type": "string"
-		}
-	}
+  Examples:
+	Action: web_fetch
+	Action Input: {"url": "https://golang.org"}
+	Action: web_fetch
+	Action Input: {"url": "https://news.ycombinator.com"}
+	Action: web_fetch
+	Action Input: {"url": "https://github.com"}
 
 - ask_assistant_worker: get help from specialized assistant worker
-  schema:
-	{
-	  "properties": {
-		"name": {
-		  "description": "Name of the worker to ask",
-		  "type": "string"
-		},
-		"model": {
-		  "description": "Optional model to use. Leave empty unless explicitly requested.",
-		  "type": "string"
-		},
-		"msg": {
-		  "description": "Message to send to the worker. Detailed task or help query.",
-		  "type": "string"
-		}
-	  },
-	  "required": ["name", "msg"],
-	  "type": "object"
-	}
+  Examples:
+	Action: ask_assistant_worker
+	Action Input: {"name": "python-expert", "msg": "How do I use decorators in Python?"}
+	Action: ask_assistant_worker
+	Action Input: {"name": "web-scraper", "msg": "Extract all links from https://example.com"}
+	Action: ask_assistant_worker
+	Action Input: {"name": "sql-helper", "msg": "Write a query to select all users"}
 
-- finish: end and output final answer directly responding to the user
+- finish: end and output final answer directly responding to the user AFTER completing the objective.
 
-⭐ For specialized tasks requiring MCP tools, delegate to tool-agents via ask_assistant_worker.
+For specialized tasks requiring MCP tools, delegate to tool-agents via ask_assistant_worker.
 
 IMPORTANT: When you delegate a task to a worker and receive a successful result in the observation, 
 you should immediately finish with that result. Do not ask the user what to do next - provide the 
@@ -534,7 +501,6 @@ Use the following format to create a todo list:
 - [ ] Description of the third step
 
 **Important:** Do not ever use HTML tags. Always use the markdown format shown above. Always wrap the todo list in triple backticks.
-
 
 Always include the worker's actual output in your final response.
 
@@ -1074,7 +1040,6 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			"code_eval":            true,
 			"web_search":           true,
 			"web_fetch":            true,
-			"stage_path":           true,
 		}
 
 		if !allowedTools[lname] {
@@ -1171,8 +1136,7 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 		return ae.runWebSearch(ctx, arg, cfg)
 	case "web_fetch":
 		return ae.runWebFetch(ctx, arg)
-	case "stage_path":
-		return ae.stagePath(arg)
+
 	default:
 		// Check if this is an MCP tool first
 		if _, ok := ae.mcpTools[name]; ok {
@@ -1236,68 +1200,6 @@ func (ae *AgentEngine) normalizeMCPArg(arg string) (string, error) {
 	}
 	b, _ := json.Marshal(m)
 	return string(b), nil
-}
-
-func (ae *AgentEngine) stagePath(arg string) (string, error) {
-	var p struct {
-		Src  string `json:"src"`
-		Dest string `json:"dest,omitempty"`
-	}
-	if err := json.Unmarshal([]byte(arg), &p); err != nil {
-		return "", fmt.Errorf("stage_path expects JSON {src,dest?}: %v", err)
-	}
-	if !filepath.IsAbs(p.Src) {
-		return "", fmt.Errorf("src must be absolute")
-	}
-	if p.Dest == "" {
-		p.Dest = filepath.Base(p.Src)
-	}
-
-	hostDst := filepath.Join(ae.Config.DataPath, "tmp", p.Dest)
-	_ = os.RemoveAll(hostDst)
-
-	if err := copyRecursive(p.Src, hostDst); err != nil {
-		return "", err
-	}
-	resp := map[string]string{
-		"host_path":    hostDst,
-		"sandbox_path": "/mnt/tmp/" + p.Dest,
-		"path":         hostDst,
-	}
-	b, _ := json.Marshal(resp)
-	return string(b), nil
-}
-
-func copyRecursive(src, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if info.IsDir() {
-		return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			rel, _ := filepath.Rel(src, p)
-			target := filepath.Join(dst, rel)
-			if d.IsDir() {
-				return os.MkdirAll(target, 0755)
-			}
-			return copyFile(p, target)
-		})
-	}
-	return copyFile(src, dst)
-}
-
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if err = os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0644)
 }
 
 func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error) {

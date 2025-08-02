@@ -96,6 +96,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:data', 'resize', 'disable-zoom', 'enable-zoom'])
 const vueFlowInstance = useVueFlow()
+
 const {
   mode,
   text,
@@ -107,4 +108,16 @@ const {
   onTextareaBlur,
   onResize
 } = useTextNode(props, emit, vueFlowInstance)
+
+import { watch } from 'vue'
+
+const exampleTemplate = `--- template:profile ---\nHello {{USER}}, you are {{AGE}} years old.\n--- endtemplate ---\n\n--- values:profile ---\nUSER=Alice\nAGE=23\n--- endvalues ---`
+
+// Insert example template when switching to template mode and text is empty
+watch(mode, (newMode, oldMode) => {
+  if (newMode === 'template' && text.value.trim() === '') {
+    text.value = exampleTemplate
+    updateNodeData()
+  }
+})
 </script>

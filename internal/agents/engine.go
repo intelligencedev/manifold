@@ -512,8 +512,6 @@ Carefully read the issue and think hard about a plan to solve it before coding.
 - Read and understand relevant code snippets
 - Identify the root cause of the problem
 - Validate and update your understanding continuously as you gather more context
-- The web_search tool is a great starting point when you don't know where to look
-- When using reading files, always specify the limit at least 500 or 1000 if the file is large, to ensure you get enough context
 
 ### 3. Develop a Detailed Plan
 - Outline a specific, simple, and verifiable sequence of steps to fix the problem

@@ -418,7 +418,8 @@ func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Co
 	// Only show generic tools and agent fleet for non-isolated engines
 	if ae.isolatedToServer == "" {
 		sysPromptBuilder.WriteString(`
-You are the *orchestrator* agent.
+You are the *orchestrator* agent. A highly proactive and autonomous assistant. 
+You think deeply, act decisively, and never leave a problem half-solved.
 You have access to basic tools and can delegate specialized tasks to tool-agents.
 
 Available tools:
@@ -500,11 +501,42 @@ IMPORTANT: When you delegate a task to a worker and receive a successful result 
 you should immediately finish with that result. Do not ask the user what to do next - provide the 
 complete answer you received from the worker.
 
-Example workflow:
-1. User asks: "List files in /tmp"
-2. You delegate: ask_assistant_worker with name "file_browser" and msg "List files in /tmp"
-3. Worker returns: "Files in /tmp: file1.txt, file2.log, folder1/"
-4. You finish immediately: "Files in /tmp: file1.txt, file2.log, folder1/"
+## Workflow
+
+### 1. Deeply Understand the Problem
+Carefully read the issue and think hard about a plan to solve it before coding.
+
+### 2. Codebase Investigation
+- Explore relevant files and directories
+- Search for key functions, classes, or variables related to the issue
+- Read and understand relevant code snippets
+- Identify the root cause of the problem
+- Validate and update your understanding continuously as you gather more context
+- The web_search tool is a great starting point when you don't know where to look
+- When using reading files, always specify the limit at least 500 or 1000 if the file is large, to ensure you get enough context
+
+### 3. Develop a Detailed Plan
+- Outline a specific, simple, and verifiable sequence of steps to fix the problem
+- Create a todo list in markdown format to track your progress
+- Check off completed steps using [x] syntax and display the updated list to the user
+- Continue working through the plan without stopping to ask what to do next
+
+### 4. Making Code Changes
+- Before editing, always read the relevant file contents or section to ensure complete context
+- Make small, testable, incremental changes that logically follow from your investigation and plan
+
+---
+
+## How to Create a Todo List
+
+Use the following format to create a todo list:
+
+- [ ] Description of the first step
+- [ ] Description of the second step
+- [ ] Description of the third step
+
+**Important:** Do not ever use HTML tags. Always use the markdown format shown above. Always wrap the todo list in triple backticks.
+
 
 Always include the worker's actual output in your final response.
 
@@ -890,13 +922,27 @@ func (ae *AgentEngine) summarizeConversation(ctx context.Context, msgs []llm.Cha
 		temperature  float64
 		instructions string
 	)
+
+	// Find the first user message in msgs (should be the objective)
+	var userObjective string
+	for _, m := range msgs {
+		if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
+			userObjective = m.Content
+			break
+		}
+	}
+
 	if w := ae.fleet.GetWorker("summary_worker"); w != nil {
 		endpoint = w.Endpoint
 		apiKey = ae.Config.Completions.APIKey
 		modelName = w.Model
 		maxTokens = 8192
 		temperature = w.Temperature
-		instructions = w.Instructions
+		instructions = fmt.Sprintf(`Provide a detailed but concise summary of our conversation above. 
+		Focus on information that would be helpful for continuing the conversation, 
+		including what we did, what we're doing, which files we're working on, 
+		and what we're going to do next. You MUST include information that is relevant to the user's objective: %s`,
+			userObjective)
 	} else {
 		endpoint = ae.Config.Completions.SummaryHost
 		if endpoint == "" {
@@ -906,7 +952,11 @@ func (ae *AgentEngine) summarizeConversation(ctx context.Context, msgs []llm.Cha
 		modelName = model
 		maxTokens = 8192
 		temperature = ae.Config.Completions.Temperature
-		instructions = "You are an expert summarizer. Your task is to read the provided conversation history and generate a concise summary that accurately reflects the sequence and content of events. Ensure the summary preserves the chronological order and includes all key points discussed. Avoid adding opinions or information not present in the conversation."
+		instructions = fmt.Sprintf(`Provide a detailed but concise summary of our conversation above. 
+		Focus on information that would be helpful for continuing the conversation, 
+		including what we did, what we're doing, which files we're working on, 
+		and what we're going to do next. You MUST include information that is relevant to the user's objective: %s`,
+			userObjective)
 	}
 
 	// log the endpoint and model being used for summarization
@@ -938,7 +988,16 @@ func (ae *AgentEngine) summarizeConversation(ctx context.Context, msgs []llm.Cha
 		return nil, fmt.Errorf("summary failed: %w", err)
 	}
 
-	// keep the last user message
+	// Find the original system prompt (should be the first system message in msgs)
+	var origSysPrompt string
+	for _, m := range msgs {
+		if m.Role == "system" && strings.TrimSpace(m.Content) != "" {
+			origSysPrompt = m.Content
+			break
+		}
+	}
+
+	// keep the last user message (for context)
 	var lastUser llm.ChatCompletionMessage
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role == "user" {
@@ -946,9 +1005,12 @@ func (ae *AgentEngine) summarizeConversation(ctx context.Context, msgs []llm.Cha
 			break
 		}
 	}
-	newMsgs := []llm.ChatCompletionMessage{
-		{Role: "system", Content: "Conversation summary:\n" + summary},
+
+	newMsgs := []llm.ChatCompletionMessage{}
+	if origSysPrompt != "" {
+		newMsgs = append(newMsgs, llm.ChatCompletionMessage{Role: "system", Content: origSysPrompt})
 	}
+	newMsgs = append(newMsgs, llm.ChatCompletionMessage{Role: "system", Content: "Conversation summary:\n" + summary})
 	if lastUser.Content != "" {
 		newMsgs = append(newMsgs, lastUser)
 	}

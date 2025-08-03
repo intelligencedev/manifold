@@ -331,7 +331,7 @@ func (ae *AgentEngine) addToolAgents() {
 		if len(tools) == 0 {
 			continue
 		}
-		cfg, _ := ae.serverCfgs[srv]
+		cfg := ae.serverCfgs[srv]
 		name := cfg.AgentName
 		if name == "" {
 			name = srv
@@ -394,6 +394,53 @@ func (ae *AgentEngine) addToolAgents() {
 		}
 		ae.fleet.AddWorker(worker)
 	}
+}
+
+// normalizeAction makes action names robust to capitalization, spacing, and accidental code fencing.
+func normalizeAction(a string) string {
+	a = strings.TrimSpace(a)
+	a = strings.Trim(a, "`")
+	a = strings.ToLower(a)
+	a = strings.TrimSpace(a)
+	switch a {
+	case "final", "done", "complete", "finish.", "finalize", "return":
+		return "finish"
+	}
+	return a
+}
+
+// ensureJSON tries to ensure the action input is valid JSON if schema expects JSON.
+// If it's plain text, it returns the trimmed string.
+func ensureJSON(s string) (string, bool) {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return t, false
+	}
+	// fast-path
+	if json.Valid([]byte(t)) {
+		return t, true
+	}
+	// try salvage from code fences again if present
+	if strings.HasPrefix(t, "```") && strings.HasSuffix(t, "```") {
+		t2 := strings.TrimSuffix(strings.TrimPrefix(t, "```"), "```")
+		t2 = strings.TrimSpace(t2)
+		if strings.HasPrefix(strings.ToLower(t2), "json") {
+			t2 = strings.TrimSpace(t2[4:])
+		}
+		if json.Valid([]byte(t2)) {
+			return t2, true
+		}
+	}
+	// try extracting JSON object substring
+	if i := strings.Index(t, "{"); i >= 0 {
+		if j := strings.LastIndex(t, "}"); j > i {
+			sub := t[i : j+1]
+			if json.Valid([]byte(sub)) {
+				return sub, true
+			}
+		}
+	}
+	return t, false
 }
 
 func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, req ReActRequest) (*AgentSession, error) {
@@ -636,7 +683,7 @@ Action Input: <JSON | text>
 		var currentMessages []llm.ChatCompletionMessage
 
 		// Start with the existing conversation history
-		currentMessages = append(conversationHistory)
+		currentMessages = append(currentMessages, conversationHistory...)
 
 		// Only query memories if agentic memory is enabled
 		var mems []AgenticMemory
@@ -1045,7 +1092,11 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 		}
 	}
 
-	switch strings.ToLower(name) {
+	// Normalize action spelling and stray punctuation
+	name = normalizeAction(name)
+	// Normalize input: retain raw if not JSON
+	argJSON, isJSON := ensureJSON(arg)
+	switch name {
 	case "finish":
 		return arg, nil
 	case "ask_assistant_worker":
@@ -1065,9 +1116,15 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			Model string `json:"model,omitempty"`
 			Msg   string `json:"msg,omitempty"`
 		}
-		if err := json.Unmarshal([]byte(arg), &req); err != nil {
-			return "", fmt.Errorf("ask_assistant_worker expects JSON {worker, args}: %v", err)
+		if !isJSON {
+			return "", fmt.Errorf("ask_assistant_worker expects JSON input, got text: %q", truncate(arg, 200))
 		}
+		if err := json.Unmarshal([]byte(argJSON), &req); err != nil {
+			return "", fmt.Errorf("ask_assistant_worker expects JSON fields {name, model, msg}: %v", err)
+		}
+
+		req.Name = strings.TrimSpace(req.Name)
+		req.Msg = strings.TrimSpace(req.Msg)
 
 		worker := ae.fleet.GetWorker(req.Name)
 		if worker == nil {
@@ -1122,7 +1179,7 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 		return ae.callLLM(ctx, worker.Name, worker.Model, []llm.ChatCompletionMessage{
 			{Role: "user", Content: msg},
 		})
-	case "code_eval":
+	case "code_eval", "code-eval", "execute_code":
 		return ae.runCodeEval(ctx, arg)
 	case "web_search":
 		return ae.runWebSearch(ctx, arg, cfg)
@@ -1140,6 +1197,17 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			// special-case: fix web_content when the LLM passes a bare string
 			if strings.HasSuffix(name, "::web_content") && !json.Valid([]byte(arg)) {
 				arg = fmt.Sprintf(`{"urls":["%s"]}`, strings.TrimSpace(arg))
+			}
+			// Provide sensible defaults if schema exists but argument lacks fields
+			if isJSON {
+				var m map[string]any
+				if err := json.Unmarshal([]byte(argJSON), &m); err == nil {
+					if strings.HasSuffix(name, "::web_fetch") {
+						if _, ok := m["url"]; !ok && m["urls"] == nil {
+							return "", fmt.Errorf("web_fetch expects {\"url\": \"https://...\"}")
+						}
+					}
+				}
 			}
 			norm, err := ae.normalizeMCPArg(arg)
 			if err != nil {
@@ -1161,9 +1229,13 @@ func (ae *AgentEngine) normalizeMCPArg(arg string) (string, error) {
 	hostPrefix := filepath.Join(ae.Config.DataPath, "tmp") + "/"
 	sandboxPrefix := "/mnt/tmp/"
 
+	// Remove stray trailing commas that easily break JSON
+	arg = strings.TrimSpace(arg)
+	arg = strings.TrimSuffix(arg, ",")
+
+	// Salvage to JSON if needed
 	if !json.Valid([]byte(arg)) { // plain text payload
-		if !json.Valid([]byte(arg)) && strings.Contains(arg, "{") && strings.Contains(arg, "}") {
-			// attempt salvage: grab everything between the first '{' and *last* '}'
+		if strings.Contains(arg, "{") && strings.Contains(arg, "}") {
 			if start := strings.Index(arg, "{"); start >= 0 {
 				if end := strings.LastIndex(arg, "}"); end > start {
 					candidate := arg[start : end+1]
@@ -1180,9 +1252,39 @@ func (ae *AgentEngine) normalizeMCPArg(arg string) (string, error) {
 	if err := json.Unmarshal([]byte(arg), &m); err != nil {
 		return "", err
 	}
+	// Flatten trivial {"input": "..."} wrappers sometimes produced by models
+	if len(m) == 1 {
+		if val, ok := m["input"]; ok {
+			switch v := val.(type) {
+			case string:
+				if !json.Valid([]byte(v)) {
+					v = strings.ReplaceAll(v, sandboxPrefix, hostPrefix)
+					return v, nil
+				}
+			}
+		}
+	}
 	for k, v := range m {
 		if s, ok := v.(string); ok && strings.HasPrefix(s, sandboxPrefix) {
 			m[k] = strings.Replace(s, sandboxPrefix, hostPrefix, 1)
+		}
+		// recursively convert in arrays
+		if arr, ok := v.([]interface{}); ok {
+			for i := range arr {
+				if sv, ok := arr[i].(string); ok && strings.HasPrefix(sv, sandboxPrefix) {
+					arr[i] = strings.Replace(sv, sandboxPrefix, hostPrefix, 1)
+				}
+			}
+			m[k] = arr
+		}
+		// recursively convert in nested objects
+		if mv, ok := v.(map[string]any); ok {
+			for kk, vv := range mv {
+				if sv, ok := vv.(string); ok && strings.HasPrefix(sv, sandboxPrefix) {
+					mv[kk] = strings.Replace(sv, sandboxPrefix, hostPrefix, 1)
+				}
+			}
+			m[k] = mv
 		}
 	}
 	if _, ok := m["path"]; !ok { // convenience alias
@@ -1204,11 +1306,11 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 	if req.Language == "" {
 		req.Language = "python"
 	}
+	if strings.TrimSpace(req.Code) == "" {
+		return "", fmt.Errorf("code_eval: code cannot be empty")
+	}
 
-	var (
-		resp *tools.CodeEvalResponse
-		err  error
-	)
+	var resp *tools.CodeEvalResponse
 	switch strings.ToLower(strings.TrimSpace(req.Language)) {
 	case "python":
 		result, err := tools.RunPythonRaw(ae.Config, req.Code, req.Dependencies)
@@ -1231,25 +1333,32 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 		} else {
 			resp = &tools.CodeEvalResponse{Result: result}
 		}
+	case "node", "nodejs":
+		result, err := tools.RunNodeRaw(ae.Config, req.Code, req.Dependencies)
+		if err != nil {
+			resp = &tools.CodeEvalResponse{Error: err.Error()}
+		} else {
+			resp = &tools.CodeEvalResponse{Result: result}
+		}
 	case "sh", "shell", "bash":
 		// Simple shell execution - wrap the code in a basic shell runner
-		result, err := tools.RunPythonRaw(ae.Config, fmt.Sprintf(`
-import subprocess
+		pyCode := fmt.Sprintf(`import subprocess
 import sys
 try:
-	result = subprocess.run(%q, shell=True, capture_output=True, text=True, timeout=30)
-	if result.returncode == 0:
-		print(result.stdout)
-	else:
-		print(f"Error (exit code {result.returncode}): {result.stderr}", file=sys.stderr)
-		sys.exit(result.returncode)
+    result = subprocess.run(%q, shell=True, capture_output=True, text=True, timeout=30)
+    if result.returncode == 0:
+        print(result.stdout)
+    else:
+        print(f"Error (exit code {result.returncode}): {result.stderr}", file=sys.stderr)
+        sys.exit(result.returncode)
 except subprocess.TimeoutExpired:
-	print("Command timed out after 30 seconds", file=sys.stderr)
-	sys.exit(1)
+    print("Command timed out after 30 seconds", file=sys.stderr)
+    sys.exit(1)
 except Exception as e:
-	print(f"Failed to execute command: {e}", file=sys.stderr)
-	sys.exit(1)
-`, req.Code), []string{})
+    print(f"Failed to execute command: {e}", file=sys.stderr)
+    sys.exit(1)
+`, req.Code)
+		result, err := tools.RunPythonRaw(ae.Config, pyCode, []string{})
 		if err != nil {
 			resp = &tools.CodeEvalResponse{Error: err.Error()}
 		} else {
@@ -1257,9 +1366,6 @@ except Exception as e:
 		}
 	default:
 		return "", fmt.Errorf("unsupported language: %s", req.Language)
-	}
-	if err != nil {
-		return "", err
 	}
 	if resp.Error != "" {
 		return "", fmt.Errorf("%s", resp.Error)
@@ -1302,6 +1408,7 @@ func (ae *AgentEngine) runWebSearch(ctx context.Context, arg string, cfg *config
 		urls = urls[:resultSize]
 	}
 
+	// Deduplicate URLs
 	return tools.GetSearchResults(ctx, ae.DB, urls), nil
 }
 
@@ -1337,7 +1444,10 @@ func (ae *AgentEngine) callMCP(ctx context.Context, fq, arg string) (string, err
 	} else {
 		params = arg
 	}
-	resp, err := ae.mcpMgr.CallTool(ctx, parts[0], parts[1], params)
+	// add small delay budget to avoid starving tool calls in short contexts
+	callCtx, cancel := context.WithTimeout(ctx, time.Until(time.Now().Add(55*time.Second)))
+	defer cancel()
+	resp, err := ae.mcpMgr.CallTool(callCtx, parts[0], parts[1], params)
 	if err != nil {
 		return "", err
 	}

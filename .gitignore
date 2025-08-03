@@ -1,3 +1,11 @@
+# Log files
+*.log
+# Temporary files
+*.tmp
+# Backup files
+*.bak
+
+
 # Build artifacts
 dist
 frontend/dist/*

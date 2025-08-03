@@ -81,13 +81,13 @@ type AgentEngine struct {
 }
 
 var (
-	mcpToolsOnce      sync.Once
 	cachedMCPTools    map[string]ToolInfo
 	cachedToolsErr    error
 	cachedServerTools map[string][]ToolInfo
 	cachedServerCfgs  map[string]mcp.ServerConfig
 	lastCacheTime     time.Time
 	cacheTTL          = 5 * time.Minute // TTL for schema cache
+	cacheGlobalMu     sync.RWMutex
 )
 
 func Connect(ctx context.Context, connStr string) (*pgx.Conn, error) {
@@ -144,7 +144,9 @@ func NewEngine(ctx context.Context, cfg *configpkg.Config, db *pgx.Conn) (*Agent
 		eng.MemoryEngine = &NilMemoryEngine{}
 	}
 
-	_ = eng.discoverMCPTools(ctx)
+	if err := eng.discoverMCPTools(ctx); err != nil {
+		log.Printf("warn: discoverMCPTools: %v", err)
+	}
 	if !eng.skipAddToolAgents {
 		eng.addToolAgents()
 	}
@@ -213,119 +215,109 @@ type ToolInfo struct {
 // (You must also update the AgentEngine struct definition above to: mcpTools map[string]ToolInfo)
 
 func (ae *AgentEngine) discoverMCPTools(ctx context.Context) error {
-	// Check if cache is still valid
+
+	// fast-path: serve from global cache within TTL
+	cacheGlobalMu.RLock()
+	valid := time.Since(lastCacheTime) < cacheTTL && cachedMCPTools != nil
+	cacheGlobalMu.RUnlock()
+
+	if valid {
+		populateFromCacheLocked(ae)
+		return cachedToolsErr
+	}
+
+	// slow-path: refresh global cache (single writer)
+	cacheGlobalMu.Lock()
+	defer cacheGlobalMu.Unlock()
+
+	// re-check after acquiring write lock to avoid thundering herd
+
 	if time.Since(lastCacheTime) < cacheTTL && cachedMCPTools != nil {
-		// Use cached data
-		if ae.mcpTools == nil {
-			ae.mcpTools = make(map[string]ToolInfo)
-		}
-		if ae.serverTools == nil {
-			ae.serverTools = make(map[string][]ToolInfo)
-		}
-		if ae.serverCfgs == nil {
-			ae.serverCfgs = make(map[string]mcp.ServerConfig)
-		}
-
-		// Only populate if this is not an isolated engine or if it matches the isolated server
-		for k, v := range cachedMCPTools {
-			if ae.isolatedToServer == "" || strings.HasPrefix(k, ae.isolatedToServer+"::") {
-				ae.mcpTools[k] = v
-			}
-		}
-		for srv, tools := range cachedServerTools {
-			if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
-				ae.serverTools[srv] = tools
-			}
-		}
-		for srv, cfg := range cachedServerCfgs {
-			if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
-				ae.serverCfgs[srv] = cfg
-			}
-		}
+		populateFromCacheLocked(ae)
 		return cachedToolsErr
 	}
 
-	// Refresh cache
-	mcpToolsOnce.Do(func() {
-		cachedMCPTools = make(map[string]ToolInfo)
-		cachedServerTools = make(map[string][]ToolInfo)
-		cachedServerCfgs = make(map[string]mcp.ServerConfig)
-		lastCacheTime = time.Now()
+	cachedMCPTools = make(map[string]ToolInfo)
+	cachedServerTools = make(map[string][]ToolInfo)
+	cachedServerCfgs = make(map[string]mcp.ServerConfig)
+	lastCacheTime = time.Now()
+	cachedToolsErr = nil
 
-		// First, collect all tools and their info
-		for _, srv := range ae.mcpMgr.List() {
-			ts, err := ae.mcpMgr.ListTools(ctx, srv)
-			if err != nil {
-				cachedToolsErr = err
-				continue
-			}
-			if cfg, ok := ae.mcpMgr.Config(srv); ok {
-				cachedServerCfgs[srv] = cfg
-			}
-			b, _ := json.Marshal(ts)
-			var tools []map[string]interface{}
-			if err := json.Unmarshal(b, &tools); err != nil {
-				cachedToolsErr = err
-				continue
-			}
-			for _, t := range tools {
-				name, _ := t["name"].(string)
-				desc, _ := t["description"].(string)
-				var inputSchema map[string]interface{}
-				if schema, ok := t["input_schema"].(map[string]interface{}); ok {
-					inputSchema = schema
-				} else if schema, ok := t["inputSchema"].(map[string]interface{}); ok {
-					inputSchema = schema
-				}
-				toolName := fmt.Sprintf("%s::%s", srv, name)
-				info := ToolInfo{
-					Name:        toolName,
-					Description: desc,
-					InputSchema: inputSchema,
-				}
-				cachedMCPTools[toolName] = info
-				cachedServerTools[srv] = append(cachedServerTools[srv], info)
-			}
+	for _, srv := range ae.mcpMgr.List() {
+		ts, err := ae.mcpMgr.ListTools(ctx, srv)
+		if err != nil {
+			// continue but remember last error
+			log.Printf("warn: ListTools(%s): %v", srv, err)
+			cachedToolsErr = err
+			continue
 		}
-	})
-
-	if cachedToolsErr != nil {
-		return cachedToolsErr
+		if cfg, ok := ae.mcpMgr.Config(srv); ok {
+			cachedServerCfgs[srv] = cfg
+		}
+		b, _ := json.Marshal(ts)
+		var toolsSlice []map[string]interface{}
+		if err := json.Unmarshal(b, &toolsSlice); err != nil {
+			log.Printf("warn: unmarshal tools %s: %v", srv, err)
+			cachedToolsErr = err
+			continue
+		}
+		for _, t := range toolsSlice {
+			name, _ := t["name"].(string)
+			if name == "" {
+				continue
+			}
+			desc, _ := t["description"].(string)
+			var inputSchema map[string]interface{}
+			if schema, ok := t["input_schema"].(map[string]interface{}); ok {
+				inputSchema = schema
+			} else if schema, ok := t["inputSchema"].(map[string]interface{}); ok {
+				inputSchema = schema
+			}
+			toolName := fmt.Sprintf("%s::%s", srv, name)
+			info := ToolInfo{
+				Name:        toolName,
+				Description: desc,
+				InputSchema: inputSchema,
+			}
+			cachedMCPTools[toolName] = info
+			cachedServerTools[srv] = append(cachedServerTools[srv], info)
+		}
 	}
+	populateFromCacheLocked(ae)
+	return cachedToolsErr
+}
 
-	// Populate this engine's maps based on isolation settings
+// populateFromCacheLocked must be called with global cache lock held and uses global cache
+func populateFromCacheLocked(ae *AgentEngine) {
 	if ae.mcpTools == nil {
 		ae.mcpTools = make(map[string]ToolInfo)
 	}
+	if ae.serverTools == nil {
+		ae.serverTools = make(map[string][]ToolInfo)
+	}
+	if ae.serverCfgs == nil {
+		ae.serverCfgs = make(map[string]mcp.ServerConfig)
+	}
+	// copy based on isolation
 	for k, v := range cachedMCPTools {
 		if ae.isolatedToServer == "" || strings.HasPrefix(k, ae.isolatedToServer+"::") {
 			ae.mcpTools[k] = v
 		}
-	}
-	if ae.serverTools == nil {
-		ae.serverTools = make(map[string][]ToolInfo)
 	}
 	for srv, tools := range cachedServerTools {
 		if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
 			ae.serverTools[srv] = tools
 		}
 	}
-	if ae.serverCfgs == nil {
-		ae.serverCfgs = make(map[string]mcp.ServerConfig)
-	}
 	for srv, cfg := range cachedServerCfgs {
 		if ae.isolatedToServer == "" || srv == ae.isolatedToServer {
 			ae.serverCfgs[srv] = cfg
 		}
 	}
-
-	// Orchestrator (isolatedToServer == "") must NOT have direct access to MCP tools
-	// This ensures the orchestrator can only route through ask_assistant_worker
+	// orchestrator must not access MCP tools directly
 	if ae.isolatedToServer == "" {
 		ae.mcpTools = make(map[string]ToolInfo)
 	}
-
-	return nil
 }
 
 // addToolAgents creates a fleet worker for each MCP server summarizing its tools.
@@ -1412,7 +1404,6 @@ func (ae *AgentEngine) newIsolatedToolEngine(agentName string) *AgentEngine {
 // This can be called via an admin endpoint to reload tools without restart
 func (ae *AgentEngine) refreshCache(ctx context.Context) error {
 	// Reset the once and cache
-	mcpToolsOnce = sync.Once{}
 	cachedMCPTools = nil
 	cachedServerTools = nil
 	cachedServerCfgs = nil

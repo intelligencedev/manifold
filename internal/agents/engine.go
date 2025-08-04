@@ -1176,9 +1176,20 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 
 		// Otherwise, fallback to LLM call as before
 		msg := fmt.Sprintf("%s\n\n%s", worker.Instructions, req.Msg)
-		return ae.callLLM(ctx, worker.Name, worker.Model, []llm.ChatCompletionMessage{
+		resp, err := ae.callLLM(ctx, worker.Name, worker.Model, []llm.ChatCompletionMessage{
 			{Role: "user", Content: msg},
 		})
+		if hook != nil {
+			step := AgentStep{
+				Index:       0, // Index will be set by caller if needed
+				Thought:     fmt.Sprintf("[%s] %s", worker.Name, resp),
+				Action:      "finish",
+				ActionInput: resp,
+				Observation: "",
+			}
+			hook(step)
+		}
+		return resp, err
 	case "code_eval", "code-eval", "execute_code":
 		return ae.runCodeEval(ctx, arg)
 	case "web_search":
@@ -1345,18 +1356,18 @@ func (ae *AgentEngine) runCodeEval(_ context.Context, arg string) (string, error
 		pyCode := fmt.Sprintf(`import subprocess
 import sys
 try:
-    result = subprocess.run(%q, shell=True, capture_output=True, text=True, timeout=30)
-    if result.returncode == 0:
-        print(result.stdout)
-    else:
-        print(f"Error (exit code {result.returncode}): {result.stderr}", file=sys.stderr)
-        sys.exit(result.returncode)
+	result = subprocess.run(%q, shell=True, capture_output=True, text=True, timeout=30)
+	if result.returncode == 0:
+		print(result.stdout)
+	else:
+		print(f"Error (exit code {result.returncode}): {result.stderr}", file=sys.stderr)
+		sys.exit(result.returncode)
 except subprocess.TimeoutExpired:
-    print("Command timed out after 30 seconds", file=sys.stderr)
-    sys.exit(1)
+	print("Command timed out after 30 seconds", file=sys.stderr)
+	sys.exit(1)
 except Exception as e:
-    print(f"Failed to execute command: {e}", file=sys.stderr)
-    sys.exit(1)
+	print(f"Failed to execute command: {e}", file=sys.stderr)
+	sys.exit(1)
 `, req.Code)
 		result, err := tools.RunPythonRaw(ae.Config, pyCode, []string{})
 		if err != nil {

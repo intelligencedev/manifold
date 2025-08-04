@@ -450,7 +450,7 @@ func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, re
 func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Config, req ReActRequest, hook StepHook) (*AgentSession, error) {
 	// Print/log available tools and assistants at the start of the workflow
 	if ae.isolatedToServer == "" {
-		// Orchestrator: print generic tools and assistant workers
+		// Orchestrator: print generic tools and delegation
 		log.Printf("[AgentEngine] Available generic tools:")
 		log.Printf("- code_eval: run code in a sandbox")
 		log.Printf("- web_search: search the web/internet for information")
@@ -596,7 +596,7 @@ ask for assistance from another worker and ensure you give them all of the infor
 necessary for them to help you.
 `)
 	} else {
-		// For isolated tool-agents, provide focused instructions
+		// For isolated tool-agents, provide focused instructions and list all generic tools
 		sysPromptBuilder.WriteString(`
 You are a specialized tool-agent. Use ONLY the tools listed below.
 When the task is done reply exactly:
@@ -606,25 +606,15 @@ Action: finish
 Action Input: <concise result text>
 
 Available tools:
-- code_eval: run python code in sandbox
-  schema:
-	{
-		"language": {
-			"description": "Programming language (python, go, javascript, sh, shell, bash)",
-			"type": "string"
-		},
-		"code": {
-			"description": "Code to execute",
-			"type": "string"
-		},
-		"dependencies": {
-			"description": "List of dependencies to install",
-			"type": "array",
-			"items": {"type": "string"}
-		}
-	}
-- finish: end and output final answer directly responding to the user
+- web_search: search the web/internet for information
+  schema: {"query": "string"}
+- web_fetch: fetch webpage content from a URL
+  schema: {"url": "string"}
+- code_eval: run code in a sandbox (python, go, bash, ...)
+  schema: {"language": "string", "code": "string", "dependencies": ["string"]}
+- finish: end and output the final answer
 `)
+
 	}
 
 	sysPromptBuilder.WriteString(`
@@ -1176,9 +1166,9 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			// Create isolated engine for this specific server/tool-agent
 			isolatedEngine := ae.newIsolatedToolEngine(worker.Name)
 
-			// Create a new ReActRequest for the sub-agent session with proper context
+			// Create a new ReActRequest for the sub-agent session with proper context, including worker instructions
 			subReq := ReActRequest{
-				Objective: fmt.Sprintf("[SYSTEM] You have been invoked by another agent to accomplish the following objective. You must respond with Thought/Action/Action Input as usual.\n\nObjective: %s", req.Msg),
+				Objective: fmt.Sprintf(`[SYSTEM] %s\n\nYou have been invoked by another agent.  Follow your\nThought / Action / Action Input pattern.\n\nObjective: %s`, worker.Instructions, req.Msg),
 				Model:     req.Model,
 				MaxSteps:  cfg.Completions.ReactAgentConfig.MaxSteps,
 			}

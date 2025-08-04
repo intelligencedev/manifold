@@ -448,7 +448,31 @@ func (ae *AgentEngine) RunSession(ctx context.Context, cfg *configpkg.Config, re
 }
 
 func (ae *AgentEngine) RunSessionWithHook(ctx context.Context, cfg *configpkg.Config, req ReActRequest, hook StepHook) (*AgentSession, error) {
+	// Print/log available tools and assistants at the start of the workflow
+	if ae.isolatedToServer == "" {
+		// Orchestrator: print generic tools and assistant workers
+		log.Printf("[AgentEngine] Available generic tools:")
+		log.Printf("- code_eval: run code in a sandbox")
+		log.Printf("- web_search: search the web/internet for information")
+		log.Printf("- web_fetch: fetch webpage content from a URL")
+		log.Printf("- ask_assistant_worker: get help from specialized assistant worker")
+		log.Printf("- finish: end and output final answer directly responding to the user AFTER completing the objective.")
+
+		log.Printf("[AgentEngine] Available assistant workers:")
+		for _, worker := range ae.fleet.ListWorkers() {
+			log.Printf("- %s • %s", worker.Name, worker.Instructions)
+		}
+	} else {
+		// Tool-agent: print available MCP tools
+		log.Printf("[AgentEngine] Available MCP tools for this tool-agent:")
+		for _, t := range ae.mcpTools {
+			log.Printf("- %s • %s", t.Name, t.Description)
+		}
+	}
 	sess := &AgentSession{ID: uuid.New(), Objective: req.Objective, Created: time.Now()}
+
+	// Add retry cap for missing Action/Action Input guardrail
+	formatRetries := 0
 
 	var sysPromptBuilder strings.Builder
 	now := time.Now().Format("2006-01-02 15:04:05 -0700 MST")
@@ -677,6 +701,9 @@ Action Input: <JSON | text>
 	conversationHistory = append(conversationHistory, llm.ChatCompletionMessage{Role: "system", Content: sysPrompt})
 
 	for i := 0; i < req.MaxSteps; i++ {
+		if sess.Completed {
+			break // safety: never execute further steps once marked complete
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -731,25 +758,33 @@ Action Input: <JSON | text>
 			input = strings.TrimSpace(out)
 		}
 
+		// ----------------------------------------------------------------------
+		// Guard-rail: the model must ALWAYS emit an Action.  If it forgets, ask
+		// it to re-format instead of incorrectly finishing the workflow.
+		// ----------------------------------------------------------------------
 		if action == "" {
-			// treat entire reply as the final answer
-			step := AgentStep{
-				Index:       len(sess.Steps) + 1,
-				Thought:     "Responding...",
-				Action:      "finish",
-				ActionInput: strings.TrimSpace(out),
-				Observation: "",
-			}
-			sess.Steps = append(sess.Steps, step)
-			_ = ae.persistStep(ctx, sess.ID, step)
+			formatRetries++
+			if formatRetries >= 2 {
+				// After one failed re-prompt, accept the second malformed reply as finish
+				action = "finish"
+				input = strings.TrimSpace(out)
+			} else {
+				conversationHistory = append(conversationHistory,
+					llm.ChatCompletionMessage{Role: "assistant", Content: out},
+					llm.ChatCompletionMessage{Role: "system", Content: `⚠️ Your last reply was missing the mandatory "Action:" and "Action Input:" fields.
+Please resend using **exactly** this pattern:
 
-			if hook != nil {
-				hook(step)
-			}
+Thought: <your reasoning>
+Action: <tool name or "finish">\nAction Input: <json | text>
 
-			sess.Result = strings.TrimSpace(out)
-			sess.Completed = true
-			break
+If the task is complete, use Action "finish". Otherwise pick an appropriate tool.`},
+				)
+				// retry the same step without advancing the loop counter
+				i--
+				continue
+			}
+		} else {
+			formatRetries = 0 // reset after a well-formed step
 		}
 
 		// Create a preliminary step with thought, action, and input but no observation yet
@@ -822,9 +857,14 @@ Action Input: <JSON | text>
 		conversationHistory = append(conversationHistory, assistantMessage)
 
 		// Add the observation as a user message in the conversation history
+		nextPrompt := "Next step?"
+		// If we just delegated and got a non-empty result back, assume task could be done.
+		if action == "ask_assistant_worker" && strings.TrimSpace(obs) != "" {
+			nextPrompt = "If the objective is complete, reply with:\n\nThought: done\nAction: finish\nAction Input: <your answer>"
+		}
 		userMessage := llm.ChatCompletionMessage{
 			Role:    "user",
-			Content: fmt.Sprintf("Observation: %s\n\nNext step?", obs),
+			Content: fmt.Sprintf("Observation: %s\n\n%s", obs, nextPrompt),
 		}
 		conversationHistory = append(conversationHistory, userMessage)
 
@@ -1169,7 +1209,13 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			}
 			// Return the result of the sub-agent session
 			if subSession.Completed {
-				return subSession.Result, nil
+				// Bubble a synthetic FINISH so the outer loop exits immediately.
+				// We encode it as triple-header so parseReAct sees Action == finish.
+				finishPayload := fmt.Sprintf(
+					"Thought: Sub-agent completed\nAction: finish\nAction Input: %q",
+					subSession.Result,
+				)
+				return finishPayload, nil
 			}
 			return "", fmt.Errorf("sub-agent session did not complete: %s", subSession.Result)
 		}

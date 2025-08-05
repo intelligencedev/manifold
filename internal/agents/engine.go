@@ -582,7 +582,7 @@ Use markdown syntax to stylize lists, headers, tables, code blocks, apply italic
 		}
 
 		sysPromptBuilder.WriteString(`
-IMPORTANT: The workers listed above are NOT direct tools. You MUST use ask_assistant_worker to invoke them.
+IMPORTANT: Never provide commentary, meta-discussion, or anything unrelated to the user's objective. Only output what is required to achieve the objective.
 
 Example: To use any worker, call:
 Action: ask_assistant_worker

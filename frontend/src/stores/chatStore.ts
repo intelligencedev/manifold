@@ -29,15 +29,39 @@ export const useChatStore = defineStore('chat', () => {
   const top_k = ref()
   const min_p = ref()
   
-  // Computed endpoint that builds URL from config host and port
+  // Computed endpoint that builds URL from config based on provider
   const endpoint = computed(() => {
-    // If config is available, construct endpoint from host and port
-    if (configStore.config?.Host && configStore.config?.Port) {
-      const protocol = configStore.config.Host === 'localhost' ? 'http' : 'https'
-      return `${protocol}://${configStore.config.Host}:${configStore.config.Port}/api/v1/chat/completions`
+    let baseUrl = ''
+    
+    // First priority: use completions.default_host if available
+    if (configStore.config?.Completions?.DefaultHost) {
+      baseUrl = configStore.config.Completions.DefaultHost
     }
-    // Fallback to hardcoded value if config not loaded yet
-    return 'http://localhost:8080/api/v1/chat/completions'
+    // Second priority: construct from host and port if config is available  
+    else if (configStore.config?.Host && configStore.config?.Port) {
+      const protocol = configStore.config.Host === 'localhost' ? 'http' : 'https'
+      baseUrl = `${protocol}://${configStore.config.Host}:${configStore.config.Port}/api/v1`
+    }
+    // Fallback to hardcoded base URL
+    else {
+      baseUrl = 'http://localhost:8080/api/v1'
+    }
+    
+    // For providers that need /chat/completions appended
+    if (provider.value === 'llama-server' || provider.value === 'mlx' || provider.value === 'react-agent') {
+      // Check if baseUrl already ends with /chat/completions
+      if (!baseUrl.endsWith('/chat/completions')) {
+        return `${baseUrl}/chat/completions`
+      }
+    }
+    // For OpenAI and other providers, use the base URL as-is (or with /chat/completions if needed)
+    else if (provider.value === 'openai') {
+      if (!baseUrl.endsWith('/chat/completions')) {
+        return `${baseUrl}/chat/completions`
+      }
+    }
+    
+    return baseUrl
   })
   
   // UI preferences

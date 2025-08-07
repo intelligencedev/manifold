@@ -1,10 +1,14 @@
 import { fetchWithErrorHandling, handleStreamingResponse } from '@/utils/api';
 import { formatRequestBody, buildReferenceString } from '@/utils/modelHelpers';
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints';
+import { useConfigStore } from '@/stores/configStore';
 
 /**
  * Composable for managing API calls to completion endpoints
  */
 export function useCompletionsApi() {
+  const configStore = useConfigStore();
+
   /**
    * Call the combined retrieve API
    * @param {string} userPrompt - The user prompt to search for
@@ -25,7 +29,7 @@ export function useCompletionsApi() {
       beta: 0.9,
     };
     
-    const retrieveEndpoint = "http://localhost:8080/api/sefii/combined-retrieve";
+    const retrieveEndpoint = getApiEndpoint(configStore.config, API_PATHS.SEFII_COMBINED_RETRIEVE);
     
     try {
       return await fetchWithErrorHandling(retrieveEndpoint, {
@@ -49,7 +53,7 @@ export function useCompletionsApi() {
       limit: 3
     };
     
-    const retrieveEndpoint = "http://localhost:8080/api/agentic-memory/search";
+    const retrieveEndpoint = getApiEndpoint(configStore.config, API_PATHS.AGENTIC_MEMORY_SEARCH);
     
     try {
       return await fetchWithErrorHandling(retrieveEndpoint, {

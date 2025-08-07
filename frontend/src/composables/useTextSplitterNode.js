@@ -1,6 +1,8 @@
 import { ref, watch, computed, onMounted } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { useNodeBase } from './useNodeBase'
+import { useConfigStore } from '@/stores/configStore'
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints'
 
 export function useTextSplitterNode(props, emit) {
   const { getEdges, findNode } = useVueFlow()
@@ -12,10 +14,26 @@ export function useTextSplitterNode(props, emit) {
     onResize
   } = useNodeBase(props, emit)
 
+  const configStore = useConfigStore()
+
   const endpoint = computed({
-    get: () => props.data.inputs?.endpoint || 'http://localhost:8080/api/split-text',
+    get: () => props.data.inputs?.endpoint || getApiEndpoint(configStore.config, API_PATHS.SPLIT_TEXT),
     set: (val) => { props.data.inputs.endpoint = val }
   })
+
+  // Update endpoint when config changes
+  watch(
+    () => configStore.config,
+    (newConfig) => {
+      if (newConfig) {
+        const newEndpoint = getApiEndpoint(newConfig, API_PATHS.SPLIT_TEXT)
+        if (props.data.inputs.endpoint !== newEndpoint) {
+          props.data.inputs.endpoint = newEndpoint
+        }
+      }
+    },
+    { immediate: true }
+  )
 
   const text = computed({
     get: () => props.data.inputs?.text || '',

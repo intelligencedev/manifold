@@ -70,6 +70,8 @@
   import { oneDark } from '@codemirror/theme-one-dark'; // Example theme
   import { EditorView } from '@codemirror/view';
   import { getQuickJS, QuickJSContext } from 'quickjs-emscripten';
+  import { useConfigStore } from '@/stores/configStore';
+  import { getApiEndpoint, API_PATHS } from '@/utils/endpoints';
   
   // --- Refs ---
   const code = ref<string>('console.log("Hello from Manifold!");');
@@ -78,6 +80,7 @@
   const isLoadingWasm = ref<boolean>(true);
   const wasmError = ref<string | null>(null);
   const quickJSVm = shallowRef<QuickJSContext | null>(null); // Use shallowRef for complex non-reactive objects
+  const configStore = useConfigStore();
   const outputRef = ref<HTMLPreElement | null>(null);
   const htmlPreviewRef = ref<HTMLDivElement | null>(null);
   const cmView = shallowRef<EditorView>(); // To access CodeMirror view instance if needed
@@ -251,7 +254,7 @@
       output.value = `Executing Python code at ${new Date().toLocaleTimeString()}...\n\n`;
       
       // Call the backend API to execute Python code
-      const response = await fetch('http://localhost:8080/api/code/eval', {
+      const response = await fetch(getApiEndpoint(configStore.config, API_PATHS.CODE_EVAL), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

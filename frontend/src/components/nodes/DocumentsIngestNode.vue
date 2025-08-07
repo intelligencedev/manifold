@@ -98,9 +98,12 @@ import BaseInput from "@/components/base/BaseInput.vue";
 import BaseSelect from "@/components/base/BaseSelect.vue";
 import BaseCheckbox from "@/components/base/BaseCheckbox.vue";
 import { useDocumentsIngest } from "../../composables/useDocumentsIngest";
+import { useConfigStore } from '@/stores/configStore';
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints';
 
 const { getEdges, findNode, updateNodeData } = useVueFlow();
 const emit = defineEmits(["update:data", "resize"]);
+const configStore = useConfigStore();
 const props = defineProps({
   id: {
     type: String,
@@ -116,7 +119,7 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        ingestion_endpoint: "http://localhost:8080/api/sefii/ingest",
+        ingestion_endpoint: "http://localhost:8080/api/sefii/ingest", // Will be updated dynamically
         mode: "documents",
         documents: "",
       },
@@ -164,6 +167,17 @@ onMounted(() => {
   }
   mode.value = props.data.inputs.mode || "documents";
   ingestion_endpoint.value = props.data.inputs.ingestion_endpoint;
+  
+  // Update endpoint when config changes
+  configStore.fetchConfig().then(() => {
+    if (configStore.config) {
+      const newEndpoint = getApiEndpoint(configStore.config, API_PATHS.SEFII_INGEST)
+      if (ingestion_endpoint.value !== newEndpoint) {
+        ingestion_endpoint.value = newEndpoint
+        props.data.inputs.ingestion_endpoint = newEndpoint
+      }
+    }
+  })
 });
 
 function openFilePicker() {

@@ -124,7 +124,10 @@ import BaseSelect from '@/components/base/BaseSelect.vue'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
 import BaseCheckbox from '@/components/base/BaseCheckbox.vue'
 import { useDocumentsRetrieveNode } from '@/composables/useDocumentsRetrieveNode'
+import { useConfigStore } from '@/stores/configStore';
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints';
 
+const configStore = useConfigStore();
 const props = defineProps({
   id: { type: String, required: true, default: 'DocumentsRetrieve_0' },
   data: {
@@ -136,7 +139,7 @@ const props = defineProps({
       hasInputs: true,
       hasOutputs: true,
       inputs: {
-        retrieve_endpoint: 'http://localhost:8080/api/sefii/combined-retrieve',
+        retrieve_endpoint: 'http://localhost:8080/api/sefii/combined-retrieve', // Will be updated dynamically
         text: 'Enter prompt text here...',
         limit: 1,
         merge_mode: 'intersect',

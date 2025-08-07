@@ -192,8 +192,11 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { EditorView } from '@codemirror/view';
 import { getQuickJS, QuickJSContext } from 'quickjs-emscripten';
 import { useCodeEditor } from '@/composables/useCodeEditor';
+import { useConfigStore } from '@/stores/configStore';
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints';
 
 const { code, isEditorOpen } = useCodeEditor();
+const configStore = useConfigStore();
 
 /* ———————————————————————————————————————————————————————————
    refs & misc
@@ -369,7 +372,7 @@ function scrollToBottom() {
    ——————————————————————————————————————————————————————————— */
 async function executePython() {
   try {
-    const rsp = await fetch('http://localhost:8080/api/code/eval', {
+    const rsp = await fetch(getApiEndpoint(configStore.config, API_PATHS.CODE_EVAL), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ language: 'python', code: code.value }),

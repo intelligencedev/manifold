@@ -6,7 +6,7 @@
       <div class="bg-zinc-900 border-r border-zinc-700 w-80 min-w-[18rem] p-4 overflow-y-auto sidebar-scroll">
         <div class="space-y-6">
           <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
-          <BaseInput label="Endpoint" v-model="endpoint" @blur="fetchLocalServerModel" />
+          <BaseInput label="Endpoint" :modelValue="endpoint" readonly @blur="fetchLocalServerModel" />
           <BaseInput label="API Key" v-model="api_key" :type="showApiKey ? 'text' : 'password'">
             <template #suffix>
               <BaseTogglePassword v-model="showApiKey" />
@@ -132,6 +132,7 @@ import { useChatStore } from './stores/chatStore'
 import { useSystemPromptOptions } from './composables/systemPrompts'
 import { useCompletionsApi } from './composables/useCompletionsApi'
 import { useConfigStore } from './stores/configStore'
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints'
 
 // Add type declaration for marked options
 declare module 'marked' {
@@ -176,10 +177,7 @@ const provider = computed({
   set: (value) => chatStore.provider = value
 })
 
-const endpoint = computed({
-  get: () => chatStore.endpoint,
-  set: (value) => chatStore.endpoint = value
-})
+const endpoint = computed(() => chatStore.endpoint)
 
 const api_key = computed({
   get: () => chatStore.api_key,
@@ -193,9 +191,7 @@ watch(
       if (!chatStore.api_key && newConfig.Completions.APIKey) {
         chatStore.api_key = newConfig.Completions.APIKey
       }
-      if (!chatStore.endpoint && newConfig.Completions.DefaultHost) {
-        chatStore.endpoint = newConfig.Completions.DefaultHost
-      }
+      // Note: endpoint is now computed automatically from config.Host and config.Port
     }
   },
   { immediate: true, deep: true }
@@ -203,10 +199,9 @@ watch(
 
 watch(
   () => configStore.config?.Completions?.Provider,
-  (newProvider) => {
-    if (newProvider && provider.value !== 'openai') {
-      chatStore.endpoint = configStore.config.Completions.DefaultHost
-    }
+  () => {
+    // Note: endpoint is now computed automatically from config.Host and config.Port
+    // No need to manually set it here
   },
   { immediate: true }
 )
@@ -443,7 +438,7 @@ async function sendMessage() {
 
   if (provider.value === 'react-agent') {
     try {
-      const resp = await fetch('http://localhost:8080/api/agents/react/stream', {
+      const resp = await fetch(getApiEndpoint(configStore.config, API_PATHS.AGENTS_REACT_STREAM), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,9 +1,12 @@
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import { useNodeBase } from './useNodeBase'
+import { useConfigStore } from '@/stores/configStore'
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints'
 
 export function useDocumentsRetrieveNode(props, emit) {
   const { getEdges, findNode, updateNodeData } = useVueFlow()
+  const configStore = useConfigStore()
 
   const {
     isHovered,
@@ -16,6 +19,20 @@ export function useDocumentsRetrieveNode(props, emit) {
     get: () => props.data.inputs.retrieve_endpoint,
     set: (val) => { props.data.inputs.retrieve_endpoint = val }
   })
+
+  // Update endpoint when config changes
+  watch(
+    () => configStore.config,
+    (newConfig) => {
+      if (newConfig) {
+        const newEndpoint = getApiEndpoint(newConfig, API_PATHS.SEFII_COMBINED_RETRIEVE)
+        if (props.data.inputs.retrieve_endpoint !== newEndpoint) {
+          props.data.inputs.retrieve_endpoint = newEndpoint
+        }
+      }
+    },
+    { immediate: true }
+  )
 
   const prompt = computed({
     get: () => props.data.inputs.text,

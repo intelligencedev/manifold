@@ -38,7 +38,10 @@ import BaseNode from '@/components/base/BaseNode.vue'
 import BaseInput from '@/components/base/BaseInput.vue'
 import BaseTextarea from '@/components/base/BaseTextarea.vue'
 import { useTextSplitterNode } from '@/composables/useTextSplitterNode'
+import { useConfigStore } from '@/stores/configStore';
+import { getApiEndpoint, API_PATHS } from '@/utils/endpoints';
 
+const configStore = useConfigStore();
 const props = defineProps({
   id: {
     type: String,
@@ -60,7 +63,7 @@ const props = defineProps({
         height: '180px'
       },
       inputs: {
-        endpoint: 'http://localhost:8080/api/split-text',
+        endpoint: 'http://localhost:8080/api/split-text', // Will be updated dynamically
         text: '',
       },
       outputs: {},

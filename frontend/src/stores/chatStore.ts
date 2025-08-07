@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useConfigStore } from './configStore'
 
 export interface ChatMessage {
   role: string;
@@ -7,13 +8,15 @@ export interface ChatMessage {
 }
 
 export const useChatStore = defineStore('chat', () => {
+  // Get config store to access backend configuration
+  const configStore = useConfigStore()
+  
   // Chat messages
   const messages = ref<ChatMessage[]>([])
   const thoughts = ref<string[]>([])
   
   // Chat configuration
   const provider = ref('llama-server')
-  const endpoint = ref('http://localhost:8080/api/v1/chat/completions')
   const api_key = ref('')
   const model = ref('local')
   const max_completion_tokens = ref(8192)
@@ -25,6 +28,17 @@ export const useChatStore = defineStore('chat', () => {
   const top_p = ref()
   const top_k = ref()
   const min_p = ref()
+  
+  // Computed endpoint that builds URL from config host and port
+  const endpoint = computed(() => {
+    // If config is available, construct endpoint from host and port
+    if (configStore.config?.Host && configStore.config?.Port) {
+      const protocol = configStore.config.Host === 'localhost' ? 'http' : 'https'
+      return `${protocol}://${configStore.config.Host}:${configStore.config.Port}/api/v1/chat/completions`
+    }
+    // Fallback to hardcoded value if config not loaded yet
+    return 'http://localhost:8080/api/v1/chat/completions'
+  })
   
   // UI preferences
   const renderMode = ref('markdown')

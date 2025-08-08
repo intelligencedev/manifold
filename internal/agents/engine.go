@@ -627,12 +627,15 @@ necessary for them to help you.
 	} else {
 		// For isolated tool-agents, provide focused instructions and list all generic tools
 		sysPromptBuilder.WriteString(`
-You are a specialized tool-agent. Use ONLY the tools listed below.
+You are a specialized tool-agent. Complete ONLY the specific objective requested.
+
+CRITICAL: Do NOT exceed the scope of the objective. Do NOT take additional steps beyond what was requested.
+
 When the task is done reply exactly:
 
-Thought: <your reasoning>
+Thought: <your reasoning about completing the objective>
 Action: finish
-Action Input: <concise result text>
+Action Input: <concise result containing only what was requested>
 
 Available tools:
 - web_search: search the web/internet for information
@@ -664,6 +667,23 @@ Thought: …
 Action: …
 Action Input: …
 
+`)
+
+	// Add specific guidance for tool-agents to stay focused
+	if ae.isolatedToServer != "" {
+		sysPromptBuilder.WriteString(`
+FOCUS RULES FOR SPECIALIZED TOOL-AGENTS:
+- Complete ONLY what is explicitly requested in the objective
+- Do NOT suggest next steps, improvements, or additional actions
+- Do NOT analyze beyond what was asked for
+- Do NOT provide recommendations unless specifically requested
+- When the objective is complete, immediately use "Action: finish"
+- Your final response should contain ONLY the requested information
+
+`)
+	}
+
+	sysPromptBuilder.WriteString(`
 ALWAYS REMEMBER: Never give up. If you fail to complete the task, try again with a different approach. Before returning your final 
 response, always check if the task is complete and if not, continue working on it.
 
@@ -753,7 +773,7 @@ Action Input: <JSON | text>
 		}
 
 		// For the current turn, add the user message
-		userContent := "Next step?"
+		userContent := "Is the objective complete? If not, continue to the next logical step that directly addresses the objective."
 		if i == 0 {
 			// For the first step, include the actual user objective
 			userContent = req.Objective
@@ -876,7 +896,8 @@ If the task is complete, use Action "finish". Otherwise pick an appropriate tool
 		conversationHistory = append(conversationHistory, assistantMessage)
 
 		// Add the observation as a user message in the conversation history
-		nextPrompt := "Next step?"
+		// nextPrompt := "Next step?"
+		var nextPrompt string
 		// If we just delegated and got a non-empty result back, assume task could be done.
 		if action == "ask_assistant_worker" && strings.TrimSpace(obs) != "" {
 			nextPrompt = "If the objective is complete, reply with:\n\nThought: done\nAction: finish\nAction Input: <your answer>"
@@ -1212,11 +1233,14 @@ func (ae *AgentEngine) execTool(ctx context.Context, cfg *configpkg.Config, name
 			// Create isolated engine for this specific server/tool-agent
 			isolatedEngine := ae.newIsolatedToolEngine(worker.Name)
 
-			// Create a new ReActRequest for the sub-agent session with proper context, including worker instructions
+			// Create a new ReActRequest for the sub-agent session with focused objective
+			// Don't include worker instructions in the objective to prevent scope creep
 			subReq := ReActRequest{
-				Objective: fmt.Sprintf(`[SYSTEM] %s\n\nYou have been invoked by another agent.  Follow your\nThought / Action / Action Input pattern.\n\nObjective: %s`, worker.Instructions, req.Msg),
-				Model:     req.Model,
-				MaxSteps:  cfg.Completions.ReactAgentConfig.MaxSteps,
+				Objective: fmt.Sprintf(`You are a specialized tool agent. Your task is to complete the following objective using ONLY the tools available to you. Follow your Thought / Action / Action Input pattern. Once the objective is accomplished, use Action: finish with the results.
+
+Objective: %s`, req.Msg),
+				Model:    req.Model,
+				MaxSteps: cfg.Completions.ReactAgentConfig.MaxSteps,
 			}
 
 			// Run the sub-agent session with configurable timeout to prevent blocking

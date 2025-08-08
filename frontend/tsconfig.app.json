@@ -17,6 +17,7 @@
        "@vue-flow/node-resizer"
      ],
     "allowJs": true
+  ,"lib": ["es2015", "dom"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
   "exclude": ["node_modules", "dist", "src/components/icons/solar-arrow-to-top-left-bold.vue", "src/components/icons/solar-command-linear.vue"]

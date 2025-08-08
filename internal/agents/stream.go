@@ -1,9 +1,11 @@
 package agents
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	configpkg "manifold/internal/config"
 
@@ -47,9 +49,24 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.String(http.StatusInternalServerError, "failed to acquire database connection")
 		}
 		defer poolConn.Release()
-		engine, err := NewEngine(ctx, cfg, poolConn.Conn())
+
+		// Create a timeout context for engine initialization to prevent hanging on MCP discovery
+		engineCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		engine, err := NewEngine(engineCtx, cfg, poolConn.Conn())
 		if err != nil {
 			return c.String(http.StatusInternalServerError, err.Error())
+		}
+
+		// Apply per-request overrides if provided (endpoint/api_key from UI)
+		if s := strings.TrimSpace(req.Endpoint); s != "" {
+			engine.overrideEndpoint = s
+		}
+		if s := strings.TrimSpace(req.ApiKey); s != "" {
+			engine.overrideApiKey = s
+		}
+		if s := strings.TrimSpace(req.ReasoningEffort); s != "" {
+			engine.overrideReasoningEffort = strings.ToLower(s)
 		}
 
 		// helper to write one SSE data frame
@@ -73,6 +90,16 @@ func RunReActAgentStreamHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			flusher.Flush()
 		})
 		if err != nil {
+			// Log detailed error for debugging upstream completions issues
+			// Note: error should already contain upstream body if available
+			// Also include model/endpoint overrides if provided
+			ep := req.Endpoint
+			if ep == "" {
+				ep = cfg.Completions.DefaultHost
+			}
+			// Do not log API key
+			// Emit server-side log for debugging
+			fmt.Printf("[react/stream] error: %v (model=%s endpoint=%s)\n", err, req.Model, ep)
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
 

@@ -107,7 +107,7 @@ export function useCompletionsApi() {
   async function callCompletionsAPI(agentConfig, prompt, onUpdate, abortSignal) {
     const { 
       provider, endpoint, api_key, model, system_prompt, 
-      max_completion_tokens, temperature, enableToolCalls 
+      max_completion_tokens, temperature, reasoning_effort
     } = agentConfig;
     
     // Set up auth header
@@ -116,141 +116,24 @@ export function useCompletionsApi() {
       'Authorization': `Bearer ${api_key}`
     };
 
-    // If tool calls are disabled, make a straightforward streaming request
-    if (!enableToolCalls) {
-      const body = formatRequestBody(
-        { provider, model, enableToolCalls },
-        system_prompt,
-        prompt,
-        { temperature, max_tokens: max_completion_tokens }
-      );
-      
-      const streamResponse = await fetch(endpoint, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: abortSignal || AbortSignal.timeout(300000) // 5 minute timeout
-      });
-      
-      let fullResponse = '';
-      
-      await handleStreamingResponse(
-        streamResponse,
-        (parsedData) => {
-          // Handle different response formats
-          let tokenContent = '';
-          
-          if (parsedData.choices && parsedData.choices[0]) {
-            const choice = parsedData.choices[0];
-            if (choice.delta) {
-              // OpenAI-style streaming format
-              const delta = choice.delta;
-              tokenContent = (delta.content || "") + (delta.thinking || "");
-            } else if (choice.text) {
-              // Some LLM servers use 'text' field instead of 'delta.content'
-              tokenContent = choice.text;
-            } else if (typeof choice === 'string') {
-              // Simple string format
-              tokenContent = choice;
-            }
-          } else if (parsedData.content) {
-            // Some LLM servers provide direct content field
-            tokenContent = parsedData.content;
-          } else if (typeof parsedData === 'string') {
-            // Plain string format
-            tokenContent = parsedData;
-          }
-          
-          // Only update if we have content
-          if (tokenContent) {
-            console.log("Token content:", tokenContent);
-            fullResponse += tokenContent;
-            if (onUpdate) onUpdate(tokenContent);
-          }
-        }
-      );
-      
-      return { response: fullResponse };
-    }
-    
-    // If tool calls are enabled, use the two-step workflow
-    
-    // Step 1: Make initial completion to potentially trigger a tool call
-    const functionsConfig = getFunctionsConfig();
-    
-    const initialBody = formatRequestBody(
-      { provider, model, enableToolCalls: true },
+    const body = formatRequestBody(
+      { provider, model },
       system_prompt,
       prompt,
-      { 
-        temperature, 
-        max_tokens: max_completion_tokens,
-        cache_prompt: true,
-        functions: provider === 'openai' ? functionsConfig.openai : functionsConfig.local,
-        function_call: provider === 'openai' ? "auto" : { name: "agentic_retrieve" }
-      }
-    );
-    
-    const responseData = await fetch(endpoint, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(initialBody),
-      signal: abortSignal
-    });
-    
-    const result = await responseData.json();
-    const message = result.choices?.[0]?.message;
-    
-    // Check if a tool/function call was triggered
-    let enhancedPrompt = prompt;
-    
-    const functionCallData = message?.function_call || 
-                             (message?.tool_calls?.[0]?.function || {});
-    
-    const functionName = functionCallData?.name;
-    
-    if (functionName === "combined_retrieve") {
-      const retrieveResult = await callCombinedRetrieveAPI(prompt, provider);
-      const documents = retrieveResult.documents || {};
-      let documentsString = '';
-      
-      if (typeof documents === 'object' && documents !== null) {
-        documentsString = Object.entries(documents)
-          .map(([key, value]) => `${key}:\n\n${String(value)}`)
-          .join("\n\n");
-      } else {
-        documentsString = 'No valid documents found';
-      }
-      
-      enhancedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-    }
-    
-    if (functionName === "agentic_retrieve") {
-      try {
-        const retrieveResult = await callAgenticMemoryAPI(prompt);
-        if (retrieveResult?.results) {
-          const documents = retrieveResult.results;
-          const documentsString = buildReferenceString(documents);
-          enhancedPrompt = `${prompt}\n\nREFERENCE:\n\n${documentsString}`;
-        }
-      } catch (error) {
-        console.warn("Error retrieving from agentic memory, continuing without retrieval");
-      }
-    }
-    
-    // Step 2: Make the final streaming request with the enhanced prompt
-    const finalBody = formatRequestBody(
-      { provider, model, enableToolCalls: false },
-      "Use the provided documents to respond to the user's query. Be thorough and accurate and respond in a structured manner.",
-      enhancedPrompt,
       { temperature, max_tokens: max_completion_tokens }
     );
+
+    if (typeof model === 'string' && model.toLowerCase().startsWith('gpt-5')) {
+      body.response_format = { type: 'text' };
+      body.reasoning_effort = reasoning_effort || 'low';
+      body.verbosity = 'medium';
+    }
     
     const streamResponse = await fetch(endpoint, {
       method: "POST",
       headers,
-      body: JSON.stringify(finalBody),
-      signal: abortSignal
+      body: JSON.stringify(body),
+      signal: abortSignal || AbortSignal.timeout(300000) // 5 minute timeout
     });
     
     let fullResponse = '';
@@ -284,7 +167,7 @@ export function useCompletionsApi() {
         
         // Only update if we have content
         if (tokenContent) {
-          console.log("Token content (enhanced prompt):", tokenContent);
+          console.log("Token content:", tokenContent);
           fullResponse += tokenContent;
           if (onUpdate) onUpdate(tokenContent);
         }
@@ -292,146 +175,6 @@ export function useCompletionsApi() {
     );
     
     return { response: fullResponse };
-  }
-
-  /**
-   * Get function definitions for tool calling
-   * @returns {Object} Function definitions for various providers
-   */
-  function getFunctionsConfig() {
-    const combinedRetrieveFunction = {
-      name: "combined_retrieve",
-      description: "Retrieves documents using a combined search that uses both an inverted index and vector search.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "The prompt or query to retrieve relevant documents."
-          },
-          file_path_filter: {
-            type: "string",
-            description: "An optional filter on file path. Leave empty to search all files.",
-            default: ""
-          },
-          limit: {
-            type: "number",
-            description: "The number of documents or chunks to retrieve.",
-            default: 3
-          },
-          use_inverted_index: {
-            type: "boolean",
-            description: "Whether to use the inverted index.",
-            default: true
-          },
-          use_vector_search: {
-            type: "boolean",
-            description: "Whether to use vector search.",
-            default: true
-          },
-          merge_mode: {
-            type: "string",
-            description: "The merge mode to combine results. For example, 'weighted'.",
-            default: "weighted"
-          },
-          return_full_docs: {
-            type: "boolean",
-            description: "Return full documents rather than text chunks.",
-            default: true
-          },
-          rerank: {
-            type: "boolean",
-            description: "Whether to rerank the results.",
-            default: true
-          },
-          alpha: {
-            type: "number",
-            description: "The vector weight (alpha) when merge_mode is weighted.",
-            default: 0.5
-          },
-          beta: {
-            type: "number",
-            description: "The keyword weight (beta) when merge_mode is weighted.",
-            default: 0.9
-          }
-        },
-        required: ["query", "limit", "merge_mode"]
-      }
-    };
-
-    const agenticRetrieveFunction = {
-      name: "agentic_retrieve",
-      description: "Gets memories from previous discussions to help remember things.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "The prompt or query to retrieve relevant memories."
-          },
-          limit: {
-            type: "number",
-            description: "The number of memories to retrieve.",
-            default: 3
-          }
-        },
-        required: ["query"]
-      }
-    };
-
-    const mcpServerFunctions = {
-      "tools": [
-        {
-          "description": "Performs basic mathematical operations",
-          "inputSchema": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "a": { "description": "First number", "type": "number" },
-              "b": { "description": "Second number", "type": "number" },
-              "operation": {
-                "description": "The mathematical operation to perform",
-                "enum": ["add", "subtract", "multiply", "divide"],
-                "type": "string"
-              }
-            },
-            "required": ["operation", "a", "b"],
-            "type": "object"
-          },
-          "name": "calculate"
-        },
-        {
-          "description": "Says hello to the provided name",
-          "inputSchema": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "name": { "description": "The name to say hello to", "type": "string" }
-            },
-            "required": ["name"],
-            "type": "object"
-          },
-          "name": "hello"
-        },
-        {
-          "description": "Returns the current time",
-          "inputSchema": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "format": {
-                "description": "Optional time format (default: RFC3339)",
-                "type": "string"
-              }
-            },
-            "type": "object"
-          },
-          "name": "time"
-        }
-      ]
-    };
-
-    return {
-      openai: [mcpServerFunctions],
-      local: [combinedRetrieveFunction, agenticRetrieveFunction]
-    };
   }
 
   return {

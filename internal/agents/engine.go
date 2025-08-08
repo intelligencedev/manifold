@@ -27,9 +27,12 @@ import (
 )
 
 type ReActRequest struct {
-	Objective string `json:"objective"`
-	MaxSteps  int    `json:"max_steps,omitempty"`
-	Model     string `json:"model,omitempty"`
+	Objective       string `json:"objective"`
+	MaxSteps        int    `json:"max_steps,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	ApiKey          string `json:"api_key,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type ReActResponse struct {
@@ -78,6 +81,11 @@ type AgentEngine struct {
 	isolatedToServer  string
 	recursionDepth    int
 	skipAddToolAgents bool
+
+	// Per-request overrides for endpoint and API key (used by React agent streaming)
+	overrideEndpoint        string
+	overrideApiKey          string
+	overrideReasoningEffort string
 }
 
 var (
@@ -183,9 +191,24 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			return c.JSON(500, map[string]string{"error": "failed to acquire database connection"})
 		}
 		defer poolConn.Release()
-		engine, err := NewEngine(ctx, cfg, poolConn.Conn())
+
+		// Create a timeout context for engine initialization to prevent hanging on MCP discovery
+		engineCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		engine, err := NewEngine(engineCtx, cfg, poolConn.Conn())
 		if err != nil {
 			return c.JSON(500, map[string]string{"error": err.Error()})
+		}
+
+		// Apply per-request overrides if provided
+		if strings.TrimSpace(req.Endpoint) != "" {
+			engine.overrideEndpoint = strings.TrimSpace(req.Endpoint)
+		}
+		if strings.TrimSpace(req.ApiKey) != "" {
+			engine.overrideApiKey = strings.TrimSpace(req.ApiKey)
+		}
+		if strings.TrimSpace(req.ReasoningEffort) != "" {
+			engine.overrideReasoningEffort = strings.ToLower(strings.TrimSpace(req.ReasoningEffort))
 		}
 
 		session, err := engine.RunSessionWithHook(ctx, cfg, req, func(st AgentStep) {
@@ -193,6 +216,12 @@ func RunReActAgentHandler(cfg *configpkg.Config) echo.HandlerFunc {
 			log.Printf("Step %d: %s | Action: %s | Input: %s", st.Index, st.Thought, st.Action, st.ActionInput)
 		})
 		if err != nil {
+			// Log detailed error with endpoint/model context for debugging
+			ep := req.Endpoint
+			if strings.TrimSpace(ep) == "" {
+				ep = cfg.Completions.DefaultHost
+			}
+			log.Printf("[react] error: %v (model=%s endpoint=%s)", err, req.Model, ep)
 			return c.String(http.StatusInternalServerError, err.Error())
 		}
 		return c.JSON(200, ReActResponse{
@@ -921,8 +950,19 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 
 	log.Printf("Calling LLM %s (%s) with %d tokens", assistant.Name, assistant.Model, promptTokens)
 
-	// Check if this is an MLX backend and handle parameters accordingly
+	// Determine endpoint/apiKey with per-request overrides
 	endpoint := assistant.Endpoint
+	if strings.TrimSpace(ae.overrideEndpoint) != "" {
+		endpoint = strings.TrimSpace(ae.overrideEndpoint)
+	}
+	apiKey := ae.Config.Completions.APIKey
+	if strings.TrimSpace(ae.overrideApiKey) != "" {
+		apiKey = strings.TrimSpace(ae.overrideApiKey)
+	}
+
+	log.Printf("LLM endpoint: %s", endpoint)
+
+	// Check if this is an MLX backend and handle parameters accordingly
 	isMLX := strings.Contains(strings.ToLower(endpoint), "mlx") ||
 		ae.Config.Completions.Backend == "mlx" ||
 		strings.Contains(strings.ToLower(model), "mlx")
@@ -931,11 +971,17 @@ func (ae *AgentEngine) callLLM(ctx context.Context, assistantName string, model 
 	var err error
 	if isMLX {
 		// For MLX backends, use the MLX-specific parameter formatting
-		response, err = llm.CallMLX(ctx, endpoint, ae.Config.Completions.APIKey, msgs, maxTokens, ae.Config.Completions.Temperature)
+		response, err = llm.CallMLX(ctx, endpoint, apiKey, msgs, maxTokens, ae.Config.Completions.Temperature)
 	} else {
-		response, err = llm.CallLLM(ctx, assistant.Endpoint, ae.Config.Completions.APIKey, model, msgs, maxTokens, ae.Config.Completions.Temperature)
+		// If a reasoning effort override is set, attach to context
+		ctxLLM := ctx
+		if strings.TrimSpace(ae.overrideReasoningEffort) != "" {
+			ctxLLM = llm.WithReasoningEffort(ctxLLM, ae.overrideReasoningEffort)
+		}
+		response, err = llm.CallLLM(ctxLLM, endpoint, apiKey, model, msgs, maxTokens, ae.Config.Completions.Temperature)
 	}
 	if err != nil {
+		log.Printf("LLM call failed (model=%s endpoint=%s): %v", model, endpoint, err)
 		return "", err
 	}
 

@@ -6,7 +6,7 @@
       <div class="bg-zinc-900 border-r border-zinc-700 w-80 min-w-[18rem] p-4 overflow-y-auto sidebar-scroll">
         <div class="space-y-6">
           <BaseDropdown label="Provider" v-model="provider" :options="providerOptions" />
-          <BaseInput label="Endpoint" :modelValue="endpoint" readonly @blur="fetchLocalServerModel" />
+          <BaseInput label="Endpoint" v-model="endpoint" @blur="fetchLocalServerModel" />
           <BaseInput label="API Key" v-model="api_key" :type="showApiKey ? 'text' : 'password'">
             <template #suffix>
               <BaseTogglePassword v-model="showApiKey" />
@@ -16,6 +16,11 @@
             <BaseInput label="Model" v-model="model" :disabled="isLoadingModel" />
             <span v-if="isLoadingModel" class="absolute right-10 top-1/2 transform -translate-y-1/2 text-xs text-blue-400">Loading...</span>
           </div>
+          <BaseDropdown
+            label="Reasoning Effort"
+            v-model="reasoning_effort"
+            :options="reasoningEffortOptions"
+          />
           <div class="grid grid-cols-2 gap-2 space-y-6">
             <BaseInput label="Max Tokens" type="number" v-model.number="max_completion_tokens" min="1" />
             <BaseInput label="Temperature" type="number" v-model.number="temperature" step="0.1" min="0" max="2" />
@@ -177,7 +182,10 @@ const provider = computed({
   set: (value) => chatStore.provider = value
 })
 
-const endpoint = computed(() => chatStore.endpoint)
+const endpoint = computed({
+  get: () => chatStore.endpoint,
+  set: (value) => chatStore.setEndpointManually(value)
+})
 
 const api_key = computed({
   get: () => chatStore.api_key,
@@ -209,6 +217,17 @@ watch(
 const model = computed({
   get: () => chatStore.model,
   set: (value) => chatStore.model = value
+})
+
+const reasoningEffortOptions = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' }
+]
+
+const reasoning_effort = computed({
+  get: () => chatStore.reasoning_effort,
+  set: (value) => chatStore.reasoning_effort = value
 })
 
 const max_completion_tokens = computed({
@@ -438,7 +457,15 @@ async function sendMessage() {
 
   if (provider.value === 'react-agent') {
     try {
-      const resp = await fetch(getApiEndpoint(configStore.config, API_PATHS.AGENTS_REACT_STREAM), {
+      // Always call the local manifold backend for the agent stream
+      const agentsEndpoint = getApiEndpoint(configStore.config, API_PATHS.AGENTS_REACT_STREAM)
+      // Build the completions endpoint we will pass to the backend (used by the agent to call the LLM)
+      let completionsEndpoint = endpoint.value || ''
+      if (!completionsEndpoint && configStore.config?.Completions?.DefaultHost) {
+        completionsEndpoint = configStore.config.Completions.DefaultHost
+      }
+
+      const resp = await fetch(agentsEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -447,7 +474,10 @@ async function sendMessage() {
         body: JSON.stringify({
           objective: prompt,
           max_steps: agentMaxSteps.value,
-          model: ''
+          model: model.value || '',
+          endpoint: completionsEndpoint,
+          api_key: (configStore.config?.Completions?.APIKey || api_key.value || ''),
+          ...(reasoning_effort.value ? { reasoning_effort: reasoning_effort.value } : {})
         }),
         signal: chatStore.signal
       })
@@ -510,6 +540,7 @@ async function sendMessage() {
     system_prompt: system_prompt.value,
     max_completion_tokens: max_completion_tokens.value,
     temperature: temperature.value,
+    reasoning_effort: reasoning_effort.value,
   }
   if (["openai", "llama-server", "mlx_lm.server"].includes(provider.value)) {
     if (presence_penalty.value !== undefined && presence_penalty.value !== null && presence_penalty.value !== '') config.presence_penalty = presence_penalty.value

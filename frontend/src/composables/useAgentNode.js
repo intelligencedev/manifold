@@ -343,7 +343,7 @@ export function useAgentNode(props, emit) {
         // If current endpoint is empty or OpenAI/Anthropic, set to default local
         props.data.inputs.endpoint =
           configStore.config?.Completions?.DefaultHost ||
-          "http://localhost:32186/v1/chat/completions";
+          "http://localhost:32182/v1/chat/completions";
       }
       // Otherwise, keep user's custom endpoint
     },

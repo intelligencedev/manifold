@@ -74,8 +74,8 @@ export function formatRequestBody(config, systemPrompt, userPrompt, options = {}
     stream: true
   };
   
-  // Only add the model parameter for OpenAI provider
-  if (provider === 'openai') {
+  // Always include the model parameter if provided
+  if (model) {
     requestBody.model = model;
   }
   

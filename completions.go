@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -39,7 +40,7 @@ func completionsHandler(c echo.Context, config *Config) error {
 	}
 
 	// Create a new request to the default completions endpoint in the config
-	openAIURL := config.Completions.DefaultHost
+	openAIURL := fmt.Sprintf("%s/chat/completions", config.Completions.DefaultHost)
 	req, err := http.NewRequest("POST", openAIURL, bytes.NewBuffer(bodyBytes))
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, ErrorResponse{
@@ -133,6 +134,7 @@ func completionsHandler(c echo.Context, config *Config) error {
 		// If OpenAI returned an error, pass it along
 		if resp.StatusCode != http.StatusOK {
 			bodyBytes, _ := io.ReadAll(resp.Body)
+			log.Printf("[completions proxy] Non-OK response from %s: %d %s\nResponse body: %s", openAIURL, resp.StatusCode, resp.Status, string(bodyBytes))
 			c.Response().WriteHeader(resp.StatusCode)
 			c.Response().Write(bodyBytes)
 			return nil
@@ -196,6 +198,11 @@ func completionsHandler(c echo.Context, config *Config) error {
 		// Set response status code and headers
 		c.Response().WriteHeader(resp.StatusCode)
 		c.Response().Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+
+		// Log non-OK responses for debugging
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("[completions proxy] Non-OK response from %s: %d %s\nResponse body: %s", openAIURL, resp.StatusCode, resp.Status, string(respBody))
+		}
 
 		// Write the response body
 		c.Response().Write(respBody)

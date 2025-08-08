@@ -9,11 +9,36 @@ import (
 	"net/http"
 	"strings"
 
+	"log"
+
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 	"github.com/openai/openai-go/shared"
 )
+
+// Context key helpers for passing optional reasoning settings
+type ctxKey string
+
+const ctxKeyReasoningEffort ctxKey = "reasoning_effort"
+
+// WithReasoningEffort adds a reasoning effort hint to the context
+func WithReasoningEffort(ctx context.Context, effort string) context.Context {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ctxKeyReasoningEffort, effort)
+}
+
+func getReasoningEffort(ctx context.Context) string {
+	if v := ctx.Value(ctxKeyReasoningEffort); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return "low"
+}
 
 // ChatCompletionMessage represents a message compatible with the old API
 type ChatCompletionMessage struct {
@@ -37,8 +62,18 @@ func isThinkingModel(model string) bool {
 	return false
 }
 
+// isGPT5Model returns true if the model starts with "gpt-5"
+func isGPT5Model(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(model, "gpt-5") || strings.HasPrefix(model, "gpt-oss")
+}
+
 // CallLLM sends a chat completion request using the OpenAI Go SDK.
 func CallLLM(ctx context.Context, endpoint, apiKey, model string, msgs []ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
+	// Special-case: some newer models require extra params not yet supported by the SDK
+	if isGPT5Model(model) {
+		return callOpenAIWithHTTP(ctx, endpoint, apiKey, model, msgs, maxTokens, temperature)
+	}
 	// Initialize client with API key and optional base URL
 	opts := []option.RequestOption{option.WithAPIKey(apiKey)}
 	if endpoint != "" {
@@ -137,10 +172,7 @@ func callMLXWithHTTP(ctx context.Context, endpoint, apiKey string, msgs []ChatCo
 	// Convert ChatCompletionMessage to MLX format
 	mlxMessages := make([]mlxMessage, len(msgs))
 	for i, m := range msgs {
-		mlxMessages[i] = mlxMessage{
-			Role:    m.Role,
-			Content: m.Content,
-		}
+		mlxMessages[i] = mlxMessage(m)
 	}
 
 	// Create MLX request
@@ -219,4 +251,105 @@ func callMLXWithHTTP(ctx context.Context, endpoint, apiKey string, msgs []ChatCo
 	}
 
 	return mlxResp.Choices[0].Message.Content, nil
+}
+
+// callOpenAIWithHTTP makes a raw HTTP request to the OpenAI-compatible chat completions endpoint.
+// This allows us to send fields like response_format (object), reasoning_effort, verbosity, etc.
+func callOpenAIWithHTTP(ctx context.Context, endpoint, apiKey, model string, msgs []ChatCompletionMessage, maxTokens int, temperature float64) (string, error) {
+	// Convert messages
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	outMsgs := make([]message, len(msgs))
+	for i, m := range msgs {
+		outMsgs[i] = message(m)
+	}
+
+	// Build base body; prefer max_completion_tokens for broader compatibility
+	body := map[string]interface{}{
+		"model":       model,
+		"messages":    outMsgs,
+		"temperature": temperature,
+	}
+	body["max_completion_tokens"] = maxTokens
+
+	// Add required params for GPT-5 family
+	if isGPT5Model(model) {
+		body["response_format"] = map[string]interface{}{"type": "text"}
+		body["reasoning_effort"] = getReasoningEffort(ctx)
+		body["verbosity"] = "medium"
+	}
+
+	b, err := json.Marshal(body)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	// Construct endpoint path: ensure /chat/completions
+	url := endpoint
+	// if !strings.HasSuffix(url, "/chat/completions") && !strings.HasSuffix(url, "/v1/chat/completions") {
+	// 	if strings.HasSuffix(url, "/v1") {
+	// 		url = url + "/chat/completions"
+	// 	} else if strings.Contains(url, "/v1/") {
+	// 		// already includes API version and maybe path
+	// 	} else {
+	// 		if strings.HasSuffix(url, "/") {
+	// 			url = url + "v1/chat/completions"
+	// 		} else {
+	// 			url = url + "/v1/chat/completions"
+	// 		}
+	// 	}
+	// }
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(b))
+	if err != nil {
+		return "", fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("[openai_client] HTTP request error to %s: %v", url, err)
+		return "", fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[openai_client] Non-OK response from %s: %d %s\nResponse body: %s", url, resp.StatusCode, resp.Status, string(bodyBytes))
+		return "", fmt.Errorf("OpenAI API error: code: %d, status: %s, body: %s", resp.StatusCode, resp.Status, string(bodyBytes))
+	}
+
+	// Parse response
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+			Text string `json:"text"`
+		} `json:"choices"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(bodyBytes, &parsed); err != nil {
+		return "", fmt.Errorf("parse response: %w", err)
+	}
+	if len(parsed.Choices) > 0 {
+		if c := parsed.Choices[0]; c.Message.Content != "" {
+			return c.Message.Content, nil
+		} else if c.Text != "" {
+			return c.Text, nil
+		}
+	}
+	if parsed.Content != "" {
+		return parsed.Content, nil
+	}
+	return "", fmt.Errorf("no choices returned")
 }

@@ -184,7 +184,7 @@ func registerMCPEndpoints(api *echo.Group, config *Config) {
 	})
 
 	// Admin endpoint to refresh MCP tools cache
-	// mcpGroup.POST("/admin/refresh-cache", agentspkg.AdminRefreshCacheHandler(config))
+	mcpGroup.POST("/admin/refresh-cache", agentspkg.AdminRefreshCacheHandler(config))
 }
 
 // registerCompletionsEndpoints registers routes for completions-related functionality.

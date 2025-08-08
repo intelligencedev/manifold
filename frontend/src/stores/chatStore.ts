@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useConfigStore } from './configStore'
 
 export interface ChatMessage {
@@ -21,6 +21,7 @@ export const useChatStore = defineStore('chat', () => {
   const model = ref('local')
   const max_completion_tokens = ref(8192)
   const temperature = ref(0.6)
+  const reasoning_effort = ref<'low' | 'medium' | 'high'>('low')
   const enableToolCalls = ref(false)
   const selectedSystemPrompt = ref('friendly_assistant')
   const system_prompt = ref('')
@@ -29,40 +30,48 @@ export const useChatStore = defineStore('chat', () => {
   const top_k = ref()
   const min_p = ref()
   
-  // Computed endpoint that builds URL from config based on provider
-  const endpoint = computed(() => {
+  // Endpoint is now a writable ref, initialized from config but user-editable
+  const endpoint = ref('')
+
+  // Helper to compute default endpoint from config and provider
+  function computeDefaultEndpoint() {
     let baseUrl = ''
-    
-    // First priority: use completions.default_host if available
     if (configStore.config?.Completions?.DefaultHost) {
       baseUrl = configStore.config.Completions.DefaultHost
-    }
-    // Second priority: construct from host and port if config is available  
-    else if (configStore.config?.Host && configStore.config?.Port) {
+    } else if (configStore.config?.Host && configStore.config?.Port) {
       const protocol = configStore.config.Host === 'localhost' ? 'http' : 'https'
-      baseUrl = `${protocol}://${configStore.config.Host}:${configStore.config.Port}/api/v1`
-    }
-    // Fallback to hardcoded base URL
-    else {
+      baseUrl = `${protocol}://${configStore.config.Host}:${configStore.config.Port}`
+    } else {
       baseUrl = 'http://localhost:8080/api/v1'
     }
-    
-    // For providers that need /chat/completions appended
-    if (provider.value === 'llama-server' || provider.value === 'mlx' || provider.value === 'react-agent') {
-      // Check if baseUrl already ends with /chat/completions
-      if (!baseUrl.endsWith('/chat/completions')) {
-        return `${baseUrl}/chat/completions`
-      }
-    }
-    // For OpenAI and other providers, use the base URL as-is (or with /chat/completions if needed)
-    else if (provider.value === 'openai') {
-      if (!baseUrl.endsWith('/chat/completions')) {
-        return `${baseUrl}/chat/completions`
-      }
-    }
-    
     return baseUrl
-  })
+  }
+
+  // Watch config and provider changes to update endpoint only if not manually overridden
+  let endpointManuallySet = false
+  function setEndpointManually(val: string) {
+    endpoint.value = val
+    endpointManuallySet = true
+  }
+
+  // Initialize endpoint on store creation
+  endpoint.value = computeDefaultEndpoint()
+
+  watch(
+    [() => configStore.config, provider],
+    () => {
+      if (!endpointManuallySet) {
+        endpoint.value = computeDefaultEndpoint()
+      }
+    },
+    { immediate: true, deep: true }
+  )
+
+  // Optionally, expose a method to reset endpoint to default
+  function resetEndpointToDefault() {
+    endpoint.value = computeDefaultEndpoint()
+    endpointManuallySet = false
+  }
   
   // UI preferences
   const renderMode = ref('markdown')
@@ -120,11 +129,14 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages, 
     provider,
-    endpoint,
+  endpoint,
+  setEndpointManually,
+  resetEndpointToDefault,
     api_key,
     model,
     max_completion_tokens,
     temperature,
+    reasoning_effort,
     enableToolCalls,
     selectedSystemPrompt,
     system_prompt,

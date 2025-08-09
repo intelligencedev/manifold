@@ -37,6 +37,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
+
+	"go.opentelemetry.io/contrib/instrumentation/host"
 )
 
 // ---------- configuration ----------
@@ -176,6 +178,12 @@ func initOTel(ctx context.Context, obs ObsConfig) (func(context.Context) error, 
 	otel.SetTracerProvider(tp)
 	otel.SetMeterProvider(mp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	// Start host metrics instrumentation
+	err = host.Start(host.WithMeterProvider(mp))
+	if err != nil {
+		return nil, fmt.Errorf("failed to start host metrics: %w", err)
+	}
 
 	// Compose shutdown that flushes metrics and traces.
 	return func(ctx context.Context) error {
@@ -550,6 +558,15 @@ func parseInt(s string) (int, error) {
 
 func main() {
 	initLogger()
+
+	fmt.Println(`
+	███████╗██╗███╗   ██╗ ██████╗ ██╗   ██╗██╗      █████╗ ██████╗ ██╗████████╗██╗   ██╗          ██╗ ██████╗
+	██╔════╝██║████╗  ██║██╔════╝ ██║   ██║██║     ██╔══██╗██╔══██╗██║╚══██╔══╝╚██╗ ██╔╝          ██║██╔═══██╗
+	███████╗██║██╔██╗ ██║██║  ███╗██║   ██║██║     ███████║██████╔╝██║   ██║    ╚████╔╝  ██████╗  ██║██║   ██║
+	╚════██║██║██║╚██╗██║██║   ██║██║   ██║██║     ██╔══██║██╔══██╗██║   ██║     ╚██╔╝   ╚═════╝  ██║██║   ██║
+	███████║██║██║ ╚████║╚██████╔╝╚██████╔╝███████╗██║  ██║██║  ██║██║   ██║      ██║             ██║╚██████╔╝
+	╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝╚═╝   ╚═╝      ╚═╝             ╚═╝ ╚═════╝
+	`)
 
 	query := flag.String("q", "", "User request for the agent (required)")
 	maxSteps := flag.Int("max-steps", 8, "Max reasoning/act iterations")

@@ -1,4 +1,4 @@
-# GPTAgent
+# SingularityIO
 
 A proof-of-concept single-binary CLI agent that executes commands in a secure, tool-calling manner using OpenAI’s official Go SDK. Inspired by WARPP-style executor-ready agents.
 
@@ -12,7 +12,9 @@ A proof-of-concept single-binary CLI agent that executes commands in a secure, t
 - Truncates large outputs to avoid excessive token usage.
 - Never invokes a shell—no pipelines or redirects supported.
 
-## .env Example
+## Example Configuration
+
+Environment variables can be set directly in the CLI or defined in a `.env` file. If duplicate environment variables are set, the OS environment takes precedence.
 
 ```
 OPENAI_API_KEY=sk-...

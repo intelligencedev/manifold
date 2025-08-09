@@ -1,0 +1,55 @@
+# Golang best practices for .gitignore
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Output of the go coverage tool
+*.coverprofile
+
+# Dependency directories (remove the comment below if you use Go modules)
+vendor/
+
+# Go workspace file
+*.code-workspace
+
+# IDE/editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Build directories
+bin/
+build/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Go module files (if you want to ignore them, but usually you keep these)
+# go.mod
+# go.sum
+
+# Test cache
+*.testcache
+
+# Coverage reports
+coverage.out
+
+# Misc
+*.tmp
+*.bak
+
+# Ignore by default all hidden files except .gitignore
+.*
+!.gitignore
+
+# Ignore specific files or folders
+examples

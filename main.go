@@ -26,7 +26,6 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
@@ -128,13 +127,10 @@ func loadConfig() (*Config, error) {
 // ---------- logging & observability setup ----------
 
 func initLogger() {
-	// JSON logging, include caller and timestamps; align with structured logging best practices.
-	logrus.SetFormatter(&logrus.JSONFormatter{
-		TimestampFormat: time.RFC3339Nano,
-	})
-	logrus.SetOutput(os.Stdout)
-	logrus.SetLevel(logrus.InfoLevel)
-	logrus.SetReportCaller(false)
+	// JSON logging, include timestamps; align with structured logging best practices.
+	zerolog.TimeFieldFormat = time.RFC3339Nano
+	log.Logger = log.Output(os.Stdout).With().Timestamp().Logger()
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 }
 
 // initOTel configures Resource, TracerProvider, MeterProvider, propagators, and HTTP client transport.
@@ -501,10 +497,10 @@ func runAgent(ctx context.Context, client openai.Client, cfg *Config, userQuery 
 						continue
 					}
 
-					logrus.WithFields(logrus.Fields{"cmd": args.Command, "args": args.Args, "timeout_seconds": args.TimeoutSeconds}).Info("run_cli")
+					log.Info().Str("cmd", args.Command).Interface("args", args.Args).Int("timeout_seconds", args.TimeoutSeconds).Msg("run_cli")
 					res, err := runCLI(ctx, cfg, args)
 					if err != nil {
-						logrus.WithError(err).Error("run_cli failed")
+						log.Error().Err(err).Msg("run_cli failed")
 					}
 
 					payload, _ := json.MarshalIndent(res, "", "  ")
@@ -582,7 +578,7 @@ func main() {
 
 	cfg, err := loadConfig()
 	if err != nil {
-		logrus.WithError(err).Fatal("config error")
+		log.Fatal().Err(err).Msg("config error")
 	}
 
 	// Prepare observability (read from env)
@@ -597,14 +593,14 @@ func main() {
 
 	shutdownOTel, err := initOTel(ctx, obs)
 	if err != nil {
-		logrus.WithError(err).Warn("failed to initialize OpenTelemetry (continuing without exporters)")
+		log.Warn().Err(err).Msg("failed to initialize OpenTelemetry (continuing without exporters)")
 	} else {
 		defer func() {
 			// Try to flush on exit
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := shutdownOTel(timeoutCtx); err != nil {
-				logrus.WithError(err).Warn("error during OpenTelemetry shutdown")
+				log.Warn().Err(err).Msg("error during OpenTelemetry shutdown")
 			}
 		}()
 	}
@@ -614,19 +610,19 @@ func main() {
 		// log.SetOutput(os.Stderr)
 		// log.SetFlags(0)
 	} else {
-		logrus.WithFields(logrus.Fields{"model": cfg.Model, "workdir": cfg.Workdir}).Info("startup")
+		log.Info().Str("model", cfg.Model).Str("workdir", cfg.Workdir).Msg("startup")
 		if len(cfg.BlockBinaries) > 0 {
 			var keys []string
 			for k := range cfg.BlockBinaries {
 				keys = append(keys, k)
 			}
-			logrus.WithField("block_binaries", keys).Info("startup")
+			log.Info().Interface("block_binaries", keys).Msg("startup")
 		} else {
-			logrus.WithField("block_binaries", "NONE (all bare binaries allowed; still no absolute paths)").Info("startup")
+			log.Info().Str("block_binaries", "NONE (all bare binaries allowed; still no absolute paths)").Msg("startup")
 		}
-		logrus.WithFields(logrus.Fields{"max_command_seconds": cfg.MaxCommandSeconds, "output_truncate_bytes": cfg.OutputTruncateByte}).Info("startup")
+		log.Info().Int("max_command_seconds", cfg.MaxCommandSeconds).Int("output_truncate_bytes", cfg.OutputTruncateByte).Msg("startup")
 		if obs.OTLPEndpoint != "" {
-			logrus.WithField("otlp_endpoint", obs.OTLPEndpoint).Info("observability")
+			log.Info().Str("otlp_endpoint", obs.OTLPEndpoint).Msg("observability")
 		}
 	}
 
@@ -634,10 +630,10 @@ func main() {
 
 	answer, err := runAgent(ctx, client, cfg, *query, *maxSteps)
 	if err != nil {
-		logrus.WithError(err).Fatal("agent error")
+		log.Fatal().Err(err).Msg("agent error")
 	}
 
-	logrus.WithField("answer_preview", answer).Info("agent_answer")
+	log.Info().Str("answer_preview", answer).Msg("agent_answer")
 	fmt.Println("\n=== Agent Answer ===")
 	fmt.Println(answer)
 }

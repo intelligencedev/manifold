@@ -9,7 +9,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,9 +16,27 @@ import (
 	"strings"
 	"time"
 
+	"net/http"
+	"os/signal"
+	"syscall"
+
 	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
+
+	"github.com/sirupsen/logrus"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 )
 
 // ---------- configuration ----------
@@ -33,6 +50,15 @@ type Config struct {
 	OutputTruncateByte int
 }
 
+// ---------- observability config ----------
+
+type ObsConfig struct {
+	ServiceName    string
+	ServiceVersion string
+	Environment    string
+	OTLPEndpoint   string // e.g. http://localhost:4318
+}
+
 func loadConfig() (*Config, error) {
 	// Load .env if present; do not hard-fail if missing (env vars may already be set).
 	_ = godotenv.Load()
@@ -44,6 +70,16 @@ func loadConfig() (*Config, error) {
 		MaxCommandSeconds:  intFromEnv("MAX_COMMAND_SECONDS", 30),
 		OutputTruncateByte: intFromEnv("OUTPUT_TRUNCATE_BYTES", 64*1024),
 	}
+
+	// OpenTelemetry / logging defaults from env (can also be read by the SDK)
+	// These mirror OTEL_* envs to make local flags explicit if desired.
+	obs := ObsConfig{
+		ServiceName:    firstNonEmpty(os.Getenv("OTEL_SERVICE_NAME"), "singularityio"),
+		ServiceVersion: strings.TrimSpace(os.Getenv("SERVICE_VERSION")),
+		Environment:    firstNonEmpty(os.Getenv("ENVIRONMENT"), "dev"),
+		OTLPEndpoint:   strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")), // e.g. http://localhost:4318
+	}
+	_ = obs // will be consumed in main()
 
 	if cfg.APIKey == "" {
 		return nil, errors.New("OPENAI_API_KEY is required (set in .env or environment)")
@@ -85,11 +121,96 @@ func loadConfig() (*Config, error) {
 	return cfg, nil
 }
 
+// ---------- logging & observability setup ----------
+
+func initLogger() {
+	// JSON logging, include caller and timestamps; align with structured logging best practices.
+	logrus.SetFormatter(&logrus.JSONFormatter{
+		TimestampFormat: time.RFC3339Nano,
+	})
+	logrus.SetOutput(os.Stdout)
+	logrus.SetLevel(logrus.InfoLevel)
+	logrus.SetReportCaller(false)
+}
+
+// initOTel configures Resource, TracerProvider, MeterProvider, propagators, and HTTP client transport.
+// It returns a shutdown function to flush providers.
+func initOTel(ctx context.Context, obs ObsConfig) (func(context.Context) error, error) {
+	// Build a Resource with env detection + our attributes.
+	res, err := resource.New(ctx,
+		resource.WithFromEnv(),      // OTEL_RESOURCE_ATTRIBUTES, OTEL_SERVICE_NAME
+		resource.WithTelemetrySDK(), // SDK info
+		resource.WithProcess(),      // PID, command, etc.
+		resource.WithOS(),           // OS info
+		resource.WithAttributes(
+			semconv.ServiceName(obs.ServiceName),
+			semconv.ServiceVersion(obs.ServiceVersion),
+			attribute.String("deployment.environment", obs.Environment),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("init resource: %w", err)
+	}
+
+	// Trace exporter (OTLP/HTTP). Endpoint can be empty and resolved via env.
+	trExp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpoint(obs.OTLPEndpoint), otlptracehttp.WithInsecure())
+	if err != nil {
+		return nil, fmt.Errorf("init trace exporter: %w", err)
+	}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(trExp),
+		sdktrace.WithResource(res),
+	)
+
+	// Metrics exporter (OTLP/HTTP) + periodic reader.
+	mExp, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpoint(obs.OTLPEndpoint), otlpmetrichttp.WithInsecure())
+	if err != nil {
+		return nil, fmt.Errorf("init metrics exporter: %w", err)
+	}
+	reader := metric.NewPeriodicReader(mExp, metric.WithInterval(10*time.Second))
+	mp := metric.NewMeterProvider(
+		metric.WithReader(reader),
+		metric.WithResource(res),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetMeterProvider(mp)
+	otel.SetTextMapPropagator(propagation.TraceContext{})
+
+	// Compose shutdown that flushes metrics and traces.
+	return func(ctx context.Context) error {
+		var firstErr error
+		if err := mp.Shutdown(ctx); err != nil {
+			firstErr = err
+		}
+		if err := tp.Shutdown(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return firstErr
+	}, nil
+}
+
+// helper to create an HTTP client with otelhttp transport for outbound calls (e.g., OpenAI)
+func newObservabilityHTTPClient(base *http.Client) *http.Client {
+	if base == nil {
+		base = &http.Client{Timeout: 60 * time.Second}
+	}
+	rt := base.Transport
+	if rt == nil {
+		rt = http.DefaultTransport
+	}
+	base.Transport = otelhttp.NewTransport(rt)
+	return base
+}
+
 // ---------- openai client ----------
 
 func newOpenAIClient(cfg *Config) openai.Client {
-	// option.WithAPIKey defaults to env lookup but we set explicitly from cfg.
-	return openai.NewClient(option.WithAPIKey(cfg.APIKey))
+	httpClient := newObservabilityHTTPClient(&http.Client{Timeout: 60 * time.Second})
+	return openai.NewClient(
+		option.WithAPIKey(cfg.APIKey),
+		option.WithHTTPClient(httpClient),
+	)
 }
 
 // ---------- CLI tool schema ----------
@@ -211,10 +332,25 @@ func isBinaryBlocked(cmd string, block map[string]struct{}) bool {
 }
 
 func runCLI(ctx context.Context, cfg *Config, a runCLIArgs) (toolResult, error) {
+	tracer := otel.Tracer("singularityio/cli")
+	meter := otel.Meter("singularityio/cli")
+	ctx, span := tracer.Start(ctx, "runCLI")
+	defer span.End()
+
+	// metrics instruments (created once per process would be ideal; kept simple here)
+	cmdCounter, _ := meter.Int64Counter("cli.commands.total")
+	durHist, _ := meter.Int64Histogram("cli.command.duration.ms")
+
 	if a.Command == "" {
+		if a.Command != "" {
+			span.SetAttributes(attribute.String("cli.command", a.Command))
+		}
 		return toolResult{}, errors.New("command is required")
 	}
 	if isBinaryBlocked(a.Command, cfg.BlockBinaries) {
+		if a.Command != "" {
+			span.SetAttributes(attribute.String("cli.command", a.Command))
+		}
 		return toolResult{}, fmt.Errorf("binary is blocked or invalid: %q (adjust BLOCK_BINARIES to permit)", a.Command)
 	}
 	// Sanitize args that look like paths.
@@ -249,7 +385,8 @@ func runCLI(ctx context.Context, cfg *Config, a runCLIArgs) (toolResult, error) 
 	start := time.Now()
 	err := cmd.Run()
 	dur := time.Since(start)
-
+	cmdCounter.Add(ctx, 1, otelmetric.WithAttributes(attribute.String("command", a.Command)))
+	durHist.Record(ctx, dur.Milliseconds(), otelmetric.WithAttributes(attribute.String("command", a.Command)))
 	exit := 0
 	if err != nil {
 		var ee *exec.ExitError
@@ -261,6 +398,11 @@ func runCLI(ctx context.Context, cfg *Config, a runCLIArgs) (toolResult, error) 
 			exit = 1
 		}
 	}
+	span.SetAttributes(
+		attribute.String("cli.command", a.Command),
+		attribute.Int("cli.exit_code", exit),
+		attribute.Int64("cli.duration_ms", dur.Milliseconds()),
+	)
 
 	// Truncate potentially huge outputs to keep token usage sane
 	outS := stdout.String()
@@ -306,6 +448,9 @@ Be cautious with destructive operations. If a command could modify files, consid
 }
 
 func runAgent(ctx context.Context, client openai.Client, cfg *Config, userQuery string, maxSteps int) (string, error) {
+	tracer := otel.Tracer("singularityio/agent")
+	ctx, span := tracer.Start(ctx, "runAgent")
+	defer span.End()
 	params := openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.SystemMessage(systemPrompt(cfg)),
@@ -346,10 +491,10 @@ func runAgent(ctx context.Context, client openai.Client, cfg *Config, userQuery 
 						continue
 					}
 
-					log.Printf("[run_cli] cmd=%q args=%v timeout=%ds", args.Command, args.Args, args.TimeoutSeconds)
+					logrus.WithFields(logrus.Fields{"cmd": args.Command, "args": args.Args, "timeout_seconds": args.TimeoutSeconds}).Info("run_cli")
 					res, err := runCLI(ctx, cfg, args)
 					if err != nil {
-						log.Printf("[run_cli] error: %v", err)
+						logrus.WithError(err).Error("run_cli failed")
 					}
 
 					payload, _ := json.MarshalIndent(res, "", "  ")
@@ -404,6 +549,8 @@ func parseInt(s string) (int, error) {
 // ---------- main / flags ----------
 
 func main() {
+	initLogger()
+
 	query := flag.String("q", "", "User request for the agent (required)")
 	maxSteps := flag.Int("max-steps", 8, "Max reasoning/act iterations")
 	verbose := flag.Bool("v", false, "Verbose logs")
@@ -416,35 +563,62 @@ func main() {
 
 	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatalf("config error: %v", err)
+		logrus.WithError(err).Fatal("config error")
+	}
+
+	// Prepare observability (read from env)
+	obs := ObsConfig{
+		ServiceName:    firstNonEmpty(os.Getenv("OTEL_SERVICE_NAME"), "singularityio"),
+		ServiceVersion: strings.TrimSpace(os.Getenv("SERVICE_VERSION")),
+		Environment:    firstNonEmpty(os.Getenv("ENVIRONMENT"), "dev"),
+		OTLPEndpoint:   strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")),
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	shutdownOTel, err := initOTel(ctx, obs)
+	if err != nil {
+		logrus.WithError(err).Warn("failed to initialize OpenTelemetry (continuing without exporters)")
+	} else {
+		defer func() {
+			// Try to flush on exit
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := shutdownOTel(timeoutCtx); err != nil {
+				logrus.WithError(err).Warn("error during OpenTelemetry shutdown")
+			}
+		}()
 	}
 
 	if !*verbose {
 		// minimal logging
-		log.SetOutput(os.Stderr)
-		log.SetFlags(0)
+		// log.SetOutput(os.Stderr)
+		// log.SetFlags(0)
 	} else {
-		log.Printf("Model=%s WORKDIR=%s", cfg.Model, cfg.Workdir)
+		logrus.WithFields(logrus.Fields{"model": cfg.Model, "workdir": cfg.Workdir}).Info("startup")
 		if len(cfg.BlockBinaries) > 0 {
 			var keys []string
 			for k := range cfg.BlockBinaries {
 				keys = append(keys, k)
 			}
-			log.Printf("BlockBinaries=%v", keys)
+			logrus.WithField("block_binaries", keys).Info("startup")
 		} else {
-			log.Printf("BlockBinaries=NONE (all bare binaries allowed; still no absolute paths)")
+			logrus.WithField("block_binaries", "NONE (all bare binaries allowed; still no absolute paths)").Info("startup")
 		}
-		log.Printf("MaxCommandSeconds=%d OutputTruncateBytes=%d", cfg.MaxCommandSeconds, cfg.OutputTruncateByte)
+		logrus.WithFields(logrus.Fields{"max_command_seconds": cfg.MaxCommandSeconds, "output_truncate_bytes": cfg.OutputTruncateByte}).Info("startup")
+		if obs.OTLPEndpoint != "" {
+			logrus.WithField("otlp_endpoint", obs.OTLPEndpoint).Info("observability")
+		}
 	}
 
 	client := newOpenAIClient(cfg)
 
-	ctx := context.Background()
 	answer, err := runAgent(ctx, client, cfg, *query, *maxSteps)
 	if err != nil {
-		log.Fatalf("agent error: %v", err)
+		logrus.WithError(err).Fatal("agent error")
 	}
 
+	logrus.WithField("answer_preview", answer).Info("agent_answer")
 	fmt.Println("\n=== Agent Answer ===")
 	fmt.Println(answer)
 }

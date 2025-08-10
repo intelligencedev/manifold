@@ -643,7 +643,6 @@ type streamDoneMsg struct {
 	acc openai.ChatCompletionAccumulator
 }
 type streamErrMsg struct{ err error }
-type appendMsg string
 
 func (m *tuiModel) cleanup() {
 	if m.stream != nil {

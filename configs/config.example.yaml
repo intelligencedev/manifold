@@ -1,0 +1,12 @@
+openai:
+  apiKey: ${OPENAI_API_KEY}
+  model: gpt-4o-mini
+workdir: ./sandbox
+exec:
+  blockBinaries: []
+  maxCommandSeconds: 30
+obs:
+  serviceName: singularityio
+  environment: dev
+  otlp: http://localhost:4318
+

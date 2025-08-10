@@ -54,3 +54,4 @@ coverage.out
 # Ignore specific files or folders
 examples
 gptagent
+PLAN.md

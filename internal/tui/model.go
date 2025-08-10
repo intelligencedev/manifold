@@ -102,7 +102,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		leftVP:                 left,
 		rightVP:                right,
 		input:                  in,
-		messages:               []chatMsg{{kind: "info", title: "", content: "Interactive mode. Type a prompt and press Enter to run. Ctrl+C to exit."}},
+		messages:               []chatMsg{{kind: "info", title: "", content: "Interactive mode. Type a prompt and press Enter to run. Use Tab to switch panes, arrow keys to scroll. Ctrl+C to exit."}},
 		userTag:                userTag,
 		agentTag:               agentTag,
 		userText:               userText,
@@ -130,6 +130,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			m.cleanup()
 			return m, tea.Quit
+		case "tab":
+			// Switch focus between left and right panes
+			if m.activePanel == "left" {
+				m.activePanel = "right"
+			} else {
+				m.activePanel = "left"
+			}
+			return m, nil
 		case "enter":
 			if m.running {
 				return m, nil
@@ -151,6 +159,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.messages = append(m.messages, *m.currentMessage)
 			m.setView()
 			return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
+		case "up", "down", "pgup", "pgdn", "home", "end":
+			// Handle scrolling for the active pane only
+			if m.activePanel == "left" {
+				var cmd tea.Cmd
+				m.leftVP, cmd = m.leftVP.Update(msg)
+				m.userScrolledL = true
+				return m, cmd
+			} else {
+				var cmd tea.Cmd
+				m.rightVP, cmd = m.rightVP.Update(msg)
+				m.userScrolledR = true
+				return m, cmd
+			}
+		}
+	case tea.MouseMsg:
+		// Handle mouse click to focus panes
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			if msg.X < m.leftVP.Width {
+				m.activePanel = "left"
+			} else {
+				m.activePanel = "right"
+			}
+			return m, nil
+		}
+
+		// Let each viewport handle its own mouse events (including wheel)
+		var cmdL, cmdR tea.Cmd
+		if msg.X < m.leftVP.Width {
+			// Mouse is over left pane
+			m.leftVP, cmdL = m.leftVP.Update(msg)
+			m.userScrolledL = true
+			return m, cmdL
+		} else {
+			// Mouse is over right pane
+			m.rightVP, cmdR = m.rightVP.Update(msg)
+			m.userScrolledR = true
+			return m, cmdR
 		}
 	case tea.WindowSizeMsg:
 		// Split width evenly between left and right panes with a 1-col separator
@@ -205,12 +250,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// default: update input and both viewports
-	var cmdInput, cmdL, cmdR tea.Cmd
+	// default: update input only (viewports are handled above for focused scrolling)
+	var cmdInput tea.Cmd
 	m.input, cmdInput = m.input.Update(msg)
-	m.leftVP, cmdL = m.leftVP.Update(msg)
-	m.rightVP, cmdR = m.rightVP.Update(msg)
-	return m, tea.Batch(cmdInput, cmdL, cmdR)
+	return m, cmdInput
 }
 
 func (m *Model) View() string {
@@ -281,51 +324,6 @@ func (m *Model) runStreamingEngine(user string) tea.Cmd {
 		// close streams after engine returns
 		close(m.toolCh)
 		close(m.streamingDeltaCh)
-		return runResult{text: ans, err: err, events: events}
-	}
-}
-
-func (m *Model) runEngine(user string) tea.Cmd {
-	return func() tea.Msg {
-		events := make([]chatMsg, 0, 4)
-		rec := tools.NewRecordingRegistry(m.eng.Tools, func(ev tools.DispatchEvent) {
-			title := "Tool: " + ev.Name
-			content := string(ev.Payload)
-			if ev.Name == "run_cli" {
-				var args struct {
-					Command        string   `json:"command"`
-					Args           []string `json:"args"`
-					TimeoutSeconds int      `json:"timeout_seconds"`
-					Stdin          string   `json:"stdin"`
-				}
-				var res cli.ExecResult
-				_ = json.Unmarshal(ev.Args, &args)
-				if err := json.Unmarshal(ev.Payload, &res); err == nil {
-					content = formatToolPayload(args.Command, args.Args, res)
-				}
-			}
-			cm := chatMsg{kind: "tool", title: title, content: content}
-			events = append(events, cm)
-			select {
-			case m.toolCh <- cm:
-			default:
-			}
-		})
-		eng := m.eng
-		eng.Tools = rec
-		eng.OnAssistant = func(am llm.Message) {
-			if am.Content == "" {
-				return
-			}
-			cm := chatMsg{kind: "agent", title: "Agent", content: am.Content}
-			select {
-			case m.toolCh <- cm:
-			default:
-			}
-		}
-		ans, err := eng.Run(m.ctx, user, m.history)
-		// close stream after engine returns
-		close(m.toolCh)
 		return runResult{text: ans, err: err, events: events}
 	}
 }
@@ -428,6 +426,7 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 func (m *Model) setView() {
 	m.leftVP.SetContent(m.renderChat(m.leftVP.Width))
 	m.rightVP.SetContent(m.renderTools(m.rightVP.Width))
+	// Auto-scroll to bottom only if user hasn't manually scrolled
 	if !m.userScrolledL {
 		m.leftVP.GotoBottom()
 	}

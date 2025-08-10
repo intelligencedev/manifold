@@ -165,11 +165,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var cmd tea.Cmd
 				m.leftVP, cmd = m.leftVP.Update(msg)
 				m.userScrolledL = true
+				// Don't call setView() during scrolling to avoid rendering artifacts
 				return m, cmd
 			} else {
 				var cmd tea.Cmd
 				m.rightVP, cmd = m.rightVP.Update(msg)
 				m.userScrolledR = true
+				// Don't call setView() during scrolling to avoid rendering artifacts
 				return m, cmd
 			}
 		}
@@ -190,11 +192,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Mouse is over left pane
 			m.leftVP, cmdL = m.leftVP.Update(msg)
 			m.userScrolledL = true
+			// Don't call setView() during scrolling to avoid rendering artifacts
 			return m, cmdL
 		} else {
 			// Mouse is over right pane
 			m.rightVP, cmdR = m.rightVP.Update(msg)
 			m.userScrolledR = true
+			// Don't call setView() during scrolling to avoid rendering artifacts
 			return m, cmdR
 		}
 	case tea.WindowSizeMsg:
@@ -220,13 +224,27 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.currentMessageIndex < len(m.messages) {
 				m.messages[m.currentMessageIndex] = *m.currentMessage
 			}
-			m.setView()
+			// Only update the left pane since streaming content goes there
+			// Store current scroll position to minimize jarring updates
+			oldYOffset := m.leftVP.YOffset
+			m.setLeftView()
+			// If user was manually scrolling and not near bottom, try to maintain their position
+			if m.userScrolledL && !m.isNearBottom(m.leftVP) && oldYOffset < m.leftVP.TotalLineCount()-m.leftVP.Height {
+				m.leftVP.YOffset = oldYOffset
+			}
 		}
 		return m, m.readStreamingDelta()
 	case toolEventMsg:
 		// append immediate tool/assistant events
 		m.messages = append(m.messages, chatMsg(msg))
-		m.setView()
+		// Only update the right pane since tool events go there
+		// Store current scroll position to minimize jarring updates
+		oldYOffset := m.rightVP.YOffset
+		m.setRightView()
+		// If user was manually scrolling and not near bottom, try to maintain their position
+		if m.userScrolledR && !m.isNearBottom(m.rightVP) && oldYOffset < m.rightVP.TotalLineCount()-m.rightVP.Height {
+			m.rightVP.YOffset = oldYOffset
+		}
 		return m, m.readNextEvent()
 	case toolStreamClosed:
 		return m, nil
@@ -424,13 +442,29 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 }
 
 func (m *Model) setView() {
+	m.setLeftView()
+	m.setRightView()
+}
+
+func (m *Model) setLeftView() {
 	m.leftVP.SetContent(m.renderChat(m.leftVP.Width))
-	m.rightVP.SetContent(m.renderTools(m.rightVP.Width))
-	// Auto-scroll to bottom only if user hasn't manually scrolled
-	if !m.userScrolledL {
+	// Auto-scroll to bottom if user hasn't manually scrolled OR if they're near the bottom
+	// This ensures streaming content is followed even after user has scrolled
+	if !m.userScrolledL || m.isNearBottom(m.leftVP) {
 		m.leftVP.GotoBottom()
 	}
-	if !m.userScrolledR {
+}
+
+// isNearBottom checks if the viewport is within a few lines of the bottom
+func (m *Model) isNearBottom(vp viewport.Model) bool {
+	// Consider "near bottom" if within 3 lines of the actual bottom
+	return vp.YOffset >= vp.TotalLineCount()-vp.Height-3
+}
+
+func (m *Model) setRightView() {
+	m.rightVP.SetContent(m.renderTools(m.rightVP.Width))
+	// Auto-scroll to bottom if user hasn't manually scrolled OR if they're near the bottom
+	if !m.userScrolledR || m.isNearBottom(m.rightVP) {
 		m.rightVP.GotoBottom()
 	}
 }

@@ -17,6 +17,8 @@ func Load() (Config, error) {
     cfg := Config{}
     cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
     cfg.OpenAI.Model = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_MODEL")), "gpt-4o-mini")
+    // Allow overriding API base via env (useful for proxies/self-hosted gateways)
+    cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
     cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
     cfg.Exec.MaxCommandSeconds = intFromEnv("MAX_COMMAND_SECONDS", 30)
     cfg.OutputTruncateByte = intFromEnv("OUTPUT_TRUNCATE_BYTES", 64*1024)
@@ -87,4 +89,3 @@ func parseInt(s string) (int, error) {
     _, err := fmt.Sscanf(s, "%d", &n)
     return n, err
 }
-

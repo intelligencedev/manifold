@@ -19,6 +19,9 @@ type Client struct {
 
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
     opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}
+    if c.BaseURL != "" {
+        opts = append(opts, option.WithBaseURL(c.BaseURL))
+    }
     if httpClient != nil {
         opts = append(opts, option.WithHTTPClient(httpClient))
     }

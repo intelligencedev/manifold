@@ -17,6 +17,7 @@ type ExecConfig struct {
 type OpenAIConfig struct {
     APIKey string
     Model  string
+    BaseURL string
 }
 
 type ObsConfig struct {
@@ -25,4 +26,3 @@ type ObsConfig struct {
     Environment    string
     OTLP           string
 }
-

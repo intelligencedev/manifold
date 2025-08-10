@@ -96,7 +96,7 @@ func (tb *tokenBucket) waitForToken(ctx context.Context) error {
 
 		// Calculate how long to wait for next refill
 		tb.mu.Lock()
-		waitTime := tb.refillAt.Sub(time.Now())
+		waitTime := time.Until(tb.refillAt)
 		tb.mu.Unlock()
 
 		if waitTime <= 0 {

@@ -2,6 +2,8 @@ package tui
 
 import (
     "context"
+    "encoding/json"
+    "fmt"
     "strings"
 
     "github.com/charmbracelet/bubbles/textinput"
@@ -143,6 +145,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
         return m, nil
     case runResult:
         m.running = false
+        // append tool events on right pane first
+        for _, e := range msg.events { m.messages = append(m.messages, e) }
         if msg.err != nil {
             m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "error: " + msg.err.Error()})
             m.setView()
@@ -175,14 +179,38 @@ func (m *Model) View() string {
 }
 
 // Non-streaming execution using the same Engine path as cmd/agent
-type runResult struct{ text string; err error }
+type runResult struct{ text string; err error; events []chatMsg }
 
 func (m *Model) runAgentCmd(q string) tea.Cmd {
     // capture q for history update
     user := q
     return func() tea.Msg {
-        ans, err := m.eng.Run(m.ctx, user, m.history)
-        return runResult{text: ans, err: err}
+        // capture tool events in a local slice to post back to the UI thread
+        events := make([]chatMsg, 0, 4)
+        rec := tools.NewRecordingRegistry(m.eng.Tools, func(ev tools.DispatchEvent) {
+            // Try to pretty print run_cli results; fallback to raw payload
+            title := "Tool: " + ev.Name
+            content := string(ev.Payload)
+            if ev.Name == "run_cli" {
+                var args struct {
+                    Command        string   `json:"command"`
+                    Args           []string `json:"args"`
+                    TimeoutSeconds int      `json:"timeout_seconds"`
+                    Stdin          string   `json:"stdin"`
+                }
+                var res cli.ExecResult
+                _ = json.Unmarshal(ev.Args, &args)
+                if err := json.Unmarshal(ev.Payload, &res); err == nil {
+                    content = formatToolPayload(args.Command, args.Args, res)
+                }
+            }
+            events = append(events, chatMsg{kind: "tool", title: title, content: content})
+        })
+        eng := m.eng
+        eng.Tools = rec
+        ans, err := eng.Run(m.ctx, user, m.history)
+        // Send events first, then final answer appended in Update
+        return runResult{text: ans, err: err, events: events}
     }
 }
 
@@ -249,6 +277,26 @@ func (m *Model) lastUserContent() string {
         if m.messages[i].kind == "user" { return m.messages[i].content }
     }
     return ""
+}
+
+func formatToolPayload(cmd string, args []string, res cli.ExecResult) string {
+    var b strings.Builder
+    if cmd != "" {
+        b.WriteString(fmt.Sprintf("$ %s %s\n", cmd, strings.Join(args, " ")))
+    }
+    b.WriteString(fmt.Sprintf("exit %d | ok=%v | %dms\n", res.ExitCode, res.OK, res.Duration))
+    if res.Truncated {
+        b.WriteString("(output truncated)\n")
+    }
+    if strings.TrimSpace(res.Stdout) != "" {
+        b.WriteString("\nstdout:\n")
+        b.WriteString(res.Stdout)
+    }
+    if strings.TrimSpace(res.Stderr) != "" {
+        b.WriteString("\nstderr:\n")
+        b.WriteString(res.Stderr)
+    }
+    return b.String()
 }
 
 // schema adaptation moved to internal/llm/openai/schema.go and registry usage above.

@@ -543,7 +543,8 @@ type tuiModel struct {
 	params openai.ChatCompletionNewParams
 
 	// UI
-	vp        viewport.Model
+	leftVP    viewport.Model
+	rightVP   viewport.Model
 	input     textinput.Model
 	streaming bool
 	step      int
@@ -557,15 +558,21 @@ type tuiModel struct {
 	streamingIdx int
 
 	// styles
-	userTag   lipgloss.Style
-	agentTag  lipgloss.Style
-	userText  lipgloss.Style
-	agentText lipgloss.Style
-	toolStyle lipgloss.Style
-	infoStyle lipgloss.Style
+	userTag                lipgloss.Style
+	agentTag               lipgloss.Style
+	userText               lipgloss.Style
+	agentText              lipgloss.Style
+	toolStyle              lipgloss.Style
+	infoStyle              lipgloss.Style
+	dividerStyle           lipgloss.Style
+	headerStyle            lipgloss.Style
+	leftHeaderActiveStyle  lipgloss.Style
+	rightHeaderActiveStyle lipgloss.Style
 
-	// scrolling state
-	userScrolled bool
+	// focus + scroll state
+	activePanel   string // "left" or "right"
+	userScrolledL bool
+	userScrolledR bool
 }
 
 type chatMsg struct {
@@ -575,7 +582,8 @@ type chatMsg struct {
 }
 
 func newTUIModel(ctx context.Context, client openai.Client, cfg *Config, maxSteps int) *tuiModel {
-	vp := viewport.New(80, 20)
+	left := viewport.New(80, 20)
+	right := viewport.New(40, 20)
 	in := textinput.New()
 	in.Prompt = "> "
 	in.Placeholder = "Ask the agent..."
@@ -600,23 +608,29 @@ func newTUIModel(ctx context.Context, client openai.Client, cfg *Config, maxStep
 	}
 
 	m := &tuiModel{
-		ctx:          ctx,
-		client:       client,
-		cfg:          cfg,
-		maxSteps:     maxSteps,
-		params:       params,
-		vp:           vp,
-		input:        in,
-		messages:     []chatMsg{{kind: "info", title: "", content: "Interactive mode. Type a prompt and press Enter to run. Ctrl+C to exit."}},
-		streamingIdx: -1,
-		userTag:      userTag,
-		agentTag:     agentTag,
-		userText:     userText,
-		agentText:    agentText,
-		toolStyle:    toolStyle,
-		infoStyle:    infoStyle,
+		ctx:                    ctx,
+		client:                 client,
+		cfg:                    cfg,
+		maxSteps:               maxSteps,
+		params:                 params,
+		leftVP:                 left,
+		rightVP:                right,
+		input:                  in,
+		messages:               []chatMsg{{kind: "info", title: "", content: "Interactive mode. Type a prompt and press Enter to run. Ctrl+C to exit."}},
+		streamingIdx:           -1,
+		userTag:                userTag,
+		agentTag:               agentTag,
+		userText:               userText,
+		agentText:              agentText,
+		toolStyle:              toolStyle,
+		infoStyle:              infoStyle,
+		dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
+		headerStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true),
+		leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
+		rightHeaderActiveStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1),
+		activePanel:            "left",
 	}
-	m.vp.SetContent(m.render())
+	m.setView()
 	return m
 }
 
@@ -641,18 +655,100 @@ func (m *tuiModel) cleanup() {
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.vp.Width = msg.Width
-		m.vp.Height = msg.Height - 3
-		m.vp.SetContent(m.render())
-		if !m.userScrolled {
-			m.vp.GotoBottom()
+		totalW := msg.Width
+		totalH := msg.Height - 3
+		if totalH < 5 {
+			totalH = 5
 		}
+		leftW := int(float64(totalW) * 0.65)
+		if leftW < 20 {
+			leftW = 20
+		}
+		rightW := totalW - leftW - 1
+		if rightW < 20 {
+			rightW = 20
+		}
+		m.leftVP.Width = leftW
+		m.rightVP.Width = rightW
+		// leave one row for headers above each panel
+		panelH := totalH - 1
+		if panelH < 1 {
+			panelH = 1
+		}
+		m.leftVP.Height = panelH
+		m.rightVP.Height = panelH
+		m.setView()
 		return m, nil
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			m.cleanup()
 			return m, tea.Quit
+		case tea.KeyTab:
+			if m.activePanel == "left" {
+				m.activePanel = "right"
+			} else {
+				m.activePanel = "left"
+			}
+			return m, nil
+		case tea.KeyPgUp:
+			if m.activePanel == "left" {
+				m.leftVP.PageUp()
+				m.userScrolledL = true
+			} else {
+				m.rightVP.PageUp()
+				m.userScrolledR = true
+			}
+			return m, nil
+		case tea.KeyPgDown:
+			if m.activePanel == "left" {
+				m.leftVP.PageDown()
+				m.userScrolledL = !m.leftVP.AtBottom()
+			} else {
+				m.rightVP.PageDown()
+				m.userScrolledR = !m.rightVP.AtBottom()
+			}
+			return m, nil
+		case tea.KeyUp:
+			if m.activePanel == "left" {
+				m.leftVP.LineUp(1)
+				m.userScrolledL = true
+			} else {
+				m.rightVP.LineUp(1)
+				m.userScrolledR = true
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.activePanel == "left" {
+				m.leftVP.LineDown(1)
+				if m.leftVP.AtBottom() {
+					m.userScrolledL = false
+				}
+			} else {
+				m.rightVP.LineDown(1)
+				if m.rightVP.AtBottom() {
+					m.userScrolledR = false
+				}
+			}
+			return m, nil
+		case tea.KeyHome:
+			if m.activePanel == "left" {
+				m.leftVP.GotoTop()
+				m.userScrolledL = true
+			} else {
+				m.rightVP.GotoTop()
+				m.userScrolledR = true
+			}
+			return m, nil
+		case tea.KeyEnd:
+			if m.activePanel == "left" {
+				m.leftVP.GotoBottom()
+				m.userScrolledL = false
+			} else {
+				m.rightVP.GotoBottom()
+				m.userScrolledR = false
+			}
+			return m, nil
 		case tea.KeyEnter:
 			if m.streaming {
 				return m, nil
@@ -667,10 +763,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Append empty agent message placeholder for streaming
 			m.messages = append(m.messages, chatMsg{kind: "agent", title: "Agent", content: ""})
 			m.streamingIdx = len(m.messages) - 1
-			m.vp.SetContent(m.render())
-			if !m.userScrolled {
-				m.vp.GotoBottom()
-			}
+			m.setView()
 			m.input.SetValue("")
 			m.step = 0
 			m.streaming = true
@@ -681,10 +774,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.streamingIdx >= 0 && m.streamingIdx < len(m.messages) {
 				m.messages[m.streamingIdx].content += msg.delta
 			}
-			m.vp.SetContent(m.render())
-			if !m.userScrolled {
-				m.vp.GotoBottom()
-			}
+			m.setView()
 		}
 		return m, m.readNextChunk()
 	case streamDoneMsg:
@@ -712,10 +802,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						// styled tool message in TUI
 						pretty := formatToolPayload(a, res)
 						m.messages = append(m.messages, chatMsg{kind: "tool", title: "Tool: run_cli", content: pretty})
-						m.vp.SetContent(m.render())
-						if !m.userScrolled {
-							m.vp.GotoBottom()
-						}
+						m.setView()
 						m.params.Messages = append(m.params.Messages, openai.ToolMessage(string(payload), tc.ID))
 					} else {
 						// unknown function
@@ -729,10 +816,7 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// add a new agent block to stream into
 				m.messages = append(m.messages, chatMsg{kind: "agent", title: "Agent", content: ""})
 				m.streamingIdx = len(m.messages) - 1
-				m.vp.SetContent(m.render())
-				if !m.userScrolled {
-					m.vp.GotoBottom()
-				}
+				m.setView()
 				return m, m.startAssistantStream()
 			}
 		} else {
@@ -744,22 +828,32 @@ func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case streamErrMsg:
 		m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "stream error: " + msg.err.Error()})
-		m.vp.SetContent(m.render())
-		if !m.userScrolled {
-			m.vp.GotoBottom()
-		}
+		m.setView()
 		m.streaming = false
 		return m, nil
 	}
 
-	// default: update input and viewport
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	return m, cmd
+	// default: update input and both viewports (enables mouse/keyboard scrolling)
+	var cmdInput, cmdL, cmdR tea.Cmd
+	m.input, cmdInput = m.input.Update(msg)
+	m.leftVP, cmdL = m.leftVP.Update(msg)
+	m.rightVP, cmdR = m.rightVP.Update(msg)
+	return m, tea.Batch(cmdInput, cmdL, cmdR)
 }
 
 func (m *tuiModel) View() string {
-	return m.vp.View() + "\n" + m.input.View()
+	leftHeader := m.headerStyle.Render(" Chat ")
+	rightHeader := m.headerStyle.Render(" Tools ")
+	if m.activePanel == "left" {
+		leftHeader = m.leftHeaderActiveStyle.Render(" Chat ")
+	} else {
+		rightHeader = m.rightHeaderActiveStyle.Render(" Tools ")
+	}
+	leftBlock := leftHeader + "\n" + m.leftVP.View()
+	rightBlock := rightHeader + "\n" + m.rightVP.View()
+	sep := m.dividerStyle.Render("│")
+	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, sep, rightBlock)
+	return top + "\n" + m.input.View()
 }
 
 func (m *tuiModel) startAssistantStream() tea.Cmd {
@@ -794,14 +888,37 @@ func (m *tuiModel) readNextChunk() tea.Cmd {
 	}
 }
 
-func (m *tuiModel) render() string {
+func (m *tuiModel) renderChat(width int) string {
 	var b strings.Builder
-	width := m.vp.Width
-	for i, msg := range m.messages {
-		if i > 0 {
+	cnt := 0
+	for _, msg := range m.messages {
+		if msg.kind == "tool" {
+			continue
+		}
+		if cnt > 0 {
 			b.WriteString("\n\n")
 		}
 		b.WriteString(m.renderMsg(msg, width))
+		cnt++
+	}
+	return b.String()
+}
+
+func (m *tuiModel) renderTools(width int) string {
+	var b strings.Builder
+	cnt := 0
+	for _, msg := range m.messages {
+		if msg.kind != "tool" {
+			continue
+		}
+		if cnt > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(m.renderMsg(msg, width))
+		cnt++
+	}
+	if cnt == 0 {
+		return m.infoStyle.Render("No tool activity yet.")
 	}
 	return b.String()
 }
@@ -826,6 +943,17 @@ func (m *tuiModel) renderMsg(cm chatMsg, width int) string {
 		return m.toolStyle.Render(header + "\n" + wrap.Render(cm.content))
 	default:
 		return m.infoStyle.Render(cm.content)
+	}
+}
+
+func (m *tuiModel) setView() {
+	m.leftVP.SetContent(m.renderChat(m.leftVP.Width))
+	m.rightVP.SetContent(m.renderTools(m.rightVP.Width))
+	if !m.userScrolledL {
+		m.leftVP.GotoBottom()
+	}
+	if !m.userScrolledR {
+		m.rightVP.GotoBottom()
 	}
 }
 
@@ -953,7 +1081,7 @@ func main() {
 	client := newOpenAIClient(cfg)
 
 	if *interactive {
-		p := tea.NewProgram(newTUIModel(ctx, client, cfg, *maxSteps), tea.WithContext(ctx))
+		p := tea.NewProgram(newTUIModel(ctx, client, cfg, *maxSteps), tea.WithContext(ctx), tea.WithMouseAllMotion())
 		if _, err := p.Run(); err != nil {
 			log.Fatal().Err(err).Msg("interactive error")
 		}

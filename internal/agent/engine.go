@@ -13,6 +13,9 @@ type Engine struct {
     Tools    tools.Registry
     MaxSteps int
     System   string
+    // OnAssistant, if set, is called with each assistant message the provider
+    // returns (including those containing tool calls and the final answer).
+    OnAssistant func(llm.Message)
 }
 
 // Run executes the agent loop until the model produces a final answer.
@@ -24,6 +27,7 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
         msg, err := e.LLM.Chat(ctx, msgs, e.Tools.Schemas(), e.model())
         if err != nil { return "", err }
         msgs = append(msgs, msg)
+        if e.OnAssistant != nil { e.OnAssistant(msg) }
         if len(msg.ToolCalls) == 0 { final = msg.Content; break }
         for _, tc := range msg.ToolCalls {
             payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)

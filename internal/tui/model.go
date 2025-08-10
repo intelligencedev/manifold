@@ -37,6 +37,7 @@ type Model struct {
 
     messages    []chatMsg
     running     bool
+    toolCh      chan chatMsg
 
     // styles
     userTag                lipgloss.Style
@@ -134,14 +135,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
             m.messages = append(m.messages, chatMsg{kind: "user", title: "You", content: q})
             m.setView()
             m.running = true
-            return m, m.runAgentCmd(q)
+            // start reading events and engine in parallel
+            m.toolCh = make(chan chatMsg, 32)
+            return m, tea.Batch(m.readNextEvent(), m.runEngine(q))
         }
     case tea.WindowSizeMsg:
-        m.leftVP.Width = msg.Width - 42
+        // Split width evenly between left and right panes with a 1-col separator
+        sep := 1
+        total := msg.Width - sep
+        if total < 2 {
+            total = 2
+        }
+        leftW := total / 2
+        rightW := total - leftW
+        m.leftVP.Width = leftW
+        m.rightVP.Width = rightW
         m.leftVP.Height = msg.Height - 3
-        m.rightVP.Width = 40
         m.rightVP.Height = msg.Height - 3
         m.setView()
+        return m, nil
+    case toolEventMsg:
+        // append immediate tool/assistant events
+        m.messages = append(m.messages, chatMsg(msg))
+        m.setView()
+        return m, m.readNextEvent()
+    case toolStreamClosed:
         return m, nil
     case runResult:
         m.running = false
@@ -178,17 +196,16 @@ func (m *Model) View() string {
     return top + "\n" + m.input.View()
 }
 
-// Non-streaming execution using the same Engine path as cmd/agent
+// Non-streaming execution using the same Engine path as cmd/agent, but we stream
+// events into the UI via a channel.
 type runResult struct{ text string; err error; events []chatMsg }
+type toolEventMsg chatMsg
+type toolStreamClosed struct{}
 
-func (m *Model) runAgentCmd(q string) tea.Cmd {
-    // capture q for history update
-    user := q
+func (m *Model) runEngine(user string) tea.Cmd {
     return func() tea.Msg {
-        // capture tool events in a local slice to post back to the UI thread
         events := make([]chatMsg, 0, 4)
         rec := tools.NewRecordingRegistry(m.eng.Tools, func(ev tools.DispatchEvent) {
-            // Try to pretty print run_cli results; fallback to raw payload
             title := "Tool: " + ev.Name
             content := string(ev.Payload)
             if ev.Name == "run_cli" {
@@ -204,13 +221,30 @@ func (m *Model) runAgentCmd(q string) tea.Cmd {
                     content = formatToolPayload(args.Command, args.Args, res)
                 }
             }
-            events = append(events, chatMsg{kind: "tool", title: title, content: content})
+            cm := chatMsg{kind: "tool", title: title, content: content}
+            events = append(events, cm)
+            select { case m.toolCh <- cm: default: }
         })
         eng := m.eng
         eng.Tools = rec
+        eng.OnAssistant = func(am llm.Message) {
+            if am.Content == "" { return }
+            cm := chatMsg{kind: "agent", title: "Agent", content: am.Content}
+            select { case m.toolCh <- cm: default: }
+        }
         ans, err := eng.Run(m.ctx, user, m.history)
-        // Send events first, then final answer appended in Update
+        // close stream after engine returns
+        close(m.toolCh)
         return runResult{text: ans, err: err, events: events}
+    }
+}
+
+func (m *Model) readNextEvent() tea.Cmd {
+    return func() tea.Msg {
+        if m.toolCh == nil { return toolStreamClosed{} }
+        ev, ok := <-m.toolCh
+        if !ok { return toolStreamClosed{} }
+        return toolEventMsg(ev)
     }
 }
 
@@ -254,7 +288,13 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
         return header + "\n" + body
     case "tool":
         header := lipgloss.NewStyle().Bold(true).Render(cm.title)
-        return m.toolStyle.Render(header + "\n" + wrap.Render(cm.content))
+        // Adjust wrap width to account for border/padding frame
+        inw := maxw
+        if fw, _ := m.toolStyle.GetFrameSize(); fw > 0 {
+            if inw-fw > 1 { inw = inw - fw } else { inw = 1 }
+        }
+        innerWrap := lipgloss.NewStyle().MaxWidth(inw)
+        return m.toolStyle.Render(header + "\n" + innerWrap.Render(cm.content))
     default:
         return m.infoStyle.Render(cm.content)
     }

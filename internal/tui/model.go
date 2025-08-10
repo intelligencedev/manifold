@@ -17,6 +17,7 @@ import (
 	"gptagent/internal/llm"
 	"gptagent/internal/tools"
 	"gptagent/internal/tools/cli"
+	"gptagent/internal/tools/web"
 )
 
 type Model struct {
@@ -83,6 +84,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	// Tool registry
 	registry := tools.NewRegistry()
 	registry.Register(cli.NewTool(exec))
+	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
 
 	// Engine setup (matches cmd/agent wiring)
 	eng := agent.Engine{

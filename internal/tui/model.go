@@ -397,7 +397,7 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 		maxw = 20
 	}
 	// Create a style with proper word wrapping
-	wrap := lipgloss.NewStyle().MaxWidth(maxw).Padding(0)
+	wrap := lipgloss.NewStyle().Width(maxw)
 	switch cm.kind {
 	case "user":
 		header := m.userTag.Render("You")
@@ -418,7 +418,7 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 				inw = 1
 			}
 		}
-		innerWrap := lipgloss.NewStyle().MaxWidth(inw).Padding(0)
+		innerWrap := lipgloss.NewStyle().Width(inw)
 		return m.toolStyle.Render(header + "\n" + innerWrap.Render(cm.content))
 	default:
 		return m.infoStyle.Render(wrap.Render(cm.content))

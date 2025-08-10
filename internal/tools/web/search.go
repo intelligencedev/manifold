@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/html"
@@ -15,16 +16,154 @@ import (
 // Web search tool backed by SearXNG.
 // This tool allows configurable SearXNG instances via environment variables.
 
+// RateLimitConfig holds rate limiting configuration
+type RateLimitConfig struct {
+	// RequestsPerSecond controls how many requests per second are allowed
+	RequestsPerSecond float64
+	// BurstSize is the maximum number of requests that can be made in a burst
+	BurstSize int
+	// MaxRetries is the maximum number of retry attempts
+	MaxRetries int
+	// BaseDelay is the base delay for exponential backoff
+	BaseDelay time.Duration
+	// MaxDelay is the maximum delay for exponential backoff
+	MaxDelay time.Duration
+	// JitterPercent adds randomness to delays (0.0 to 1.0)
+	JitterPercent float64
+}
+
+// DefaultRateLimitConfig returns sensible defaults to avoid getting banned
+func DefaultRateLimitConfig() RateLimitConfig {
+	return RateLimitConfig{
+		RequestsPerSecond: 0.5,              // 1 request every 2 seconds
+		BurstSize:         2,                // Allow small bursts
+		MaxRetries:        3,                // Retry failed requests up to 3 times
+		BaseDelay:         1 * time.Second,  // Start with 1 second delay
+		MaxDelay:          30 * time.Second, // Maximum 30 second delay
+		JitterPercent:     0.3,              // Add up to 30% jitter
+	}
+}
+
+// tokenBucket implements a simple token bucket rate limiter
+type tokenBucket struct {
+	capacity   int
+	tokens     int
+	refillAt   time.Time
+	refillRate time.Duration
+	mu         sync.Mutex
+}
+
+// newTokenBucket creates a new token bucket rate limiter
+func newTokenBucket(capacity int, refillRate time.Duration) *tokenBucket {
+	return &tokenBucket{
+		capacity:   capacity,
+		tokens:     capacity,
+		refillAt:   time.Now(),
+		refillRate: refillRate,
+	}
+}
+
+// takeToken attempts to take a token from the bucket
+// Returns true if successful, false if rate limited
+func (tb *tokenBucket) takeToken() bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	now := time.Now()
+	if now.After(tb.refillAt) {
+		// Refill tokens based on elapsed time
+		elapsed := now.Sub(tb.refillAt)
+		tokensToAdd := int(elapsed / tb.refillRate)
+		if tokensToAdd > 0 {
+			tb.tokens = min(tb.capacity, tb.tokens+tokensToAdd)
+			tb.refillAt = tb.refillAt.Add(time.Duration(tokensToAdd) * tb.refillRate)
+		}
+	}
+
+	if tb.tokens > 0 {
+		tb.tokens--
+		return true
+	}
+	return false
+}
+
+// waitForToken blocks until a token is available
+func (tb *tokenBucket) waitForToken(ctx context.Context) error {
+	for {
+		if tb.takeToken() {
+			return nil
+		}
+
+		// Calculate how long to wait for next refill
+		tb.mu.Lock()
+		waitTime := tb.refillAt.Sub(time.Now())
+		tb.mu.Unlock()
+
+		if waitTime <= 0 {
+			waitTime = tb.refillRate
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(waitTime):
+			continue
+		}
+	}
+}
+
 type tool struct {
-	http       *http.Client
-	searxngURL string
+	http         *http.Client
+	searxngURL   string
+	rateLimiter  *tokenBucket
+	rateLimitCfg RateLimitConfig
+	uaList       []string
 }
 
 // NewTool constructs the web_search tool with the given SearXNG URL.
 func NewTool(searxngURL string) *tool {
+	cfg := DefaultRateLimitConfig()
+	refillRate := time.Duration(float64(time.Second) / cfg.RequestsPerSecond)
+
+	uaList := []string{
+		// Chrome (macOS)
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+		// Firefox (macOS)
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:102.0) Gecko/20100101 Firefox/102.0",
+		// Safari (macOS)
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15",
+		// Edge (Windows)
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.0.0",
+	}
 	return &tool{
-		http:       &http.Client{Timeout: 12 * time.Second},
-		searxngURL: strings.TrimSuffix(searxngURL, "/"),
+		http:         &http.Client{Timeout: 12 * time.Second},
+		searxngURL:   strings.TrimSuffix(searxngURL, "/"),
+		rateLimiter:  newTokenBucket(cfg.BurstSize, refillRate),
+		rateLimitCfg: cfg,
+		uaList:       uaList,
+	}
+}
+
+// NewToolWithConfig constructs the web_search tool with custom rate limiting config.
+func NewToolWithConfig(searxngURL string, cfg RateLimitConfig) *tool {
+	refillRate := time.Duration(float64(time.Second) / cfg.RequestsPerSecond)
+
+	uaList := []string{
+		// Chrome (macOS)
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
+		// Firefox (macOS)
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:102.0) Gecko/20100101 Firefox/102.0",
+		// Safari (macOS)
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15",
+		// Edge (Windows)
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.0.0",
+	}
+	return &tool{
+		http:         &http.Client{Timeout: 12 * time.Second},
+		searxngURL:   strings.TrimSuffix(searxngURL, "/"),
+		rateLimiter:  newTokenBucket(cfg.BurstSize, refillRate),
+		rateLimitCfg: cfg,
+		uaList:       uaList,
 	}
 }
 
@@ -68,7 +207,14 @@ func (t *tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	q := strings.TrimSpace(args.Query)
-	results, err := t.searchSearXNG(ctx, q, args.MaxResults, args.Category, args.Format)
+
+	// Apply rate limiting before making the request
+	if err := t.rateLimiter.waitForToken(ctx); err != nil {
+		return map[string]any{"ok": false, "error": "rate limited: " + err.Error()}, nil
+	}
+
+	// Use retry with exponential backoff and jitter
+	results, err := t.searchWithRetry(ctx, q, args.MaxResults, args.Category, args.Format)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
@@ -78,6 +224,40 @@ func (t *tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 type SearchResult struct {
 	Title string `json:"title"`
 	URL   string `json:"url"`
+}
+
+// searchWithRetry wraps searchSearXNG with exponential backoff and jitter
+func (t *tool) searchWithRetry(ctx context.Context, query string, max int, category, format string) ([]SearchResult, error) {
+	var lastErr error
+	cfg := t.rateLimitCfg
+
+	for attempt := 0; attempt < cfg.MaxRetries; attempt++ {
+		results, err := t.searchSearXNG(ctx, query, max, category, format)
+		if err == nil && len(results) > 0 {
+			return results, nil
+		}
+		lastErr = err
+
+		// Calculate exponential backoff with jitter
+		delay := cfg.BaseDelay * (1 << attempt)
+		if delay > cfg.MaxDelay {
+			delay = cfg.MaxDelay
+		}
+		jitter := time.Duration(float64(delay) * cfg.JitterPercent * (0.5 + randFloat64()))
+		delay += jitter
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return nil, fmt.Errorf("search failed after %d retries: %v", cfg.MaxRetries, lastErr)
+}
+
+// randFloat64 returns a random float64 between 0 and 1
+func randFloat64() float64 {
+	return float64(time.Now().UnixNano()%1000) / 1000.0
 }
 
 func (t *tool) searchSearXNG(ctx context.Context, query string, max int, category, format string) ([]SearchResult, error) {
@@ -103,7 +283,9 @@ func (t *tool) searchSearXNGJSON(ctx context.Context, query string, max int, cat
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; GPTAgent/1.0)")
+	// Rotate User-Agent
+	ua := t.uaList[int(time.Now().UnixNano())%len(t.uaList)]
+	req.Header.Set("User-Agent", ua)
 
 	resp, err := t.http.Do(req)
 	if err != nil {
@@ -151,7 +333,9 @@ func (t *tool) searchSearXNGHTML(ctx context.Context, query string, max int, cat
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (compatible; GPTAgent/1.0)")
+	// Rotate User-Agent
+	ua := t.uaList[int(time.Now().UnixNano())%len(t.uaList)]
+	req.Header.Set("User-Agent", ua)
 
 	resp, err := t.http.Do(req)
 	if err != nil {

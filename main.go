@@ -20,13 +20,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/joho/godotenv"
 	"github.com/openai/openai-go/v2"
-    "github.com/openai/openai-go/v2/option"
-    "github.com/openai/openai-go/v2/packages/ssestream"
+	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go/v2/packages/ssestream"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -533,203 +534,319 @@ func runAgent(ctx context.Context, client openai.Client, cfg *Config, userQuery 
 // ---------- interactive TUI (bubbletea) ----------
 
 type tuiModel struct {
-    ctx       context.Context
-    client    openai.Client
-    cfg       *Config
-    maxSteps  int
+	ctx      context.Context
+	client   openai.Client
+	cfg      *Config
+	maxSteps int
 
-    // chat state persisted across turns
-    params    openai.ChatCompletionNewParams
+	// chat state persisted across turns
+	params openai.ChatCompletionNewParams
 
-    // UI
-    vp        viewport.Model
-    buf       string
-    input     textinput.Model
-    streaming bool
-    step      int
+	// UI
+	vp        viewport.Model
+	input     textinput.Model
+	streaming bool
+	step      int
 
-    // current streaming state
-    stream  *ssestream.Stream[openai.ChatCompletionChunk]
-    acc     openai.ChatCompletionAccumulator
+	// current streaming state
+	stream *ssestream.Stream[openai.ChatCompletionChunk]
+	acc    openai.ChatCompletionAccumulator
+
+	// chat state for rendering
+	messages     []chatMsg
+	streamingIdx int
+
+	// styles
+	userTag   lipgloss.Style
+	agentTag  lipgloss.Style
+	userText  lipgloss.Style
+	agentText lipgloss.Style
+	toolStyle lipgloss.Style
+	infoStyle lipgloss.Style
+
+	// scrolling state
+	userScrolled bool
+}
+
+type chatMsg struct {
+	kind    string // user | agent | tool | info
+	title   string
+	content string
 }
 
 func newTUIModel(ctx context.Context, client openai.Client, cfg *Config, maxSteps int) *tuiModel {
-    vp := viewport.New(80, 20)
-    vp.SetContent("Interactive mode. Type a prompt and press Enter to run. Ctrl+C to exit.\n\n")
-    in := textinput.New()
-    in.Prompt = "> "
-    in.Placeholder = "Ask the agent..."
-    in.Focus()
+	vp := viewport.New(80, 20)
+	in := textinput.New()
+	in.Prompt = "> "
+	in.Placeholder = "Ask the agent..."
+	in.Focus()
 
-    params := openai.ChatCompletionNewParams{
-        Messages: []openai.ChatCompletionMessageParamUnion{
-            openai.SystemMessage(systemPrompt(cfg)),
-        },
-        Tools: []openai.ChatCompletionToolUnionParam{
-            openai.ChatCompletionFunctionTool(runCLIFunctionDef(cfg)),
-        },
-        Model: openai.ChatModel(cfg.Model),
-    }
+	// styles
+	userTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1).MarginRight(1)
+	agentTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1).MarginRight(1)
+	toolStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("13")).Padding(0, 1)
+	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	userText := lipgloss.NewStyle().Foreground(lipgloss.Color("#E6F0FF"))
+	agentText := lipgloss.NewStyle().Foreground(lipgloss.Color("#ECE7FF"))
 
-    return &tuiModel{
-        ctx:      ctx,
-        client:   client,
-        cfg:      cfg,
-        maxSteps: maxSteps,
-        params:   params,
-        vp:       vp,
-        buf:      "Interactive mode. Type a prompt and press Enter to run. Ctrl+C to exit.\n\n",
-        input:    in,
-    }
+	params := openai.ChatCompletionNewParams{
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.SystemMessage(systemPrompt(cfg)),
+		},
+		Tools: []openai.ChatCompletionToolUnionParam{
+			openai.ChatCompletionFunctionTool(runCLIFunctionDef(cfg)),
+		},
+		Model: openai.ChatModel(cfg.Model),
+	}
+
+	m := &tuiModel{
+		ctx:          ctx,
+		client:       client,
+		cfg:          cfg,
+		maxSteps:     maxSteps,
+		params:       params,
+		vp:           vp,
+		input:        in,
+		messages:     []chatMsg{{kind: "info", title: "", content: "Interactive mode. Type a prompt and press Enter to run. Ctrl+C to exit."}},
+		streamingIdx: -1,
+		userTag:      userTag,
+		agentTag:     agentTag,
+		userText:     userText,
+		agentText:    agentText,
+		toolStyle:    toolStyle,
+		infoStyle:    infoStyle,
+	}
+	m.vp.SetContent(m.render())
+	return m
 }
 
 func (m *tuiModel) Init() tea.Cmd { return nil }
 
 type chunkMsg struct {
-    delta string
+	delta string
 }
 type streamDoneMsg struct {
-    acc openai.ChatCompletionAccumulator
+	acc openai.ChatCompletionAccumulator
 }
 type streamErrMsg struct{ err error }
 type appendMsg string
 
 func (m *tuiModel) cleanup() {
-    if m.stream != nil {
-        _ = m.stream.Close()
-        m.stream = nil
-    }
+	if m.stream != nil {
+		_ = m.stream.Close()
+		m.stream = nil
+	}
 }
 
 func (m *tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-    switch msg := msg.(type) {
-    case tea.WindowSizeMsg:
-        m.vp.Width = msg.Width
-        m.vp.Height = msg.Height - 3
-        m.vp.SetContent(m.buf)
-        return m, nil
-    case tea.KeyMsg:
-        switch msg.Type {
-        case tea.KeyCtrlC, tea.KeyEsc:
-            m.cleanup()
-            return m, tea.Quit
-        case tea.KeyEnter:
-            if m.streaming {
-                return m, nil
-            }
-            query := strings.TrimSpace(m.input.Value())
-            if query == "" {
-                return m, nil
-            }
-            // Append user message
-            m.params.Messages = append(m.params.Messages, openai.UserMessage(query))
-            m.buf += "\nYou: " + query + "\nAgent: "
-            m.vp.SetContent(m.buf)
-            m.input.SetValue("")
-            m.step = 0
-            m.streaming = true
-            return m, m.startAssistantStream()
-        }
-    case appendMsg:
-        m.buf += string(msg)
-        m.vp.SetContent(m.buf)
-        return m, nil
-    case chunkMsg:
-        if msg.delta != "" {
-            m.buf += msg.delta
-            m.vp.SetContent(m.buf)
-        }
-        return m, m.readNextChunk()
-    case streamDoneMsg:
-        // incorporate assistant message
-        m.params.Messages = append(m.params.Messages, msg.acc.Choices[0].Message.ToParam())
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.vp.Width = msg.Width
+		m.vp.Height = msg.Height - 3
+		m.vp.SetContent(m.render())
+		if !m.userScrolled {
+			m.vp.GotoBottom()
+		}
+		return m, nil
+	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyCtrlC, tea.KeyEsc:
+			m.cleanup()
+			return m, tea.Quit
+		case tea.KeyEnter:
+			if m.streaming {
+				return m, nil
+			}
+			query := strings.TrimSpace(m.input.Value())
+			if query == "" {
+				return m, nil
+			}
+			// Append user message
+			m.params.Messages = append(m.params.Messages, openai.UserMessage(query))
+			m.messages = append(m.messages, chatMsg{kind: "user", title: "You", content: query})
+			// Append empty agent message placeholder for streaming
+			m.messages = append(m.messages, chatMsg{kind: "agent", title: "Agent", content: ""})
+			m.streamingIdx = len(m.messages) - 1
+			m.vp.SetContent(m.render())
+			if !m.userScrolled {
+				m.vp.GotoBottom()
+			}
+			m.input.SetValue("")
+			m.step = 0
+			m.streaming = true
+			return m, m.startAssistantStream()
+		}
+	case chunkMsg:
+		if msg.delta != "" {
+			if m.streamingIdx >= 0 && m.streamingIdx < len(m.messages) {
+				m.messages[m.streamingIdx].content += msg.delta
+			}
+			m.vp.SetContent(m.render())
+			if !m.userScrolled {
+				m.vp.GotoBottom()
+			}
+		}
+		return m, m.readNextChunk()
+	case streamDoneMsg:
+		// incorporate assistant message
+		m.params.Messages = append(m.params.Messages, msg.acc.Choices[0].Message.ToParam())
 
-        // check for tool calls
-        if len(msg.acc.Choices) > 0 && len(msg.acc.Choices[0].Message.ToolCalls) > 0 {
-            // execute tools
-            for _, tc := range msg.acc.Choices[0].Message.ToolCalls {
-                if tc.Type == "function" {
-                    name := tc.Function.Name
-                    argsJSON := tc.Function.Arguments
-                    if name == "run_cli" {
-                        var a runCLIArgs
-                        if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
-                            m.params.Messages = append(m.params.Messages, openai.ToolMessage("invalid run_cli args: "+err.Error(), tc.ID))
-                            continue
-                        }
-                        res, err := runCLI(m.ctx, m.cfg, a)
-                        if err != nil {
-                            log.Error().Err(err).Msg("run_cli failed")
-                        }
-                        payload, _ := json.MarshalIndent(res, "", "  ")
-                        m.buf += "\n[run_cli executed]\n"
-                        m.vp.SetContent(m.buf)
-                        m.params.Messages = append(m.params.Messages, openai.ToolMessage(string(payload), tc.ID))
-                    } else {
-                        // unknown function
-                        m.params.Messages = append(m.params.Messages, openai.ToolMessage("tool not implemented", tc.ID))
-                    }
-                }
-            }
-            // Continue to next assistant step if under maxSteps
-            m.step++
-            if m.step < m.maxSteps {
-                return m, m.startAssistantStream()
-            }
-        } else {
-            // final answer (no tools)
-            m.buf += "\n\n"
-            m.vp.SetContent(m.buf)
-        }
-        m.streaming = false
-        return m, nil
-    case streamErrMsg:
-        m.buf += "\n[stream error: " + msg.err.Error() + "]\n"
-        m.vp.SetContent(m.buf)
-        m.streaming = false
-        return m, nil
-    }
+		// check for tool calls
+		if len(msg.acc.Choices) > 0 && len(msg.acc.Choices[0].Message.ToolCalls) > 0 {
+			// execute tools
+			for _, tc := range msg.acc.Choices[0].Message.ToolCalls {
+				if tc.Type == "function" {
+					name := tc.Function.Name
+					argsJSON := tc.Function.Arguments
+					if name == "run_cli" {
+						var a runCLIArgs
+						if err := json.Unmarshal([]byte(argsJSON), &a); err != nil {
+							m.params.Messages = append(m.params.Messages, openai.ToolMessage("invalid run_cli args: "+err.Error(), tc.ID))
+							continue
+						}
+						res, err := runCLI(m.ctx, m.cfg, a)
+						if err != nil {
+							log.Error().Err(err).Msg("run_cli failed")
+						}
+						payload, _ := json.MarshalIndent(res, "", "  ")
+						// styled tool message in TUI
+						pretty := formatToolPayload(a, res)
+						m.messages = append(m.messages, chatMsg{kind: "tool", title: "Tool: run_cli", content: pretty})
+						m.vp.SetContent(m.render())
+						if !m.userScrolled {
+							m.vp.GotoBottom()
+						}
+						m.params.Messages = append(m.params.Messages, openai.ToolMessage(string(payload), tc.ID))
+					} else {
+						// unknown function
+						m.params.Messages = append(m.params.Messages, openai.ToolMessage("tool not implemented", tc.ID))
+					}
+				}
+			}
+			// Continue to next assistant step if under maxSteps
+			m.step++
+			if m.step < m.maxSteps {
+				// add a new agent block to stream into
+				m.messages = append(m.messages, chatMsg{kind: "agent", title: "Agent", content: ""})
+				m.streamingIdx = len(m.messages) - 1
+				m.vp.SetContent(m.render())
+				if !m.userScrolled {
+					m.vp.GotoBottom()
+				}
+				return m, m.startAssistantStream()
+			}
+		} else {
+			// final answer (no tools)
+			// already rendered
+		}
+		m.streaming = false
+		m.streamingIdx = -1
+		return m, nil
+	case streamErrMsg:
+		m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "stream error: " + msg.err.Error()})
+		m.vp.SetContent(m.render())
+		if !m.userScrolled {
+			m.vp.GotoBottom()
+		}
+		m.streaming = false
+		return m, nil
+	}
 
-    // default: update input and viewport
-    var cmd tea.Cmd
-    m.input, cmd = m.input.Update(msg)
-    return m, cmd
+	// default: update input and viewport
+	var cmd tea.Cmd
+	m.input, cmd = m.input.Update(msg)
+	return m, cmd
 }
 
 func (m *tuiModel) View() string {
-    return m.vp.View() + "\n" + m.input.View()
+	return m.vp.View() + "\n" + m.input.View()
 }
 
 func (m *tuiModel) startAssistantStream() tea.Cmd {
-    // initialize a new stream and accumulator on the model
-    m.acc = openai.ChatCompletionAccumulator{}
-    m.stream = m.client.Chat.Completions.NewStreaming(m.ctx, m.params)
-    return m.readNextChunk()
+	// initialize a new stream and accumulator on the model
+	m.acc = openai.ChatCompletionAccumulator{}
+	m.stream = m.client.Chat.Completions.NewStreaming(m.ctx, m.params)
+	return m.readNextChunk()
 }
 
 func (m *tuiModel) readNextChunk() tea.Cmd {
-    return func() tea.Msg {
-        if m.stream == nil {
-            return streamErrMsg{errors.New("stream not initialized")}
-        }
-        if m.stream.Next() {
-            ch := m.stream.Current()
-            m.acc.AddChunk(ch)
-            if len(ch.Choices) > 0 && ch.Choices[0].Delta.Content != "" {
-                return chunkMsg{delta: ch.Choices[0].Delta.Content}
-            }
-            // non-content delta (e.g., tool call)
-            return chunkMsg{delta: ""}
-        }
-        // stream finished
-        err := m.stream.Err()
-        _ = m.stream.Close()
-        m.stream = nil
-        if err != nil {
-            return streamErrMsg{err}
-        }
-        return streamDoneMsg{acc: m.acc}
-    }
+	return func() tea.Msg {
+		if m.stream == nil {
+			return streamErrMsg{errors.New("stream not initialized")}
+		}
+		if m.stream.Next() {
+			ch := m.stream.Current()
+			m.acc.AddChunk(ch)
+			if len(ch.Choices) > 0 && ch.Choices[0].Delta.Content != "" {
+				return chunkMsg{delta: ch.Choices[0].Delta.Content}
+			}
+			// non-content delta (e.g., tool call)
+			return chunkMsg{delta: ""}
+		}
+		// stream finished
+		err := m.stream.Err()
+		_ = m.stream.Close()
+		m.stream = nil
+		if err != nil {
+			return streamErrMsg{err}
+		}
+		return streamDoneMsg{acc: m.acc}
+	}
+}
+
+func (m *tuiModel) render() string {
+	var b strings.Builder
+	width := m.vp.Width
+	for i, msg := range m.messages {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(m.renderMsg(msg, width))
+	}
+	return b.String()
+}
+
+func (m *tuiModel) renderMsg(cm chatMsg, width int) string {
+	maxw := width
+	if maxw < 20 {
+		maxw = 20
+	}
+	wrap := lipgloss.NewStyle().MaxWidth(maxw)
+	switch cm.kind {
+	case "user":
+		header := m.userTag.Render("You")
+		body := m.userText.Render(wrap.Render(cm.content))
+		return header + "\n" + body
+	case "agent":
+		header := m.agentTag.Render("Agent")
+		body := m.agentText.Render(wrap.Render(cm.content))
+		return header + "\n" + body
+	case "tool":
+		header := lipgloss.NewStyle().Bold(true).Render(cm.title)
+		return m.toolStyle.Render(header + "\n" + wrap.Render(cm.content))
+	default:
+		return m.infoStyle.Render(cm.content)
+	}
+}
+
+func formatToolPayload(args runCLIArgs, res toolResult) string {
+	var b strings.Builder
+	if args.Command != "" {
+		b.WriteString(fmt.Sprintf("$ %s %s\n", args.Command, strings.Join(args.Args, " ")))
+	}
+	b.WriteString(fmt.Sprintf("exit %d | ok=%v | %dms\n", res.ExitCode, res.OK, res.DurationMS))
+	if res.Truncated {
+		b.WriteString("(output truncated)\n")
+	}
+	if strings.TrimSpace(res.Stdout) != "" {
+		b.WriteString("\nstdout:\n")
+		b.WriteString(res.Stdout)
+	}
+	if strings.TrimSpace(res.Stderr) != "" {
+		b.WriteString("\nstderr:\n")
+		b.WriteString(res.Stderr)
+	}
+	return b.String()
 }
 
 // ---------- helpers ----------
@@ -772,16 +889,16 @@ func main() {
 	╚══════╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝╚═╝   ╚═╝╚═╝   ╚═╝      ╚═╝             ╚═╝ ╚═════╝
 	`)
 
-    query := flag.String("q", "", "User request for the agent (required unless -interactive)")
-    maxSteps := flag.Int("max-steps", 8, "Max reasoning/act iterations")
-    verbose := flag.Bool("v", false, "Verbose logs")
-    interactive := flag.Bool("interactive", false, "Run in interactive TUI mode (streaming)")
-    flag.Parse()
+	query := flag.String("q", "", "User request for the agent (required unless -interactive)")
+	maxSteps := flag.Int("max-steps", 8, "Max reasoning/act iterations")
+	verbose := flag.Bool("v", false, "Verbose logs")
+	interactive := flag.Bool("interactive", false, "Run in interactive TUI mode (streaming)")
+	flag.Parse()
 
-    if !*interactive && *query == "" {
-        fmt.Fprintln(os.Stderr, "Usage: go run . -q \"List files and print README.md if present\" [-max-steps 8] or use -interactive")
-        os.Exit(2)
-    }
+	if !*interactive && *query == "" {
+		fmt.Fprintln(os.Stderr, "Usage: go run . -q \"List files and print README.md if present\" [-max-steps 8] or use -interactive")
+		os.Exit(2)
+	}
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -835,19 +952,19 @@ func main() {
 
 	client := newOpenAIClient(cfg)
 
-    if *interactive {
-        p := tea.NewProgram(newTUIModel(ctx, client, cfg, *maxSteps), tea.WithContext(ctx))
-        if _, err := p.Run(); err != nil {
-            log.Fatal().Err(err).Msg("interactive error")
-        }
-        return
-    }
+	if *interactive {
+		p := tea.NewProgram(newTUIModel(ctx, client, cfg, *maxSteps), tea.WithContext(ctx))
+		if _, err := p.Run(); err != nil {
+			log.Fatal().Err(err).Msg("interactive error")
+		}
+		return
+	}
 
-    answer, err := runAgent(ctx, client, cfg, *query, *maxSteps)
-    if err != nil {
-        log.Fatal().Err(err).Msg("agent error")
-    }
-    log.Info().Str("answer_preview", answer).Msg("agent_answer")
-    fmt.Println("\n=== Agent Answer ===")
-    fmt.Println(answer)
+	answer, err := runAgent(ctx, client, cfg, *query, *maxSteps)
+	if err != nil {
+		log.Fatal().Err(err).Msg("agent error")
+	}
+	log.Info().Str("answer_preview", answer).Msg("agent_answer")
+	fmt.Println("\n=== Agent Answer ===")
+	fmt.Println(answer)
 }

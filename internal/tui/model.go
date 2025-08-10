@@ -35,11 +35,12 @@ type Model struct {
 	rightVP viewport.Model
 	input   textinput.Model
 
-	messages         []chatMsg
-	currentMessage   *chatMsg // For streaming content
-	running          bool
-	toolCh           chan chatMsg
-	streamingDeltaCh chan string
+	messages            []chatMsg
+	currentMessage      *chatMsg // For streaming content
+	currentMessageIndex int      // Track the index of the current streaming message
+	running             bool
+	toolCh              chan chatMsg
+	streamingDeltaCh    chan string
 
 	// styles
 	userTag                lipgloss.Style
@@ -144,8 +145,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// start reading events and engine in parallel
 			m.toolCh = make(chan chatMsg, 32)
 			m.streamingDeltaCh = make(chan string, 64)
-			// Initialize streaming message
+			// Initialize streaming message and track its index
 			m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
+			m.currentMessageIndex = len(m.messages) // Store the index before appending
 			m.messages = append(m.messages, *m.currentMessage)
 			m.setView()
 			return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
@@ -169,9 +171,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update the current streaming message with new content
 		if m.currentMessage != nil {
 			m.currentMessage.content += string(msg)
-			// Update the last message in the slice
-			if len(m.messages) > 0 {
-				m.messages[len(m.messages)-1] = *m.currentMessage
+			// Update the specific streaming message by index, not the last message
+			if m.currentMessageIndex < len(m.messages) {
+				m.messages[m.currentMessageIndex] = *m.currentMessage
 			}
 			m.setView()
 		}
@@ -194,7 +196,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Finalize the streaming message
 		if m.currentMessage != nil {
-			m.currentMessage = nil // Reset current message
+			m.currentMessage = nil     // Reset current message
+			m.currentMessageIndex = -1 // Reset index tracking
 		}
 		// update history (porting CLI behavior) - streaming already handled the final assistant message
 		m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})

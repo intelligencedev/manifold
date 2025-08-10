@@ -120,7 +120,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 			}
 		}
 
-		// Check if we're done (finish_reason indicates completion)
+		// Check if we're done with this step (finish_reason indicates completion)
 		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
 			// Send all accumulated tool calls
 			for _, tc := range toolCalls {
@@ -128,6 +128,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 					h.OnToolCall(*tc)
 				}
 			}
+			break // Exit the stream loop when we get a finish reason
 		}
 	}
 

@@ -85,6 +85,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	registry := tools.NewRegistry()
 	registry.Register(cli.NewTool(exec))
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
+	registry.Register(web.NewFetchTool())
 
 	// Engine setup (matches cmd/agent wiring)
 	eng := agent.Engine{

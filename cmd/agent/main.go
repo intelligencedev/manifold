@@ -44,6 +44,7 @@ func main() {
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
+	registry.Register(web.NewFetchTool())              // provides web_fetch
 
 	eng := agent.Engine{
 		LLM:      llm,

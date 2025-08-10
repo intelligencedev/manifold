@@ -165,7 +165,7 @@ func (f *Fetcher) FetchMarkdown(ctx context.Context, rawURL string) (*Result, er
 	// Set browser-like headers
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+	// NOTE: Do NOT set Accept-Encoding manually - let Go's HTTP client handle compression automatically
 
 	resp, err := f.client.Do(req)
 	if err != nil {

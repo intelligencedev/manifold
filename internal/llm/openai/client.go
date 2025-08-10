@@ -31,46 +31,9 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
         Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
     }
     // messages
-    for _, m := range msgs {
-        switch m.Role {
-        case "system":
-            params.Messages = append(params.Messages, sdk.SystemMessage(m.Content))
-        case "user":
-            params.Messages = append(params.Messages, sdk.UserMessage(m.Content))
-        case "assistant":
-            if len(m.ToolCalls) == 0 {
-                params.Messages = append(params.Messages, sdk.AssistantMessage(m.Content))
-            } else {
-                var asst sdk.ChatCompletionAssistantMessageParam
-                if m.Content != "" {
-                    asst.Content.OfString = sdk.String(m.Content)
-                }
-                for _, tc := range m.ToolCalls {
-                    // function tool call variant
-                    fn := sdk.ChatCompletionMessageFunctionToolCallParam{
-                        ID: tc.ID,
-                        Function: sdk.ChatCompletionMessageFunctionToolCallFunctionParam{
-                            Arguments: string(tc.Args),
-                            Name:      tc.Name,
-                        },
-                    }
-                    asst.ToolCalls = append(asst.ToolCalls, sdk.ChatCompletionMessageToolCallUnionParam{OfFunction: &fn})
-                }
-                params.Messages = append(params.Messages, sdk.ChatCompletionMessageParamUnion{OfAssistant: &asst})
-            }
-        case "tool":
-            params.Messages = append(params.Messages, sdk.ToolMessage(m.Content, m.ToolID))
-        }
-    }
+    params.Messages = AdaptMessages(msgs)
     // tools
-    for _, t := range tools {
-        def := sdk.FunctionDefinitionParam{
-            Name:        t.Name,
-            Description: sdk.String(t.Description),
-            Parameters:  t.Parameters,
-        }
-        params.Tools = append(params.Tools, sdk.ChatCompletionFunctionTool(def))
-    }
+    params.Tools = AdaptSchemas(tools)
     comp, err := c.sdk.Chat.Completions.New(ctx, params)
     if err != nil {
         return llm.Message{}, err
@@ -81,11 +44,20 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
     msg := comp.Choices[0].Message
     out := llm.Message{Role: "assistant", Content: msg.Content}
     for _, tc := range msg.ToolCalls {
-        out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-            Name: tc.Function.Name,
-            Args: json.RawMessage(tc.Function.Arguments),
-            ID:   tc.ID,
-        })
+        switch v := tc.AsAny().(type) {
+        case sdk.ChatCompletionMessageFunctionToolCall:
+            out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+                Name: v.Function.Name,
+                Args: json.RawMessage(v.Function.Arguments),
+                ID:   v.ID,
+            })
+        case sdk.ChatCompletionMessageCustomToolCall:
+            out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+                Name: v.Custom.Name,
+                Args: json.RawMessage(v.Custom.Input),
+                ID:   v.ID,
+            })
+        }
     }
     return out, nil
 }

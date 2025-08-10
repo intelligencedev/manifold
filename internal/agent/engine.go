@@ -2,7 +2,6 @@ package agent
 
 import (
     "context"
-    "encoding/json"
     "fmt"
 
     "gptagent/internal/llm"
@@ -17,8 +16,8 @@ type Engine struct {
 }
 
 // Run executes the agent loop until the model produces a final answer.
-func (e *Engine) Run(ctx context.Context, userInput string, history []Message) (string, error) {
-    msgs := []llm.Message{{Role: "system", Content: e.System}, {Role: "user", Content: userInput}}
+func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Message) (string, error) {
+    msgs := BuildInitialLLMMessages(e.System, userInput, history)
 
     var final string
     for step := 0; step < e.MaxSteps; step++ {
@@ -39,10 +38,4 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []Message) (
 func (e *Engine) model() string { return "" }
 
 // Message exists for future agent-level message modeling.
-type Message struct {
-    Role string
-    Content string
-    ToolID string
-    ToolCalls []struct{ Name string; Args json.RawMessage; ID string }
-}
-
+// Message type removed in favor of llm.Message throughout the engine API.

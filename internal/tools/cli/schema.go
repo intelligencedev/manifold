@@ -3,6 +3,11 @@ package cli
 // buildSchema constructs the OpenAI-compatible JSON schema for run_cli.
 func buildSchema(t *tool) map[string]any {
     max := 30 // default; the ExecutorImpl enforces its own max timeout too
+    if impl, ok := t.exec.(*ExecutorImpl); ok {
+        if impl.cfg.MaxCommandSeconds > 0 {
+            max = impl.cfg.MaxCommandSeconds
+        }
+    }
     return map[string]any{
         "name":        "run_cli",
         "description": "Execute a CLI command in a restricted working directory (no shell, no absolute paths).",
@@ -18,4 +23,3 @@ func buildSchema(t *tool) map[string]any {
         },
     }
 }
-

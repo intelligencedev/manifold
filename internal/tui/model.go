@@ -228,11 +228,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.messages[m.currentMessageIndex] = *m.currentMessage
 			}
 			// Only update the left pane since streaming content goes there
-			// Store current scroll position to minimize jarring updates
+			// Store current scroll position to handle focus-aware scrolling
 			oldYOffset := m.leftVP.YOffset
 			m.setLeftView()
-			// If user was manually scrolling and not near bottom, try to maintain their position
-			if m.userScrolledL && !m.isNearBottom(m.leftVP) && oldYOffset < m.leftVP.TotalLineCount()-m.leftVP.Height {
+			// If left pane is focused AND user was manually scrolling and not near bottom,
+			// try to maintain their position to avoid interrupting their reading
+			if m.activePanel == "left" && m.userScrolledL && !m.isNearBottom(m.leftVP) && oldYOffset < m.leftVP.TotalLineCount()-m.leftVP.Height {
 				m.leftVP.YOffset = oldYOffset
 			}
 		}
@@ -241,11 +242,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// append immediate tool/assistant events
 		m.messages = append(m.messages, chatMsg(msg))
 		// Only update the right pane since tool events go there
-		// Store current scroll position to minimize jarring updates
+		// Store current scroll position to handle focus-aware scrolling
 		oldYOffset := m.rightVP.YOffset
 		m.setRightView()
-		// If user was manually scrolling and not near bottom, try to maintain their position
-		if m.userScrolledR && !m.isNearBottom(m.rightVP) && oldYOffset < m.rightVP.TotalLineCount()-m.rightVP.Height {
+		// If right pane is focused AND user was manually scrolling and not near bottom,
+		// try to maintain their position to avoid interrupting their reading
+		if m.activePanel == "right" && m.userScrolledR && !m.isNearBottom(m.rightVP) && oldYOffset < m.rightVP.TotalLineCount()-m.rightVP.Height {
 			m.rightVP.YOffset = oldYOffset
 		}
 		return m, m.readNextEvent()
@@ -451,9 +453,11 @@ func (m *Model) setView() {
 
 func (m *Model) setLeftView() {
 	m.leftVP.SetContent(m.renderChat(m.leftVP.Width))
-	// Auto-scroll to bottom if user hasn't manually scrolled OR if they're near the bottom
-	// This ensures streaming content is followed even after user has scrolled
-	if !m.userScrolledL || m.isNearBottom(m.leftVP) {
+	// Auto-scroll to bottom if:
+	// 1. Left pane is not focused (activePanel != "left"), OR
+	// 2. User hasn't manually scrolled in this pane, OR
+	// 3. User is near the bottom (to follow streaming content)
+	if m.activePanel != "left" || !m.userScrolledL || m.isNearBottom(m.leftVP) {
 		m.leftVP.GotoBottom()
 	}
 }
@@ -466,8 +470,11 @@ func (m *Model) isNearBottom(vp viewport.Model) bool {
 
 func (m *Model) setRightView() {
 	m.rightVP.SetContent(m.renderTools(m.rightVP.Width))
-	// Auto-scroll to bottom if user hasn't manually scrolled OR if they're near the bottom
-	if !m.userScrolledR || m.isNearBottom(m.rightVP) {
+	// Auto-scroll to bottom if:
+	// 1. Right pane is not focused (activePanel != "right"), OR
+	// 2. User hasn't manually scrolled in this pane, OR
+	// 3. User is near the bottom (to follow new tool output)
+	if m.activePanel != "right" || !m.userScrolledR || m.isNearBottom(m.rightVP) {
 		m.rightVP.GotoBottom()
 	}
 }

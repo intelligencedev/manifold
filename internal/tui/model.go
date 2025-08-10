@@ -35,9 +35,11 @@ type Model struct {
 	rightVP viewport.Model
 	input   textinput.Model
 
-	messages []chatMsg
-	running  bool
-	toolCh   chan chatMsg
+	messages         []chatMsg
+	currentMessage   *chatMsg // For streaming content
+	running          bool
+	toolCh           chan chatMsg
+	streamingDeltaCh chan string
 
 	// styles
 	userTag                lipgloss.Style
@@ -141,7 +143,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.running = true
 			// start reading events and engine in parallel
 			m.toolCh = make(chan chatMsg, 32)
-			return m, tea.Batch(m.readNextEvent(), m.runEngine(q))
+			m.streamingDeltaCh = make(chan string, 64)
+			// Initialize streaming message
+			m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
+			m.messages = append(m.messages, *m.currentMessage)
+			m.setView()
+			return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
 		}
 	case tea.WindowSizeMsg:
 		// Split width evenly between left and right panes with a 1-col separator
@@ -158,6 +165,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rightVP.Height = msg.Height - 3
 		m.setView()
 		return m, nil
+	case streamDeltaMsg:
+		// Update the current streaming message with new content
+		if m.currentMessage != nil {
+			m.currentMessage.content += string(msg)
+			// Update the last message in the slice
+			if len(m.messages) > 0 {
+				m.messages[len(m.messages)-1] = *m.currentMessage
+			}
+			m.setView()
+		}
+		return m, m.readStreamingDelta()
 	case toolEventMsg:
 		// append immediate tool/assistant events
 		m.messages = append(m.messages, chatMsg(msg))
@@ -174,8 +192,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setView()
 			return m, nil
 		}
-		// update history (porting CLI behavior) - don't append the final assistant message
-		// since OnAssistant callback already handled it
+		// Finalize the streaming message
+		if m.currentMessage != nil {
+			m.currentMessage = nil // Reset current message
+		}
+		// update history (porting CLI behavior) - streaming already handled the final assistant message
 		m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})
 		m.setView()
 		return m, nil
@@ -213,6 +234,53 @@ type runResult struct {
 }
 type toolEventMsg chatMsg
 type toolStreamClosed struct{}
+type streamDeltaMsg string
+
+func (m *Model) runStreamingEngine(user string) tea.Cmd {
+	return func() tea.Msg {
+		events := make([]chatMsg, 0, 4)
+		rec := tools.NewRecordingRegistry(m.eng.Tools, func(ev tools.DispatchEvent) {
+			title := "Tool: " + ev.Name
+			content := string(ev.Payload)
+			if ev.Name == "run_cli" {
+				var args struct {
+					Command        string   `json:"command"`
+					Args           []string `json:"args"`
+					TimeoutSeconds int      `json:"timeout_seconds"`
+					Stdin          string   `json:"stdin"`
+				}
+				var res cli.ExecResult
+				_ = json.Unmarshal(ev.Args, &args)
+				if err := json.Unmarshal(ev.Payload, &res); err == nil {
+					content = formatToolPayload(args.Command, args.Args, res)
+				}
+			}
+			cm := chatMsg{kind: "tool", title: title, content: content}
+			events = append(events, cm)
+			select {
+			case m.toolCh <- cm:
+			default:
+			}
+		})
+		eng := m.eng
+		eng.Tools = rec
+		// Set up streaming delta handler
+		eng.OnDelta = func(delta string) {
+			select {
+			case m.streamingDeltaCh <- delta:
+			default:
+			}
+		}
+		// Don't use OnAssistant for streaming since we handle deltas directly
+		eng.OnAssistant = nil
+
+		ans, err := eng.RunStream(m.ctx, user, m.history)
+		// close streams after engine returns
+		close(m.toolCh)
+		close(m.streamingDeltaCh)
+		return runResult{text: ans, err: err, events: events}
+	}
+}
 
 func (m *Model) runEngine(user string) tea.Cmd {
 	return func() tea.Msg {
@@ -272,6 +340,19 @@ func (m *Model) readNextEvent() tea.Cmd {
 	}
 }
 
+func (m *Model) readStreamingDelta() tea.Cmd {
+	return func() tea.Msg {
+		if m.streamingDeltaCh == nil {
+			return toolStreamClosed{}
+		}
+		delta, ok := <-m.streamingDeltaCh
+		if !ok {
+			return toolStreamClosed{}
+		}
+		return streamDeltaMsg(delta)
+	}
+}
+
 func (m *Model) renderChat(width int) string {
 	var b strings.Builder
 	cnt := 0
@@ -312,7 +393,8 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 	if maxw < 20 {
 		maxw = 20
 	}
-	wrap := lipgloss.NewStyle().MaxWidth(maxw)
+	// Create a style with proper word wrapping
+	wrap := lipgloss.NewStyle().MaxWidth(maxw).Padding(0)
 	switch cm.kind {
 	case "user":
 		header := m.userTag.Render("You")
@@ -333,10 +415,10 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 				inw = 1
 			}
 		}
-		innerWrap := lipgloss.NewStyle().MaxWidth(inw)
+		innerWrap := lipgloss.NewStyle().MaxWidth(inw).Padding(0)
 		return m.toolStyle.Render(header + "\n" + innerWrap.Render(cm.content))
 	default:
-		return m.infoStyle.Render(cm.content)
+		return m.infoStyle.Render(wrap.Render(cm.content))
 	}
 }
 

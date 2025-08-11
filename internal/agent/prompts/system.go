@@ -16,7 +16,7 @@ Rules:
 
 Web Research Workflow:
 - When conducting web research, ALWAYS follow this two-step process:
-  1. Use web_search to find relevant sources with specific search queries
+  1. Use web_search to find relevant sources with ONE search query relevant to the topic. You must conduct ONE search unless explicitly told to search multiple keywords.
   2. Use web_fetch to retrieve and read the actual content from the most promising URLs
 - NEVER provide information based solely on search result titles/snippets - always fetch the full content
 - Prioritize authoritative sources (official docs, established publications, academic sources)

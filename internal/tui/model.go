@@ -1,10 +1,10 @@
 package tui
 
 import (
-	"context"
-	"encoding/json"
-	"fmt"
-	"strings"
+    "context"
+    "encoding/json"
+    "fmt"
+    "strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -15,9 +15,13 @@ import (
 	"gptagent/internal/agent/prompts"
 	"gptagent/internal/config"
 	"gptagent/internal/llm"
-	"gptagent/internal/tools"
-	"gptagent/internal/tools/cli"
-	"gptagent/internal/tools/web"
+    "gptagent/internal/tools"
+    "gptagent/internal/tools/cli"
+    "gptagent/internal/tools/fs"
+    "gptagent/internal/tools/web"
+    openai "gptagent/internal/llm/openai"
+    llmtools "gptagent/internal/tools/llmtool"
+    "gptagent/internal/warpp"
 )
 
 type Model struct {
@@ -41,7 +45,10 @@ type Model struct {
 	currentMessageIndex int      // Track the index of the current streaming message
 	running             bool
 	toolCh              chan chatMsg
-	streamingDeltaCh    chan string
+    streamingDeltaCh    chan string
+
+    // demo flags
+    warppDemo bool
 
 	// styles
 	userTag                lipgloss.Style
@@ -66,7 +73,7 @@ type chatMsg struct {
 	content string
 }
 
-func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exec cli.Executor, maxSteps int) *Model {
+func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exec cli.Executor, maxSteps int, warppDemo bool) *Model {
 	left := viewport.New(80, 20)
 	right := viewport.New(40, 20)
 	in := textinput.New()
@@ -82,10 +89,18 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	agentText := lipgloss.NewStyle().Foreground(lipgloss.Color("#ECE7FF"))
 
 	// Tool registry
-	registry := tools.NewRegistry()
-	registry.Register(cli.NewTool(exec))
-	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
-	registry.Register(web.NewFetchTool())
+    registry := tools.NewRegistry()
+    registry.Register(cli.NewTool(exec))
+    registry.Register(web.NewTool(cfg.Web.SearXNGURL))
+    registry.Register(web.NewFetchTool())
+    registry.Register(fs.NewWriteTool(cfg.Workdir))
+    // In TUI, build a provider factory with a default HTTP client
+    factory := func(baseURL string) llm.Provider {
+        c2 := cfg.OpenAI
+        c2.BaseURL = baseURL
+        return openai.New(c2, nil)
+    }
+    registry.Register(llmtools.NewTransform(provider, cfg.OpenAI.Model, factory))
 
 	// Engine setup (matches cmd/agent wiring)
 	eng := agent.Engine{
@@ -95,13 +110,14 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		System:   prompts.DefaultSystemPrompt(cfg.Workdir),
 	}
 
-	m := &Model{
-		ctx:                    ctx,
-		provider:               provider,
-		cfg:                    cfg,
-		exec:                   exec,
-		maxSteps:               maxSteps,
-		eng:                    eng,
+    m := &Model{
+        ctx:                    ctx,
+        provider:               provider,
+        cfg:                    cfg,
+        exec:                   exec,
+        maxSteps:               maxSteps,
+        eng:                    eng,
+        warppDemo:              warppDemo,
 		leftVP:                 left,
 		rightVP:                right,
 		input:                  in,
@@ -141,27 +157,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = "left"
 			}
 			return m, nil
-		case "enter":
-			if m.running {
-				return m, nil
-			}
-			q := strings.TrimSpace(m.input.Value())
-			if q == "" {
-				return m, nil
-			}
-			m.input.SetValue("")
-			m.messages = append(m.messages, chatMsg{kind: "user", title: "You", content: q})
-			m.setView()
-			m.running = true
-			// start reading events and engine in parallel
-			m.toolCh = make(chan chatMsg, 32)
-			m.streamingDeltaCh = make(chan string, 64)
-			// Initialize streaming message and track its index
-			m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
-			m.currentMessageIndex = len(m.messages) // Store the index before appending
-			m.messages = append(m.messages, *m.currentMessage)
-			m.setView()
-			return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
+        case "enter":
+            if m.running {
+                return m, nil
+            }
+            q := strings.TrimSpace(m.input.Value())
+            if q == "" {
+                return m, nil
+            }
+            m.input.SetValue("")
+            m.messages = append(m.messages, chatMsg{kind: "user", title: "You", content: q})
+            m.setView()
+            m.running = true
+            // start reading events and engine in parallel
+            m.toolCh = make(chan chatMsg, 32)
+            if m.warppDemo {
+                // WARPP demo does not stream tokens; produce a final answer at once
+                return m, tea.Batch(m.readNextEvent(), m.runWARPPDemo(q))
+            }
+            m.streamingDeltaCh = make(chan string, 64)
+            // Initialize streaming message and track its index
+            m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
+            m.currentMessageIndex = len(m.messages) // Store the index before appending
+            m.messages = append(m.messages, *m.currentMessage)
+            m.setView()
+            return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
 		case "up", "down", "pgup", "pgdn", "home", "end":
 			// Handle scrolling for the active pane only
 			if m.activePanel == "left" {
@@ -253,24 +273,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.readNextEvent()
 	case toolStreamClosed:
 		return m, nil
-	case runResult:
-		m.running = false
-		// tool events are already handled by the streaming mechanism via toolEventMsg
-		// no need to append msg.events here as it would create duplicates
-		if msg.err != nil {
-			m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "error: " + msg.err.Error()})
-			m.setView()
-			return m, nil
-		}
-		// Finalize the streaming message
-		if m.currentMessage != nil {
-			m.currentMessage = nil     // Reset current message
-			m.currentMessageIndex = -1 // Reset index tracking
-		}
-		// update history (porting CLI behavior) - streaming already handled the final assistant message
-		m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})
-		m.setView()
-		return m, nil
+    case runResult:
+        m.running = false
+        // tool events are already handled by the streaming mechanism via toolEventMsg
+        // no need to append msg.events here as it would create duplicates
+        if msg.err != nil {
+            m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "error: " + msg.err.Error()})
+            m.setView()
+            return m, nil
+        }
+        if m.currentMessage == nil {
+            // Non-streaming path (e.g., WARPP demo): append the final answer now
+            if msg.text != "" {
+                m.messages = append(m.messages, chatMsg{kind: "agent", title: "Agent", content: msg.text})
+            }
+        } else {
+            // Streaming path: finalize the in-progress assistant message
+            m.currentMessage = nil
+            m.currentMessageIndex = -1
+        }
+        // update history
+        m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})
+        m.setView()
+        return m, nil
 	}
 
 	// default: update input only (viewports are handled above for focused scrolling)
@@ -349,6 +374,60 @@ func (m *Model) runStreamingEngine(user string) tea.Cmd {
 		close(m.streamingDeltaCh)
 		return runResult{text: ans, err: err, events: events}
 	}
+}
+
+// runWARPP executes the production WARPP runner using loaded workflows
+// (defaults included) and posts tool outputs to the right pane and a summarized
+// result to the chat pane.
+func (m *Model) runWARPPDemo(user string) tea.Cmd {
+    return func() tea.Msg {
+        events := make([]chatMsg, 0, 4)
+        rec := tools.NewRecordingRegistry(m.eng.Tools, func(ev tools.DispatchEvent) {
+            title := "Tool: " + ev.Name
+            content := string(ev.Payload)
+            if ev.Name == "run_cli" {
+                var args struct {
+                    Command        string   `json:"command"`
+                    Args           []string `json:"args"`
+                    TimeoutSeconds int      `json:"timeout_seconds"`
+                    Stdin          string   `json:"stdin"`
+                }
+                var res cli.ExecResult
+                _ = json.Unmarshal(ev.Args, &args)
+                if err := json.Unmarshal(ev.Payload, &res); err == nil {
+                    content = formatToolPayload(args.Command, args.Args, res)
+                }
+            }
+            cm := chatMsg{kind: "tool", title: title, content: content}
+            events = append(events, cm)
+            select {
+            case m.toolCh <- cm:
+            default:
+            }
+        })
+
+        // Build WARPP runner
+        wfreg, _ := warpp.LoadFromDir("configs/workflows")
+        runner := &warpp.Runner{Workflows: wfreg, Tools: rec}
+
+        // Stage 1: intent + workflow
+        intent := runner.DetectIntent(m.ctx, user)
+        wf, _ := wfreg.Get(intent)
+        attrs := warpp.Attrs{"utter": user}
+        // Stage 2: personalization (our runner does simple inference and trimming)
+        wfStar, _, attrs, err := runner.Personalize(m.ctx, wf, attrs)
+        if err != nil {
+            close(m.toolCh)
+            return runResult{text: "", err: err, events: events}
+        }
+        // Build allowlist from referenced tools
+        allow := map[string]bool{}
+        for _, s := range wfStar.Steps { if s.Tool != nil { allow[s.Tool.Name] = true } }
+        // Stage 3: execution
+        finalText, err := runner.Execute(m.ctx, wfStar, allow, attrs)
+        close(m.toolCh)
+        return runResult{text: finalText, err: err, events: events}
+    }
 }
 
 func (m *Model) readNextEvent() tea.Cmd {

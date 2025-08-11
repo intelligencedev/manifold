@@ -32,6 +32,7 @@ Key files
 Bundled workflows (examples)
 
 - deep_web_report — researches a topic and writes a deep research style report to report.md using tools: web_search → web_fetch → write_file
+  - Now includes multiple fetch steps (first and second search results). The runner synthesizes a report combining multiple sources before writing, and finally echoes report.md to the console using run_cli (cat or type on Windows).
 - web_research — searches the web and fetches a promising URL (no file write)
 - cli_echo — echoes input via run_cli
 
@@ -127,8 +128,10 @@ What to expect (examples)
   - go run ./cmd/agent -warpp -q "Write a deep research report on the history of containerization"
     - Selects deep_web_report workflow
     - A.query set from the utterance
-    - Executes: web_search → web_fetch → write_file
+    - Executes: web_search → web_fetch (top result) → web_fetch (second result, if present) → write_file
     - Creates report.md under WORKDIR with a deep-research style markdown report
+    - Console output includes a summary of steps and a final confirmation line:
+      "Objective complete: report written to report.md (steps=N)."
 
 - TUI
   - Run with -warpp, input a research prompt

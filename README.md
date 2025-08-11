@@ -38,6 +38,9 @@ You can also run the agent in an interactive TUI that supports streaming respons
 
 ```sh
 go run . -interactive [-max-steps 8] [-v]
+
+# Or run WARPP in the TUI (no LLM; executes a personalized workflow)
+go run ./cmd/agent-tui -warpp
 ```
 
 What this does:
@@ -56,6 +59,14 @@ Notes:
 
 - Interactive mode uses the same safety controls as one-shot mode (locked `WORKDIR`, argument sanitization, optional blocklist, output truncation).
 - Streaming uses the OpenAI Go SDK v2 Chat Completions streaming API and accumulates chunks to correctly handle tool calls and final content.
+
+- WARPP mode (-warpp):
+
+- Implements the WARPP runtime protocol: intent detection, personalization, then fulfillment with tool allow-listing.
+- Uses existing tools (`web_search`, `web_fetch`, `run_cli`) with built-in default workflows when configs/workflows is empty:
+  - If your prompt looks like web research, it will search and then fetch the first result.
+  - Otherwise it will simply echo your input with `run_cli`.
+- Tool outputs appear in the right pane; a concise summary appears in the chat pane.
 
 ## How It Works
 

@@ -17,6 +17,7 @@ import (
 
 func main() {
     maxSteps := flag.Int("max-steps", 8, "Max reasoning steps")
+    warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
     flag.Parse()
 
     cfg, err := config.Load()
@@ -36,7 +37,7 @@ func main() {
     ctx, cancel := context.WithCancel(context.Background())
     defer cancel()
 
-    m := itui.NewModel(ctx, provider, cfg, exec, *maxSteps)
+    m := itui.NewModel(ctx, provider, cfg, exec, *maxSteps, *warppFlag)
     p := tea.NewProgram(m, tea.WithContext(ctx), tea.WithMouseAllMotion())
     if _, err := p.Run(); err != nil {
         log.Error().Err(err).Msg("tui error")

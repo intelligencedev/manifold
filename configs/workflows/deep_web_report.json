@@ -1,0 +1,99 @@
+{
+  "intent": "deep_web_report",
+  "description": "Research a topic on the web and write a deep research style report to report.md",
+  "keywords": [
+    "report",
+    "report.md",
+    "write",
+    "deep research",
+    "research"
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "text": "Search the web for the topic",
+      "tool": {
+        "name": "web_search",
+        "args": {
+          "query": "${A.query}",
+          "max_results": 5,
+          "category": "general"
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "text": "Fetch the first result's content",
+      "guard": "A.first_url",
+      "tool": {
+        "name": "web_fetch",
+        "args": {
+          "url": "${A.first_url}",
+          "prefer_readable": true
+        }
+      }
+    },
+    {
+      "id": "s3",
+      "text": "Fetch the second result's content",
+      "guard": "A.second_url",
+      "tool": {
+        "name": "web_fetch",
+        "args": {
+          "url": "${A.second_url}",
+          "prefer_readable": true
+        }
+      }
+    },
+    {
+      "id": "s4",
+      "text": "Refine the report with the LLM",
+      "tool": {
+        "name": "llm_transform",
+        "args": {
+          "instruction": "Rewrite into a coherent, well-structured deep research report with an executive summary, sections, and citations if present.",
+          "input": "${A.report_md}"
+        }
+      }
+    },
+    {
+      "id": "s5",
+      "text": "Write report to report.md",
+      "tool": {
+        "name": "write_file",
+        "args": {
+          "path": "report.md",
+          "content": "${A.report_md}"
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "text": "Echo report to console (unix)",
+      "guard": "A.os != 'windows'",
+      "tool": {
+        "name": "run_cli",
+        "args": {
+          "command": "cat",
+          "args": [
+            "report.md"
+          ]
+        }
+      }
+    },
+    {
+      "id": "s7",
+      "text": "Echo report to console (windows)",
+      "guard": "A.os == 'windows'",
+      "tool": {
+        "name": "run_cli",
+        "args": {
+          "command": "type",
+          "args": [
+            "report.md"
+          ]
+        }
+      }
+    }
+  ]
+}

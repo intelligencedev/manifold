@@ -67,6 +67,91 @@ Notes:
   - If your prompt looks like web research, it will search and then fetch the first result.
   - Otherwise it will simply echo your input with `run_cli`.
 - Tool outputs appear in the right pane; a concise summary appears in the chat pane.
+## Docker
+
+How to use:
+
+- Build:  
+  ```sh
+  docker build -t agent-tui .
+  ```
+- Run (ensure a TTY and pass any needed volumes/env):  
+  ```sh
+  docker run -it agent-tui
+  ```
+- Or to inject different env at runtime:  
+  ```sh
+  docker run -it --env-file .env agent-tui
+  ```
+
+## How It Works
+
+- The agent receives a user query and interacts with OpenAI’s chat completions API.
+- When a tool call is needed, it executes the requested binary (if allowed) in the locked working directory.
+- All path-like arguments are sanitized to prevent escaping the working directory.
+- Outputs are truncated to a configurable byte limit.
+- The agent summarizes actions and results after each tool call.
+
+In interactive mode:
+
+- The chat context begins with a system prompt describing the `run_cli` tool and safety rules.
+- Responses are streamed; the UI updates live. Tool calls are detected during streaming, executed, and their outputs are appended as tool messages, after which streaming continues for the assistant.
+
+## Security Notes
+
+- Only bare binary names are allowed (no absolute/relative paths).
+- All commands run with their working directory set to `WORKDIR`.
+- Blocklisted binaries can be configured to prevent dangerous operations.
+
+## Development
+
+- Main logic is in `main.go`.
+- Requires Go 1.21+ and the OpenAI Go SDK v2.
+- See comments in `main.go` for further details.
+
+---
+
+Let me know if you want to add more details or usage examples!
+
+- Interactive mode uses the same safety controls as one-shot mode (locked `WORKDIR`, argument sanitization, optional blocklist, output truncation).
+- Streaming uses the OpenAI Go SDK v2 Chat Completions streaming API and accumulates chunks to correctly handle tool calls and final content.
+
+- WARPP mode (-warpp):
+
+- Implements the WARPP runtime protocol: intent detection, personalization, then fulfillment with tool allow-listing.
+- Uses existing tools (`web_search`, `web_fetch`, `run_cli`) with built-in default workflows when configs/workflows is empty:
+  - If your prompt looks like web research, it will search and then fetch the first result.
+  - Otherwise it will simply echo your input with `run_cli`.
+- Tool outputs appear in the right pane; a concise summary appears in the chat pane.
+
+## How It Works
+
+- The agent receives a user query and interacts with OpenAI’s chat completions API.
+- When a tool call is needed, it executes the requested binary (if allowed) in the locked working directory.
+- All path-like arguments are sanitized to prevent escaping the working directory.
+- Outputs are truncated to a configurable byte limit.
+- The agent summarizes actions and results after each tool call.
+
+In interactive mode:
+
+- The chat context begins with a system prompt describing the `run_cli` tool and safety rules.
+- Responses are streamed; the UI updates live. Tool calls are detected during streaming, executed, and their outputs are appended as tool messages, after which streaming continues for the assistant.
+
+## Security Notes
+
+- Only bare binary names are allowed (no absolute/relative paths).
+- All commands run with their working directory set to `WORKDIR`.
+- Blocklisted binaries can be configured to prevent dangerous operations.
+
+## Development
+
+- Main logic is in `main.go`.
+- Requires Go 1.21+ and the OpenAI Go SDK v2.
+- See comments in `main.go` for further details.
+
+---
+
+Let me know if you want to add more details or usage examples!
 
 ## How It Works
 

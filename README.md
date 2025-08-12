@@ -113,6 +113,63 @@ In interactive mode:
 
 Let me know if you want to add more details or usage examples!
 
+## Specialist agents (multiple OpenAI‑compatible endpoints)
+
+You can configure any number of “specialist agents,” each bound to its own OpenAI‑compatible base URL, API key, and model. Specialists are intended for direct, inference‑only calls where you may also want to:
+
+- Provide dedicated system instructions
+- Strictly disable tool calls so no tool schema is sent at all
+- Optionally include a reasoning effort hint for models that support it (e.g., low | medium | high)
+
+Why not .env for this? While `.env` is convenient for simple, flat settings, it is not well‑suited for lists of structured entries (name, baseURL, model, flags). A small YAML file is a better fit: readable, typed, and easy to source‑control. The runtime still honors `.env` for global defaults (API key, model, etc.).
+
+### Configuration
+
+Create `configs/specialists.yaml` (or set `SPECIALISTS_CONFIG` to a custom path). See `configs/specialists.example.yaml` for a full example.
+
+Example:
+
+```
+specialists:
+  - name: code-reviewer
+    baseURL: https://api.openai.com
+    apiKey: ${OPENAI_API_KEY}
+    model: gpt-4o-mini
+    enableTools: false           # no tool schema will be sent at all
+    reasoningEffort: medium      # optional; only sent if set
+    system: |
+      You are a careful code review assistant. Provide actionable feedback.
+
+  - name: data-extractor
+    baseURL: https://api.openai.com
+    apiKey: ${OPENAI_API_KEY}
+    model: gpt-4o
+    enableTools: true            # tools will be allowed if your app uses them
+    system: |
+      You extract structured information from text.
+```
+
+Notes:
+- If `enableTools` is false, the request omits the tools field entirely (not even an empty array), satisfying “no tool calling schema is sent.”
+- If `reasoningEffort` is set, the request adds `{"reasoning": {"effort": "..."}}` via the SDK’s extra field facility. Providers that ignore it will simply proceed.
+- You can override the default OpenAI `baseURL`/`apiKey`/`model` per specialist.
+
+### Using specialists from the CLI
+
+Call a specific specialist by name and pass your prompt with `-q`:
+
+```
+go run ./cmd/agent -specialist code-reviewer -q "Review this function for concurrency issues"
+```
+
+This path performs a direct, single‑turn completion using the specialist’s endpoint/model:
+
+- Supplies the specialist’s system instructions as the first system message
+- Disables tools entirely unless `enableTools` is true
+- Adds a `reasoning.effort` hint if configured
+
+Internally this uses a dedicated request builder that conditionally sets fields so they are omitted when not used.
+
 - Interactive mode uses the same safety controls as one-shot mode (locked `WORKDIR`, argument sanitization, optional blocklist, output truncation).
 - Streaming uses the OpenAI Go SDK v2 Chat Completions streaming API and accumulates chunks to correctly handle tool calls and final content.
 
@@ -148,6 +205,14 @@ In interactive mode:
 - Main logic is in `main.go`.
 - Requires Go 1.21+ and the OpenAI Go SDK v2.
 - See comments in `main.go` for further details.
+
+### Implementation details of specialists
+
+- Config types: `internal/config.SpecialistConfig` and `Config.Specialists`
+- Loader: `internal/config/loader.go` looks for `SPECIALISTS_CONFIG` or `configs/specialists.(yaml|yml)`
+- Registry: `internal/specialists` constructs one client per specialist and exposes an `Inference` method
+- OpenAI client: `internal/llm/openai.Client.ChatWithOptions` lets us omit tools and attach extra request fields (e.g., reasoning)
+
 
 ---
 

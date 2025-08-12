@@ -1,32 +1,34 @@
 package main
 
 import (
-	"context"
-	"flag"
-	"fmt"
-	"os"
-	"time"
+    "context"
+    "flag"
+    "fmt"
+    "os"
+    "time"
 
-	"github.com/rs/zerolog/log"
+    "github.com/rs/zerolog/log"
 
-	"gptagent/internal/agent"
-	"gptagent/internal/agent/prompts"
-	"gptagent/internal/config"
-	llmpkg "gptagent/internal/llm"
-	openaillm "gptagent/internal/llm/openai"
-	"gptagent/internal/observability"
-	"gptagent/internal/tools"
-	"gptagent/internal/tools/cli"
-	"gptagent/internal/tools/fs"
-	llmtools "gptagent/internal/tools/llmtool"
-	"gptagent/internal/tools/web"
-	"gptagent/internal/warpp"
+    "gptagent/internal/agent"
+    "gptagent/internal/agent/prompts"
+    "gptagent/internal/config"
+    llmpkg "gptagent/internal/llm"
+    openaillm "gptagent/internal/llm/openai"
+    "gptagent/internal/observability"
+    "gptagent/internal/specialists"
+    "gptagent/internal/tools"
+    "gptagent/internal/tools/cli"
+    "gptagent/internal/tools/fs"
+    llmtools "gptagent/internal/tools/llmtool"
+    "gptagent/internal/tools/web"
+    "gptagent/internal/warpp"
 )
 
 func main() {
 	q := flag.String("q", "", "User request")
 	maxSteps := flag.Int("max-steps", 8, "Max reasoning steps")
     warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
+    specialist := flag.String("specialist", "", "Name of specialist agent to use (inference-only; no tool calls unless enabled)")
     flag.Parse()
 	if *q == "" {
 		fmt.Fprintln(os.Stderr, "usage: agent -q \"...\"")
@@ -42,8 +44,24 @@ func main() {
 	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
 	defer func() { _ = shutdown(context.Background()) }()
 
-	httpClient := observability.NewHTTPClient(nil)
-	llm := openaillm.New(cfg.OpenAI, httpClient)
+    httpClient := observability.NewHTTPClient(nil)
+    llm := openaillm.New(cfg.OpenAI, httpClient)
+
+    // If a specialist was requested, route the query directly and exit.
+    if *specialist != "" {
+        specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
+        a, ok := specReg.Get(*specialist)
+        if !ok {
+            fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
+            os.Exit(2)
+        }
+        ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+        defer cancel()
+        out, err := a.Inference(ctx, *q, nil)
+        if err != nil { log.Fatal().Err(err).Msg("specialist") }
+        fmt.Println(out)
+        return
+    }
 
     registry := tools.NewRegistry()
     exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)

@@ -127,7 +127,7 @@ Why not .env for this? While `.env` is convenient for simple, flat settings, it 
 
 Create `configs/specialists.yaml` (or set `SPECIALISTS_CONFIG` to a custom path). See `configs/specialists.example.yaml` for a full example.
 
-Example:
+Example (configs/specialists.yaml):
 
 ```
 specialists:
@@ -147,6 +147,13 @@ specialists:
     enableTools: true            # tools will be allowed if your app uses them
     system: |
       You extract structured information from text.
+
+routes:
+  - name: code-reviewer
+    contains: ["review", "code", "lint"]
+    regex: ["(?i)code review"]
+  - name: data-extractor
+    contains: ["extract", "fields", "parse"]
 ```
 
 Notes:
@@ -154,7 +161,7 @@ Notes:
 - If `reasoningEffort` is set, the request adds `{"reasoning": {"effort": "..."}}` via the SDK’s extra field facility. Providers that ignore it will simply proceed.
 - You can override the default OpenAI `baseURL`/`apiKey`/`model` per specialist.
 
-### Using specialists from the CLI
+### Using specialists from the CLI and TUI
 
 Call a specific specialist by name and pass your prompt with `-q`:
 
@@ -169,6 +176,41 @@ This path performs a direct, single‑turn completion using the specialist’s e
 - Adds a `reasoning.effort` hint if configured
 
 Internally this uses a dedicated request builder that conditionally sets fields so they are omitted when not used.
+
+TUI (interactive) mode exposes the same specialists_infer tool inside the agent. You can ask “what tools are available to you?” in the TUI and you will see specialists_infer among the tools.
+
+Pre-dispatch routing in TUI
+- The same pre-dispatch router is now active in the TUI. When you press Enter, the input is checked against `routes` from `configs/specialists.yaml`; if a match is found, the TUI calls the matched specialist directly and shows the result in the chat pane. A small “Specialist: <name>” card is added to the Tools pane for visibility.
+
+### How the main agent invokes specialists
+
+There are two paths for invoking specialists:
+
+1) Pre-dispatch routing (deterministic)
+- Before running the main agent, your input is checked against `routes` from `configs/specialists.yaml`.
+- If a rule matches, the request is sent directly to the matched specialist and the result is returned. This is fast and predictable for obvious intents (e.g., code review or structured extraction).
+
+2) LLM-driven routing via a tool
+- The main agent exposes a `specialists_infer` tool that lets it call any configured specialist when it decides it’s appropriate.
+- The tool parameters:
+  - `specialist`: name (enum from your config)
+  - `prompt`: input string to send
+  - `override_reasoning_effort`: optional (`low`|`medium`|`high`)
+- The tool returns a structured payload with `ok`, `output`, `specialist`, `model`, and `used_reasoning_effort`.
+- The specialists themselves remain strictly inference-only unless `enableTools` is true for that specialist; in that case, the request can include tools if you later extend it.
+
+Design guarantees
+- If `enableTools` is false for a specialist, the underlying request omits the `tools` field entirely.
+- If `reasoningEffort` is set (or overridden), it is included using the OpenAI SDK’s extra-fields mechanism as `{"reasoning": {"effort": "..."}}` and otherwise omitted.
+- Specialist system instructions are always included as the first system message for that specialist.
+
+Where is this implemented?
+- Config types: `internal/config.SpecialistConfig` and `internal/config.SpecialistRoute`, aggregated in `Config` as `Specialists` and `SpecialistRoutes`.
+- Loader: `internal/config/loader.go` reads `SPECIALISTS_CONFIG` or `configs/specialists.(yaml|yml)`, expands `${ENV}` references, and populates `Specialists` and `SpecialistRoutes`.
+- Registry: `internal/specialists` builds one client per specialist and exposes `Inference` and `Route` helpers.
+- Tool: `internal/tools/specialists` implements the `specialists_infer` tool, which the main agent can call.
+- OpenAI client: `internal/llm/openai.Client.ChatWithOptions` lets us omit tools and attach extra request fields.
+- Main: `cmd/agent/main.go` wires everything and checks pre-dispatch routes before running the main agent loop.
 
 - Interactive mode uses the same safety controls as one-shot mode (locked `WORKDIR`, argument sanitization, optional blocklist, output truncation).
 - Streaming uses the OpenAI Go SDK v2 Chat Completions streaming API and accumulates chunks to correctly handle tool calls and final content.

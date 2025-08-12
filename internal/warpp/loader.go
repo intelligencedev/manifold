@@ -75,27 +75,27 @@ func defaultWorkflows() []Workflow {
 		// 		{ID: "s2", Text: "Fetch the first result's content", Tool: &ToolRef{Name: "web_fetch", Args: map[string]any{"url": "${A.first_url}", "prefer_readable": true}}},
 		// 	},
 		// },
-            {
-                Intent:      "deep_web_report",
-                Description: "Research a topic on the web and write a deep research style report to report.md",
-                Keywords:    []string{"report", "report.md", "write", "deep research", "research"},
-                Steps: []Step{
-                    {ID: "s1", Text: "Search the web for the topic", Tool: &ToolRef{Name: "web_search", Args: map[string]any{"query": "${A.query}", "max_results": 5, "category": "general"}}},
-                    {ID: "s2", Text: "Fetch the first result's content", Guard: "A.first_url", Tool: &ToolRef{Name: "web_fetch", Args: map[string]any{"url": "${A.first_url}", "prefer_readable": true}}},
-                    {ID: "s3", Text: "Fetch the second result's content", Guard: "A.second_url", Tool: &ToolRef{Name: "web_fetch", Args: map[string]any{"url": "${A.second_url}", "prefer_readable": true}}},
-                    {ID: "s4", Text: "Refine the report with the LLM", Tool: &ToolRef{Name: "llm_transform", Args: map[string]any{"instruction": "Rewrite into a coherent, well-structured deep research report with an executive summary, sections, and citations if present.", "input": "${A.report_md}"}}},
-                    {ID: "s5", Text: "Write report to report.md", Tool: &ToolRef{Name: "write_file", Args: map[string]any{"path": "report.md", "content": "${A.report_md}"}}},
-                    {ID: "s6", Text: "Echo report to console (unix)", Guard: "A.os != 'windows'", Tool: &ToolRef{Name: "run_cli", Args: map[string]any{"command": "cat", "args": []any{"report.md"}}}},
-                    {ID: "s7", Text: "Echo report to console (windows)", Guard: "A.os == 'windows'", Tool: &ToolRef{Name: "run_cli", Args: map[string]any{"command": "type", "args": []any{"report.md"}}}},
-                },
-            },
-            {
-                Intent:      "cli_echo",
-                Description: "Echo the user's input via run_cli tool",
-                Keywords:    []string{"echo", "print", "say"},
-                Steps: []Step{
-                    {ID: "s1", Text: "Echo the utterance", Tool: &ToolRef{Name: "run_cli", Args: map[string]any{"command": "echo", "args": []any{"${A.utter}"}}}},
-                },
-            },
+		{
+			Intent:      "deep_web_report",
+			Description: "Research a topic on the web and write a deep research style report to report.md",
+			Keywords:    []string{"report", "report.md", "write", "deep research", "research"},
+			Steps: []Step{
+				{ID: "s1", Text: "Search the web for the topic", Tool: &ToolRef{Name: "web_search", Args: map[string]any{"query": "${A.query}", "max_results": 5, "category": "general"}}},
+				{ID: "s2", Text: "Fetch the first result's content", Guard: "A.first_url", Tool: &ToolRef{Name: "web_fetch", Args: map[string]any{"url": "${A.first_url}", "prefer_readable": true}}},
+				{ID: "s3", Text: "Fetch the second result's content", Guard: "A.second_url", Tool: &ToolRef{Name: "web_fetch", Args: map[string]any{"url": "${A.second_url}", "prefer_readable": true}}},
+				{ID: "s4", Text: "Refine the report with the LLM", Tool: &ToolRef{Name: "llm_transform", Args: map[string]any{"instruction": "Rewrite into a coherent, well-structured deep research report with an executive summary, sections, and citations if present.", "input": "${A.report_md}"}}},
+				{ID: "s5", Text: "Write report to report.md", Tool: &ToolRef{Name: "write_file", Args: map[string]any{"path": "report.md", "content": "${A.report_md}"}}},
+				{ID: "s6", Text: "Echo report to console (unix)", Guard: "A.os != 'windows'", Tool: &ToolRef{Name: "run_cli", Args: map[string]any{"command": "cat", "args": []any{"report.md"}}}},
+				{ID: "s7", Text: "Echo report to console (windows)", Guard: "A.os == 'windows'", Tool: &ToolRef{Name: "run_cli", Args: map[string]any{"command": "type", "args": []any{"report.md"}}}},
+			},
+		},
+		{
+			Intent:      "cli_echo",
+			Description: "Echo the user's input via run_cli tool",
+			Keywords:    []string{"echo", "print", "say"},
+			Steps: []Step{
+				{ID: "s1", Text: "Echo the utterance", Tool: &ToolRef{Name: "run_cli", Args: map[string]any{"command": "echo", "args": []any{"${A.utter}"}}}},
+			},
+		},
 	}
 }

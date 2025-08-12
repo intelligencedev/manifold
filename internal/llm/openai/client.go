@@ -14,8 +14,8 @@ import (
 )
 
 type Client struct {
-    sdk   sdk.Client
-    model string
+	sdk   sdk.Client
+	model string
 }
 
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
@@ -31,15 +31,15 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
-    params := sdk.ChatCompletionNewParams{
-        Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
-    }
-    // messages
-    params.Messages = AdaptMessages(msgs)
-    // tools: include only when provided to avoid sending an empty array
-    if len(tools) > 0 {
-        params.Tools = AdaptSchemas(tools)
-    }
+	params := sdk.ChatCompletionNewParams{
+		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	}
+	// messages
+	params.Messages = AdaptMessages(msgs)
+	// tools: include only when provided to avoid sending an empty array
+	if len(tools) > 0 {
+		params.Tools = AdaptSchemas(tools)
+	}
 	comp, err := c.sdk.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return llm.Message{}, err
@@ -69,46 +69,46 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 }
 
 // ChatWithOptions is like Chat but allows callers to:
-//  - omit tools entirely by passing a nil or empty tools slice
-//  - inject provider-specific extra fields (e.g., reasoning.effort)
-//    via params.WithExtraField.
+//   - omit tools entirely by passing a nil or empty tools slice
+//   - inject provider-specific extra fields (e.g., reasoning.effort)
+//     via params.WithExtraField.
 func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
-    params := sdk.ChatCompletionNewParams{
-        Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
-    }
-    params.Messages = AdaptMessages(msgs)
-    if len(tools) > 0 {
-        params.Tools = AdaptSchemas(tools)
-    }
-    if len(extra) > 0 {
-        params.SetExtraFields(extra)
-    }
-    comp, err := c.sdk.Chat.Completions.New(ctx, params)
-    if err != nil {
-        return llm.Message{}, err
-    }
-    if len(comp.Choices) == 0 {
-        return llm.Message{}, nil
-    }
-    msg := comp.Choices[0].Message
-    out := llm.Message{Role: "assistant", Content: msg.Content}
-    for _, tc := range msg.ToolCalls {
-        switch v := tc.AsAny().(type) {
-        case sdk.ChatCompletionMessageFunctionToolCall:
-            out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-                Name: v.Function.Name,
-                Args: json.RawMessage(v.Function.Arguments),
-                ID:   v.ID,
-            })
-        case sdk.ChatCompletionMessageCustomToolCall:
-            out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-                Name: v.Custom.Name,
-                Args: json.RawMessage(v.Custom.Input),
-                ID:   v.ID,
-            })
-        }
-    }
-    return out, nil
+	params := sdk.ChatCompletionNewParams{
+		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	}
+	params.Messages = AdaptMessages(msgs)
+	if len(tools) > 0 {
+		params.Tools = AdaptSchemas(tools)
+	}
+	if len(extra) > 0 {
+		params.SetExtraFields(extra)
+	}
+	comp, err := c.sdk.Chat.Completions.New(ctx, params)
+	if err != nil {
+		return llm.Message{}, err
+	}
+	if len(comp.Choices) == 0 {
+		return llm.Message{}, nil
+	}
+	msg := comp.Choices[0].Message
+	out := llm.Message{Role: "assistant", Content: msg.Content}
+	for _, tc := range msg.ToolCalls {
+		switch v := tc.AsAny().(type) {
+		case sdk.ChatCompletionMessageFunctionToolCall:
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: v.Function.Name,
+				Args: json.RawMessage(v.Function.Arguments),
+				ID:   v.ID,
+			})
+		case sdk.ChatCompletionMessageCustomToolCall:
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: v.Custom.Name,
+				Args: json.RawMessage(v.Custom.Input),
+				ID:   v.ID,
+			})
+		}
+	}
+	return out, nil
 }
 
 // ChatStream implements streaming chat completions using OpenAI's streaming API.

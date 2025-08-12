@@ -1,12 +1,12 @@
 package agent
 
 import (
-    "context"
-    "errors"
-    "fmt"
-    "time"
+	"context"
+	"errors"
+	"fmt"
+	"time"
 
-    "golang.org/x/sync/errgroup"
+	"golang.org/x/sync/errgroup"
 )
 
 // RunWARPP orchestrates a WARPP execution as described in
@@ -19,94 +19,103 @@ import (
 // can be integrated in different domains without imposing a concrete schema
 // here. Provide the domain-specific operations via the Plan callbacks.
 func RunWARPP[W any, T any](ctx context.Context, utter string, plan Plan[W, T]) error {
-    if plan.DetectIntent == nil || plan.FetchFullWorkflowAndTools == nil || plan.Authenticator == nil || plan.RunInfoTools == nil || plan.Trim == nil || plan.Fulfill == nil {
-        return errors.New("warpp plan: all callbacks must be provided")
-    }
+	if plan.DetectIntent == nil || plan.FetchFullWorkflowAndTools == nil || plan.Authenticator == nil || plan.RunInfoTools == nil || plan.Trim == nil || plan.Fulfill == nil {
+		return errors.New("warpp plan: all callbacks must be provided")
+	}
 
-    // Stage 1: intent + full artifacts (W, D)
-    intent, err := plan.DetectIntent(ctx, utter)
-    if err != nil {
-        return fmt.Errorf("detect intent: %w", err)
-    }
-    fullW, fullD, err := plan.FetchFullWorkflowAndTools(ctx, intent)
-    if err != nil {
-        return fmt.Errorf("fetch workflow/tools: %w", err)
-    }
+	// Stage 1: intent + full artifacts (W, D)
+	intent, err := plan.DetectIntent(ctx, utter)
+	if err != nil {
+		return fmt.Errorf("detect intent: %w", err)
+	}
+	fullW, fullD, err := plan.FetchFullWorkflowAndTools(ctx, intent)
+	if err != nil {
+		return fmt.Errorf("fetch workflow/tools: %w", err)
+	}
 
-    // Parallel execution: Authenticator and Personalizer
-    g, ctx := errgroup.WithContext(ctx)
-    authCh := make(chan AuthResult, 1)
-    trimCh := make(chan TrimResult[W, T], 1)
+	// Parallel execution: Authenticator and Personalizer
+	g, ctx := errgroup.WithContext(ctx)
+	authCh := make(chan AuthResult, 1)
+	trimCh := make(chan TrimResult[W, T], 1)
 
-    // 2a) Authenticator
-    g.Go(func() error {
-        ok, err := plan.Authenticator(ctx)
-        select {
-        case authCh <- AuthResult{OK: ok, Err: err}:
-        default:
-        }
-        return err
-    })
+	// 2a) Authenticator
+	g.Go(func() error {
+		ok, err := plan.Authenticator(ctx)
+		select {
+		case authCh <- AuthResult{OK: ok, Err: err}:
+		default:
+		}
+		return err
+	})
 
-    // 2b) Personalizer (info-tools ⇒ attributes ⇒ TRIM)
-    g.Go(func() error {
-        attrs, err := plan.RunInfoTools(ctx, fullD)
-        if err != nil {
-            select { case trimCh <- TrimResult[W, T]{Err: err}: default: }
-            return err
-        }
-        wStar, dStar, err := plan.Trim(ctx, fullW, attrs)
-        if err != nil {
-            select { case trimCh <- TrimResult[W, T]{Err: err}: default: }
-            return err
-        }
-        select { case trimCh <- TrimResult[W, T]{W: wStar, D: dStar}: default: }
-        return nil
-    })
+	// 2b) Personalizer (info-tools ⇒ attributes ⇒ TRIM)
+	g.Go(func() error {
+		attrs, err := plan.RunInfoTools(ctx, fullD)
+		if err != nil {
+			select {
+			case trimCh <- TrimResult[W, T]{Err: err}:
+			default:
+			}
+			return err
+		}
+		wStar, dStar, err := plan.Trim(ctx, fullW, attrs)
+		if err != nil {
+			select {
+			case trimCh <- TrimResult[W, T]{Err: err}:
+			default:
+			}
+			return err
+		}
+		select {
+		case trimCh <- TrimResult[W, T]{W: wStar, D: dStar}:
+		default:
+		}
+		return nil
+	})
 
-    // Optional: deadline for personalization/authentication if provided.
-    if plan.StageTimeout > 0 {
-        var cancel context.CancelFunc
-        ctx, cancel = context.WithTimeout(ctx, plan.StageTimeout)
-        defer cancel()
-    }
+	// Optional: deadline for personalization/authentication if provided.
+	if plan.StageTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, plan.StageTimeout)
+		defer cancel()
+	}
 
-    // Wait for both gates with cancellation support.
-    var (
-        wStar W
-        dStar T
-    )
-    need := 2
-    for need > 0 {
-        select {
-        case ar := <-authCh:
-            if ar.Err != nil {
-                return fmt.Errorf("authenticator: %w", ar.Err)
-            }
-            if !ar.OK {
-                if plan.ErrAuth != nil {
-                    return plan.ErrAuth
-                }
-                return errors.New("authentication failed")
-            }
-            need--
-        case tr := <-trimCh:
-            if tr.Err != nil {
-                return fmt.Errorf("personalizer: %w", tr.Err)
-            }
-            wStar, dStar = tr.W, tr.D
-            need--
-        case <-ctx.Done():
-            return ctx.Err()
-        }
-    }
+	// Wait for both gates with cancellation support.
+	var (
+		wStar W
+		dStar T
+	)
+	need := 2
+	for need > 0 {
+		select {
+		case ar := <-authCh:
+			if ar.Err != nil {
+				return fmt.Errorf("authenticator: %w", ar.Err)
+			}
+			if !ar.OK {
+				if plan.ErrAuth != nil {
+					return plan.ErrAuth
+				}
+				return errors.New("authentication failed")
+			}
+			need--
+		case tr := <-trimCh:
+			if tr.Err != nil {
+				return fmt.Errorf("personalizer: %w", tr.Err)
+			}
+			wStar, dStar = tr.W, tr.D
+			need--
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 
-    // Stage 3: Fulfillment (post-gate)
-    if err := plan.Fulfill(ctx, wStar, dStar); err != nil {
-        return fmt.Errorf("fulfillment: %w", err)
-    }
-    // Ensure goroutines finished cleanly.
-    return g.Wait()
+	// Stage 3: Fulfillment (post-gate)
+	if err := plan.Fulfill(ctx, wStar, dStar); err != nil {
+		return fmt.Errorf("fulfillment: %w", err)
+	}
+	// Ensure goroutines finished cleanly.
+	return g.Wait()
 }
 
 // Note: Go does not currently support type parameters on methods. If you wish
@@ -119,35 +128,35 @@ func RunWARPP[W any, T any](ctx context.Context, utter string, plan Plan[W, T]) 
 //   - W: workflow representation (e.g., a struct with steps/guards/tools)
 //   - T: toolset representation (e.g., []Tool or a richer registry view)
 type Plan[W any, T any] struct {
-    // DetectIntent returns the intent string for the utterance.
-    DetectIntent func(ctx context.Context, utter string) (intent string, err error)
-    // FetchFullWorkflowAndTools returns the complete workflow and toolset for the intent.
-    FetchFullWorkflowAndTools func(ctx context.Context, intent string) (W, T, error)
-    // Authenticator performs MFA/identity checks; must return OK for fulfillment to proceed.
-    Authenticator func(ctx context.Context) (ok bool, err error)
-    // RunInfoTools gathers user attributes using information-gathering tools from the full toolset.
-    RunInfoTools func(ctx context.Context, fullTools T) (attrs map[string]any, err error)
-    // Trim prunes the full workflow using collected attributes and returns the personalized
-    // workflow alongside a filtered toolset limited to those referenced by the trimmed plan.
-    Trim func(ctx context.Context, fullW W, attrs map[string]any) (wStar W, dStar T, err error)
-    // Fulfill executes the personalized workflow using only the filtered toolset.
-    Fulfill func(ctx context.Context, wStar W, dStar T) error
+	// DetectIntent returns the intent string for the utterance.
+	DetectIntent func(ctx context.Context, utter string) (intent string, err error)
+	// FetchFullWorkflowAndTools returns the complete workflow and toolset for the intent.
+	FetchFullWorkflowAndTools func(ctx context.Context, intent string) (W, T, error)
+	// Authenticator performs MFA/identity checks; must return OK for fulfillment to proceed.
+	Authenticator func(ctx context.Context) (ok bool, err error)
+	// RunInfoTools gathers user attributes using information-gathering tools from the full toolset.
+	RunInfoTools func(ctx context.Context, fullTools T) (attrs map[string]any, err error)
+	// Trim prunes the full workflow using collected attributes and returns the personalized
+	// workflow alongside a filtered toolset limited to those referenced by the trimmed plan.
+	Trim func(ctx context.Context, fullW W, attrs map[string]any) (wStar W, dStar T, err error)
+	// Fulfill executes the personalized workflow using only the filtered toolset.
+	Fulfill func(ctx context.Context, wStar W, dStar T) error
 
-    // Optional error returned when authentication fails (without a concrete error).
-    ErrAuth error
-    // Optional timeout applied to the parallel stage (auth + personalization).
-    StageTimeout time.Duration
+	// Optional error returned when authentication fails (without a concrete error).
+	ErrAuth error
+	// Optional timeout applied to the parallel stage (auth + personalization).
+	StageTimeout time.Duration
 }
 
 // AuthResult conveys the outcome of the authenticator stage.
 type AuthResult struct {
-    OK  bool
-    Err error
+	OK  bool
+	Err error
 }
 
 // TrimResult conveys the outcome of the personalization stage.
 type TrimResult[W any, T any] struct {
-    W   W
-    D   T
-    Err error
+	W   W
+	D   T
+	Err error
 }

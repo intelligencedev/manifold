@@ -1,35 +1,36 @@
 package main
 
 import (
-    "context"
-    "flag"
-    "fmt"
-    "os"
-    "time"
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"time"
 
-    "github.com/rs/zerolog/log"
+	"github.com/rs/zerolog/log"
 
-    "gptagent/internal/agent"
-    "gptagent/internal/agent/prompts"
-    "gptagent/internal/config"
-    llmpkg "gptagent/internal/llm"
-    openaillm "gptagent/internal/llm/openai"
-    "gptagent/internal/observability"
-    "gptagent/internal/specialists"
-    "gptagent/internal/tools"
-    "gptagent/internal/tools/cli"
-    "gptagent/internal/tools/fs"
-    llmtools "gptagent/internal/tools/llmtool"
-    "gptagent/internal/tools/web"
-    "gptagent/internal/warpp"
+	"gptagent/internal/agent"
+	"gptagent/internal/agent/prompts"
+	"gptagent/internal/config"
+	llmpkg "gptagent/internal/llm"
+	openaillm "gptagent/internal/llm/openai"
+	"gptagent/internal/observability"
+	"gptagent/internal/specialists"
+	"gptagent/internal/tools"
+	"gptagent/internal/tools/cli"
+	"gptagent/internal/tools/fs"
+	llmtools "gptagent/internal/tools/llmtool"
+	specialists_tool "gptagent/internal/tools/specialists"
+	"gptagent/internal/tools/web"
+	"gptagent/internal/warpp"
 )
 
 func main() {
 	q := flag.String("q", "", "User request")
 	maxSteps := flag.Int("max-steps", 8, "Max reasoning steps")
-    warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
-    specialist := flag.String("specialist", "", "Name of specialist agent to use (inference-only; no tool calls unless enabled)")
-    flag.Parse()
+	warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
+	specialist := flag.String("specialist", "", "Name of specialist agent to use (inference-only; no tool calls unless enabled)")
+	flag.Parse()
 	if *q == "" {
 		fmt.Fprintln(os.Stderr, "usage: agent -q \"...\"")
 		os.Exit(2)
@@ -44,69 +45,99 @@ func main() {
 	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
 	defer func() { _ = shutdown(context.Background()) }()
 
-    httpClient := observability.NewHTTPClient(nil)
-    llm := openaillm.New(cfg.OpenAI, httpClient)
+	httpClient := observability.NewHTTPClient(nil)
+	llm := openaillm.New(cfg.OpenAI, httpClient)
 
-    // If a specialist was requested, route the query directly and exit.
-    if *specialist != "" {
-        specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
-        a, ok := specReg.Get(*specialist)
-        if !ok {
-            fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
-            os.Exit(2)
-        }
-        ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-        defer cancel()
-        out, err := a.Inference(ctx, *q, nil)
-        if err != nil { log.Fatal().Err(err).Msg("specialist") }
-        fmt.Println(out)
-        return
-    }
+	// If a specialist was requested, route the query directly and exit.
+	if *specialist != "" {
+		specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
+		a, ok := specReg.Get(*specialist)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		out, err := a.Inference(ctx, *q, nil)
+		if err != nil {
+			log.Fatal().Err(err).Msg("specialist")
+		}
+		fmt.Println(out)
+		return
+	}
 
-    registry := tools.NewRegistry()
-    exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
+	registry := tools.NewRegistry()
+	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
 	registry.Register(web.NewFetchTool())              // provides web_fetch
 	registry.Register(fs.NewWriteTool(cfg.Workdir))    // provides write_file
-    // Provider factory for base_url override in llm_transform
-    newProv := func(baseURL string) llmpkg.Provider {
-        c2 := cfg.OpenAI
-        c2.BaseURL = baseURL
-        return openaillm.New(c2, httpClient)
-    }
-    registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
+	// Provider factory for base_url override in llm_transform
+	newProv := func(baseURL string) llmpkg.Provider {
+		c2 := cfg.OpenAI
+		c2.BaseURL = baseURL
+		return openaillm.New(c2, httpClient)
+	}
+	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
+	// Specialists tool for LLM-driven routing
+	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
+	registry.Register(specialists_tool.New(specReg))
 
-    // WARPP mode: run the WARPP workflow executor instead of the LLM loop
-    if *warppFlag {
-        wfreg, _ := warpp.LoadFromDir("configs/workflows")
-        runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
-        ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-        defer cancel()
-        intent := runner.DetectIntent(ctx, *q)
-        wf, _ := wfreg.Get(intent)
-        attrs := warpp.Attrs{"utter": *q}
-        wfStar, _, attrs, err := runner.Personalize(ctx, wf, attrs)
-        if err != nil { log.Fatal().Err(err).Msg("personalize") }
-        allow := map[string]bool{}
-        for _, s := range wfStar.Steps { if s.Tool != nil { allow[s.Tool.Name] = true } }
-        final, err := runner.Execute(ctx, wfStar, allow, attrs)
-        if err != nil { log.Fatal().Err(err).Msg("warpp") }
-        fmt.Println(final)
-        return
-    }
+	// WARPP mode: run the WARPP workflow executor instead of the LLM loop
+	if *warppFlag {
+		wfreg, _ := warpp.LoadFromDir("configs/workflows")
+		runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		intent := runner.DetectIntent(ctx, *q)
+		wf, _ := wfreg.Get(intent)
+		attrs := warpp.Attrs{"utter": *q}
+		wfStar, _, attrs, err := runner.Personalize(ctx, wf, attrs)
+		if err != nil {
+			log.Fatal().Err(err).Msg("personalize")
+		}
+		allow := map[string]bool{}
+		for _, s := range wfStar.Steps {
+			if s.Tool != nil {
+				allow[s.Tool.Name] = true
+			}
+		}
+		final, err := runner.Execute(ctx, wfStar, allow, attrs)
+		if err != nil {
+			log.Fatal().Err(err).Msg("warpp")
+		}
+		fmt.Println(final)
+		return
+	}
 
-    eng := agent.Engine{
-        LLM:      llm,
-        Tools:    registry,
-        MaxSteps: *maxSteps,
-        System:   prompts.DefaultSystemPrompt(cfg.Workdir),
-    }
+	// Pre-dispatch routing: call a specialist directly if there's a match.
+	if name := specialists.Route(cfg.SpecialistRoutes, *q); name != "" {
+		a, ok := specReg.Get(name)
+		if !ok {
+			log.Error().Str("route", name).Msg("specialist not found for route")
+		} else {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			out, err := a.Inference(ctx, *q, nil)
+			if err != nil {
+				log.Fatal().Err(err).Msg("specialist pre-dispatch")
+			}
+			fmt.Println(out)
+			return
+		}
+	}
+
+	eng := agent.Engine{
+		LLM:      llm,
+		Tools:    registry,
+		MaxSteps: *maxSteps,
+		System:   prompts.DefaultSystemPrompt(cfg.Workdir),
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-    final, err := eng.Run(ctx, *q, nil)
+	final, err := eng.Run(ctx, *q, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("agent")
 	}

@@ -91,17 +91,17 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 		}
 		args := renderArgs(s.Tool.Args, A)
 		raw, _ := json.Marshal(args)
-        payload, err := r.Tools.Dispatch(ctx, s.Tool.Name, raw)
-        if err != nil {
-            return "", err
-        }
-        // record payloads in attributes
-        A["last_payload"] = string(payload)
-        if ps, ok := A["payloads"].([]string); ok {
-            A["payloads"] = append(ps, string(payload))
-        } else {
-            A["payloads"] = []string{string(payload)}
-        }
+		payload, err := r.Tools.Dispatch(ctx, s.Tool.Name, raw)
+		if err != nil {
+			return "", err
+		}
+		// record payloads in attributes
+		A["last_payload"] = string(payload)
+		if ps, ok := A["payloads"].([]string); ok {
+			A["payloads"] = append(ps, string(payload))
+		} else {
+			A["payloads"] = []string{string(payload)}
+		}
 		steps++
 		fmt.Fprintf(&summary, "- %s\n", s.Text)
 		// Opportunistically capture first_url from web_search result for later steps
@@ -127,36 +127,39 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 			}
 			A["urls"] = urls
 		}
-        if s.Tool.Name == "web_fetch" {
-            var resp struct {
-                OK       bool   `json:"ok"`
-                Title    string `json:"title"`
-                Markdown string `json:"markdown"`
-                FinalURL string `json:"final_url"`
-                InputURL string `json:"input_url"`
-                UsedRead bool   `json:"used_readable"`
-            }
-            _ = json.Unmarshal(payload, &resp)
-            title := strings.TrimSpace(resp.Title)
-            if title == "" {
-                title = "Research Report"
-            }
-            srcURL := resp.FinalURL
-            if srcURL == "" {
-                srcURL = resp.InputURL
-            }
-            sources := A["sources"].([]map[string]string)
-            sources = append(sources, map[string]string{"title": title, "url": srcURL, "markdown": resp.Markdown})
-            A["sources"] = sources
-        }
-        if s.Tool.Name == "llm_transform" {
-            var resp struct{ OK bool `json:"ok"`; Output string `json:"output"` }
-            _ = json.Unmarshal(payload, &resp)
-            if resp.Output != "" {
-                A["llm_output"] = resp.Output
-                A["report_md"] = resp.Output
-            }
-        }
+		if s.Tool.Name == "web_fetch" {
+			var resp struct {
+				OK       bool   `json:"ok"`
+				Title    string `json:"title"`
+				Markdown string `json:"markdown"`
+				FinalURL string `json:"final_url"`
+				InputURL string `json:"input_url"`
+				UsedRead bool   `json:"used_readable"`
+			}
+			_ = json.Unmarshal(payload, &resp)
+			title := strings.TrimSpace(resp.Title)
+			if title == "" {
+				title = "Research Report"
+			}
+			srcURL := resp.FinalURL
+			if srcURL == "" {
+				srcURL = resp.InputURL
+			}
+			sources := A["sources"].([]map[string]string)
+			sources = append(sources, map[string]string{"title": title, "url": srcURL, "markdown": resp.Markdown})
+			A["sources"] = sources
+		}
+		if s.Tool.Name == "llm_transform" {
+			var resp struct {
+				OK     bool   `json:"ok"`
+				Output string `json:"output"`
+			}
+			_ = json.Unmarshal(payload, &resp)
+			if resp.Output != "" {
+				A["llm_output"] = resp.Output
+				A["report_md"] = resp.Output
+			}
+		}
 		if s.Tool.Name == "write_file" {
 			// If not already built, synthesize a report from collected sources
 			rep, _ := A["report_md"].(string)
@@ -198,7 +201,7 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 			}
 		}
 	}
-    fmt.Fprintf(&summary, "\nObjective complete: report written to report.md (steps=%d).\n", steps)
+	fmt.Fprintf(&summary, "\nObjective complete: report written to report.md (steps=%d).\n", steps)
 	return summary.String(), nil
 }
 

@@ -17,3 +17,10 @@ specialists:
     system: |
       You extract structured information from text. When tools are available,
       you may call them to store results.
+
+routes:
+  - name: code-reviewer
+    contains: ["review", "code", "lint"]
+    regex: ["(?i)code review"]
+  - name: data-extractor
+    contains: ["extract", "fields", "parse"]

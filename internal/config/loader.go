@@ -1,19 +1,19 @@
 package config
 
 import (
-    "errors"
-    "fmt"
-    "os"
-    "path/filepath"
-    "strings"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
-    "github.com/joho/godotenv"
-    yaml "gopkg.in/yaml.v3"
+	"github.com/joho/godotenv"
+	yaml "gopkg.in/yaml.v3"
 )
 
 // Load reads configuration from environment variables (optionally .env).
 func Load() (Config, error) {
-    _ = godotenv.Load()
+	_ = godotenv.Load()
 
 	cfg := Config{}
 	cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
@@ -29,12 +29,12 @@ func Load() (Config, error) {
 	cfg.Obs.Environment = firstNonEmpty(os.Getenv("ENVIRONMENT"), "dev")
 	cfg.Obs.OTLP = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 
-    cfg.Web.SearXNGURL = firstNonEmpty(os.Getenv("SEARXNG_URL"), "http://localhost:8080")
+	cfg.Web.SearXNGURL = firstNonEmpty(os.Getenv("SEARXNG_URL"), "http://localhost:8080")
 
-    // Optionally load specialist agents from YAML.
-    if err := loadSpecialists(&cfg); err != nil {
-        return Config{}, err
-    }
+	// Optionally load specialist agents from YAML.
+	if err := loadSpecialists(&cfg); err != nil {
+		return Config{}, err
+	}
 
 	if cfg.OpenAI.APIKey == "" {
 		return Config{}, errors.New("OPENAI_API_KEY is required (set in .env or environment)")
@@ -71,60 +71,62 @@ func Load() (Config, error) {
 			cfg.Exec.BlockBinaries = append(cfg.Exec.BlockBinaries, p)
 		}
 	}
-    return cfg, nil
+	return cfg, nil
 }
 
 // loadSpecialists populates cfg.Specialists by reading a YAML file if present.
 // The file path can be specified with SPECIALISTS_CONFIG. If not set, the
 // loader will look for configs/specialists.yaml or configs/specialists.yml.
 func loadSpecialists(cfg *Config) error {
-    // Allow disabling via env
-    if strings.EqualFold(strings.TrimSpace(os.Getenv("SPECIALISTS_DISABLED")), "true") {
-        return nil
-    }
-    var paths []string
-    if p := strings.TrimSpace(os.Getenv("SPECIALISTS_CONFIG")); p != "" {
-        paths = append(paths, p)
-    }
-    paths = append(paths, "configs/specialists.yaml", "configs/specialists.yml")
-    var data []byte
-    var chosen string
-    for _, p := range paths {
-        b, err := os.ReadFile(p)
-        if err == nil {
-            data = b
-            chosen = p
-            break
-        }
-        if os.IsNotExist(err) {
-            continue
-        }
-        // Unexpected read error
-        return fmt.Errorf("read %s: %w", p, err)
-    }
-    if len(data) == 0 {
-        return nil // optional
-    }
-    // Two accepted shapes:
-    //   specialists: [ {name: ..., ...}, ... ]
-    // or directly a list: [ {name: ..., ...} ]
-    type wrap struct {
-        Specialists []SpecialistConfig `yaml:"specialists"`
-    }
-    var w wrap
-    // Expand ${VAR} with environment variables before parsing.
-    data = []byte(os.ExpandEnv(string(data)))
-    if err := yaml.Unmarshal(data, &w); err == nil && len(w.Specialists) > 0 {
-        cfg.Specialists = w.Specialists
-        return nil
-    }
-    // Fallback: try list at root
-    var list []SpecialistConfig
-    if err := yaml.Unmarshal(data, &list); err == nil && len(list) > 0 {
-        cfg.Specialists = list
-        return nil
-    }
-    return fmt.Errorf("%s: could not parse specialists configuration", chosen)
+	// Allow disabling via env
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("SPECIALISTS_DISABLED")), "true") {
+		return nil
+	}
+	var paths []string
+	if p := strings.TrimSpace(os.Getenv("SPECIALISTS_CONFIG")); p != "" {
+		paths = append(paths, p)
+	}
+	paths = append(paths, "configs/specialists.yaml", "configs/specialists.yml")
+	var data []byte
+	var chosen string
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err == nil {
+			data = b
+			chosen = p
+			break
+		}
+		if os.IsNotExist(err) {
+			continue
+		}
+		// Unexpected read error
+		return fmt.Errorf("read %s: %w", p, err)
+	}
+	if len(data) == 0 {
+		return nil // optional
+	}
+	// Two accepted shapes:
+	//   specialists: [ {name: ..., ...}, ... ]
+	// or directly a list: [ {name: ..., ...} ]
+	type wrap struct {
+		Specialists []SpecialistConfig `yaml:"specialists"`
+		Routes      []SpecialistRoute  `yaml:"routes"`
+	}
+	var w wrap
+	// Expand ${VAR} with environment variables before parsing.
+	data = []byte(os.ExpandEnv(string(data)))
+	if err := yaml.Unmarshal(data, &w); err == nil && (len(w.Specialists) > 0 || len(w.Routes) > 0) {
+		cfg.Specialists = w.Specialists
+		cfg.SpecialistRoutes = w.Routes
+		return nil
+	}
+	// Fallback: try list at root
+	var list []SpecialistConfig
+	if err := yaml.Unmarshal(data, &list); err == nil && len(list) > 0 {
+		cfg.Specialists = list
+		return nil
+	}
+	return fmt.Errorf("%s: could not parse specialists configuration", chosen)
 }
 
 func firstNonEmpty(vals ...string) string {

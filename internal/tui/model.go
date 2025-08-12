@@ -1,10 +1,10 @@
 package tui
 
 import (
-    "context"
-    "encoding/json"
-    "fmt"
-    "strings"
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -15,13 +15,15 @@ import (
 	"gptagent/internal/agent/prompts"
 	"gptagent/internal/config"
 	"gptagent/internal/llm"
-    "gptagent/internal/tools"
-    "gptagent/internal/tools/cli"
-    "gptagent/internal/tools/fs"
-    "gptagent/internal/tools/web"
-    openai "gptagent/internal/llm/openai"
-    llmtools "gptagent/internal/tools/llmtool"
-    "gptagent/internal/warpp"
+	openai "gptagent/internal/llm/openai"
+	"gptagent/internal/specialists"
+	"gptagent/internal/tools"
+	"gptagent/internal/tools/cli"
+	"gptagent/internal/tools/fs"
+	llmtools "gptagent/internal/tools/llmtool"
+	specialists_tool "gptagent/internal/tools/specialists"
+	"gptagent/internal/tools/web"
+	"gptagent/internal/warpp"
 )
 
 type Model struct {
@@ -45,10 +47,13 @@ type Model struct {
 	currentMessageIndex int      // Track the index of the current streaming message
 	running             bool
 	toolCh              chan chatMsg
-    streamingDeltaCh    chan string
+	streamingDeltaCh    chan string
 
-    // demo flags
-    warppDemo bool
+	// demo flags
+	warppDemo bool
+
+	// specialists
+	specReg *specialists.Registry
 
 	// styles
 	userTag                lipgloss.Style
@@ -89,18 +94,21 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	agentText := lipgloss.NewStyle().Foreground(lipgloss.Color("#ECE7FF"))
 
 	// Tool registry
-    registry := tools.NewRegistry()
-    registry.Register(cli.NewTool(exec))
-    registry.Register(web.NewTool(cfg.Web.SearXNGURL))
-    registry.Register(web.NewFetchTool())
-    registry.Register(fs.NewWriteTool(cfg.Workdir))
-    // In TUI, build a provider factory with a default HTTP client
-    factory := func(baseURL string) llm.Provider {
-        c2 := cfg.OpenAI
-        c2.BaseURL = baseURL
-        return openai.New(c2, nil)
-    }
-    registry.Register(llmtools.NewTransform(provider, cfg.OpenAI.Model, factory))
+	registry := tools.NewRegistry()
+	registry.Register(cli.NewTool(exec))
+	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
+	registry.Register(web.NewFetchTool())
+	registry.Register(fs.NewWriteTool(cfg.Workdir))
+	// In TUI, build a provider factory with a default HTTP client
+	factory := func(baseURL string) llm.Provider {
+		c2 := cfg.OpenAI
+		c2.BaseURL = baseURL
+		return openai.New(c2, nil)
+	}
+	registry.Register(llmtools.NewTransform(provider, cfg.OpenAI.Model, factory))
+	// Specialists tool available in TUI as well
+	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, nil)
+	registry.Register(specialists_tool.New(specReg))
 
 	// Engine setup (matches cmd/agent wiring)
 	eng := agent.Engine{
@@ -110,14 +118,15 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		System:   prompts.DefaultSystemPrompt(cfg.Workdir),
 	}
 
-    m := &Model{
-        ctx:                    ctx,
-        provider:               provider,
-        cfg:                    cfg,
-        exec:                   exec,
-        maxSteps:               maxSteps,
-        eng:                    eng,
-        warppDemo:              warppDemo,
+	m := &Model{
+		ctx:                    ctx,
+		provider:               provider,
+		cfg:                    cfg,
+		exec:                   exec,
+		maxSteps:               maxSteps,
+		eng:                    eng,
+		warppDemo:              warppDemo,
+		specReg:                specReg,
 		leftVP:                 left,
 		rightVP:                right,
 		input:                  in,
@@ -157,31 +166,35 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activePanel = "left"
 			}
 			return m, nil
-        case "enter":
-            if m.running {
-                return m, nil
-            }
-            q := strings.TrimSpace(m.input.Value())
-            if q == "" {
-                return m, nil
-            }
-            m.input.SetValue("")
-            m.messages = append(m.messages, chatMsg{kind: "user", title: "You", content: q})
-            m.setView()
-            m.running = true
-            // start reading events and engine in parallel
-            m.toolCh = make(chan chatMsg, 32)
-            if m.warppDemo {
-                // WARPP demo does not stream tokens; produce a final answer at once
-                return m, tea.Batch(m.readNextEvent(), m.runWARPPDemo(q))
-            }
-            m.streamingDeltaCh = make(chan string, 64)
-            // Initialize streaming message and track its index
-            m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
-            m.currentMessageIndex = len(m.messages) // Store the index before appending
-            m.messages = append(m.messages, *m.currentMessage)
-            m.setView()
-            return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
+		case "enter":
+			if m.running {
+				return m, nil
+			}
+			q := strings.TrimSpace(m.input.Value())
+			if q == "" {
+				return m, nil
+			}
+			m.input.SetValue("")
+			m.messages = append(m.messages, chatMsg{kind: "user", title: "You", content: q})
+			m.setView()
+			m.running = true
+			// start reading events and engine in parallel
+			m.toolCh = make(chan chatMsg, 32)
+			if m.warppDemo {
+				// WARPP demo does not stream tokens; produce a final answer at once
+				return m, tea.Batch(m.readNextEvent(), m.runWARPPDemo(q))
+			}
+			// Pre-dispatch routing to specialists in TUI
+			if name := specialists.Route(m.cfg.SpecialistRoutes, q); name != "" {
+				return m, tea.Batch(m.readNextEvent(), m.runSpecialist(name, q))
+			}
+			m.streamingDeltaCh = make(chan string, 64)
+			// Initialize streaming message and track its index
+			m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
+			m.currentMessageIndex = len(m.messages) // Store the index before appending
+			m.messages = append(m.messages, *m.currentMessage)
+			m.setView()
+			return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
 		case "up", "down", "pgup", "pgdn", "home", "end":
 			// Handle scrolling for the active pane only
 			if m.activePanel == "left" {
@@ -273,29 +286,29 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.readNextEvent()
 	case toolStreamClosed:
 		return m, nil
-    case runResult:
-        m.running = false
-        // tool events are already handled by the streaming mechanism via toolEventMsg
-        // no need to append msg.events here as it would create duplicates
-        if msg.err != nil {
-            m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "error: " + msg.err.Error()})
-            m.setView()
-            return m, nil
-        }
-        if m.currentMessage == nil {
-            // Non-streaming path (e.g., WARPP demo): append the final answer now
-            if msg.text != "" {
-                m.messages = append(m.messages, chatMsg{kind: "agent", title: "Agent", content: msg.text})
-            }
-        } else {
-            // Streaming path: finalize the in-progress assistant message
-            m.currentMessage = nil
-            m.currentMessageIndex = -1
-        }
-        // update history
-        m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})
-        m.setView()
-        return m, nil
+	case runResult:
+		m.running = false
+		// tool events are already handled by the streaming mechanism via toolEventMsg
+		// no need to append msg.events here as it would create duplicates
+		if msg.err != nil {
+			m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "error: " + msg.err.Error()})
+			m.setView()
+			return m, nil
+		}
+		if m.currentMessage == nil {
+			// Non-streaming path (e.g., WARPP demo): append the final answer now
+			if msg.text != "" {
+				m.messages = append(m.messages, chatMsg{kind: "agent", title: "Agent", content: msg.text})
+			}
+		} else {
+			// Streaming path: finalize the in-progress assistant message
+			m.currentMessage = nil
+			m.currentMessageIndex = -1
+		}
+		// update history
+		m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})
+		m.setView()
+		return m, nil
 	}
 
 	// default: update input only (viewports are handled above for focused scrolling)
@@ -376,58 +389,89 @@ func (m *Model) runStreamingEngine(user string) tea.Cmd {
 	}
 }
 
+// runSpecialist performs a direct specialist call using the pre-dispatch router
+// and returns a runResult for the TUI to render.
+func (m *Model) runSpecialist(name, user string) tea.Cmd {
+	return func() tea.Msg {
+		// Announce specialist activity in the right pane
+		if m.toolCh != nil {
+			cm := chatMsg{kind: "tool", title: "Specialist: " + name, content: "routing"}
+			select {
+			case m.toolCh <- cm:
+			default:
+			}
+		}
+		a, ok := m.specReg.Get(name)
+		if !ok {
+			if m.toolCh != nil {
+				close(m.toolCh)
+			}
+			return runResult{text: "", err: fmt.Errorf("unknown specialist: %s", name)}
+		}
+		out, err := a.Inference(m.ctx, user, nil)
+		if m.toolCh != nil {
+			close(m.toolCh)
+		}
+		return runResult{text: out, err: err}
+	}
+}
+
 // runWARPP executes the production WARPP runner using loaded workflows
 // (defaults included) and posts tool outputs to the right pane and a summarized
 // result to the chat pane.
 func (m *Model) runWARPPDemo(user string) tea.Cmd {
-    return func() tea.Msg {
-        events := make([]chatMsg, 0, 4)
-        rec := tools.NewRecordingRegistry(m.eng.Tools, func(ev tools.DispatchEvent) {
-            title := "Tool: " + ev.Name
-            content := string(ev.Payload)
-            if ev.Name == "run_cli" {
-                var args struct {
-                    Command        string   `json:"command"`
-                    Args           []string `json:"args"`
-                    TimeoutSeconds int      `json:"timeout_seconds"`
-                    Stdin          string   `json:"stdin"`
-                }
-                var res cli.ExecResult
-                _ = json.Unmarshal(ev.Args, &args)
-                if err := json.Unmarshal(ev.Payload, &res); err == nil {
-                    content = formatToolPayload(args.Command, args.Args, res)
-                }
-            }
-            cm := chatMsg{kind: "tool", title: title, content: content}
-            events = append(events, cm)
-            select {
-            case m.toolCh <- cm:
-            default:
-            }
-        })
+	return func() tea.Msg {
+		events := make([]chatMsg, 0, 4)
+		rec := tools.NewRecordingRegistry(m.eng.Tools, func(ev tools.DispatchEvent) {
+			title := "Tool: " + ev.Name
+			content := string(ev.Payload)
+			if ev.Name == "run_cli" {
+				var args struct {
+					Command        string   `json:"command"`
+					Args           []string `json:"args"`
+					TimeoutSeconds int      `json:"timeout_seconds"`
+					Stdin          string   `json:"stdin"`
+				}
+				var res cli.ExecResult
+				_ = json.Unmarshal(ev.Args, &args)
+				if err := json.Unmarshal(ev.Payload, &res); err == nil {
+					content = formatToolPayload(args.Command, args.Args, res)
+				}
+			}
+			cm := chatMsg{kind: "tool", title: title, content: content}
+			events = append(events, cm)
+			select {
+			case m.toolCh <- cm:
+			default:
+			}
+		})
 
-        // Build WARPP runner
-        wfreg, _ := warpp.LoadFromDir("configs/workflows")
-        runner := &warpp.Runner{Workflows: wfreg, Tools: rec}
+		// Build WARPP runner
+		wfreg, _ := warpp.LoadFromDir("configs/workflows")
+		runner := &warpp.Runner{Workflows: wfreg, Tools: rec}
 
-        // Stage 1: intent + workflow
-        intent := runner.DetectIntent(m.ctx, user)
-        wf, _ := wfreg.Get(intent)
-        attrs := warpp.Attrs{"utter": user}
-        // Stage 2: personalization (our runner does simple inference and trimming)
-        wfStar, _, attrs, err := runner.Personalize(m.ctx, wf, attrs)
-        if err != nil {
-            close(m.toolCh)
-            return runResult{text: "", err: err, events: events}
-        }
-        // Build allowlist from referenced tools
-        allow := map[string]bool{}
-        for _, s := range wfStar.Steps { if s.Tool != nil { allow[s.Tool.Name] = true } }
-        // Stage 3: execution
-        finalText, err := runner.Execute(m.ctx, wfStar, allow, attrs)
-        close(m.toolCh)
-        return runResult{text: finalText, err: err, events: events}
-    }
+		// Stage 1: intent + workflow
+		intent := runner.DetectIntent(m.ctx, user)
+		wf, _ := wfreg.Get(intent)
+		attrs := warpp.Attrs{"utter": user}
+		// Stage 2: personalization (our runner does simple inference and trimming)
+		wfStar, _, attrs, err := runner.Personalize(m.ctx, wf, attrs)
+		if err != nil {
+			close(m.toolCh)
+			return runResult{text: "", err: err, events: events}
+		}
+		// Build allowlist from referenced tools
+		allow := map[string]bool{}
+		for _, s := range wfStar.Steps {
+			if s.Tool != nil {
+				allow[s.Tool.Name] = true
+			}
+		}
+		// Stage 3: execution
+		finalText, err := runner.Execute(m.ctx, wfStar, allow, attrs)
+		close(m.toolCh)
+		return runResult{text: finalText, err: err, events: events}
+	}
 }
 
 func (m *Model) readNextEvent() tea.Cmd {

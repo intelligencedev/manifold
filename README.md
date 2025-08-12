@@ -125,9 +125,30 @@ Why not .env for this? While `.env` is convenient for simple, flat settings, it 
 
 ### Configuration
 
-Create `configs/specialists.yaml` (or set `SPECIALISTS_CONFIG` to a custom path). See `configs/specialists.example.yaml` for a full example.
+Create `configs/config.yaml` (or set `SPECIALISTS_CONFIG` to a custom path). See `configs/config.yaml.example` for a full example.
 
-Example (configs/specialists.yaml):
+You can optionally configure global headers and extra params for the main agent under the `openai` section. You can also configure other global settings (workdir, exec, obs, web) in the same file.
+
+```
+openai:
+  extraHeaders:
+    X-App-Tenant: example
+  extraParams:
+    temperature: 0.3
+
+workdir: ./sandbox
+outputTruncateBytes: 65536
+exec:
+  blockBinaries: ["rm", "sudo"]
+  maxCommandSeconds: 30
+obs:
+  serviceName: singularityio
+  environment: dev
+web:
+  searXNGURL: http://localhost:8080
+```
+
+Example (configs/config.yaml):
 
 ```
 specialists:
@@ -160,6 +181,15 @@ Notes:
 - If `enableTools` is false, the request omits the tools field entirely (not even an empty array), satisfying “no tool calling schema is sent.”
 - If `reasoningEffort` is set, the request adds `{"reasoning": {"effort": "..."}}` via the SDK’s extra field facility. Providers that ignore it will simply proceed.
 - You can override the default OpenAI `baseURL`/`apiKey`/`model` per specialist.
+- Optional `extraHeaders` are injected into the HTTP request for that specialist (useful for vendor headers, tenancy, etc.).
+- Optional `extraParams` are merged into the chat completions request as additional fields (e.g., temperature or vendor-specific parameters). Your explicit `extraParams` take precedence over defaults.
+
+Main agent extras
+- `openai.extraHeaders` are applied to every main agent HTTP call.
+- `openai.extraParams` are merged into every main agent chat completion request (and into streams). If a specialist also sets extra params, the specialist’s extra params take precedence for that specialist call.
+
+Precedence
+- OS environment > .env > config.yaml. That is, values from your shell env override .env, and both override config.yaml. The loader applies defaults only when none of the above specify a value.
 
 ### Using specialists from the CLI and TUI
 
@@ -180,14 +210,14 @@ Internally this uses a dedicated request builder that conditionally sets fields 
 TUI (interactive) mode exposes the same specialists_infer tool inside the agent. You can ask “what tools are available to you?” in the TUI and you will see specialists_infer among the tools.
 
 Pre-dispatch routing in TUI
-- The same pre-dispatch router is now active in the TUI. When you press Enter, the input is checked against `routes` from `configs/specialists.yaml`; if a match is found, the TUI calls the matched specialist directly and shows the result in the chat pane. A small “Specialist: <name>” card is added to the Tools pane for visibility.
+- The same pre-dispatch router is now active in the TUI. When you press Enter, the input is checked against `routes` from `configs/config.yaml`; if a match is found, the TUI calls the matched specialist directly and shows the result in the chat pane. A small “Specialist: <name>” card is added to the Tools pane for visibility.
 
 ### How the main agent invokes specialists
 
 There are two paths for invoking specialists:
 
 1) Pre-dispatch routing (deterministic)
-- Before running the main agent, your input is checked against `routes` from `configs/specialists.yaml`.
+- Before running the main agent, your input is checked against `routes` from `configs/config.yaml`.
 - If a rule matches, the request is sent directly to the matched specialist and the result is returned. This is fast and predictable for obvious intents (e.g., code review or structured extraction).
 
 2) LLM-driven routing via a tool
@@ -206,7 +236,7 @@ Design guarantees
 
 Where is this implemented?
 - Config types: `internal/config.SpecialistConfig` and `internal/config.SpecialistRoute`, aggregated in `Config` as `Specialists` and `SpecialistRoutes`.
-- Loader: `internal/config/loader.go` reads `SPECIALISTS_CONFIG` or `configs/specialists.(yaml|yml)`, expands `${ENV}` references, and populates `Specialists` and `SpecialistRoutes`.
+- Loader: `internal/config/loader.go` reads `SPECIALISTS_CONFIG` (or `configs/config.(yaml|yml)` by default), expands `${ENV}` references, and populates `Specialists`, `SpecialistRoutes`, and `openai.extraHeaders/extraParams`.
 - Registry: `internal/specialists` builds one client per specialist and exposes `Inference` and `Route` helpers.
 - Tool: `internal/tools/specialists` implements the `specialists_infer` tool, which the main agent can call.
 - OpenAI client: `internal/llm/openai.Client.ChatWithOptions` lets us omit tools and attach extra request fields.

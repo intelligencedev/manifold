@@ -16,24 +16,54 @@ func Load() (Config, error) {
 	_ = godotenv.Load()
 
 	cfg := Config{}
+	// Read environment values first (no defaults here; we'll apply defaults later)
 	cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	cfg.OpenAI.Model = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_MODEL")), "gpt-4o-mini")
+	cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
 	// Allow overriding API base via env (useful for proxies/self-hosted gateways)
 	cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
 	cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
-	cfg.Exec.MaxCommandSeconds = intFromEnv("MAX_COMMAND_SECONDS", 30)
-	cfg.OutputTruncateByte = intFromEnv("OUTPUT_TRUNCATE_BYTES", 64*1024)
+	// Int env parsing without defaults; defaults applied after YAML
+	if v := strings.TrimSpace(os.Getenv("MAX_COMMAND_SECONDS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Exec.MaxCommandSeconds = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("OUTPUT_TRUNCATE_BYTES")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.OutputTruncateByte = n
+		}
+	}
 
-	cfg.Obs.ServiceName = firstNonEmpty(os.Getenv("OTEL_SERVICE_NAME"), "singularityio")
+	cfg.Obs.ServiceName = strings.TrimSpace(os.Getenv("OTEL_SERVICE_NAME"))
 	cfg.Obs.ServiceVersion = strings.TrimSpace(os.Getenv("SERVICE_VERSION"))
-	cfg.Obs.Environment = firstNonEmpty(os.Getenv("ENVIRONMENT"), "dev")
+	cfg.Obs.Environment = strings.TrimSpace(os.Getenv("ENVIRONMENT"))
 	cfg.Obs.OTLP = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 
-	cfg.Web.SearXNGURL = firstNonEmpty(os.Getenv("SEARXNG_URL"), "http://localhost:8080")
+	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
 
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
 		return Config{}, err
+	}
+
+	// Apply defaults after merging YAML
+	if cfg.OpenAI.Model == "" {
+		cfg.OpenAI.Model = "gpt-4o-mini"
+	}
+	if cfg.Obs.ServiceName == "" {
+		cfg.Obs.ServiceName = "singularityio"
+	}
+	if cfg.Obs.Environment == "" {
+		cfg.Obs.Environment = "dev"
+	}
+	if cfg.Web.SearXNGURL == "" {
+		cfg.Web.SearXNGURL = "http://localhost:8080"
+	}
+	if cfg.Exec.MaxCommandSeconds == 0 {
+		cfg.Exec.MaxCommandSeconds = 30
+	}
+	if cfg.OutputTruncateByte == 0 {
+		cfg.OutputTruncateByte = 64 * 1024
 	}
 
 	if cfg.OpenAI.APIKey == "" {
@@ -59,6 +89,8 @@ func Load() (Config, error) {
 	// Parse blocklist
 	blockStr := strings.TrimSpace(os.Getenv("BLOCK_BINARIES"))
 	if blockStr != "" {
+		// env overrides any YAML-defined list
+		cfg.Exec.BlockBinaries = nil
 		parts := strings.Split(blockStr, ",")
 		for _, p := range parts {
 			p = strings.TrimSpace(p)
@@ -76,7 +108,7 @@ func Load() (Config, error) {
 
 // loadSpecialists populates cfg.Specialists by reading a YAML file if present.
 // The file path can be specified with SPECIALISTS_CONFIG. If not set, the
-// loader will look for configs/specialists.yaml or configs/specialists.yml.
+// loader will look for configs/config.yaml or configs/config.yml.
 func loadSpecialists(cfg *Config) error {
 	// Allow disabling via env
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("SPECIALISTS_DISABLED")), "true") {
@@ -86,7 +118,7 @@ func loadSpecialists(cfg *Config) error {
 	if p := strings.TrimSpace(os.Getenv("SPECIALISTS_CONFIG")); p != "" {
 		paths = append(paths, p)
 	}
-	paths = append(paths, "configs/specialists.yaml", "configs/specialists.yml")
+	paths = append(paths, "configs/config.yaml", "configs/config.yml")
 	var data []byte
 	var chosen string
 	for _, p := range paths {
@@ -108,16 +140,92 @@ func loadSpecialists(cfg *Config) error {
 	// Two accepted shapes:
 	//   specialists: [ {name: ..., ...}, ... ]
 	// or directly a list: [ {name: ..., ...} ]
+	type openAIYAML struct {
+		APIKey       string            `yaml:"apiKey"`
+		Model        string            `yaml:"model"`
+		BaseURL      string            `yaml:"baseURL"`
+		ExtraHeaders map[string]string `yaml:"extraHeaders"`
+		ExtraParams  map[string]any    `yaml:"extraParams"`
+	}
+	type execYAML struct {
+		BlockBinaries     []string `yaml:"blockBinaries"`
+		MaxCommandSeconds int      `yaml:"maxCommandSeconds"`
+	}
+	type obsYAML struct {
+		ServiceName    string `yaml:"serviceName"`
+		ServiceVersion string `yaml:"serviceVersion"`
+		Environment    string `yaml:"environment"`
+		OTLP           string `yaml:"otlp"`
+	}
+	type webYAML struct {
+		SearXNGURL string `yaml:"searXNGURL"`
+	}
 	type wrap struct {
 		Specialists []SpecialistConfig `yaml:"specialists"`
 		Routes      []SpecialistRoute  `yaml:"routes"`
+		OpenAI      openAIYAML         `yaml:"openai"`
+		Workdir     string             `yaml:"workdir"`
+		OutputTrunc int                `yaml:"outputTruncateBytes"`
+		Exec        execYAML           `yaml:"exec"`
+		Obs         obsYAML            `yaml:"obs"`
+		Web         webYAML            `yaml:"web"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
 	data = []byte(os.ExpandEnv(string(data)))
-	if err := yaml.Unmarshal(data, &w); err == nil && (len(w.Specialists) > 0 || len(w.Routes) > 0) {
-		cfg.Specialists = w.Specialists
-		cfg.SpecialistRoutes = w.Routes
+	if err := yaml.Unmarshal(data, &w); err == nil {
+		// Specialists and routes
+		if len(w.Specialists) > 0 {
+			cfg.Specialists = w.Specialists
+		}
+		if len(w.Routes) > 0 {
+			cfg.SpecialistRoutes = w.Routes
+		}
+		// OpenAI extras always merged
+		if len(w.OpenAI.ExtraHeaders) > 0 {
+			cfg.OpenAI.ExtraHeaders = w.OpenAI.ExtraHeaders
+		}
+		if len(w.OpenAI.ExtraParams) > 0 {
+			cfg.OpenAI.ExtraParams = w.OpenAI.ExtraParams
+		}
+		// OpenAI core: only if empty (env overrides YAML)
+		if cfg.OpenAI.APIKey == "" && strings.TrimSpace(w.OpenAI.APIKey) != "" {
+			cfg.OpenAI.APIKey = strings.TrimSpace(w.OpenAI.APIKey)
+		}
+		if cfg.OpenAI.Model == "" && strings.TrimSpace(w.OpenAI.Model) != "" {
+			cfg.OpenAI.Model = strings.TrimSpace(w.OpenAI.Model)
+		}
+		if cfg.OpenAI.BaseURL == "" && strings.TrimSpace(w.OpenAI.BaseURL) != "" {
+			cfg.OpenAI.BaseURL = strings.TrimSpace(w.OpenAI.BaseURL)
+		}
+		// Workdir and others only if empty
+		if cfg.Workdir == "" && strings.TrimSpace(w.Workdir) != "" {
+			cfg.Workdir = strings.TrimSpace(w.Workdir)
+		}
+		if cfg.OutputTruncateByte == 0 && w.OutputTrunc > 0 {
+			cfg.OutputTruncateByte = w.OutputTrunc
+		}
+		if cfg.Exec.MaxCommandSeconds == 0 && w.Exec.MaxCommandSeconds > 0 {
+			cfg.Exec.MaxCommandSeconds = w.Exec.MaxCommandSeconds
+		}
+		if len(cfg.Exec.BlockBinaries) == 0 && len(w.Exec.BlockBinaries) > 0 {
+			cfg.Exec.BlockBinaries = append([]string{}, w.Exec.BlockBinaries...)
+		}
+		if cfg.Obs.ServiceName == "" && w.Obs.ServiceName != "" {
+			cfg.Obs.ServiceName = w.Obs.ServiceName
+		}
+		if cfg.Obs.ServiceVersion == "" && w.Obs.ServiceVersion != "" {
+			cfg.Obs.ServiceVersion = w.Obs.ServiceVersion
+		}
+		if cfg.Obs.Environment == "" && w.Obs.Environment != "" {
+			cfg.Obs.Environment = w.Obs.Environment
+		}
+		if cfg.Obs.OTLP == "" && w.Obs.OTLP != "" {
+			cfg.Obs.OTLP = w.Obs.OTLP
+		}
+		if cfg.Web.SearXNGURL == "" && strings.TrimSpace(w.Web.SearXNGURL) != "" {
+			cfg.Web.SearXNGURL = strings.TrimSpace(w.Web.SearXNGURL)
+		}
 		return nil
 	}
 	// Fallback: try list at root

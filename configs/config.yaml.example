@@ -1,0 +1,55 @@
+openai:
+  # Optional: request-wide headers for the main agent
+  extraHeaders:
+    X-App-Tenant: example
+  # Optional: extra parameters merged into main agent chat completions
+  extraParams:
+    temperature: 0.3
+    # Add vendor-specific fields if needed
+
+# Global settings (can be overridden via env)
+workdir: ./sandbox
+outputTruncateBytes: 65536
+exec:
+  blockBinaries: ["rm", "sudo", "chown", "chmod", "dd", "mkfs", "mount", "umount"]
+  maxCommandSeconds: 30
+obs:
+  serviceName: singularityio
+  environment: dev
+  otlp: http://localhost:4318
+web:
+  searXNGURL: http://localhost:8080
+
+specialists:
+  - name: code-reviewer
+    baseURL: https://api.openai.com
+    apiKey: ${OPENAI_API_KEY}
+    model: gpt-4o-mini
+    enableTools: false
+    reasoningEffort: medium
+    system: |
+      You are a careful code review assistant. Provide actionable feedback,
+      point out potential bugs, and suggest improvements.
+    extraHeaders:
+      X-Custom-Tenant: demo
+    extraParams:
+      temperature: 0.2
+
+  - name: data-extractor
+    baseURL: https://api.openai.com
+    apiKey: ${OPENAI_API_KEY}
+    model: gpt-4o
+    enableTools: true
+    system: |
+      You extract structured information from text. When tools are available,
+      you may call them to store results.
+    # You can also provide vendor-specific extra params here if needed
+    extraParams:
+      temperature: 0.0
+
+routes:
+  - name: code-reviewer
+    contains: ["review", "code", "lint"]
+    regex: ["(?i)code review"]
+  - name: data-extractor
+    contains: ["extract", "fields", "parse"]

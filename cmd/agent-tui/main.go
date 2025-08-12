@@ -30,6 +30,9 @@ func main() {
 	defer func() { _ = shutdown(context.Background()) }()
 
 	httpClient := observability.NewHTTPClient(nil)
+	if len(cfg.OpenAI.ExtraHeaders) > 0 {
+		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
+	}
 	provider := openai.New(cfg.OpenAI, httpClient)
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)

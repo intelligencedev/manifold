@@ -26,6 +26,10 @@ type OpenAIConfig struct {
 	APIKey  string
 	Model   string
 	BaseURL string
+	// ExtraHeaders are added to every main agent HTTP request.
+	ExtraHeaders map[string]string
+	// ExtraParams are merged into the chat completions request for the main agent.
+	ExtraParams map[string]any
 }
 
 // SpecialistConfig describes a single specialist agent bound to a specific
@@ -40,6 +44,7 @@ type SpecialistConfig struct {
 	ReasoningEffort string            `yaml:"reasoningEffort" json:"reasoningEffort"`
 	System          string            `yaml:"system" json:"system"`
 	ExtraHeaders    map[string]string `yaml:"extraHeaders" json:"extraHeaders"`
+	ExtraParams     map[string]any    `yaml:"extraParams" json:"extraParams"`
 }
 
 // SpecialistRoute defines simple pre-dispatch rules. If the user's prompt

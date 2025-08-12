@@ -16,6 +16,7 @@ import (
 	"gptagent/internal/config"
 	"gptagent/internal/llm"
 	openai "gptagent/internal/llm/openai"
+	"gptagent/internal/observability"
 	"gptagent/internal/specialists"
 	"gptagent/internal/tools"
 	"gptagent/internal/tools/cli"
@@ -103,7 +104,11 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	factory := func(baseURL string) llm.Provider {
 		c2 := cfg.OpenAI
 		c2.BaseURL = baseURL
-		return openai.New(c2, nil)
+		hc := observability.NewHTTPClient(nil)
+		if len(cfg.OpenAI.ExtraHeaders) > 0 {
+			hc = observability.WithHeaders(hc, cfg.OpenAI.ExtraHeaders)
+		}
+		return openai.New(c2, hc)
 	}
 	registry.Register(llmtools.NewTransform(provider, cfg.OpenAI.Model, factory))
 	// Specialists tool available in TUI as well

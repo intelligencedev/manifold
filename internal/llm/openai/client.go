@@ -16,6 +16,7 @@ import (
 type Client struct {
 	sdk   sdk.Client
 	model string
+	extra map[string]any
 }
 
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
@@ -26,7 +27,7 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(httpClient))
 	}
-	return &Client{sdk: sdk.NewClient(opts...), model: c.Model}
+	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams}
 }
 
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
@@ -39,6 +40,9 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	// tools: include only when provided to avoid sending an empty array
 	if len(tools) > 0 {
 		params.Tools = AdaptSchemas(tools)
+	}
+	if len(c.extra) > 0 {
+		params.SetExtraFields(c.extra)
 	}
 	comp, err := c.sdk.Chat.Completions.New(ctx, params)
 	if err != nil {
@@ -80,8 +84,15 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	if len(tools) > 0 {
 		params.Tools = AdaptSchemas(tools)
 	}
-	if len(extra) > 0 {
-		params.SetExtraFields(extra)
+	if len(c.extra) > 0 || len(extra) > 0 {
+		merged := make(map[string]any, len(c.extra)+len(extra))
+		for k, v := range c.extra {
+			merged[k] = v
+		}
+		for k, v := range extra {
+			merged[k] = v
+		}
+		params.SetExtraFields(merged)
 	}
 	comp, err := c.sdk.Chat.Completions.New(ctx, params)
 	if err != nil {
@@ -119,7 +130,12 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	// messages
 	params.Messages = AdaptMessages(msgs)
 	// tools
-	params.Tools = AdaptSchemas(tools)
+	if len(tools) > 0 {
+		params.Tools = AdaptSchemas(tools)
+	}
+	if len(c.extra) > 0 {
+		params.SetExtraFields(c.extra)
+	}
 
 	stream := c.sdk.Chat.Completions.NewStreaming(ctx, params)
 	defer stream.Close()

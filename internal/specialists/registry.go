@@ -19,6 +19,7 @@ type Agent struct {
 	Model           string
 	EnableTools     bool
 	ReasoningEffort string // optional: "low"|"medium"|"high"
+	ExtraParams     map[string]any
 
 	provider *openaillm.Client
 }
@@ -40,13 +41,26 @@ func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpC
 			Model:   firstNonEmpty(sc.Model, base.Model),
 			BaseURL: firstNonEmpty(sc.BaseURL, base.BaseURL),
 		}
-		prov := openaillm.New(oc, httpClient)
+		// Build per-specialist HTTP client with extra headers if provided
+		hc := httpClient
+		if len(sc.ExtraHeaders) > 0 {
+			if hc == nil {
+				hc = http.DefaultClient
+			}
+			tr := hc.Transport
+			if tr == nil {
+				tr = http.DefaultTransport
+			}
+			hc = &http.Client{Transport: &headerTransport{base: tr, headers: sc.ExtraHeaders}}
+		}
+		prov := openaillm.New(oc, hc)
 		a := &Agent{
 			Name:            sc.Name,
 			System:          sc.System,
 			Model:           oc.Model,
 			EnableTools:     sc.EnableTools,
 			ReasoningEffort: strings.TrimSpace(sc.ReasoningEffort),
+			ExtraParams:     sc.ExtraParams,
 			provider:        prov,
 		}
 		if a.Name != "" {
@@ -88,9 +102,12 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	msgs = append(msgs, history...)
 	msgs = append(msgs, llm.Message{Role: "user", Content: user})
 
-	// Extra fields for the request
-	extra := map[string]any{}
-	if a.ReasoningEffort != "" {
+	// Extra fields for the request: start with configured extra params
+	extra := make(map[string]any, len(a.ExtraParams)+1)
+	for k, v := range a.ExtraParams {
+		extra[k] = v
+	}
+	if a.ReasoningEffort != "" && extra["reasoning"] == nil {
 		extra["reasoning"] = map[string]any{"effort": a.ReasoningEffort}
 	}
 
@@ -114,4 +131,20 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// headerTransport injects static headers into every request.
+type headerTransport struct {
+	base    http.RoundTripper
+	headers map[string]string
+}
+
+func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r := req.Clone(req.Context())
+	for k, v := range t.headers {
+		if r.Header.Get(k) == "" {
+			r.Header.Set(k, v)
+		}
+	}
+	return t.base.RoundTrip(r)
 }

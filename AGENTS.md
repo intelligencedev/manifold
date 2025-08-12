@@ -1,6 +1,6 @@
-# Go/gptagent
+# Go/singularityio
 
-## Coding Conventions for OpenAI Codex
+## Coding Conventions
 
 ### Package Organization
 
@@ -22,18 +22,18 @@ The following Go command-line tools are essential for development, testing, and 
 | Tool         | Purpose                                                                                                 |
 | ------------ | ------------------------------------------------------------------------------------------------------- |
 | `go build`   | Compiles packages and their dependencies into an executable.                                            |
-| `go run`     | Compiles and runs the specified Go program.                                                            |
-| `go fmt`     | Formats Go source code according to the language's style guidelines.                                   |
-| `gofmt`      | Standalone formatter; also available as an executable.                                                 |
-| `go test`    | Runs tests and benchmarks. Use `-coverprofile` with `go tool cover` to analyze test coverage.          |
-| `go vet`     | Examines Go source code and reports suspicious constructs that could be bugs.                          |
-| `go doc`     | Extracts and generates documentation for Go packages.                                                  |
-| `go get`     | Adds, updates, or removes dependencies in the `go.mod` file.                                           |
-| `go mod`     | Provides access to module operations (e.g., `go mod tidy` to clean up dependencies).                   |
-| `go tool`    | Runs the specified Go tool (see below for examples).                                                   |
-| `cgo`        | Enables the creation of Go packages that call C code.                                                  |
-| `pprof`      | For profiling Go programs.                                                                             |
-| `fix`        | Rewrites Go programs that use old language and library features.                                       |
+| `go run`     | Compiles and runs the specified Go program.                                                             |
+| `go fmt`     | Formats Go source code according to the language's style guidelines.                                    |
+| `gofmt`      | Standalone formatter; also available as an executable.                                                  |
+| `go test`    | Runs tests and benchmarks. Use `-coverprofile` with `go tool cover` to analyze test coverage.           |
+| `go vet`     | Examines Go source code and reports suspicious constructs that could be bugs.                           |
+| `go doc`     | Extracts and generates documentation for Go packages.                                                   |
+| `go get`     | Adds, updates, or removes dependencies in the `go.mod` file.                                            |
+| `go mod`     | Provides access to module operations (e.g., `go mod tidy` to clean up dependencies).                    |
+| `go tool`    | Runs the specified Go tool (see below for examples).                                                    |
+| `cgo`        | Enables the creation of Go packages that call C code.                                                   |
+| `pprof`      | For profiling Go programs.                                                                              |
+| `fix`        | Rewrites Go programs that use old language and library features.                                        |
 
 > **Tip:** Refer to this table whenever you need to build, test, format, or analyze Go code in this project.
 
@@ -103,7 +103,7 @@ synctest.Run(func(ctx context.Context){                      // deterministic bu
 
 ---
 
-## Testing Requirements for OpenAI Codex
+## Testing Requirements
 
 > **Philosophy**: Every exported function and method **must** have unit tests. Aim for ≥ 80 % coverage on business logic.
 
@@ -135,7 +135,7 @@ go test -run=^$ -bench=. -benchmem ./...
 
 ---
 
-## Pull Request Guidelines for OpenAI Codex
+## Pull Request Guidelines
 
 When OpenAI Codex assists in crafting a PR:
 
@@ -148,7 +148,7 @@ When OpenAI Codex assists in crafting a PR:
 
 ---
 
-## Programmatic Checks for OpenAI Codex
+## Programmatic Checks
 
 Before merging, run the following (often via CI):
 

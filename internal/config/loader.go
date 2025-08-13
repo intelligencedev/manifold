@@ -1,19 +1,22 @@
 package config
 
 import (
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+    "errors"
+    "fmt"
+    "os"
+    "path/filepath"
+    "strings"
 
-	"github.com/joho/godotenv"
-	yaml "gopkg.in/yaml.v3"
+    "github.com/joho/godotenv"
+    yaml "gopkg.in/yaml.v3"
 )
 
 // Load reads configuration from environment variables (optionally .env).
 func Load() (Config, error) {
-    _ = godotenv.Load()
+    // Use Overload so .env values override existing OS environment variables.
+    // This allows repository/local configuration to deterministically control
+    // runtime behavior in development unless explicitly changed.
+    _ = godotenv.Overload()
 
     cfg := Config{}
     // Read environment values first (no defaults here; we'll apply defaults later)

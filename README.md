@@ -14,7 +14,7 @@ A proof-of-concept single-binary CLI agent that executes commands in a secure, t
 
 ## Example Configuration
 
-Environment variables can be set directly in the CLI or defined in a `.env` file. If duplicate environment variables are set, the OS environment takes precedence.
+Environment variables can be set directly in the CLI or defined in a `.env` file. If duplicate environment variables are set, the values in `.env` take precedence over the OS environment.
 
 ```
 OPENAI_API_KEY=sk-...
@@ -208,7 +208,7 @@ Main agent extras
 - `openai.extraParams` are merged into every main agent chat completion request (and into streams). If a specialist also sets extra params, the specialist’s extra params take precedence for that specialist call.
 
 Precedence
-- OS environment > .env > config.yaml. That is, values from your shell env override .env, and both override config.yaml. The loader applies defaults only when none of the above specify a value.
+- .env > OS environment > config.yaml. That is, values from your .env override the OS environment, and both override config.yaml. The loader applies defaults only when none of the above specify a value.
 
 ### Using specialists from the CLI and TUI
 

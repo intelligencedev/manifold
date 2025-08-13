@@ -20,14 +20,14 @@ func main() {
 	warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
 	flag.Parse()
 
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal().Err(err).Msg("config")
-	}
+    cfg, err := config.Load()
+    if err != nil {
+        log.Fatal().Err(err).Msg("config")
+    }
 
-	observability.InitLogger()
-	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
-	defer func() { _ = shutdown(context.Background()) }()
+    observability.InitLogger(cfg.LogPath, cfg.LogLevel)
+    shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
+    defer func() { _ = shutdown(context.Background()) }()
 
 	httpClient := observability.NewHTTPClient(nil)
 	if len(cfg.OpenAI.ExtraHeaders) > 0 {

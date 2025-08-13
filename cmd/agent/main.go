@@ -37,14 +37,15 @@ func main() {
 		os.Exit(2)
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal().Err(err).Msg("config")
-	}
+    cfg, err := config.Load()
+    if err != nil {
+        log.Fatal().Err(err).Msg("config")
+    }
 
-	observability.InitLogger()
-	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
-	defer func() { _ = shutdown(context.Background()) }()
+    observability.InitLogger(cfg.LogPath, cfg.LogLevel)
+    log.Info().Msg("agent starting")
+    shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
+    defer func() { _ = shutdown(context.Background()) }()
 
 	httpClient := observability.NewHTTPClient(nil)
 	// Inject global headers for main agent if configured
@@ -54,16 +55,17 @@ func main() {
 	llm := openaillm.New(cfg.OpenAI, httpClient)
 
 	// If a specialist was requested, route the query directly and exit.
-	if *specialist != "" {
-		specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
-		a, ok := specReg.Get(*specialist)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
-			os.Exit(2)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		out, err := a.Inference(ctx, *q, nil)
+    if *specialist != "" {
+        specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
+        a, ok := specReg.Get(*specialist)
+        if !ok {
+            fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
+            os.Exit(2)
+        }
+        log.Info().Str("specialist", *specialist).Msg("direct specialist invocation")
+        ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+        defer cancel()
+        out, err := a.Inference(ctx, *q, nil)
 		if err != nil {
 			log.Fatal().Err(err).Msg("specialist")
 		}
@@ -71,7 +73,7 @@ func main() {
 		return
 	}
 
-	registry := tools.NewRegistry()
+    registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
@@ -122,10 +124,11 @@ func main() {
 	}
 
 	// Pre-dispatch routing: call a specialist directly if there's a match.
-	if name := specialists.Route(cfg.SpecialistRoutes, *q); name != "" {
-		a, ok := specReg.Get(name)
-		if !ok {
-			log.Error().Str("route", name).Msg("specialist not found for route")
+    if name := specialists.Route(cfg.SpecialistRoutes, *q); name != "" {
+        log.Info().Str("route", name).Msg("pre-dispatch specialist route matched")
+        a, ok := specReg.Get(name)
+        if !ok {
+            log.Error().Str("route", name).Msg("specialist not found for route")
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()

@@ -4,6 +4,9 @@ package config
 type Config struct {
     Workdir            string
     OutputTruncateByte int
+    LogPath            string
+    LogLevel           string
+    LogPayloads        bool
     Exec               ExecConfig
     OpenAI             OpenAIConfig
     Obs                ObsConfig
@@ -27,13 +30,15 @@ type ExecConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey  string
-	Model   string
-	BaseURL string
-	// ExtraHeaders are added to every main agent HTTP request.
-	ExtraHeaders map[string]string
-	// ExtraParams are merged into the chat completions request for the main agent.
-	ExtraParams map[string]any
+    APIKey  string
+    Model   string
+    BaseURL string
+    // ExtraHeaders are added to every main agent HTTP request.
+    ExtraHeaders map[string]string
+    // ExtraParams are merged into the chat completions request for the main agent.
+    ExtraParams map[string]any
+    // LogPayloads enables verbose logging of request/response bodies with redaction.
+    LogPayloads bool `yaml:"logPayloads" json:"logPayloads"`
 }
 
 // SpecialistConfig describes a single specialist agent bound to a specific

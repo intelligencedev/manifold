@@ -13,15 +13,21 @@ import (
 
 // Load reads configuration from environment variables (optionally .env).
 func Load() (Config, error) {
-	_ = godotenv.Load()
+    _ = godotenv.Load()
 
-	cfg := Config{}
-	// Read environment values first (no defaults here; we'll apply defaults later)
-	cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
-	// Allow overriding API base via env (useful for proxies/self-hosted gateways)
-	cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
-	cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
+    cfg := Config{}
+    // Read environment values first (no defaults here; we'll apply defaults later)
+    cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+    cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+    // Allow overriding API base via env (useful for proxies/self-hosted gateways)
+    cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
+    cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
+    cfg.LogPath = strings.TrimSpace(os.Getenv("LOG_PATH"))
+    cfg.LogLevel = strings.TrimSpace(os.Getenv("LOG_LEVEL"))
+    if v := strings.TrimSpace(os.Getenv("LOG_PAYLOADS")); v != "" {
+        cfg.LogPayloads = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+        cfg.OpenAI.LogPayloads = cfg.LogPayloads
+    }
 	// Int env parsing without defaults; defaults applied after YAML
 	if v := strings.TrimSpace(os.Getenv("MAX_COMMAND_SECONDS")); v != "" {
 		if n, err := parseInt(v); err == nil {
@@ -140,13 +146,14 @@ func loadSpecialists(cfg *Config) error {
 	// Two accepted shapes:
 	//   specialists: [ {name: ..., ...}, ... ]
 	// or directly a list: [ {name: ..., ...} ]
-	type openAIYAML struct {
-		APIKey       string            `yaml:"apiKey"`
-		Model        string            `yaml:"model"`
-		BaseURL      string            `yaml:"baseURL"`
-		ExtraHeaders map[string]string `yaml:"extraHeaders"`
-		ExtraParams  map[string]any    `yaml:"extraParams"`
-	}
+    type openAIYAML struct {
+        APIKey       string            `yaml:"apiKey"`
+        Model        string            `yaml:"model"`
+        BaseURL      string            `yaml:"baseURL"`
+        ExtraHeaders map[string]string `yaml:"extraHeaders"`
+        ExtraParams  map[string]any    `yaml:"extraParams"`
+        LogPayloads  bool              `yaml:"logPayloads"`
+    }
 	type execYAML struct {
 		BlockBinaries     []string `yaml:"blockBinaries"`
 		MaxCommandSeconds int      `yaml:"maxCommandSeconds"`
@@ -192,13 +199,17 @@ func loadSpecialists(cfg *Config) error {
 		if len(w.Routes) > 0 {
 			cfg.SpecialistRoutes = w.Routes
 		}
-		// OpenAI extras always merged
-		if len(w.OpenAI.ExtraHeaders) > 0 {
-			cfg.OpenAI.ExtraHeaders = w.OpenAI.ExtraHeaders
-		}
-		if len(w.OpenAI.ExtraParams) > 0 {
-			cfg.OpenAI.ExtraParams = w.OpenAI.ExtraParams
-		}
+        // OpenAI extras always merged
+        if len(w.OpenAI.ExtraHeaders) > 0 {
+            cfg.OpenAI.ExtraHeaders = w.OpenAI.ExtraHeaders
+        }
+        if len(w.OpenAI.ExtraParams) > 0 {
+            cfg.OpenAI.ExtraParams = w.OpenAI.ExtraParams
+        }
+        if !cfg.LogPayloads && w.OpenAI.LogPayloads {
+            cfg.LogPayloads = true
+            cfg.OpenAI.LogPayloads = true
+        }
 		// OpenAI core: only if empty (env overrides YAML)
 		if cfg.OpenAI.APIKey == "" && strings.TrimSpace(w.OpenAI.APIKey) != "" {
 			cfg.OpenAI.APIKey = strings.TrimSpace(w.OpenAI.APIKey)

@@ -23,6 +23,9 @@ WORKDIR=./sandbox
 BLOCK_BINARIES=rm,sudo,chown,chmod,dd,mkfs,mount,umount
 MAX_COMMAND_SECONDS=30
 OUTPUT_TRUNCATE_BYTES=65536
+LOG_PATH=./agent.log
+LOG_LEVEL=info
+LOG_PAYLOADS=false
 ```
 
 ## Usage
@@ -135,6 +138,9 @@ openai:
     X-App-Tenant: example
   extraParams:
     temperature: 0.3
+  # Set to true to log redacted payloads for tools and provider extras
+  # (can also be enabled with LOG_PAYLOADS=true)
+  logPayloads: false
 
 workdir: ./sandbox
 outputTruncateBytes: 65536
@@ -147,6 +153,19 @@ obs:
 web:
   searXNGURL: http://localhost:8080
 ```
+
+Logging
+-------
+
+- Structured JSON logging via zerolog is enabled by default and written to stdout.
+- To write logs to a file, set LOG_PATH (for example, LOG_PATH=./agent.log). When LOG_PATH is set, logs are written only to that file (not stdout) to avoid interfering with interactive UIs.
+- Control verbosity with LOG_LEVEL: trace | debug | info | warn | error | fatal | panic (default: info).
+- LOG_PAYLOADS=false by default. If true, the app will log redacted payloads:
+  - Tool arguments and results in the tools registry
+  - Provider-specific “extras” fields sent with OpenAI requests
+  Payloads are passed through a redactor to mask common sensitive keys (api keys, tokens, authorization, password, secret, etc.).
+- You can also enable payload logging in YAML with openai.logPayloads: true. The environment variable LOG_PAYLOADS takes precedence when set.
+- When OpenTelemetry tracing is configured, logs include trace_id and span_id to correlate with traces.
 
 Example (configs/config.yaml):
 

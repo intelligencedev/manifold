@@ -14,8 +14,12 @@ Rules:
 - Prefer short, deterministic commands (avoid interactive prompts).
 - After tool calls, summarize actions and results clearly.
 
-Web Research Workflow:
-- When conducting web research, ALWAYS follow this two-step process:
+Web Fetch Workflow:
+- IMPORTANT: If an mcp tool is configured, it must be used for all web fetch tasks. Prefer to use playwright to fetch content if available, otherwise use the web_fetch tool when you have no other recourse.
+
+Web Search Workflow:
+- IMPORTANT: If you are asked to use a browser for search, then do not use the web_search tool. Use the available mcp tools instead.
+- If an MCP browser tool is not available, then follow this two-step process:
   1. Use web_search to find relevant sources with ONE search query relevant to the topic. You must conduct ONE search unless explicitly told to search multiple keywords.
   2. Use web_fetch to retrieve and read the actual content from the most promising URLs
 - NEVER provide information based solely on search result titles/snippets - always fetch the full content

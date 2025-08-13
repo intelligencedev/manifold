@@ -2,12 +2,16 @@ package config
 
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
-	Workdir            string
-	OutputTruncateByte int
-	Exec               ExecConfig
-	OpenAI             OpenAIConfig
-	Obs                ObsConfig
-	Web                WebConfig
+    Workdir            string
+    OutputTruncateByte int
+    Exec               ExecConfig
+    OpenAI             OpenAIConfig
+    Obs                ObsConfig
+    Web                WebConfig
+    // MCP defines Model Context Protocol client configuration. If configured,
+    // the application will connect to the listed servers and expose their tools
+    // in the agent tool registry.
+    MCP                MCPConfig
 	// Specialists defines additional OpenAI-compatible endpoints/models
 	// that can be targeted directly for inference-only requests.
 	// Each specialist may have its own base URL, API key, model, optional
@@ -64,5 +68,25 @@ type ObsConfig struct {
 }
 
 type WebConfig struct {
-	SearXNGURL string
+    SearXNGURL string
+}
+
+// MCPConfig is the root configuration for MCP clients.
+type MCPConfig struct {
+    Servers []MCPServerConfig `yaml:"servers" json:"servers"`
+}
+
+// MCPServerConfig describes a single MCP server to connect to via stdio/command.
+// Only stdio via exec.Command is supported for now.
+type MCPServerConfig struct {
+    // Name is a unique identifier for this server, used to prefix tool names.
+    Name string `yaml:"name" json:"name"`
+    // Command is the executable to run for this server. Required.
+    Command string `yaml:"command" json:"command"`
+    // Args are passed to the command.
+    Args []string `yaml:"args" json:"args"`
+    // Env are additional environment variables to set for the command.
+    Env map[string]string `yaml:"env" json:"env"`
+    // KeepAliveSeconds configures client ping interval; 0 disables keepalive.
+    KeepAliveSeconds int `yaml:"keepAliveSeconds" json:"keepAliveSeconds"`
 }

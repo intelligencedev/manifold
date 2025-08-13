@@ -17,6 +17,7 @@ import (
 	"gptagent/internal/llm"
 	openai "gptagent/internal/llm/openai"
 	"gptagent/internal/observability"
+	"gptagent/internal/mcpclient"
 	"gptagent/internal/specialists"
 	"gptagent/internal/tools"
 	"gptagent/internal/tools/cli"
@@ -114,6 +115,10 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	// Specialists tool available in TUI as well
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, nil)
 	registry.Register(specialists_tool.New(specReg))
+
+	// MCP tools
+	mcpMgr := mcpclient.NewManager()
+	_ = mcpMgr.RegisterFromConfig(ctx, registry, cfg.MCP)
 
 	// Engine setup (matches cmd/agent wiring)
 	eng := agent.Engine{

@@ -15,6 +15,7 @@ import (
 	llmpkg "gptagent/internal/llm"
 	openaillm "gptagent/internal/llm/openai"
 	"gptagent/internal/observability"
+	"gptagent/internal/mcpclient"
 	"gptagent/internal/specialists"
 	"gptagent/internal/tools"
 	"gptagent/internal/tools/cli"
@@ -86,6 +87,12 @@ func main() {
 	// Specialists tool for LLM-driven routing
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
 	registry.Register(specialists_tool.New(specReg))
+
+	// MCP: connect to configured servers and register their tools
+	mcpMgr := mcpclient.NewManager()
+	ctxInit, cancelInit := context.WithTimeout(context.Background(), 20*time.Second)
+	_ = mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP)
+	cancelInit()
 
 	// WARPP mode: run the WARPP workflow executor instead of the LLM loop
 	if *warppFlag {

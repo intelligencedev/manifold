@@ -160,17 +160,28 @@ func loadSpecialists(cfg *Config) error {
 	type webYAML struct {
 		SearXNGURL string `yaml:"searXNGURL"`
 	}
-	type wrap struct {
-		Specialists []SpecialistConfig `yaml:"specialists"`
-		Routes      []SpecialistRoute  `yaml:"routes"`
-		OpenAI      openAIYAML         `yaml:"openai"`
-		Workdir     string             `yaml:"workdir"`
-		OutputTrunc int                `yaml:"outputTruncateBytes"`
-		Exec        execYAML           `yaml:"exec"`
-		Obs         obsYAML            `yaml:"obs"`
-		Web         webYAML            `yaml:"web"`
-	}
-	var w wrap
+    type mcpServerYAML struct {
+        Name             string            `yaml:"name"`
+        Command          string            `yaml:"command"`
+        Args             []string          `yaml:"args"`
+        Env              map[string]string `yaml:"env"`
+        KeepAliveSeconds int               `yaml:"keepAliveSeconds"`
+    }
+    type mcpYAML struct {
+        Servers []mcpServerYAML `yaml:"servers"`
+    }
+    type wrap struct {
+        Specialists []SpecialistConfig `yaml:"specialists"`
+        Routes      []SpecialistRoute  `yaml:"routes"`
+        OpenAI      openAIYAML         `yaml:"openai"`
+        Workdir     string             `yaml:"workdir"`
+        OutputTrunc int                `yaml:"outputTruncateBytes"`
+        Exec        execYAML           `yaml:"exec"`
+        Obs         obsYAML            `yaml:"obs"`
+        Web         webYAML            `yaml:"web"`
+        MCP         mcpYAML            `yaml:"mcp"`
+    }
+    var w wrap
 	// Expand ${VAR} with environment variables before parsing.
 	data = []byte(os.ExpandEnv(string(data)))
 	if err := yaml.Unmarshal(data, &w); err == nil {
@@ -223,11 +234,24 @@ func loadSpecialists(cfg *Config) error {
 		if cfg.Obs.OTLP == "" && w.Obs.OTLP != "" {
 			cfg.Obs.OTLP = w.Obs.OTLP
 		}
-		if cfg.Web.SearXNGURL == "" && strings.TrimSpace(w.Web.SearXNGURL) != "" {
-			cfg.Web.SearXNGURL = strings.TrimSpace(w.Web.SearXNGURL)
-		}
-		return nil
-	}
+        if cfg.Web.SearXNGURL == "" && strings.TrimSpace(w.Web.SearXNGURL) != "" {
+            cfg.Web.SearXNGURL = strings.TrimSpace(w.Web.SearXNGURL)
+        }
+        // MCP servers
+        if len(w.MCP.Servers) > 0 {
+            cfg.MCP.Servers = make([]MCPServerConfig, 0, len(w.MCP.Servers))
+            for _, s := range w.MCP.Servers {
+                cfg.MCP.Servers = append(cfg.MCP.Servers, MCPServerConfig{
+                    Name:             strings.TrimSpace(s.Name),
+                    Command:          strings.TrimSpace(s.Command),
+                    Args:             append([]string{}, s.Args...),
+                    Env:              s.Env,
+                    KeepAliveSeconds: s.KeepAliveSeconds,
+                })
+            }
+        }
+        return nil
+    }
 	// Fallback: try list at root
 	var list []SpecialistConfig
 	if err := yaml.Unmarshal(data, &list); err == nil && len(list) > 0 {

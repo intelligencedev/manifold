@@ -53,3 +53,19 @@ routes:
     regex: ["(?i)code review"]
   - name: data-extractor
     contains: ["extract", "fields", "parse"]
+
+# MCP servers provide additional tools via the Model Context Protocol.
+# Each server runs as a subprocess (stdio transport) and exposes tools that
+# will be appended to the agent's tool registry on startup.
+mcp:
+  servers:
+    - name: example-server
+      # The binary to run. Replace with your MCP server command.
+      command: ./bin/example-mcp-server
+      # Optional arguments to pass to the command
+      args: ["--flag", "value"]
+      # Optional environment variables for the server process
+      env:
+        EXAMPLE_ENV: demo
+      # Optional keepalive interval (seconds). 0 disables pings.
+      keepAliveSeconds: 30

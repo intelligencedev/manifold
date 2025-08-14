@@ -117,17 +117,18 @@ func Load() (Config, error) {
 
 // loadSpecialists populates cfg.Specialists by reading a YAML file if present.
 // The file path can be specified with SPECIALISTS_CONFIG. If not set, the
-// loader will look for configs/config.yaml or configs/config.yml.
+// loader will look for config.yaml or config.yml in the current working directory.
 func loadSpecialists(cfg *Config) error {
 	// Allow disabling via env
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("SPECIALISTS_DISABLED")), "true") {
 		return nil
 	}
 	var paths []string
-	if p := strings.TrimSpace(os.Getenv("SPECIALISTS_CONFIG")); p != "" {
-		paths = append(paths, p)
-	}
-	paths = append(paths, "configs/config.yaml", "configs/config.yml")
+    if p := strings.TrimSpace(os.Getenv("SPECIALISTS_CONFIG")); p != "" {
+        paths = append(paths, p)
+    }
+    // Default to local config file next to the running binary / current dir
+    paths = append(paths, "config.yaml", "config.yml")
 	var data []byte
 	var chosen string
 	for _, p := range paths {

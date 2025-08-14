@@ -78,3 +78,6 @@ require (
 	google.golang.org/grpc v1.73.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
 )
+
+// Temporary replacement to resolve module path/name mismatch
+replace github.com/willf/bitset => github.com/bits-and-blooms/bitset v1.24.0

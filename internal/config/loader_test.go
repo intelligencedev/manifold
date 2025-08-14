@@ -34,13 +34,15 @@ func TestParseInt(t *testing.T) {
 func TestIntFromEnv(t *testing.T) {
 	key := "SIO_TEST_INT_FROM_ENV"
 	old := os.Getenv(key)
-	defer os.Setenv(key, old)
+	defer func() {
+		_ = os.Setenv(key, old)
+	}()
 
-	os.Unsetenv(key)
+	_ = os.Unsetenv(key)
 	if got := intFromEnv(key, 7); got != 7 {
 		t.Fatalf("expected default 7, got %d", got)
 	}
-	os.Setenv(key, "123")
+	_ = os.Setenv(key, "123")
 	if got := intFromEnv(key, 7); got != 123 {
 		t.Fatalf("expected 123, got %d", got)
 	}
@@ -57,11 +59,15 @@ func TestLoadSpecialists_WrapperAndListAndDisabled(t *testing.T) {
 	if err := os.WriteFile(file1, []byte(wrapper), 0o644); err != nil {
 		t.Fatalf("write wrapper file: %v", err)
 	}
-	defer os.Remove(file1)
+	defer func() {
+		_ = os.Remove(file1)
+	}()
 
 	old := os.Getenv("SPECIALISTS_CONFIG")
-	defer os.Setenv("SPECIALISTS_CONFIG", old)
-	os.Setenv("SPECIALISTS_CONFIG", file1)
+	defer func() {
+		_ = os.Setenv("SPECIALISTS_CONFIG", old)
+	}()
+	_ = os.Setenv("SPECIALISTS_CONFIG", file1)
 
 	var cfg Config
 	if err := loadSpecialists(&cfg); err != nil {
@@ -79,8 +85,10 @@ func TestLoadSpecialists_WrapperAndListAndDisabled(t *testing.T) {
 	if err := os.WriteFile(file2, []byte(list), 0o644); err != nil {
 		t.Fatalf("write list file: %v", err)
 	}
-	defer os.Remove(file2)
-	os.Setenv("SPECIALISTS_CONFIG", file2)
+	defer func() {
+		_ = os.Remove(file2)
+	}()
+	_ = os.Setenv("SPECIALISTS_CONFIG", file2)
 	cfg = Config{}
 	if err := loadSpecialists(&cfg); err != nil {
 		t.Fatalf("loadSpecialists(list) returned error: %v", err)
@@ -90,7 +98,7 @@ func TestLoadSpecialists_WrapperAndListAndDisabled(t *testing.T) {
 	}
 
 	// Test SPECIALISTS_DISABLED
-	os.Setenv("SPECIALISTS_DISABLED", "true")
+	_ = os.Setenv("SPECIALISTS_DISABLED", "true")
 	cfg = Config{}
 	if err := loadSpecialists(&cfg); err != nil {
 		t.Fatalf("loadSpecialists(disabled) returned error: %v", err)
@@ -98,5 +106,5 @@ func TestLoadSpecialists_WrapperAndListAndDisabled(t *testing.T) {
 	if len(cfg.Specialists) != 0 {
 		t.Fatalf("expected 0 specialists when disabled, got %d", len(cfg.Specialists))
 	}
-	os.Unsetenv("SPECIALISTS_DISABLED")
+	_ = os.Unsetenv("SPECIALISTS_DISABLED")
 }

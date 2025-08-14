@@ -2,11 +2,11 @@ package openai
 
 import (
 	"context"
-	"net/http/httptest"
-	"testing"
 	"net/http"
+	"net/http/httptest"
 	"singularityio/internal/config"
 	"singularityio/internal/llm"
+	"testing"
 	"time"
 )
 
@@ -15,7 +15,7 @@ func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		// Minimal response: one choice with a message containing content
-		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hello","tool_calls":[]}}]}`))
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hello","tool_calls":[]}}]}`))
 	})
 	srv := httptest.NewServer(h)
 	defer srv.Close()

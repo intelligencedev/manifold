@@ -255,10 +255,8 @@ func substitute(s string, A Attrs) string {
 			break
 		}
 		end += start
-		key := strings.TrimPrefix(s[start+2:start+2+len("A.")], "A.")
-		// above was wrong, recompute key properly
 		inner := s[start+2 : end]
-		key = strings.TrimPrefix(inner, "A.")
+		key := strings.TrimPrefix(inner, "A.")
 		val := fmt.Sprintf("%v", A[key])
 		s = s[:start] + val + s[end+1:]
 	}

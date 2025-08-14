@@ -11,8 +11,10 @@ func TestHealthHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 	h.ServeHTTP(w, r)
-	if w.Code != http.StatusOK { t.Fatalf("expected 200 got %d", w.Code) }
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 got %d", w.Code)
+	}
 }

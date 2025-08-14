@@ -1,6 +1,7 @@
 package specialists
 
 import (
+	"context"
 	"net/http"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestNewRegistry_PopulatesAgentFields(t *testing.T) {
 
 func TestAgent_Inference_NoProvider(t *testing.T) {
 	a := &Agent{}
-	if _, err := a.Inference(nil, "u", nil); err == nil {
+	if _, err := a.Inference(context.TODO(), "u", nil); err == nil {
 		t.Fatalf("expected error when provider nil")
 	}
 }

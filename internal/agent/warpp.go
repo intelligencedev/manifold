@@ -33,6 +33,13 @@ func RunWARPP[W any, T any](ctx context.Context, utter string, plan Plan[W, T]) 
 		return fmt.Errorf("fetch workflow/tools: %w", err)
 	}
 
+	// Optional: deadline for personalization/authentication if provided.
+	if plan.StageTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, plan.StageTimeout)
+		defer cancel()
+	}
+
 	// Parallel execution: Authenticator and Personalizer
 	g, ctx := errgroup.WithContext(ctx)
 	authCh := make(chan AuthResult, 1)
@@ -45,7 +52,7 @@ func RunWARPP[W any, T any](ctx context.Context, utter string, plan Plan[W, T]) 
 		case authCh <- AuthResult{OK: ok, Err: err}:
 		default:
 		}
-		return err
+		return nil // Don't return errors to prevent context cancellation races
 	})
 
 	// 2b) Personalizer (info-tools ⇒ attributes ⇒ TRIM)
@@ -56,7 +63,7 @@ func RunWARPP[W any, T any](ctx context.Context, utter string, plan Plan[W, T]) 
 			case trimCh <- TrimResult[W, T]{Err: err}:
 			default:
 			}
-			return err
+			return nil // Don't return errors to prevent context cancellation races
 		}
 		wStar, dStar, err := plan.Trim(ctx, fullW, attrs)
 		if err != nil {
@@ -64,7 +71,7 @@ func RunWARPP[W any, T any](ctx context.Context, utter string, plan Plan[W, T]) 
 			case trimCh <- TrimResult[W, T]{Err: err}:
 			default:
 			}
-			return err
+			return nil // Don't return errors to prevent context cancellation races
 		}
 		select {
 		case trimCh <- TrimResult[W, T]{W: wStar, D: dStar}:
@@ -72,13 +79,6 @@ func RunWARPP[W any, T any](ctx context.Context, utter string, plan Plan[W, T]) 
 		}
 		return nil
 	})
-
-	// Optional: deadline for personalization/authentication if provided.
-	if plan.StageTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, plan.StageTimeout)
-		defer cancel()
-	}
 
 	// Wait for both gates with cancellation support.
 	var (

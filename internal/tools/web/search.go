@@ -291,7 +291,9 @@ func (t *tool) searchSearXNGJSON(ctx context.Context, query string, max int, cat
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("searxng http %d", resp.StatusCode)
@@ -341,7 +343,9 @@ func (t *tool) searchSearXNGHTML(ctx context.Context, query string, max int, cat
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("searxng http %d", resp.StatusCode)
@@ -404,3 +408,6 @@ func extractURLsFromHTML(doc *html.Node) ([]string, error) {
 	f(doc)
 	return urls, nil
 }
+
+// helper min for ints
+func min(a, b int) int { if a < b { return a }; return b }

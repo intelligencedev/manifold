@@ -15,7 +15,7 @@ func TestWebTool_Call_JSONResults(t *testing.T) {
 		q := r.URL.Query()
 		if q.Get("format") == "json" {
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(`{"results":[{"title":"One","url":"https://example.com/1"},{"title":"Two","url":"https://example.com/2"}]}`))
+			_, _ = w.Write([]byte(`{"results":[{"title":"One","url":"https://example.com/1"},{"title":"Two","url":"https://example.com/2"}]}`))
 			return
 		}
 		w.WriteHeader(500)
@@ -63,7 +63,7 @@ func TestWebTool_Call_HTMLFallback(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html><body><a href="https://a.example/1">Link1</a><a href="https://a.example/2">Link2</a></body></html>`))
+		_, _ = w.Write([]byte(`<html><body><a href="https://a.example/1">Link1</a><a href="https://a.example/2">Link2</a></body></html>`))
 	})
 	srv := httptest.NewServer(h)
 	defer srv.Close()

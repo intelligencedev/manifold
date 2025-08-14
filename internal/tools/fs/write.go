@@ -41,6 +41,7 @@ func (t *WriteTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
+
 	rel, err := sandbox.SanitizeArg(t.workdir, args.Path)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
@@ -59,7 +60,9 @@ func (t *WriteTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
 	if _, err := f.WriteString(args.Content); err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}

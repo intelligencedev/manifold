@@ -165,7 +165,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 
 	start := time.Now()
 	stream := c.sdk.Chat.Completions.NewStreaming(ctx, params)
-	defer stream.Close()
+	defer func() {
+		_ = stream.Close()
+	}()
 
 	// Accumulate tool calls across chunks since they come incrementally
 	toolCalls := make(map[int]*llm.ToolCall)

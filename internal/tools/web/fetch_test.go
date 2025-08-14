@@ -37,12 +37,12 @@ func TestFetchMarkdown_HTMLAndText(t *testing.T) {
 		if r.URL.Path == "/html" {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			w.WriteHeader(200)
-			w.Write([]byte("<html><head><title>X</title></head><body><h1>Hi</h1><p>There</p></body></html>"))
+			_, _ = w.Write([]byte("<html><head><title>X</title></head><body><h1>Hi</h1><p>There</p></body></html>"))
 			return
 		}
 		if r.URL.Path == "/text" {
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte("plain text"))
+			_, _ = w.Write([]byte("plain text"))
 			return
 		}
 		w.WriteHeader(404)
@@ -71,7 +71,7 @@ func TestFetchMarkdown_HTMLAndText(t *testing.T) {
 func TestFetchMarkdown_NonText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write([]byte("binarydata"))
+		_, _ = w.Write([]byte("binarydata"))
 	}))
 	defer srv.Close()
 	f := NewFetcher(WithMaxBytes(16))

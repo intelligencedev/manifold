@@ -29,7 +29,9 @@ func isAbsoluteOrDrive(p string) bool {
 // It rejects absolute paths and traversal, and ensures the final path
 // would remain under WORKDIR when joined.
 func SanitizeArg(workdir, arg string) (string, error) {
-	if !(strings.Contains(arg, "/") || strings.Contains(arg, `\`) || strings.HasPrefix(arg, ".")) {
+	if strings.Contains(arg, "/") || strings.Contains(arg, `\\`) || strings.HasPrefix(arg, ".") {
+		// path-like argument; continue validation
+	} else {
 		return arg, nil
 	}
 	if isAbsoluteOrDrive(arg) {
@@ -38,13 +40,14 @@ func SanitizeArg(workdir, arg string) (string, error) {
 	if isPathTraversal(arg) {
 		return "", fmt.Errorf("path traversal not allowed in args: %q", arg)
 	}
+
 	rel := filepath.Clean(arg)
 	target := filepath.Clean(filepath.Join(workdir, rel))
 	workdirWithSep := workdir
 	if !strings.HasSuffix(workdirWithSep, string(os.PathSeparator)) {
 		workdirWithSep += string(os.PathSeparator)
 	}
-	if !(target == workdir || strings.HasPrefix(target, workdirWithSep)) {
+	if target != workdir && !strings.HasPrefix(target, workdirWithSep) {
 		return "", fmt.Errorf("arg escapes WORKDIR: %q", arg)
 	}
 	return rel, nil

@@ -171,7 +171,9 @@ func (f *Fetcher) FetchMarkdown(ctx context.Context, rawURL string) (*Result, er
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	finalURL := resp.Request.URL.String()
 	ct, cs := parseContentType(resp.Header.Get("Content-Type"))

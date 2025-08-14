@@ -11,7 +11,7 @@ import (
 // simple tool implementing tools.Tool
 type echoTool struct{ name string }
 
-func (e echoTool) Name() string { return e.name }
+func (e echoTool) Name() string               { return e.name }
 func (e echoTool) JSONSchema() map[string]any { return map[string]any{"description": "echo"} }
 func (e echoTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	var a any
@@ -22,9 +22,9 @@ func (e echoTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 func TestRenderAndSubstitute(t *testing.T) {
 	A := Attrs{"utter": "Hello", "name": "z"}
 	in := map[string]any{
-		"s": "greeting: ${A.utter}",
+		"s":   "greeting: ${A.utter}",
 		"arr": []any{"x", "y ${A.name}"},
-		"m": map[string]any{"k": "val ${A.name}"},
+		"m":   map[string]any{"k": "val ${A.name}"},
 	}
 	out := renderArgs(in, A)
 	if out["s"] != "greeting: Hello" {
@@ -129,8 +129,16 @@ func TestRunnerDetectPersonalizeExecute(t *testing.T) {
 }
 
 // helpers: functional tool
-type functionalTool struct{ name string; f func(context.Context, json.RawMessage) (any, error) }
-func (t functionalTool) Name() string { return t.name }
-func (t functionalTool) JSONSchema() map[string]any { return map[string]any{"description":"f"} }
-func (t functionalTool) Call(ctx context.Context, raw json.RawMessage) (any, error) { return t.f(ctx, raw) }
-func newFunctionalTool(name string, f func(context.Context, json.RawMessage) (any, error)) tools.Tool { return functionalTool{name: name, f: f} }
+type functionalTool struct {
+	name string
+	f    func(context.Context, json.RawMessage) (any, error)
+}
+
+func (t functionalTool) Name() string               { return t.name }
+func (t functionalTool) JSONSchema() map[string]any { return map[string]any{"description": "f"} }
+func (t functionalTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
+	return t.f(ctx, raw)
+}
+func newFunctionalTool(name string, f func(context.Context, json.RawMessage) (any, error)) tools.Tool {
+	return functionalTool{name: name, f: f}
+}

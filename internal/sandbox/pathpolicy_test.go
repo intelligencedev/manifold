@@ -7,7 +7,10 @@ import (
 )
 
 func TestIsPathTraversal(t *testing.T) {
-	cases := []struct{ in string; want bool }{
+	cases := []struct {
+		in   string
+		want bool
+	}{
 		{"../etc/passwd", true},
 		{"foo/../bar", false},
 		{"..", true},
@@ -54,7 +57,7 @@ func TestSanitizeArg(t *testing.T) {
 }
 
 func TestIsBinaryBlocked(t *testing.T) {
-	block := map[string]struct{}{"rm":{}}
+	block := map[string]struct{}{"rm": {}}
 	if !IsBinaryBlocked("/bin/rm", block) {
 		t.Fatalf("expected path with slash to be blocked")
 	}

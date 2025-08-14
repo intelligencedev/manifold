@@ -9,7 +9,7 @@ func TestRedactJSON_SimpleAndNested(t *testing.T) {
 	in := map[string]any{
 		"api_key": "secret123",
 		"user": map[string]any{
-			"name": "alice",
+			"name":     "alice",
 			"password": "hunter2",
 		},
 		"items": []any{

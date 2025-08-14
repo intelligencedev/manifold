@@ -36,7 +36,7 @@ func TestWriteTool_Call_WriteAndAppend(t *testing.T) {
 	// append
 	args = map[string]any{"path": "subdir/file.txt", "content": "-again", "append": true}
 	raw, _ = json.Marshal(args)
-	res, err = w.Call(context.Background(), raw)
+	_, err = w.Call(context.Background(), raw)
 	if err != nil {
 		t.Fatalf("Call append err: %v", err)
 	}

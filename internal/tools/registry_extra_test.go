@@ -12,8 +12,8 @@ type fakeTool struct {
 	call   func(context.Context, json.RawMessage) (any, error)
 }
 
-func (f *fakeTool) Name() string                       { return f.name }
-func (f *fakeTool) JSONSchema() map[string]any         { return f.schema }
+func (f *fakeTool) Name() string               { return f.name }
+func (f *fakeTool) JSONSchema() map[string]any { return f.schema }
 func (f *fakeTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if f.call != nil {
 		return f.call(ctx, raw)

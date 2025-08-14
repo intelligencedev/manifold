@@ -26,7 +26,7 @@ func TestRegisterFromConfig_SkipsEmpty(t *testing.T) {
 	// Empty config should be fine
 	var cfg config.MCPConfig
 	if err := m.RegisterFromConfig(context.Background(), nil, cfg); err != nil {
-		// Should not return error, but function may skip servers
+		t.Fatalf("RegisterFromConfig returned error: %v", err)
 	}
 	_ = m
 }

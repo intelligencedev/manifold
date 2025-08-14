@@ -1,10 +1,18 @@
 package prompts
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
 
 // DefaultSystemPrompt describes the run_cli tool clearly so the model will use it.
+// If an AGENTS.md file exists in the provided workdir, its contents will be
+// appended to the returned system prompt to provide additional agent-specific
+// instructions.
 func DefaultSystemPrompt(workdir string) string {
-	return fmt.Sprintf(`You are a helpful assistant that can plan and execute tools.
+	base := fmt.Sprintf(`You are a helpful assistant that can plan and execute tools.
 
 Rules:
 - ALWAYS create a plan, taking into consideration all of the tools available to you to complete the objective. Then execute the plan step by step.
@@ -32,4 +40,19 @@ Web Search Workflow:
 - Never use previous memories to respond if a tool call is required. For example, if you previously provided a summary for a topic, do not reference it; instead, re-gather all necessary context from the current state.
 
 Be cautious with destructive operations. If a command could modify files, consider listing files first.`, workdir)
+
+	// If workdir is empty, treat it as the current directory
+	wd := workdir
+	if strings.TrimSpace(wd) == "" {
+		wd = "."
+	}
+	// Attempt to read AGENTS.md in the workdir and append its contents if present.
+	agentsPath := filepath.Join(wd, "AGENTS.md")
+	if data, err := os.ReadFile(agentsPath); err == nil {
+		trimmed := strings.TrimSpace(string(data))
+		if trimmed != "" {
+			base = base + "\n\n" + "Additional agent instructions (from AGENTS.md):\n" + trimmed
+		}
+	}
+	return base
 }

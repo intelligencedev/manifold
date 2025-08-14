@@ -1,44 +1,44 @@
 package openai
 
 import (
-    "context"
-    "encoding/json"
+	"context"
+	"encoding/json"
 
-    "net/http"
-    "time"
+	"net/http"
+	"time"
 
-    sdk "github.com/openai/openai-go/v2"
-    "github.com/openai/openai-go/v2/option"
+	sdk "github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v2/option"
 
-    "gptagent/internal/config"
-    "gptagent/internal/llm"
-    "gptagent/internal/observability"
+	"singularityio/internal/config"
+	"singularityio/internal/llm"
+	"singularityio/internal/observability"
 )
 
 type Client struct {
-    sdk   sdk.Client
-    model string
-    extra map[string]any
-    logPayloads bool
+	sdk         sdk.Client
+	model       string
+	extra       map[string]any
+	logPayloads bool
 }
 
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
-    opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}
-    if c.BaseURL != "" {
-        opts = append(opts, option.WithBaseURL(c.BaseURL))
-    }
-    if httpClient != nil {
-        opts = append(opts, option.WithHTTPClient(httpClient))
-    }
-    return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads}
+	opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}
+	if c.BaseURL != "" {
+		opts = append(opts, option.WithBaseURL(c.BaseURL))
+	}
+	if httpClient != nil {
+		opts = append(opts, option.WithHTTPClient(httpClient))
+	}
+	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads}
 }
 
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
-    log := observability.LoggerWithTrace(ctx)
-    params := sdk.ChatCompletionNewParams{
-        Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
-    }
+	log := observability.LoggerWithTrace(ctx)
+	params := sdk.ChatCompletionNewParams{
+		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	}
 	// messages
 	params.Messages = AdaptMessages(msgs)
 	// tools: include only when provided to avoid sending an empty array
@@ -48,23 +48,23 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	if len(c.extra) > 0 {
 		params.SetExtraFields(c.extra)
 	}
-    start := time.Now()
-    comp, err := c.sdk.Chat.Completions.New(ctx, params)
-    dur := time.Since(start)
-    if err != nil {
-        log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_error")
-        return llm.Message{}, err
-    }
-    fields := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs)).Logger()
-    if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
-        if b, err := json.Marshal(c.extra); err == nil {
-            fields = fields.With().RawJSON("extra", observability.RedactJSON(b)).Logger()
-        }
-    }
-    fields.Debug().Msg("chat_completion_ok")
-    if len(comp.Choices) == 0 {
-        return llm.Message{}, nil
-    }
+	start := time.Now()
+	comp, err := c.sdk.Chat.Completions.New(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_error")
+		return llm.Message{}, err
+	}
+	fields := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs)).Logger()
+	if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
+		if b, err := json.Marshal(c.extra); err == nil {
+			fields = fields.With().RawJSON("extra", observability.RedactJSON(b)).Logger()
+		}
+	}
+	fields.Debug().Msg("chat_completion_ok")
+	if len(comp.Choices) == 0 {
+		return llm.Message{}, nil
+	}
 	msg := comp.Choices[0].Message
 	out := llm.Message{Role: "assistant", Content: msg.Content}
 	for _, tc := range msg.ToolCalls {
@@ -91,10 +91,10 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 //   - inject provider-specific extra fields (e.g., reasoning.effort)
 //     via params.WithExtraField.
 func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
-    log := observability.LoggerWithTrace(ctx)
-    params := sdk.ChatCompletionNewParams{
-        Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
-    }
+	log := observability.LoggerWithTrace(ctx)
+	params := sdk.ChatCompletionNewParams{
+		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	}
 	params.Messages = AdaptMessages(msgs)
 	if len(tools) > 0 {
 		params.Tools = AdaptSchemas(tools)
@@ -109,23 +109,23 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		}
 		params.SetExtraFields(merged)
 	}
-    start := time.Now()
-    comp, err := c.sdk.Chat.Completions.New(ctx, params)
-    dur := time.Since(start)
-    if err != nil {
-        log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_error")
-        return llm.Message{}, err
-    }
-    fields := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs)).Logger()
-    if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
-        if b, err := json.Marshal(c.extra); err == nil {
-            fields = fields.With().RawJSON("extra", observability.RedactJSON(b)).Logger()
-        }
-    }
-    fields.Debug().Msg("chat_completion_ok")
-    if len(comp.Choices) == 0 {
-        return llm.Message{}, nil
-    }
+	start := time.Now()
+	comp, err := c.sdk.Chat.Completions.New(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_error")
+		return llm.Message{}, err
+	}
+	fields := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs)).Logger()
+	if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
+		if b, err := json.Marshal(c.extra); err == nil {
+			fields = fields.With().RawJSON("extra", observability.RedactJSON(b)).Logger()
+		}
+	}
+	fields.Debug().Msg("chat_completion_ok")
+	if len(comp.Choices) == 0 {
+		return llm.Message{}, nil
+	}
 	msg := comp.Choices[0].Message
 	out := llm.Message{Role: "assistant", Content: msg.Content}
 	for _, tc := range msg.ToolCalls {
@@ -149,10 +149,10 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 
 // ChatStream implements streaming chat completions using OpenAI's streaming API.
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
-    log := observability.LoggerWithTrace(ctx)
-    params := sdk.ChatCompletionNewParams{
-        Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
-    }
+	log := observability.LoggerWithTrace(ctx)
+	params := sdk.ChatCompletionNewParams{
+		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	}
 	// messages
 	params.Messages = AdaptMessages(msgs)
 	// tools
@@ -163,9 +163,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		params.SetExtraFields(c.extra)
 	}
 
-    start := time.Now()
-    stream := c.sdk.Chat.Completions.NewStreaming(ctx, params)
-    defer stream.Close()
+	start := time.Now()
+	stream := c.sdk.Chat.Completions.NewStreaming(ctx, params)
+	defer stream.Close()
 
 	// Accumulate tool calls across chunks since they come incrementally
 	toolCalls := make(map[int]*llm.ToolCall)
@@ -220,15 +220,15 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		}
 	}
 
-    err := stream.Err()
-    dur := time.Since(start)
-    base := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Logger()
-    if err != nil {
-        base.Error().Err(err).Msg("chat_stream_error")
-    } else {
-        base.Debug().Msg("chat_stream_ok")
-    }
-    return err
+	err := stream.Err()
+	dur := time.Since(start)
+	base := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Logger()
+	if err != nil {
+		base.Error().Err(err).Msg("chat_stream_error")
+	} else {
+		base.Debug().Msg("chat_stream_ok")
+	}
+	return err
 }
 
 func firstNonEmpty(vals ...string) string {

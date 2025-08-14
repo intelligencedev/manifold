@@ -9,21 +9,21 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"gptagent/internal/agent"
-	"gptagent/internal/agent/prompts"
-	"gptagent/internal/config"
-	llmpkg "gptagent/internal/llm"
-	openaillm "gptagent/internal/llm/openai"
-	"gptagent/internal/observability"
-	"gptagent/internal/mcpclient"
-	"gptagent/internal/specialists"
-	"gptagent/internal/tools"
-	"gptagent/internal/tools/cli"
-	"gptagent/internal/tools/fs"
-	llmtools "gptagent/internal/tools/llmtool"
-	specialists_tool "gptagent/internal/tools/specialists"
-	"gptagent/internal/tools/web"
-	"gptagent/internal/warpp"
+	"singularityio/internal/agent"
+	"singularityio/internal/agent/prompts"
+	"singularityio/internal/config"
+	llmpkg "singularityio/internal/llm"
+	openaillm "singularityio/internal/llm/openai"
+	"singularityio/internal/mcpclient"
+	"singularityio/internal/observability"
+	"singularityio/internal/specialists"
+	"singularityio/internal/tools"
+	"singularityio/internal/tools/cli"
+	"singularityio/internal/tools/fs"
+	llmtools "singularityio/internal/tools/llmtool"
+	specialists_tool "singularityio/internal/tools/specialists"
+	"singularityio/internal/tools/web"
+	"singularityio/internal/warpp"
 )
 
 func main() {
@@ -37,15 +37,15 @@ func main() {
 		os.Exit(2)
 	}
 
-    cfg, err := config.Load()
-    if err != nil {
-        log.Fatal().Err(err).Msg("config")
-    }
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("config")
+	}
 
-    observability.InitLogger(cfg.LogPath, cfg.LogLevel)
-    log.Info().Msg("agent starting")
-    shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
-    defer func() { _ = shutdown(context.Background()) }()
+	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
+	log.Info().Msg("agent starting")
+	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
+	defer func() { _ = shutdown(context.Background()) }()
 
 	httpClient := observability.NewHTTPClient(nil)
 	// Inject global headers for main agent if configured
@@ -55,17 +55,17 @@ func main() {
 	llm := openaillm.New(cfg.OpenAI, httpClient)
 
 	// If a specialist was requested, route the query directly and exit.
-    if *specialist != "" {
-        specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
-        a, ok := specReg.Get(*specialist)
-        if !ok {
-            fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
-            os.Exit(2)
-        }
-        log.Info().Str("specialist", *specialist).Msg("direct specialist invocation")
-        ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-        defer cancel()
-        out, err := a.Inference(ctx, *q, nil)
+	if *specialist != "" {
+		specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
+		a, ok := specReg.Get(*specialist)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
+			os.Exit(2)
+		}
+		log.Info().Str("specialist", *specialist).Msg("direct specialist invocation")
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		out, err := a.Inference(ctx, *q, nil)
 		if err != nil {
 			log.Fatal().Err(err).Msg("specialist")
 		}
@@ -73,7 +73,7 @@ func main() {
 		return
 	}
 
-    registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
+	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
@@ -124,11 +124,11 @@ func main() {
 	}
 
 	// Pre-dispatch routing: call a specialist directly if there's a match.
-    if name := specialists.Route(cfg.SpecialistRoutes, *q); name != "" {
-        log.Info().Str("route", name).Msg("pre-dispatch specialist route matched")
-        a, ok := specReg.Get(name)
-        if !ok {
-            log.Error().Str("route", name).Msg("specialist not found for route")
+	if name := specialists.Route(cfg.SpecialistRoutes, *q); name != "" {
+		log.Info().Str("route", name).Msg("pre-dispatch specialist route matched")
+		a, ok := specReg.Get(name)
+		if !ok {
+			log.Error().Str("route", name).Msg("specialist not found for route")
 		} else {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()

@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"gptagent/internal/sandbox"
+	"singularityio/internal/sandbox"
 )
 
 // WriteTool writes text content to a file within the locked WORKDIR.

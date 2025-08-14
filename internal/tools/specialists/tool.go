@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"gptagent/internal/specialists"
+	"singularityio/internal/specialists"
 )
 
 // Tool exposes configured specialists as a single callable tool.

@@ -1,12 +1,12 @@
 package agent
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"fmt"
 
-    "gptagent/internal/llm"
-    "gptagent/internal/observability"
-    "gptagent/internal/tools"
+	"singularityio/internal/llm"
+	"singularityio/internal/observability"
+	"singularityio/internal/tools"
 )
 
 type Engine struct {
@@ -23,51 +23,51 @@ type Engine struct {
 
 // Run executes the agent loop until the model produces a final answer.
 func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Message) (string, error) {
-    log := observability.LoggerWithTrace(ctx)
-    msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	log := observability.LoggerWithTrace(ctx)
+	msgs := BuildInitialLLMMessages(e.System, userInput, history)
 
-    var final string
-    for step := 0; step < e.MaxSteps; step++ {
-        log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_step_start")
-        msg, err := e.LLM.Chat(ctx, msgs, e.Tools.Schemas(), e.model())
-        if err != nil {
-            log.Error().Err(err).Int("step", step).Msg("engine_step_error")
-            return "", err
-        }
-        msgs = append(msgs, msg)
-        if e.OnAssistant != nil {
-            e.OnAssistant(msg)
-        }
-        if len(msg.ToolCalls) == 0 {
-            log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_final")
-            final = msg.Content
-            break
-        }
-        log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_tool_calls")
-        for _, tc := range msg.ToolCalls {
-            payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
-            if err != nil {
-                payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
-            }
-            msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
-        }
-    }
-    if final == "" {
-        final = "(no final text — increase max steps or check logs)"
-    }
-    return final, nil
+	var final string
+	for step := 0; step < e.MaxSteps; step++ {
+		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_step_start")
+		msg, err := e.LLM.Chat(ctx, msgs, e.Tools.Schemas(), e.model())
+		if err != nil {
+			log.Error().Err(err).Int("step", step).Msg("engine_step_error")
+			return "", err
+		}
+		msgs = append(msgs, msg)
+		if e.OnAssistant != nil {
+			e.OnAssistant(msg)
+		}
+		if len(msg.ToolCalls) == 0 {
+			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_final")
+			final = msg.Content
+			break
+		}
+		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_tool_calls")
+		for _, tc := range msg.ToolCalls {
+			payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
+			if err != nil {
+				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
+			}
+			msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
+		}
+	}
+	if final == "" {
+		final = "(no final text — increase max steps or check logs)"
+	}
+	return final, nil
 }
 
 // RunStream executes the agent loop with streaming support
 func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.Message) (string, error) {
-    log := observability.LoggerWithTrace(ctx)
-    msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	log := observability.LoggerWithTrace(ctx)
+	msgs := BuildInitialLLMMessages(e.System, userInput, history)
 
-    var final string
-    for step := 0; step < e.MaxSteps; step++ {
-        // Accumulate streaming content for this step
-        var accumulatedContent string
-        var accumulatedToolCalls []llm.ToolCall
+	var final string
+	for step := 0; step < e.MaxSteps; step++ {
+		// Accumulate streaming content for this step
+		var accumulatedContent string
+		var accumulatedToolCalls []llm.ToolCall
 
 		handler := &streamHandler{
 			onDelta: func(content string) {
@@ -81,12 +81,12 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			},
 		}
 
-        log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_stream_step_start")
-        err := e.LLM.ChatStream(ctx, msgs, e.Tools.Schemas(), e.model(), handler)
-        if err != nil {
-            log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
-            return "", err
-        }
+		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_stream_step_start")
+		err := e.LLM.ChatStream(ctx, msgs, e.Tools.Schemas(), e.model(), handler)
+		if err != nil {
+			log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
+			return "", err
+		}
 
 		// Create the complete message from accumulated content and tool calls
 		msg := llm.Message{
@@ -100,24 +100,24 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			e.OnAssistant(msg)
 		}
 
-        if len(msg.ToolCalls) == 0 {
-            log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_stream_final")
-            final = msg.Content
-            break
-        }
-        log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_stream_tool_calls")
-        for _, tc := range msg.ToolCalls {
-            payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
-            if err != nil {
-                payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
-            }
-            msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
-        }
-    }
-    if final == "" {
-        final = "(no final text — increase max steps or check logs)"
-    }
-    return final, nil
+		if len(msg.ToolCalls) == 0 {
+			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_stream_final")
+			final = msg.Content
+			break
+		}
+		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_stream_tool_calls")
+		for _, tc := range msg.ToolCalls {
+			payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
+			if err != nil {
+				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
+			}
+			msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
+		}
+	}
+	if final == "" {
+		final = "(no final text — increase max steps or check logs)"
+	}
+	return final, nil
 }
 
 // streamHandler implements llm.StreamHandler

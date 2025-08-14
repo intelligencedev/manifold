@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"gptagent/internal/config"
-	"gptagent/internal/llm"
-	openaillm "gptagent/internal/llm/openai"
+	"singularityio/internal/config"
+	"singularityio/internal/llm"
+	openaillm "singularityio/internal/llm/openai"
 )
 
 // Agent represents a configured specialist bound to a specific endpoint/model.

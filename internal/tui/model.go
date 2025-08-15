@@ -142,7 +142,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		LLM:      provider,
 		Tools:    registry,
 		MaxSteps: maxSteps,
-		System:   prompts.DefaultSystemPrompt(cfg.Workdir),
+		System:   prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
 	}
 
 	m := &Model{

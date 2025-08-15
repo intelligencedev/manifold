@@ -186,16 +186,16 @@ func loadSpecialists(cfg *Config) error {
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
-		SystemPrompt string `yaml:"systemPrompt"`
-		Specialists []SpecialistConfig `yaml:"specialists"`
-		Routes      []SpecialistRoute  `yaml:"routes"`
-		OpenAI      openAIYAML         `yaml:"openai"`
-		Workdir     string             `yaml:"workdir"`
-		OutputTrunc int                `yaml:"outputTruncateBytes"`
-		Exec        execYAML           `yaml:"exec"`
-		Obs         obsYAML            `yaml:"obs"`
-		Web         webYAML            `yaml:"web"`
-		MCP         mcpYAML            `yaml:"mcp"`
+		SystemPrompt string             `yaml:"systemPrompt"`
+		Specialists  []SpecialistConfig `yaml:"specialists"`
+		Routes       []SpecialistRoute  `yaml:"routes"`
+		OpenAI       openAIYAML         `yaml:"openai"`
+		Workdir      string             `yaml:"workdir"`
+		OutputTrunc  int                `yaml:"outputTruncateBytes"`
+		Exec         execYAML           `yaml:"exec"`
+		Obs          obsYAML            `yaml:"obs"`
+		Web          webYAML            `yaml:"web"`
+		MCP          mcpYAML            `yaml:"mcp"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.

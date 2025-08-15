@@ -410,4 +410,9 @@ func extractURLsFromHTML(doc *html.Node) ([]string, error) {
 }
 
 // helper min for ints
-func min(a, b int) int { if a < b { return a }; return b }
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}

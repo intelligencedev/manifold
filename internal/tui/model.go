@@ -74,6 +74,7 @@ type Model struct {
 	rightHeaderActiveStyle lipgloss.Style
 	leftPanelStyle         lipgloss.Style
 	rightPanelStyle        lipgloss.Style
+	inputStyle             lipgloss.Style
 
 	activePanel   string // "left" or "right"
 	userScrolledL bool
@@ -164,6 +165,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		agentText:              agentText,
 		toolStyle:              toolStyle,
 		infoStyle:              infoStyle,
+		inputStyle:             lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("8")).Padding(0, 1),
 		dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 		headerStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true),
 		leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
@@ -301,10 +303,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			rightOuterW = 1
 		}
 
-		// Height available to both panels: minus input height and one header line
-		headerLines := 1
+		// Height available to both panels: minus input height (including its border)
+		// and two header lines (header + extra spacing added earlier)
+		headerLines := 2
 		inputH := m.input.Height()
-		contentOuterH := msg.Height - inputH - headerLines
+		// Account for the input style frame (borders + padding) so panels don't
+		// overlap the input box. GetFrameSize returns (width, height) of frame.
+		_, inputFrameH := m.inputStyle.GetFrameSize()
+		contentOuterH := msg.Height - inputH - inputFrameH - headerLines
 		if contentOuterH < 1 {
 			contentOuterH = 1
 		}
@@ -317,8 +323,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.leftVP.Height = max(1, contentOuterH-lfH)
 		m.rightVP.Height = max(1, contentOuterH-rfH)
 
-		// Ensure the input area wraps to the terminal width
-		m.input.SetWidth(msg.Width)
+		// Ensure the input area wraps to the terminal width, but account for
+		// the inputStyle frame width so the right border is not cut off.
+		if fw, _ := m.inputStyle.GetFrameSize(); fw > 0 {
+			w := msg.Width - fw
+			if w < 1 {
+				w = 1
+			}
+			m.input.SetWidth(w)
+		} else {
+			m.input.SetWidth(msg.Width)
+		}
 		m.setView()
 		return m, nil
 	case streamDeltaMsg:
@@ -424,15 +439,18 @@ func (m *Model) View() string {
 	// Render header inside the panel so it visually becomes a tab blending
 	// into the panel's border. This keeps borders consistent and makes the
 	// header look like part of the panel container.
-	leftContent := leftHeader + "\n" + m.leftVP.View()
-	rightContent := rightHeader + "\n" + m.rightVP.View()
+	// Add an extra blank line after the header to increase spacing
+	leftContent := leftHeader + "\n\n" + m.leftVP.View()
+	rightContent := rightHeader + "\n\n" + m.rightVP.View()
 
 	leftBlock := leftPanel.Render(leftContent)
 	rightBlock := rightPanel.Render(rightContent)
 	// Panels are rendered directly adjacent without a vertical divider so the
 	// headers blend naturally into the rounded borders.
 	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
-	return top + "\n" + m.input.View()
+	// Render the input inside a bordered box so its top border is visible
+	inputBlock := m.inputStyle.Render(m.input.View())
+	return top + "\n" + inputBlock
 }
 
 // spinnerCmd returns a command that fires a spinnerTickMsg after a short delay.
@@ -686,7 +704,8 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 		}
 		innerWrap := lipgloss.NewStyle().MaxWidth(inw)
 		contentWrapped := wrapString(cm.content, inw)
-		return m.toolStyle.Render(header + "\n" + innerWrap.Render(contentWrapped))
+		// Add an extra blank line after the tool header for clearer separation
+		return m.toolStyle.Render(header + "\n\n" + innerWrap.Render(contentWrapped))
 	default:
 		contentWrapped := wrapString(cm.content, maxw)
 		return m.infoStyle.Render(wrap.Render(contentWrapped))

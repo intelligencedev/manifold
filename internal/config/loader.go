@@ -19,6 +19,8 @@ func Load() (Config, error) {
 	_ = godotenv.Overload()
 
 	cfg := Config{}
+	// Allow overriding the agent system prompt via env var SYSTEM_PROMPT.
+	cfg.SystemPrompt = strings.TrimSpace(os.Getenv("SYSTEM_PROMPT"))
 	// Read environment values first (no defaults here; we'll apply defaults later)
 	cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
 	cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
@@ -182,7 +184,10 @@ func loadSpecialists(cfg *Config) error {
 		Servers []mcpServerYAML `yaml:"servers"`
 	}
 	type wrap struct {
-		Specialists []SpecialistConfig `yaml:"specialists"`
+		// SystemPrompt is an optional top-level YAML field to override the
+		// default system prompt used by the agent.
+		SystemPrompt string 
+Specialists []SpecialistConfig `yaml:"specialists"`
 		Routes      []SpecialistRoute  `yaml:"routes"`
 		OpenAI      openAIYAML         `yaml:"openai"`
 		Workdir     string             `yaml:"workdir"`

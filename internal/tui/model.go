@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -42,7 +42,7 @@ type Model struct {
 	// UI
 	leftVP  viewport.Model
 	rightVP viewport.Model
-	input   textinput.Model
+	input   textarea.Model
 
 	messages            []chatMsg
 	currentMessage      *chatMsg // For streaming content
@@ -83,9 +83,9 @@ type chatMsg struct {
 func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exec cli.Executor, maxSteps int, warppDemo bool) *Model {
 	left := viewport.New(80, 20)
 	right := viewport.New(40, 20)
-	in := textinput.New()
-	in.Prompt = "> "
+	in := textarea.New()
 	in.Placeholder = "Ask the agent..."
+	in.SetHeight(3)
 	in.Focus()
 
 	userTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1).MarginRight(1)
@@ -165,7 +165,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			m.cleanup()
 			return m, tea.Quit
 		case "tab":
@@ -260,6 +260,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rightVP.Width = rightW
 		m.leftVP.Height = msg.Height - 3
 		m.rightVP.Height = msg.Height - 3
+		// Ensure the input area wraps to the terminal width
+		m.input.SetWidth(msg.Width)
 		m.setView()
 		return m, nil
 	case streamDeltaMsg:

@@ -34,7 +34,7 @@ type Model struct {
 	ctx      context.Context
 	provider llm.Provider
 	cfg      config.Config
-	
+
 	exec     cli.Executor
 	maxSteps int
 
@@ -160,7 +160,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		userTag:                userTag,
 		agentTag:               agentTag,
 		userText:               userText,
-	agentText:              agentText,
+		agentText:              agentText,
 		toolStyle:              toolStyle,
 		infoStyle:              infoStyle,
 		dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
@@ -168,16 +168,14 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
 		rightHeaderActiveStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1),
 		leftPanelStyle:         lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).Padding(0, 1),
-		// Tools pane: don't draw a colored rounded border; keep simple padding so tool output
-		// remains visually distinct without a prominent purple border.
-		rightPanelStyle: lipgloss.NewStyle().Padding(0, 1),
+		// Tools pane: now styled with a rounded border for visual consistency.
+		rightPanelStyle: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7E57C2")).Padding(0, 1),
 		activePanel:     "left",
 		// spinner frames for waiting indicator
-		spinners:        []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
+		spinners: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
-	// Attach panel styles to the viewports and enable mouse wheel scrolling
-	m.leftVP.Style = m.leftPanelStyle
-	m.rightVP.Style = m.rightPanelStyle
+	// Enable mouse wheel scrolling on viewports. Panel styling is applied
+	// when rendering so headers (tabs) can blend into the panel borders.
 	m.leftVP.MouseWheelEnabled = true
 	m.rightVP.MouseWheelEnabled = true
 	m.setView()
@@ -281,8 +279,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmdR
 		}
 	case tea.WindowSizeMsg:
-		// Split width 2/3 (chat) and 1/3 (tools), separated by a 1-col divider
-		sepCols := 1
+		// Split width 2/3 (chat) and 1/3 (tools)
+		// No divider column between panels (sepCols = 0)
+		sepCols := 0
 		total := msg.Width - sepCols
 		if total < 2 {
 			total = 2
@@ -397,14 +396,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) View() string {
 	leftHeader := m.headerStyle.Render(" Chat ")
 	rightHeader := m.headerStyle.Render(" Tools ")
+
+	// Determine active tab and corresponding panel border color so the
+	// header (tab) appears to blend into the panel's top border.
+	leftPanel := m.leftPanelStyle
+	rightPanel := m.rightPanelStyle
 	if m.activePanel == "left" {
 		leftHeader = m.leftHeaderActiveStyle.Render(" Chat ")
-		m.leftVP.Style = m.leftPanelStyle.BorderForeground(lipgloss.Color("#2D7FFF"))
-		m.rightVP.Style = m.rightPanelStyle
+		leftPanel = m.leftPanelStyle.BorderForeground(lipgloss.Color("#2D7FFF"))
 	} else {
 		rightHeader = m.rightHeaderActiveStyle.Render(" Tools ")
-		m.rightVP.Style = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
-		m.leftVP.Style = m.leftPanelStyle
+		rightPanel = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
 	}
 
 	// If we're waiting on the LLM/completions endpoint, show an indicator near the chat header
@@ -414,10 +416,17 @@ func (m *Model) View() string {
 		leftHeader = leftHeader + m.headerStyle.Render(spin)
 	}
 
-	leftBlock := leftHeader + "\n" + m.leftVP.View()
-	rightBlock := rightHeader + "\n" + m.rightVP.View()
-	sep := m.dividerStyle.Render("│")
-	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, sep, rightBlock)
+	// Render header inside the panel so it visually becomes a tab blending
+	// into the panel's border. This keeps borders consistent and makes the
+	// header look like part of the panel container.
+	leftContent := leftHeader + "\n" + m.leftVP.View()
+	rightContent := rightHeader + "\n" + m.rightVP.View()
+
+	leftBlock := leftPanel.Render(leftContent)
+	rightBlock := rightPanel.Render(rightContent)
+	// Panels are rendered directly adjacent without a vertical divider so the
+	// headers blend naturally into the rounded borders.
+	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
 	return top + "\n" + m.input.View()
 }
 
@@ -653,9 +662,10 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 		return header + "\n\n" + body
 	case "tool":
 		header := lipgloss.NewStyle().Bold(true).Render(cm.title)
-		// Adjust wrap width to account for border/padding frame
+		// Adjust wrap width to account for the right panel frame/padding so
+		// tool entries don't overflow the rounded border when rendered.
 		inw := maxw
-		if fw, _ := m.toolStyle.GetFrameSize(); fw > 0 {
+		if fw, _ := m.rightPanelStyle.GetFrameSize(); fw > 0 {
 			if inw-fw > 1 {
 				inw = inw - fw
 			} else {

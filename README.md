@@ -1,3 +1,7 @@
+<p align="center">
+<img src="assets/singularityio-logo.svg" alt="SingularityIO logo" width="200" />
+</p>
+
 # SingularityIO
 
 An agentic CLI and TUI that uses OpenAI’s official Go SDK (v2) for chat-based tool calling. It executes commands safely in a locked working directory, supports streaming, and integrates observability (structured logs, traces, metrics). It also supports optional specialists (alternate OpenAI-compatible endpoints) and a Model Context Protocol (MCP) client to expose external tools to the agent.

@@ -11,8 +11,15 @@ import (
 // If an AGENTS.md file exists in the provided workdir, its contents will be
 // appended to the returned system prompt to provide additional agent-specific
 // instructions.
-func DefaultSystemPrompt(workdir string) string {
-	base := fmt.Sprintf(`You are a helpful assistant that can plan and execute tools.
+//
+// The override parameter, when non-empty, replaces the hard-coded default and
+// is still subject to AGENTS.md appending.
+func DefaultSystemPrompt(workdir, override string) string {
+	var base string
+	if strings.TrimSpace(override) != "" {
+		base = override
+	} else {
+		base = fmt.Sprintf(`You are a helpful assistant that can plan and execute tools.
 
 Rules:
 - ALWAYS create a plan, taking into consideration all of the tools available to you to complete the objective. Then execute the plan step by step.
@@ -40,6 +47,7 @@ Web Search Workflow:
 - Never use previous memories to respond if a tool call is required. For example, if you previously provided a summary for a topic, do not reference it; instead, re-gather all necessary context from the current state.
 
 Be cautious with destructive operations. If a command could modify files, consider listing files first.`, workdir)
+	}
 
 	// If workdir is empty, treat it as the current directory
 	wd := workdir

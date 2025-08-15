@@ -3,6 +3,9 @@ package config
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	Workdir            string
+	/ SystemPrompt allows overriding the agent's default system prompt.
+	/ If empty, the built-in hard-coded prompt is used.
+	SystemPrompt       string
 	OutputTruncateByte int
 	LogPath            string
 	LogLevel           string

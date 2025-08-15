@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
 
@@ -660,10 +661,17 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 		return header + "\n\n" + body
 	case "agent":
 		header := m.agentTag.Render("Agent")
-		contentWrapped := wrapString(cm.content, maxw)
-		body := m.agentText.Render(wrap.Render(contentWrapped))
-		// Extra blank line after header for improved vertical spacing
-		return header + "\n\n" + body
+		// Render Markdown to ANSI using glamour. If rendering fails, fall back
+		// to raw content. We then hard-wrap the ANSI output to avoid overflowing
+		// bordered containers.
+		mdOut, err := glamour.Render(cm.content, "dark")
+		if err != nil {
+			mdOut = cm.content
+		}
+		contentWrapped := wrapString(mdOut, maxw)
+		// Do not re-apply m.agentText styling since glamour already produces
+		// ANSI styling. Just return the header and the rendered markdown body.
+		return header + "\n\n" + wrap.Render(contentWrapped)
 	case "tool":
 		header := lipgloss.NewStyle().Bold(true).Render(cm.title)
 		// Adjust wrap width to account for the right panel frame/padding so

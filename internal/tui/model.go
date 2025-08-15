@@ -39,10 +39,10 @@ type Model struct {
 	eng     agent.Engine
 	history []llm.Message
 
-	// UI
-	leftVP  viewport.Model
-	rightVP viewport.Model
-	input   textarea.Model
+    // UI
+    leftVP  viewport.Model
+    rightVP viewport.Model
+    input   textarea.Model
 
 	messages            []chatMsg
 	currentMessage      *chatMsg // For streaming content
@@ -64,10 +64,12 @@ type Model struct {
 	agentText              lipgloss.Style
 	toolStyle              lipgloss.Style
 	infoStyle              lipgloss.Style
-	dividerStyle           lipgloss.Style
-	headerStyle            lipgloss.Style
-	leftHeaderActiveStyle  lipgloss.Style
-	rightHeaderActiveStyle lipgloss.Style
+    dividerStyle           lipgloss.Style
+    headerStyle            lipgloss.Style
+    leftHeaderActiveStyle  lipgloss.Style
+    rightHeaderActiveStyle lipgloss.Style
+    leftPanelStyle         lipgloss.Style
+    rightPanelStyle        lipgloss.Style
 
 	activePanel   string // "left" or "right"
 	userScrolledL bool
@@ -81,12 +83,14 @@ type chatMsg struct {
 }
 
 func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exec cli.Executor, maxSteps int, warppDemo bool) *Model {
-	left := viewport.New(80, 20)
-	right := viewport.New(40, 20)
-	in := textarea.New()
-	in.Placeholder = "Ask the agent..."
-	in.SetHeight(3)
-	in.Focus()
+    left := viewport.New(80, 20)
+    right := viewport.New(40, 20)
+    in := textarea.New()
+    in.Placeholder = "Ask the agent..."
+    in.SetHeight(3)
+    in.ShowLineNumbers = false
+    in.Prompt = "› "
+    in.Focus()
 
 	userTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1).MarginRight(1)
 	agentTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1).MarginRight(1)
@@ -128,7 +132,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		System:   prompts.DefaultSystemPrompt(cfg.Workdir),
 	}
 
-	m := &Model{
+    m := &Model{
 		ctx:                    ctx,
 		provider:               provider,
 		cfg:                    cfg,
@@ -147,14 +151,21 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		agentText:              agentText,
 		toolStyle:              toolStyle,
 		infoStyle:              infoStyle,
-		dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
-		headerStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true),
-		leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
-		rightHeaderActiveStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1),
-		activePanel:            "left",
-	}
-	m.setView()
-	return m
+        dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
+        headerStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true),
+        leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
+        rightHeaderActiveStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1),
+        leftPanelStyle:         lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).Padding(0, 1),
+        rightPanelStyle:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).Padding(0, 1),
+        activePanel:            "left",
+    }
+    // Attach panel styles to the viewports and enable mouse wheel scrolling
+    m.leftVP.Style = m.leftPanelStyle
+    m.rightVP.Style = m.rightPanelStyle
+    m.leftVP.MouseWheelEnabled = true
+    m.rightVP.MouseWheelEnabled = true
+    m.setView()
+    return m
 }
 
 func (m *Model) Init() tea.Cmd { return nil }
@@ -223,47 +234,71 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseMsg:
 		// Handle mouse click to focus panes
-		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-			if msg.X < m.leftVP.Width {
-				m.activePanel = "left"
-			} else {
-				m.activePanel = "right"
-			}
-			return m, nil
-		}
+    if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+        lfW, _ := m.leftPanelStyle.GetFrameSize()
+        leftOuter := m.leftVP.Width + lfW
+        if msg.X < leftOuter {
+            m.activePanel = "left"
+        } else {
+            m.activePanel = "right"
+        }
+        return m, nil
+    }
 
 		// Let each viewport handle its own mouse events (including wheel)
 		var cmdL, cmdR tea.Cmd
-		if msg.X < m.leftVP.Width {
-			// Mouse is over left pane
-			m.leftVP, cmdL = m.leftVP.Update(msg)
-			m.userScrolledL = true
-			// Don't call setView() during scrolling to avoid rendering artifacts
-			return m, cmdL
-		} else {
+    lfW, _ := m.leftPanelStyle.GetFrameSize()
+    leftOuter := m.leftVP.Width + lfW
+    if msg.X < leftOuter {
+        // Mouse is over left pane
+        m.leftVP, cmdL = m.leftVP.Update(msg)
+        m.userScrolledL = true
+        // Don't call setView() during scrolling to avoid rendering artifacts
+        return m, cmdL
+    } else {
 			// Mouse is over right pane
 			m.rightVP, cmdR = m.rightVP.Update(msg)
 			m.userScrolledR = true
 			// Don't call setView() during scrolling to avoid rendering artifacts
 			return m, cmdR
 		}
-	case tea.WindowSizeMsg:
-		// Split width evenly between left and right panes with a 1-col separator
-		sep := 1
-		total := msg.Width - sep
-		if total < 2 {
-			total = 2
-		}
-		leftW := total / 2
-		rightW := total - leftW
-		m.leftVP.Width = leftW
-		m.rightVP.Width = rightW
-		m.leftVP.Height = msg.Height - 3
-		m.rightVP.Height = msg.Height - 3
-		// Ensure the input area wraps to the terminal width
-		m.input.SetWidth(msg.Width)
-		m.setView()
-		return m, nil
+    case tea.WindowSizeMsg:
+        // Split width 2/3 (chat) and 1/3 (tools), separated by a 1-col divider
+        sepCols := 1
+        total := msg.Width - sepCols
+        if total < 2 {
+            total = 2
+        }
+        // Outer panel widths (including borders/padding)
+        leftOuterW := int(float64(total) * 0.66)
+        if leftOuterW < 1 {
+            leftOuterW = 1
+        }
+        rightOuterW := total - leftOuterW
+        if rightOuterW < 1 {
+            rightOuterW = 1
+        }
+
+        // Height available to both panels: minus input height and one header line
+        headerLines := 1
+        inputH := m.input.Height()
+        contentOuterH := msg.Height - inputH - headerLines
+        if contentOuterH < 1 {
+            contentOuterH = 1
+        }
+
+        // Subtract frame size (borders + padding) so viewport inner area fits
+        lfW, lfH := m.leftPanelStyle.GetFrameSize()
+        rfW, rfH := m.rightPanelStyle.GetFrameSize()
+        m.leftVP.Width = max(1, leftOuterW-lfW)
+        m.rightVP.Width = max(1, rightOuterW-rfW)
+        m.leftVP.Height = max(1, contentOuterH-lfH)
+        m.rightVP.Height = max(1, contentOuterH-rfH)
+
+        // Ensure the input area wraps to the terminal width
+        m.input.SetWidth(msg.Width)
+        m.setView()
+        return m, nil
 	case streamDeltaMsg:
 		// Update the current streaming message with new content
 		if m.currentMessage != nil {
@@ -330,13 +365,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
-	leftHeader := m.headerStyle.Render(" Chat ")
-	rightHeader := m.headerStyle.Render(" Tools ")
-	if m.activePanel == "left" {
-		leftHeader = m.leftHeaderActiveStyle.Render(" Chat ")
-	} else {
-		rightHeader = m.rightHeaderActiveStyle.Render(" Tools ")
-	}
+    leftHeader := m.headerStyle.Render(" Chat ")
+    rightHeader := m.headerStyle.Render(" Tools ")
+    if m.activePanel == "left" {
+        leftHeader = m.leftHeaderActiveStyle.Render(" Chat ")
+        m.leftVP.Style = m.leftPanelStyle.BorderForeground(lipgloss.Color("#2D7FFF"))
+        m.rightVP.Style = m.rightPanelStyle
+    } else {
+        rightHeader = m.rightHeaderActiveStyle.Render(" Tools ")
+        m.rightVP.Style = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
+        m.leftVP.Style = m.leftPanelStyle
+    }
 	leftBlock := leftHeader + "\n" + m.leftVP.View()
 	rightBlock := rightHeader + "\n" + m.rightVP.View()
 	sep := m.dividerStyle.Render("│")
@@ -646,6 +685,14 @@ func formatToolPayload(cmd string, args []string, res cli.ExecResult) string {
 		b.WriteString(res.Stderr)
 	}
 	return b.String()
+}
+
+// max returns the maximum of two ints.
+func max(a, b int) int {
+    if a > b {
+        return a
+    }
+    return b
 }
 
 // schema adaptation moved to internal/llm/openai/schema.go and registry usage above.

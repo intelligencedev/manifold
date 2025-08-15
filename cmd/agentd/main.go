@@ -18,8 +18,8 @@ func main() {
 			log.Printf("failed to write ready response: %v", err)
 		}
 	})
-	log.Println("agentd listening on :8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	log.Println("agentd listening on :32180")
+	if err := http.ListenAndServe(":32180", mux); err != nil {
 		log.Fatal(err)
 	}
 }

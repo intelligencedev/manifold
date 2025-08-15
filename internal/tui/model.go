@@ -211,6 +211,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.input.SetValue("")
 			m.messages = append(m.messages, chatMsg{kind: "user", title: "You", content: q})
+			// Ensure chat pane scrolls to the newest message immediately after user input.
+			// Clear the manual-scroll flag so the view will follow new content.
+			m.userScrolledL = false
+			m.leftVP.GotoBottom()
 			m.setView()
 			m.running = true
 			// start reading events and engine in parallel

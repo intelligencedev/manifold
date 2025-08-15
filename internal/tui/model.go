@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -33,6 +34,7 @@ type Model struct {
 	ctx      context.Context
 	provider llm.Provider
 	cfg      config.Config
+	
 	exec     cli.Executor
 	maxSteps int
 
@@ -75,6 +77,11 @@ type Model struct {
 	activePanel   string // "left" or "right"
 	userScrolledL bool
 	userScrolledR bool
+
+	// Waiting indicator when LLM/completions endpoint is in-flight
+	waitingLLM bool
+	spinnerIdx int
+	spinners   []string
 }
 
 type chatMsg struct {
@@ -153,7 +160,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		userTag:                userTag,
 		agentTag:               agentTag,
 		userText:               userText,
-		agentText:              agentText,
+	agentText:              agentText,
 		toolStyle:              toolStyle,
 		infoStyle:              infoStyle,
 		dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
@@ -165,6 +172,8 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		// remains visually distinct without a prominent purple border.
 		rightPanelStyle: lipgloss.NewStyle().Padding(0, 1),
 		activePanel:     "left",
+		// spinner frames for waiting indicator
+		spinners:        []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
 	}
 	// Attach panel styles to the viewports and enable mouse wheel scrolling
 	m.leftVP.Style = m.leftPanelStyle
@@ -210,11 +219,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.toolCh = make(chan chatMsg, 32)
 			if m.warppDemo {
 				// WARPP demo does not stream tokens; produce a final answer at once
-				return m, tea.Batch(m.readNextEvent(), m.runWARPPDemo(q))
+				return m, tea.Batch(m.readNextEvent(), m.runWARPPDemo(q), m.spinnerCmd())
 			}
 			// Pre-dispatch routing to specialists in TUI
 			if name := specialists.Route(m.cfg.SpecialistRoutes, q); name != "" {
-				return m, tea.Batch(m.readNextEvent(), m.runSpecialist(name, q))
+				return m, tea.Batch(m.readNextEvent(), m.runSpecialist(name, q), m.spinnerCmd())
 			}
 			m.streamingDeltaCh = make(chan string, 64)
 			// Initialize streaming message and track its index
@@ -222,7 +231,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentMessageIndex = len(m.messages) // Store the index before appending
 			m.messages = append(m.messages, *m.currentMessage)
 			m.setView()
-			return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q))
+			// mark we're waiting on LLM/completions
+			m.waitingLLM = true
+			return m, tea.Batch(m.readNextEvent(), m.readStreamingDelta(), m.runStreamingEngine(q), m.spinnerCmd())
 		case "up", "down", "pgup", "pgdn", "home", "end":
 			// Handle scrolling for the active pane only
 			if m.activePanel == "left" {
@@ -307,6 +318,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setView()
 		return m, nil
 	case streamDeltaMsg:
+		// First streaming delta indicates LLM is responding; clear waiting flag
+		m.waitingLLM = false
 		// Update the current streaming message with new content
 		if m.currentMessage != nil {
 			m.currentMessage.content += string(msg)
@@ -342,6 +355,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case runResult:
 		m.running = false
+		// Ensure waiting flag is cleared when the run finishes
+		m.waitingLLM = false
 		// tool events are already handled by the streaming mechanism via toolEventMsg
 		// no need to append msg.events here as it would create duplicates
 		if msg.err != nil {
@@ -363,6 +378,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})
 		m.setView()
 		return m, nil
+	case spinnerTickMsg:
+		// Advance spinner if we're waiting on LLM; otherwise ignore
+		if m.waitingLLM {
+			m.spinnerIdx = (m.spinnerIdx + 1) % len(m.spinners)
+			// schedule next tick
+			return m, m.spinnerCmd()
+		}
+		return m, nil
 	}
 
 	// default: update input only (viewports are handled above for focused scrolling)
@@ -383,11 +406,24 @@ func (m *Model) View() string {
 		m.rightVP.Style = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
 		m.leftVP.Style = m.leftPanelStyle
 	}
+
+	// If we're waiting on the LLM/completions endpoint, show an indicator near the chat header
+	if m.waitingLLM {
+		spin := " " + m.spinners[m.spinnerIdx] + " waiting..."
+		// style the waiting indicator using header style but dimmer
+		leftHeader = leftHeader + m.headerStyle.Render(spin)
+	}
+
 	leftBlock := leftHeader + "\n" + m.leftVP.View()
 	rightBlock := rightHeader + "\n" + m.rightVP.View()
 	sep := m.dividerStyle.Render("│")
 	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, sep, rightBlock)
 	return top + "\n" + m.input.View()
+}
+
+// spinnerCmd returns a command that fires a spinnerTickMsg after a short delay.
+func (m *Model) spinnerCmd() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(t time.Time) tea.Msg { return spinnerTickMsg{} })
 }
 
 // Non-streaming execution using the same Engine path as cmd/agent, but we stream
@@ -400,6 +436,8 @@ type runResult struct {
 type toolEventMsg chatMsg
 type toolStreamClosed struct{}
 type streamDeltaMsg string
+
+type spinnerTickMsg struct{}
 
 func (m *Model) runStreamingEngine(user string) tea.Cmd {
 	return func() tea.Msg {

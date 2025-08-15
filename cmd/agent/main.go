@@ -145,7 +145,7 @@ func main() {
 		LLM:      llm,
 		Tools:    registry,
 		MaxSteps: *maxSteps,
-		System:   prompts.DefaultSystemPrompt(cfg.Workdir),
+		System:   prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

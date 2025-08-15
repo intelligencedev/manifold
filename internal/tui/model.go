@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	xansi "github.com/charmbracelet/x/ansi"
 
 	"singularityio/internal/agent"
 	"singularityio/internal/agent/prompts"
@@ -39,10 +40,10 @@ type Model struct {
 	eng     agent.Engine
 	history []llm.Message
 
-    // UI
-    leftVP  viewport.Model
-    rightVP viewport.Model
-    input   textarea.Model
+	// UI
+	leftVP  viewport.Model
+	rightVP viewport.Model
+	input   textarea.Model
 
 	messages            []chatMsg
 	currentMessage      *chatMsg // For streaming content
@@ -64,12 +65,12 @@ type Model struct {
 	agentText              lipgloss.Style
 	toolStyle              lipgloss.Style
 	infoStyle              lipgloss.Style
-    dividerStyle           lipgloss.Style
-    headerStyle            lipgloss.Style
-    leftHeaderActiveStyle  lipgloss.Style
-    rightHeaderActiveStyle lipgloss.Style
-    leftPanelStyle         lipgloss.Style
-    rightPanelStyle        lipgloss.Style
+	dividerStyle           lipgloss.Style
+	headerStyle            lipgloss.Style
+	leftHeaderActiveStyle  lipgloss.Style
+	rightHeaderActiveStyle lipgloss.Style
+	leftPanelStyle         lipgloss.Style
+	rightPanelStyle        lipgloss.Style
 
 	activePanel   string // "left" or "right"
 	userScrolledL bool
@@ -83,18 +84,22 @@ type chatMsg struct {
 }
 
 func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exec cli.Executor, maxSteps int, warppDemo bool) *Model {
-    left := viewport.New(80, 20)
-    right := viewport.New(40, 20)
-    in := textarea.New()
-    in.Placeholder = "Ask the agent..."
-    in.SetHeight(3)
-    in.ShowLineNumbers = false
-    in.Prompt = "› "
-    in.Focus()
+	left := viewport.New(80, 20)
+	right := viewport.New(40, 20)
+	// Disable horizontal scrolling; we'll wrap content instead
+	left.SetHorizontalStep(0)
+	right.SetHorizontalStep(0)
+	in := textarea.New()
+	in.Placeholder = "Ask the agent..."
+	in.SetHeight(3)
+	in.ShowLineNumbers = false
+	in.Prompt = "› "
+	in.Focus()
 
 	userTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1).MarginRight(1)
 	agentTag := lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1).MarginRight(1)
-	toolStyle := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("13")).Padding(0, 1)
+	// Don't use a colored border for tool output in the TUI; keep simple padding instead.
+	toolStyle := lipgloss.NewStyle().Padding(0, 1)
 	infoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	userText := lipgloss.NewStyle().Foreground(lipgloss.Color("#E6F0FF"))
 	agentText := lipgloss.NewStyle().Foreground(lipgloss.Color("#ECE7FF"))
@@ -132,7 +137,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		System:   prompts.DefaultSystemPrompt(cfg.Workdir),
 	}
 
-    m := &Model{
+	m := &Model{
 		ctx:                    ctx,
 		provider:               provider,
 		cfg:                    cfg,
@@ -151,21 +156,23 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		agentText:              agentText,
 		toolStyle:              toolStyle,
 		infoStyle:              infoStyle,
-        dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
-        headerStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true),
-        leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
-        rightHeaderActiveStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1),
-        leftPanelStyle:         lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).Padding(0, 1),
-        rightPanelStyle:        lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).Padding(0, 1),
-        activePanel:            "left",
-    }
-    // Attach panel styles to the viewports and enable mouse wheel scrolling
-    m.leftVP.Style = m.leftPanelStyle
-    m.rightVP.Style = m.rightPanelStyle
-    m.leftVP.MouseWheelEnabled = true
-    m.rightVP.MouseWheelEnabled = true
-    m.setView()
-    return m
+		dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
+		headerStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true),
+		leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
+		rightHeaderActiveStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#7E57C2")).Bold(true).Padding(0, 1),
+		leftPanelStyle:         lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).Padding(0, 1),
+		// Tools pane: don't draw a colored rounded border; keep simple padding so tool output
+		// remains visually distinct without a prominent purple border.
+		rightPanelStyle: lipgloss.NewStyle().Padding(0, 1),
+		activePanel:     "left",
+	}
+	// Attach panel styles to the viewports and enable mouse wheel scrolling
+	m.leftVP.Style = m.leftPanelStyle
+	m.rightVP.Style = m.rightPanelStyle
+	m.leftVP.MouseWheelEnabled = true
+	m.rightVP.MouseWheelEnabled = true
+	m.setView()
+	return m
 }
 
 func (m *Model) Init() tea.Cmd { return nil }
@@ -234,71 +241,71 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseMsg:
 		// Handle mouse click to focus panes
-    if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-        lfW, _ := m.leftPanelStyle.GetFrameSize()
-        leftOuter := m.leftVP.Width + lfW
-        if msg.X < leftOuter {
-            m.activePanel = "left"
-        } else {
-            m.activePanel = "right"
-        }
-        return m, nil
-    }
+		if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
+			lfW, _ := m.leftPanelStyle.GetFrameSize()
+			leftOuter := m.leftVP.Width + lfW
+			if msg.X < leftOuter {
+				m.activePanel = "left"
+			} else {
+				m.activePanel = "right"
+			}
+			return m, nil
+		}
 
 		// Let each viewport handle its own mouse events (including wheel)
 		var cmdL, cmdR tea.Cmd
-    lfW, _ := m.leftPanelStyle.GetFrameSize()
-    leftOuter := m.leftVP.Width + lfW
-    if msg.X < leftOuter {
-        // Mouse is over left pane
-        m.leftVP, cmdL = m.leftVP.Update(msg)
-        m.userScrolledL = true
-        // Don't call setView() during scrolling to avoid rendering artifacts
-        return m, cmdL
-    } else {
+		lfW, _ := m.leftPanelStyle.GetFrameSize()
+		leftOuter := m.leftVP.Width + lfW
+		if msg.X < leftOuter {
+			// Mouse is over left pane
+			m.leftVP, cmdL = m.leftVP.Update(msg)
+			m.userScrolledL = true
+			// Don't call setView() during scrolling to avoid rendering artifacts
+			return m, cmdL
+		} else {
 			// Mouse is over right pane
 			m.rightVP, cmdR = m.rightVP.Update(msg)
 			m.userScrolledR = true
 			// Don't call setView() during scrolling to avoid rendering artifacts
 			return m, cmdR
 		}
-    case tea.WindowSizeMsg:
-        // Split width 2/3 (chat) and 1/3 (tools), separated by a 1-col divider
-        sepCols := 1
-        total := msg.Width - sepCols
-        if total < 2 {
-            total = 2
-        }
-        // Outer panel widths (including borders/padding)
-        leftOuterW := int(float64(total) * 0.66)
-        if leftOuterW < 1 {
-            leftOuterW = 1
-        }
-        rightOuterW := total - leftOuterW
-        if rightOuterW < 1 {
-            rightOuterW = 1
-        }
+	case tea.WindowSizeMsg:
+		// Split width 2/3 (chat) and 1/3 (tools), separated by a 1-col divider
+		sepCols := 1
+		total := msg.Width - sepCols
+		if total < 2 {
+			total = 2
+		}
+		// Outer panel widths (including borders/padding)
+		leftOuterW := int(float64(total) * 0.66)
+		if leftOuterW < 1 {
+			leftOuterW = 1
+		}
+		rightOuterW := total - leftOuterW
+		if rightOuterW < 1 {
+			rightOuterW = 1
+		}
 
-        // Height available to both panels: minus input height and one header line
-        headerLines := 1
-        inputH := m.input.Height()
-        contentOuterH := msg.Height - inputH - headerLines
-        if contentOuterH < 1 {
-            contentOuterH = 1
-        }
+		// Height available to both panels: minus input height and one header line
+		headerLines := 1
+		inputH := m.input.Height()
+		contentOuterH := msg.Height - inputH - headerLines
+		if contentOuterH < 1 {
+			contentOuterH = 1
+		}
 
-        // Subtract frame size (borders + padding) so viewport inner area fits
-        lfW, lfH := m.leftPanelStyle.GetFrameSize()
-        rfW, rfH := m.rightPanelStyle.GetFrameSize()
-        m.leftVP.Width = max(1, leftOuterW-lfW)
-        m.rightVP.Width = max(1, rightOuterW-rfW)
-        m.leftVP.Height = max(1, contentOuterH-lfH)
-        m.rightVP.Height = max(1, contentOuterH-rfH)
+		// Subtract frame size (borders + padding) so viewport inner area fits
+		lfW, lfH := m.leftPanelStyle.GetFrameSize()
+		rfW, rfH := m.rightPanelStyle.GetFrameSize()
+		m.leftVP.Width = max(1, leftOuterW-lfW)
+		m.rightVP.Width = max(1, rightOuterW-rfW)
+		m.leftVP.Height = max(1, contentOuterH-lfH)
+		m.rightVP.Height = max(1, contentOuterH-rfH)
 
-        // Ensure the input area wraps to the terminal width
-        m.input.SetWidth(msg.Width)
-        m.setView()
-        return m, nil
+		// Ensure the input area wraps to the terminal width
+		m.input.SetWidth(msg.Width)
+		m.setView()
+		return m, nil
 	case streamDeltaMsg:
 		// Update the current streaming message with new content
 		if m.currentMessage != nil {
@@ -365,17 +372,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
-    leftHeader := m.headerStyle.Render(" Chat ")
-    rightHeader := m.headerStyle.Render(" Tools ")
-    if m.activePanel == "left" {
-        leftHeader = m.leftHeaderActiveStyle.Render(" Chat ")
-        m.leftVP.Style = m.leftPanelStyle.BorderForeground(lipgloss.Color("#2D7FFF"))
-        m.rightVP.Style = m.rightPanelStyle
-    } else {
-        rightHeader = m.rightHeaderActiveStyle.Render(" Tools ")
-        m.rightVP.Style = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
-        m.leftVP.Style = m.leftPanelStyle
-    }
+	leftHeader := m.headerStyle.Render(" Chat ")
+	rightHeader := m.headerStyle.Render(" Tools ")
+	if m.activePanel == "left" {
+		leftHeader = m.leftHeaderActiveStyle.Render(" Chat ")
+		m.leftVP.Style = m.leftPanelStyle.BorderForeground(lipgloss.Color("#2D7FFF"))
+		m.rightVP.Style = m.rightPanelStyle
+	} else {
+		rightHeader = m.rightHeaderActiveStyle.Render(" Tools ")
+		m.rightVP.Style = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
+		m.leftVP.Style = m.leftPanelStyle
+	}
 	leftBlock := leftHeader + "\n" + m.leftVP.View()
 	rightBlock := rightHeader + "\n" + m.rightVP.View()
 	sep := m.dividerStyle.Render("│")
@@ -591,17 +598,21 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 	if maxw < 20 {
 		maxw = 20
 	}
-	// Create a style with proper word wrapping
-	wrap := lipgloss.NewStyle().Width(maxw)
+	// Create a style with enforced max width to avoid horizontal overflow
+	wrap := lipgloss.NewStyle().MaxWidth(maxw)
 	switch cm.kind {
 	case "user":
 		header := m.userTag.Render("You")
-		body := m.userText.Render(wrap.Render(cm.content))
-		return header + "\n" + body
+		contentWrapped := wrapString(cm.content, maxw)
+		body := m.userText.Render(wrap.Render(contentWrapped))
+		// Extra blank line after header for improved vertical spacing
+		return header + "\n\n" + body
 	case "agent":
 		header := m.agentTag.Render("Agent")
-		body := m.agentText.Render(wrap.Render(cm.content))
-		return header + "\n" + body
+		contentWrapped := wrapString(cm.content, maxw)
+		body := m.agentText.Render(wrap.Render(contentWrapped))
+		// Extra blank line after header for improved vertical spacing
+		return header + "\n\n" + body
 	case "tool":
 		header := lipgloss.NewStyle().Bold(true).Render(cm.title)
 		// Adjust wrap width to account for border/padding frame
@@ -613,11 +624,25 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 				inw = 1
 			}
 		}
-		innerWrap := lipgloss.NewStyle().Width(inw)
-		return m.toolStyle.Render(header + "\n" + innerWrap.Render(cm.content))
+		innerWrap := lipgloss.NewStyle().MaxWidth(inw)
+		contentWrapped := wrapString(cm.content, inw)
+		return m.toolStyle.Render(header + "\n" + innerWrap.Render(contentWrapped))
 	default:
-		return m.infoStyle.Render(wrap.Render(cm.content))
+		contentWrapped := wrapString(cm.content, maxw)
+		return m.infoStyle.Render(wrap.Render(contentWrapped))
 	}
+}
+
+// wrapString performs hard wrapping to the given visible width, ensuring even
+// very long tokens are broken across lines. This prevents overflow inside
+// bordered containers.
+func wrapString(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	// Hardwrap is ANSI-aware and counts visible cell width; it will insert
+	// newlines so even long tokens don't overflow bordered containers.
+	return xansi.Hardwrap(s, width, false)
 }
 
 func (m *Model) setView() {
@@ -689,10 +714,10 @@ func formatToolPayload(cmd string, args []string, res cli.ExecResult) string {
 
 // max returns the maximum of two ints.
 func max(a, b int) int {
-    if a > b {
-        return a
-    }
-    return b
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // schema adaptation moved to internal/llm/openai/schema.go and registry usage above.

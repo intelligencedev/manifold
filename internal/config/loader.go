@@ -186,8 +186,8 @@ func loadSpecialists(cfg *Config) error {
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
-		SystemPrompt string 
-Specialists []SpecialistConfig `yaml:"specialists"`
+		SystemPrompt string `yaml:"systemPrompt"`
+		Specialists []SpecialistConfig `yaml:"specialists"`
 		Routes      []SpecialistRoute  `yaml:"routes"`
 		OpenAI      openAIYAML         `yaml:"openai"`
 		Workdir     string             `yaml:"workdir"`
@@ -233,6 +233,12 @@ Specialists []SpecialistConfig `yaml:"specialists"`
 		if cfg.Workdir == "" && strings.TrimSpace(w.Workdir) != "" {
 			cfg.Workdir = strings.TrimSpace(w.Workdir)
 		}
+		// YAML-provided system prompt is applied only if env did not already
+		// provide an override.
+		if cfg.SystemPrompt == "" && strings.TrimSpace(w.SystemPrompt) != "" {
+			cfg.SystemPrompt = w.SystemPrompt
+		}
+
 		if cfg.OutputTruncateByte == 0 && w.OutputTrunc > 0 {
 			cfg.OutputTruncateByte = w.OutputTrunc
 		}

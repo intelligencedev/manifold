@@ -82,14 +82,11 @@ func main() {
 		log.Fatal().Err(err).Msg("databases")
 	}
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
-	registry.Register(cli.NewTool(exec))                 // provides run_cli
-	registry.Register(web.NewTool(cfg.Web.SearXNGURL))   // provides web_search
-	registry.Register(web.NewFetchTool())                // provides web_fetch
-	registry.Register(fs.NewWriteTool(cfg.Workdir))      // provides write_file
-	registry.Register(fs.NewReadTool(cfg.Workdir))       // provides read_file
-	registry.Register(fs.NewFindTool(cfg.Workdir))       // provides find_in_files
-	registry.Register(fs.NewReplaceTool(cfg.Workdir))    // provides replace_in_file
-	registry.Register(fs.NewApplyPatchTool(cfg.Workdir)) // provides apply_patch
+	registry.Register(cli.NewTool(exec))               // provides run_cli
+	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
+	registry.Register(web.NewFetchTool())              // provides web_fetch
+	registry.Register(fs.NewWriteTool(cfg.Workdir))    // provides write_file
+
 	// DB tools
 	registry.Register(db.NewSearchIndexTool(mgr.Search))
 	registry.Register(db.NewSearchQueryTool(mgr.Search))

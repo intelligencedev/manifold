@@ -2,7 +2,7 @@ package config
 
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
-	Workdir string
+    Workdir string
 	// SystemPrompt allows overriding the agent's default system prompt.
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt       string
@@ -23,8 +23,12 @@ type Config struct {
 	// Each specialist may have its own base URL, API key, model, optional
 	// reasoning effort, and dedicated system instructions. Tools can be
 	// disabled per specialist so the request contains no tool schema at all.
-	Specialists      []SpecialistConfig
-	SpecialistRoutes []SpecialistRoute
+    Specialists      []SpecialistConfig
+    SpecialistRoutes []SpecialistRoute
+    // Databases describes pluggable backends for search, vector embeddings,
+    // and graph operations. Each backend can be configured independently via
+    // YAML or environment variables.
+    Databases DBConfig
 }
 
 type ExecConfig struct {
@@ -76,7 +80,39 @@ type ObsConfig struct {
 }
 
 type WebConfig struct {
-	SearXNGURL string
+    SearXNGURL string
+}
+
+// DBConfig contains sub-config for each pluggable database backend.
+type DBConfig struct {
+    Search SearchConfig `yaml:"search" json:"search"`
+    Vector VectorConfig `yaml:"vector" json:"vector"`
+    Graph  GraphConfig  `yaml:"graph" json:"graph"`
+}
+
+// SearchConfig configures the full-text search backend.
+type SearchConfig struct {
+    // Backend selects the implementation, e.g. "memory", "none", "opensearch".
+    Backend string `yaml:"backend" json:"backend"`
+    // DSN is a connection string or URL for the backend (if applicable).
+    DSN string `yaml:"dsn" json:"dsn"`
+    // Index is an optional index/collection name.
+    Index string `yaml:"index" json:"index"`
+}
+
+// VectorConfig configures the vector store backend.
+type VectorConfig struct {
+    Backend    string `yaml:"backend" json:"backend"`
+    DSN        string `yaml:"dsn" json:"dsn"`
+    Index      string `yaml:"index" json:"index"`
+    Dimensions int    `yaml:"dimensions" json:"dimensions"`
+    Metric     string `yaml:"metric" json:"metric"`
+}
+
+// GraphConfig configures the graph database backend.
+type GraphConfig struct {
+    Backend string `yaml:"backend" json:"backend"`
+    DSN     string `yaml:"dsn" json:"dsn"`
 }
 
 // MCPConfig is the root configuration for MCP clients.

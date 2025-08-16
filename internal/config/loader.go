@@ -52,6 +52,22 @@ func Load() (Config, error) {
 
 	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
 
+	// Database backends via environment variables
+	cfg.Databases.Search.Backend = strings.TrimSpace(os.Getenv("SEARCH_BACKEND"))
+	cfg.Databases.Search.DSN = strings.TrimSpace(os.Getenv("SEARCH_DSN"))
+	cfg.Databases.Search.Index = strings.TrimSpace(os.Getenv("SEARCH_INDEX"))
+	cfg.Databases.Vector.Backend = strings.TrimSpace(os.Getenv("VECTOR_BACKEND"))
+	cfg.Databases.Vector.DSN = strings.TrimSpace(os.Getenv("VECTOR_DSN"))
+	cfg.Databases.Vector.Index = strings.TrimSpace(os.Getenv("VECTOR_INDEX"))
+	if v := strings.TrimSpace(os.Getenv("VECTOR_DIMENSIONS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Databases.Vector.Dimensions = n
+		}
+	}
+	cfg.Databases.Vector.Metric = strings.TrimSpace(os.Getenv("VECTOR_METRIC"))
+	cfg.Databases.Graph.Backend = strings.TrimSpace(os.Getenv("GRAPH_BACKEND"))
+	cfg.Databases.Graph.DSN = strings.TrimSpace(os.Getenv("GRAPH_DSN"))
+
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
 		return Config{}, err
@@ -75,6 +91,17 @@ func Load() (Config, error) {
 	}
 	if cfg.OutputTruncateByte == 0 {
 		cfg.OutputTruncateByte = 64 * 1024
+	}
+
+	// Apply database defaults
+	if cfg.Databases.Search.Backend == "" {
+		cfg.Databases.Search.Backend = "memory"
+	}
+	if cfg.Databases.Vector.Backend == "" {
+		cfg.Databases.Vector.Backend = "memory"
+	}
+	if cfg.Databases.Graph.Backend == "" {
+		cfg.Databases.Graph.Backend = "memory"
 	}
 
 	if cfg.OpenAI.APIKey == "" {
@@ -173,6 +200,27 @@ func loadSpecialists(cfg *Config) error {
 	type webYAML struct {
 		SearXNGURL string `yaml:"searXNGURL"`
 	}
+	type dbSearchYAML struct {
+		Backend string `yaml:"backend"`
+		DSN     string `yaml:"dsn"`
+		Index   string `yaml:"index"`
+	}
+	type dbVectorYAML struct {
+		Backend    string `yaml:"backend"`
+		DSN        string `yaml:"dsn"`
+		Index      string `yaml:"index"`
+		Dimensions int    `yaml:"dimensions"`
+		Metric     string `yaml:"metric"`
+	}
+	type dbGraphYAML struct {
+		Backend string `yaml:"backend"`
+		DSN     string `yaml:"dsn"`
+	}
+	type databasesYAML struct {
+		Search dbSearchYAML `yaml:"search"`
+		Vector dbVectorYAML `yaml:"vector"`
+		Graph  dbGraphYAML  `yaml:"graph"`
+	}
 	type mcpServerYAML struct {
 		Name             string            `yaml:"name"`
 		Command          string            `yaml:"command"`
@@ -195,6 +243,7 @@ func loadSpecialists(cfg *Config) error {
 		Exec         execYAML           `yaml:"exec"`
 		Obs          obsYAML            `yaml:"obs"`
 		Web          webYAML            `yaml:"web"`
+		Databases    databasesYAML      `yaml:"databases"`
 		MCP          mcpYAML            `yaml:"mcp"`
 	}
 	var w wrap
@@ -262,6 +311,37 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Web.SearXNGURL == "" && strings.TrimSpace(w.Web.SearXNGURL) != "" {
 			cfg.Web.SearXNGURL = strings.TrimSpace(w.Web.SearXNGURL)
+		}
+		// Databases: only assign fields which are empty to allow env to override
+		if cfg.Databases.Search.Backend == "" && strings.TrimSpace(w.Databases.Search.Backend) != "" {
+			cfg.Databases.Search.Backend = strings.TrimSpace(w.Databases.Search.Backend)
+		}
+		if cfg.Databases.Search.DSN == "" && strings.TrimSpace(w.Databases.Search.DSN) != "" {
+			cfg.Databases.Search.DSN = strings.TrimSpace(w.Databases.Search.DSN)
+		}
+		if cfg.Databases.Search.Index == "" && strings.TrimSpace(w.Databases.Search.Index) != "" {
+			cfg.Databases.Search.Index = strings.TrimSpace(w.Databases.Search.Index)
+		}
+		if cfg.Databases.Vector.Backend == "" && strings.TrimSpace(w.Databases.Vector.Backend) != "" {
+			cfg.Databases.Vector.Backend = strings.TrimSpace(w.Databases.Vector.Backend)
+		}
+		if cfg.Databases.Vector.DSN == "" && strings.TrimSpace(w.Databases.Vector.DSN) != "" {
+			cfg.Databases.Vector.DSN = strings.TrimSpace(w.Databases.Vector.DSN)
+		}
+		if cfg.Databases.Vector.Index == "" && strings.TrimSpace(w.Databases.Vector.Index) != "" {
+			cfg.Databases.Vector.Index = strings.TrimSpace(w.Databases.Vector.Index)
+		}
+		if cfg.Databases.Vector.Dimensions == 0 && w.Databases.Vector.Dimensions > 0 {
+			cfg.Databases.Vector.Dimensions = w.Databases.Vector.Dimensions
+		}
+		if cfg.Databases.Vector.Metric == "" && strings.TrimSpace(w.Databases.Vector.Metric) != "" {
+			cfg.Databases.Vector.Metric = strings.TrimSpace(w.Databases.Vector.Metric)
+		}
+		if cfg.Databases.Graph.Backend == "" && strings.TrimSpace(w.Databases.Graph.Backend) != "" {
+			cfg.Databases.Graph.Backend = strings.TrimSpace(w.Databases.Graph.Backend)
+		}
+		if cfg.Databases.Graph.DSN == "" && strings.TrimSpace(w.Databases.Graph.DSN) != "" {
+			cfg.Databases.Graph.DSN = strings.TrimSpace(w.Databases.Graph.DSN)
 		}
 		// MCP servers
 		if len(w.MCP.Servers) > 0 {

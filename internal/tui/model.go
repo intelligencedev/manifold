@@ -344,7 +344,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.waitingLLM = false
 		// Update the current streaming message with new content
 		if m.currentMessage != nil {
-			m.currentMessage.content += string(msg)
+			// If this is the first content (empty), start with a newline for proper spacing
+			if m.currentMessage.content == "" {
+				m.currentMessage.content = "\n" + string(msg)
+			} else {
+				m.currentMessage.content += string(msg)
+			}
 			// Update the specific streaming message by index, not the last message
 			if m.currentMessageIndex < len(m.messages) {
 				m.messages[m.currentMessageIndex] = *m.currentMessage

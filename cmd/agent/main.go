@@ -16,9 +16,11 @@ import (
 	openaillm "singularityio/internal/llm/openai"
 	"singularityio/internal/mcpclient"
 	"singularityio/internal/observability"
+	"singularityio/internal/persistence/databases"
 	"singularityio/internal/specialists"
 	"singularityio/internal/tools"
 	"singularityio/internal/tools/cli"
+	"singularityio/internal/tools/db"
 	"singularityio/internal/tools/fs"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
@@ -74,11 +76,31 @@ func main() {
 	}
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
+	// Databases: construct backends and register tools
+	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
+	if err != nil {
+		log.Fatal().Err(err).Msg("databases")
+	}
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
-	registry.Register(cli.NewTool(exec))               // provides run_cli
-	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
-	registry.Register(web.NewFetchTool())              // provides web_fetch
-	registry.Register(fs.NewWriteTool(cfg.Workdir))    // provides write_file
+	registry.Register(cli.NewTool(exec))                 // provides run_cli
+	registry.Register(web.NewTool(cfg.Web.SearXNGURL))   // provides web_search
+	registry.Register(web.NewFetchTool())                // provides web_fetch
+	registry.Register(fs.NewWriteTool(cfg.Workdir))      // provides write_file
+	registry.Register(fs.NewReadTool(cfg.Workdir))       // provides read_file
+	registry.Register(fs.NewFindTool(cfg.Workdir))       // provides find_in_files
+	registry.Register(fs.NewReplaceTool(cfg.Workdir))    // provides replace_in_file
+	registry.Register(fs.NewApplyPatchTool(cfg.Workdir)) // provides apply_patch
+	// DB tools
+	registry.Register(db.NewSearchIndexTool(mgr.Search))
+	registry.Register(db.NewSearchQueryTool(mgr.Search))
+	registry.Register(db.NewSearchRemoveTool(mgr.Search))
+	registry.Register(db.NewVectorUpsertTool(mgr.Vector))
+	registry.Register(db.NewVectorQueryTool(mgr.Vector))
+	registry.Register(db.NewVectorDeleteTool(mgr.Vector))
+	registry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
+	registry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
+	registry.Register(db.NewGraphNeighborsTool(mgr.Graph))
+	registry.Register(db.NewGraphGetNodeTool(mgr.Graph))
 	// Provider factory for base_url override in llm_transform
 	newProv := func(baseURL string) llmpkg.Provider {
 		c2 := cfg.OpenAI

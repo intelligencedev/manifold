@@ -24,6 +24,7 @@ type Registry interface {
 
 type defaultRegistry struct {
 	byName      map[string]Tool
+	order       []string
 	logPayloads bool
 }
 
@@ -32,14 +33,29 @@ func NewRegistry() Registry { return NewRegistryWithLogging(false) }
 
 // NewRegistryWithLogging allows enabling redacted payload logging for tool args/results.
 func NewRegistryWithLogging(logPayloads bool) Registry {
-	return &defaultRegistry{byName: make(map[string]Tool), logPayloads: logPayloads}
+	return &defaultRegistry{byName: make(map[string]Tool), order: make([]string, 0, 64), logPayloads: logPayloads}
 }
 
-func (r *defaultRegistry) Register(t Tool) { r.byName[t.Name()] = t }
+func (r *defaultRegistry) Register(t Tool) {
+	name := t.Name()
+	if _, exists := r.byName[name]; !exists {
+		r.order = append(r.order, name)
+	}
+	r.byName[name] = t
+}
 
 func (r *defaultRegistry) Schemas() []llm.ToolSchema {
-	out := make([]llm.ToolSchema, 0, len(r.byName))
-	for name, t := range r.byName {
+	const maxToolSchemas = 128
+	total := len(r.order)
+	n := total
+	if n > maxToolSchemas {
+		n = maxToolSchemas
+		observability.LoggerWithTrace(context.Background()).Warn().Int("total", total).Int("using", n).Msg("tool_schemas_trimmed_for_model_limit")
+	}
+	out := make([]llm.ToolSchema, 0, n)
+	for i := 0; i < n; i++ {
+		name := r.order[i]
+		t := r.byName[name]
 		schema := t.JSONSchema()
 		out = append(out, llm.ToolSchema{
 			Name:        name,

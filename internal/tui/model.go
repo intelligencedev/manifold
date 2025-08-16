@@ -21,9 +21,11 @@ import (
 	openai "singularityio/internal/llm/openai"
 	"singularityio/internal/mcpclient"
 	"singularityio/internal/observability"
+	"singularityio/internal/persistence/databases"
 	"singularityio/internal/specialists"
 	"singularityio/internal/tools"
 	"singularityio/internal/tools/cli"
+	"singularityio/internal/tools/db"
 	"singularityio/internal/tools/fs"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
@@ -120,6 +122,20 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	registry.Register(web.NewFetchTool())
 	registry.Register(fs.NewWriteTool(cfg.Workdir))
+
+	// Database tools
+	if mgr, err := databases.NewManager(ctx, cfg.Databases); err == nil {
+		registry.Register(db.NewSearchIndexTool(mgr.Search))
+		registry.Register(db.NewSearchQueryTool(mgr.Search))
+		registry.Register(db.NewSearchRemoveTool(mgr.Search))
+		registry.Register(db.NewVectorUpsertTool(mgr.Vector))
+		registry.Register(db.NewVectorQueryTool(mgr.Vector))
+		registry.Register(db.NewVectorDeleteTool(mgr.Vector))
+		registry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
+		registry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
+		registry.Register(db.NewGraphNeighborsTool(mgr.Graph))
+		registry.Register(db.NewGraphGetNodeTool(mgr.Graph))
+	}
 	// In TUI, build a provider factory with a default HTTP client
 	factory := func(baseURL string) llm.Provider {
 		c2 := cfg.OpenAI

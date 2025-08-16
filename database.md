@@ -65,3 +65,38 @@ Unit tests cover the in‑memory implementations and the configuration loader. S
 Adding real backends
 
 To add a new backend, implement the appropriate interface(s) in a new file or subpackage under internal/persistence/databases (e.g., opensearch_search.go, pgvector_vector.go, neo4j_graph.go), and extend NewManager to recognize a new Backend string (e.g., "opensearch", "pgvector", "neo4j"). Keep dependencies contained and follow the project’s package and DI guidelines.
+
+Agent tools (how the assistant uses databases)
+
+The assistant can use dedicated tools to store and retrieve information during tasks, boosting recall and success probability:
+
+- Full‑text search tools
+  - search_index(id, text, metadata?)
+  - search_query(query, limit?) -> results
+  - search_remove(id)
+- Vector store tools
+  - vector_upsert(id, vector, metadata?)
+  - vector_query(vector, k?, filter?) -> results
+  - vector_delete(id)
+- Graph tools
+  - graph_upsert_node(id, labels?, props?)
+  - graph_upsert_edge(src, rel, dst, props?)
+  - graph_neighbors(id, rel) -> neighbor IDs
+  - graph_get_node(id) -> node
+
+These tools are implemented under internal/tools/db and automatically registered in both the CLI agent and the TUI. They sit on top of the database interfaces, so swapping backends requires no tool changes.
+
+Design notes: how to use them effectively
+
+- Use full‑text for rapid keyword search over raw documents, logs, or user notes.
+- Use vector store for semantic similarity, e.g., finding related chunks of prior tasks or docs.
+- Use the graph to model relationships: tasks ↔ files ↔ owners ↔ services, etc. Query neighbors to traverse relevant context quickly.
+
+Typical flow example
+
+1) While working, store summaries and artifacts:
+   - search_index(id: "task-123:summary", text: "…summary…")
+   - vector_upsert(id: "task-123:chunk-1", vector: [..], metadata: {task:"123"})
+   - graph_upsert_node(id: "task-123", labels:["Task"], props:{title:"…"})
+   - graph_upsert_edge(src:"task-123", rel:"TOUCHED", dst:"file:main.go")
+2) Later, recall with search_query or vector_query; use graph_neighbors to expand context.

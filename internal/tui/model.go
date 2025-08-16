@@ -75,6 +75,7 @@ type Model struct {
 	leftPanelStyle         lipgloss.Style
 	rightPanelStyle        lipgloss.Style
 	inputStyle             lipgloss.Style
+	spinnerStyle           lipgloss.Style
 
 	activePanel   string // "left" or "right"
 	userScrolledL bool
@@ -166,6 +167,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		toolStyle:              toolStyle,
 		infoStyle:              infoStyle,
 		inputStyle:             lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("8")).Padding(0, 1),
+		spinnerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("#F6C34E")).Bold(true),
 		dividerStyle:           lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 		headerStyle:            lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Bold(true),
 		leftHeaderActiveStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#2D7FFF")).Bold(true).Padding(0, 1),
@@ -233,8 +235,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.streamingDeltaCh = make(chan string, 64)
 			// Initialize streaming message and track its index
 			m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
-			m.currentMessageIndex = len(m.messages) // Store the index before appending
 			m.messages = append(m.messages, *m.currentMessage)
+			// Store the index of the streamed message after appending
+			m.currentMessageIndex = len(m.messages) - 1
 			m.setView()
 			// mark we're waiting on LLM/completions
 			m.waitingLLM = true
@@ -398,9 +401,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setView()
 		return m, nil
 	case spinnerTickMsg:
-		// Advance spinner if we're waiting on LLM; otherwise ignore
-		if m.waitingLLM {
+		// Advance spinner if we're waiting on LLM or running; otherwise ignore
+		if m.waitingLLM || (m.running && m.currentMessage != nil) {
 			m.spinnerIdx = (m.spinnerIdx + 1) % len(m.spinners)
+			// Force a view update to show the new spinner frame
+			m.setLeftView()
 			// schedule next tick
 			return m, m.spinnerCmd()
 		}
@@ -429,12 +434,7 @@ func (m *Model) View() string {
 		rightPanel = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
 	}
 
-	// If we're waiting on the LLM/completions endpoint, show an indicator near the chat header
-	if m.waitingLLM {
-		spin := " " + m.spinners[m.spinnerIdx] + " waiting..."
-		// style the waiting indicator using header style but dimmer
-		leftHeader = leftHeader + m.headerStyle.Render(spin)
-	}
+	// Spinner indicator is now rendered inline beside the Assistant header
 
 	// Render header inside the panel so it visually becomes a tab blending
 	// into the panel's border. This keeps borders consistent and makes the
@@ -631,14 +631,20 @@ func (m *Model) readStreamingDelta() tea.Cmd {
 func (m *Model) renderChat(width int) string {
 	var b strings.Builder
 	cnt := 0
-	for _, msg := range m.messages {
+	for i, msg := range m.messages {
 		if msg.kind == "tool" {
 			continue
 		}
 		if cnt > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString(m.renderMsg(msg, width))
+		// showSpinner for the currently-streaming assistant message
+		// Show spinner if we're waiting for LLM OR if this is the current streaming message
+		showSpinner := false
+		if m.currentMessage != nil && i == m.currentMessageIndex && (m.waitingLLM || m.running) {
+			showSpinner = true
+		}
+		b.WriteString(m.renderMsg(msg, width, showSpinner))
 		cnt++
 	}
 	return b.String()
@@ -654,7 +660,8 @@ func (m *Model) renderTools(width int) string {
 		if cnt > 0 {
 			b.WriteString("\n\n")
 		}
-		b.WriteString(m.renderMsg(msg, width))
+		// Tool messages never show the agent spinner
+		b.WriteString(m.renderMsg(msg, width, false))
 		cnt++
 	}
 	if cnt == 0 {
@@ -663,7 +670,7 @@ func (m *Model) renderTools(width int) string {
 	return b.String()
 }
 
-func (m *Model) renderMsg(cm chatMsg, width int) string {
+func (m *Model) renderMsg(cm chatMsg, width int, showSpinner bool) string {
 	maxw := width
 	if maxw < 20 {
 		maxw = 20
@@ -679,6 +686,11 @@ func (m *Model) renderMsg(cm chatMsg, width int) string {
 		return header + "\n\n" + body
 	case "agent":
 		header := m.agentTag.Render("Agent")
+		// If requested, append a small yellow spinner to the right of the Agent header
+		if showSpinner {
+			spin := m.spinners[m.spinnerIdx]
+			header = header + " " + m.spinnerStyle.Render(spin)
+		}
 		// Render Markdown to ANSI using glamour. If rendering fails, fall back
 		// to raw content. We then hard-wrap the ANSI output to avoid overflowing
 		// bordered containers.

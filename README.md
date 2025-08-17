@@ -4,7 +4,38 @@
 
 # SingularityIO
 
-An agentic CLI and TUI that uses OpenAI’s official Go SDK (v2) for chat-based tool calling. It executes commands safely in a locked working directory, supports streaming, and integrates observability (structured logs, traces, metrics). It also supports optional specialists (alternate OpenAI-compatible endpoints) and a Model Context Protocol (MCP) client to expose external tools to the agent.
+An agentic CLI and TUI that uses OpenAI’s official Go SWARPP mode
+- WARPP is a workflow executor pattern: Intent detection  personalization  fulfillment with tool allow-listing.
+- It uses existing tools and will use minimalist defaults when workflows are absent.
+- Invoke with the CLI flag `-warpp`.
+
+embedctl
+--------
+`embedctl` is a standalone command-line utility for generating text embeddings. It connects to any OpenAI-compatible embedding service and outputs vector representations of text.
+
+Basic usage:
+```bash
+go run ./cmd/embedctl/main.go -text "Hello world"
+```
+
+Additional options:
+```bash
+# Read from stdin
+echo "Some text to embed" | go run ./cmd/embedctl/main.go -stdin
+
+# Override model
+go run ./cmd/embedctl/main.go -model "text-embedding-3-large" -text "Hello world"
+```
+
+Requirements:
+- Set `EMBED_API_KEY` in your `.env` file or environment
+- Optionally configure `EMBED_BASE_URL`, `EMBED_MODEL`, etc. (see configuration section)
+
+Output format:
+- Returns a JSON array of float32 numbers representing the embedding vector
+- Example: `[0.123, -0.456, 0.789, ...]`
+
+Tools) for chat-based tool calling. It executes commands safely in a locked working directory, supports streaming, and integrates observability (structured logs, traces, metrics). It also supports optional specialists (alternate OpenAI-compatible endpoints) and a Model Context Protocol (MCP) client to expose external tools to the agent.
 
 Contents
 - About
@@ -19,6 +50,7 @@ Contents
   - CLI
   - TUI (streaming)
   - WARPP mode
+  - embedctl
 - Tools
 - MCP client
 - Specialists \& Routing
@@ -38,6 +70,7 @@ Features
 - OpenAI Go SDK v2 for chat completions and streaming
 - Tool calling with a secure executor (no shell) in a locked WORKDIR
 - Built-in tools: run_cli, web_search, web_fetch, write_file, llm_transform
+- Standalone embedding utility (`embedctl`) for generating text embeddings
 - Optional specialists (OpenAI-compatible endpoints) and route matching
 - Model Context Protocol (MCP) client to register external server tools
 - Structured JSON logging with redaction and optional payload logging
@@ -65,6 +98,9 @@ LOG_PAYLOADS=false
 BLOCK_BINARIES=rm,sudo
 MAX_COMMAND_SECONDS=30
 OUTPUT_TRUNCATE_BYTES=65536
+# Optional embedding service (for embedctl)
+EMBED_API_KEY=sk-...
+EMBED_MODEL=text-embedding-3-small
 ```
 
 2) Run the CLI:
@@ -90,6 +126,7 @@ Environment variables (.env)
   - LOG_PATH, LOG_LEVEL, LOG_PAYLOADS
   - BLOCK_BINARIES, MAX_COMMAND_SECONDS, OUTPUT_TRUNCATE_BYTES
   - SEARXNG_URL (for web search)
+  - EMBED_BASE_URL, EMBED_MODEL, EMBED_API_KEY, EMBED_API_HEADER, EMBED_PATH, EMBED_TIMEOUT (for embeddings)
   - OTEL_SERVICE_NAME, SERVICE_VERSION, ENVIRONMENT, OTEL_EXPORTER_OTLP_ENDPOINT
 
 Example `.env` (same as Quick Start):
@@ -129,6 +166,14 @@ obs:
   environment: dev
 web:
   searXNGURL: http://localhost:8080
+
+embedding:
+  baseURL: https://api.openai.com
+  model: text-embedding-3-small
+  apiKey: ${EMBED_API_KEY}
+  apiHeader: Authorization
+  path: /v1/embeddings
+  timeoutSeconds: 30
 
 mcp:
   servers:

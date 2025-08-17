@@ -53,6 +53,8 @@ func Load() (Config, error) {
 	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
 
 	// Database backends via environment variables
+	// Optional default shared DSN (e.g., postgresql://...)
+	cfg.Databases.DefaultDSN = firstNonEmpty(strings.TrimSpace(os.Getenv("DATABASE_URL")), strings.TrimSpace(os.Getenv("DB_URL")), strings.TrimSpace(os.Getenv("POSTGRES_DSN")))
 	cfg.Databases.Search.Backend = strings.TrimSpace(os.Getenv("SEARCH_BACKEND"))
 	cfg.Databases.Search.DSN = strings.TrimSpace(os.Getenv("SEARCH_DSN"))
 	cfg.Databases.Search.Index = strings.TrimSpace(os.Getenv("SEARCH_INDEX"))
@@ -93,15 +95,28 @@ func Load() (Config, error) {
 		cfg.OutputTruncateByte = 64 * 1024
 	}
 
-	// Apply database defaults
+	// Apply database defaults. If a DefaultDSN is provided and the backend is
+	// unspecified, prefer "auto" so the factory can attempt Postgres.
 	if cfg.Databases.Search.Backend == "" {
-		cfg.Databases.Search.Backend = "memory"
+		if cfg.Databases.DefaultDSN != "" {
+			cfg.Databases.Search.Backend = "auto"
+		} else {
+			cfg.Databases.Search.Backend = "memory"
+		}
 	}
 	if cfg.Databases.Vector.Backend == "" {
-		cfg.Databases.Vector.Backend = "memory"
+		if cfg.Databases.DefaultDSN != "" {
+			cfg.Databases.Vector.Backend = "auto"
+		} else {
+			cfg.Databases.Vector.Backend = "memory"
+		}
 	}
 	if cfg.Databases.Graph.Backend == "" {
-		cfg.Databases.Graph.Backend = "memory"
+		if cfg.Databases.DefaultDSN != "" {
+			cfg.Databases.Graph.Backend = "auto"
+		} else {
+			cfg.Databases.Graph.Backend = "memory"
+		}
 	}
 
 	if cfg.OpenAI.APIKey == "" {
@@ -217,9 +232,10 @@ func loadSpecialists(cfg *Config) error {
 		DSN     string `yaml:"dsn"`
 	}
 	type databasesYAML struct {
-		Search dbSearchYAML `yaml:"search"`
-		Vector dbVectorYAML `yaml:"vector"`
-		Graph  dbGraphYAML  `yaml:"graph"`
+		DefaultDSN string       `yaml:"defaultDSN"`
+		Search     dbSearchYAML `yaml:"search"`
+		Vector     dbVectorYAML `yaml:"vector"`
+		Graph      dbGraphYAML  `yaml:"graph"`
 	}
 	type mcpServerYAML struct {
 		Name             string            `yaml:"name"`
@@ -313,6 +329,9 @@ func loadSpecialists(cfg *Config) error {
 			cfg.Web.SearXNGURL = strings.TrimSpace(w.Web.SearXNGURL)
 		}
 		// Databases: only assign fields which are empty to allow env to override
+		if cfg.Databases.DefaultDSN == "" && strings.TrimSpace(w.Databases.DefaultDSN) != "" {
+			cfg.Databases.DefaultDSN = strings.TrimSpace(w.Databases.DefaultDSN)
+		}
 		if cfg.Databases.Search.Backend == "" && strings.TrimSpace(w.Databases.Search.Backend) != "" {
 			cfg.Databases.Search.Backend = strings.TrimSpace(w.Databases.Search.Backend)
 		}

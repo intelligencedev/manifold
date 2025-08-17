@@ -52,3 +52,16 @@ type Manager struct {
 	Vector VectorStore
 	Graph  GraphDB
 }
+
+// Close attempts to close any underlying pools. It's a no-op for memory backends.
+func (m Manager) Close() {
+	if c, ok := any(m.Search).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.Vector).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.Graph).(interface{ Close() }); ok {
+		c.Close()
+	}
+}

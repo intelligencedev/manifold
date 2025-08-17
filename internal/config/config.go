@@ -85,14 +85,18 @@ type WebConfig struct {
 
 // DBConfig contains sub-config for each pluggable database backend.
 type DBConfig struct {
-	Search SearchConfig `yaml:"search" json:"search"`
-	Vector VectorConfig `yaml:"vector" json:"vector"`
-	Graph  GraphConfig  `yaml:"graph" json:"graph"`
+	// DefaultDSN is an optional shared connection string. If a per-subsystem
+	// DSN is not provided, this value will be used. When set, the factory can
+	// automatically select a Postgres backend if reachable.
+	DefaultDSN string `yaml:"defaultDSN" json:"defaultDSN"`
+	Search     SearchConfig `yaml:"search" json:"search"`
+	Vector     VectorConfig `yaml:"vector" json:"vector"`
+	Graph      GraphConfig  `yaml:"graph" json:"graph"`
 }
 
 // SearchConfig configures the full-text search backend.
 type SearchConfig struct {
-	// Backend selects the implementation, e.g. "memory", "none", "opensearch".
+	// Backend selects the implementation, e.g. "auto", "memory", "none", "postgres".
 	Backend string `yaml:"backend" json:"backend"`
 	// DSN is a connection string or URL for the backend (if applicable).
 	DSN string `yaml:"dsn" json:"dsn"`

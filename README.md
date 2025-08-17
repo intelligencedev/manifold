@@ -9,34 +9,6 @@ An agentic CLI and TUI that uses OpenAI’s official Go SWARPP mode
 - It uses existing tools and will use minimalist defaults when workflows are absent.
 - Invoke with the CLI flag `-warpp`.
 
-embedctl
---------
-`embedctl` is a standalone command-line utility for generating text embeddings. It connects to any OpenAI-compatible embedding service and outputs vector representations of text.
-
-Basic usage:
-```bash
-go run ./cmd/embedctl/main.go -text "Hello world"
-```
-
-Additional options:
-```bash
-# Read from stdin
-echo "Some text to embed" | go run ./cmd/embedctl/main.go -stdin
-
-# Override model
-go run ./cmd/embedctl/main.go -model "text-embedding-3-large" -text "Hello world"
-```
-
-Requirements:
-- Set `EMBED_API_KEY` in your `.env` file or environment
-- Optionally configure `EMBED_BASE_URL`, `EMBED_MODEL`, etc. (see configuration section)
-
-Output format:
-- Returns a JSON array of float32 numbers representing the embedding vector
-- Example: `[0.123, -0.456, 0.789, ...]`
-
-Tools) for chat-based tool calling. It executes commands safely in a locked working directory, supports streaming, and integrates observability (structured logs, traces, metrics). It also supports optional specialists (alternate OpenAI-compatible endpoints) and a Model Context Protocol (MCP) client to expose external tools to the agent.
-
 Contents
 - About
 - Features
@@ -275,6 +247,34 @@ go run ./cmd/agent -specialist code-reviewer -q "Review this function"
 ```
 - Router pre-dispatch:
   - The router matches input against `routes` and invokes the appropriate specialist automatically.
+
+embedctl
+--------
+`embedctl` is a standalone command-line utility for generating text embeddings. It connects to any OpenAI-compatible embedding service and outputs vector representations of text.
+
+Basic usage:
+```bash
+go run ./cmd/embedctl/main.go -text "Hello world"
+```
+
+Additional options:
+```bash
+# Read from stdin
+echo "Some text to embed" | go run ./cmd/embedctl/main.go -stdin
+
+# Override model
+go run ./cmd/embedctl/main.go -model "text-embedding-3-large" -text "Hello world"
+```
+
+Requirements:
+- Set `EMBED_API_KEY` in your `.env` file or environment
+- Optionally configure `EMBED_BASE_URL`, `EMBED_MODEL`, etc. (see configuration section)
+
+Output format:
+- Returns a JSON array of float32 numbers representing the embedding vector
+- Example: `[0.123, -0.456, 0.789, ...]`
+
+Tools) for chat-based tool calling. It executes commands safely in a locked working directory, supports streaming, and integrates observability (structured logs, traces, metrics). It also supports optional specialists (alternate OpenAI-compatible endpoints) and a Model Context Protocol (MCP) client to expose external tools to the agent.
 
 Observability
 -------------

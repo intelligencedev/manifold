@@ -70,6 +70,18 @@ func Load() (Config, error) {
 	cfg.Databases.Graph.Backend = strings.TrimSpace(os.Getenv("GRAPH_BACKEND"))
 	cfg.Databases.Graph.DSN = strings.TrimSpace(os.Getenv("GRAPH_DSN"))
 
+	// Embedding service configuration via environment variables
+	cfg.Embedding.BaseURL = strings.TrimSpace(os.Getenv("EMBED_BASE_URL"))
+	cfg.Embedding.Model = strings.TrimSpace(os.Getenv("EMBED_MODEL"))
+	cfg.Embedding.APIKey = strings.TrimSpace(os.Getenv("EMBED_API_KEY"))
+	cfg.Embedding.APIHeader = strings.TrimSpace(os.Getenv("EMBED_API_HEADER"))
+	cfg.Embedding.Path = strings.TrimSpace(os.Getenv("EMBED_PATH"))
+	if v := strings.TrimSpace(os.Getenv("EMBED_TIMEOUT")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Embedding.Timeout = n
+		}
+	}
+
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
 		return Config{}, err
@@ -93,6 +105,23 @@ func Load() (Config, error) {
 	}
 	if cfg.OutputTruncateByte == 0 {
 		cfg.OutputTruncateByte = 64 * 1024
+	}
+
+	// Apply embedding defaults
+	if cfg.Embedding.BaseURL == "" {
+		cfg.Embedding.BaseURL = "https://api.openai.com"
+	}
+	if cfg.Embedding.Model == "" {
+		cfg.Embedding.Model = "text-embedding-3-small"
+	}
+	if cfg.Embedding.APIHeader == "" {
+		cfg.Embedding.APIHeader = "Authorization"
+	}
+	if cfg.Embedding.Path == "" {
+		cfg.Embedding.Path = "/v1/embeddings"
+	}
+	if cfg.Embedding.Timeout == 0 {
+		cfg.Embedding.Timeout = 30
 	}
 
 	// Apply database defaults. If a DefaultDSN is provided and the backend is
@@ -247,6 +276,14 @@ func loadSpecialists(cfg *Config) error {
 	type mcpYAML struct {
 		Servers []mcpServerYAML `yaml:"servers"`
 	}
+	type embeddingYAML struct {
+		BaseURL        string `yaml:"baseURL"`
+		Model          string `yaml:"model"`
+		APIKey         string `yaml:"apiKey"`
+		APIHeader      string `yaml:"apiHeader"`
+		Path           string `yaml:"path"`
+		TimeoutSeconds int    `yaml:"timeoutSeconds"`
+	}
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
@@ -261,6 +298,7 @@ func loadSpecialists(cfg *Config) error {
 		Web          webYAML            `yaml:"web"`
 		Databases    databasesYAML      `yaml:"databases"`
 		MCP          mcpYAML            `yaml:"mcp"`
+		Embedding    embeddingYAML      `yaml:"embedding"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
@@ -361,6 +399,25 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Databases.Graph.DSN == "" && strings.TrimSpace(w.Databases.Graph.DSN) != "" {
 			cfg.Databases.Graph.DSN = strings.TrimSpace(w.Databases.Graph.DSN)
+		}
+		// Embedding: only assign fields which are empty to allow env to override
+		if cfg.Embedding.BaseURL == "" && strings.TrimSpace(w.Embedding.BaseURL) != "" {
+			cfg.Embedding.BaseURL = strings.TrimSpace(w.Embedding.BaseURL)
+		}
+		if cfg.Embedding.Model == "" && strings.TrimSpace(w.Embedding.Model) != "" {
+			cfg.Embedding.Model = strings.TrimSpace(w.Embedding.Model)
+		}
+		if cfg.Embedding.APIKey == "" && strings.TrimSpace(w.Embedding.APIKey) != "" {
+			cfg.Embedding.APIKey = strings.TrimSpace(w.Embedding.APIKey)
+		}
+		if cfg.Embedding.APIHeader == "" && strings.TrimSpace(w.Embedding.APIHeader) != "" {
+			cfg.Embedding.APIHeader = strings.TrimSpace(w.Embedding.APIHeader)
+		}
+		if cfg.Embedding.Path == "" && strings.TrimSpace(w.Embedding.Path) != "" {
+			cfg.Embedding.Path = strings.TrimSpace(w.Embedding.Path)
+		}
+		if cfg.Embedding.Timeout == 0 && w.Embedding.TimeoutSeconds > 0 {
+			cfg.Embedding.Timeout = w.Embedding.TimeoutSeconds
 		}
 		// MCP servers
 		if len(w.MCP.Servers) > 0 {

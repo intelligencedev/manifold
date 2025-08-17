@@ -29,6 +29,8 @@ type Config struct {
 	// and graph operations. Each backend can be configured independently via
 	// YAML or environment variables.
 	Databases DBConfig
+	// Embedding configures the embedding service endpoint for text embeddings.
+	Embedding EmbeddingConfig
 }
 
 type ExecConfig struct {
@@ -88,7 +90,7 @@ type DBConfig struct {
 	// DefaultDSN is an optional shared connection string. If a per-subsystem
 	// DSN is not provided, this value will be used. When set, the factory can
 	// automatically select a Postgres backend if reachable.
-	DefaultDSN string `yaml:"defaultDSN" json:"defaultDSN"`
+	DefaultDSN string       `yaml:"defaultDSN" json:"defaultDSN"`
 	Search     SearchConfig `yaml:"search" json:"search"`
 	Vector     VectorConfig `yaml:"vector" json:"vector"`
 	Graph      GraphConfig  `yaml:"graph" json:"graph"`
@@ -137,4 +139,14 @@ type MCPServerConfig struct {
 	Env map[string]string `yaml:"env" json:"env"`
 	// KeepAliveSeconds configures client ping interval; 0 disables keepalive.
 	KeepAliveSeconds int `yaml:"keepAliveSeconds" json:"keepAliveSeconds"`
+}
+
+// EmbeddingConfig configures the embedding service endpoint.
+type EmbeddingConfig struct {
+	BaseURL   string `yaml:"baseURL" json:"baseURL"`
+	Model     string `yaml:"model" json:"model"`
+	APIKey    string `yaml:"apiKey" json:"apiKey"`
+	APIHeader string `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
+	Path      string `yaml:"path" json:"path"`           // default: /v1/embeddings
+	Timeout   int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
 }

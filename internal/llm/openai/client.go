@@ -92,7 +92,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 
 // ChatWithOptions is like Chat but allows callers to:
 //   - omit tools entirely by passing a nil or empty tools slice
-//   - inject provider-specific extra fields (e.g., reasoning.effort)
+//   - inject provider-specific extra fields (e.g., reasoning_effort)
 //     via params.WithExtraField.
 func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
 	log := observability.LoggerWithTrace(ctx)

@@ -47,12 +47,16 @@ type ExecutorImpl struct {
 	outLimit int
 }
 
-func NewExecutor(cfg config.ExecConfig, workdir string) *ExecutorImpl {
+func NewExecutor(cfg config.ExecConfig, workdir string, outLimit int) *ExecutorImpl {
 	blocked := make(map[string]struct{}, len(cfg.BlockBinaries))
 	for _, b := range cfg.BlockBinaries {
 		blocked[b] = struct{}{}
 	}
-	return &ExecutorImpl{cfg: cfg, workdir: workdir, blocked: blocked, outLimit: 64 * 1024}
+	// If caller didn't provide an explicit outLimit, fall back to 64KB.
+	if outLimit <= 0 {
+		outLimit = 64 * 1024
+	}
+	return &ExecutorImpl{cfg: cfg, workdir: workdir, blocked: blocked, outLimit: outLimit}
 }
 
 func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, error) {

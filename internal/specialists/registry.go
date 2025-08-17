@@ -2,13 +2,16 @@ package specialists
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"singularityio/internal/config"
 	"singularityio/internal/llm"
 	openaillm "singularityio/internal/llm/openai"
+	"singularityio/internal/tools"
 )
 
 // Agent represents a configured specialist bound to a specific endpoint/model.
@@ -22,6 +25,7 @@ type Agent struct {
 	ExtraParams     map[string]any
 
 	provider *openaillm.Client
+	tools    tools.Registry
 }
 
 // Registry holds addressable specialists by name.
@@ -32,7 +36,7 @@ type Registry struct {
 // NewRegistry builds a registry from config.SpecialistConfig entries.
 // The base OpenAI config is used as a default for API key/model unless
 // overridden per specialist.
-func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpClient *http.Client) *Registry {
+func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) *Registry {
 	agents := make(map[string]*Agent, len(list))
 	for _, sc := range list {
 		// Derive OpenAI cfg for the specialist
@@ -62,6 +66,7 @@ func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpC
 			ReasoningEffort: strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:     sc.ExtraParams,
 			provider:        prov,
+			tools:           toolsReg,
 		}
 		if a.Name != "" {
 			agents[a.Name] = a
@@ -107,17 +112,49 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	for k, v := range a.ExtraParams {
 		extra[k] = v
 	}
-	if a.ReasoningEffort != "" && extra["reasoning"] == nil {
-		extra["reasoning"] = map[string]any{"effort": a.ReasoningEffort}
+	if a.ReasoningEffort != "" && extra["reasoning_effort"] == nil {
+		// Provider expects a simple enum string for reasoning_effort ("low"|"medium"|"high").
+		// Previously we sent an object which caused a 400 invalid_type error.
+		extra["reasoning_effort"] = a.ReasoningEffort
 	}
 
-	var tools []llm.ToolSchema
-	if !a.EnableTools {
-		tools = nil // ensure omission
-	} else {
-		tools = []llm.ToolSchema{} // caller may extend in the future; no default
+	// If a tools registry is attached, include schemas and perform a
+	// single-step execution: run the first tool call (if any) and return
+	// its payload directly. This mirrors how the main agent uses Tools.
+	if a.tools != nil {
+		messages := msgs
+		// Optional tool sink for UIs to display tool calls
+		var sink ToolSink
+		if v := ctx.Value(toolSinkKey{}); v != nil {
+			if f, ok := v.(ToolSink); ok {
+				sink = f
+			}
+		}
+		msg, err := a.provider.ChatWithOptions(ctx, messages, a.tools.Schemas(), a.Model, extra)
+		if err != nil {
+			return "", err
+		}
+		if len(msg.ToolCalls) == 0 {
+			return msg.Content, nil
+		}
+		tc := msg.ToolCalls[0]
+		payload, err := a.tools.Dispatch(ctx, tc.Name, tc.Args)
+		if err != nil {
+			payload = []byte("{" + strconv.Quote("error") + ":" + strconv.Quote(err.Error()) + "}")
+		}
+		if sink != nil {
+			sink(tc.Name, payload, tc.Args)
+		}
+		return string(payload), nil
 	}
-	resp, err := a.provider.ChatWithOptions(ctx, msgs, tools, a.Model, extra)
+
+	var schemas []llm.ToolSchema
+	if !a.EnableTools {
+		schemas = nil // ensure omission
+	} else {
+		schemas = []llm.ToolSchema{} // no attached registry; send empty
+	}
+	resp, err := a.provider.ChatWithOptions(ctx, msgs, schemas, a.Model, extra)
 	if err != nil {
 		return "", err
 	}
@@ -147,4 +184,12 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}
 	return t.base.RoundTrip(r)
+}
+
+// Tool sink plumbing to surface specialist tool calls to UIs
+type ToolSink func(name string, payload []byte, args json.RawMessage)
+type toolSinkKey struct{}
+
+func WithToolSink(ctx context.Context, sink ToolSink) context.Context {
+	return context.WithValue(ctx, toolSinkKey{}, sink)
 }

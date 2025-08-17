@@ -58,7 +58,7 @@ func main() {
 
 	// If a specialist was requested, route the query directly and exit.
 	if *specialist != "" {
-		specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
+		specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, nil)
 		a, ok := specReg.Get(*specialist)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
@@ -81,7 +81,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("databases")
 	}
-	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
+	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	registry.Register(cli.NewTool(exec))                 // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))   // provides web_search
 	registry.Register(web.NewFetchTool())                // provides web_fetch
@@ -108,7 +108,7 @@ func main() {
 	}
 	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
 	// Specialists tool for LLM-driven routing
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient)
+	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
 	registry.Register(specialists_tool.New(specReg))
 
 	// MCP: connect to configured servers and register their tools

@@ -8,12 +8,13 @@ import (
 
 	"singularityio/internal/config"
 	"singularityio/internal/specialists"
+	"singularityio/internal/tools"
 )
 
 func TestJSONSchemaContainsEnums(t *testing.T) {
 	base := config.OpenAIConfig{}
 	list := []config.SpecialistConfig{{Name: "x"}, {Name: "y"}}
-	r := specialists.NewRegistry(base, list, &http.Client{})
+	r := specialists.NewRegistry(base, list, &http.Client{}, tools.NewRegistry())
 	tool := New(r)
 	schema := tool.JSONSchema()
 	params, ok := schema["parameters"].(map[string]any)
@@ -40,7 +41,7 @@ func TestJSONSchemaContainsEnums(t *testing.T) {
 func TestCallUnknownSpecialist(t *testing.T) {
 	base := config.OpenAIConfig{}
 	list := []config.SpecialistConfig{{Name: "a"}}
-	r := specialists.NewRegistry(base, list, &http.Client{})
+	r := specialists.NewRegistry(base, list, &http.Client{}, tools.NewRegistry())
 	tool := New(r)
 	in, _ := json.Marshal(map[string]any{"specialist": "missing", "prompt": "hi"})
 	out, err := tool.Call(context.Background(), in)

@@ -35,7 +35,7 @@ func main() {
 	}
 	provider := openai.New(cfg.OpenAI, httpClient)
 
-	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir)
+	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -30,11 +30,9 @@ databases:
   search:
     backend: memory   # auto | memory | none | postgres
     dsn: ""           # optional connection string/URL
-    index: docs       # optional index/collection name
   vector:
     backend: memory   # auto | memory | none | postgres(pgvector)
     dsn: ""
-    index: vectors
     dimensions: 1536  # optional; for validation in some backends
     metric: cosine    # optional; cosine | dot | l2 (backend‑specific)
   graph:

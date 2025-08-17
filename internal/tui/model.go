@@ -148,7 +148,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	}
 	registry.Register(llmtools.NewTransform(provider, cfg.OpenAI.Model, factory))
 	// Specialists tool available in TUI as well
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, nil)
+	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, nil, registry)
 	registry.Register(specialists_tool.New(specReg))
 
 	// MCP tools

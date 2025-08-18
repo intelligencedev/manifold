@@ -157,10 +157,13 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 
 	// Engine setup (matches cmd/agent wiring)
 	eng := agent.Engine{
-		LLM:      provider,
-		Tools:    registry,
-		MaxSteps: maxSteps,
-		System:   prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		LLM:              provider,
+		Tools:            registry,
+		MaxSteps:         maxSteps,
+		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		SummaryEnabled:   cfg.SummaryEnabled,
+		SummaryThreshold: cfg.SummaryThreshold,
+		SummaryKeepLast:  cfg.SummaryKeepLast,
 	}
 
 	m := &Model{

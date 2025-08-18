@@ -5,7 +5,11 @@ type Config struct {
 	Workdir string
 	// SystemPrompt allows overriding the agent's default system prompt.
 	// If empty, the built-in hard-coded prompt is used.
-	SystemPrompt       string
+	SystemPrompt string
+	// Rolling summarization config: enable and tuning knobs
+	SummaryEnabled     bool
+	SummaryThreshold   int
+	SummaryKeepLast    int
 	OutputTruncateByte int
 	LogPath            string
 	LogLevel           string

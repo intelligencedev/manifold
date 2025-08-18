@@ -59,6 +59,28 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	f = f.Int("prompt_tokens", int(comp.Usage.PromptTokens)).
 		Int("completion_tokens", int(comp.Usage.CompletionTokens)).
 		Int("total_tokens", int(comp.Usage.TotalTokens))
+
+	// Attempt to surface any nested token detail attributes that the API returned
+	var usageMap map[string]any
+	if b, err := json.Marshal(comp.Usage); err == nil {
+		if err := json.Unmarshal(b, &usageMap); err == nil {
+			if v, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
+				for k, val := range v {
+					if num, ok := val.(float64); ok {
+						f = f.Int("prompt_tokens_details_"+k, int(num))
+					}
+				}
+			}
+			if v, ok := usageMap["completion_tokens_details"].(map[string]any); ok {
+				for k, val := range v {
+					if num, ok := val.(float64); ok {
+						f = f.Int("completion_tokens_details_"+k, int(num))
+					}
+				}
+			}
+		}
+	}
+
 	fields := f.Logger()
 	if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
 		if b, err := json.Marshal(c.extra); err == nil {
@@ -124,6 +146,28 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	f = f.Int("prompt_tokens", int(comp.Usage.PromptTokens)).
 		Int("completion_tokens", int(comp.Usage.CompletionTokens)).
 		Int("total_tokens", int(comp.Usage.TotalTokens))
+
+	// Attempt to surface any nested token detail attributes that the API returned
+	var usageMap map[string]any
+	if b, err := json.Marshal(comp.Usage); err == nil {
+		if err := json.Unmarshal(b, &usageMap); err == nil {
+			if v, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
+				for k, val := range v {
+					if num, ok := val.(float64); ok {
+						f = f.Int("prompt_tokens_details_"+k, int(num))
+					}
+				}
+			}
+			if v, ok := usageMap["completion_tokens_details"].(map[string]any); ok {
+				for k, val := range v {
+					if num, ok := val.(float64); ok {
+						f = f.Int("completion_tokens_details_"+k, int(num))
+					}
+				}
+			}
+		}
+	}
+
 	fields := f.Logger()
 	if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
 		if b, err := json.Marshal(c.extra); err == nil {
@@ -185,6 +229,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	toolCallsFlushed := false
 	// Track token usage (filled from the final usage chunk if available)
 	var promptTokens, completionTokens, totalTokens int
+	// Hold any nested usage detail numeric fields so we can log them at the end
+	promptDetails := make(map[string]int)
+	completionDetails := make(map[string]int)
 
 	for stream.Next() {
 		chunk := stream.Current()
@@ -194,6 +241,27 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 				promptTokens = int(chunk.Usage.PromptTokens)
 				completionTokens = int(chunk.Usage.CompletionTokens)
 				totalTokens = int(chunk.Usage.TotalTokens)
+
+				// Try to extract nested detail maps from the raw JSON usage
+				var usageMap map[string]any
+				if raw := chunk.JSON.Usage.Raw(); raw != "" && raw != "null" {
+					if err := json.Unmarshal([]byte(raw), &usageMap); err == nil {
+						if v, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
+							for k, val := range v {
+								if num, ok := val.(float64); ok {
+									promptDetails[k] = int(num)
+								}
+							}
+						}
+						if v, ok := usageMap["completion_tokens_details"].(map[string]any); ok {
+							for k, val := range v {
+								if num, ok := val.(float64); ok {
+									completionDetails[k] = int(num)
+								}
+							}
+						}
+					}
+				}
 			}
 			continue
 		}
@@ -245,14 +313,24 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 
 	err := stream.Err()
 	dur := time.Since(start)
-	base := log.With().
+	// Build base logger and include nested usage detail fields if available
+	baseBuilder := log.With().
 		Str("model", string(params.Model)).
 		Int("tools", len(tools)).
 		Dur("duration", dur).
 		Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
-		Int("total_tokens", totalTokens).
-		Logger()
+		Int("total_tokens", totalTokens)
+
+	// Append any nested prompt detail fields we captured
+	for k, v := range promptDetails {
+		baseBuilder = baseBuilder.Int("prompt_tokens_details_"+k, v)
+	}
+	for k, v := range completionDetails {
+		baseBuilder = baseBuilder.Int("completion_tokens_details_"+k, v)
+	}
+
+	base := baseBuilder.Logger()
 	if err != nil {
 		base.Error().Err(err).Msg("chat_stream_error")
 	} else {

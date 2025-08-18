@@ -17,6 +17,11 @@ obs:
   serviceName: singularityio
   environment: dev
   otlp: http://localhost:4318
+# Optional rolling summarization settings. Enable to keep prompt size bounded
+# by summarizing older conversation turns into a short summary message.
+summaryEnabled: false
+summaryThreshold: 40
+summaryKeepLast: 12
 web:
   searXNGURL: http://localhost:8080
 

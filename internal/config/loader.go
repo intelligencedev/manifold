@@ -52,6 +52,21 @@ func Load() (Config, error) {
 
 	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
 
+	// Summary configuration via env
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_ENABLED")); v != "" {
+		cfg.SummaryEnabled = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_THRESHOLD")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryThreshold = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_KEEP_LAST")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryKeepLast = n
+		}
+	}
+
 	// Database backends via environment variables
 	// Optional default shared DSN (e.g., postgresql://...)
 	cfg.Databases.DefaultDSN = firstNonEmpty(strings.TrimSpace(os.Getenv("DATABASE_URL")), strings.TrimSpace(os.Getenv("DB_URL")), strings.TrimSpace(os.Getenv("POSTGRES_DSN")))
@@ -287,18 +302,21 @@ func loadSpecialists(cfg *Config) error {
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
-		SystemPrompt string             `yaml:"systemPrompt"`
-		Specialists  []SpecialistConfig `yaml:"specialists"`
-		Routes       []SpecialistRoute  `yaml:"routes"`
-		OpenAI       openAIYAML         `yaml:"openai"`
-		Workdir      string             `yaml:"workdir"`
-		OutputTrunc  int                `yaml:"outputTruncateBytes"`
-		Exec         execYAML           `yaml:"exec"`
-		Obs          obsYAML            `yaml:"obs"`
-		Web          webYAML            `yaml:"web"`
-		Databases    databasesYAML      `yaml:"databases"`
-		MCP          mcpYAML            `yaml:"mcp"`
-		Embedding    embeddingYAML      `yaml:"embedding"`
+		SystemPrompt     string             `yaml:"systemPrompt"`
+		Specialists      []SpecialistConfig `yaml:"specialists"`
+		Routes           []SpecialistRoute  `yaml:"routes"`
+		OpenAI           openAIYAML         `yaml:"openai"`
+		Workdir          string             `yaml:"workdir"`
+		OutputTrunc      int                `yaml:"outputTruncateBytes"`
+		SummaryEnabled   bool               `yaml:"summaryEnabled"`
+		SummaryThreshold int                `yaml:"summaryThreshold"`
+		SummaryKeepLast  int                `yaml:"summaryKeepLast"`
+		Exec             execYAML           `yaml:"exec"`
+		Obs              obsYAML            `yaml:"obs"`
+		Web              webYAML            `yaml:"web"`
+		Databases        databasesYAML      `yaml:"databases"`
+		MCP              mcpYAML            `yaml:"mcp"`
+		Embedding        embeddingYAML      `yaml:"embedding"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
@@ -344,6 +362,16 @@ func loadSpecialists(cfg *Config) error {
 
 		if cfg.OutputTruncateByte == 0 && w.OutputTrunc > 0 {
 			cfg.OutputTruncateByte = w.OutputTrunc
+		}
+		// Summary config from YAML if not provided via env
+		if !cfg.SummaryEnabled && w.SummaryEnabled {
+			cfg.SummaryEnabled = true
+		}
+		if cfg.SummaryThreshold == 0 && w.SummaryThreshold > 0 {
+			cfg.SummaryThreshold = w.SummaryThreshold
+		}
+		if cfg.SummaryKeepLast == 0 && w.SummaryKeepLast > 0 {
+			cfg.SummaryKeepLast = w.SummaryKeepLast
 		}
 		if cfg.Exec.MaxCommandSeconds == 0 && w.Exec.MaxCommandSeconds > 0 {
 			cfg.Exec.MaxCommandSeconds = w.Exec.MaxCommandSeconds

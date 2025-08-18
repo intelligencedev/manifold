@@ -163,10 +163,13 @@ func main() {
 	}
 
 	eng := agent.Engine{
-		LLM:      llm,
-		Tools:    registry,
-		MaxSteps: *maxSteps,
-		System:   prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		LLM:              llm,
+		Tools:            registry,
+		MaxSteps:         *maxSteps,
+		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		SummaryEnabled:   cfg.SummaryEnabled,
+		SummaryThreshold: cfg.SummaryThreshold,
+		SummaryKeepLast:  cfg.SummaryKeepLast,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

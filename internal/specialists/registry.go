@@ -118,10 +118,11 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 		extra["reasoning_effort"] = a.ReasoningEffort
 	}
 
-	// If a tools registry is attached, include schemas and perform a
-	// single-step execution: run the first tool call (if any) and return
-	// its payload directly. This mirrors how the main agent uses Tools.
-	if a.tools != nil {
+	// If tools are enabled and a tools registry is attached, include schemas
+	// and perform a single-step execution: run the first tool call (if any)
+	// and return its payload directly. If tools are disabled we must not
+	// include any schemas nor attempt dispatch.
+	if a.EnableTools && a.tools != nil {
 		messages := msgs
 		// Optional tool sink for UIs to display tool calls
 		var sink ToolSink

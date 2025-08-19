@@ -177,6 +177,9 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 		return msgs
 	}
 
+	// Log that summarization will run and include relevant tuning params.
+	observability.LoggerWithTrace(ctx).Info().Int("messages", len(msgs)).Int("threshold", threshold).Int("keep_last", keep).Msg("summarization_triggered")
+
 	// Preserve leading system message if present
 	start := 0
 	var sysMsg *llm.Message

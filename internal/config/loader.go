@@ -166,8 +166,7 @@ func Load() (Config, error) {
 	if cfg.OpenAI.APIKey == "" {
 		return Config{}, errors.New("OPENAI_API_KEY is required (set in .env or environment)")
 	}
-	if true { / replaced: normalize workdirs
-	/ Normalize Workdirs: support YAML/env single string or comma-separated
+		/ Normalize Workdirs: support YAML/env single string or comma-separated
 	/ list. If Workdirs were provided in YAML, they take precedence. Otherwise
 	/ fall back to the single Workdir string (from env/YAML).
 	var rawList []string

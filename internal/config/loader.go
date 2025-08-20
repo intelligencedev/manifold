@@ -27,6 +27,8 @@ func Load() (Config, error) {
 	// Allow overriding API base via env (useful for proxies/self-hosted gateways)
 	cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
 	cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
+	/ Support WORKDIR as comma-separated list of paths for backward-compatible env usage.
+	/ We'll later normalize into cfg.Workdirs.
 	cfg.LogPath = strings.TrimSpace(os.Getenv("LOG_PATH"))
 	cfg.LogLevel = strings.TrimSpace(os.Getenv("LOG_LEVEL"))
 	if v := strings.TrimSpace(os.Getenv("LOG_PAYLOADS")); v != "" {

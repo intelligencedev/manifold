@@ -67,6 +67,11 @@ func Load() (Config, error) {
 		}
 	}
 
+	// Global enableTools via env (overrides YAML)
+	if v := strings.TrimSpace(os.Getenv("ENABLE_TOOLS")); v != "" {
+		cfg.EnableTools = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+
 	// Database backends via environment variables
 	// Optional default shared DSN (e.g., postgresql://...)
 	cfg.Databases.DefaultDSN = firstNonEmpty(strings.TrimSpace(os.Getenv("DATABASE_URL")), strings.TrimSpace(os.Getenv("DB_URL")), strings.TrimSpace(os.Getenv("POSTGRES_DSN")))
@@ -166,46 +171,22 @@ func Load() (Config, error) {
 	if cfg.OpenAI.APIKey == "" {
 		return Config{}, errors.New("OPENAI_API_KEY is required (set in .env or environment)")
 	}
-		/ Normalize Workdirs: support YAML/env single string or comma-separated
-	/ list. If Workdirs were provided in YAML, they take precedence. Otherwise
-	/ fall back to the single Workdir string (from env/YAML).
-	var rawList []string
-	if len(cfg.Workdirs) > 0 {
-		rawList = append(rawList, cfg.Workdirs...)
-	} else if strings.TrimSpace(cfg.Workdir) != "" {
-		/ Support comma-separated env value
-		parts := strings.Split(cfg.Workdir, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p != "" {
-				rawList = append(rawList, p)
-			}
-		}
-	}
-	if len(rawList) == 0 {
+	if cfg.Workdir == "" {
 		return Config{}, errors.New("WORKDIR is required (set in .env or environment)")
 	}
-	/ Resolve absolute paths and validate directories.
-	absList := make([]string, 0, len(rawList))
-	for _, w := range rawList {
-		absWD, err := filepath.Abs(w)
-		if err != nil {
-			return Config{}, fmt.Errorf("resolve WORKDIR %s: %w", w, err)
-		}
-		info, err := os.Stat(absWD)
-		if err != nil {
-			return Config{}, fmt.Errorf("stat WORKDIR %s: %w", absWD, err)
-		}
-		if !info.IsDir() {
-			return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
-		}
-		absList = append(absList, absWD)
+
+	absWD, err := filepath.Abs(cfg.Workdir)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve WORKDIR: %w", err)
 	}
-	cfg.Workdirs = absList
-	/ Keep backward-compatible primary Workdir as the first entry.
-	cfg.Workdir = cfg.Workdirs[0]
-
-
+	info, err := os.Stat(absWD)
+	if err != nil {
+		return Config{}, fmt.Errorf("stat WORKDIR: %w", err)
+	}
+	if !info.IsDir() {
+		return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
+	}
+	cfg.Workdir = absWD
 
 	// Parse blocklist
 	blockStr := strings.TrimSpace(os.Getenv("BLOCK_BINARIES"))
@@ -341,6 +322,7 @@ func loadSpecialists(cfg *Config) error {
 		Databases        databasesYAML      `yaml:"databases"`
 		MCP              mcpYAML            `yaml:"mcp"`
 		Embedding        embeddingYAML      `yaml:"embedding"`
+		EnableTools      *bool              `yaml:"enableTools"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
@@ -483,6 +465,10 @@ func loadSpecialists(cfg *Config) error {
 					KeepAliveSeconds: s.KeepAliveSeconds,
 				})
 			}
+		}
+		// Global enableTools only if not set via env (env takes precedence)
+		if !cfg.EnableTools && w.EnableTools != nil {
+			cfg.EnableTools = *w.EnableTools
 		}
 		return nil
 	}

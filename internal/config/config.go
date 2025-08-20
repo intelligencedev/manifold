@@ -32,6 +32,8 @@ type Config struct {
 	// and graph operations. Each backend can be configured independently via
 	// YAML or environment variables.
 	Databases DBConfig
+	// EnableTools globally enables/disables tool exposure to the main agent.
+	EnableTools bool `yaml:"enableTools" json:"enableTools"`
 	// Top-level allow list of tool names to expose to the main orchestrator agent.
 	// If empty or omitted, all registered tools are exposed.
 	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`

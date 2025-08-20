@@ -168,22 +168,47 @@ func Load() (Config, error) {
 	if cfg.OpenAI.APIKey == "" {
 		return Config{}, errors.New("OPENAI_API_KEY is required (set in .env or environment)")
 	}
-	if cfg.Workdir == "" {
+	if true { / replaced: normalize workdirs
+	/ Normalize Workdirs: support YAML/env single string or comma-separated
+	/ list. If Workdirs were provided in YAML, they take precedence. Otherwise
+	/ fall back to the single Workdir string (from env/YAML).
+	var rawList []string
+	if len(cfg.Workdirs) > 0 {
+		rawList = append(rawList, cfg.Workdirs...)
+	} else if strings.TrimSpace(cfg.Workdir) != "" {
+		/ Support comma-separated env value
+		parts := strings.Split(cfg.Workdir, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				rawList = append(rawList, p)
+			}
+		}
+	}
+	if len(rawList) == 0 {
 		return Config{}, errors.New("WORKDIR is required (set in .env or environment)")
 	}
+	/ Resolve absolute paths and validate directories.
+	absList := make([]string, 0, len(rawList))
+	for _, w := range rawList {
+		absWD, err := filepath.Abs(w)
+		if err != nil {
+			return Config{}, fmt.Errorf("resolve WORKDIR %s: %w", w, err)
+		}
+		info, err := os.Stat(absWD)
+		if err != nil {
+			return Config{}, fmt.Errorf("stat WORKDIR %s: %w", absWD, err)
+		}
+		if !info.IsDir() {
+			return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
+		}
+		absList = append(absList, absWD)
+	}
+	cfg.Workdirs = absList
+	/ Keep backward-compatible primary Workdir as the first entry.
+	cfg.Workdir = cfg.Workdirs[0]
 
-	absWD, err := filepath.Abs(cfg.Workdir)
-	if err != nil {
-		return Config{}, fmt.Errorf("resolve WORKDIR: %w", err)
-	}
-	info, err := os.Stat(absWD)
-	if err != nil {
-		return Config{}, fmt.Errorf("stat WORKDIR: %w", err)
-	}
-	if !info.IsDir() {
-		return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
-	}
-	cfg.Workdir = absWD
+
 
 	// Parse blocklist
 	blockStr := strings.TrimSpace(os.Getenv("BLOCK_BINARIES"))

@@ -28,6 +28,25 @@ type defaultRegistry struct {
 	logPayloads bool
 }
 
+// filteredRegistry wraps an existing Registry and exposes only a subset of tools
+// specified by allowList. If allowList is empty, all tools from the wrapped
+// registry are exposed.
+type filteredRegistry struct {
+	base  Registry
+	allow map[string]bool
+}
+
+// NewFilteredRegistry builds a Registry that only exposes tool schemas and
+// allows dispatch for tools listed in allowList. If allowList is empty, the
+// returned registry behaves like the provided base registry.
+func NewFilteredRegistry(base Registry, allowList []string) Registry {
+	allow := make(map[string]bool, len(allowList))
+	for _, n := range allowList {
+		allow[n] = true
+	}
+	return &filteredRegistry{base: base, allow: allow}
+}
+
 // NewRegistry returns a basic in-memory registry.
 func NewRegistry() Registry { return NewRegistryWithLogging(false) }
 
@@ -64,6 +83,33 @@ func (r *defaultRegistry) Schemas() []llm.ToolSchema {
 		})
 	}
 	return out
+}
+
+func (f *filteredRegistry) Register(t Tool) {
+	f.base.Register(t)
+}
+
+func (f *filteredRegistry) Schemas() []llm.ToolSchema {
+	// If allow map is empty, expose all
+	if len(f.allow) == 0 {
+		return f.base.Schemas()
+	}
+	src := f.base.Schemas()
+	out := make([]llm.ToolSchema, 0, len(src))
+	for _, s := range src {
+		if f.allow[s.Name] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func (f *filteredRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {
+	if len(f.allow) != 0 && !f.allow[name] {
+		observability.LoggerWithTrace(ctx).Error().Str("tool", name).Msg("tool_not_allowed")
+		return []byte(`{"error":"tool not allowed"}`), nil
+	}
+	return f.base.Dispatch(ctx, name, raw)
 }
 
 func (r *defaultRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {

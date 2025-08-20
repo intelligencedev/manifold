@@ -236,9 +236,7 @@ func parseV4A(body string) ([]fileOp, error) {
 			var content string
 			if len(line) > 1 {
 				content = line[1:]
-				if strings.HasPrefix(content, " ") {
-					content = content[1:]
-				}
+				content = strings.TrimPrefix(content, " ")
 			} else {
 				content = ""
 			}

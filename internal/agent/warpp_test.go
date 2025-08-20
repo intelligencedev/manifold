@@ -66,7 +66,7 @@ func TestRunWARPP_SuccessOrdersGated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := RunWARPP[Workflow, Toolset](ctx, "please update my address", plan); err != nil {
+	if err := RunWARPP(ctx, "please update my address", plan); err != nil {
 		t.Fatalf("RunWARPP failed: %v", err)
 	}
 	if !fulfilled.Load() {
@@ -99,7 +99,7 @@ func TestRunWARPP_AuthFailure(t *testing.T) {
 		ErrAuth: errors.New("auth required"),
 	}
 
-	err := RunWARPP[Workflow, Toolset](context.Background(), "go", plan)
+	err := RunWARPP(context.Background(), "go", plan)
 	if err == nil || err.Error() != "auth required" {
 		t.Fatalf("expected auth error, got %v", err)
 	}

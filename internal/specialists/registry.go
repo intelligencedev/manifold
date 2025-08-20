@@ -58,6 +58,13 @@ func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpC
 			hc = &http.Client{Transport: &headerTransport{base: tr, headers: sc.ExtraHeaders}}
 		}
 		prov := openaillm.New(oc, hc)
+		var toolsView tools.Registry
+		if sc.EnableTools && toolsReg != nil {
+			toolsView = tools.NewFilteredRegistry(toolsReg, sc.AllowTools)
+		} else {
+			toolsView = nil
+		}
+
 		a := &Agent{
 			Name:            sc.Name,
 			System:          sc.System,
@@ -66,7 +73,7 @@ func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpC
 			ReasoningEffort: strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:     sc.ExtraParams,
 			provider:        prov,
-			tools:           toolsReg,
+			tools:           toolsView,
 		}
 		if a.Name != "" {
 			agents[a.Name] = a

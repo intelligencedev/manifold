@@ -111,6 +111,12 @@ func main() {
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
 	registry.Register(specialists_tool.New(specReg))
 
+	// If a top-level tool allow-list is configured, expose only those tools
+	// to the main orchestrator agent by wrapping the registry.
+	if len(cfg.ToolAllowList) > 0 {
+		registry = tools.NewFilteredRegistry(registry, cfg.ToolAllowList)
+	}
+
 	// MCP: connect to configured servers and register their tools
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(context.Background(), 20*time.Second)

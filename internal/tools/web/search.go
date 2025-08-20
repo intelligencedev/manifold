@@ -214,7 +214,7 @@ func (t *tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	// Use retry with exponential backoff and jitter
-	results, err := t.searchWithRetry(ctx, q, args.MaxResults, args.Category, args.Format)
+	results, err := t.searchWithRetry(ctx, q, args.MaxResults, args.Category)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
@@ -227,12 +227,12 @@ type SearchResult struct {
 }
 
 // searchWithRetry wraps searchSearXNG with exponential backoff and jitter
-func (t *tool) searchWithRetry(ctx context.Context, query string, max int, category, format string) ([]SearchResult, error) {
+func (t *tool) searchWithRetry(ctx context.Context, query string, max int, category string) ([]SearchResult, error) {
 	var lastErr error
 	cfg := t.rateLimitCfg
 
 	for attempt := 0; attempt < cfg.MaxRetries; attempt++ {
-		results, err := t.searchSearXNG(ctx, query, max, category, format)
+		results, err := t.searchSearXNG(ctx, query, max, category)
 		if err == nil && len(results) > 0 {
 			return results, nil
 		}
@@ -260,7 +260,7 @@ func randFloat64() float64 {
 	return float64(time.Now().UnixNano()%1000) / 1000.0
 }
 
-func (t *tool) searchSearXNG(ctx context.Context, query string, max int, category, format string) ([]SearchResult, error) {
+func (t *tool) searchSearXNG(ctx context.Context, query string, max int, category string) ([]SearchResult, error) {
 	// Try JSON format first for better structured results
 	results, err := t.searchSearXNGJSON(ctx, query, max, category)
 	if err == nil && len(results) > 0 {

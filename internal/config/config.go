@@ -3,10 +3,6 @@ package config
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	Workdir string
-	/ Backwards-compatible single primary workdir. Populated from Workdirs[0]
-	/ when multiple workdirs are configured.
-	Workdirs []string
-	// SystemPrompt allows overriding the agent's default system prompt.
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt string
 	// Rolling summarization config: enable and tuning knobs
@@ -36,6 +32,9 @@ type Config struct {
 	// and graph operations. Each backend can be configured independently via
 	// YAML or environment variables.
 	Databases DBConfig
+	// Top-level allow list of tool names to expose to the main orchestrator agent.
+	// If empty or omitted, all registered tools are exposed.
+	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig
 }
@@ -61,11 +60,15 @@ type OpenAIConfig struct {
 // OpenAI-compatible endpoint and model. It can optionally specify a different
 // API key and base URL than the default OpenAI config.
 type SpecialistConfig struct {
-	Name            string            `yaml:"name" json:"name"`
-	BaseURL         string            `yaml:"baseURL" json:"baseURL"`
-	APIKey          string            `yaml:"apiKey" json:"apiKey"`
-	Model           string            `yaml:"model" json:"model"`
-	EnableTools     bool              `yaml:"enableTools" json:"enableTools"`
+	Name        string `yaml:"name" json:"name"`
+	BaseURL     string `yaml:"baseURL" json:"baseURL"`
+	APIKey      string `yaml:"apiKey" json:"apiKey"`
+	Model       string `yaml:"model" json:"model"`
+	EnableTools bool   `yaml:"enableTools" json:"enableTools"`
+	// AllowTools is an optional allow-list of tool names exposed to this specialist.
+	// If empty, all tools are exposed (subject to EnableTools). If non-empty, only
+	// listed tools will be included in the tool schema and available for dispatch.
+	AllowTools      []string          `yaml:"allowTools" json:"allowTools"`
 	ReasoningEffort string            `yaml:"reasoningEffort" json:"reasoningEffort"`
 	System          string            `yaml:"system" json:"system"`
 	ExtraHeaders    map[string]string `yaml:"extraHeaders" json:"extraHeaders"`

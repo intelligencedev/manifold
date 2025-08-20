@@ -201,6 +201,48 @@ Notes:
 - run_cli forbids shell execution; only bare binary names are accepted (no paths).
 - The executor sanitizes inputs and enforces timeouts and blocked-binary checks.
 
+Tool allow-listing
+------------------
+You can selectively expose a subset of registered tools to the main orchestrator agent
+or to an individual specialist. This is useful to restrict tool access for safety or to
+reduce the tool schema sent to models.
+
+Top-level (main agent) allow-list:
+- In `config.yaml` add `allowTools` at the top level (list of tool names):
+
+```
+allowTools:
+  - run_cli
+  - web_search
+  - web_fetch
+```
+
+Per-specialist allow-list:
+- Each `specialist` entry supports `allowTools` to limit which tools that specialist
+  can see and call. If `enableTools` is false for a specialist, no tool schema is sent
+  regardless of `allowTools`.
+
+Example specialist with allow-list:
+
+```
+specialists:
+  - name: data-extractor
+    baseURL: https://api.openai.com
+    apiKey: ${OPENAI_API_KEY}
+    model: gpt-4o
+    enableTools: true
+    allowTools:
+      - web_fetch
+      - llm_transform
+    system: |
+      You extract structured information from text.
+```
+
+Notes:
+- If an allow-list is empty or omitted, all registered tools are exposed (subject to `enableTools`).
+- The MCP client registers external tools with names like `mcp_<server>_<tool>`; include those names
+  in allow-lists if you want to grant access to MCP-provided tools.
+
 MCP client
 ----------
 - Configure one or more MCP servers via `config.yaml` (see example above).

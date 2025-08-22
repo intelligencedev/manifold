@@ -120,19 +120,6 @@ routes:
 # be appended to the agent's tool registry on startup.
 mcp:
   servers:
-  - name: filesystem
-    command: docker
-    args:
-      - run
-      - -i
-      - --rm
-      - --volume
-      - /Users/art/.manifold/tmp:/app/projects
-      - ghcr.io/mark3labs/mcpfilesystemserver:latest
-      - /app/projects
-    # Optional keepAliveSeconds: how often to ping the server. 0 disables pings.
-    keepAliveSeconds: 30
-
   # Example of a playwright MCP server (commented out by default):
   # - name: playwright
   #   command: npx

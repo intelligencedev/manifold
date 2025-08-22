@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -502,16 +504,52 @@ func injectTitleIntoTopBorder(block string, title string, titleStyle lipgloss.St
 		styledTitle = titleStyle.Render(" " + rawTitle + " ")
 		titleWidth = lipgloss.Width(styledTitle)
 	}
-	// Build new top border using rounded border runes. We keep corners and
-	// fill the remainder with horizontal runes.
-	leftCorner := "╭"
-	rightCorner := "╮"
+	// Find the left and right corner positions in the rendered top line so we
+	// can preserve existing ANSI color sequences around the corners.
+	leftIdx := strings.Index(topLine, "╭")
+	rightIdx := strings.LastIndex(topLine, "╮")
+	if leftIdx == -1 || rightIdx == -1 || rightIdx <= leftIdx {
+		// Fallback to simple construction if corners aren't found
+		leftCorner := "╭"
+		rightCorner := "╮"
+		horiz := "─"
+		fillCount := totalInner - titleWidth
+		if fillCount < 0 {
+			fillCount = 0
+		}
+		newTop := leftCorner + styledTitle + strings.Repeat(horiz, fillCount) + rightCorner
+		lines[0] = newTop
+		return strings.Join(lines, "\n")
+	}
+	// Preserve the original left part (including any ANSI sequences before/at the corner)
+	leftPart := topLine[:leftIdx+utf8.RuneLen('╭')]
+	// Preserve the original right part (from the right corner to the end)
+	rightPart := topLine[rightIdx:]
+	// Determine how many horizontal fill runes we need
 	horiz := "─"
 	fillCount := totalInner - titleWidth
 	if fillCount < 0 {
 		fillCount = 0
 	}
-	newTop := leftCorner + styledTitle + strings.Repeat(horiz, fillCount) + rightCorner
+	// Try to extract the border color ANSI sequence from the left part so we
+	// can re-apply it after the styled title (since styledTitle may reset
+	// terminal colors). We look for the last SGR (\x1b[...m) sequence in
+	// leftPart.
+	sgrRe := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	matches := sgrRe.FindAllString(leftPart, -1)
+	borderColorSeq := ""
+	if len(matches) > 0 {
+		borderColorSeq = matches[len(matches)-1]
+	}
+	// Build the new top line: keep the corner + any preceding ANSI, then the
+	// styled title, then re-apply the border color SGR (if found) so the
+	// subsequent horizontal runes match the panel border color, then the
+	// fill runes and the right corner (which includes the closing ANSI reset).
+	newTop := leftPart + styledTitle
+	if borderColorSeq != "" {
+		newTop += borderColorSeq
+	}
+	newTop += strings.Repeat(horiz, fillCount) + rightPart
 	lines[0] = newTop
 	return strings.Join(lines, "\n")
 }

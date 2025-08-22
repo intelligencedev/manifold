@@ -15,7 +15,6 @@ require (
 	github.com/modelcontextprotocol/go-sdk v0.2.0
 	github.com/openai/openai-go/v2 v2.0.2
 	github.com/rs/zerolog v1.34.0
-	github.com/sergi/go-diff v1.4.0
 	go.opentelemetry.io/contrib/instrumentation/host v0.62.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0
 	go.opentelemetry.io/otel v1.37.0
@@ -94,6 +93,7 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/sebdah/goldie/v2 v2.5.5 // indirect
+	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.25.5 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.5.0 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect

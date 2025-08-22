@@ -253,7 +253,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if name := specialists.Route(m.cfg.SpecialistRoutes, q); name != "" {
 				return m, tea.Batch(m.readNextEvent(), m.runSpecialist(name, q), m.spinnerCmd())
 			}
-			m.streamingDeltaCh = make(chan string, 64)
+			// Use a reasonably sized buffer and a blocking send to avoid dropping
+			// streaming tokens. The TUI schedules reads continuously, so a
+			// blocking send should not deadlock in normal operation.
+			m.streamingDeltaCh = make(chan string, 256)
 			// Initialize streaming message and track its index
 			m.currentMessage = &chatMsg{kind: "agent", title: "Agent", content: ""}
 			m.messages = append(m.messages, *m.currentMessage)
@@ -384,6 +387,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activePanel == "left" && m.userScrolledL && !m.isNearBottom(m.leftVP) && oldYOffset < m.leftVP.TotalLineCount()-m.leftVP.Height {
 				m.leftVP.YOffset = oldYOffset
 			}
+		} else if m.currentMessageIndex >= 0 && m.currentMessageIndex < len(m.messages) {
+			// Handle case where runResult was processed but streaming deltas are still coming
+			// Continue updating the message that was being streamed
+			m.messages[m.currentMessageIndex].content += string(msg)
+			// Update the left pane to show the new content
+			oldYOffset := m.leftVP.YOffset
+			m.setLeftView()
+			if m.activePanel == "left" && m.userScrolledL && !m.isNearBottom(m.leftVP) && oldYOffset < m.leftVP.TotalLineCount()-m.leftVP.Height {
+				m.leftVP.YOffset = oldYOffset
+			}
 		}
 		return m, m.readStreamingDelta()
 	case toolEventMsg:
@@ -394,17 +407,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		oldYOffset := m.rightVP.YOffset
 		m.setRightView()
 		// If right pane is focused AND user was manually scrolling and not near bottom,
-			// try to maintain their position to avoid interrupting their reading
+		// try to maintain their position to avoid interrupting their reading
 		if m.activePanel == "right" && m.userScrolledR && !m.isNearBottom(m.rightVP) && oldYOffset < m.rightVP.TotalLineCount()-m.rightVP.Height {
 			m.rightVP.YOffset = oldYOffset
 		}
 		return m, m.readNextEvent()
 	case toolStreamClosed:
+		// Reset streaming state when channels are closed
+		if m.currentMessage == nil && m.currentMessageIndex >= 0 {
+			m.currentMessageIndex = -1
+		}
 		return m, nil
 	case runResult:
 		m.running = false
 		// Ensure waiting flag is cleared when the run finishes
 		m.waitingLLM = false
+
 		// tool events are already handled by the streaming mechanism via toolEventMsg
 		// no need to append msg.events here as it would create duplicates
 		if msg.err != nil {
@@ -419,8 +437,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		} else {
 			// Streaming path: finalize the in-progress assistant message
+			// but keep the index so late-arriving deltas can still update it
 			m.currentMessage = nil
-			m.currentMessageIndex = -1
+			// Don't reset currentMessageIndex to -1 yet, in case more deltas arrive
 		}
 		// update history
 		m.history = append(m.history, llm.Message{Role: "user", Content: m.lastUserContent()}, llm.Message{Role: "assistant", Content: msg.text})
@@ -600,20 +619,46 @@ func (m *Model) runStreamingEngine(user string) tea.Cmd {
 		})
 		eng := m.eng
 		eng.Tools = rec
-		// Set up streaming delta handler
+		// Create an internal input channel and a single forwarder goroutine
+		// which serializes deltas into the public m.streamingDeltaCh. This
+		// avoids dropping tokens and also avoids blocking the provider code
+		// directly on the public channel. We close the internal channel when
+		// RunStream returns; the forwarder will close the public channel.
+		deltaIn := make(chan string, 1024)
+
+		go func() {
+			for d := range deltaIn {
+				// Forward into the public streaming channel; this may block
+				// briefly but the forwarder is the only writer so ordering is
+				// preserved and we won't lose tokens.
+				m.streamingDeltaCh <- d
+			}
+			// All incoming deltas have been forwarded; close the public channel
+			close(m.streamingDeltaCh)
+		}()
+
+		// Set up OnDelta to enqueue into the fast internal channel. Try a
+		// fast non-blocking send; if the internal buffer is full, spawn a
+		// goroutine to enqueue so we don't block the provider path.
 		eng.OnDelta = func(delta string) {
 			select {
-			case m.streamingDeltaCh <- delta:
+			case deltaIn <- delta:
+				// queued fast
 			default:
+				// buffer full - enqueue asynchronously to avoid blocking provider
+				go func(d string) { deltaIn <- d }(delta)
 			}
 		}
 		// Don't use OnAssistant for streaming since we handle deltas directly
 		eng.OnAssistant = nil
 
 		ans, err := eng.RunStream(m.ctx, user, m.history)
-		// close streams after engine returns
+		// close tool channel immediately since tools are handled synchronously
 		close(m.toolCh)
-		close(m.streamingDeltaCh)
+		// close the internal input channel so the forwarder can finish and
+		// close the public streaming channel when done
+		close(deltaIn)
+
 		return runResult{text: ans, err: err, events: events}
 	}
 }

@@ -60,3 +60,4 @@ configs/specialists.yaml
 configs/config.yaml
 config.yaml
 agent-tui
+docs/multi-agent-rag.md

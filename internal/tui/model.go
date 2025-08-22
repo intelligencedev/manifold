@@ -392,7 +392,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		oldYOffset := m.rightVP.YOffset
 		m.setRightView()
 		// If right pane is focused AND user was manually scrolling and not near bottom,
-		// try to maintain their position to avoid interrupting their reading
+			// try to maintain their position to avoid interrupting their reading
 		if m.activePanel == "right" && m.userScrolledR && !m.isNearBottom(m.rightVP) && oldYOffset < m.rightVP.TotalLineCount()-m.rightVP.Height {
 			m.rightVP.YOffset = oldYOffset
 		}
@@ -443,38 +443,77 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) View() string {
-	leftHeader := m.headerStyle.Render(" Chat ")
-	rightHeader := m.headerStyle.Render(" Tools ")
+	leftTitle := "Chat"
+	rightTitle := "Tools"
 
 	// Determine active tab and corresponding panel border color so the
 	// header (tab) appears to blend into the panel's top border.
 	leftPanel := m.leftPanelStyle
 	rightPanel := m.rightPanelStyle
+	leftTitleStyle := m.headerStyle
+	rightTitleStyle := m.headerStyle
 	if m.activePanel == "left" {
-		leftHeader = m.leftHeaderActiveStyle.Render(" Chat ")
+		leftTitleStyle = m.leftHeaderActiveStyle
 		leftPanel = m.leftPanelStyle.BorderForeground(lipgloss.Color("#2D7FFF"))
 	} else {
-		rightHeader = m.rightHeaderActiveStyle.Render(" Tools ")
+		rightTitleStyle = m.rightHeaderActiveStyle
 		rightPanel = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
 	}
 
-	// Spinner indicator is now rendered inline beside the Assistant header
+	// Render the panel blocks first (without headers in the content)
+	leftBlock := leftPanel.Render(m.leftVP.View())
+	rightBlock := rightPanel.Render(m.rightVP.View())
 
-	// Render header inside the panel so it visually becomes a tab blending
-	// into the panel's border. This keeps borders consistent and makes the
-	// header look like part of the panel container.
-	// Add an extra blank line after the header to increase spacing
-	leftContent := leftHeader + "\n\n" + m.leftVP.View()
-	rightContent := rightHeader + "\n\n" + m.rightVP.View()
+	// Inject the titles into the top border line so the words "break" the top border
+	leftBlock = injectTitleIntoTopBorder(leftBlock, leftTitle, leftTitleStyle)
+	rightBlock = injectTitleIntoTopBorder(rightBlock, rightTitle, rightTitleStyle)
 
-	leftBlock := leftPanel.Render(leftContent)
-	rightBlock := rightPanel.Render(rightContent)
 	// Panels are rendered directly adjacent without a vertical divider so the
 	// headers blend naturally into the rounded borders.
 	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
 	// Render the input inside a bordered box so its top border is visible
 	inputBlock := m.inputStyle.Render(m.input.View())
 	return top + "\n" + inputBlock
+}
+
+// injectTitleIntoTopBorder takes a rendered bordered block and replaces the
+// visible horizontal runes in the top border with a styled title so the title
+// appears to "break" the border line. It assumes rounded borders (╭─╮).
+func injectTitleIntoTopBorder(block string, title string, titleStyle lipgloss.Style) string {
+	lines := strings.Split(block, "\n")
+	if len(lines) == 0 {
+		return block
+	}
+	topLine := lines[0]
+	// Visible width of the top line (ANSI-aware)
+	topWidth := lipgloss.Width(topLine)
+	if topWidth < 3 {
+		return block
+	}
+	// inner width between the two corner runes
+	totalInner := topWidth - 2
+	// render the title with padding and style
+	styledTitle := titleStyle.Render(" " + strings.TrimSpace(title) + " ")
+	titleWidth := lipgloss.Width(styledTitle)
+	// If title doesn't fit, trim characters from the raw title until it does
+	rawTitle := strings.TrimSpace(title)
+	for titleWidth > totalInner && len(rawTitle) > 0 {
+		rawTitle = rawTitle[:len(rawTitle)-1]
+		styledTitle = titleStyle.Render(" " + rawTitle + " ")
+		titleWidth = lipgloss.Width(styledTitle)
+	}
+	// Build new top border using rounded border runes. We keep corners and
+	// fill the remainder with horizontal runes.
+	leftCorner := "╭"
+	rightCorner := "╮"
+	horiz := "─"
+	fillCount := totalInner - titleWidth
+	if fillCount < 0 {
+		fillCount = 0
+	}
+	newTop := leftCorner + styledTitle + strings.Repeat(horiz, fillCount) + rightCorner
+	lines[0] = newTop
+	return strings.Join(lines, "\n")
 }
 
 // spinnerCmd returns a command that fires a spinnerTickMsg after a short delay.

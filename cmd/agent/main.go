@@ -53,6 +53,8 @@ func main() {
 	if len(cfg.OpenAI.ExtraHeaders) > 0 {
 		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
 	}
+	// Configure global llm payload logging/truncation before creating providers
+	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
 	llm := openaillm.New(cfg.OpenAI, httpClient)
 
 	// If a specialist was requested, route the query directly and exit.

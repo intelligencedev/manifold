@@ -59,11 +59,17 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 			params.SetExtraFields(c.extra)
 		}
 	}
+	// Start a tracing span and log prompt for correlation
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Chat", string(params.Model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
 	start := time.Now()
 	comp, err := c.sdk.Chat.Completions.New(ctx, params)
 	dur := time.Since(start)
 	if err != nil {
 		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_error")
+		span.RecordError(err)
 		return llm.Message{}, err
 	}
 	f := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs))
@@ -99,6 +105,10 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		}
 	}
 	fields.Debug().Msg("chat_completion_ok")
+
+	// Log redacted response payload for correlation and record token counts on span
+	llm.LogRedactedResponse(ctx, comp.Choices)
+	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
 	}
@@ -129,6 +139,10 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 //     via params.WithExtraField.
 func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
 	log := observability.LoggerWithTrace(ctx)
+	// Tracing and prompt logging
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatWithOptions", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
@@ -157,6 +171,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	dur := time.Since(start)
 	if err != nil {
 		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_error")
+		span.RecordError(err)
 		return llm.Message{}, err
 	}
 	f := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs))
@@ -192,6 +207,9 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		}
 	}
 	fields.Debug().Msg("chat_completion_ok")
+	// Log response and token counts
+	llm.LogRedactedResponse(ctx, comp.Choices)
+	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
 	}
@@ -222,6 +240,10 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
+	// Start tracing and log prompt
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatStream", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
 	// messages
 	params.Messages = AdaptMessages(msgs)
 	// tools
@@ -361,7 +383,11 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	base := baseBuilder.Logger()
 	if err != nil {
 		base.Error().Err(err).Msg("chat_stream_error")
+		span.RecordError(err)
 	} else {
+		// Record token usage on span and log a compact response summary
+		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 		base.Debug().Msg("chat_stream_ok")
 	}
 	return err
@@ -371,6 +397,10 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 // This is a concrete method specific to the OpenAI provider.
 func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message, mimeType, base64Data string, tools []llm.ToolSchema, model string) (llm.Message, error) {
 	log := observability.LoggerWithTrace(ctx)
+	// Tracing and prompt logging
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatWithImageAttachment", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
@@ -439,10 +469,14 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	dur := time.Since(start)
 	if err != nil {
 		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_with_image_error")
+		span.RecordError(err)
 		return llm.Message{}, err
 	}
 
 	log.Debug().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_with_image_ok")
+	// Log response and token counts when available
+	llm.LogRedactedResponse(ctx, comp.Choices)
+	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
 
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil

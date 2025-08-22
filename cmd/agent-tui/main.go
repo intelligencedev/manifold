@@ -9,7 +9,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"singularityio/internal/config"
-	"singularityio/internal/llm/openai"
+	llmpkg "singularityio/internal/llm"
+	openaillm "singularityio/internal/llm/openai"
 	"singularityio/internal/observability"
 	"singularityio/internal/tools/cli"
 	itui "singularityio/internal/tui"
@@ -33,7 +34,9 @@ func main() {
 	if len(cfg.OpenAI.ExtraHeaders) > 0 {
 		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
 	}
-	provider := openai.New(cfg.OpenAI, httpClient)
+	// Configure global llm payload logging/truncation
+	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
+	provider := openaillm.New(cfg.OpenAI, httpClient)
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 

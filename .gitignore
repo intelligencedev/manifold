@@ -52,6 +52,7 @@ coverage.out
 !.gitignore
 
 # Ignore specific files or folders
+dist/
 examples
 gptagent
 PLAN.md

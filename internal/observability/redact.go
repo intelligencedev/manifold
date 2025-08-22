@@ -49,6 +49,12 @@ func redactValue(v any) any {
 
 func isSensitiveKey(k string) bool {
 	low := strings.ToLower(k)
+	// Avoid redacting token count fields returned by LLM usage metadata
+	// such as "prompt_tokens", "completion_tokens", "total_tokens".
+	// These are numeric metrics, not secrets.
+	if strings.HasSuffix(low, "tokens") {
+		return false
+	}
 	for _, s := range sensitiveKeys {
 		if low == s {
 			return true

@@ -68,7 +68,15 @@ workdir: "." #"/Users/art/Documents/code/recordedfuture-mcp-server" #/Users/art/
 workdirs:
   - /Users/art/Documents/code/projects/world
   - /Users/art/Documents/code/recordedfuture-mcp-server
-outputTruncateBytes: 65536
+# Enable verbose logging of request/response payloads (redacted). When true,
+# the agent will log prompts and LLM responses (sensitive fields redacted).
+# This can be noisy; prefer enabling only for debugging.
+logPayloads: false
+
+# Maximum number of bytes to keep when logging large outputs/payloads. If a
+# redacted prompt or response exceeds this size it will be truncated to a
+# small preview. Set to 0 to disable truncation (not recommended).
+outputTruncateByte: 65536
 exec:
   blockBinaries: ["rm", "sudo", "chown", "chmod", "dd", "mkfs", "mount", "umount"]
   maxCommandSeconds: 30

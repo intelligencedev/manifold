@@ -137,3 +137,28 @@ func (r *defaultRegistry) Dispatch(ctx context.Context, name string, raw json.Ra
 
 func strFrom(v any) string         { s, _ := v.(string); return s }
 func mapFrom(v any) map[string]any { m, _ := v.(map[string]any); return m }
+
+// Context helpers for propagating an llm.Provider to tools dispatched from
+// within a specialist/agent context. Tools may choose to prefer the provider
+// found in context when executing (so they use the same model/baseURL/apiKey
+// as the invoking agent).
+type providerCtxKey struct{}
+
+// WithProvider returns a derived context that carries the given provider.
+func WithProvider(ctx context.Context, p llm.Provider) context.Context {
+	return context.WithValue(ctx, providerCtxKey{}, p)
+}
+
+// ProviderFromContext extracts a provider previously set with WithProvider,
+// or nil if none was set.
+func ProviderFromContext(ctx context.Context) llm.Provider {
+	if ctx == nil {
+		return nil
+	}
+	if v := ctx.Value(providerCtxKey{}); v != nil {
+		if p, ok := v.(llm.Provider); ok {
+			return p
+		}
+	}
+	return nil
+}

@@ -146,7 +146,14 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 			return msg.Content, nil
 		}
 		tc := msg.ToolCalls[0]
-		payload, err := a.tools.Dispatch(ctx, tc.Name, tc.Args)
+		// Propagate the specialist's provider to the tool dispatch context so
+		// tools that make LLM calls (describe_image, llm_transform, etc.) can
+		// use the same provider/model/baseURL as the specialist.
+		dispatchCtx := ctx
+		if a.provider != nil {
+			dispatchCtx = tools.WithProvider(ctx, a.provider)
+		}
+		payload, err := a.tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 		if err != nil {
 			payload = []byte("{" + strconv.Quote("error") + ":" + strconv.Quote(err.Error()) + "}")
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"singularityio/internal/llm"
+	"singularityio/internal/tools"
 )
 
 // Transform is a generic LLM tool that transforms input text according to an
@@ -65,8 +66,13 @@ func (t *Transform) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	user := fmt.Sprintf("Instruction:\n%s\n\n---\n\nINPUT:\n%s\n", args.Instruction, args.Input)
 	msgs = append(msgs, llm.Message{Role: "user", Content: user})
 
-	// Choose provider: same as agent by default; override if base_url provided and factory available
+	// Prefer provider propagated in the context (so specialists/orchestrator can
+	// pass the same provider/model/baseURL). Fall back to the tool's default
+	// provider. If a base_url override is provided, build a new provider.
 	p := t.Provider
+	if ctxProvider := tools.ProviderFromContext(ctx); ctxProvider != nil {
+		p = ctxProvider
+	}
 	if args.BaseURL != "" && t.NewWithBaseURL != nil {
 		if np := t.NewWithBaseURL(args.BaseURL); np != nil {
 			p = np

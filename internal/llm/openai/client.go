@@ -46,7 +46,18 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		params.Tools = AdaptSchemas(tools)
 	}
 	if len(c.extra) > 0 {
-		params.SetExtraFields(c.extra)
+		// When no tools are provided, ensure we don't forward tool-specific
+		// flags from the client extra params.
+		if len(tools) == 0 {
+			tmp := make(map[string]any, len(c.extra))
+			for k, v := range c.extra {
+				tmp[k] = v
+			}
+			delete(tmp, "parallel_tool_calls")
+			params.SetExtraFields(tmp)
+		} else {
+			params.SetExtraFields(c.extra)
+		}
 	}
 	start := time.Now()
 	comp, err := c.sdk.Chat.Completions.New(ctx, params)
@@ -133,6 +144,12 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		for k, v := range extra {
 			merged[k] = v
 		}
+		// Some provider-specific flags (e.g., parallel_tool_calls) are only
+		// valid when tools are actually provided. Remove those keys when no
+		// tools are present to avoid 400 errors from the API.
+		if len(tools) == 0 {
+			delete(merged, "parallel_tool_calls")
+		}
 		params.SetExtraFields(merged)
 	}
 	start := time.Now()
@@ -212,7 +229,18 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		params.Tools = AdaptSchemas(tools)
 	}
 	if len(c.extra) > 0 {
-		params.SetExtraFields(c.extra)
+		// When no tools are provided, ensure we don't forward tool-specific
+		// flags from the client extra params.
+		if len(tools) == 0 {
+			tmp := make(map[string]any, len(c.extra))
+			for k, v := range c.extra {
+				tmp[k] = v
+			}
+			delete(tmp, "parallel_tool_calls")
+			params.SetExtraFields(tmp)
+		} else {
+			params.SetExtraFields(c.extra)
+		}
 	}
 	// Ask the API to include a final usage chunk so we can log token counts
 	params.StreamOptions.IncludeUsage = sdk.Bool(true)
@@ -337,6 +365,107 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		base.Debug().Msg("chat_stream_ok")
 	}
 	return err
+}
+
+// ChatWithImageAttachment sends a chat completion with an image attachment.
+// This is a concrete method specific to the OpenAI provider.
+func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message, mimeType, base64Data string, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	log := observability.LoggerWithTrace(ctx)
+	params := sdk.ChatCompletionNewParams{
+		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	}
+
+	// Convert all messages except the last user message, then replace it with image content
+	adaptedMsgs := AdaptMessages(msgs)
+	if len(adaptedMsgs) > 0 {
+		// Find the last user message and replace it with image content
+		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
+			if adaptedMsgs[i].OfUser != nil {
+				userMsg := adaptedMsgs[i].OfUser
+
+				// Create content parts: text + image
+				var contentParts []sdk.ChatCompletionContentPartUnionParam
+
+				// Add text content if present
+				if userMsg.Content.OfString.Valid() && userMsg.Content.OfString.Value != "" {
+					contentParts = append(contentParts, sdk.ChatCompletionContentPartUnionParam{
+						OfText: &sdk.ChatCompletionContentPartTextParam{
+							Text: userMsg.Content.OfString.Value,
+						},
+					})
+				}
+
+				// Add image content part
+				dataURL := "data:" + mimeType + ";base64," + base64Data
+				contentParts = append(contentParts, sdk.ChatCompletionContentPartUnionParam{
+					OfImageURL: &sdk.ChatCompletionContentPartImageParam{
+						ImageURL: sdk.ChatCompletionContentPartImageImageURLParam{
+							URL: dataURL,
+						},
+					},
+				})
+
+				// Replace with content parts
+				newUserMsg := sdk.ChatCompletionUserMessageParam{
+					Content: sdk.ChatCompletionUserMessageParamContentUnion{
+						OfArrayOfContentParts: contentParts,
+					},
+				}
+				adaptedMsgs[i] = sdk.ChatCompletionMessageParamUnion{OfUser: &newUserMsg}
+				break
+			}
+		}
+	}
+
+	params.Messages = adaptedMsgs
+	if len(tools) > 0 {
+		params.Tools = AdaptSchemas(tools)
+	}
+	if len(c.extra) > 0 {
+		if len(tools) == 0 {
+			tmp := make(map[string]any, len(c.extra))
+			for k, v := range c.extra {
+				tmp[k] = v
+			}
+			delete(tmp, "parallel_tool_calls")
+			params.SetExtraFields(tmp)
+		} else {
+			params.SetExtraFields(c.extra)
+		}
+	}
+
+	start := time.Now()
+	comp, err := c.sdk.Chat.Completions.New(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_with_image_error")
+		return llm.Message{}, err
+	}
+
+	log.Debug().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_with_image_ok")
+
+	if len(comp.Choices) == 0 {
+		return llm.Message{}, nil
+	}
+	msg := comp.Choices[0].Message
+	out := llm.Message{Role: "assistant", Content: msg.Content}
+	for _, tc := range msg.ToolCalls {
+		switch v := tc.AsAny().(type) {
+		case sdk.ChatCompletionMessageFunctionToolCall:
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: v.Function.Name,
+				Args: json.RawMessage(v.Function.Arguments),
+				ID:   v.ID,
+			})
+		case sdk.ChatCompletionMessageCustomToolCall:
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: v.Custom.Name,
+				Args: json.RawMessage(v.Custom.Input),
+				ID:   v.ID,
+			})
+		}
+	}
+	return out, nil
 }
 
 func firstNonEmpty(vals ...string) string {

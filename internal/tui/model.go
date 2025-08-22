@@ -27,6 +27,7 @@ import (
 	"singularityio/internal/tools/cli"
 	"singularityio/internal/tools/db"
 	"singularityio/internal/tools/fs"
+	"singularityio/internal/tools/imagetool"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
 	"singularityio/internal/tools/web"
@@ -147,6 +148,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		return openai.New(c2, hc)
 	}
 	registry.Register(llmtools.NewTransform(provider, cfg.OpenAI.Model, factory))
+	registry.Register(imagetool.NewDescribeTool(provider, cfg.Workdir, cfg.OpenAI.Model, factory))
 	// Specialists tool available in TUI as well
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, nil, registry)
 	registry.Register(specialists_tool.New(specReg))

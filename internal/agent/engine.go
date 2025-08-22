@@ -58,7 +58,13 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 		}
 		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_tool_calls")
 		for _, tc := range msg.ToolCalls {
-			payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
+			// Propagate the agent's provider to the tool dispatch context so
+			// tools that make LLM calls can use the same provider/model/baseURL as the agent.
+			dispatchCtx := ctx
+			if e.LLM != nil {
+				dispatchCtx = tools.WithProvider(ctx, e.LLM)
+			}
+			payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 			if err != nil {
 				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
 			}
@@ -125,7 +131,13 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 		}
 		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_stream_tool_calls")
 		for _, tc := range msg.ToolCalls {
-			payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
+			// Propagate the agent's provider to the tool dispatch context so
+			// tools that make LLM calls can use the same provider/model/baseURL as the agent.
+			dispatchCtx := ctx
+			if e.LLM != nil {
+				dispatchCtx = tools.WithProvider(ctx, e.LLM)
+			}
+			payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 			if err != nil {
 				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
 			}

@@ -26,7 +26,6 @@ import (
 	"singularityio/internal/tools"
 	"singularityio/internal/tools/cli"
 	"singularityio/internal/tools/db"
-	"singularityio/internal/tools/fs"
 	"singularityio/internal/tools/imagetool"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
@@ -122,7 +121,6 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	registry.Register(cli.NewTool(exec))
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	registry.Register(web.NewFetchTool())
-	registry.Register(fs.NewWriteTool(cfg.Workdir))
 
 	// Database tools
 	if mgr, err := databases.NewManager(ctx, cfg.Databases); err == nil {

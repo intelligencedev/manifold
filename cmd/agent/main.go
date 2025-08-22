@@ -21,7 +21,6 @@ import (
 	"singularityio/internal/tools"
 	"singularityio/internal/tools/cli"
 	"singularityio/internal/tools/db"
-	"singularityio/internal/tools/fs"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
 	"singularityio/internal/tools/web"
@@ -82,12 +81,9 @@ func main() {
 		log.Fatal().Err(err).Msg("databases")
 	}
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
-	registry.Register(cli.NewTool(exec))                 // provides run_cli
-	registry.Register(web.NewTool(cfg.Web.SearXNGURL))   // provides web_search
-	registry.Register(web.NewFetchTool())                // provides web_fetch
-	registry.Register(fs.NewWriteTool(cfg.Workdir))      // provides write_file
-	registry.Register(fs.NewApplyPatchTool(cfg.Workdir)) // provides apply_patch
-	registry.Register(fs.NewReadTool(cfg.Workdir))       // provides read_file
+	registry.Register(cli.NewTool(exec))               // provides run_cli
+	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
+	registry.Register(web.NewFetchTool())              // provides web_fetch
 
 	// DB tools
 	registry.Register(db.NewSearchIndexTool(mgr.Search))

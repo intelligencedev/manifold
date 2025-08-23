@@ -1,7 +1,8 @@
 SHELL := /bin/bash
 
 # Binaries are discovered under cmd/*
-BINS := $(shell for d in cmd/*; do if [ -d "$$d" ]; then basename $$d; fi; done)
+## Discover cmd/* directories but exclude embedctl (we no longer ship the embedctl CLI)
+BINS := $(shell for d in cmd/*; do if [ -d "$$d" ]; then bn=$$(basename $$d); if [ "$$bn" != "embedctl" ]; then echo $$bn; fi; fi; done)
 
 # Output directory
 DIST := dist

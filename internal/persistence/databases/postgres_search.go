@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS documents (
 }
 
 func (p *pgSearch) Index(ctx context.Context, id, text string, metadata map[string]string) error {
+	// Ensure metadata is non-nil so the JSONB NOT NULL constraint is not violated.
 	md := mapToJSON(metadata)
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO documents(id, text, metadata) VALUES($1,$2,$3)
@@ -76,4 +77,12 @@ LIMIT $2
 	return out, rows.Err()
 }
 
-func mapToJSON(m map[string]string) map[string]string { return m }
+// mapToJSON ensures we never return nil to the database layer; return an empty
+// map when callers provide nil so INSERT/UPDATE won't try to write a SQL NULL
+// into a NOT NULL JSONB column.
+func mapToJSON(m map[string]string) map[string]string {
+	if m == nil {
+		return map[string]string{}
+	}
+	return m
+}

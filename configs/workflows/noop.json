@@ -1,0 +1,18 @@
+{
+  "intent": "noop",
+  "description": "Return a greeting.",
+  "keywords": ["noop"],
+  "steps": [
+    {
+      "id": "s1",
+      "text": "Invoke an LLM",
+      "tool": {
+        "name": "llm_transform",
+        "args": {
+          "instruction": "Simply return a greeting",
+          "input": "${A.query}"
+        }
+      }
+    }
+  ]
+}

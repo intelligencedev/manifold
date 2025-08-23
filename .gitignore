@@ -61,3 +61,5 @@ configs/config.yaml
 config.yaml
 agent-tui
 docs/multi-agent-rag.md
+CONTEXT.md
+kafka_plan.md

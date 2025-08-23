@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: sio_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: sio_kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # Expose two listeners: PLAINTEXT for host access (localhost:9092) and INTERNAL for container network (kafka:29092)
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: sio_redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    restart: unless-stopped
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop:latest
+    container_name: sio_kafdrop
+    depends_on:
+      - kafka
+    environment:
+      # Connect to the kafka broker using the internal listener
+      KAFKA_BROKERCONNECT: "kafka:29092"
+      # Keep the JVM small for local dev
+      JVM_OPTS: "-Xms32M -Xmx64M"
+    ports:
+      - "9000:9000"
+    restart: unless-stopped

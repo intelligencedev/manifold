@@ -492,9 +492,22 @@ func (m *Model) View() string {
 	// Panels are rendered directly adjacent without a vertical divider so the
 	// headers blend naturally into the rounded borders.
 	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
+
+	// Render a centered banner above the panels
+	bannerText := "intelligence.dev"
+	// Determine the visible width of the top row so we can center the banner
+	topWidth := lipgloss.Width(top)
+	if topWidth <= 0 {
+		// Fallback to viewport widths if the rendered top has no width yet
+		topWidth = m.leftVP.Width + m.rightVP.Width
+	}
+	// Use the existing header style for consistent theming, then center
+	bannerContent := m.headerStyle.Render(bannerText)
+	bannerLine := lipgloss.NewStyle().Width(topWidth).Align(lipgloss.Center).Render(bannerContent)
+
 	// Render the input inside a bordered box so its top border is visible
 	inputBlock := m.inputStyle.Render(m.input.View())
-	return top + "\n" + inputBlock
+	return bannerLine + "\n" + top + "\n" + inputBlock
 }
 
 // injectTitleIntoTopBorder takes a rendered bordered block and replaces the

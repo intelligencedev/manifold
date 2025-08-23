@@ -201,7 +201,7 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 			}
 		}
 	}
-	fmt.Fprintf(&summary, "\nObjective complete: report written to report.md (steps=%d).\n", steps)
+	fmt.Fprintf(&summary, "\nObjective complete. (steps=%d).\n", steps)
 	return summary.String(), nil
 }
 

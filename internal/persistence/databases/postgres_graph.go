@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS edges (
 }
 
 func (g *pgGraph) UpsertNode(ctx context.Context, id string, labels []string, props map[string]any) error {
+	// Ensure we never pass SQL NULL for the JSONB `props` column. If callers
+	// provide nil, use an empty JSON object so the DB's NOT NULL constraint is
+	// satisfied and default behavior is consistent.
+	if props == nil {
+		props = map[string]any{}
+	}
 	_, err := g.pool.Exec(ctx, `
 INSERT INTO nodes(id, labels, props) VALUES($1,$2,$3)
 ON CONFLICT (id) DO UPDATE SET labels=EXCLUDED.labels, props=EXCLUDED.props
@@ -43,6 +49,10 @@ ON CONFLICT (id) DO UPDATE SET labels=EXCLUDED.labels, props=EXCLUDED.props
 }
 
 func (g *pgGraph) UpsertEdge(ctx context.Context, srcID, rel, dstID string, props map[string]any) error {
+	// Same protection for edges.props
+	if props == nil {
+		props = map[string]any{}
+	}
 	_, err := g.pool.Exec(ctx, `
 INSERT INTO edges(source, rel, target, props) VALUES($1,$2,$3,$4)
 ON CONFLICT DO NOTHING
@@ -56,7 +66,7 @@ func (g *pgGraph) Neighbors(ctx context.Context, id string, rel string) ([]strin
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	out := []string{} // return empty slice rather than nil so JSON encodes as []
 	for rows.Next() {
 		var d string
 		if err := rows.Scan(&d); err != nil {

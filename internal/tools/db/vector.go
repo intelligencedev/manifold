@@ -3,15 +3,23 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
+	"singularityio/internal/config"
+	"singularityio/internal/embedding"
 	"singularityio/internal/persistence/databases"
 )
 
-type vectorUpsertTool struct{ v databases.VectorStore }
+type vectorUpsertTool struct {
+	v      databases.VectorStore
+	embCfg config.EmbeddingConfig
+}
 type vectorQueryTool struct{ v databases.VectorStore }
 type vectorDeleteTool struct{ v databases.VectorStore }
 
-func NewVectorUpsertTool(v databases.VectorStore) *vectorUpsertTool { return &vectorUpsertTool{v: v} }
+func NewVectorUpsertTool(v databases.VectorStore, emb config.EmbeddingConfig) *vectorUpsertTool {
+	return &vectorUpsertTool{v: v, embCfg: emb}
+}
 func NewVectorQueryTool(v databases.VectorStore) *vectorQueryTool   { return &vectorQueryTool{v: v} }
 func NewVectorDeleteTool(v databases.VectorStore) *vectorDeleteTool { return &vectorDeleteTool{v: v} }
 
@@ -31,12 +39,35 @@ func (t *vectorUpsertTool) JSONSchema() map[string]any {
 	}
 }
 func (t *vectorUpsertTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
+	// Accept either a precomputed vector or a text input to produce an embedding.
 	var args struct {
 		ID       string            `json:"id"`
 		Vector   []float32         `json:"vector"`
+		Text     string            `json:"text"`
 		Metadata map[string]string `json:"metadata"`
 	}
 	_ = json.Unmarshal(raw, &args)
+
+	// If caller provided text but no vector, try to generate embedding via embedding service.
+	if len(args.Vector) == 0 && args.Text != "" {
+		embs, err := embedding.EmbedText(ctx, t.embCfg, []string{args.Text})
+		if err != nil {
+			return map[string]any{"ok": false, "error": fmt.Sprintf("embed error: %v", err)}, nil
+		}
+		if len(embs) > 0 {
+			args.Vector = embs[0]
+		}
+	}
+
+	// If vector dimensions are known on the configured VectorStore, validate.
+	// We only have strict enforcement for Postgres vector backend (pgVector) which
+	// exposes dimensions via a concrete type. For other backends, skip validation.
+	if pv, ok := t.v.(interface{ Dimension() int }); ok {
+		if d := pv.Dimension(); d > 0 && len(args.Vector) != 0 && len(args.Vector) != d {
+			return map[string]any{"ok": false, "error": fmt.Sprintf("vector length mismatch: expected %d, got %d", d, len(args.Vector))}, nil
+		}
+	}
+
 	if err := t.v.Upsert(ctx, args.ID, args.Vector, args.Metadata); err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}

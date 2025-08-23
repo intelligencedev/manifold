@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"singularityio/internal/config"
 	"singularityio/internal/persistence/databases"
 )
 
@@ -26,7 +27,7 @@ func TestSearchTools(t *testing.T) {
 
 func TestVectorTools(t *testing.T) {
 	v := databases.NewMemoryVector()
-	up := NewVectorUpsertTool(v)
+	up := NewVectorUpsertTool(v, config.EmbeddingConfig{})
 	q := NewVectorQueryTool(v)
 	del := NewVectorDeleteTool(v)
 	ctx := context.Background()

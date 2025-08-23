@@ -129,7 +129,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		registry.Register(db.NewSearchIndexTool(mgr.Search))
 		registry.Register(db.NewSearchQueryTool(mgr.Search))
 		registry.Register(db.NewSearchRemoveTool(mgr.Search))
-		registry.Register(db.NewVectorUpsertTool(mgr.Vector))
+		registry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
 		registry.Register(db.NewVectorQueryTool(mgr.Vector))
 		registry.Register(db.NewVectorDeleteTool(mgr.Vector))
 		registry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))

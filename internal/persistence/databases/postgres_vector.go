@@ -86,6 +86,9 @@ func (p *pgVector) SimilaritySearch(ctx context.Context, vector []float32, k int
 	return out, rows.Err()
 }
 
+// Dimension returns the configured vector dimensionality (0 means variable).
+func (p *pgVector) Dimension() int { return p.dimensions }
+
 func toVectorLiteral(v []float32) string {
 	if len(v) == 0 {
 		return "[]"

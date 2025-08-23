@@ -59,6 +59,9 @@ func (m *memoryVector) SimilaritySearch(_ context.Context, vector []float32, k i
 	return scores, nil
 }
 
+// Dimension returns 0 to indicate variable/unrestricted dimensionality for memory backend.
+func (m *memoryVector) Dimension() int { return 0 }
+
 func matchesFilter(md map[string]string, f map[string]string) bool {
 	if len(f) == 0 {
 		return true

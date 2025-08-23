@@ -140,7 +140,7 @@ func main() {
 				allow[s.Tool.Name] = true
 			}
 		}
-		final, err := runner.Execute(ctx, wfStar, allow, attrs)
+		final, err := runner.Execute(ctx, wfStar, allow, attrs, nil)
 		if err != nil {
 			log.Fatal().Err(err).Msg("warpp")
 		}

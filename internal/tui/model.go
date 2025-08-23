@@ -755,7 +755,7 @@ func (m *Model) runWARPPDemo(user string) tea.Cmd {
 			}
 		}
 		// Stage 3: execution
-		finalText, err := runner.Execute(m.ctx, wfStar, allow, attrs)
+		finalText, err := runner.Execute(m.ctx, wfStar, allow, attrs, nil)
 		close(m.toolCh)
 		return runResult{text: finalText, err: err, events: events}
 	}

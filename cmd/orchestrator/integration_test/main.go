@@ -55,7 +55,8 @@ func main() {
 		CorrelationID: corr,
 		Workflow:      "noop",
 		ReplyTopic:    *responsesTopic,
-		Attrs:         map[string]any{"llm_transform": "hello"},
+		// noop.json expects ${A.query}
+		Attrs: map[string]any{"query": "hello"},
 	}
 	payload, err := json.Marshal(cmd)
 	if err != nil {

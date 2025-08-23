@@ -14,6 +14,9 @@ type Step struct {
 	Text  string   `json:"text"`
 	Guard string   `json:"guard,omitempty"`
 	Tool  *ToolRef `json:"tool,omitempty"`
+	// PublishResult controls whether the result payload of this step should
+	// be published to Kafka (or any configured publisher) as it completes.
+	PublishResult bool `json:"publish_result,omitempty"`
 }
 
 type ToolRef struct {

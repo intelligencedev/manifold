@@ -9,10 +9,11 @@
       "tool": {
         "name": "llm_transform",
         "args": {
-          "instruction": "Simply return a greeting",
+          "instruction": "You are a helpful assistant.",
           "input": "${A.query}"
         }
-      }
+      },
+      "publish_result": true
     }
   ]
 }

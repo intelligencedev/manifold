@@ -16,7 +16,8 @@ import (
 // must be JSON-serializable.
 type Runner interface {
 	// Execute runs the workflow and returns a JSON-serializable result or an error.
-	Execute(ctx context.Context, workflow string, attrs map[string]any) (map[string]any, error)
+	// The publish function may be used by the runner to emit per-step results.
+	Execute(ctx context.Context, workflow string, attrs map[string]any, publish func(ctx context.Context, stepID string, payload []byte) error) (map[string]any, error)
 }
 
 // Producer abstracts the kafka writer behavior needed by the handler.
@@ -119,7 +120,32 @@ func HandleCommandMessage(
 	runCtx, cancel := context.WithTimeout(ctx, workflowTimeout)
 	defer cancel()
 
-	result, err := runner.Execute(runCtx, workflow, cmd.Attrs)
+	// Build a publisher closure that the runner can call for per-step results.
+	publishFn := func(pctx context.Context, stepID string, payload []byte) error {
+		// Extract original query from command attrs (prefer query, then utter, then echo)
+		var origQuery string
+		if cmd.Attrs != nil {
+			if q, ok := cmd.Attrs["query"]; ok {
+				origQuery = fmt.Sprintf("%v", q)
+			} else if u, ok := cmd.Attrs["utter"]; ok {
+				origQuery = fmt.Sprintf("%v", u)
+			} else if e, ok := cmd.Attrs["echo"]; ok {
+				origQuery = fmt.Sprintf("%v", e)
+			}
+		}
+		// Construct a simple envelope for step results including the original query.
+		env := ResponseEnvelope{CorrelationID: corrID, Status: "step_result", Result: map[string]any{"step_id": stepID, "payload": string(payload), "query": origQuery}}
+		b, _ := json.Marshal(env)
+		// Use the reply topic for step results. Failures here are best-effort
+		// and should not abort workflow execution; log on error.
+		if werr := producer.WriteMessages(pctx, kafka.Message{Topic: replyTopic, Key: []byte(corrID), Value: b}); werr != nil {
+			log.Printf("failed to publish step result (corr_id=%s step=%s): %v", corrID, stepID, werr)
+			return werr
+		}
+		return nil
+	}
+
+	result, err := runner.Execute(runCtx, workflow, cmd.Attrs, publishFn)
 	if err != nil {
 		// Transient errors should bubble up; permanent errors go to DLQ here.
 		if isTransientError(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {

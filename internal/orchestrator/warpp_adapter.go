@@ -12,11 +12,11 @@ func NewWarppAdapter(r *warpp.Runner) Runner {
 	return &warppAdapter{runner: r}
 }
 
-type warppAdapter struct{
+type warppAdapter struct {
 	runner *warpp.Runner
 }
 
-func (a *warppAdapter) Execute(ctx context.Context, workflow string, attrs map[string]any) (map[string]any, error) {
+func (a *warppAdapter) Execute(ctx context.Context, workflow string, attrs map[string]any, publish func(ctx context.Context, stepID string, payload []byte) error) (map[string]any, error) {
 	if a.runner == nil {
 		return nil, fmt.Errorf("nil warpp runner")
 	}
@@ -42,7 +42,15 @@ func (a *warppAdapter) Execute(ctx context.Context, workflow string, attrs map[s
 		}
 	}
 	// Execute the personalized workflow
-	summary, err := a.runner.Execute(ctx, personalized, allowed, A)
+	// Map the orchestrator-level publish func to the warpp.StepPublisher signature.
+	var wp warpp.StepPublisher
+	if publish != nil {
+		wp = func(pctx context.Context, stepID string, payload []byte) error {
+			return publish(pctx, stepID, payload)
+		}
+	}
+
+	summary, err := a.runner.Execute(ctx, personalized, allowed, A, wp)
 	if err != nil {
 		return nil, err
 	}

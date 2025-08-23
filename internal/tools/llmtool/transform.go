@@ -59,7 +59,7 @@ func (t *Transform) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	msgs := make([]llm.Message, 0, 2)
 	sys := args.System
 	if sys == "" {
-		sys = "You are a helpful expert writer. Follow the user's instruction precisely and keep the output clean and concise unless asked for more detail."
+		sys = "You are a helpful assistant."
 	}
 	msgs = append(msgs, llm.Message{Role: "system", Content: sys})
 

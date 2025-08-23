@@ -119,7 +119,7 @@ func TestRunnerDetectPersonalizeExecute(t *testing.T) {
 		return map[string]any{"ok": true}, nil
 	}))
 
-	summary, err := runner.Execute(ctx, pw, allowed, A)
+	summary, err := runner.Execute(ctx, pw, allowed, A, nil)
 	if err != nil {
 		t.Fatalf("Execute error: %v", err)
 	}

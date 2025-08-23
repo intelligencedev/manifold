@@ -46,9 +46,14 @@ func (r *Runner) Personalize(ctx context.Context, w Workflow, A Attrs) (Workflow
 	if A == nil {
 		A = Attrs{}
 	}
-	// Basic attributes: echo utterance and use as a query
+	// Basic attributes: prefer an explicit "utter", then fall back to
+	// "echo" (used by some callers), then to an existing "query".
 	if _, ok := A["utter"]; !ok {
-		A["utter"] = A["query"]
+		if v, ok2 := A["echo"]; ok2 {
+			A["utter"] = v
+		} else if v2, ok3 := A["query"]; ok3 {
+			A["utter"] = v2
+		}
 	}
 	A["query"] = A["utter"]
 	A["os"] = runtime.GOOS
@@ -75,7 +80,12 @@ func (r *Runner) Personalize(ctx context.Context, w Workflow, A Attrs) (Workflow
 
 // Execute runs the personalized workflow, performing simple template substitution
 // on string arguments of the form ${A.key} using attributes.
-func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]bool, A Attrs) (string, error) {
+// StepPublisher is a function called when a step has a result to publish.
+// It should be best-effort: failures will be logged by callers but do not
+// necessarily abort workflow execution.
+type StepPublisher func(ctx context.Context, stepID string, payload []byte) error
+
+func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]bool, A Attrs, publish StepPublisher) (string, error) {
 	var summary strings.Builder
 	fmt.Fprintf(&summary, "WARPP: executing intent %s\n", w.Intent)
 	steps := 0
@@ -104,6 +114,15 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 		}
 		steps++
 		fmt.Fprintf(&summary, "- %s\n", s.Text)
+		// If step requests publishing of its result, call the publisher hook.
+		if s.PublishResult && publish != nil {
+			// Best-effort: log publish errors but continue execution.
+			if perr := publish(ctx, s.ID, payload); perr != nil {
+				// Use the package-level logger via fmt.Printf to avoid adding
+				// a logging dependency here.
+				fmt.Printf("step result publish failed (step=%s): %v\n", s.ID, perr)
+			}
+		}
 		// Opportunistically capture first_url from web_search result for later steps
 		if s.Tool.Name == "web_search" {
 			var resp struct {

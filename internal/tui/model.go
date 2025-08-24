@@ -65,6 +65,10 @@ type Model struct {
 	// specialists
 	specReg *specialists.Registry
 
+	// recorder
+	recorder  *Recorder
+	recording bool
+
 	// styles
 	userTag                lipgloss.Style
 	agentTag               lipgloss.Style
@@ -204,13 +208,28 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	// when rendering so headers (tabs) can blend into the panel borders.
 	m.leftVP.MouseWheelEnabled = true
 	m.rightVP.MouseWheelEnabled = true
+
+	// Initialize recorder for TUI (toggle with Ctrl+R). If initialization fails,
+	// recorder will be nil and the feature will be disabled.
+	if r, err := NewRecorder(16000); err == nil {
+		m.recorder = r
+	} else {
+		m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: fmt.Sprintf("Recorder disabled: %v", err)})
+	}
+
 	m.setView()
 	return m
 }
 
 func (m *Model) Init() tea.Cmd { return nil }
 
-func (m *Model) cleanup() {}
+func (m *Model) cleanup() {
+	// If recording when exiting, try to stop gracefully
+	if m.recorder != nil && m.recording {
+		_, _ = m.recorder.Stop()
+		m.recording = false
+	}
+}
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -226,6 +245,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.activePanel = "left"
 			}
+			return m, nil
+		case "ctrl+r":
+			// Toggle recording (press Ctrl+R to start, again to stop and save)
+			if m.recorder == nil {
+				m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Recorder not available on this system."})
+				m.setView()
+				return m, nil
+			}
+			if !m.recording {
+				if err := m.recorder.Start(); err != nil {
+					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "record start error: " + err.Error()})
+				} else {
+					m.recording = true
+					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Recording... (Ctrl+R to stop)"})
+				}
+			} else {
+				fname, err := m.recorder.Stop()
+				if err != nil {
+					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "record stop error: " + err.Error()})
+				} else {
+					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Saved recording: " + fname})
+				}
+				m.recording = false
+			}
+			m.setView()
 			return m, nil
 		case "enter":
 			if m.running {

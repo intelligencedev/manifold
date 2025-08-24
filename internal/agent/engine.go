@@ -64,6 +64,9 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 			if e.LLM != nil {
 				dispatchCtx = tools.WithProvider(ctx, e.LLM)
 			}
+
+			// Log the tool being called and its (redacted) args at the agent level.
+			observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).RawJSON("args", observability.RedactJSON(tc.Args)).Msg("engine_tool_call")
 			payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 			if err != nil {
 				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
@@ -137,6 +140,9 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			if e.LLM != nil {
 				dispatchCtx = tools.WithProvider(ctx, e.LLM)
 			}
+
+			// Log the tool being called and its (redacted) args at the agent level.
+			observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).RawJSON("args", observability.RedactJSON(tc.Args)).Msg("engine_tool_call")
 			payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 			if err != nil {
 				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))

@@ -48,6 +48,7 @@ func (r *Recorder) Start() error {
 	if err != nil {
 		return err
 	}
+
 	fname := uuid.New().String() + ".wav"
 	path := filepath.Join(cwd, fname)
 	f, err := os.Create(path)

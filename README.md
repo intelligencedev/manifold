@@ -290,33 +290,11 @@ go run ./cmd/agent -specialist code-reviewer -q "Review this function"
 - Router pre-dispatch:
   - The router matches input against `routes` and invokes the appropriate specialist automatically.
 
-embedctl
+whisper-go
 --------
-`embedctl` is a standalone command-line utility for generating text embeddings. It connects to any OpenAI-compatible embedding service and outputs vector representations of text.
-
-Basic usage:
-```bash
-go run ./cmd/embedctl/main.go -text "Hello world"
 ```
-
-Additional options:
-```bash
-# Read from stdin
-echo "Some text to embed" | go run ./cmd/embedctl/main.go -stdin
-
-# Override model
-go run ./cmd/embedctl/main.go -model "text-embedding-3-large" -text "Hello world"
+cd /Users/art/Documents/singularityio && ./run-whisper-go.sh -model /Users/art/Documents/code/whisper.cpp/bindings/go/models/ggml-small.en.bin /Users/art/Documents/singularityio/54521110-ad38-4885-b8c3-3b43bb1f4853.wav
 ```
-
-Requirements:
-- Set `EMBED_API_KEY` in your `.env` file or environment
-- Optionally configure `EMBED_BASE_URL`, `EMBED_MODEL`, etc. (see configuration section)
-
-Output format:
-- Returns a JSON array of float32 numbers representing the embedding vector
-- Example: `[0.123, -0.456, 0.789, ...]`
-
-Tools) for chat-based tool calling. It executes commands safely in a locked working directory, supports streaming, and integrates observability (structured logs, traces, metrics). It also supports optional specialists (alternate OpenAI-compatible endpoints) and a Model Context Protocol (MCP) client to expose external tools to the agent.
 
 Observability
 -------------

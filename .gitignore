@@ -28,6 +28,7 @@ vendor/
 # Build directories
 bin/
 build/
+tmp/
 
 # OS generated files
 .DS_Store
@@ -46,6 +47,7 @@ coverage.out
 # Misc
 *.tmp
 *.bak
+*.wav
 
 # Ignore by default all hidden files except .gitignore
 .*
@@ -56,10 +58,9 @@ dist/
 examples
 gptagent
 PLAN.md
-configs/specialists.yaml
-configs/config.yaml
 config.yaml
 agent-tui
 docs/multi-agent-rag.md
 CONTEXT.md
 kafka_plan.md
+ggml-small.en.bin

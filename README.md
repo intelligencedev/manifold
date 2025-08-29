@@ -4,10 +4,7 @@
 
 # SingularityIO
 
-An agentic CLI and TUI that uses OpenAI’s official Go SWARPP mode
-- WARPP is a workflow executor pattern: Intent detection  personalization  fulfillment with tool allow-listing.
-- It uses existing tools and will use minimalist defaults when workflows are absent.
-- Invoke with the CLI flag `-warpp`.
+An agentic CLI and TUI.
 
 Contents
 - About

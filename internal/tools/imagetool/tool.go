@@ -1,14 +1,20 @@
 package imagetool
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/gif"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"singularityio/internal/llm"
 	"singularityio/internal/llm/openai"
@@ -84,7 +90,68 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 	mime := http.DetectContentType(hdr[:n])
 
-	b64 := base64.StdEncoding.EncodeToString(content)
+	// Try to decode and resize the image in memory so the larger dimension is 512px.
+	// If decoding or encoding fails, fall back to the original bytes.
+	resizedBytes := content
+	if strings.HasPrefix(mime, "image/") {
+		if img, format, err := image.Decode(bytes.NewReader(content)); err == nil {
+			w := img.Bounds().Dx()
+			h := img.Bounds().Dy()
+			// compute target size so the smaller dimension becomes 512
+			var tw, th int
+			if w <= h {
+				// width is the smaller dimension -> set width to 512
+				tw = 512
+				th = int(float64(h) * (512.0 / float64(w)))
+				if th < 1 {
+					th = 1
+				}
+			} else {
+				// height is the smaller dimension -> set height to 512
+				th = 512
+				tw = int(float64(w) * (512.0 / float64(h)))
+				if tw < 1 {
+					tw = 1
+				}
+			}
+
+			// If already the required size, skip resizing
+			if !(w == tw && h == th) {
+				dst := image.NewRGBA(image.Rect(0, 0, tw, th))
+				// Use a simple nearest-neighbor scale to avoid an external dependency.
+				nearestNeighborScale(dst, img)
+
+				var buf bytes.Buffer
+				// Try to preserve original format when encoding; fallback to PNG for GIF/unknown
+				switch strings.ToLower(format) {
+				case "jpeg", "jpg":
+					_ = jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85})
+					mime = "image/jpeg"
+				case "png":
+					_ = png.Encode(&buf, dst)
+					mime = "image/png"
+				case "gif":
+					// gif.Encode will attempt to quantize; encode as GIF but if it fails, fall back to PNG
+					if err := gif.Encode(&buf, dst, nil); err != nil {
+						_ = png.Encode(&buf, dst)
+						mime = "image/png"
+					} else {
+						mime = "image/gif"
+					}
+				default:
+					// unknown: encode as PNG
+					_ = png.Encode(&buf, dst)
+					mime = "image/png"
+				}
+				// only replace resizedBytes if encoding succeeded
+				if buf.Len() > 0 {
+					resizedBytes = buf.Bytes()
+				}
+			}
+		}
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(resizedBytes)
 
 	// Build messages
 	sys := "You are a helpful image understanding assistant. Answer concisely and describe visual details, objects, colors, text, and any notable attributes."
@@ -131,4 +198,29 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
 	return map[string]any{"ok": true, "output": out.Content}, nil
+}
+
+// nearestNeighborScale scales src into dst using nearest-neighbor sampling.
+// dst must already be allocated with the target bounds.
+func nearestNeighborScale(dst *image.RGBA, src image.Image) {
+	sw := src.Bounds().Dx()
+	sh := src.Bounds().Dy()
+	dw := dst.Bounds().Dx()
+	dh := dst.Bounds().Dy()
+
+	for y := 0; y < dh; y++ {
+		// compute source y
+		sy := int(float64(y) * float64(sh) / float64(dh))
+		if sy >= sh {
+			sy = sh - 1
+		}
+		for x := 0; x < dw; x++ {
+			sx := int(float64(x) * float64(sw) / float64(dw))
+			if sx >= sw {
+				sx = sw - 1
+			}
+			c := src.At(src.Bounds().Min.X+sx, src.Bounds().Min.Y+sy)
+			dst.Set(x+dst.Bounds().Min.X, y+dst.Bounds().Min.Y, c)
+		}
+	}
 }

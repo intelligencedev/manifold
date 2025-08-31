@@ -69,4 +69,7 @@ make examples
 # Test the models (CoreML in this case)
 # Note we do not pass the -f named param for Go
 ./build/go-whisper -model models/ggml-small.en.bin 16bit.wav
+
+# How to run in this project (models must be staged manually)
+./run-whisper-go.sh -model ./models/ggml-small.en.bin ./test.wav
 ```

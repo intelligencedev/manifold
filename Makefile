@@ -12,22 +12,34 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 
 GOLANGCI_LINT_VERSION := v1.59.0
 
-.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean
+# Whisper.cpp paths
+WHISPER_CPP_DIR := external/whisper.cpp
+WHISPER_BUILD_DIR := $(WHISPER_CPP_DIR)/build_go
+WHISPER_BINDINGS_DIR := $(WHISPER_CPP_DIR)/bindings/go
+WHISPER_INCLUDE_DIR := $(WHISPER_CPP_DIR)/include
+WHISPER_LIB_DIR := $(WHISPER_BUILD_DIR)/src
+WHISPER_GGML_LIB_DIR := $(WHISPER_BUILD_DIR)/ggml/src
+
+.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean whisper-cpp whisper-go-bindings
+
+all: build
 
 help:
 	@echo "Available targets:"
-	@echo "  make tools        # install dev tools (goimports, golangci-lint)"
-	@echo "  make fmt          # format code with gofmt"
-	@echo "  make fmt-check    # check formatting"
-	@echo "  make imports-check# check imports with goimports"
-	@echo "  make vet          # run go vet"
-	@echo "  make lint         # run golangci-lint"
-	@echo "  make test         # run tests with -race and generate coverage.out"
-	@echo "  make build        # build host platform binaries into $(DIST)/"
-	@echo "  make cross        # build all platforms (tar/zip) into $(DIST)/"
-	@echo "  make checksums    # generate SHA256 checksums for artifacts in $(DIST)/"
-	@echo "  make ci           # run CI checks (fmt-check, imports-check, vet, lint, test)"
-	@echo "  make clean        # clean $(DIST) and coverage.out"
+	@echo "  make tools              # install dev tools (goimports, golangci-lint)"
+	@echo "  make whisper-cpp        # build Whisper.cpp library"
+	@echo "  make whisper-go-bindings# build Go bindings for Whisper.cpp"
+	@echo "  make fmt                # format code with gofmt"
+	@echo "  make fmt-check          # check formatting"
+	@echo "  make imports-check      # check imports with goimports"
+	@echo "  make vet                # run go vet"
+	@echo "  make lint               # run golangci-lint"
+	@echo "  make test               # run tests with -race and generate coverage.out"
+	@echo "  make build              # build host platform binaries into $(DIST)/ (includes Whisper)"
+	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/ (includes Whisper)"
+	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
+	@echo "  make ci                 # run CI checks (fmt-check, imports-check, vet, lint, test)"
+	@echo "  make clean              # clean $(DIST) and coverage.out"
 
 # Install developer tools
 tools:
@@ -37,6 +49,26 @@ tools:
 	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)"
 	GOFLAGS= go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "Done"
+
+# Build Whisper.cpp library
+whisper-cpp:
+	@echo "Building Whisper.cpp library..."
+	@if [ ! -d "$(WHISPER_CPP_DIR)" ]; then \
+		echo "Error: $(WHISPER_CPP_DIR) not found. Make sure the submodule is initialized."; \
+		exit 1; \
+	fi
+	cd $(WHISPER_CPP_DIR) && make build
+	@echo "Whisper.cpp library built successfully"
+
+# Build Go bindings for Whisper.cpp
+whisper-go-bindings: whisper-cpp
+	@echo "Building Go bindings for Whisper.cpp..."
+	@if [ ! -d "$(WHISPER_BINDINGS_DIR)" ]; then \
+		echo "Error: $(WHISPER_BINDINGS_DIR) not found."; \
+		exit 1; \
+	fi
+	cd $(WHISPER_BINDINGS_DIR) && make
+	@echo "Go bindings built successfully"
 
 fmt:
 	gofmt -w .
@@ -64,19 +96,22 @@ ci: fmt-check imports-check vet lint test
 	@echo "CI checks passed"
 
 # Build binaries for host platform. Builds each cmd/* directory (if present)
-build: clean | $(DIST)
+build: clean whisper-go-bindings | $(DIST)
 	@echo "Building host platform binaries into $(DIST)/"
 	for b in $(BINS); do \
 		out=$(DIST)/$$b; \
 		echo "Building $$b -> $$out"; \
+		C_INCLUDE_PATH=$(WHISPER_INCLUDE_DIR) \
+		LIBRARY_PATH=$(WHISPER_LIB_DIR):$(WHISPER_GGML_LIB_DIR):$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas:$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal \
 		go build -o "$$out" ./cmd/$$b; \
 	done
 	@echo "Host build complete"
 
 # Cross compile all platforms and package them into $(DIST)/
 # Option A: single job builds all platforms (do not run cross in parallel across jobs)
-cross: clean | $(DIST)
+cross: clean whisper-go-bindings | $(DIST)
 	@echo "Cross-building for: $(PLATFORMS)"
+	@echo "Note: CGO-dependent binaries (like agent-tui with Whisper) will be skipped in cross-compilation"
 	set -e
 	for plat in $(PLATFORMS); do \
 		os=$${plat%%/*}; arch=$${plat##*/}; \
@@ -85,6 +120,11 @@ cross: clean | $(DIST)
 			outfile=$${b}; \
 			if [ "$${os}" = "windows" ]; then outfile=$${b}.exe; fi; \
 			echo "Building $$b for $${os}/$${arch} -> $(DIST)/$${os}_$${arch}/$$outfile"; \
+			# Skip CGO-dependent binaries in cross-compilation \
+			if [ "$$b" = "agent-tui" ]; then \
+				echo "Skipping $$b (CGO-dependent) for cross-compilation"; \
+				continue; \
+			fi; \
 			CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} go build -o "$(DIST)/$${os}_$${arch}/$$outfile" ./cmd/$$b; \
 		done; \
 		# Package per-platform directory
@@ -119,4 +159,5 @@ $(DIST):
 
 clean:
 	rm -rf $(DIST) coverage.out || true
+	rm -rf $(WHISPER_CPP_DIR)/build $(WHISPER_CPP_DIR)/build_go $(WHISPER_BINDINGS_DIR)/build_go || true
 	@echo "Cleaned"

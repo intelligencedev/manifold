@@ -33,6 +33,8 @@ import (
 	specialists_tool "singularityio/internal/tools/specialists"
 	"singularityio/internal/tools/web"
 	"singularityio/internal/warpp"
+
+	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 )
 
 type Model struct {
@@ -68,6 +70,10 @@ type Model struct {
 	// recorder
 	recorder  *Recorder
 	recording bool
+
+	// whisper
+	whisperModel whisper.Model
+	whisperCtx   whisper.Context
 
 	// styles
 	userTag                lipgloss.Style
@@ -217,6 +223,20 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: fmt.Sprintf("Recorder disabled: %v", err)})
 	}
 
+	// Initialize Whisper model for speech-to-text
+	modelPath := "/Users/art/Documents/singularityio/models/ggml-small.en.bin"
+	if model, err := whisper.New(modelPath); err == nil {
+		m.whisperModel = model
+		if ctx, err := model.NewContext(); err == nil {
+			m.whisperCtx = ctx
+			ctx.SetLanguage("en")
+		} else {
+			m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: fmt.Sprintf("Whisper context creation failed: %v", err)})
+		}
+	} else {
+		m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: fmt.Sprintf("Whisper model load failed: %v", err)})
+	}
+
 	m.setView()
 	return m
 }
@@ -228,6 +248,13 @@ func (m *Model) cleanup() {
 	if m.recorder != nil && m.recording {
 		_, _ = m.recorder.Stop()
 		m.recording = false
+	}
+	// Close Whisper resources
+	if m.whisperCtx != nil {
+		// Context doesn't have Close, but Model does
+	}
+	if m.whisperModel != nil {
+		m.whisperModel.Close()
 	}
 }
 
@@ -261,11 +288,42 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Recording... (Ctrl+R to stop)"})
 				}
 			} else {
-				fname, err := m.recorder.Stop()
+				_, err := m.recorder.Stop()
 				if err != nil {
 					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "record stop error: " + err.Error()})
 				} else {
-					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Saved recording: " + fname})
+					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Processing speech..."})
+					// Process with Whisper synchronously
+					samples := m.recorder.GetFloatSamples()
+					if len(samples) > 0 && m.whisperCtx != nil {
+						err := m.whisperCtx.Process(samples, nil, nil, nil)
+						if err == nil {
+							var text strings.Builder
+							for {
+								segment, err := m.whisperCtx.NextSegment()
+								if err != nil {
+									break
+								}
+								text.WriteString(segment.Text)
+							}
+							transcribedText := strings.TrimSpace(text.String())
+							if transcribedText != "" {
+								// Insert into input field
+								current := m.input.Value()
+								if current != "" {
+									current += " "
+								}
+								m.input.SetValue(current + transcribedText)
+								m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Speech transcribed and inserted into prompt."})
+							} else {
+								m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "No speech detected."})
+							}
+						} else {
+							m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Whisper processing error: " + err.Error()})
+						}
+					} else {
+						m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "No audio samples or Whisper not available."})
+					}
 				}
 				m.recording = false
 			}

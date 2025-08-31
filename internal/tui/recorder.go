@@ -24,6 +24,7 @@ type Recorder struct {
 	running         bool
 	outfile         *os.File
 	samples         []int16
+	floatSamples    []float32 // For Whisper processing
 }
 
 // NewRecorder creates a recorder configured to capture at the given sampleRate.
@@ -81,7 +82,8 @@ func (r *Recorder) Start() error {
 	r.buf = in
 	r.running = true
 	r.outfile = f
-	r.samples = nil // reset samples buffer
+	r.samples = nil      // reset samples buffer
+	r.floatSamples = nil // reset float samples buffer
 
 	// spawn a goroutine to read samples until stopped
 	go func() {
@@ -95,6 +97,10 @@ func (r *Recorder) Start() error {
 			// append samples to our buffer
 			r.Lock()
 			r.samples = append(r.samples, r.buf...)
+			// Convert int16 to float32 for Whisper
+			for _, sample := range r.buf {
+				r.floatSamples = append(r.floatSamples, float32(sample)/32768.0)
+			}
 			r.Unlock()
 
 			// check running flag periodically
@@ -188,6 +194,16 @@ func (r *Recorder) Stop() (string, error) {
 		return "", fmt.Errorf("unknown output file")
 	}
 	return fname, nil
+}
+
+// GetFloatSamples returns the recorded samples as float32 for Whisper processing
+func (r *Recorder) GetFloatSamples() []float32 {
+	r.Lock()
+	defer r.Unlock()
+	// Return a copy to avoid race conditions
+	samples := make([]float32, len(r.floatSamples))
+	copy(samples, r.floatSamples)
+	return samples
 }
 
 // Close terminates PortAudio and cleans up resources

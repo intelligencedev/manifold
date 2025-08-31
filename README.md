@@ -321,13 +321,90 @@ Security
 
 Development
 -----------
-- Build:
-  - `go build ./...`
-- Test:
-  - `go test ./...`
-- Lint/Vet:
-  - `go vet ./...`
-- Go version: 1.21+
+
+### Build
+
+SingularityIO uses a comprehensive build system that includes Whisper.cpp for speech-to-text functionality in the TUI.
+
+#### Quick Build (Recommended)
+
+```bash
+# Build all binaries with Whisper support
+make build
+
+# Or build individual components
+make whisper-cpp        # Build Whisper.cpp library
+make whisper-go-bindings # Build Go bindings
+```
+
+#### Manual Build
+
+If you prefer manual control:
+
+1. **Build Whisper.cpp library:**
+
+   ```bash
+   cd external/whisper.cpp
+   make build
+   ```
+
+2. **Build Go bindings:**
+
+   ```bash
+   cd external/whisper.cpp/bindings/go
+   make
+   ```
+
+3. **Build Go binaries with proper environment:**
+
+   ```bash
+   C_INCLUDE_PATH=external/whisper.cpp/include \
+   LIBRARY_PATH=external/whisper.cpp/build_go/src:external/whisper.cpp/build_go/ggml/src:external/whisper.cpp/build_go/ggml/src/ggml-blas:external/whisper.cpp/build_go/ggml/src/ggml-metal \
+   go build ./cmd/agent-tui
+   ```
+
+#### Available Make Targets
+
+- `make build` - Build all binaries (includes Whisper)
+- `make whisper-cpp` - Build Whisper.cpp library
+- `make whisper-go-bindings` - Build Go bindings for Whisper
+- `make cross` - Cross-compile for multiple platforms (CGO binaries skipped)
+- `make clean` - Clean all build artifacts
+- `make test` - Run tests
+- `make fmt` - Format code
+- `make lint` - Run linters
+- `make tools` - Install development tools
+
+#### Build Requirements
+
+- Go 1.21+
+- CMake (for Whisper.cpp)
+- C/C++ compiler (Xcode on macOS, GCC/Clang on Linux)
+- For speech-to-text: Whisper model file at `models/ggml-small.en.bin`
+
+#### Build Notes
+
+- The TUI binary (`agent-tui`) includes Whisper integration and will be ~50MB
+- Cross-compilation skips CGO-dependent binaries like `agent-tui`
+- Whisper models are not included in the build; download separately if needed
+
+### Test
+
+```bash
+go test ./...
+```
+
+### Lint/Vet
+
+```bash
+go vet ./...
+make lint  # Requires golangci-lint
+```
+
+### Go Version
+
+- Minimum: Go 1.21+
+- Recommended: Go 1.24+
 
 Docker
 ------

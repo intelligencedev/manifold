@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gordonklaus/portaudio"
 )
 
@@ -37,7 +36,7 @@ func NewRecorder(sampleRate float64) (*Recorder, error) {
 		sampleRate:      sampleRate,
 		framesPerBuffer: 1024,
 	}, nil
-} // Start begins recording to a UUID-named .wav file in the current working directory.
+} // Start begins recording to a prompt.wav file in the ./tmp directory.
 func (r *Recorder) Start() error {
 	r.Lock()
 	defer r.Unlock()
@@ -50,8 +49,12 @@ func (r *Recorder) Start() error {
 		return err
 	}
 
-	fname := uuid.New().String() + ".wav"
-	path := filepath.Join(cwd, fname)
+	fname := "prompt.wav"
+	path := filepath.Join(cwd, "tmp", fname)
+	// Ensure the tmp directory exists
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("create tmp dir: %w", err)
+	}
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create file: %w", err)
@@ -126,7 +129,7 @@ func (r *Recorder) Start() error {
 	return nil
 }
 
-// Stop ends recording and returns the saved filename. Note: the implementation
+// Stop ends recording and returns the saved filename "./tmp/prompt.wav". Note: the implementation
 // currently writes directly to the file and closes it; we return the filename
 // that was created. If called when not recording, error is returned.
 func (r *Recorder) Stop() (string, error) {
@@ -193,7 +196,7 @@ func (r *Recorder) Stop() (string, error) {
 	if fname == "" {
 		return "", fmt.Errorf("unknown output file")
 	}
-	return fname, nil
+	return "./tmp/prompt.wav", nil
 }
 
 // GetFloatSamples returns the recorded samples as float32 for Whisper processing

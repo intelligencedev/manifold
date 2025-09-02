@@ -295,31 +295,38 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Processing speech..."})
 					// Process with Whisper synchronously
 					samples := m.recorder.GetFloatSamples()
-					if len(samples) > 0 && m.whisperCtx != nil {
-						err := m.whisperCtx.Process(samples, nil, nil, nil)
-						if err == nil {
-							var text strings.Builder
-							for {
-								segment, err := m.whisperCtx.NextSegment()
-								if err != nil {
-									break
+					if len(samples) > 0 && m.whisperModel != nil {
+						// Recreate context for each processing to ensure clean state
+						if ctx, err := m.whisperModel.NewContext(); err == nil {
+							m.whisperCtx = ctx
+							ctx.SetLanguage("en")
+							err := ctx.Process(samples, nil, nil, nil)
+							if err == nil {
+								var text strings.Builder
+								for {
+									segment, err := ctx.NextSegment()
+									if err != nil {
+										break
+									}
+									text.WriteString(segment.Text)
 								}
-								text.WriteString(segment.Text)
-							}
-							transcribedText := strings.TrimSpace(text.String())
-							if transcribedText != "" {
-								// Insert into input field
-								current := m.input.Value()
-								if current != "" {
-									current += " "
+								transcribedText := strings.TrimSpace(text.String())
+								if transcribedText != "" {
+									// Insert into input field
+									current := m.input.Value()
+									if current != "" {
+										current += " "
+									}
+									m.input.SetValue(current + transcribedText)
+									m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Speech transcribed and inserted into prompt."})
+								} else {
+									m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "No speech detected."})
 								}
-								m.input.SetValue(current + transcribedText)
-								m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Speech transcribed and inserted into prompt."})
 							} else {
-								m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "No speech detected."})
+								m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Whisper processing error: " + err.Error()})
 							}
 						} else {
-							m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Whisper processing error: " + err.Error()})
+							m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "Whisper context creation failed: " + err.Error()})
 						}
 					} else {
 						m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: "No audio samples or Whisper not available."})

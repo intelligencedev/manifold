@@ -19,7 +19,6 @@ import (
 
 	"singularityio/internal/config"
 	"singularityio/internal/observability"
-	"singularityio/internal/tools"
 )
 
 // Tool implements a simple TTS tool that calls the OpenAI /v1/audio/speech endpoint.
@@ -99,24 +98,25 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		format = "wav"
 	}
 
-	// Determine base URL and API key: prefer provider in context if present.
+	// Determine base URL and API key
+	// For TTS, we prioritize the explicit TTS configuration over provider context
+	// since TTS might use a different endpoint than the main LLM
 	baseURL := t.cfg.TTS.BaseURL
 	apiKey := t.cfg.OpenAI.APIKey
-	if p := tools.ProviderFromContext(ctx); p != nil {
-		// attempt to extract base URL and api key via type assertion to known openai provider
-		// If provider doesn't expose these, fall back to config values.
-		_ = p // best-effort: provider not inspected here, keep existing cfg values
-	}
 
+	logger.Debug().Str("config_tts_baseURL", t.cfg.TTS.BaseURL).Str("config_openai_baseURL", t.cfg.OpenAI.BaseURL).Msg("tts_config_urls")
+
+	// Only fall back to OpenAI config if no TTS-specific config is provided
 	if baseURL == "" {
-		// fall back to OpenAI base URL
 		baseURL = t.cfg.OpenAI.BaseURL
+		logger.Debug().Str("using_openai_baseURL", baseURL).Msg("tts_fallback_to_openai")
 	}
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
+		logger.Debug().Msg("tts_using_default_openai")
 	}
 
-	logger.Debug().Str("baseURL", baseURL).Msg("tts_request")
+	logger.Debug().Str("final_baseURL", baseURL).Msg("tts_request")
 
 	// Build request URL (ensure no double slashes)
 	reqURL := strings.TrimRight(baseURL, "/") + "/v1/audio/speech"

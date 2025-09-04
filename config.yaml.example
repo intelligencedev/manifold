@@ -13,7 +13,7 @@ openai:
     prompt_cache_key: singularityio-
 
 # Text-to-Speech (TTS) defaults. Can be overridden via environment variables:
-# TTS_BASE_URL, TTS_MODEL, TTS_VOICE, TTS_FORMAT
+# TTS_BASE_URL, TTS_MODEL, TTS_VOICE
 tts:
   # Optional base URL for TTS endpoint. Requests will be sent to
   # ${baseURL}/v1/audio/speech
@@ -22,8 +22,6 @@ tts:
   model: gpt-4o-mini-tts
   # Default voice name (gateway-specific; optional)
   voice: alloy
-  # Default audio format to request (wav|mp3)
-  format: wav
 
 # Enable or disable tool usage at the top level. When true, registered tools
 # will be exposed to the main orchestrator.

@@ -55,7 +55,6 @@ func Load() (Config, error) {
 	cfg.TTS.BaseURL = strings.TrimSpace(os.Getenv("TTS_BASE_URL"))
 	cfg.TTS.Model = strings.TrimSpace(os.Getenv("TTS_MODEL"))
 	cfg.TTS.Voice = strings.TrimSpace(os.Getenv("TTS_VOICE"))
-	cfg.TTS.Format = strings.TrimSpace(os.Getenv("TTS_FORMAT"))
 
 	// Summary configuration via env
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_ENABLED")); v != "" {
@@ -491,9 +490,6 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.TTS.Voice == "" && strings.TrimSpace(w.TTS.Voice) != "" {
 			cfg.TTS.Voice = strings.TrimSpace(w.TTS.Voice)
-		}
-		if cfg.TTS.Format == "" && strings.TrimSpace(w.TTS.Format) != "" {
-			cfg.TTS.Format = strings.TrimSpace(w.TTS.Format)
 		}
 		return nil
 	}

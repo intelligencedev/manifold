@@ -52,8 +52,6 @@ type TTSConfig struct {
 	Model string `yaml:"model" json:"model"`
 	// Voice is the default voice name to request from the TTS endpoint.
 	Voice string `yaml:"voice" json:"voice"`
-	// Format is the default audio container (e.g. wav, mp3).
-	Format string `yaml:"format" json:"format"`
 }
 
 type ExecConfig struct {

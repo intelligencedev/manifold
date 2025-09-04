@@ -45,10 +45,9 @@ func (t *Tool) JSONSchema() map[string]any {
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"text":   map[string]any{"type": "string", "description": "Text to synthesize"},
-				"model":  map[string]any{"type": "string", "description": "TTS model to use (optional)"},
-				"voice":  map[string]any{"type": "string", "description": "Voice name (optional)"},
-				"format": map[string]any{"type": "string", "description": "Audio format (e.g. wav, mp3). Optional."},
+				"text":  map[string]any{"type": "string", "description": "Text to synthesize"},
+				"model": map[string]any{"type": "string", "description": "TTS model to use (optional)"},
+				"voice": map[string]any{"type": "string", "description": "Voice name (optional)"},
 			},
 			"required": []string{"text"},
 		},
@@ -59,10 +58,9 @@ func (t *Tool) JSONSchema() map[string]any {
 // endpoints. We send a simple JSON payload; some gateways may require
 // multipart/form-data instead. Adjust if needed for a specific gateway.
 type callBody struct {
-	Model  string `json:"model,omitempty"`
-	Voice  string `json:"voice,omitempty"`
-	Format string `json:"format,omitempty"`
-	Input  string `json:"input"`
+	Model string `json:"model,omitempty"`
+	Voice string `json:"voice,omitempty"`
+	Input string `json:"input"`
 }
 
 func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -78,7 +76,6 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	modelArg, _ := args["model"].(string)
 	voice, _ := args["voice"].(string)
-	format, _ := args["format"].(string)
 
 	// Apply defaults from config when not provided in-call
 	model := modelArg
@@ -90,12 +87,6 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	if voice == "" {
 		voice = t.cfg.TTS.Voice
-	}
-	if format == "" {
-		format = t.cfg.TTS.Format
-	}
-	if format == "" {
-		format = "wav"
 	}
 
 	// Determine base URL and API key
@@ -121,7 +112,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	// Build request URL (ensure no double slashes)
 	reqURL := strings.TrimRight(baseURL, "/") + "/v1/audio/speech"
 
-	body := callBody{Model: model, Voice: voice, Format: format, Input: text}
+	body := callBody{Model: model, Voice: voice, Input: text}
 	b, _ := json.Marshal(body)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(string(b)))
@@ -158,17 +149,17 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 
 	// Detect actual audio format from content
-	actualFormat := format
+	actualFormat := "wav"
 	if len(audio) >= 4 {
 		// Check for WAV signature (RIFF)
 		if string(audio[0:4]) == "RIFF" && len(audio) >= 12 && string(audio[8:12]) == "WAVE" {
 			actualFormat = "wav"
-			logger.Debug().Str("requested_format", format).Str("detected_format", "wav").Msg("tts_format_detection")
+			logger.Debug().Str("detected_format", "wav").Msg("tts_format_detection")
 		} else if len(audio) >= 3 && (audio[0] == 0xFF && audio[1] == 0xFB) ||
 			(audio[0] == 0xFF && audio[1] == 0xFA) ||
 			(string(audio[0:3]) == "ID3") {
 			actualFormat = "mp3"
-			logger.Debug().Str("requested_format", format).Str("detected_format", "mp3").Msg("tts_format_detection")
+			logger.Debug().Str("detected_format", "mp3").Msg("tts_format_detection")
 		}
 	}
 

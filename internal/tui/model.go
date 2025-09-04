@@ -31,6 +31,7 @@ import (
 	"singularityio/internal/tools/imagetool"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
+	"singularityio/internal/tools/tts"
 	"singularityio/internal/tools/web"
 	"singularityio/internal/warpp"
 
@@ -134,6 +135,13 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	registry.Register(web.NewFetchTool())
 
+	// Create HTTP client for TTS tool
+	httpClient := observability.NewHTTPClient(nil)
+	if len(cfg.OpenAI.ExtraHeaders) > 0 {
+		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
+	}
+	registry.Register(tts.New(cfg, httpClient))
+
 	// Database tools
 	if mgr, err := databases.NewManager(ctx, cfg.Databases); err == nil {
 		registry.Register(db.NewSearchIndexTool(mgr.Search))
@@ -166,6 +174,25 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	// MCP tools
 	mcpMgr := mcpclient.NewManager()
 	_ = mcpMgr.RegisterFromConfig(ctx, registry, cfg.MCP)
+
+	// If tools are globally disabled, use an empty registry
+	if !cfg.EnableTools {
+		registry = tools.NewRegistry() // Empty registry
+	} else if len(cfg.ToolAllowList) > 0 {
+		// Apply tool filtering exactly like cmd/agent/main.go
+		registry = tools.NewFilteredRegistry(registry, cfg.ToolAllowList)
+	}
+
+	// Debug: log which tools are exposed after any filtering (matches cmd/agent/main.go)
+	{
+		names := make([]string, 0, len(registry.Schemas()))
+		for _, s := range registry.Schemas() {
+			names = append(names, s.Name)
+		}
+		// Using fmt.Printf since TUI may not have structured logging initialized
+		fmt.Printf("TUI tool_registry_contents: enableTools=%t allowList=%v tools=%v\n",
+			cfg.EnableTools, cfg.ToolAllowList, names)
+	}
 
 	// Engine setup (matches cmd/agent wiring)
 	eng := agent.Engine{

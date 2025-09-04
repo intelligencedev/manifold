@@ -51,6 +51,11 @@ func Load() (Config, error) {
 	cfg.Obs.OTLP = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 
 	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
+	// TTS defaults (optional)
+	cfg.TTS.BaseURL = strings.TrimSpace(os.Getenv("TTS_BASE_URL"))
+	cfg.TTS.Model = strings.TrimSpace(os.Getenv("TTS_MODEL"))
+	cfg.TTS.Voice = strings.TrimSpace(os.Getenv("TTS_VOICE"))
+	cfg.TTS.Format = strings.TrimSpace(os.Getenv("TTS_FORMAT"))
 
 	// Summary configuration via env
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_ENABLED")); v != "" {
@@ -304,6 +309,12 @@ func loadSpecialists(cfg *Config) error {
 		Path           string `yaml:"path"`
 		TimeoutSeconds int    `yaml:"timeoutSeconds"`
 	}
+	type ttsYAML struct {
+		BaseURL string `yaml:"baseURL"`
+		Model   string `yaml:"model"`
+		Voice   string `yaml:"voice"`
+		Format  string `yaml:"format"`
+	}
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
@@ -322,6 +333,7 @@ func loadSpecialists(cfg *Config) error {
 		Databases        databasesYAML      `yaml:"databases"`
 		MCP              mcpYAML            `yaml:"mcp"`
 		Embedding        embeddingYAML      `yaml:"embedding"`
+		TTS              ttsYAML            `yaml:"tts"`
 		EnableTools      *bool              `yaml:"enableTools"`
 	}
 	var w wrap
@@ -469,6 +481,19 @@ func loadSpecialists(cfg *Config) error {
 		// Global enableTools only if not set via env (env takes precedence)
 		if !cfg.EnableTools && w.EnableTools != nil {
 			cfg.EnableTools = *w.EnableTools
+		}
+		// TTS defaults from YAML if not set by env
+		if cfg.TTS.BaseURL == "" && strings.TrimSpace(w.TTS.BaseURL) != "" {
+			cfg.TTS.BaseURL = strings.TrimSpace(w.TTS.BaseURL)
+		}
+		if cfg.TTS.Model == "" && strings.TrimSpace(w.TTS.Model) != "" {
+			cfg.TTS.Model = strings.TrimSpace(w.TTS.Model)
+		}
+		if cfg.TTS.Voice == "" && strings.TrimSpace(w.TTS.Voice) != "" {
+			cfg.TTS.Voice = strings.TrimSpace(w.TTS.Voice)
+		}
+		if cfg.TTS.Format == "" && strings.TrimSpace(w.TTS.Format) != "" {
+			cfg.TTS.Format = strings.TrimSpace(w.TTS.Format)
 		}
 		return nil
 	}

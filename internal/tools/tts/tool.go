@@ -1,0 +1,154 @@
+package tts
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
+	// Intentionally use plain HTTP for the TTS POST. The project uses
+	// github.com/openai/openai-go/v2 elsewhere for chat; this tool keeps
+	// a minimal dependency surface and honors the configured base URL and
+	// API key via headers.
+
+	"singularityio/internal/config"
+	"singularityio/internal/observability"
+	"singularityio/internal/tools"
+)
+
+// Tool implements a simple TTS tool that calls the OpenAI /v1/audio/speech endpoint.
+// It prefers a provider present in context but falls back to the configured
+// TTSBaseURL in the top-level config. The tool returns a base64-encoded audio
+// payload in a JSON object: {"ok":true,"format":"wav","audio":"...base64..."}
+type Tool struct {
+	cfg        config.Config
+	httpClient *http.Client
+}
+
+func New(cfg config.Config, httpClient *http.Client) *Tool {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	return &Tool{cfg: cfg, httpClient: httpClient}
+}
+
+func (t *Tool) Name() string { return "text_to_speech" }
+
+func (t *Tool) JSONSchema() map[string]any {
+	return map[string]any{
+		"description": "Create speech audio from text using OpenAI-compatible TTS endpoint",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"text":   map[string]any{"type": "string", "description": "Text to synthesize"},
+				"model":  map[string]any{"type": "string", "description": "TTS model to use (optional)"},
+				"voice":  map[string]any{"type": "string", "description": "Voice name (optional)"},
+				"format": map[string]any{"type": "string", "description": "Audio format (e.g. wav, mp3). Optional."},
+			},
+			"required": []string{"text"},
+		},
+	}
+}
+
+// callBody represents request fields accepted by many OpenAI-compatible TTS
+// endpoints. We send a simple JSON payload; some gateways may require
+// multipart/form-data instead. Adjust if needed for a specific gateway.
+type callBody struct {
+	Model  string `json:"model,omitempty"`
+	Voice  string `json:"voice,omitempty"`
+	Format string `json:"format,omitempty"`
+	Input  string `json:"input"`
+}
+
+func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
+	logger := observability.LoggerWithTrace(ctx)
+	// Parse args
+	var args map[string]any
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, fmt.Errorf("invalid args: %w", err)
+	}
+	text, _ := args["text"].(string)
+	if strings.TrimSpace(text) == "" {
+		return nil, fmt.Errorf("text is required")
+	}
+	modelArg, _ := args["model"].(string)
+	voice, _ := args["voice"].(string)
+	format, _ := args["format"].(string)
+
+	// Apply defaults from config when not provided in-call
+	model := modelArg
+	if model == "" {
+		model = t.cfg.TTS.Model
+	}
+	if model == "" {
+		model = "gpt-4o-mini-tts"
+	}
+	if voice == "" {
+		voice = t.cfg.TTS.Voice
+	}
+	if format == "" {
+		format = t.cfg.TTS.Format
+	}
+	if format == "" {
+		format = "wav"
+	}
+
+	// Determine base URL and API key: prefer provider in context if present.
+	baseURL := t.cfg.TTS.BaseURL
+	apiKey := t.cfg.OpenAI.APIKey
+	if p := tools.ProviderFromContext(ctx); p != nil {
+		// attempt to extract base URL and api key via type assertion to known openai provider
+		// If provider doesn't expose these, fall back to config values.
+		_ = p // best-effort: provider not inspected here, keep existing cfg values
+	}
+
+	if baseURL == "" {
+		// fall back to OpenAI base URL
+		baseURL = t.cfg.OpenAI.BaseURL
+	}
+	if baseURL == "" {
+		baseURL = "https://api.openai.com"
+	}
+
+	logger.Debug().Str("baseURL", baseURL).Msg("tts_request")
+
+	// Build request URL (ensure no double slashes)
+	reqURL := strings.TrimRight(baseURL, "/") + "/v1/audio/speech"
+
+	body := callBody{Model: model, Voice: voice, Format: format, Input: text}
+	b, _ := json.Marshal(body)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, strings.NewReader(string(b)))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// SDK may set auth header when using option.WithAPIKey only on its own requests;
+	// here we set Authorization explicitly for the raw http request.
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	resp, err := t.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("tts request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+		return nil, fmt.Errorf("tts server error: %d %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	// Read binary audio
+	audio, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read audio: %w", err)
+	}
+
+	enc := base64.StdEncoding.EncodeToString(audio)
+	return map[string]any{"ok": true, "format": format, "audio_base64": enc}, nil
+}

@@ -23,6 +23,7 @@ import (
 	"singularityio/internal/tools/db"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
+	"singularityio/internal/tools/tts"
 	"singularityio/internal/tools/web"
 	"singularityio/internal/warpp"
 )
@@ -86,6 +87,8 @@ func main() {
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
 	registry.Register(web.NewFetchTool())              // provides web_fetch
+	// TTS tool
+	registry.Register(tts.New(cfg, httpClient))
 
 	// DB tools
 	registry.Register(db.NewSearchIndexTool(mgr.Search))
@@ -109,10 +112,23 @@ func main() {
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
 	registry.Register(specialists_tool.New(specReg))
 
-	// If a top-level tool allow-list is configured, expose only those tools
-	// to the main orchestrator agent by wrapping the registry.
-	if len(cfg.ToolAllowList) > 0 {
+	// If tools are globally disabled, use an empty registry
+	if !cfg.EnableTools {
+		registry = tools.NewRegistry() // Empty registry
+	} else if len(cfg.ToolAllowList) > 0 {
+		// If a top-level tool allow-list is configured, expose only those tools
+		// to the main orchestrator agent by wrapping the registry.
 		registry = tools.NewFilteredRegistry(registry, cfg.ToolAllowList)
+	}
+
+	// Debug: log which tools are exposed after any filtering so we can diagnose
+	// missing tool registrations at runtime.
+	{
+		names := make([]string, 0, len(registry.Schemas()))
+		for _, s := range registry.Schemas() {
+			names = append(names, s.Name)
+		}
+		log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents")
 	}
 
 	// MCP: connect to configured servers and register their tools

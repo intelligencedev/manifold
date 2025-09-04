@@ -42,7 +42,14 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	var final string
 	for step := 0; step < e.MaxSteps; step++ {
 		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_step_start")
-		msg, err := e.LLM.Chat(ctx, msgs, e.Tools.Schemas(), e.model())
+		// Debug: log tool schemas being sent to LLM
+		schemas := e.Tools.Schemas()
+		toolNames := make([]string, len(schemas))
+		for i, s := range schemas {
+			toolNames[i] = s.Name
+		}
+		log.Info().Strs("tools_sent_to_llm", toolNames).Msg("engine_tools_before_chat")
+		msg, err := e.LLM.Chat(ctx, msgs, schemas, e.model())
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("engine_step_error")
 			return "", err
@@ -109,7 +116,14 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 		}
 
 		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_stream_step_start")
-		err := e.LLM.ChatStream(ctx, msgs, e.Tools.Schemas(), e.model(), handler)
+		// Debug: log tool schemas being sent to LLM for streaming
+		streamSchemas := e.Tools.Schemas()
+		streamToolNames := make([]string, len(streamSchemas))
+		for i, s := range streamSchemas {
+			streamToolNames[i] = s.Name
+		}
+		log.Info().Strs("tools_sent_to_llm_stream", streamToolNames).Msg("engine_tools_before_stream")
+		err := e.LLM.ChatStream(ctx, msgs, streamSchemas, e.model(), handler)
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
 			return "", err

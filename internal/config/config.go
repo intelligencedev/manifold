@@ -39,6 +39,21 @@ type Config struct {
 	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig
+	// TTS configures text-to-speech defaults and endpoint.
+	TTS TTSConfig `yaml:"tts" json:"tts"`
+}
+
+// TTSConfig holds text-to-speech specific configuration.
+type TTSConfig struct {
+	// BaseURL is the HTTP base for TTS requests. Requests will be POSTed to
+	// ${BaseURL}/v1/audio/speech if set.
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	// Model is the default TTS model to use when creating speech.
+	Model string `yaml:"model" json:"model"`
+	// Voice is the default voice name to request from the TTS endpoint.
+	Voice string `yaml:"voice" json:"voice"`
+	// Format is the default audio container (e.g. wav, mp3).
+	Format string `yaml:"format" json:"format"`
 }
 
 type ExecConfig struct {

@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/segmentio/kafka-go"
 
@@ -24,6 +25,7 @@ import (
 	"singularityio/internal/tools/db"
 	llmtools "singularityio/internal/tools/llmtool"
 	specialists_tool "singularityio/internal/tools/specialists"
+	"singularityio/internal/tools/tts"
 	"singularityio/internal/tools/web"
 	"singularityio/internal/warpp"
 
@@ -66,7 +68,7 @@ func main() {
 		}
 	}
 	if len(brokers) == 0 {
-		log.Fatal("no Kafka brokers configured")
+		log.Fatal().Msg("no Kafka brokers configured")
 	}
 
 	groupID := getenv("KAFKA_GROUP_ID", "sio-orchestrator")
@@ -78,17 +80,17 @@ func main() {
 	// Use the same duration as the dedupe TTL by default.
 	dedupeTTL := workflowTimeout
 
-	log.Printf("starting orchestrator Kafka adapter: brokers=%v groupID=%s commandsTopic=%s responsesTopic=%s workers=%d workflowTimeout=%s",
+	log.Info().Msgf("starting orchestrator Kafka adapter: brokers=%v groupID=%s commandsTopic=%s responsesTopic=%s workers=%d workflowTimeout=%s",
 		brokers, groupID, commandsTopic, responsesTopic, workerCount, workflowTimeout)
 
 	// Initialize Redis-based deduplication store.
 	dedupe, err := orchestrator.NewRedisDedupeStore(redisAddr)
 	if err != nil {
-		log.Fatalf("failed to initialize Redis dedupe store: %v", err)
+		log.Fatal().Err(err).Msg("failed to initialize Redis dedupe store")
 	}
 	defer func() {
 		if cerr := dedupe.Close(); cerr != nil {
-			log.Printf("error closing Redis client: %v", cerr)
+			log.Error().Err(cerr).Msg("error closing Redis client")
 		}
 	}()
 
@@ -102,7 +104,7 @@ func main() {
 	})
 	defer func() {
 		if err := producer.Close(); err != nil {
-			log.Printf("error closing Kafka producer: %v", err)
+			log.Error().Err(err).Msg("error closing Kafka producer")
 		}
 	}()
 
@@ -110,7 +112,7 @@ func main() {
 	// Load application config to construct tools similar to the agent binary.
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		log.Fatal().Err(err).Msg("failed to load config")
 	}
 	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
 	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
@@ -129,13 +131,15 @@ func main() {
 	// Databases: construct backends and register tools
 	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
 	if err != nil {
-		log.Fatalf("databases init failed: %v", err)
+		log.Fatal().Err(err).Msg("databases init failed")
 	}
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
 	registry.Register(web.NewFetchTool())              // provides web_fetch
+	// TTS tool
+	registry.Register(tts.New(cfg, httpClient))
 
 	// DB tools
 	registry.Register(db.NewSearchIndexTool(mgr.Search))
@@ -159,9 +163,22 @@ func main() {
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
 	registry.Register(specialists_tool.New(specReg))
 
-	// Apply top-level tool allow-list if configured.
-	if len(cfg.ToolAllowList) > 0 {
+	// If tools are globally disabled, use an empty registry
+	if !cfg.EnableTools {
+		registry = tools.NewRegistry() // Empty registry
+	} else if len(cfg.ToolAllowList) > 0 {
+		// Apply top-level tool allow-list if configured.
 		registry = tools.NewFilteredRegistry(registry, cfg.ToolAllowList)
+	}
+
+	// Debug: log which tools are exposed after any filtering so we can diagnose
+	// missing tool registrations at runtime.
+	{
+		names := make([]string, 0, len(registry.Schemas()))
+		for _, s := range registry.Schemas() {
+			names = append(names, s.Name)
+		}
+		log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents")
 	}
 
 	// MCP: connect to configured servers and register their tools
@@ -195,8 +212,8 @@ func main() {
 		workflowTimeout,
 	); err != nil {
 		// Exit on error as requested.
-		log.Fatalf("kafka consumer terminated with error: %v", err)
+		log.Fatal().Err(err).Msg("kafka consumer terminated with error")
 	}
 
-	log.Printf("orchestrator Kafka adapter stopped")
+	log.Info().Msg("orchestrator Kafka adapter stopped")
 }

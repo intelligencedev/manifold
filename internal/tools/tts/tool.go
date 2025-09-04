@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	// Intentionally use plain HTTP for the TTS POST. The project uses
 	// github.com/openai/openai-go/v2 elsewhere for chat; this tool keeps
@@ -149,6 +152,28 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("read audio: %w", err)
 	}
 
+	// Save audio to ./tmp folder
+	if err := os.MkdirAll("./tmp", 0755); err != nil {
+		return nil, fmt.Errorf("create tmp directory: %w", err)
+	}
+
+	// Generate filename with timestamp
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("tts_%s.%s", timestamp, format)
+	filepath := filepath.Join("./tmp", filename)
+
+	if err := os.WriteFile(filepath, audio, 0644); err != nil {
+		return nil, fmt.Errorf("save audio file: %w", err)
+	}
+
+	logger.Info().Str("file", filepath).Msg("tts_audio_saved")
+
 	enc := base64.StdEncoding.EncodeToString(audio)
-	return map[string]any{"ok": true, "format": format, "audio_base64": enc}, nil
+	return map[string]any{
+		"ok":           true,
+		"format":       format,
+		"audio_base64": enc,
+		"file_path":    filepath,
+		"filename":     filename,
+	}, nil
 }

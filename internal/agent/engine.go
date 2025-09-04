@@ -28,6 +28,8 @@ type Engine struct {
 	OnAssistant func(llm.Message)
 	// OnDelta, if set, is called for streaming content deltas (for partial responses)
 	OnDelta func(string)
+	// OnTool, if set, is called after each tool execution with tool name, args, and result
+	OnTool func(toolName string, args []byte, result []byte)
 }
 
 // Run executes the agent loop until the model produces a final answer.
@@ -77,6 +79,10 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 			payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 			if err != nil {
 				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
+			}
+			// Call tool callback if set
+			if e.OnTool != nil {
+				e.OnTool(tc.Name, tc.Args, payload)
 			}
 			msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
 		}
@@ -160,6 +166,10 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 			if err != nil {
 				payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
+			}
+			// Call tool callback if set
+			if e.OnTool != nil {
+				e.OnTool(tc.Name, tc.Args, payload)
 			}
 			msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
 		}

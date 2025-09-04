@@ -264,6 +264,9 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		m.messages = append(m.messages, chatMsg{kind: "info", title: "", content: fmt.Sprintf("Whisper model load failed: %v", err)})
 	}
 
+	// Set up tool callback for TTS audio playback
+	m.eng.OnTool = m.handleTTSToolResult
+
 	m.setView()
 	return m
 }

@@ -157,9 +157,24 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("create tmp directory: %w", err)
 	}
 
-	// Generate filename with timestamp
+	// Detect actual audio format from content
+	actualFormat := format
+	if len(audio) >= 4 {
+		// Check for WAV signature (RIFF)
+		if string(audio[0:4]) == "RIFF" && len(audio) >= 12 && string(audio[8:12]) == "WAVE" {
+			actualFormat = "wav"
+			logger.Debug().Str("requested_format", format).Str("detected_format", "wav").Msg("tts_format_detection")
+		} else if len(audio) >= 3 && (audio[0] == 0xFF && audio[1] == 0xFB) ||
+			(audio[0] == 0xFF && audio[1] == 0xFA) ||
+			(string(audio[0:3]) == "ID3") {
+			actualFormat = "mp3"
+			logger.Debug().Str("requested_format", format).Str("detected_format", "mp3").Msg("tts_format_detection")
+		}
+	}
+
+	// Generate filename with timestamp and actual format
 	timestamp := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("tts_%s.%s", timestamp, format)
+	filename := fmt.Sprintf("tts_%s.%s", timestamp, actualFormat)
 	filepath := filepath.Join("./tmp", filename)
 
 	if err := os.WriteFile(filepath, audio, 0644); err != nil {
@@ -171,7 +186,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	enc := base64.StdEncoding.EncodeToString(audio)
 	return map[string]any{
 		"ok":           true,
-		"format":       format,
+		"format":       actualFormat,
 		"audio_base64": enc,
 		"file_path":    filepath,
 		"filename":     filename,

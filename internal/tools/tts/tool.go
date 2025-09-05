@@ -2,7 +2,6 @@ package tts
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,8 +22,8 @@ import (
 
 // Tool implements a simple TTS tool that calls the OpenAI /v1/audio/speech endpoint.
 // It prefers a provider present in context but falls back to the configured
-// TTSBaseURL in the top-level config. The tool returns a base64-encoded audio
-// payload in a JSON object: {"ok":true,"format":"wav","audio":"...base64..."}
+// TTSBaseURL in the top-level config. The tool saves the audio file and returns
+// success status with file information.
 type Tool struct {
 	cfg        config.Config
 	httpClient *http.Client
@@ -174,12 +173,9 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	logger.Info().Str("file", filepath).Msg("tts_audio_saved")
 
-	enc := base64.StdEncoding.EncodeToString(audio)
 	return map[string]any{
-		"ok":           true,
-		"format":       actualFormat,
-		"audio_base64": enc,
-		"file_path":    filepath,
-		"filename":     filename,
+		"ok":        true,
+		"file_path": filepath,
+		"filename":  filename,
 	}, nil
 }

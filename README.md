@@ -2,7 +2,7 @@
 <img src="assets/singularityio-logo.svg" alt="SingularityIO logo" width="200" />
 </p>
 
-# SingularityIO
+# intelligence.dev
 
 An agentic CLI and TUI.
 

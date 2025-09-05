@@ -32,7 +32,7 @@ Contents
 
 About
 -----
-SingularityIO is a safe, observable agent runtime for driving tool-calling workflows using OpenAI models. It restricts execution to a locked WORKDIR (no shell), supports streaming assistant output (TUI), logs and traces requests, and can connect to external tool providers via MCP or route requests to specialized endpoints.
+SingularityIO is a safe, observable agent runtime for driving tool-calling workflows using OpenAI API compatible endpoints. It restricts execution to a locked WORKDIR (no shell), supports streaming assistant output (TUI), logs and traces requests, and can connect to external tool providers via MCP or route requests to specialized endpoints.
 
 Features
 --------

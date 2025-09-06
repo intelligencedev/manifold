@@ -42,6 +42,8 @@ function appendMessage(kind, text, raw=false) {
     el.textContent = text
   } else if (kind === 'agent') {
     el.className = 'text-left text-gray-200 whitespace-pre-wrap'
+    // Store raw markdown for streaming updates
+    el.dataset.rawMarkdown = text || ''
     if (raw) el.textContent = text
     else el.innerHTML = marked.parse(text || '')
   } else if (kind === 'info') {
@@ -59,10 +61,10 @@ function appendToolEvent(title, content) {
   const wrapper = document.createElement('div')
   wrapper.className = 'mb-3'
   const h = document.createElement('div')
-  h.className = 'font-semibold text-gray-200'
+  h.className = 'font-semibold text-gray-200 mb-1'
   h.textContent = title
-  const b = document.createElement('pre')
-  b.className = 'text-sm text-gray-300 bg-gray-800 p-2 rounded'
+  const b = document.createElement('div')
+  b.className = 'text-sm text-green-400 bg-gray-900 p-3 rounded font-mono border border-gray-600 whitespace-pre-wrap overflow-wrap-anywhere'
   b.textContent = content
   wrapper.appendChild(h)
   wrapper.appendChild(b)
@@ -115,9 +117,10 @@ async function submitPrompt(prompt) {
                 // Append to last agent message
                 const chat = document.getElementById('chatPane')
                 const last = chat.lastElementChild
-                if (last) {
-                  // append HTML-rendered markdown fragment
-                  last.innerHTML = marked.parse((last.textContent || '') + obj.data)
+                if (last && last.dataset.rawMarkdown !== undefined) {
+                  // Append to raw markdown and re-render
+                  last.dataset.rawMarkdown += obj.data
+                  last.innerHTML = marked.parse(last.dataset.rawMarkdown)
                   chat.scrollTop = chat.scrollHeight
                 }
               } else if (obj.type === 'tool') {
@@ -126,7 +129,10 @@ async function submitPrompt(prompt) {
                 // replace last element with final rendered markdown
                 const chat = document.getElementById('chatPane')
                 const last = chat.lastElementChild
-                if (last) last.innerHTML = marked.parse(obj.data || '')
+                if (last && last.dataset.rawMarkdown !== undefined) {
+                  last.dataset.rawMarkdown = obj.data || ''
+                  last.innerHTML = marked.parse(last.dataset.rawMarkdown)
+                }
               }
             } catch (e) {
               // Not JSON, append raw

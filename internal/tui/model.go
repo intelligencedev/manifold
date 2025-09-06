@@ -53,6 +53,7 @@ type Model struct {
 	// UI
 	leftVP  viewport.Model
 	rightVP viewport.Model
+	imageVP viewport.Model
 	input   textarea.Model
 
 	messages            []chatMsg
@@ -89,12 +90,14 @@ type Model struct {
 	rightHeaderActiveStyle lipgloss.Style
 	leftPanelStyle         lipgloss.Style
 	rightPanelStyle        lipgloss.Style
+	imagePanelStyle        lipgloss.Style
 	inputStyle             lipgloss.Style
 	spinnerStyle           lipgloss.Style
 
-	activePanel   string // "left" or "right"
+	activePanel   string // "left", "right", or "image"
 	userScrolledL bool
 	userScrolledR bool
+	userScrolledI bool
 
 	// Waiting indicator when LLM/completions endpoint is in-flight
 	waitingLLM bool
@@ -111,9 +114,11 @@ type chatMsg struct {
 func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exec cli.Executor, maxSteps int, warppDemo bool) *Model {
 	left := viewport.New(80, 20)
 	right := viewport.New(40, 20)
+	image := viewport.New(40, 10)
 	// Disable horizontal scrolling; we'll wrap content instead
 	left.SetHorizontalStep(0)
 	right.SetHorizontalStep(0)
+	image.SetHorizontalStep(0)
 	in := textarea.New()
 	in.Placeholder = "Ask the agent..."
 	in.SetHeight(3)
@@ -216,6 +221,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		specReg:                specReg,
 		leftVP:                 left,
 		rightVP:                right,
+		imageVP:                image,
 		input:                  in,
 		messages:               []chatMsg{{kind: "info", title: "", content: "Interactive mode. Type a prompt and press Enter to run. Use Tab to switch panes, arrow keys to scroll. Ctrl+C to exit."}},
 		userTag:                userTag,
@@ -233,6 +239,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 		leftPanelStyle:         lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("60")).Padding(0, 1),
 		// Tools pane: now styled with a rounded border for visual consistency.
 		rightPanelStyle: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#7E57C2")).Padding(0, 1),
+		imagePanelStyle: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#FF6B6B")).Padding(0, 1),
 		activePanel:     "left",
 		// spinner frames for waiting indicator
 		spinners: []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"},
@@ -241,6 +248,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	// when rendering so headers (tabs) can blend into the panel borders.
 	m.leftVP.MouseWheelEnabled = true
 	m.rightVP.MouseWheelEnabled = true
+	m.imageVP.MouseWheelEnabled = true
 
 	// Initialize recorder for TUI (toggle with Ctrl+R). If initialization fails,
 	// recorder will be nil and the feature will be disabled.
@@ -296,9 +304,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cleanup()
 			return m, tea.Quit
 		case "tab":
-			// Switch focus between left and right panes
+			// Switch focus between left, right, and image panes
 			if m.activePanel == "left" {
 				m.activePanel = "right"
+			} else if m.activePanel == "right" {
+				m.activePanel = "image"
 			} else {
 				m.activePanel = "left"
 			}
@@ -413,10 +423,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.userScrolledL = true
 				// Don't call setView() during scrolling to avoid rendering artifacts
 				return m, cmd
-			} else {
+			} else if m.activePanel == "right" {
 				var cmd tea.Cmd
 				m.rightVP, cmd = m.rightVP.Update(msg)
 				m.userScrolledR = true
+				// Don't call setView() during scrolling to avoid rendering artifacts
+				return m, cmd
+			} else {
+				var cmd tea.Cmd
+				m.imageVP, cmd = m.imageVP.Update(msg)
+				m.userScrolledI = true
 				// Don't call setView() during scrolling to avoid rendering artifacts
 				return m, cmd
 			}
@@ -429,13 +445,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.X < leftOuter {
 				m.activePanel = "left"
 			} else {
-				m.activePanel = "right"
+				// Right side: check Y to see if top (tools) or bottom (image)
+				rfH, _ := m.rightPanelStyle.GetFrameSize()
+				toolsHeight := m.rightVP.Height + rfH
+				if msg.Y < toolsHeight {
+					m.activePanel = "right"
+				} else {
+					m.activePanel = "image"
+				}
 			}
 			return m, nil
 		}
 
 		// Let each viewport handle its own mouse events (including wheel)
-		var cmdL, cmdR tea.Cmd
+		var cmdL, cmdR, cmdI tea.Cmd
 		lfW, _ := m.leftPanelStyle.GetFrameSize()
 		leftOuter := m.leftVP.Width + lfW
 		if msg.X < leftOuter {
@@ -445,14 +468,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Don't call setView() during scrolling to avoid rendering artifacts
 			return m, cmdL
 		} else {
-			// Mouse is over right pane
-			m.rightVP, cmdR = m.rightVP.Update(msg)
-			m.userScrolledR = true
-			// Don't call setView() during scrolling to avoid rendering artifacts
-			return m, cmdR
+			// Right side: check Y for top/bottom
+			rfH, _ := m.rightPanelStyle.GetFrameSize()
+			toolsHeight := m.rightVP.Height + rfH
+			if msg.Y < toolsHeight {
+				// Mouse is over tools pane
+				m.rightVP, cmdR = m.rightVP.Update(msg)
+				m.userScrolledR = true
+				// Don't call setView() during scrolling to avoid rendering artifacts
+				return m, cmdR
+			} else {
+				// Mouse is over image pane
+				m.imageVP, cmdI = m.imageVP.Update(msg)
+				m.userScrolledI = true
+				// Don't call setView() during scrolling to avoid rendering artifacts
+				return m, cmdI
+			}
 		}
 	case tea.WindowSizeMsg:
-		// Split width 2/3 (chat) and 1/3 (tools)
+		// Split width 2/3 (chat) and 1/3 (right side)
 		// No divider column between panels (sepCols = 0)
 		sepCols := 0
 		total := msg.Width - sepCols
@@ -484,10 +518,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Subtract frame size (borders + padding) so viewport inner area fits
 		lfW, lfH := m.leftPanelStyle.GetFrameSize()
 		rfW, rfH := m.rightPanelStyle.GetFrameSize()
+		ifW, ifH := m.imagePanelStyle.GetFrameSize()
 		m.leftVP.Width = max(1, leftOuterW-lfW)
-		m.rightVP.Width = max(1, rightOuterW-rfW)
 		m.leftVP.Height = max(1, contentOuterH-lfH)
-		m.rightVP.Height = max(1, contentOuterH-rfH)
+		// Right side split vertically: top half tools, bottom half image
+		rightInnerH := max(1, contentOuterH-rfH-ifH)
+		toolsH := rightInnerH / 2
+		imageH := rightInnerH - toolsH
+		m.rightVP.Width = max(1, rightOuterW-rfW)
+		m.rightVP.Height = max(1, toolsH)
+		m.imageVP.Width = max(1, rightOuterW-ifW)
+		m.imageVP.Height = max(1, imageH)
 
 		// Ensure the input area wraps to the terminal width, but account for
 		// the inputStyle frame width so the right border is not cut off.
@@ -605,32 +646,43 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) View() string {
 	leftTitle := "Chat"
 	rightTitle := "Tools"
+	imageTitle := "Image"
 
 	// Determine active tab and corresponding panel border color so the
 	// header (tab) appears to blend into the panel's top border.
 	leftPanel := m.leftPanelStyle
 	rightPanel := m.rightPanelStyle
+	imagePanel := m.imagePanelStyle
 	leftTitleStyle := m.headerStyle
 	rightTitleStyle := m.headerStyle
+	imageTitleStyle := m.headerStyle
 	if m.activePanel == "left" {
 		leftTitleStyle = m.leftHeaderActiveStyle
 		leftPanel = m.leftPanelStyle.BorderForeground(lipgloss.Color("#2D7FFF"))
-	} else {
+	} else if m.activePanel == "right" {
 		rightTitleStyle = m.rightHeaderActiveStyle
 		rightPanel = m.rightPanelStyle.BorderForeground(lipgloss.Color("#7E57C2"))
+	} else {
+		imageTitleStyle = m.rightHeaderActiveStyle.Foreground(lipgloss.Color("#ffffff")).Background(lipgloss.Color("#FF6B6B"))
+		imagePanel = m.imagePanelStyle.BorderForeground(lipgloss.Color("#FF6B6B"))
 	}
 
 	// Render the panel blocks first (without headers in the content)
 	leftBlock := leftPanel.Render(m.leftVP.View())
 	rightBlock := rightPanel.Render(m.rightVP.View())
+	imageBlock := imagePanel.Render(m.imageVP.View())
 
 	// Inject the titles into the top border line so the words "break" the top border
 	leftBlock = injectTitleIntoTopBorder(leftBlock, leftTitle, leftTitleStyle)
 	rightBlock = injectTitleIntoTopBorder(rightBlock, rightTitle, rightTitleStyle)
+	imageBlock = injectTitleIntoTopBorder(imageBlock, imageTitle, imageTitleStyle)
+
+	// Right side: stack tools on top of image
+	rightSide := lipgloss.JoinVertical(lipgloss.Left, rightBlock, imageBlock)
 
 	// Panels are rendered directly adjacent without a vertical divider so the
 	// headers blend naturally into the rounded borders.
-	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightBlock)
+	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightSide)
 
 	// Render a centered banner above the panels
 	bannerText := "intelligence.dev"
@@ -968,6 +1020,11 @@ func (m *Model) renderTools(width int) string {
 	return b.String()
 }
 
+func (m *Model) renderImage(width int) string {
+	// For now, display a placeholder. In the future, this could display the image as ASCII art or description.
+	return m.infoStyle.Render("Displaying default.png\n\n(Image display placeholder)")
+}
+
 func (m *Model) renderMsg(cm chatMsg, width int, showSpinner bool) string {
 	maxw := width
 	if maxw < 20 {
@@ -1037,6 +1094,7 @@ func wrapString(s string, width int) string {
 func (m *Model) setView() {
 	m.setLeftView()
 	m.setRightView()
+	m.setImageView()
 }
 
 func (m *Model) setLeftView() {
@@ -1064,6 +1122,17 @@ func (m *Model) setRightView() {
 	// 3. User is near the bottom (to follow new tool output)
 	if m.activePanel != "right" || !m.userScrolledR || m.isNearBottom(m.rightVP) {
 		m.rightVP.GotoBottom()
+	}
+}
+
+func (m *Model) setImageView() {
+	m.imageVP.SetContent(m.renderImage(m.imageVP.Width))
+	// Auto-scroll to bottom if:
+	// 1. Image pane is not focused (activePanel != "image"), OR
+	// 2. User hasn't manually scrolled in this pane, OR
+	// 3. User is near the bottom
+	if m.activePanel != "image" || !m.userScrolledI || m.isNearBottom(m.imageVP) {
+		m.imageVP.GotoBottom()
 	}
 }
 

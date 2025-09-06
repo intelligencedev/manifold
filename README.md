@@ -180,6 +180,62 @@ Notes:
 - Live streaming of assistant responses.
 - Same safety controls as CLI (locked WORKDIR, sanitization, blocklist).
 
+## Run agentd and web UI (local)
+
+Quick steps to run the HTTP agent server (`agentd`) and the embedded web UI used for manual testing.
+
+- Prepare a `.env` at the repository root. The project will automatically load `.env` (or `example.env`) on startup. Typical entries:
+
+```env
+WORKDIR=./sandbox
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini
+# Optional: WEB UI settings
+WEB_UI_PORT=8081
+WEB_UI_HOST=0.0.0.0
+WEB_UI_BACKEND_URL=http://localhost:32180/agent/run
+```
+
+- Quick dev mode (mock LLM): to test the UI without calling OpenAI, set `OPENAI_API_KEY=` (empty) in `.env` and restart `agentd` — the server will return a deterministic dev response to POST /agent/run.
+
+- Start the agent HTTP server (`agentd`) — by default it listens on port `:32180`:
+
+```bash
+# run directly (reads .env)
+go run ./cmd/agentd/main.go
+
+# or build and run the binary
+go build -o build/agentd ./cmd/agentd
+./build/agentd
+```
+
+- Start the web UI (defaults to host `0.0.0.0` port `8081` and forwards prompts to the agent_backend):
+
+```bash
+# run directly
+go run ./cmd/webui
+
+# or build and run
+go build -o build/webui ./cmd/webui
+./build/webui
+```
+
+- Quick smoke tests (from your machine):
+
+```bash
+# fetch the web UI index
+curl http://localhost:8081/
+
+# submit a prompt (JSON forwarded to agentd)
+curl -i -X POST http://localhost:8081/api/prompt \
+  -H 'Content-Type: application/json' \
+  -d '{"prompt":"hello from webui"}'
+```
+
+Notes:
+- `agentd` will return HTTP 500 if the configured LLM provider returns an error (for example, an unsupported parameter). For local UI testing, use the mock dev mode above or ensure your OpenAI-compatible provider and model accept the request parameters.
+- If port `32180` is already in use, stop the conflicting process or run `agentd` in an environment where that port is free. (You can also run the web UI with `WEB_UI_BACKEND_URL` pointing to a different agent endpoint.)
+
 WARPP mode
 - WARPP is a workflow executor pattern: Intent detection  personalization  fulfillment with tool allow-listing.
 - It uses existing tools and will use minimalist defaults when workflows are absent.

@@ -1,7 +1,9 @@
 SHELL := /bin/bash
 
 # Binaries are discovered under cmd/*
-## Discover cmd/* directories but exclude embedctl (we no longer ship the embedctl CLI)
+## Discover cmd/* directories but exclude embedctl	@echo "Host build complete"
+
+# Build TUI binary for host platform (fast - only rebuild whisper if needed)ger ship the embedctl CLI)
 BINS := $(shell for d in cmd/*; do if [ -d "$$d" ]; then bn=$$(basename $$d); if [ "$$bn" != "embedctl" ]; then echo $$bn; fi; fi; done)
 
 # Output directory
@@ -20,7 +22,7 @@ WHISPER_INCLUDE_DIR := $(WHISPER_CPP_DIR)/include
 WHISPER_LIB_DIR := $(WHISPER_BUILD_DIR)/src
 WHISPER_GGML_LIB_DIR := $(WHISPER_BUILD_DIR)/ggml/src
 
-.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean whisper-cpp whisper-go-bindings
+.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean whisper-cpp whisper-go-bindings build-tui
 
 all: build
 
@@ -36,6 +38,7 @@ help:
 	@echo "  make lint               # run golangci-lint"
 	@echo "  make test               # run tests with -race and generate coverage.out"
 	@echo "  make build              # build host platform binaries into $(DIST)/ (includes Whisper)"
+	@echo "  make build-tui          # build the TUI binary quickly (skips Whisper if already built)"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/ (includes Whisper)"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
 	@echo "  make ci                 # run CI checks (fmt-check, imports-check, vet, lint, test)"
@@ -106,6 +109,21 @@ build: clean whisper-go-bindings | $(DIST)
 		go build -o "$$out" ./cmd/$$b; \
 	done
 	@echo "Host build complete"
+
+# Build TUI binary for host platform (fast - only rebuild whisper if needed)
+build-tui: | $(DIST)
+	@echo "Checking Whisper dependencies..."
+	@if [ ! -f "$(WHISPER_LIB_DIR)/libwhisper.a" ] || [ ! -f "$(WHISPER_GGML_LIB_DIR)/libggml.a" ]; then \
+		echo "Whisper libraries not found, building..."; \
+		$(MAKE) whisper-go-bindings; \
+	else \
+		echo "Whisper libraries found, skipping build"; \
+	fi
+	@echo "Building TUI into $(DIST)/"
+	C_INCLUDE_PATH=$(WHISPER_INCLUDE_DIR) \
+	LIBRARY_PATH=$(WHISPER_LIB_DIR):$(WHISPER_GGML_LIB_DIR):$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas:$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal \
+	go build -o "$(DIST)/agent-tui" ./cmd/agent-tui
+	@echo "TUI build complete"
 
 # Cross compile all platforms and package them into $(DIST)/
 # Option A: single job builds all platforms (do not run cross in parallel across jobs)

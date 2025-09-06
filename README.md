@@ -366,12 +366,18 @@ If you prefer manual control:
 #### Available Make Targets
 
 - `make build` - Build all binaries (includes Whisper)
+- `make build-tui` - Build the TUI binary quickly (skips Whisper if already built)
 - `make whisper-cpp` - Build Whisper.cpp library
 - `make whisper-go-bindings` - Build Go bindings for Whisper
 - `make cross` - Cross-compile for multiple platforms (CGO binaries skipped)
+- `make checksums` - Generate SHA256 checksums for artifacts in dist/
+- `make ci` - Run CI checks (fmt-check, imports-check, vet, lint, test)
 - `make clean` - Clean all build artifacts
 - `make test` - Run tests
 - `make fmt` - Format code
+- `make fmt-check` - Check formatting
+- `make imports-check` - Check imports with goimports
+- `make vet` - Run go vet
 - `make lint` - Run linters
 - `make tools` - Install development tools
 

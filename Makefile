@@ -179,3 +179,9 @@ clean:
 	rm -rf $(DIST) coverage.out || true
 	rm -rf $(WHISPER_CPP_DIR)/build $(WHISPER_CPP_DIR)/build_go $(WHISPER_BINDINGS_DIR)/build_go || true
 	@echo "Cleaned"
+
+
+# Build web UI server
+build-webui:
+	@echo "Building webui into $(DIST)/"
+	go build -o $(DIST)/webui ./cmd/webui

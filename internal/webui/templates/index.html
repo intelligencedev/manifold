@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Singularity UI</title>
+  <script src="https:/cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 h-screen flex flex-col">
+  <header class="p-4 bg-gray-800 border-b border-gray-700">
+    <div class="max-w-6xl mx-auto">Singularity Web UI</div>
+  </header>
+  <main class="flex-1 overflow-hidden max-w-6xl mx-auto w-full flex gap-4 p-4">
+    <section id="chat" class="flex-1 bg-gray-800 rounded-lg p-3 flex flex-col">
+      <h2 class="text-sm text-gray-300 mb-2">Chat</h2>
+      <div id="chatPane" class="flex-1 overflow-auto space-y-3 pr-2">
+        <!-- messages go here -->
+      </div>
+    </section>
+    <aside id="tools" class="w-80 bg-gray-800 rounded-lg p-3 flex flex-col">
+      <h2 class="text-sm text-gray-300 mb-2">Tools</h2>
+      <div id="toolsPane" class="flex-1 overflow-auto text-sm text-gray-300">
+        No tool activity yet.
+      </div>
+    </aside>
+  </main>
+  <footer class="p-4 bg-gray-800 border-t border-gray-700">
+    <div class="max-w-6xl mx-auto flex gap-2">
+      <input id="promptInput" type="text" aria-label="Prompt" placeholder="Type your prompt..." class="flex-1 px-3 py-2 rounded bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+      <button id="submitBtn" class="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500">Submit</button>
+    </div>
+  </footer>
+
+<script>
+async function postPrompt(prompt) {
+  const res = await fetch('/api/prompt', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({prompt})
+  })
+  const ct = res.headers.get('content-type') || ''
+  if (ct.includes('application/json')) return res.json()
+  return res.text()
+}
+
+function appendMessage(kind, text) {
+  const chat = document.getElementById('chatPane')
+  const el = document.createElement('div')
+  el.className = kind === 'user' ? 'text-right text-indigo-200' : 'text-left text-gray-200'
+  el.textContent = text
+  chat.appendChild(el)
+  chat.scrollTop = chat.scrollHeight
+}
+
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const input = document.getElementById('promptInput')
+  const v = input.value.trim()
+  if (!v) return
+  appendMessage('user', v)
+  input.value = ''
+  try {
+    const out = await postPrompt(v)
+    if (typeof out === 'string') appendMessage('agent', out)
+    else appendMessage('agent', JSON.stringify(out))
+  } catch (err) {
+    appendMessage('agent', 'Error: ' + err.message)
+  }
+})
+
+// Press Enter to submit
+document.getElementById('promptInput').addEventListener('keydown', (e)=>{
+  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('submitBtn').click() }
+})
+</script>
+</body>
+</html>

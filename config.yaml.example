@@ -167,3 +167,12 @@ routes:
 # - Complex nested structures (specialists, mcp.servers) are easier to author
 #   in YAML than via environment variables. Use `example.env` for quick overrides.
 
+
+
+# Web UI configuration for the embedded web server
+webui:
+  # Host and port the web UI binds to (overridable via WEB_UI_HOST / WEB_UI_PORT env vars)
+  host: "0.0.0.0"
+  port: 8081
+  # Backend endpoint to forward prompt submissions to. Should accept POST with JSON {"prompt":"..."}
+  backendURL: "http:/localhost:32180/agent/run"

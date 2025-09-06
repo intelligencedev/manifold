@@ -55,7 +55,6 @@ function appendMessage(kind, text, raw=false) {
 }
 
 function appendToolEvent(title, content) {
-  console.log('appendToolEvent called:', title, content)
   const pane = document.getElementById('toolsPane')
   // If first time, clear default text
   if (pane.textContent.trim() === 'No tool activity yet.') pane.textContent = ''
@@ -121,7 +120,12 @@ async function submitPrompt(prompt) {
                 const last = chat.lastElementChild
                 if (last && last.dataset.rawMarkdown !== undefined) {
                   // Append to raw markdown and re-render
-                  last.dataset.rawMarkdown += obj.data
+                  if (last.dataset.rawMarkdown === '') {
+                    // First delta - trim leading whitespace
+                    last.dataset.rawMarkdown = obj.data.trimStart()
+                  } else {
+                    last.dataset.rawMarkdown += obj.data
+                  }
                   last.innerHTML = marked.parse(last.dataset.rawMarkdown)
                   chat.scrollTop = chat.scrollHeight
                 }

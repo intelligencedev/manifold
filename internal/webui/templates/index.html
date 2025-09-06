@@ -19,7 +19,7 @@
     </section>
     <aside id="tools" class="w-80 bg-gray-800 rounded-lg p-3 flex flex-col">
       <h2 class="text-sm text-gray-300 mb-2">Tools</h2>
-      <div id="toolsPane" class="flex-1 overflow-auto text-sm text-gray-300">
+      <div id="toolsPane" class="flex-1 overflow-auto text-sm text-gray-300 break-words">
         No tool activity yet.
       </div>
     </aside>
@@ -55,6 +55,7 @@ function appendMessage(kind, text, raw=false) {
 }
 
 function appendToolEvent(title, content) {
+  console.log('appendToolEvent called:', title, content)
   const pane = document.getElementById('toolsPane')
   // If first time, clear default text
   if (pane.textContent.trim() === 'No tool activity yet.') pane.textContent = ''
@@ -64,7 +65,8 @@ function appendToolEvent(title, content) {
   h.className = 'font-semibold text-gray-200 mb-1'
   h.textContent = title
   const b = document.createElement('div')
-  b.className = 'text-sm text-green-400 bg-gray-900 p-3 rounded font-mono border border-gray-600 whitespace-pre-wrap overflow-wrap-anywhere'
+  b.className = 'text-sm text-green-400 bg-gray-900 p-3 rounded font-mono border border-gray-600'
+  b.style.cssText = 'white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word;'
   b.textContent = content
   wrapper.appendChild(h)
   wrapper.appendChild(b)

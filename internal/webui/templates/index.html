@@ -31,38 +31,144 @@
     </div>
   </footer>
 
-<script>
-async function postPrompt(prompt) {
-  const res = await fetch('/api/prompt', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({prompt})
-  })
-  const ct = res.headers.get('content-type') || ''
-  if (ct.includes('application/json')) return res.json()
-  return res.text()
-}
-
-function appendMessage(kind, text) {
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+// Helper: append message to chat pane (renders markdown for agent)
+function appendMessage(kind, text, raw=false) {
   const chat = document.getElementById('chatPane')
   const el = document.createElement('div')
-  el.className = kind === 'user' ? 'text-right text-indigo-200' : 'text-left text-gray-200'
-  el.textContent = text
+  if (kind === 'user') {
+    el.className = 'text-right text-indigo-200'
+    el.textContent = text
+  } else if (kind === 'agent') {
+    el.className = 'text-left text-gray-200 whitespace-pre-wrap'
+    if (raw) el.textContent = text
+    else el.innerHTML = marked.parse(text || '')
+  } else if (kind === 'info') {
+    el.className = 'text-center text-gray-400 italic text-sm'
+    el.textContent = text
+  }
   chat.appendChild(el)
   chat.scrollTop = chat.scrollHeight
+}
+
+function appendToolEvent(title, content) {
+  const pane = document.getElementById('toolsPane')
+  // If first time, clear default text
+  if (pane.textContent.trim() === 'No tool activity yet.') pane.textContent = ''
+  const wrapper = document.createElement('div')
+  wrapper.className = 'mb-3'
+  const h = document.createElement('div')
+  h.className = 'font-semibold text-gray-200'
+  h.textContent = title
+  const b = document.createElement('pre')
+  b.className = 'text-sm text-gray-300 bg-gray-800 p-2 rounded'
+  b.textContent = content
+  wrapper.appendChild(h)
+  wrapper.appendChild(b)
+  pane.appendChild(wrapper)
+  pane.scrollTop = pane.scrollHeight
+}
+
+async function submitPrompt(prompt) {
+  appendMessage('user', prompt)
+  const backend = '/api/prompt'
+
+  // Try SSE first by requesting Accept: text/event-stream
+  const sseRes = await fetch(backend, {
+    method: 'POST', headers: {'Content-Type':'application/json', 'Accept':'text/event-stream'},
+    body: JSON.stringify({prompt})
+  })
+
+  const ct = sseRes.headers.get('content-type') || ''
+  if (sseRes.status >= 400) {
+    // read text error
+    const txt = await sseRes.text()
+    appendMessage('agent', 'Error: ' + txt, true)
+    return
+  }
+
+  if (ct.includes('text/event-stream')) {
+    // Stream with streaming parser
+    const reader = sseRes.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    appendMessage('agent', '') // placeholder for streaming content
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += dec.decode(value, {stream: true})
+      // SSE parsing: events separated by double newline
+      let idx
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const raw = buf.slice(0, idx).trim()
+        buf = buf.slice(idx+2)
+        // Each line in raw starts with "data: " optionally
+        const lines = raw.split(/\r?\n/)
+        lines.forEach(line=>{
+          if (line.startsWith('data:')) {
+            const payload = line.slice(5).trim()
+            // Expect JSON payloads with {type: 'delta'|'tool'|'final', data: '...'}
+            try {
+              const obj = JSON.parse(payload)
+              if (obj.type === 'delta') {
+                // Append to last agent message
+                const chat = document.getElementById('chatPane')
+                const last = chat.lastElementChild
+                if (last) {
+                  // append HTML-rendered markdown fragment
+                  last.innerHTML = marked.parse((last.textContent || '') + obj.data)
+                  chat.scrollTop = chat.scrollHeight
+                }
+              } else if (obj.type === 'tool') {
+                appendToolEvent(obj.title || 'Tool', obj.data || '')
+              } else if (obj.type === 'final') {
+                // replace last element with final rendered markdown
+                const chat = document.getElementById('chatPane')
+                const last = chat.lastElementChild
+                if (last) last.innerHTML = marked.parse(obj.data || '')
+              }
+            } catch (e) {
+              // Not JSON, append raw
+              appendMessage('agent', payload, false)
+            }
+          }
+        })
+      }
+    }
+    // process any remaining buffer
+    if (buf.trim() !== '') {
+      try {
+        const obj = JSON.parse(buf.trim())
+        if (obj.type === 'final') appendMessage('agent', obj.data || '', false)
+      } catch (e) {
+        appendMessage('agent', buf, true)
+      }
+    }
+    return
+  }
+
+  // Fallback: non-streaming
+  const ctype = sseRes.headers.get('content-type') || ''
+  if (ctype.includes('application/json')) {
+    const j = await sseRes.json()
+    if (j.result) appendMessage('agent', j.result, false)
+    else appendMessage('agent', JSON.stringify(j), true)
+  } else {
+    const txt = await sseRes.text()
+    appendMessage('agent', txt, true)
+  }
 }
 
 document.getElementById('submitBtn').addEventListener('click', async () => {
   const input = document.getElementById('promptInput')
   const v = input.value.trim()
   if (!v) return
-  appendMessage('user', v)
   input.value = ''
   try {
-    const out = await postPrompt(v)
-    if (typeof out === 'string') appendMessage('agent', out)
-    else appendMessage('agent', JSON.stringify(out))
+    await submitPrompt(v)
   } catch (err) {
-    appendMessage('agent', 'Error: ' + err.message)
+    appendMessage('agent', 'Error: ' + err.message, true)
   }
 })
 

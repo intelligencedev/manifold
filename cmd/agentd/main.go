@@ -106,11 +106,74 @@ func main() {
 		// If no OpenAI API key is configured, return a deterministic dev response
 		// so the web UI can be exercised locally without external credentials.
 		if cfg.OpenAI.APIKey == "" {
+			// Support SSE if requested
+			if r.Header.Get("Accept") == "text/event-stream" {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				fl, _ := w.(http.Flusher)
+				if b, err := json.Marshal("(dev) mock response: " + req.Prompt); err == nil {
+					fmt.Fprintf(w, "event: final\ndata: %s\n\n", b)
+				} else {
+					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock response")
+				}
+				fl.Flush()
+				return
+			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock response: " + req.Prompt})
 			return
 		}
 
+		// If client requested SSE, use streaming RunStream and proxy deltas/tool events
+		if r.Header.Get("Accept") == "text/event-stream" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			fl, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "streaming not supported", http.StatusInternalServerError)
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			// Wire up engine callbacks to write SSE events
+			eng.OnDelta = func(d string) {
+				// send delta event
+				payload := map[string]string{"type": "delta", "data": d}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+			eng.OnTool = func(name string, args []byte, result []byte) {
+				// send tool event
+				payload := map[string]string{"type": "tool", "title": "Tool: " + name, "data": string(result)}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+
+			// Run streaming engine
+			res, err := eng.RunStream(ctx, req.Prompt, nil)
+			if err != nil {
+				log.Error().Err(err).Msg("agent run error")
+				if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
+					fmt.Fprintf(w, "data: %s\n\n", b)
+				} else {
+					fmt.Fprintf(w, "data: %q\n\n", "(error)")
+				}
+				fl.Flush()
+				return
+			}
+			// send final event
+			payload := map[string]string{"type": "final", "data": res}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+			return
+		}
+
+		// Non-streaming path
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		result, err := eng.Run(ctx, req.Prompt, nil)

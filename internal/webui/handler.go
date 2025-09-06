@@ -80,6 +80,10 @@ func Register(mux *http.ServeMux) {
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
+		// Propagate Accept header (client may request text/event-stream for SSE)
+		if a := r.Header.Get("Accept"); a != "" {
+			req.Header.Set("Accept", a)
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
@@ -89,11 +93,43 @@ func Register(mux *http.ServeMux) {
 		}
 		defer resp.Body.Close()
 
-		// copy content-type and status
-		if ct := resp.Header.Get("Content-Type"); ct != "" {
+		// If backend is streaming (SSE), proxy the stream and flush frequently
+		ct := resp.Header.Get("Content-Type")
+		w.Header().Set("Cache-Control", "no-cache")
+		if ct != "" {
 			w.Header().Set("Content-Type", ct)
 		}
 		w.WriteHeader(resp.StatusCode)
+
+		// If this is an event-stream or the client requested it, stream with flush
+		if ct == "text/event-stream" || r.Header.Get("Accept") == "text/event-stream" {
+			fl, ok := w.(http.Flusher)
+			if !ok {
+				// fallback to copy
+				if _, err := io.Copy(w, resp.Body); err != nil {
+					log.Printf("copy backend resp: %v", err)
+				}
+				return
+			}
+			buf := make([]byte, 1024)
+			for {
+				n, err := resp.Body.Read(buf)
+				if n > 0 {
+					if _, werr := w.Write(buf[:n]); werr != nil {
+						log.Printf("write to client: %v", werr)
+						return
+					}
+					fl.Flush()
+				}
+				if err != nil {
+					if err != io.EOF {
+						log.Printf("stream read error: %v", err)
+					}
+					return
+				}
+			}
+		}
+		// Non-streaming fallback: copy once
 		if _, err := io.Copy(w, resp.Body); err != nil {
 			log.Printf("copy backend resp: %v", err)
 		}

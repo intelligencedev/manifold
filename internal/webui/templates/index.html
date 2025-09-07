@@ -8,6 +8,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Avatar camera viewport */
+    #avatarPane { display:flex; justify-content:center; }
+    #avatarPane .avatar-window { width:256px; height:256px; overflow:hidden; position:relative; border-radius:12px; background:#111; box-shadow:0 0 4px rgba(0,0,0,0.4) inset; }
+    #avatarPane .avatar-window img.agent-avatar { position:absolute; top:0; left:0; user-select:none; pointer-events:none; }
+  </style>
 </head>
 <body data-theme="dark">
   <header class="site-header">
@@ -33,7 +39,9 @@
       <aside id="avatar" class="panel">
         <div class="panel-header">Project Manager</div>
         <div id="avatarPane">
-          <img src="/assets/smiling.png" alt="Current Working Agent" class="agent-avatar" />
+          <div class="avatar-window" data-window-width="256" data-window-height="256">
+            <img src="/assets/smiling.png" alt="Current Working Agent" class="agent-avatar" data-shake-amplitude="1" data-shake-speed="1" />
+          </div>
         </div>
       </aside>
       <aside id="tools" class="panel">
@@ -45,6 +53,77 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
+// Camera shake with fixed viewport window + crossfade API
+(()=>{
+  const windowEl = document.querySelector('#avatarPane .avatar-window')
+  const img = windowEl?.querySelector('img.agent-avatar')
+  if (!windowEl || !img) return
+  const amplitude = parseFloat(img.dataset.shakeAmplitude || '16')
+  const speed = parseFloat(img.dataset.shakeSpeed || '1')
+  const freqX = [0.9, 2.2, 4.7]
+  const freqY = [1.1, 2.0, 3.8]
+  const weights = [0.6, 0.3, 0.1]
+  const phasesX = freqX.map(()=>Math.random()*Math.PI*2)
+  const phasesY = freqY.map(()=>Math.random()*Math.PI*2)
+  function sample(t){
+    t *= speed
+    let nx=0, ny=0
+    for(let i=0;i<3;i++){ nx += weights[i]*Math.sin(2*Math.PI*freqX[i]*t + phasesX[i]); ny += weights[i]*Math.sin(2*Math.PI*freqY[i]*t + phasesY[i]); }
+    return [nx*amplitude, ny*amplitude]
+  }
+  function sizeImage(image){
+    const ww = parseInt(windowEl.dataset.windowWidth || windowEl.clientWidth || 256, 10)
+    const wh = parseInt(windowEl.dataset.windowHeight || windowEl.clientHeight || 256, 10)
+    windowEl.style.width = ww + 'px'
+    windowEl.style.height = wh + 'px'
+    const nw = image.naturalWidth || ww
+    const nh = image.naturalHeight || wh
+    const scale = Math.max((ww+2*amplitude)/nw, (wh+2*amplitude)/nh)
+    const targetW = nw * scale
+    const targetH = nh * scale
+    image.style.width = targetW + 'px'
+    image.style.height = targetH + 'px'
+    const baseX = (ww - targetW)/2
+    const baseY = (wh - targetH)/2
+    image.dataset._baseX = baseX
+    image.dataset._baseY = baseY
+  }
+  if (img.complete) sizeImage(img); else img.addEventListener('load', ()=>sizeImage(img))
+  window.addEventListener('resize', ()=>sizeImage(img))
+  let running = true
+  const start = performance.now()
+  function loop(now){
+    if(!running) return
+    const t = (now-start)/1000
+    const [ox, oy] = sample(t)
+    const baseX = parseFloat(img.dataset._baseX||'0')
+    const baseY = parseFloat(img.dataset._baseY||'0')
+    img.style.transform = `translate(${(baseX+ox).toFixed(2)}px, ${(baseY+oy).toFixed(2)}px)`
+    requestAnimationFrame(loop)
+  }
+  requestAnimationFrame(loop)
+  document.addEventListener('visibilitychange', ()=>{ running = !document.hidden; if (running) requestAnimationFrame(loop) })
+  window.setAvatarImage = function(src, fadeMs=400){
+    const current = windowEl.querySelector('img.agent-avatar')
+    const next = new Image()
+    next.src = src
+    next.alt = current?.alt || 'Agent'
+    next.className = current?.className || 'agent-avatar'
+    next.dataset.shakeAmplitude = current?.dataset.shakeAmplitude || String(amplitude)
+    next.dataset.shakeSpeed = current?.dataset.shakeSpeed || String(speed)
+    next.style.position = 'absolute'
+    next.style.top = '0'; next.style.left = '0'
+    next.style.opacity = '0'
+    next.style.transition = `opacity ${fadeMs}ms ease`
+    windowEl.appendChild(next)
+    next.addEventListener('load', ()=>{
+      sizeImage(next)
+      requestAnimationFrame(()=>{ next.style.opacity = '1' })
+      setTimeout(()=>{ current?.remove() }, fadeMs+40)
+    })
+  }
+})()
+
 // Helper: append message to chat pane (renders markdown for agent)
 function appendMessage(kind, text, raw=false) {
   const chat = document.getElementById('chatPane')

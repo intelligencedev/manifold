@@ -11,8 +11,37 @@
   <style>
     /* Avatar camera viewport */
     #avatarPane { display:flex; justify-content:center; }
-    #avatarPane .avatar-window { width:256px; height:256px; overflow:hidden; position:relative; background:#111; box-shadow:0 0 4px rgba(0,0,0,0.4) inset; }
-    #avatarPane .avatar-window img.agent-avatar { position:absolute; top:0; left:0; user-select:none; pointer-events:none; }
+    #avatarPane .avatar-window { width:256px; height:256px; overflow:hidden; position:relative; background:#0a0a0d; box-shadow:0 0 10px rgba(0,0,0,0.8) inset, 0 0 12px rgba(0,0,0,0.7); border-radius:12px; }
+    #avatarPane .avatar-window img.agent-avatar { position:absolute; top:0; left:0; user-select:none; pointer-events:none; image-rendering:pixelated; filter:contrast(1.18) saturate(1.25) brightness(1.05) drop-shadow(0 0 6px rgba(0,255,220,0.08)); }
+    /* CRT layers */
+    #avatarPane .avatar-window.crt .crt-layer { position:absolute; inset:0; pointer-events:none; }
+    /* Phosphor RGB triads (very subtle) */
+    #avatarPane .avatar-window.crt .crt-phosphor { z-index:2; opacity:0.22; background:
+      repeating-linear-gradient(to right,
+        rgba(255,0,0,0.55) 0px, rgba(255,0,0,0.55) 1px,
+        rgba(0,255,0,0.55) 1px, rgba(0,255,0,0.55) 2px,
+        rgba(0,140,255,0.55) 2px, rgba(0,140,255,0.55) 3px,
+        rgba(0,0,0,0.2) 3px, rgba(0,0,0,0.2) 4px
+      ); mix-blend-mode:color-dodge; }
+    /* Stronger scanlines */
+    #avatarPane .avatar-window.crt .crt-scanlines { z-index:3; background:
+      repeating-linear-gradient(to bottom,
+        rgba(255,255,255,0.18) 0px,
+        rgba(255,255,255,0.18) 1px,
+        rgba(0,0,0,0.55) 1px,
+        rgba(0,0,0,0.55) 2px
+      ); mix-blend-mode:overlay; animation:crt-scan-move 5s linear infinite; }
+    /* Darker vignette & curvature */
+    #avatarPane .avatar-window.crt .crt-mask { z-index:4; background:
+      radial-gradient(ellipse at center, rgba(0,0,0,0) 50%, rgba(0,0,0,0.35) 80%, rgba(0,0,0,0.75) 100%),
+      linear-gradient(to right, rgba(0,0,0,0.45), rgba(0,0,0,0) 25%, rgba(0,0,0,0) 75%, rgba(0,0,0,0.45));
+      mix-blend-mode:multiply; }
+    /* Stronger but still subtle flicker */
+    #avatarPane .avatar-window.crt .crt-flicker { z-index:5; background:rgba(255,255,255,0.04); animation:crt-flicker 0.08s infinite steps(2,end); mix-blend-mode:screen; }
+    #avatarPane .avatar-window.crt .agent-avatar { z-index:1; }
+    #avatarPane .avatar-window.crt { position:relative; }
+    @keyframes crt-scan-move { 0% { background-position-y:0; } 100% { background-position-y:256px; } }
+    @keyframes crt-flicker { 0%, 100% { opacity:0.02; } 50% { opacity:0.08; } }
   </style>
 </head>
 <body data-theme="dark">
@@ -39,8 +68,12 @@
       <aside id="avatar" class="panel">
         <div class="panel-header">Project Manager</div>
         <div id="avatarPane">
-          <div class="avatar-window" data-window-width="256" data-window-height="400">
+          <div class="avatar-window crt" data-window-width="256" data-window-height="400">
             <img src="/assets/smiling.png" alt="Current Working Agent" class="agent-avatar" data-shake-amplitude="1" data-shake-speed="1" />
+            <div class="crt-layer crt-phosphor"></div>
+            <div class="crt-layer crt-scanlines"></div>
+            <div class="crt-layer crt-mask"></div>
+            <div class="crt-layer crt-flicker"></div>
           </div>
         </div>
       </aside>
@@ -115,7 +148,8 @@
     next.style.top = '0'; next.style.left = '0'
     next.style.opacity = '0'
     next.style.transition = `opacity ${fadeMs}ms ease`
-    windowEl.appendChild(next)
+    const firstOverlay = windowEl.querySelector('.crt-layer')
+    if (firstOverlay) windowEl.insertBefore(next, firstOverlay); else windowEl.appendChild(next)
     next.addEventListener('load', ()=>{
       sizeImage(next)
       requestAnimationFrame(()=>{ next.style.opacity = '1' })

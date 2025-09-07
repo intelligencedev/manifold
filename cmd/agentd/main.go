@@ -44,7 +44,6 @@ func main() {
 		fmt.Printf("failed to load config: %v\n", err)
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
-	fmt.Println("config loaded successfully")
 
 	shutdown, err := observability.InitOTel(context.Background(), cfg.Obs)
 	if err != nil {
@@ -52,7 +51,6 @@ func main() {
 		log.Warn().Err(err).Msg("otel init failed, continuing without observability")
 		shutdown = nil
 	}
-	fmt.Println("OTel initialized")
 	if shutdown != nil {
 		defer func() { _ = shutdown(context.Background()) }()
 	}
@@ -90,10 +88,8 @@ func main() {
 		SummaryThreshold: cfg.SummaryThreshold,
 		SummaryKeepLast:  cfg.SummaryKeepLast,
 	}
-	fmt.Println("engine created")
 
 	mux := http.NewServeMux()
-	fmt.Println("mux created")
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
@@ -219,7 +215,6 @@ func main() {
 	})
 
 	log.Info().Msg("agentd listening on :32180")
-	fmt.Println("about to listen")
 	if err := http.ListenAndServe(":32180", mux); err != nil {
 		log.Fatal().Err(err).Msg("server failed")
 	}

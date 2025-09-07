@@ -209,32 +209,23 @@ go build -o build/agentd ./cmd/agentd
 ./build/agentd
 ```
 
-- Start the web UI (defaults to host `0.0.0.0` port `8081` and forwards prompts to the agent_backend):
-
-```bash
-# run directly
-go run ./cmd/webui
-
-# or build and run
-go build -o build/webui ./cmd/webui
-./build/webui
-```
+- The web UI is now embedded in `agentd` and served from the same service. Access it at `http://localhost:32180/` after starting `agentd`.
 
 - Quick smoke tests (from your machine):
 
 ```bash
 # fetch the web UI index
-curl http://localhost:8081/
+curl http://localhost:32180/
 
-# submit a prompt (JSON forwarded to agentd)
-curl -i -X POST http://localhost:8081/api/prompt \
+# submit a prompt directly to agentd
+curl -i -X POST http://localhost:32180/agent/run \
   -H 'Content-Type: application/json' \
-  -d '{"prompt":"hello from webui"}'
+  -d '{"prompt":"hello from agentd"}'
 ```
 
 Notes:
 - `agentd` will return HTTP 500 if the configured LLM provider returns an error (for example, an unsupported parameter). For local UI testing, use the mock dev mode above or ensure your OpenAI-compatible provider and model accept the request parameters.
-- If port `32180` is already in use, stop the conflicting process or run `agentd` in an environment where that port is free. (You can also run the web UI with `WEB_UI_BACKEND_URL` pointing to a different agent endpoint.)
+- The web UI is served from the same port as `agentd` (32180). If port `32180` is already in use, stop the conflicting process or run `agentd` in an environment where that port is free.
 
 WARPP mode
 - WARPP is a workflow executor pattern: Intent detection  personalization  fulfillment with tool allow-listing.

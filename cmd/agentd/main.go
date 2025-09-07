@@ -96,6 +96,7 @@ func main() {
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ready")
 	})
+
 	mux.HandleFunc("/agent/run", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -194,6 +195,9 @@ func main() {
 	// Serve static files under /static/
 	fs := http.FS(assets)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(fs)))
+
+	// Serve assets (images, gifs) for avatar panel and future UI decoration
+	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
 
 	// Serve index on /
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

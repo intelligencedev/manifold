@@ -20,6 +20,9 @@ func Register(mux *http.ServeMux) {
 	fs := http.FS(assets)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(fs)))
 
+	// Serve assets files under /assets/
+	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
+
 	// Serve index on /
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {

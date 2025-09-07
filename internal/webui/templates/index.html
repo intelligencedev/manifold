@@ -11,8 +11,7 @@
 </head>
 <body data-theme="dark">
   <header class="site-header">
-    <div class="logo">Singularity Web UI</div>
-    <button id="themeToggle" class="theme-toggle" aria-label="Toggle theme" title="Toggle theme">🌗 <span class="fade-dim">Theme</span></button>
+    <div class="logo">intelligence.dev</div>
   </header>
   <main class="layout">
     <div class="col col-left">
@@ -217,17 +216,7 @@ document.getElementById('promptInput').addEventListener('keydown', (e)=>{
   if (e.key === 'Enter') { e.preventDefault(); document.getElementById('submitBtn').click() }
 })
 
-// Theme toggle (light/dark)
-const themeBtn = document.getElementById('themeToggle')
-if (themeBtn) {
-  const saved = localStorage.getItem('sio-theme')
-  if (saved) document.body.setAttribute('data-theme', saved)
-  themeBtn.addEventListener('click', ()=>{
-    const current = document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light'
-    document.body.setAttribute('data-theme', current)
-    localStorage.setItem('sio-theme', current)
-  })
-}
+// Theme toggle removed (single theme mode)
 </script>
 </body>
 </html>

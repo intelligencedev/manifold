@@ -353,8 +353,5 @@ button#submitBtn:hover { filter: brightness(1.12); }
 /* Selection */
 ::selection { background: #0c3f28; color: #d2ffe9; }
 
-/* Avatar panel (terminal theme) */
-.agent-avatar { border: 1px solid #1e3a43; box-shadow: 0 0 0 1px #163036, 0 0 8px -2px rgba(0,255,149,.25); }
-
 /* Remove original glassmorphism blur where lingering */
 header.site-header, .panel, .composer-shell, .theme-toggle { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }

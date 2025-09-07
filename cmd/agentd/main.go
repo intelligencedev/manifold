@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,10 +22,8 @@ import (
 	"singularityio/internal/tools/cli"
 	"singularityio/internal/tools/tts"
 	"singularityio/internal/tools/web"
+	"singularityio/internal/webui"
 )
-
-//go:embed templates/*
-var assets embed.FS
 
 func main() {
 	// Load environment from .env (or fallback to example.env) so local
@@ -192,8 +189,118 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 	})
 
+	// POST /api/prompt accepts {"prompt":"..."} and runs the agent (for web UI compatibility)
+	mux.HandleFunc("/api/prompt", func(w http.ResponseWriter, r *http.Request) {
+		// Basic CORS support
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Vary", "Origin")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// limit body to 64KB
+		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+		defer r.Body.Close()
+
+		var req struct {
+			Prompt string `json:"prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			log.Printf("decode prompt: %v", err)
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+
+		// If no OpenAI API key is configured, return a deterministic dev response
+		if cfg.OpenAI.APIKey == "" {
+			// Support SSE if requested
+			if r.Header.Get("Accept") == "text/event-stream" {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				fl, _ := w.(http.Flusher)
+				if b, err := json.Marshal("(dev) mock response: " + req.Prompt); err == nil {
+					fmt.Fprintf(w, "event: final\ndata: %s\n\n", b)
+				} else {
+					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock response")
+				}
+				fl.Flush()
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock response: " + req.Prompt})
+			return
+		}
+
+		// If client requested SSE, use streaming RunStream and proxy deltas/tool events
+		if r.Header.Get("Accept") == "text/event-stream" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			fl, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "streaming not supported", http.StatusInternalServerError)
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer cancel()
+
+			// Wire up engine callbacks to write SSE events
+			eng.OnDelta = func(d string) {
+				// send delta event
+				payload := map[string]string{"type": "delta", "data": d}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+			eng.OnTool = func(name string, args []byte, result []byte) {
+				// send tool event
+				payload := map[string]string{"type": "tool", "title": "Tool: " + name, "data": string(result)}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+
+			// Run streaming engine
+			res, err := eng.RunStream(ctx, req.Prompt, nil)
+			if err != nil {
+				log.Error().Err(err).Msg("agent run error")
+				if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
+					fmt.Fprintf(w, "data: %s\n\n", b)
+				} else {
+					fmt.Fprintf(w, "data: %q\n\n", "(error)")
+				}
+				fl.Flush()
+				return
+			}
+			// send final event
+			payload := map[string]string{"type": "final", "data": res}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+			return
+		}
+
+		// Non-streaming path
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		result, err := eng.Run(ctx, req.Prompt, nil)
+		if err != nil {
+			log.Error().Err(err).Msg("agent run error")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"result": result})
+	})
+
 	// Serve static files under /static/
-	fs := http.FS(assets)
+	fs := http.FS(webui.Assets)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(fs)))
 
 	// Serve assets (images, gifs) for avatar panel and future UI decoration
@@ -205,7 +312,7 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		f, err := assets.Open("templates/index.html")
+		f, err := webui.Assets.Open("templates/index.html")
 		if err != nil {
 			log.Printf("open index: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)

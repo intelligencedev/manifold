@@ -12,12 +12,12 @@ import (
 )
 
 //go:embed templates/*
-var assets embed.FS
+var Assets embed.FS
 
 // Register registers handlers on the provided ServeMux.
 func Register(mux *http.ServeMux) {
 	// Serve static files under /static/
-	fs := http.FS(assets)
+	fs := http.FS(Assets)
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(fs)))
 
 	// Serve assets files under /assets/
@@ -29,7 +29,7 @@ func Register(mux *http.ServeMux) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		f, err := assets.Open("templates/index.html")
+		f, err := Assets.Open("templates/index.html")
 		if err != nil {
 			log.Printf("open index: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)

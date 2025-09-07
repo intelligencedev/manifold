@@ -41,6 +41,15 @@ func Register(mux *http.ServeMux) {
 
 	// POST /api/prompt accepts {"prompt":"..."} and forwards to backend
 	mux.HandleFunc("/api/prompt", func(w http.ResponseWriter, r *http.Request) {
+		// Basic CORS / preflight support (useful when UI accessed from different origin during dev)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Vary", "Origin")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -60,7 +69,8 @@ func Register(mux *http.ServeMux) {
 
 		backend := os.Getenv("WEB_UI_BACKEND_URL")
 		if backend == "" {
-			// default backend endpoint
+			// Default backend is agentd which by default listens on 32180.
+			// Web UI itself now defaults to 32181 to avoid port collision.
 			backend = "http://localhost:32180/agent/run"
 		}
 

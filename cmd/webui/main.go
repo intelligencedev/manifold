@@ -19,7 +19,8 @@ func main() {
 	}
 	port := os.Getenv("WEB_UI_PORT")
 	if port == "" {
-		port = "8081"
+		// Use a different default port than agentd (which uses 32180)
+		port = "32181"
 	}
 	addr := host + ":" + port
 

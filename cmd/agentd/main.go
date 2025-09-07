@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -23,6 +25,9 @@ import (
 	"singularityio/internal/tools/web"
 )
 
+//go:embed templates/*
+var assets embed.FS
+
 func main() {
 	// Load environment from .env (or fallback to example.env) so local
 	// development can run without exporting variables manually. Do this
@@ -39,6 +44,7 @@ func main() {
 		fmt.Printf("failed to load config: %v\n", err)
 		log.Fatal().Err(err).Msg("failed to load config")
 	}
+	fmt.Println("config loaded successfully")
 
 	shutdown, err := observability.InitOTel(context.Background(), cfg.Obs)
 	if err != nil {
@@ -184,6 +190,29 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
+	})
+
+	// Serve static files under /static/
+	fs := http.FS(assets)
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(fs)))
+
+	// Serve index on /
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		f, err := assets.Open("templates/index.html")
+		if err != nil {
+			log.Printf("open index: %v", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := io.Copy(w, f); err != nil {
+			log.Printf("copy index: %v", err)
+		}
 	})
 
 	log.Info().Msg("agentd listening on :32180")

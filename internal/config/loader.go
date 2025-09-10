@@ -44,6 +44,11 @@ func Load() (Config, error) {
 			cfg.OutputTruncateByte = n
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("MAX_STEPS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.MaxSteps = n
+		}
+	}
 
 	cfg.Obs.ServiceName = strings.TrimSpace(os.Getenv("OTEL_SERVICE_NAME"))
 	cfg.Obs.ServiceVersion = strings.TrimSpace(os.Getenv("SERVICE_VERSION"))
@@ -129,6 +134,9 @@ func Load() (Config, error) {
 	}
 	if cfg.OutputTruncateByte == 0 {
 		cfg.OutputTruncateByte = 64 * 1024
+	}
+	if cfg.MaxSteps == 0 {
+		cfg.MaxSteps = 8
 	}
 
 	// Apply embedding defaults

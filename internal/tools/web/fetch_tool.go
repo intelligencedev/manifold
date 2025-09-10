@@ -21,7 +21,7 @@ func (t *fetchTool) JSONSchema() map[string]any {
 			"properties": map[string]any{
 				"url":             map[string]any{"type": "string", "description": "Absolute URL (http or https)."},
 				"timeout_seconds": map[string]any{"type": "integer", "minimum": 1, "maximum": 60, "description": "Overall timeout for the request."},
-				"max_bytes":       map[string]any{"type": "integer", "minimum": 1024, "maximum": 16777216, "description": "Maximum response size to read (bytes)."},
+				"max_bytes":       map[string]any{"type": "integer", "minimum": 1000000, "maximum": 16777216, "description": "Maximum response size to read (bytes)."},
 				"prefer_readable": map[string]any{"type": "boolean", "description": "Extract main article content when available."},
 				"user_agent":      map[string]any{"type": "string", "description": "Override User-Agent header."},
 				"max_redirects":   map[string]any{"type": "integer", "minimum": 1, "maximum": 20, "description": "Maximum redirects to follow."},
@@ -49,7 +49,14 @@ func (t *fetchTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 		opts = append(opts, WithTimeout(time.Duration(args.TimeoutSeconds)*time.Second))
 	}
 	if args.MaxBytes > 0 {
+		// Enforce minimum max_bytes of 1MB (1,000,000 bytes)
+		if args.MaxBytes < 1000000 {
+			args.MaxBytes = 1000000
+		}
 		opts = append(opts, WithMaxBytes(args.MaxBytes))
+	} else {
+		// If max_bytes is not provided or is 0, set to minimum of 1MB
+		opts = append(opts, WithMaxBytes(1000000))
 	}
 	if args.PreferReadable {
 		opts = append(opts, WithPreferReadable(true))

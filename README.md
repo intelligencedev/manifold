@@ -168,7 +168,7 @@ go run ./cmd/agent -q "Initialize a new module and run go test" [-max-steps 8]
 
 - Important flags:
   - -q: user request (required)
-  - -max-steps: limit agent steps (default 8)
+  - -max-steps: limit agent steps (default 8, configurable via MAX_STEPS env var or config.yaml)
   - -specialist: invoke a configured specialist directly (inference-only)
   - -warpp: run WARPP workflow executor instead of the LLM loop
 

@@ -17,14 +17,15 @@ import (
 )
 
 func main() {
-	maxSteps := flag.Int("max-steps", 8, "Max reasoning steps")
-	warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
-	flag.Parse()
-
+	// Load config first to get defaults
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal().Err(err).Msg("config")
 	}
+
+	maxSteps := flag.Int("max-steps", cfg.MaxSteps, "Max reasoning steps")
+	warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
+	flag.Parse()
 
 	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
 	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)

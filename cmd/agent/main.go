@@ -29,19 +29,20 @@ import (
 )
 
 func main() {
+	// Load config first to get defaults
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("config")
+	}
+
 	q := flag.String("q", "", "User request")
-	maxSteps := flag.Int("max-steps", 8, "Max reasoning steps")
+	maxSteps := flag.Int("max-steps", cfg.MaxSteps, "Max reasoning steps")
 	warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
 	specialist := flag.String("specialist", "", "Name of specialist agent to use (inference-only; no tool calls unless enabled)")
 	flag.Parse()
 	if *q == "" {
 		fmt.Fprintln(os.Stderr, "usage: agent -q \"...\"")
 		os.Exit(2)
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal().Err(err).Msg("config")
 	}
 
 	observability.InitLogger(cfg.LogPath, cfg.LogLevel)

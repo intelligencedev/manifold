@@ -80,7 +80,7 @@ type Fetcher struct {
 func NewFetcher(opts ...Option) *Fetcher {
 	o := FetchOptions{
 		Timeout:        20 * time.Second,
-		MaxBytes:       8 << 20, // 8 MiB
+		MaxBytes:       8 * 1000 * 1000, // 8 MB minimum
 		PreferReadable: true,
 		UserAgent:      "",
 		MaxRedirects:   10,

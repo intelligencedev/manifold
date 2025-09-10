@@ -10,13 +10,15 @@ type Config struct {
 	SummaryThreshold   int
 	SummaryKeepLast    int
 	OutputTruncateByte int
-	LogPath            string
-	LogLevel           string
-	LogPayloads        bool
-	Exec               ExecConfig
-	OpenAI             OpenAIConfig
-	Obs                ObsConfig
-	Web                WebConfig
+	// Maximum number of reasoning steps the agent can take
+	MaxSteps    int
+	LogPath     string
+	LogLevel    string
+	LogPayloads bool
+	Exec        ExecConfig
+	OpenAI      OpenAIConfig
+	Obs         ObsConfig
+	Web         WebConfig
 	// MCP defines Model Context Protocol client configuration. If configured,
 	// the application will connect to the listed servers and expose their tools
 	// in the agent tool registry.

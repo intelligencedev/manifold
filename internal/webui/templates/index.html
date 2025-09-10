@@ -69,7 +69,8 @@
         <div class="panel-header">Project Manager</div>
         <div id="avatarPane">
           <div class="avatar-window crt" data-window-width="256" data-window-height="400">
-            <img src="/assets/smiling.png" alt="Current Working Agent" class="agent-avatar" data-shake-amplitude="1" data-shake-speed="1" />
+            <!-- Default looping avatar (listening state) -->
+            <img src="/assets/listening.gif" alt="Current Working Agent" class="agent-avatar" data-shake-amplitude="1" data-shake-speed="1" />
             <div class="crt-layer crt-phosphor"></div>
             <div class="crt-layer crt-scanlines"></div>
             <div class="crt-layer crt-mask"></div>
@@ -86,13 +87,13 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
-// Camera shake with fixed viewport window + crossfade API
+// Camera shake with fixed viewport window + crossfade API (persistent across swaps)
 (()=>{
   const windowEl = document.querySelector('#avatarPane .avatar-window')
-  const img = windowEl?.querySelector('img.agent-avatar')
-  if (!windowEl || !img) return
-  const amplitude = parseFloat(img.dataset.shakeAmplitude || '16')
-  const speed = parseFloat(img.dataset.shakeSpeed || '1')
+  let currentImg = windowEl?.querySelector('img.agent-avatar')
+  if (!windowEl || !currentImg) return
+  const amplitude = parseFloat(currentImg.dataset.shakeAmplitude || '16')
+  const speed = parseFloat(currentImg.dataset.shakeSpeed || '1')
   const freqX = [0.9, 2.2, 4.7]
   const freqY = [1.1, 2.0, 3.8]
   const weights = [0.6, 0.3, 0.1]
@@ -105,6 +106,7 @@
     return [nx*amplitude, ny*amplitude]
   }
   function sizeImage(image){
+    if(!image) return
     const ww = parseInt(windowEl.dataset.windowWidth || windowEl.clientWidth || 256, 10)
     const wh = parseInt(windowEl.dataset.windowHeight || windowEl.clientHeight || 256, 10)
     windowEl.style.width = ww + 'px'
@@ -121,29 +123,31 @@
     image.dataset._baseX = baseX
     image.dataset._baseY = baseY
   }
-  if (img.complete) sizeImage(img); else img.addEventListener('load', ()=>sizeImage(img))
-  window.addEventListener('resize', ()=>sizeImage(img))
+  if (currentImg.complete) sizeImage(currentImg); else currentImg.addEventListener('load', ()=>sizeImage(currentImg))
+  window.addEventListener('resize', ()=>sizeImage(currentImg))
   let running = true
   const start = performance.now()
   function loop(now){
     if(!running) return
     const t = (now-start)/1000
     const [ox, oy] = sample(t)
-    const baseX = parseFloat(img.dataset._baseX||'0')
-    const baseY = parseFloat(img.dataset._baseY||'0')
-    img.style.transform = `translate(${(baseX+ox).toFixed(2)}px, ${(baseY+oy).toFixed(2)}px)`
+    if (currentImg) {
+      const baseX = parseFloat(currentImg.dataset._baseX||'0')
+      const baseY = parseFloat(currentImg.dataset._baseY||'0')
+      currentImg.style.transform = `translate(${(baseX+ox).toFixed(2)}px, ${(baseY+oy).toFixed(2)}px)`
+    }
     requestAnimationFrame(loop)
   }
   requestAnimationFrame(loop)
   document.addEventListener('visibilitychange', ()=>{ running = !document.hidden; if (running) requestAnimationFrame(loop) })
   window.setAvatarImage = function(src, fadeMs=400){
-    const current = windowEl.querySelector('img.agent-avatar')
+    const prev = currentImg
     const next = new Image()
     next.src = src
-    next.alt = current?.alt || 'Agent'
-    next.className = current?.className || 'agent-avatar'
-    next.dataset.shakeAmplitude = current?.dataset.shakeAmplitude || String(amplitude)
-    next.dataset.shakeSpeed = current?.dataset.shakeSpeed || String(speed)
+    next.alt = prev?.alt || 'Agent'
+    next.className = prev?.className || 'agent-avatar'
+    next.dataset.shakeAmplitude = prev?.dataset.shakeAmplitude || String(amplitude)
+    next.dataset.shakeSpeed = prev?.dataset.shakeSpeed || String(speed)
     next.style.position = 'absolute'
     next.style.top = '0'; next.style.left = '0'
     next.style.opacity = '0'
@@ -152,8 +156,10 @@
     if (firstOverlay) windowEl.insertBefore(next, firstOverlay); else windowEl.appendChild(next)
     next.addEventListener('load', ()=>{
       sizeImage(next)
+      // Switch the shaking target to the new image immediately so effect persists
+      currentImg = next
       requestAnimationFrame(()=>{ next.style.opacity = '1' })
-      setTimeout(()=>{ current?.remove() }, fadeMs+40)
+      setTimeout(()=>{ prev?.remove() }, fadeMs+40)
     })
   }
 })()
@@ -208,6 +214,10 @@ function appendToolEvent(title, content) {
 }
 
 async function submitPrompt(prompt) {
+  // Trigger avatar animation immediately when a prompt is submitted
+  if (typeof window.playPromptAnimation === 'function') {
+    window.playPromptAnimation()
+  }
   appendMessage('user', prompt)
   const backend = '/api/prompt'
 
@@ -330,6 +340,119 @@ document.getElementById('promptInput').addEventListener('keydown', (e)=>{
 })
 
 // Theme toggle removed (single theme mode)
+
+// -------------------------------------------------------------
+// Avatar Animation System
+// Idle state: continuously cycle through listening*.gif variants, selecting a new one
+// after the previous finishes a single loop (estimated via frame delays).
+// Active (prompt) state: play a one-off reaction GIF (thinking/listening2/etc.) for one loop
+// then return to idle cycle (not just a single default).\n
+// -------------------------------------------------------------
+;(()=>{
+  // Idle pool (listening variants). If new listening*.gif files are added they can be appended here manually
+  const IDLE_GIFS = [
+    '/assets/listening.gif',
+    '/assets/listening2.gif',
+    '/assets/listening3.gif',
+    '/assets/listening4.gif'
+  ]
+  // Prompt reaction pool (non-idle / expressive set)
+  const PROMPT_GIFS = [
+    '/assets/thinking.gif',
+    '/assets/pensive.gif',
+    '/assets/smiling.gif',
+    '/assets/sad.gif'
+  ].filter(Boolean)
+  // Current operational mode
+  let inPromptAnimation = false
+  // Fallback duration per GIF if parsing fails (ms)
+  const DEFAULT_DURATION = 2500
+  // Cache of measured single-loop durations
+  const gifDurations = {}
+  let revertTimer = null
+  let currentGif = null
+  let idleTimer = null
+  let lastIdleChoice = null
+
+  async function measureGifOnce(url){
+    if (gifDurations[url]) return gifDurations[url]
+    try {
+      const res = await fetch(url + '?cache=meta', {cache:'no-store'})
+      const buf = await res.arrayBuffer()
+      const bytes = new Uint8Array(buf)
+      let total = 0
+      for (let i=0; i < bytes.length - 9; i++) {
+        // Graphic Control Extension: 21 F9 04 .. .. delay(lo) delay(hi)
+        if (bytes[i]===0x21 && bytes[i+1]===0xF9 && bytes[i+2]===0x04) {
+          const delayLo = bytes[i+4]
+          const delayHi = bytes[i+5]
+            // delay in hundredths of a second
+          let delay = delayLo | (delayHi << 8)
+          if (delay === 0) delay = 1 // some gifs put 0; treat as 10ms
+          total += delay * 10 // ms
+        }
+      }
+      if (total === 0) total = DEFAULT_DURATION
+      gifDurations[url] = total
+      return total
+    } catch (e) {
+      gifDurations[url] = DEFAULT_DURATION
+      return DEFAULT_DURATION
+    }
+  }
+
+  function pickRandom(list, exclude){
+    if(!list.length) return null
+    let filtered = list
+    if (exclude) filtered = list.filter(x=>x!==exclude)
+    if(!filtered.length) filtered = list
+    return filtered[Math.floor(Math.random()*filtered.length)]
+  }
+
+  async function scheduleNextIdle(afterMs){
+    if (idleTimer) clearTimeout(idleTimer)
+    idleTimer = setTimeout(()=>{ runIdleCycle() }, afterMs)
+  }
+
+  async function runIdleCycle(){
+    if (inPromptAnimation) return // paused during prompt reaction
+    const choice = pickRandom(IDLE_GIFS, lastIdleChoice)
+    if(!choice) return
+    lastIdleChoice = choice
+    currentGif = choice
+    const duration = await measureGifOnce(choice)
+    window.setAvatarImage(choice + '?idle=' + Date.now(), 220)
+    scheduleNextIdle(Math.min(duration, 10000))
+  }
+
+  async function playPromptAnimation(){
+    if(!window.setAvatarImage) return
+    if (!PROMPT_GIFS.length) return
+    inPromptAnimation = true
+    if (revertTimer) { clearTimeout(revertTimer); revertTimer = null }
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+    const choice = pickRandom(PROMPT_GIFS)
+    currentGif = choice
+    const duration = await measureGifOnce(choice)
+    window.setAvatarImage(choice + '?prompt=' + Date.now(), 160)
+    revertTimer = setTimeout(()=>{
+      if (currentGif === choice) {
+        inPromptAnimation = false
+        currentGif = null
+        runIdleCycle() // resume idle cycle immediately
+      }
+      revertTimer = null
+    }, Math.min(duration, 8000))
+  }
+
+  // Expose globally for submitPrompt hook
+  window.playPromptAnimation = playPromptAnimation
+
+  window.addEventListener('load', ()=>{
+    // Start idle cycle (replace whatever initial avatar is after first loop)
+    runIdleCycle()
+  })
+})()
 </script>
 </body>
 </html>

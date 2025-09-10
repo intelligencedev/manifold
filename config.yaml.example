@@ -43,6 +43,10 @@ summaryEnabled: false
 summaryThreshold: 40
 summaryKeepLast: 12
 
+# Maximum number of reasoning steps the agent can take (default: 8)
+# Can be overridden via MAX_STEPS environment variable
+maxSteps: 8
+
 databases:
   search:
     backend: postgres   # memory | postgres

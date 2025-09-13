@@ -286,22 +286,43 @@ header.site-header {
 .panel-header { color: var(--term-text-faint); }
 
 /* Chat bubbles */
+.msg {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border-radius: var(--radius);
+  position: relative;
+}
 .msg.user {
   background: linear-gradient(160deg,#063a21,#0b5d32 60%,#0f7a44);
   box-shadow: 0 0 0 1px #15613a, 0 0 14px -2px rgba(0,255,149,.35);
   color: #d6ffe9;
   font-weight: 500;
+  align-self: flex-end;
+  max-width: 80%;
 }
 .msg.agent {
   background: #101c22;
   border: 1px solid #1d3a44;
   box-shadow: 0 0 0 1px #132c33, 0 0 10px -3px rgba(0,255,149,.25);
   color: var(--term-text);
+  align-self: flex-start;
+  max-width: 80%;
 }
 .msg.info {
   background: #0f1f25;
   border: 1px solid #1c363f;
   color: var(--term-text-faint);
+  align-self: center;
+  max-width: 60%;
+}
+
+.msg .timestamp {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  margin-top: 0.5rem;
+  align-self: flex-end;
 }
 
 /* Tool blocks */
@@ -352,6 +373,72 @@ button#submitBtn:hover { filter: brightness(1.12); }
 
 /* Selection */
 ::selection { background: #0c3f28; color: #d2ffe9; }
+
+/* Copy button (bottom-left) + timestamp alignment for agent messages */
+.msg.agent { position: relative; padding-bottom: 38px; }
+.copy-btn {
+  --btn-bg: rgba(0,255,149,0.06);
+  --btn-border: #124b32;
+  position: absolute;
+  bottom: 8px;
+  left: 10px;
+  background: var(--btn-bg);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--btn-border);
+  color: var(--term-accent-alt);
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 10px 5px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--term-font-ui);
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  opacity: .82;
+  box-shadow: 0 0 0 1px #0b2d1e, 0 0 0 2px rgba(0,200,83,0.08), 0 0 10px -4px rgba(0,255,149,.35);
+  transition: background .18s ease, color .18s ease, border-color .18s ease, opacity .18s, box-shadow .25s ease;
+}
+.msg.agent:hover > .copy-btn { opacity: 1; }
+.copy-btn:hover {
+  background: rgba(0,255,149,0.12);
+  color: var(--term-accent);
+  border-color: #1e6f4b;
+  box-shadow: 0 0 0 1px #145236, 0 0 0 2px rgba(0,200,83,0.25), 0 0 14px -2px rgba(0,255,149,.55);
+}
+.copy-btn.copied {
+  background: linear-gradient(135deg, rgba(0,255,149,0.16), rgba(0,180,110,0.22));
+  color: var(--term-accent);
+  border-color: #25a068;
+  box-shadow: 0 0 0 1px #166844, 0 0 0 2px rgba(0,255,149,0.32), 0 0 18px -2px rgba(0,255,149,.65);
+}
+.msg .timestamp { font-size: 0.7rem; }
+.msg.agent .timestamp { position: absolute; bottom: 10px; right: 14px; margin-top:0; opacity:.55; }
+
+/* Code block copy buttons */
+.code-copy-btn {
+  background: rgba(0,0,0,0.7);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.7;
+  padding: 4px 8px;
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  transition: opacity 0.2s;
+}
+.code-copy-btn:hover {
+  opacity: 1;
+}
+.msg.agent pre, .tool-block pre {
+  position: relative;
+}
 
 /* Remove original glassmorphism blur where lingering */
 header.site-header, .panel, .composer-shell, .theme-toggle { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }

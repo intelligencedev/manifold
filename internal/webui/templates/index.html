@@ -87,6 +87,13 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
+// Auto-scroll management for chat pane
+let autoScrollEnabled = true;
+const chatPane = document.getElementById('chatPane');
+chatPane.addEventListener('scroll', () => {
+  const isAtBottom = chatPane.scrollTop + chatPane.clientHeight >= chatPane.scrollHeight - 10; // 10px tolerance
+  autoScrollEnabled = isAtBottom;
+});
 // Camera shake with fixed viewport window + crossfade API (persistent across swaps)
 (()=>{
   const windowEl = document.querySelector('#avatarPane .avatar-window')
@@ -164,14 +171,35 @@
   }
 })()
 
+// Helper function to add copy buttons to code blocks
+function addCopyButtonsToCodeBlocks(container) {
+  const pres = container.querySelectorAll('pre')
+  pres.forEach(pre => {
+    if (pre.querySelector('.code-copy-btn')) return // Already has button
+    const code = pre.querySelector('code')
+    if (!code) return
+    const copyBtn = document.createElement('button')
+    copyBtn.className = 'code-copy-btn'
+    copyBtn.title = 'Copy code'
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(code.textContent).then(() => {
+        copyBtn.innerHTML = '✓'
+        setTimeout(1000)
+      })
+    })
+    pre.appendChild(copyBtn)
+  })
+}
+
 // Helper: append message to chat pane (renders markdown for agent)
 function appendMessage(kind, text, raw=false) {
-  const chat = document.getElementById('chatPane')
   const el = document.createElement('div')
   const content = document.createElement('div')
   const timestamp = document.createElement('div')
   timestamp.className = 'timestamp'
   timestamp.textContent = new Date().toLocaleTimeString()
+  // Make sure we have the chat container (streaming previously failed when this was undefined)
+  const chat = document.getElementById('chatPane')
   if (kind === 'user') {
     el.className = 'msg user'
     content.textContent = text
@@ -184,8 +212,33 @@ function appendMessage(kind, text, raw=false) {
       content.textContent = text
     } else {
       content.innerHTML = marked.parse(text || '')
+      addCopyButtonsToCodeBlocks(content)
     }
     el.appendChild(content)
+    // Add copy button for agent messages (appears on hover, ChatGPT-like)
+    const copyBtn = document.createElement('button')
+    copyBtn.className = 'copy-btn'
+    copyBtn.type = 'button'
+    copyBtn.setAttribute('aria-label', 'Copy message')
+    copyBtn.innerHTML = '<span class="label">Copy</span>'
+    copyBtn.addEventListener('click', () => {
+      const toCopy = el.dataset.rawMarkdown || content.textContent || ''
+      navigator.clipboard.writeText(toCopy).then(() => {
+        copyBtn.classList.add('copied')
+        copyBtn.innerHTML = '<span class="label">Copied</span>'
+        setTimeout(() => {
+          copyBtn.classList.remove('copied')
+          copyBtn.innerHTML = '<span class="label">Copy</span>'
+        }, 1600)
+      }).catch(()=>{
+        copyBtn.innerHTML = '<span class="icon">!</span><span class="label">Error</span>'
+        setTimeout(() => {
+          copyBtn.classList.remove('copied')
+          copyBtn.innerHTML = '<span class="label">Copy</span>'
+        }, 1600)
+      })
+    })
+    el.appendChild(copyBtn)
     el.appendChild(timestamp)
   } else if (kind === 'info') {
     el.className = 'msg info'
@@ -193,8 +246,10 @@ function appendMessage(kind, text, raw=false) {
     el.appendChild(content)
     el.appendChild(timestamp)
   }
-  chat.appendChild(el)
-  chat.scrollTop = chat.scrollHeight
+  if (chat) chat.appendChild(el)
+  if (autoScrollEnabled) {
+    chat && (chat.scrollTop = chat.scrollHeight)
+  }
 }
 
 function appendToolEvent(title, content) {
@@ -273,8 +328,11 @@ async function submitPrompt(prompt) {
                   const contentDiv = last.querySelector('div');
                   if (contentDiv) {
                     contentDiv.innerHTML = marked.parse(last.dataset.rawMarkdown);
+                    addCopyButtonsToCodeBlocks(contentDiv);
                   }
-                  chat.scrollTop = chat.scrollHeight
+                  if (autoScrollEnabled) {
+                    chat.scrollTop = chat.scrollHeight
+                  }
                 }
               } else if (obj.type === 'tool') {
                 appendToolEvent(obj.title || 'Tool', obj.data || '')
@@ -287,6 +345,7 @@ async function submitPrompt(prompt) {
                   const contentDiv = last.querySelector('div');
                   if (contentDiv) {
                     contentDiv.innerHTML = marked.parse(last.dataset.rawMarkdown);
+                    addCopyButtonsToCodeBlocks(contentDiv);
                   }
                 }
               }

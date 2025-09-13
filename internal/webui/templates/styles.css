@@ -215,6 +215,12 @@ input#promptInput::placeholder { color: var(--text-faint); letter-spacing: .3px;
 button#submitBtn { background: var(--gradient-accent); color: #fff; font-weight: 600; border: none; cursor: pointer; border-radius: var(--radius-sm); padding: .75rem 1rem .8rem; font-size: .75rem; letter-spacing: .8px; text-transform: uppercase; display: inline-flex; align-items: center; gap: .45rem; box-shadow: 0 4px 14px -4px rgba(var(--accent-rgb),.65), 0 2px 4px -2px rgba(var(--accent-rgb),.55); transition: var(--transition); }
 button#submitBtn:hover { filter: brightness(1.1); transform: translateY(-1px); }
 button#submitBtn:active { transform: translateY(0); }
+/* Microphone button (default glass theme) */
+button#micBtn { background: rgba(var(--surface-rgb),0.18); border: 1px solid rgba(var(--surface-border-rgb),0.45); color: var(--text-soft); font-size: .95rem; line-height: 1; padding: .7rem .8rem .75rem; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px -3px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06); transition: var(--transition); position: relative; }
+button#micBtn:hover { color: var(--text); box-shadow: 0 0 0 1px rgba(var(--accent-rgb),.35), 0 4px 14px -4px rgba(var(--accent-rgb),.4); }
+button#micBtn.recording { background: linear-gradient(135deg,#d32f2f,#ff5252); color:#fff; border-color:#ff6d6d; box-shadow: 0 0 0 1px rgba(255,90,90,.6),0 0 16px -2px rgba(255,70,70,.55),0 0 4px 1px rgba(255,140,140,.35); animation: pulseRec 1.1s ease-in-out infinite; }
+button#micBtn.recording::after { content:"REC"; position:absolute; top:4px; right:6px; font-size:9px; letter-spacing:1px; font-weight:600; opacity:.85; }
+@keyframes pulseRec { 0%,100% { transform: translateY(0) scale(1); filter:brightness(1); } 50% { transform: translateY(-1px) scale(1.04); filter:brightness(1.15); } }
 
 /* Utility */
 .fade-dim { opacity: .7; }
@@ -356,6 +362,11 @@ button#submitBtn {
   letter-spacing: 1px;
 }
 button#submitBtn:hover { filter: brightness(1.12); }
+/* Mic button (terminal theme override) */
+button#micBtn { background:#0c181d; border:1px solid #1a3a44; color: var(--term-text-faint); box-shadow:0 0 0 1px #102b30, 0 0 10px -3px rgba(0,255,149,.25), inset 0 0 0 1px rgba(255,255,255,0.04); font-weight:500; font-family: var(--term-font-ui); }
+button#micBtn:hover { color: var(--term-accent-alt); border-color:#21514f; box-shadow:0 0 0 1px #1c544b, 0 0 14px -4px rgba(0,255,149,.38); }
+button#micBtn.recording { background: linear-gradient(135deg,#611010,#b71c1c); border-color:#ff5252; color:#ffecec; box-shadow:0 0 0 1px #651c1c,0 0 18px -2px rgba(255,80,80,.55),0 0 6px 0 rgba(255,60,60,.4); }
+button#micBtn.recording::after { color:#ffd4d4; text-shadow:0 0 6px rgba(255,120,120,.8); }
 
 /* Code blocks */
 .msg.agent pre, .tool-block pre {

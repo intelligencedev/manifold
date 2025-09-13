@@ -68,6 +68,7 @@
       <div class="composer-wrapper">
         <div class="composer-shell" id="composer">
           <input id="promptInput" type="text" aria-label="Prompt" placeholder="Ask anything about your data, tools, or code..." autocomplete="off" />
+          <button id="micBtn" type="button" aria-label="Record audio (R / Space hold / Ctrl+Alt+R)" title="Voice: R to toggle • Space = hold-to-talk • Ctrl+Alt+R toggle">🎤</button>
           <button id="submitBtn" type="button">▶ Run</button>
         </div>
       </div>
@@ -528,6 +529,145 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     appendMessage('agent', 'Error: ' + err.message, true)
   }
 })
+
+// -------------------------------------------------------------
+// Speech to Text (Web MediaRecorder -> WAV -> /stt)
+// -------------------------------------------------------------
+;(()=>{
+  const micBtn = document.getElementById('micBtn')
+  if(!micBtn || !navigator.mediaDevices) return
+  let mediaRecorder = null
+  let chunks = []
+  let recording = false
+  let startTime = 0
+  function setState(rec){
+    recording = rec
+  micBtn.textContent = rec ? '■' : '🎤'
+  if(rec) micBtn.classList.add('recording'); else micBtn.classList.remove('recording')
+  }
+  async function start(){
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true})
+      chunks = []
+      mediaRecorder = new MediaRecorder(stream, {mimeType: 'audio/webm'})
+      mediaRecorder.ondataavailable = e=>{ if(e.data && e.data.size>0) chunks.push(e.data) }
+      mediaRecorder.onstop = ()=>{ stream.getTracks().forEach(t=>t.stop()); process() }
+      mediaRecorder.start()
+      startTime = performance.now()
+      setState(true)
+    } catch(err){
+      appendMessage('agent', 'Microphone error: '+ err.message, true)
+    }
+  }
+  function stop(){
+    if(mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop()
+    setState(false)
+  }
+  async function process(){
+    if(!chunks.length){ appendMessage('agent','No audio captured.',true); return }
+    // Convert webm/opus to PCM WAV via browser decode (AudioContext)
+    try {
+      const blob = new Blob(chunks, {type: 'audio/webm'})
+      const arrayBuf = await blob.arrayBuffer()
+      const audioCtx = new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000})
+      const decoded = await audioCtx.decodeAudioData(arrayBuf)
+      // Resample (if needed) to 16k mono
+      const targetRate = 16000
+      const chData = decoded.numberOfChannels>1 ? (()=>{ // mixdown
+        const left = decoded.getChannelData(0)
+        const right = decoded.getChannelData(1)
+        const mixed = new Float32Array(left.length)
+        for(let i=0;i<mixed.length;i++){ mixed[i]=(left[i]+right[i])/2 }
+        return mixed
+      })() : decoded.getChannelData(0)
+      const ratio = decoded.sampleRate / targetRate
+      const outLen = Math.round(chData.length / ratio)
+      const resampled = new Float32Array(outLen)
+      for(let i=0;i<outLen;i++){ resampled[i] = chData[Math.min(chData.length-1, Math.round(i*ratio))] }
+      // Encode minimal WAV (16-bit PCM)
+      function floatTo16(f){
+        const s = Math.max(-1, Math.min(1, f))
+        return s<0 ? s*0x8000 : s*0x7FFF
+      }
+      const wavBuffer = new ArrayBuffer(44 + resampled.length*2)
+      const view = new DataView(wavBuffer)
+      let off=0
+      function writeStr(s){ for(let i=0;i<s.length;i++) view.setUint8(off++, s.charCodeAt(i)) }
+      function write16(v){ view.setUint16(off, v, true); off+=2 }
+      function write32(v){ view.setUint32(off, v, true); off+=4 }
+      writeStr('RIFF'); write32(36 + resampled.length*2); writeStr('WAVE')
+      writeStr('fmt '); write32(16); write16(1); write16(1); write32(targetRate); write32(targetRate*2); write16(2); write16(16)
+      writeStr('data'); write32(resampled.length*2)
+      for(let i=0;i<resampled.length;i++){ view.setInt16(off, floatTo16(resampled[i]), true); off+=2 }
+      const wavBlob = new Blob([wavBuffer], {type:'audio/wav'})
+      const form = new FormData()
+      form.append('audio', wavBlob, 'capture.wav')
+      appendMessage('agent','Transcribing...', true)
+      const resp = await fetch('/stt', {method:'POST', body: form})
+      if(!resp.ok){ const t = await resp.text(); appendMessage('agent','STT error: '+resp.status+' '+t,true); return }
+      const j = await resp.json()
+      const text = (j.text||'').trim()
+      if(text){
+        const input = document.getElementById('promptInput')
+        if(input.value) input.value += ' '
+        input.value += text
+        appendMessage('user','(speech)', text)
+      } else {
+        appendMessage('agent','No speech detected.', true)
+      }
+    } catch(err){
+      appendMessage('agent','STT processing failed: '+err.message,true)
+    }
+  }
+  micBtn.addEventListener('click', ()=>{ recording ? stop() : start() })
+  // ---------------------------------------------------------
+  // Standard hotkeys:
+  //   R              -> toggle record (when not typing in input)
+  //   Space (hold)   -> push-to-talk (start on keydown, stop on keyup)
+  //   Ctrl+Alt+R     -> global-ish toggle (Win/Linux)
+  //   Escape         -> stop if recording
+  // Add ?debugKeys=1 to URL to enable console debug.
+  // ---------------------------------------------------------
+  const urlParams = new URLSearchParams(location.search)
+  const debugKeys = urlParams.has('debugKeys')
+  let spacePTT = false
+
+  function isEditable(el){
+    if(!el) return false
+    const tag = el.tagName
+    if(tag === 'INPUT' || tag === 'TEXTAREA') return true
+    if(el.isContentEditable) return true
+    return false
+  }
+
+  window.addEventListener('keydown', (e)=>{
+    if(debugKeys){ console.debug('[VoiceHotkey keydown]', e.key, {alt:e.altKey, ctrl:e.ctrlKey, meta:e.metaKey, shift:e.shiftKey, target:e.target}) }
+    const activeEl = document.activeElement
+    // Space (push-to-talk) when not focused on an editable element
+    if(e.code === 'Space' && !e.repeat && !isEditable(activeEl)) {
+      e.preventDefault()
+      if(!recording){ spacePTT = true; start() }
+      return
+    }
+    // R toggle (ignore if typing inside input/textarea)
+    if((e.key === 'r' || e.key === 'R') && !e.repeat && !isEditable(activeEl) && !e.metaKey && !e.altKey && !e.ctrlKey) {
+      e.preventDefault(); recording ? stop() : start(); return
+    }
+    // Ctrl+Alt+R toggle (cross-platform)
+    if((e.key === 'r' || e.key === 'R') && e.altKey && e.ctrlKey && !e.metaKey) {
+      e.preventDefault(); recording ? stop() : start(); return
+    }
+    // Escape to stop
+    if(e.key === 'Escape' && recording) { e.preventDefault(); stop(); return }
+  }, {capture:true})
+
+  window.addEventListener('keyup', (e)=>{
+    if(debugKeys){ console.debug('[VoiceHotkey keyup]', e.key) }
+    if(e.code === 'Space' && spacePTT){
+      e.preventDefault(); spacePTT = false; if(recording) stop()
+    }
+  }, {capture:true})
+})()
 
 // Press Enter to submit
 document.getElementById('promptInput').addEventListener('keydown', (e)=>{

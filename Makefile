@@ -187,6 +187,15 @@ build-agentd: | $(DIST)
 	go build -o $(DIST)/agentd ./cmd/agentd
 	@echo "agentd build complete"
 
+# Build only agentd but ensure Whisper dependencies are built and linked (speech-to-text)
+.PHONY: build-agentd-whisper
+build-agentd-whisper: whisper-go-bindings | $(DIST)
+	@echo "Building agentd (with Whisper) into $(DIST)/"
+	C_INCLUDE_PATH=$(WHISPER_INCLUDE_DIR) \
+	LIBRARY_PATH=$(WHISPER_LIB_DIR):$(WHISPER_GGML_LIB_DIR):$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas:$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal \
+	go build -o $(DIST)/agentd ./cmd/agentd
+	@echo "agentd (with Whisper) build complete"
+
 
 # Build web UI server
 build-webui:

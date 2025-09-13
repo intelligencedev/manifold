@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/rs/zerolog/log"
 
@@ -33,7 +35,8 @@ import (
 	"singularityio/internal/tools/web"
 	"singularityio/internal/warpp"
 	"singularityio/internal/webui"
-	// "github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
+
+	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 )
 
 type sessionStore struct {
@@ -172,21 +175,15 @@ func main() {
 	// Initialize session store for conversation history
 	sessions := newSessionStore()
 
-	// Initialize Whisper model for speech-to-text
-	// var whisperModel whisper.Model
-	// var whisperCtx whisper.Context
-	// modelPath := "models/ggml-small.en.bin"
-	// if model, err := whisper.New(modelPath); err == nil {
-	// 	whisperModel = model
-	// 	if ctx, err := model.NewContext(); err == nil {
-	// 		whisperCtx = ctx
-	// 		ctx.SetLanguage("en")
-	// 	} else {
-	// 		log.Warn().Err(err).Msg("Whisper context creation failed")
-	// 	}
-	// } else {
-	// 	log.Warn().Err(err).Msg("Whisper model load failed")
-	// }
+	// Initialize Whisper model for speech-to-text (optional – if model file present)
+	var whisperModel whisper.Model
+	modelPath := "models/ggml-small.en.bin"
+	if model, err := whisper.New(modelPath); err == nil {
+		whisperModel = model
+		log.Info().Str("model", modelPath).Msg("whisper model loaded")
+	} else {
+		log.Warn().Str("model", modelPath).Err(err).Msg("whisper model load failed; /stt disabled")
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -510,68 +507,108 @@ func main() {
 		http.ServeFile(w, r, filename)
 	})
 
-	// POST /stt accepts audio file uploads and returns transcribed text
-	// mux.HandleFunc("/stt", func(w http.ResponseWriter, r *http.Request) {
-	// 	if r.Method != http.MethodPost {
-	// 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-	// 		return
-	// 	}
-
-	// 	if whisperModel == nil || whisperCtx == nil {
-	// 		http.Error(w, "Whisper not available", http.StatusServiceUnavailable)
-	// 		return
-	// 	}
-
-	// 	// Parse multipart form
-	// 	err := r.ParseMultipartForm(32 << 20) // 32MB max
-	// 	if err != nil {
-	// 		http.Error(w, "failed to parse form", http.StatusBadRequest)
-	// 		return
-	// 	}
-
-	// 	file, _, err := r.FormFile("audio")
-	// 	if err != nil {
-	// 		http.Error(w, "failed to get audio file", http.StatusBadRequest)
-	// 		return
-	// 	}
-	// 	defer file.Close()
-
-	// 	// Read audio data
-	// 	audioData, err := io.ReadAll(file)
-	// 	if err != nil {
-	// 		http.Error(w, "failed to read audio data", http.StatusInternalServerError)
-	// 		return
-	// 	}
-
-	// 	// Process with Whisper
-	// 	// For simplicity, assume 16kHz WAV format and convert to float samples
-	// 	// In a real implementation, you'd need proper audio format handling
-	// 	samples := make([]float32, len(audioData)/2)
-	// 	for i := 0; i < len(samples); i++ {
-	// 		sample := int16(audioData[i*2]) | int16(audioData[i*2+1])<<8
-	// 		samples[i] = float32(sample) / 32768.0
-	// 	}
-
-	// 	err = whisperCtx.Process(samples, nil, nil, nil)
-	// 	if err != nil {
-	// 		http.Error(w, "Whisper processing failed", http.StatusInternalServerError)
-	// 		return
-	// 	}
-
-	// 	// Extract text
-	// 	var text strings.Builder
-	// 	for {
-	// 		segment, err := whisperCtx.NextSegment()
-	// 		if err != nil {
-	// 			break
-	// 		}
-	// 		text.WriteString(segment.Text)
-	// 	}
-
-	// 	transcribedText := strings.TrimSpace(text.String())
-	// 	w.Header().Set("Content-Type", "application/json")
-	// 	json.NewEncoder(w).Encode(map[string]string{"text": transcribedText})
-	// })
+	// POST /stt accepts multipart/form-data with field "audio" (WAV 16kHz mono or stereo) and returns {text: "..."}
+	mux.HandleFunc("/stt", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if whisperModel == nil { // model failed to load
+			http.Error(w, "whisper model unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		// 32MB max upload
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		file, _, err := r.FormFile("audio")
+		if err != nil {
+			http.Error(w, "missing audio", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		// Read whole file (size bounded by ParseMultipartForm limit)
+		data, err := io.ReadAll(file)
+		if err != nil {
+			http.Error(w, "read error", http.StatusInternalServerError)
+			return
+		}
+		// Minimal WAV parsing (reuse logic similar to whisper-go example)
+		if len(data) < 44 || string(data[0:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
+			http.Error(w, "unsupported audio (expect WAV)", http.StatusBadRequest)
+			return
+		}
+		// Extract format fields
+		channels := binary.LittleEndian.Uint16(data[22:24])
+		sampleRate := binary.LittleEndian.Uint32(data[24:28])
+		bitsPerSample := binary.LittleEndian.Uint16(data[34:36])
+		// Find "data" chunk (simple scan)
+		offset := 12
+		var audioStart, audioLen int
+		for offset+8 <= len(data) {
+			chunkID := string(data[offset : offset+4])
+			chunkSize := int(binary.LittleEndian.Uint32(data[offset+4 : offset+8]))
+			if chunkID == "data" {
+				audioStart = offset + 8
+				audioLen = chunkSize
+				break
+			}
+			offset += 8 + chunkSize
+		}
+		if audioLen == 0 || audioStart+audioLen > len(data) {
+			http.Error(w, "invalid wav data", http.StatusBadRequest)
+			return
+		}
+		raw := data[audioStart : audioStart+audioLen]
+		var samples []float32
+		switch bitsPerSample {
+		case 16:
+			for i := 0; i+1 < len(raw); i += 2 {
+				sample := int16(binary.LittleEndian.Uint16(raw[i : i+2]))
+				samples = append(samples, float32(sample)/32768.0)
+			}
+		case 32:
+			for i := 0; i+3 < len(raw); i += 4 {
+				bits := binary.LittleEndian.Uint32(raw[i : i+4])
+				f := *(*float32)(unsafe.Pointer(&bits))
+				samples = append(samples, f)
+			}
+		default:
+			http.Error(w, "unsupported bit depth", http.StatusBadRequest)
+			return
+		}
+		if channels == 2 { // stereo -> mono
+			mono := make([]float32, len(samples)/2)
+			for i := 0; i < len(mono); i++ {
+				mono[i] = (samples[i*2] + samples[i*2+1]) / 2
+			}
+			samples = mono
+		}
+		if sampleRate != 16000 {
+			log.Warn().Uint32("rate", sampleRate).Msg("non-16k audio provided; transcription may be degraded")
+		}
+		ctx, err := whisperModel.NewContext()
+		if err != nil {
+			http.Error(w, "ctx error", http.StatusInternalServerError)
+			return
+		}
+		ctx.SetLanguage("en")
+		if err := ctx.Process(samples, nil, nil, nil); err != nil {
+			http.Error(w, "process error", http.StatusInternalServerError)
+			return
+		}
+		var sb strings.Builder
+		for {
+			seg, err := ctx.NextSegment()
+			if err != nil {
+				break
+			}
+			sb.WriteString(seg.Text)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"text": strings.TrimSpace(sb.String())})
+	})
 
 	// Serve index on /
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

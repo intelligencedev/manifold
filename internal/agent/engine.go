@@ -15,6 +15,7 @@ type Engine struct {
 	Tools    tools.Registry
 	MaxSteps int
 	System   string
+	Model    string // default model name to pass to provider (used for metrics)
 	// Rolling summarization configuration
 	// If SummaryEnabled is true, when the constructed messages exceed
 	// SummaryThreshold messages we will ask the LLM to compress the
@@ -198,7 +199,7 @@ func (h *streamHandler) OnToolCall(tc llm.ToolCall) {
 	}
 }
 
-func (e *Engine) model() string { return "" }
+func (e *Engine) model() string { return e.Model }
 
 // maybeSummarize inspects msgs and, if the number of messages exceeds
 // e.SummaryThreshold, calls the LLM to produce a short summary of the

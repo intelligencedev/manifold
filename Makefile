@@ -38,6 +38,7 @@ help:
 	@echo "  make lint               # run golangci-lint"
 	@echo "  make test               # run tests with -race and generate coverage.out"
 	@echo "  make build              # build host platform binaries into $(DIST)/ (includes Whisper)"
+	@echo "  make build-agentd       # build only the agentd binary (skips Whisper)"
 	@echo "  make build-tui          # build the TUI binary quickly (skips Whisper if already built)"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/ (includes Whisper)"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
@@ -179,6 +180,12 @@ clean:
 	rm -rf $(DIST) coverage.out || true
 	rm -rf $(WHISPER_CPP_DIR)/build $(WHISPER_CPP_DIR)/build_go $(WHISPER_BINDINGS_DIR)/build_go || true
 	@echo "Cleaned"
+
+.PHONY: build-agentd
+build-agentd: | $(DIST)
+	@echo "Building agentd only into $(DIST)/"
+	go build -o $(DIST)/agentd ./cmd/agentd
+	@echo "agentd build complete"
 
 
 # Build web UI server

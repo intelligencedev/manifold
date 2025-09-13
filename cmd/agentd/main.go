@@ -163,6 +163,7 @@ func main() {
 		Tools:            registry,
 		MaxSteps:         cfg.MaxSteps,
 		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		Model:            cfg.OpenAI.Model,
 		SummaryEnabled:   cfg.SummaryEnabled,
 		SummaryThreshold: cfg.SummaryThreshold,
 		SummaryKeepLast:  cfg.SummaryKeepLast,
@@ -193,6 +194,17 @@ func main() {
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ready")
+	})
+
+	// Simple in-process metrics endpoint for web UI token graph.
+	mux.HandleFunc("/api/metrics/tokens", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"timestamp": time.Now().Unix(), "models": llmpkg.TokenTotalsSnapshot()})
 	})
 
 	mux.HandleFunc("/agent/run", func(w http.ResponseWriter, r *http.Request) {

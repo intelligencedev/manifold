@@ -50,7 +50,15 @@
   </header>
   <main class="layout">
     <div class="col col-left">
-      <!-- reserved for navigation / workspace (future) -->
+      <!-- Metrics & navigation panel -->
+      <aside id="metrics" class="panel">
+        <div class="panel-header">Token Usage</div>
+        <div id="metricsPane">
+          <canvas id="tokenChart" width="320" height="180" aria-label="Token usage chart" role="img"></canvas>
+          <div id="tokenLegend" class="legend"></div>
+          <div class="metrics-footer" id="metricsFooter">--</div>
+        </div>
+      </aside>
     </div>
     <div class="col col-middle">
       <section id="chat" class="panel">
@@ -87,6 +95,89 @@
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
+// -------------------------------------------------------------
+// Token Metrics Panel (polls /api/metrics/tokens every 2s)
+// -------------------------------------------------------------
+;(()=>{
+  const endpoint = '/api/metrics/tokens'
+  const canvas = document.getElementById('tokenChart')
+  if(!canvas) return
+  const ctx = canvas.getContext('2d')
+  const legend = document.getElementById('tokenLegend')
+  const footer = document.getElementById('metricsFooter')
+  let history = [] // [{ts, models:{model:{p,c}}}]
+  const MAX_POINTS = 60 // ~2 minutes window
+  const COLORS = [ '#00c853', '#35e380', '#00b894', '#26de81', '#0fb9b1', '#2ecc71', '#1abc9c', '#2ed573' ]
+  function fetchMetrics(){
+    fetch(endpoint, {cache:'no-store'}).then(r=>r.json()).then(j=>{
+      const ts = (j.timestamp||Date.now()/1000)*1000
+      const map = {}
+      ;(j.models||[]).forEach(m=>{ map[m.model] = {p:m.prompt, c:m.completion, t:m.total} })
+      history.push({ts, map})
+      if(history.length>MAX_POINTS) history.shift()
+      draw()
+    }).catch(()=>{})
+  }
+  function computeSeries(kind){ // kind: 'p' or 'c'
+    // Collect set of models
+    const models = new Set()
+    history.forEach(h=>{ Object.keys(h.map).forEach(m=>models.add(m)) })
+    const arr = [...models]
+    return arr.map((model,i)=>{
+      return {model, color: COLORS[i % COLORS.length], points: history.map(h=>({x:h.ts, y: h.map[model]? h.map[model][kind]: null}))}
+    })
+  }
+  function draw(){
+    const w = canvas.width, h = canvas.height
+    ctx.clearRect(0,0,w,h)
+    ctx.fillStyle = '#0d1a1f'
+    ctx.fillRect(0,0,w,h)
+    ctx.font = '10px JetBrains Mono, monospace'
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'
+    ctx.textBaseline='top'
+    if(history.length<2){ ctx.fillText('Collecting token metrics...', 8,8); return }
+    // Determine max token value across prompt+completion deltas (per interval) for scale
+    // We'll plot cumulative totals stacked as two lines per model (prompt & completion)
+    // Simpler: plot prompt cumulative and completion cumulative separately (two passes)
+    const seriesPrompt = computeSeries('p')
+    const seriesCompletion = computeSeries('c')
+    let maxY = 10
+    seriesPrompt.concat(seriesCompletion).forEach(s=>{ s.points.forEach(p=>{ if(p.y!=null && p.y>maxY) maxY=p.y }) })
+    // Grid
+    ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=1
+    for(let gx=0; gx<=5; gx++){ let x = gx/5*w; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke() }
+    for(let gy=0; gy<=4; gy++){ let y = gy/4*h; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); let val = ((1-gy/4)*maxY)|0; ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.fillText(String(val),2,y+2) }
+    function plot(series, dash){
+      series.forEach(s=>{
+        ctx.save()
+        if(dash){ ctx.setLineDash([4,3]) } else { ctx.setLineDash([]) }
+        ctx.strokeStyle = s.color
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        s.points.forEach((p,idx)=>{ if(p.y==null) return; const x = idx/(history.length-1)*w; const y = h - (p.y/maxY)*h; if(idx===0) ctx.moveTo(x,y); else ctx.lineTo(x,y) })
+        ctx.stroke()
+        ctx.restore()
+      })
+    }
+    plot(seriesPrompt,false)
+    plot(seriesCompletion,true)
+    // Legend
+    legend.innerHTML = ''
+    const models = new Map()
+    seriesPrompt.forEach(s=>models.set(s.model,s.color))
+    let idx=0
+    models.forEach((color,model)=>{
+      const wrap = document.createElement('div')
+      wrap.className='legend-item'
+      wrap.innerHTML = `<span class="swatch" style="--c:${color}"></span><span class="name">${model}</span>`
+      legend.appendChild(wrap); idx++
+    })
+    footer.textContent = 'Prompt: solid line • Completion: dashed line'
+  }
+  fetchMetrics()
+  setInterval(fetchMetrics, 2000)
+})()
+
 // Auto-scroll management for chat pane
 let autoScrollEnabled = true;
 const chatPane = document.getElementById('chatPane');

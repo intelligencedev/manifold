@@ -109,6 +109,8 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	// Log redacted response payload for correlation and record token counts on span
 	llm.LogRedactedResponse(ctx, comp.Choices)
 	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
+	// Record cumulative token metrics once (remove previous duplicate call)
+	llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
 	}
@@ -210,6 +212,8 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	// Log response and token counts
 	llm.LogRedactedResponse(ctx, comp.Choices)
 	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
+	// Record token metrics for non-streaming ChatWithOptions
+	llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
 	}
@@ -388,6 +392,10 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		// Record token usage on span and log a compact response summary
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
+		// Record cumulative token metrics for streaming path (only once on success)
+		if promptTokens > 0 || completionTokens > 0 {
+			llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		}
 		base.Debug().Msg("chat_stream_ok")
 	}
 	return err

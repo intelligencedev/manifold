@@ -219,8 +219,12 @@ button#submitBtn:active { transform: translateY(0); }
 button#micBtn { background: rgba(var(--surface-rgb),0.18); border: 1px solid rgba(var(--surface-border-rgb),0.45); color: var(--text-soft); font-size: .95rem; line-height: 1; padding: .7rem .8rem .75rem; border-radius: var(--radius-sm); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 2px 8px -3px rgba(0,0,0,.45), inset 0 0 0 1px rgba(255,255,255,.06); transition: var(--transition); position: relative; }
 button#micBtn:hover { color: var(--text); box-shadow: 0 0 0 1px rgba(var(--accent-rgb),.35), 0 4px 14px -4px rgba(var(--accent-rgb),.4); }
 button#micBtn.recording { background: linear-gradient(135deg,#d32f2f,#ff5252); color:#fff; border-color:#ff6d6d; box-shadow: 0 0 0 1px rgba(255,90,90,.6),0 0 16px -2px rgba(255,70,70,.55),0 0 4px 1px rgba(255,140,140,.35); animation: pulseRec 1.1s ease-in-out infinite; }
-button#micBtn.recording::after { content:"REC"; position:absolute; top:4px; right:6px; font-size:9px; letter-spacing:1px; font-weight:600; opacity:.85; }
+button#micBtn.recording::after { content:"rec"; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); font-size:10px; letter-spacing:1px; font-weight:600; text-transform:lowercase; opacity:.95; color:#fff; pointer-events:none; }
 @keyframes pulseRec { 0%,100% { transform: translateY(0) scale(1); filter:brightness(1); } 50% { transform: translateY(-1px) scale(1.04); filter:brightness(1.15); } }
+/* Icon inside mic button */
+button#micBtn .rec-icon { width:14px; height:14px; border-radius:50%; background: var(--term-text-faint, #666); display:block; box-shadow:0 0 0 1px rgba(255,255,255,0.08), 0 0 4px -1px rgba(0,0,0,.6); transition: background .25s ease, box-shadow .25s ease, transform .25s ease; }
+button#micBtn:hover .rec-icon { background: var(--term-accent-alt,#0ad47c); box-shadow:0 0 0 1px rgba(0,255,149,.35),0 0 8px -2px rgba(0,255,149,.4); }
+button#micBtn.recording .rec-icon { background:#ff3b30; box-shadow:0 0 0 1px rgba(255,90,90,.75), 0 0 10px 0 rgba(255,60,60,.55); transform:scale(1.05); }
 
 /* Utility */
 .fade-dim { opacity: .7; }
@@ -366,7 +370,10 @@ button#submitBtn:hover { filter: brightness(1.12); }
 button#micBtn { background:#0c181d; border:1px solid #1a3a44; color: var(--term-text-faint); box-shadow:0 0 0 1px #102b30, 0 0 10px -3px rgba(0,255,149,.25), inset 0 0 0 1px rgba(255,255,255,0.04); font-weight:500; font-family: var(--term-font-ui); }
 button#micBtn:hover { color: var(--term-accent-alt); border-color:#21514f; box-shadow:0 0 0 1px #1c544b, 0 0 14px -4px rgba(0,255,149,.38); }
 button#micBtn.recording { background: linear-gradient(135deg,#611010,#b71c1c); border-color:#ff5252; color:#ffecec; box-shadow:0 0 0 1px #651c1c,0 0 18px -2px rgba(255,80,80,.55),0 0 6px 0 rgba(255,60,60,.4); }
-button#micBtn.recording::after { color:#ffd4d4; text-shadow:0 0 6px rgba(255,120,120,.8); }
+button#micBtn.recording::after { color:#ffecec; text-shadow:0 0 6px rgba(255,120,120,.8); }
+button#micBtn .rec-icon { background:#1d3a41; }
+button#micBtn:hover .rec-icon { background: var(--term-accent-alt); }
+button#micBtn.recording .rec-icon { background:#ff3b30; }
 
 /* Code blocks */
 .msg.agent pre, .tool-block pre {

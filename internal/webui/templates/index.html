@@ -67,8 +67,8 @@
       </section>
       <div class="composer-wrapper">
         <div class="composer-shell" id="composer">
-          <input id="promptInput" type="text" aria-label="Prompt" placeholder="Ask anything about your data, tools, or code..." autocomplete="off" />
-          <button id="micBtn" type="button" aria-label="Record audio (R / Space hold / Ctrl+Alt+R)" title="Voice: R to toggle • Space = hold-to-talk • Ctrl+Alt+R toggle">🎤</button>
+          <input id="promptInput" type="text" aria-label="Prompt" placeholder="Ask anything…  (Hold Space to talk)" autocomplete="off" />
+          <button id="micBtn" type="button" aria-label="Record audio (Hold Space)" title="Voice: Hold Space to talk"><span class="rec-icon" aria-hidden="true"></span></button>
           <button id="submitBtn" type="button">▶ Run</button>
         </div>
       </div>
@@ -541,8 +541,8 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   let recording = false
   let startTime = 0
   function setState(rec){
-    recording = rec
-  micBtn.textContent = rec ? '■' : '🎤'
+  recording = rec
+  // Toggle recording class; icon styling handled purely by CSS
   if(rec) micBtn.classList.add('recording'); else micBtn.classList.remove('recording')
   }
   async function start(){
@@ -621,12 +621,8 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   }
   micBtn.addEventListener('click', ()=>{ recording ? stop() : start() })
   // ---------------------------------------------------------
-  // Standard hotkeys:
-  //   R              -> toggle record (when not typing in input)
-  //   Space (hold)   -> push-to-talk (start on keydown, stop on keyup)
-  //   Ctrl+Alt+R     -> global-ish toggle (Win/Linux)
-  //   Escape         -> stop if recording
-  // Add ?debugKeys=1 to URL to enable console debug.
+  // Voice hotkey:
+  //   Space (hold) -> push-to-talk (start on keydown, stop on keyup)
   // ---------------------------------------------------------
   const urlParams = new URLSearchParams(location.search)
   const debugKeys = urlParams.has('debugKeys')
@@ -643,27 +639,17 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   window.addEventListener('keydown', (e)=>{
     if(debugKeys){ console.debug('[VoiceHotkey keydown]', e.key, {alt:e.altKey, ctrl:e.ctrlKey, meta:e.metaKey, shift:e.shiftKey, target:e.target}) }
     const activeEl = document.activeElement
-    // Space (push-to-talk) when not focused on an editable element
-    if(e.code === 'Space' && !e.repeat && !isEditable(activeEl)) {
+  // Space (push-to-talk) when not focused on editable element
+  if(e.code === 'Space' && !e.repeat && !isEditable(activeEl)) {
       e.preventDefault()
       if(!recording){ spacePTT = true; start() }
       return
     }
-    // R toggle (ignore if typing inside input/textarea)
-    if((e.key === 'r' || e.key === 'R') && !e.repeat && !isEditable(activeEl) && !e.metaKey && !e.altKey && !e.ctrlKey) {
-      e.preventDefault(); recording ? stop() : start(); return
-    }
-    // Ctrl+Alt+R toggle (cross-platform)
-    if((e.key === 'r' || e.key === 'R') && e.altKey && e.ctrlKey && !e.metaKey) {
-      e.preventDefault(); recording ? stop() : start(); return
-    }
-    // Escape to stop
-    if(e.key === 'Escape' && recording) { e.preventDefault(); stop(); return }
   }, {capture:true})
 
   window.addEventListener('keyup', (e)=>{
     if(debugKeys){ console.debug('[VoiceHotkey keyup]', e.key) }
-    if(e.code === 'Space' && spacePTT){
+  if(e.code === 'Space' && spacePTT){
       e.preventDefault(); spacePTT = false; if(recording) stop()
     }
   }, {capture:true})

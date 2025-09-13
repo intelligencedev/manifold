@@ -471,7 +471,40 @@ async function submitPrompt(prompt) {
                     chat.scrollTop = chat.scrollHeight
                   }
                 }
+              } else if (obj.type === 'tool_start') {
+                // Create a placeholder block for this tool (store element id)
+                const pane = document.getElementById('toolsPane')
+                if (pane.textContent.trim() === 'No tool activity yet.') pane.textContent = ''
+                const wrapper = document.createElement('div')
+                wrapper.className = 'tool-block'
+                // Use tool_id if present for later lookup
+                const tid = obj.tool_id || ('tid_' + Math.random().toString(36).slice(2))
+                wrapper.dataset.toolId = tid
+                const h = document.createElement('h3')
+                h.textContent = obj.title || 'Tool'
+                const pre = document.createElement('pre')
+                pre.textContent = '(running...)' + (obj.args ? '\nargs: ' + obj.args : '')
+                wrapper.appendChild(h)
+                wrapper.appendChild(pre)
+                pane.appendChild(wrapper)
+                pane.scrollTop = pane.scrollHeight
+              } else if (obj.type === 'tool_result') {
+                // Find existing block by tool_id; if not found create new
+                const pane = document.getElementById('toolsPane')
+                let wrapper = null
+                if (obj.tool_id) {
+                  wrapper = pane.querySelector('[data-toolid="' + obj.tool_id + '"]')
+                }
+                if (!wrapper) {
+                  appendToolEvent(obj.title || 'Tool', obj.data || '')
+                } else {
+                  const pre = wrapper.querySelector('pre') || document.createElement('pre')
+                  pre.textContent = obj.data || ''
+                  if (!pre.parentElement) wrapper.appendChild(pre)
+                  pane.scrollTop = pane.scrollHeight
+                }
               } else if (obj.type === 'tool') {
+                // Backward compatibility single combined event
                 appendToolEvent(obj.title || 'Tool', obj.data || '')
               } else if (obj.type === 'final') {
                 // replace last element with final rendered markdown

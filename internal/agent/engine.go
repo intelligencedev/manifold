@@ -2,12 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"intelligence.dev/internal/llm"
 	"intelligence.dev/internal/observability"
 	"intelligence.dev/internal/tools"
+	"intelligence.dev/internal/tools/tts"
 )
 
 type Engine struct {
@@ -31,6 +33,12 @@ type Engine struct {
 	OnDelta func(string)
 	// OnTool, if set, is called after each tool execution with tool name, args, and result
 	OnTool func(toolName string, args []byte, result []byte)
+	// OnToolStart, if set, is invoked immediately after the model emits a tool call
+	// but before the tool is executed. This allows UIs to display a pending tool
+	// invocation and later append the result when OnTool fires. Args are the raw
+	// JSON arguments provided by the model (may still be partial JSON in some
+	// provider streaming implementations, but are generally complete here).
+	OnToolStart func(toolName string, args []byte, toolID string)
 }
 
 // Run executes the agent loop until the model produces a final answer.
@@ -73,6 +81,26 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 			dispatchCtx := ctx
 			if e.LLM != nil {
 				dispatchCtx = tools.WithProvider(ctx, e.LLM)
+			}
+			// If this is the TTS tool and args indicate streaming, attach chunk callback if OnTool is set.
+			if tc.Name == "text_to_speech" && e.OnTool != nil {
+				var raw map[string]any
+				_ = json.Unmarshal(tc.Args, &raw)
+				if v, ok := raw["stream"].(bool); ok && v {
+					// Envelope tool name for callback closure
+					cb := func(chunk []byte) {
+						// Emit pseudo tool_result chunk events by invoking OnTool with synthetic payload
+						meta := map[string]any{"event": "chunk", "bytes": len(chunk)}
+						b, _ := json.Marshal(meta)
+						e.OnTool("text_to_speech_chunk", tc.Args, b)
+					}
+					dispatchCtx = tts.WithStreamChunkCallback(dispatchCtx, cb)
+				}
+			}
+
+			// Fire pre-dispatch callback so UIs can show tool call immediately.
+			if e.OnToolStart != nil {
+				e.OnToolStart(tc.Name, tc.Args, tc.ID)
 			}
 
 			// Log the tool being called and its (redacted) args at the agent level.
@@ -160,6 +188,11 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			dispatchCtx := ctx
 			if e.LLM != nil {
 				dispatchCtx = tools.WithProvider(ctx, e.LLM)
+			}
+
+			// Fire pre-dispatch callback prior to execution
+			if e.OnToolStart != nil {
+				e.OnToolStart(tc.Name, tc.Args, tc.ID)
 			}
 
 			// Log the tool being called and its (redacted) args at the agent level.

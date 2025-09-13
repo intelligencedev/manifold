@@ -311,20 +311,44 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			// Wire up engine callbacks to write SSE events
+			// Wire up engine callbacks to write SSE events.
+			// delta -> incremental assistant text
 			eng.OnDelta = func(d string) {
-				// send delta event
 				payload := map[string]string{"type": "delta", "data": d}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 			}
-			eng.OnTool = func(name string, args []byte, result []byte) {
-				// send tool event
-				payload := map[string]string{"type": "tool", "title": "Tool: " + name, "data": string(result)}
+			// tool start -> announce tool invocation early (no result yet)
+			eng.OnToolStart = func(name string, args []byte, toolID string) {
+				payload := map[string]any{"type": "tool_start", "title": "Tool: " + name, "tool_id": toolID, "args": string(args)}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
+			}
+			// tool result -> append results (and emit specialized tts_audio event for TTS playback)
+			eng.OnTool = func(name string, args []byte, result []byte) {
+				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+
+				// If this is the TTS tool, attempt to parse file_path and send a dedicated tts_audio event
+				if name == "text_to_speech" {
+					var resp map[string]any
+					if err := json.Unmarshal(result, &resp); err == nil {
+						if fp, ok := resp["file_path"].(string); ok && fp != "" {
+							trimmed := strings.TrimPrefix(fp, "./")
+							trimmed = strings.TrimPrefix(trimmed, "/")
+							url := "/audio/" + trimmed
+							ap := map[string]any{"type": "tts_audio", "file_path": fp, "url": url}
+							if bb, err2 := json.Marshal(ap); err2 == nil {
+								fmt.Fprintf(w, "data: %s\n\n", bb)
+								fl.Flush()
+							}
+						}
+					}
+				}
 			}
 
 			// Run streaming engine
@@ -435,20 +459,40 @@ func main() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancel()
 
-			// Wire up engine callbacks to write SSE events
+			// Wire up engine callbacks to write SSE events (duplicate path for /api/prompt).
 			eng.OnDelta = func(d string) {
-				// send delta event
 				payload := map[string]string{"type": "delta", "data": d}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 			}
-			eng.OnTool = func(name string, args []byte, result []byte) {
-				// send tool event
-				payload := map[string]string{"type": "tool", "title": "Tool: " + name, "data": string(result)}
+			eng.OnToolStart = func(name string, args []byte, toolID string) {
+				payload := map[string]any{"type": "tool_start", "title": "Tool: " + name, "tool_id": toolID, "args": string(args)}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
+			}
+			eng.OnTool = func(name string, args []byte, result []byte) {
+				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+
+				if name == "text_to_speech" {
+					var resp map[string]any
+					if err := json.Unmarshal(result, &resp); err == nil {
+						if fp, ok := resp["file_path"].(string); ok && fp != "" {
+							trimmed := strings.TrimPrefix(fp, "./")
+							trimmed = strings.TrimPrefix(trimmed, "/")
+							url := "/audio/" + trimmed
+							ap := map[string]any{"type": "tts_audio", "file_path": fp, "url": url}
+							if bb, err2 := json.Marshal(ap); err2 == nil {
+								fmt.Fprintf(w, "data: %s\n\n", bb)
+								fl.Flush()
+							}
+						}
+					}
+				}
 			}
 
 			// Run streaming engine

@@ -419,25 +419,19 @@ button#submitBtn:hover { filter: brightness(1.12); }
 .msg.agent .timestamp { position: absolute; bottom: 10px; right: 14px; margin-top:0; opacity:.55; }
 
 /* Code block copy buttons */
-.code-copy-btn {
-  background: rgba(0,0,0,0.7);
-  border: none;
-  border-radius: 4px;
-  color: white;
-  cursor: pointer;
-  font-size: 12px;
-  opacity: 0.7;
-  padding: 4px 8px;
-  position: absolute;
-  right: 8px;
-  top: 8px;
-  transition: opacity 0.2s;
-}
-.code-copy-btn:hover {
-  opacity: 1;
-}
-.msg.agent pre, .tool-block pre {
-  position: relative;
+/* Code block copy buttons reuse identical .copy-btn styling; only override positioning */
+.code-copy-btn { position: absolute; right: 8px; top: 8px; left: auto; bottom: auto; width: auto; height: auto; }
+.msg.agent pre, .tool-block pre { position: relative; }
+.floating-code-copy {
+  position: fixed !important;
+  top: 8px; /* will be overridden dynamically */
+  right: 16px; /* fallback */
+  z-index: 500;
+  opacity: .9;
+  background: #0a281c !important;
+  border: 1px solid #155a3b !important;
+  box-shadow: 0 0 0 1px #0d3a26, 0 0 12px -4px rgba(0,255,149,.45);
+  display: flex;
 }
 
 /* Remove original glassmorphism blur where lingering */

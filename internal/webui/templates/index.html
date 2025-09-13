@@ -171,24 +171,69 @@ chatPane.addEventListener('scroll', () => {
   }
 })()
 
-// Helper function to add copy buttons to code blocks
+// Sliding in-container code copy button: stays visible while scrolling large blocks, clamps inside block
 function addCopyButtonsToCodeBlocks(container) {
+  const chat = document.getElementById('chatPane')
+  if (!window.__codeCopyScrollInit) {
+    window.__codeCopyScrollInit = true
+    let scheduled = false
+    function schedule() {
+      if (scheduled) return
+      scheduled = true
+      requestAnimationFrame(()=>{ scheduled = false; repositionAll() })
+    }
+    function repositionAll() {
+      document.querySelectorAll('.msg.agent pre').forEach(pre => {
+        const btn = pre.querySelector(':scope > .code-copy-btn')
+        if (btn) positionCodeCopyButton(pre, btn)
+      })
+    }
+    window.__repositionAllCodeCopy = repositionAll
+    const scrollTargets = [chat, window]
+    scrollTargets.forEach(t=> t && t.addEventListener('scroll', schedule, {passive:true}))
+    window.addEventListener('resize', schedule)
+  }
+
+  function positionCodeCopyButton(pre, btn) {
+    const chat = document.getElementById('chatPane')
+    if (!chat) return
+    const chatRect = chat.getBoundingClientRect()
+    const preRect = pre.getBoundingClientRect()
+    const btnH = btn.offsetHeight || 24
+    // If pre not visible skip
+    if (preRect.bottom < chatRect.top || preRect.top > chatRect.bottom) return
+    const hiddenTop = Math.max(0, chatRect.top - preRect.top)
+    let y = 8 + hiddenTop
+    const maxY = preRect.height - btnH - 8
+    if (y > maxY) y = maxY
+    btn.style.top = y + 'px'
+  }
+
   const pres = container.querySelectorAll('pre')
   pres.forEach(pre => {
-    if (pre.querySelector('.code-copy-btn')) return // Already has button
+    if (pre.querySelector(':scope > .code-copy-btn')) return
     const code = pre.querySelector('code')
     if (!code) return
-    const copyBtn = document.createElement('button')
-    copyBtn.className = 'code-copy-btn'
-    copyBtn.title = 'Copy code'
-    copyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(code.textContent).then(() => {
-        copyBtn.innerHTML = '✓'
-        setTimeout(1000)
+  const copyBtn = document.createElement('button')
+  copyBtn.className = 'copy-btn code-copy-btn'
+  copyBtn.type = 'button'
+  copyBtn.title = 'Copy code'
+  copyBtn.setAttribute('aria-label','Copy code block')
+  copyBtn.innerHTML = '<span class="label">Copy</span>'
+    copyBtn.style.top = '8px'
+    copyBtn.style.right = '8px'
+    copyBtn.addEventListener('click', e => {
+      e.stopPropagation()
+      navigator.clipboard.writeText(code.textContent).then(()=>{
+  copyBtn.innerHTML = '<span class="label">Copied</span>'
+        copyBtn.classList.add('copied')
+  setTimeout(()=>{ copyBtn.innerHTML = '<span class="label">Copy</span>'; copyBtn.classList.remove('copied') }, 1200)
       })
     })
     pre.appendChild(copyBtn)
+    positionCodeCopyButton(pre, copyBtn)
   })
+  if (window.__repositionAllCodeCopy) window.__repositionAllCodeCopy()
 }
 
 // Helper: append message to chat pane (renders markdown for agent)

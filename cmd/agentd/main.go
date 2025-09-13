@@ -328,12 +328,21 @@ func main() {
 			}
 			// tool result -> append results (and emit specialized tts_audio event for TTS playback)
 			eng.OnTool = func(name string, args []byte, result []byte) {
+				// Stream chunk event
+				if name == "text_to_speech_chunk" {
+					var meta map[string]any
+					_ = json.Unmarshal(result, &meta)
+					metaPayload := map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]}
+					b, _ := json.Marshal(metaPayload)
+					fmt.Fprintf(w, "data: %s\n\n", b)
+					fl.Flush()
+					return
+				}
 				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 
-				// If this is the TTS tool, attempt to parse file_path and send a dedicated tts_audio event
 				if name == "text_to_speech" {
 					var resp map[string]any
 					if err := json.Unmarshal(result, &resp); err == nil {
@@ -473,11 +482,19 @@ func main() {
 				fl.Flush()
 			}
 			eng.OnTool = func(name string, args []byte, result []byte) {
+				if name == "text_to_speech_chunk" {
+					var meta map[string]any
+					_ = json.Unmarshal(result, &meta)
+					metaPayload := map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]}
+					b, _ := json.Marshal(metaPayload)
+					fmt.Fprintf(w, "data: %s\n\n", b)
+					fl.Flush()
+					return
+				}
 				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
-
 				if name == "text_to_speech" {
 					var resp map[string]any
 					if err := json.Unmarshal(result, &resp); err == nil {

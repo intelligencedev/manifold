@@ -471,6 +471,34 @@ async function submitPrompt(prompt) {
                     chat.scrollTop = chat.scrollHeight
                   }
                 }
+              } else if (obj.type === 'tts_chunk') {
+                // Real-time TTS PCM frame chunk (raw 16-bit little-endian PCM @16k mono)
+                if (!window.__tts) {
+                  window.__tts = { pcm: [], bytes:0, rebuilding:false, audio:new Audio(), lastBuild:0 }
+                  window.__tts.audio.autoplay = true
+                }
+                if (obj.b64) {
+                  const frames = Uint8Array.from(atob(obj.b64), c=>c.charCodeAt(0))
+                  window.__tts.pcm.push(frames)
+                  window.__tts.bytes += frames.length
+                  // Debounce rebuild (~120ms) to limit object URLs
+                  const now = performance.now()
+                  if (now - window.__tts.lastBuild > 110) {
+                    window.__tts.lastBuild = now
+                    rebuildStreamingAudio()
+                  } else {
+                    clearTimeout(window.__tts._t)
+                    window.__tts._t = setTimeout(()=>{ window.__tts.lastBuild = performance.now(); rebuildStreamingAudio() }, 120)
+                  }
+                }
+              } else if (obj.type === 'tts_audio') {
+                // Final file available; prefer continuous stream if already playing
+                try {
+                  if (!window.__tts || window.__tts.bytes < 8000) { // fallback if few frames
+                    const a = new Audio(obj.url)
+                    a.play().catch(()=>{})
+                  }
+                } catch(_e){}
               } else if (obj.type === 'tool_start') {
                 // Create a placeholder block for this tool (store element id)
                 const pane = document.getElementById('toolsPane')
@@ -548,6 +576,50 @@ async function submitPrompt(prompt) {
   } else {
     const txt = await sseRes.text()
     appendMessage('agent', txt, true)
+  }
+}
+
+// Build/refresh a playable WAV from accumulated raw PCM frames
+function rebuildStreamingAudio(){
+  const t = window.__tts
+  if (!t || t.rebuilding) return
+  t.rebuilding = true
+  try {
+    // Flatten frames
+    let total = 0; for (const c of t.pcm) total += c.length
+    const merged = new Uint8Array(total)
+    let off=0; for (const c of t.pcm){ merged.set(c, off); off+=c.length }
+    // Construct minimal 44-byte WAV header (PCM 16-bit mono 16k)
+    const sampleRate = 16000, channels=1, bits=16
+    const dataSize = merged.length
+    const buffer = new ArrayBuffer(44 + dataSize)
+    const view = new DataView(buffer)
+    let p=0
+    function w8(v){ view.setUint8(p++, v) }
+    function w16(v){ view.setUint16(p, v, true); p+=2 }
+    function w32(v){ view.setUint32(p, v, true); p+=4 }
+    ;['R','I','F','F'].forEach(c=>w8(c.charCodeAt(0)))
+    w32(36 + dataSize)
+    ;['W','A','V','E'].forEach(c=>w8(c.charCodeAt(0)))
+    ;['f','m','t',' '].forEach(c=>w8(c.charCodeAt(0)))
+    w32(16)      // fmt chunk size
+    w16(1)       // PCM
+    w16(channels)
+    w32(sampleRate)
+    const byteRate = sampleRate * channels * bits/8
+    w32(byteRate)
+    w16(channels * bits/8) // block align
+    w16(bits)
+    ;['d','a','t','a'].forEach(c=>w8(c.charCodeAt(0)))
+    w32(dataSize)
+    new Uint8Array(buffer, 44).set(merged)
+    const blob = new Blob([buffer], {type:'audio/wav'})
+    const url = URL.createObjectURL(blob)
+    if (t.audio.src) URL.revokeObjectURL(t.audio.src)
+    t.audio.src = url
+    t.audio.play().catch(()=>{})
+  } finally {
+    t.rebuilding = false
   }
 }
 

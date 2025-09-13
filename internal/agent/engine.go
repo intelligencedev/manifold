@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -82,15 +83,30 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 			if e.LLM != nil {
 				dispatchCtx = tools.WithProvider(ctx, e.LLM)
 			}
+
+			// If this is the TTS tool with streaming enabled, attach the per-chunk callback
+			// (this logic existed in Run but was missing here, preventing real-time
+			// tts_chunk events from ever being emitted in streaming (/agent/run) mode).
+			if tc.Name == "text_to_speech" && e.OnTool != nil { // mirror non-stream path
+				var raw map[string]any
+				_ = json.Unmarshal(tc.Args, &raw)
+				if v, ok := raw["stream"].(bool); ok && v {
+					cb := func(chunk []byte) {
+						meta := map[string]any{"event": "chunk", "bytes": len(chunk), "b64": base64.StdEncoding.EncodeToString(chunk)}
+						b, _ := json.Marshal(meta)
+						// Directly invoke OnTool so HTTP handlers can forward immediately.
+						e.OnTool("text_to_speech_chunk", tc.Args, b)
+					}
+					dispatchCtx = tts.WithStreamChunkCallback(dispatchCtx, cb)
+				}
+			}
 			// If this is the TTS tool and args indicate streaming, attach chunk callback if OnTool is set.
 			if tc.Name == "text_to_speech" && e.OnTool != nil {
 				var raw map[string]any
 				_ = json.Unmarshal(tc.Args, &raw)
 				if v, ok := raw["stream"].(bool); ok && v {
-					// Envelope tool name for callback closure
 					cb := func(chunk []byte) {
-						// Emit pseudo tool_result chunk events by invoking OnTool with synthetic payload
-						meta := map[string]any{"event": "chunk", "bytes": len(chunk)}
+						meta := map[string]any{"event": "chunk", "bytes": len(chunk), "b64": base64.StdEncoding.EncodeToString(chunk)}
 						b, _ := json.Marshal(meta)
 						e.OnTool("text_to_speech_chunk", tc.Args, b)
 					}

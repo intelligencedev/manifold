@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"singularityio/internal/config"
-	"singularityio/internal/llm"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/llm"
 	"testing"
 	"time"
 )

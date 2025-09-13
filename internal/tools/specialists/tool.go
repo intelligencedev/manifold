@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"singularityio/internal/specialists"
+	"intelligence.dev/internal/specialists"
 )
 
 // Tool exposes configured specialists as a single callable tool.

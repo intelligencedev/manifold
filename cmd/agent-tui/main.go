@@ -8,12 +8,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/rs/zerolog/log"
 
-	"singularityio/internal/config"
-	llmpkg "singularityio/internal/llm"
-	openaillm "singularityio/internal/llm/openai"
-	"singularityio/internal/observability"
-	"singularityio/internal/tools/cli"
-	itui "singularityio/internal/tui"
+	"intelligence.dev/internal/config"
+	llmpkg "intelligence.dev/internal/llm"
+	openaillm "intelligence.dev/internal/llm/openai"
+	"intelligence.dev/internal/observability"
+	"intelligence.dev/internal/tools/cli"
+	itui "intelligence.dev/internal/tui"
 )
 
 func main() {

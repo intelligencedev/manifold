@@ -1,4 +1,4 @@
-# Go/singularityio
+# Go/intelligence.dev
 
 ## Coding Conventions
 

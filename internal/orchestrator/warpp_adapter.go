@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"singularityio/internal/warpp"
+	"intelligence.dev/internal/warpp"
 )
 
 // NewWarppAdapter returns an orchestrator.Runner that delegates to a warpp.Runner.

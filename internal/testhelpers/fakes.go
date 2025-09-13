@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"sync"
 
-	"singularityio/internal/llm"
+	"intelligence.dev/internal/llm"
 )
 
 // FakeProvider is a simple LLM provider for tests. It can be configured

@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"strings"
 
-	"singularityio/internal/tools"
+	"intelligence.dev/internal/tools"
 )
 
 // Runner executes the WARPP protocol using an in-process workflow registry and the

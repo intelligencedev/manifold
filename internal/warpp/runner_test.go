@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"singularityio/internal/tools"
+	"intelligence.dev/internal/tools"
 )
 
 // simple tool implementing tools.Tool

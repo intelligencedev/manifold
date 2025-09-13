@@ -16,10 +16,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"singularityio/internal/llm"
-	"singularityio/internal/llm/openai"
-	"singularityio/internal/sandbox"
-	"singularityio/internal/tools"
+	"intelligence.dev/internal/llm"
+	"intelligence.dev/internal/llm/openai"
+	"intelligence.dev/internal/sandbox"
+	"intelligence.dev/internal/tools"
 )
 
 // ProviderFactory allows building a provider with an alternate base URL.

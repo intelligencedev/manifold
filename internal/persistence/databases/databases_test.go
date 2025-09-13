@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"singularityio/internal/config"
+	"intelligence.dev/internal/config"
 )
 
 func TestMemorySearch_IndexAndSearch(t *testing.T) {

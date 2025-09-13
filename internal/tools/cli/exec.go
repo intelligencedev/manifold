@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"time"
 
-	"singularityio/internal/config"
-	"singularityio/internal/sandbox"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/sandbox"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

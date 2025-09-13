@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"singularityio/internal/config"
+	"intelligence.dev/internal/config"
 )
 
 func TestNewRegistry_PopulatesAgentFields(t *testing.T) {

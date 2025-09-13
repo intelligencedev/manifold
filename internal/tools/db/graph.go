@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"singularityio/internal/persistence/databases"
+	"intelligence.dev/internal/persistence/databases"
 )
 
 type graphUpsertNodeTool struct{ g databases.GraphDB }

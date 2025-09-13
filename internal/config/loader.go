@@ -121,7 +121,7 @@ func Load() (Config, error) {
 		cfg.OpenAI.Model = "gpt-4o-mini"
 	}
 	if cfg.Obs.ServiceName == "" {
-		cfg.Obs.ServiceName = "singularityio"
+		cfg.Obs.ServiceName = "intelligence.dev"
 	}
 	if cfg.Obs.Environment == "" {
 		cfg.Obs.Environment = "dev"

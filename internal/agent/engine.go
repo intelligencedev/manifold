@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"singularityio/internal/llm"
-	"singularityio/internal/observability"
-	"singularityio/internal/tools"
+	"intelligence.dev/internal/llm"
+	"intelligence.dev/internal/observability"
+	"intelligence.dev/internal/tools"
 )
 
 type Engine struct {

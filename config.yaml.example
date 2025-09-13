@@ -10,7 +10,7 @@ openai:
     # temperature: 0.2
     # max_tokens: 2000
     parallel_tool_calls: true
-    prompt_cache_key: singularityio-
+  prompt_cache_key: intelligence.dev-
 
 # Text-to-Speech (TTS) defaults. Can be overridden via environment variables:
 # TTS_BASE_URL, TTS_MODEL, TTS_VOICE
@@ -96,7 +96,7 @@ exec:
   blockBinaries: ["rm", "sudo", "chown", "chmod", "dd", "mkfs", "mount", "umount"]
   maxCommandSeconds: 30
 obs:
-  serviceName: singularityio
+  serviceName: intelligence.dev
   environment: dev
   otlp: otel-collector.signoz.orb.local:4318
 web:
@@ -158,7 +158,7 @@ mcp:
   #     - -i
   #     - --rm
   #     - mcp/postgres
-  #     - "postgres://singularityio:singularityio@singularityio-postgres.orb.local:5432/singularityio?sslmode=disable"
+  #     - "postgres://intelligence_dev:intelligence_dev@intelligence-dev-postgres.orb.local:5432/intelligence_dev?sslmode=disable"
   #   keepAliveSeconds: 30
 
 routes:

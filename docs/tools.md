@@ -28,7 +28,7 @@ This document lists the tools available to the assistant (namespace: `functions`
 
 ## General Notes & Constraints
 
-- Working directory: The assistant may only read/write under `/Users/art/Documents/singularityio` and its subpaths when operating on repository files.
+- Working directory: The assistant may only read/write under `/Users/art/Documents/intelligence.dev` (after you rename locally) and its subpaths when operating on repository files.
 - CLI execution: `run_cli` executes commands without a shell. Do not pass shell metacharacters, pipelines, or redirects. Provide a bare binary name and an args array.
 - Web research: `web_search` and `web_fetch` are available. When citing web results, only cite pages successfully fetched via `web_fetch`.
 - Parallel execution: `multi_tool_use.parallel` can run multiple `functions` tools concurrently when tasks are independent.
@@ -244,7 +244,7 @@ Example:
 
     ## General Notes & Constraints
 
-    - Working directory: The assistant may only read/write under `/Users/art/Documents/singularityio` and its subpaths when operating on repository files.
+  - Working directory: The assistant may only read/write under `/Users/art/Documents/intelligence.dev` (after you rename locally) and its subpaths when operating on repository files.
     - CLI execution: `run_cli` executes commands without a shell. Do not pass shell metacharacters, pipelines, or redirects. Provide a bare binary name and an args array.
     - Web research: `web_search` and `web_fetch` are available. When citing web results, only cite pages successfully fetched via `web_fetch`.
     - Parallel execution: `multi_tool_use.parallel` can run multiple `functions` tools concurrently when tasks are independent.

@@ -1,5 +1,6 @@
 <p align="center">
-<img src="assets/singularityio-logo.svg" alt="SingularityIO logo" width="200" />
+<!-- TODO: replace logo asset file when new branding asset is available -->
+<img src="assets/singularityio-logo.svg" alt="intelligence.dev logo (update asset)" width="200" />
 </p>
 
 # intelligence.dev
@@ -32,7 +33,7 @@ Contents
 
 About
 -----
-SingularityIO is a safe, observable agent runtime for driving tool-calling workflows using OpenAI API compatible endpoints. It restricts execution to a locked WORKDIR (no shell), supports streaming assistant output (TUI), logs and traces requests, and can connect to external tool providers via MCP or route requests to specialized endpoints.
+intelligence.dev is a safe, observable agent runtime for driving tool-calling workflows using OpenAI API compatible endpoints. It restricts execution to a locked WORKDIR (no shell), supports streaming assistant output (TUI), logs and traces requests, and can connect to external tool providers via MCP or route requests to specialized endpoints.
 
 Features
 --------
@@ -131,7 +132,7 @@ exec:
   blockBinaries: ["rm", "sudo"]
   maxCommandSeconds: 30
 obs:
-  serviceName: singularityio
+  serviceName: intelligence.dev
   environment: dev
 web:
   searXNGURL: http://localhost:8080
@@ -337,7 +338,7 @@ go run ./cmd/agent -specialist code-reviewer -q "Review this function"
 whisper-go
 --------
 ```
-cd /Users/art/Documents/singularityio && ./run-whisper-go.sh -model /Users/art/Documents/code/whisper.cpp/bindings/go/models/ggml-small.en.bin /Users/art/Documents/singularityio/54521110-ad38-4885-b8c3-3b43bb1f4853.wav
+cd /Users/art/Documents/intelligence.dev && ./run-whisper-go.sh -model /Users/art/Documents/code/whisper.cpp/bindings/go/models/ggml-small.en.bin /Users/art/Documents/intelligence.dev/54521110-ad38-4885-b8c3-3b43bb1f4853.wav
 ```
 
 Observability
@@ -371,7 +372,7 @@ Development
 
 ### Build
 
-SingularityIO uses a comprehensive build system that includes Whisper.cpp for speech-to-text functionality in the TUI.
+intelligence.dev uses a comprehensive build system that includes Whisper.cpp for speech-to-text functionality in the TUI.
 
 #### Quick Build (Recommended)
 

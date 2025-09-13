@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"singularityio/internal/llm"
-	"singularityio/internal/observability"
+	"intelligence.dev/internal/llm"
+	"intelligence.dev/internal/observability"
 )
 
 // Tool is an executable capability the agent can call.

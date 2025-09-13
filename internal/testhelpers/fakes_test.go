@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"singularityio/internal/llm"
+	"intelligence.dev/internal/llm"
 )
 
 type collectHandler struct {

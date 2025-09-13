@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"singularityio/internal/observability"
+	"intelligence.dev/internal/observability"
 )
 
 // playAudioFile plays an audio file using the system's default audio player

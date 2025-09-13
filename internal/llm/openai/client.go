@@ -10,9 +10,9 @@ import (
 	sdk "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 
-	"singularityio/internal/config"
-	"singularityio/internal/llm"
-	"singularityio/internal/observability"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/llm"
+	"intelligence.dev/internal/observability"
 )
 
 type Client struct {

@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"singularityio/internal/config"
-	"singularityio/internal/persistence/databases"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/persistence/databases"
 )
 
 // stubPG simulates a postgres-backed vector store with fixed dimension.

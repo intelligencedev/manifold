@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"singularityio/internal/config"
+	"intelligence.dev/internal/config"
 
 	"go.opentelemetry.io/contrib/instrumentation/host"
 	"go.opentelemetry.io/otel"

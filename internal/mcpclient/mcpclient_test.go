@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"singularityio/internal/config"
+	"intelligence.dev/internal/config"
 
 	mcppkg "github.com/modelcontextprotocol/go-sdk/mcp"
 )

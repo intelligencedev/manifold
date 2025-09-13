@@ -3,7 +3,7 @@ package specialists
 import (
 	"testing"
 
-	"singularityio/internal/config"
+	"intelligence.dev/internal/config"
 )
 
 func TestRoute_EmptyAndNoMatch(t *testing.T) {

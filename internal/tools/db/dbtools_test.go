@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"singularityio/internal/config"
-	"singularityio/internal/persistence/databases"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/persistence/databases"
 )
 
 func TestSearchTools(t *testing.T) {

@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"singularityio/internal/llm"
+	"intelligence.dev/internal/llm"
 )
 
 func TestBuildInitialLLMMessages(t *testing.T) {

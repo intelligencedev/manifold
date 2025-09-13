@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
-	"singularityio/internal/config"
-	"singularityio/internal/specialists"
-	"singularityio/internal/tools"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/specialists"
+	"intelligence.dev/internal/tools"
 )
 
 func TestJSONSchemaContainsEnums(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"singularityio/internal/config"
+	"intelligence.dev/internal/config"
 )
 
 type embedReq struct {

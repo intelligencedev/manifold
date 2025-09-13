@@ -16,24 +16,24 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
 
-	"singularityio/internal/agent"
-	"singularityio/internal/agent/prompts"
-	"singularityio/internal/config"
-	"singularityio/internal/llm"
-	openai "singularityio/internal/llm/openai"
-	"singularityio/internal/mcpclient"
-	"singularityio/internal/observability"
-	"singularityio/internal/persistence/databases"
-	"singularityio/internal/specialists"
-	"singularityio/internal/tools"
-	"singularityio/internal/tools/cli"
-	"singularityio/internal/tools/db"
-	"singularityio/internal/tools/imagetool"
-	llmtools "singularityio/internal/tools/llmtool"
-	specialists_tool "singularityio/internal/tools/specialists"
-	"singularityio/internal/tools/tts"
-	"singularityio/internal/tools/web"
-	"singularityio/internal/warpp"
+	"intelligence.dev/internal/agent"
+	"intelligence.dev/internal/agent/prompts"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/llm"
+	openai "intelligence.dev/internal/llm/openai"
+	"intelligence.dev/internal/mcpclient"
+	"intelligence.dev/internal/observability"
+	"intelligence.dev/internal/persistence/databases"
+	"intelligence.dev/internal/specialists"
+	"intelligence.dev/internal/tools"
+	"intelligence.dev/internal/tools/cli"
+	"intelligence.dev/internal/tools/db"
+	"intelligence.dev/internal/tools/imagetool"
+	llmtools "intelligence.dev/internal/tools/llmtool"
+	specialists_tool "intelligence.dev/internal/tools/specialists"
+	"intelligence.dev/internal/tools/tts"
+	"intelligence.dev/internal/tools/web"
+	"intelligence.dev/internal/warpp"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 )
@@ -259,7 +259,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	}
 
 	// Initialize Whisper model for speech-to-text
-	modelPath := "/Users/art/Documents/singularityio/models/ggml-small.en.bin"
+	modelPath := "/Users/art/Documents/intelligence.dev/models/ggml-small.en.bin" // UPDATED path for project rename
 	if model, err := whisper.New(modelPath); err == nil {
 		m.whisperModel = model
 		if ctx, err := model.NewContext(); err == nil {

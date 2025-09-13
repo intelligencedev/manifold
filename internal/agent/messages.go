@@ -1,6 +1,6 @@
 package agent
 
-import "singularityio/internal/llm"
+import "intelligence.dev/internal/llm"
 
 // BuildInitialLLMMessages composes the initial message list from system, optional
 // prior history (already in llm.Message form), and the current user input.

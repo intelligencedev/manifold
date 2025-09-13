@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"singularityio/internal/llm"
+	"intelligence.dev/internal/llm"
 )
 
 // DispatchEvent captures a single tool dispatch invocation and result.

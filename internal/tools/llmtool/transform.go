@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"singularityio/internal/llm"
-	"singularityio/internal/tools"
+	"intelligence.dev/internal/llm"
+	"intelligence.dev/internal/tools"
 )
 
 // Transform is a generic LLM tool that transforms input text according to an

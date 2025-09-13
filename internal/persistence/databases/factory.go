@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"singularityio/internal/config"
+	"intelligence.dev/internal/config"
 )
 
 // NewManager constructs database backends based on configuration.

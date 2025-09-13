@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"singularityio/internal/config"
-	"singularityio/internal/embedding"
-	"singularityio/internal/persistence/databases"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/embedding"
+	"intelligence.dev/internal/persistence/databases"
 )
 
 type vectorUpsertTool struct {

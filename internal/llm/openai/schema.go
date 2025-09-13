@@ -3,7 +3,7 @@ package openai
 import (
 	sdk "github.com/openai/openai-go/v2"
 
-	"singularityio/internal/llm"
+	"intelligence.dev/internal/llm"
 )
 
 // AdaptSchemas converts internal llm.ToolSchema definitions into OpenAI SDK tool params.

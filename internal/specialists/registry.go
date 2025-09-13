@@ -8,10 +8,10 @@ import (
 	"strconv"
 	"strings"
 
-	"singularityio/internal/config"
-	"singularityio/internal/llm"
-	openaillm "singularityio/internal/llm/openai"
-	"singularityio/internal/tools"
+	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/llm"
+	openaillm "intelligence.dev/internal/llm/openai"
+	"intelligence.dev/internal/tools"
 )
 
 // Agent represents a configured specialist bound to a specific endpoint/model.

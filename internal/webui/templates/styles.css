@@ -317,7 +317,8 @@ header.site-header {
   color: #d6ffe9;
   font-weight: 500;
   align-self: flex-end;
-  max-width: 80%;
+  min-width: 20%;
+  max-width: 80%; /* fixed maximum staggered width */
 }
 .msg.agent {
   background: #101c22;
@@ -325,14 +326,16 @@ header.site-header {
   box-shadow: 0 0 0 1px #132c33, 0 0 10px -3px rgba(0,255,149,.25);
   color: var(--term-text);
   align-self: flex-start;
-  max-width: 80%;
+  min-width: 20%;
+  max-width: 90%; /* fixed maximum staggered width */
 }
 .msg.info {
   background: #0f1f25;
   border: 1px solid #1c363f;
   color: var(--term-text-faint);
   align-self: center;
-  max-width: 60%;
+  min-width: 20%;
+  max-width: 70%; /* keep info messages narrower & flexible */
 }
 
 .msg .timestamp {

@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
 )
 
 //go:embed templates/*
@@ -85,7 +84,11 @@ func Register(mux *http.ServeMux) {
 			return
 		}
 
-		client := &http.Client{Timeout: 30 * time.Second}
+		// NOTE: Removed hard timeout so long-running generations can continue
+		// until the browser/client explicitly cancels (AbortController) which will
+		// propagate via the request context. This enables the new Stop button in
+		// the web UI to immediately terminate in-flight inference.
+		client := &http.Client{}
 		req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, backend, io.NopCloser(bytes.NewReader(reqBody)))
 		if err != nil {
 			log.Printf("new req: %v", err)

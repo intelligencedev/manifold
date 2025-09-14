@@ -69,7 +69,7 @@
         <div class="composer-shell" id="composer">
           <input id="promptInput" type="text" aria-label="Prompt" placeholder="Ask anything…  (Hold Space to talk)" autocomplete="off" />
           <button id="micBtn" type="button" aria-label="Record audio (Hold Space)" title="Voice: Hold Space to talk"><span class="rec-icon" aria-hidden="true"></span></button>
-          <button id="submitBtn" type="button">▶ Run</button>
+          <button id="submitBtn" type="button" data-state="idle" aria-pressed="false">▶ Run</button>
         </div>
       </div>
     </div>
@@ -405,7 +405,39 @@ function appendToolEvent(title, content) {
   pane.scrollTop = pane.scrollHeight
 }
 
+let currentInference = {
+  controller: null,
+  running: false,
+  startedAt: 0
+}
+
+function setSubmitState(state){
+  const btn = document.getElementById('submitBtn')
+  if(!btn) return
+  if(state === 'running'){
+    btn.textContent = '■ Stop'
+    btn.dataset.state = 'running'
+    btn.classList.add('stop')
+    btn.setAttribute('aria-pressed','true')
+  } else {
+    btn.textContent = '▶ Run'
+    btn.dataset.state = 'idle'
+    btn.classList.remove('stop')
+    btn.setAttribute('aria-pressed','false')
+  }
+}
+
 async function submitPrompt(prompt) {
+  // If already running => this call is treated as cancel request
+  if(currentInference.running){
+    if(currentInference.controller){ currentInference.controller.abort() }
+    appendMessage('info','(stopping inference)')
+    return
+  }
+  currentInference.controller = new AbortController()
+  currentInference.running = true
+  currentInference.startedAt = performance.now()
+  setSubmitState('running')
   // Trigger avatar animation immediately when a prompt is submitted
   if (typeof window.playPromptAnimation === 'function') {
     window.playPromptAnimation()
@@ -414,10 +446,22 @@ async function submitPrompt(prompt) {
   const backend = '/api/prompt'
 
   // Try SSE first by requesting Accept: text/event-stream
-  const sseRes = await fetch(backend, {
-    method: 'POST', headers: {'Content-Type':'application/json', 'Accept':'text/event-stream'},
-    body: JSON.stringify({prompt})
-  })
+  let sseRes
+  try {
+    sseRes = await fetch(backend, {
+      method: 'POST', headers: {'Content-Type':'application/json', 'Accept':'text/event-stream'},
+      body: JSON.stringify({prompt}), signal: currentInference.controller.signal
+    })
+  } catch (err) {
+    if(err.name === 'AbortError'){
+      appendMessage('info','(inference cancelled)')
+    } else {
+      appendMessage('agent','Network error: '+ err.message, true)
+    }
+    currentInference.running = false
+    setSubmitState('idle')
+    return
+  }
 
   const ct = sseRes.headers.get('content-type') || ''
   if (sseRes.status >= 400) {
@@ -429,12 +473,21 @@ async function submitPrompt(prompt) {
 
   if (ct.includes('text/event-stream')) {
     // Stream with streaming parser
-    const reader = sseRes.body.getReader()
+  const reader = sseRes.body.getReader()
     const dec = new TextDecoder()
     let buf = ''
     appendMessage('agent', '') // placeholder for streaming content
     while (true) {
-      const { value, done } = await reader.read()
+      let readResult
+      try {
+        readResult = await reader.read()
+      } catch (e) {
+        if(e.name === 'AbortError') {
+          appendMessage('info','(stream cancelled)')
+        }
+        break
+      }
+      const { value, done } = readResult
       if (done) break
       buf += dec.decode(value, {stream: true})
       // SSE parsing: events separated by double newline
@@ -564,7 +617,9 @@ async function submitPrompt(prompt) {
         appendMessage('agent', buf, true)
       }
     }
-    return
+  currentInference.running = false
+  setSubmitState('idle')
+  return
   }
 
   // Fallback: non-streaming
@@ -577,6 +632,8 @@ async function submitPrompt(prompt) {
     const txt = await sseRes.text()
     appendMessage('agent', txt, true)
   }
+  currentInference.running = false
+  setSubmitState('idle')
 }
 
 // Build/refresh a playable WAV from accumulated raw PCM frames
@@ -624,15 +681,17 @@ function rebuildStreamingAudio(){
 }
 
 document.getElementById('submitBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('submitBtn')
+  if(btn.dataset.state === 'running'){
+    // Acts as cancel
+    if(currentInference.controller) currentInference.controller.abort()
+    return
+  }
   const input = document.getElementById('promptInput')
   const v = input.value.trim()
   if (!v) return
   input.value = ''
-  try {
-    await submitPrompt(v)
-  } catch (err) {
-    appendMessage('agent', 'Error: ' + err.message, true)
-  }
+  try { await submitPrompt(v) } catch (err) { appendMessage('agent','Error: '+err.message,true); currentInference.running=false; setSubmitState('idle') }
 })
 
 // -------------------------------------------------------------

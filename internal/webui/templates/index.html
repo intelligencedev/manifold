@@ -67,7 +67,8 @@
       </section>
       <div class="composer-wrapper">
         <div class="composer-shell" id="composer">
-          <input id="promptInput" type="text" aria-label="Prompt" placeholder="Ask anything…  (Hold Space to talk)" autocomplete="off" />
+          <!-- Multiline textarea (styled to match original input) enabling Shift+Enter newlines -->
+          <textarea id="promptInput" rows="1" aria-label="Prompt" placeholder="Ask anything…  (Hold Space to talk)" autocomplete="off"></textarea>
           <button id="micBtn" type="button" aria-label="Record audio (Hold Space)" title="Voice: Hold Space to talk"><span class="rec-icon" aria-hidden="true"></span></button>
           <button id="submitBtn" type="button" data-state="idle" aria-pressed="false">▶ Run</button>
         </div>
@@ -820,9 +821,25 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
 })()
 
 // Press Enter to submit
-document.getElementById('promptInput').addEventListener('keydown', (e)=>{
-  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('submitBtn').click() }
-})
+;(function(){
+  const el = document.getElementById('promptInput')
+  if(!el) return
+  const MAX_HEIGHT_PX = 180 // cap growth (approx ~8-10 lines depending on line-height)
+  function autoResize(){
+    el.style.height = 'auto'
+    const h = Math.min(el.scrollHeight, MAX_HEIGHT_PX)
+    el.style.height = h + 'px'
+  }
+  el.addEventListener('input', autoResize)
+  autoResize()
+  el.addEventListener('keydown', (e)=>{
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault()
+      document.getElementById('submitBtn').click()
+    }
+    // Shift+Enter: allow default newline insertion
+  })
+})()
 
 // Theme toggle removed (single theme mode)
 

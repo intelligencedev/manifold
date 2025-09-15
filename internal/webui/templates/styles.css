@@ -210,8 +210,9 @@ main.layout {
 .composer-shell { display: flex; align-items: flex-end; gap: .7rem; background: linear-gradient(140deg, rgba(var(--surface-rgb),0.65) 0%, rgba(var(--surface-rgb),0.32) 100%); border: 1px solid rgba(var(--surface-border-rgb),0.45); border-radius: var(--radius-lg); padding: .65rem .85rem .65rem 1rem; backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)); box-shadow: 0 4px 22px -6px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.08);
   transition: var(--transition); }
 .composer-shell:focus-within { box-shadow: 0 0 0 2px rgba(var(--accent-rgb),.35), 0 6px 28px -10px rgba(var(--accent-rgb), .55); }
-input#promptInput { flex: 1; background: transparent; border: none; outline: none; font-size: .92rem; font-family: var(--font-stack); color: var(--text); padding: .55rem .2rem; min-width: 0; }
-input#promptInput::placeholder { color: var(--text-faint); letter-spacing: .3px; }
+input#promptInput, textarea#promptInput { flex: 1; background: transparent; border: none; outline: none; font-size: .92rem; font-family: var(--font-stack); color: var(--text); padding: .55rem .2rem; min-width: 0; }
+input#promptInput::placeholder, textarea#promptInput::placeholder { color: var(--text-faint); letter-spacing: .3px; }
+textarea#promptInput { resize: none; overflow-y: auto; line-height: 1.3; scrollbar-width: thin; }
 button#submitBtn { background: var(--gradient-accent); color: #fff; font-weight: 600; border: none; cursor: pointer; border-radius: var(--radius-sm); padding: .75rem 1rem .8rem; font-size: .75rem; letter-spacing: .8px; text-transform: uppercase; display: inline-flex; align-items: center; gap: .45rem; box-shadow: 0 4px 14px -4px rgba(var(--accent-rgb),.65), 0 2px 4px -2px rgba(var(--accent-rgb),.55); transition: var(--transition); }
 button#submitBtn:hover { filter: brightness(1.1); transform: translateY(-1px); }
 button#submitBtn:active { transform: translateY(0); }
@@ -361,8 +362,8 @@ header.site-header {
   box-shadow: 0 0 0 1px #153036, 0 0 12px -4px rgba(0,255,149,.25);
 }
 .composer-shell:focus-within { box-shadow: 0 0 0 1px var(--term-accent), 0 0 14px 0 rgba(0,255,149,.45); }
-input#promptInput { color: var(--term-text); }
-input#promptInput::placeholder { color: var(--term-text-faint); }
+input#promptInput, textarea#promptInput { color: var(--term-text); }
+input#promptInput::placeholder, textarea#promptInput::placeholder { color: var(--term-text-faint); }
 button#submitBtn {
   background: linear-gradient(90deg,var(--term-accent) 0%, var(--term-accent-alt) 100%);
   box-shadow: 0 0 0 1px #0c3a24, 0 0 14px -2px rgba(0,255,149,.45);

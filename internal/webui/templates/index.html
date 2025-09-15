@@ -692,6 +692,12 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
   const v = input.value.trim()
   if (!v) return
   input.value = ''
+  // Reset height back to original single-line after submission
+  input.style.height = 'auto'
+  // Remove explicit height so CSS + rows attribute governs
+  input.style.removeProperty('height')
+  input.rows = 1
+  input.scrollTop = 0
   try { await submitPrompt(v) } catch (err) { appendMessage('agent','Error: '+err.message,true); currentInference.running=false; setSubmitState('idle') }
 })
 

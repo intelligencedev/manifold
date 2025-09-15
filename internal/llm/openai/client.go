@@ -1,10 +1,12 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
-
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	sdk "github.com/openai/openai-go/v2"
@@ -20,6 +22,8 @@ type Client struct {
 	model       string
 	extra       map[string]any
 	logPayloads bool
+	baseURL     string
+	httpClient  *http.Client
 }
 
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
@@ -30,7 +34,117 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if httpClient != nil {
 		opts = append(opts, option.WithHTTPClient(httpClient))
 	}
-	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads, baseURL: c.BaseURL, httpClient: httpClient}
+}
+
+// isSelfHosted returns true when we should use the fallback /tokenize endpoint
+// for counting tokens instead of relying on OpenAI usage fields.
+func (c *Client) isSelfHosted() bool {
+	return c.baseURL != "" && c.baseURL != "https://api.openai.com/v1"
+}
+
+// tokenizeCount calls the llama.cpp server /tokenize endpoint to obtain a
+// token count for the provided text. Returns 0 on error (best-effort) so that
+// metrics emission can still proceed without failing the request.
+func (c *Client) tokenizeCount(ctx context.Context, text string) int {
+	if !c.isSelfHosted() || strings.TrimSpace(text) == "" {
+		return 0
+	}
+	base := strings.TrimSuffix(strings.TrimSpace(c.baseURL), "/")
+	// Always attempt to trim trailing /v1 for constructing /tokenize endpoint
+	base = strings.TrimSuffix(base, "/v1")
+	tokenURL := base + "/tokenize"
+	bodyObj := map[string]any{"content": text}
+	b, _ := json.Marshal(bodyObj)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, bytes.NewReader(b))
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	rb, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0
+	}
+	var parsed struct {
+		Tokens []any `json:"tokens"`
+	}
+	if err := json.Unmarshal(rb, &parsed); err != nil {
+		return 0
+	}
+	return len(parsed.Tokens)
+}
+
+// buildPromptText flattens chat messages into a single string for approximate
+// token counting in self-hosted scenarios. This does not perfectly mirror the
+// template expansion but provides a consistent input to /tokenize.
+func buildPromptText(msgs []llm.Message) string {
+	var sb strings.Builder
+	for i, m := range msgs {
+		// Include role to differentiate system/user/assistant messages
+		sb.WriteString(m.Role)
+		sb.WriteString(": ")
+		sb.WriteString(m.Content)
+		if i < len(msgs)-1 {
+			sb.WriteString("\n")
+		}
+	}
+	return sb.String()
+}
+
+// removeUnsupportedSchema recursively deletes keys we know llama.cpp cannot
+// handle (currently: "not") and returns the cleaned map.
+func removeUnsupportedSchema(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	delete(in, "not")
+	for k, v := range in {
+		switch tv := v.(type) {
+		case map[string]any:
+			in[k] = removeUnsupportedSchema(tv)
+		case []any:
+			for idx, elem := range tv {
+				if mm, ok := elem.(map[string]any); ok {
+					tv[idx] = removeUnsupportedSchema(mm)
+				}
+			}
+			in[k] = tv
+		}
+	}
+	return in
+}
+
+// sanitizeToolSchemas clones and cleans tool schemas for self-hosted llama.cpp.
+func sanitizeToolSchemas(src []llm.ToolSchema) []llm.ToolSchema {
+	if len(src) == 0 {
+		return src
+	}
+	out := make([]llm.ToolSchema, 0, len(src))
+	for _, s := range src {
+		if s.Parameters != nil {
+			// shallow copy map to avoid mutating original
+			cp := make(map[string]any, len(s.Parameters))
+			for k, v := range s.Parameters {
+				cp[k] = v
+			}
+			cleaned := removeUnsupportedSchema(cp)
+			if len(cleaned) == 0 {
+				s.Parameters = nil
+			} else {
+				s.Parameters = cleaned
+			}
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
@@ -43,7 +157,11 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	params.Messages = AdaptMessages(msgs)
 	// tools: include only when provided to avoid sending an empty array
 	if len(tools) > 0 {
-		params.Tools = AdaptSchemas(tools)
+		if c.isSelfHosted() {
+			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = AdaptSchemas(tools)
+		}
 	}
 	if len(c.extra) > 0 {
 		// When no tools are provided, ensure we don't forward tool-specific
@@ -106,31 +224,47 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	}
 	fields.Debug().Msg("chat_completion_ok")
 
-	// Log redacted response payload for correlation and record token counts on span
+	// Prepare assistant message output before token fallback
+	var out llm.Message
+	if len(comp.Choices) > 0 {
+		msg := comp.Choices[0].Message
+		out = llm.Message{Role: "assistant", Content: msg.Content}
+		for _, tc := range msg.ToolCalls {
+			switch v := tc.AsAny().(type) {
+			case sdk.ChatCompletionMessageFunctionToolCall:
+				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+					Name: v.Function.Name,
+					Args: json.RawMessage(v.Function.Arguments),
+					ID:   v.ID,
+				})
+			case sdk.ChatCompletionMessageCustomToolCall:
+				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+					Name: v.Custom.Name,
+					Args: json.RawMessage(v.Custom.Input),
+					ID:   v.ID,
+				})
+			}
+		}
+	}
+
+	// Redacted response logging
 	llm.LogRedactedResponse(ctx, comp.Choices)
-	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-	// Record cumulative token metrics once (remove previous duplicate call)
-	llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+
+	if c.isSelfHosted() {
+		// Override token metrics using /tokenize endpoint
+		promptText := buildPromptText(msgs)
+		promptTokens := c.tokenizeCount(ctx, promptText)
+		completionTokens := c.tokenizeCount(ctx, out.Content)
+		totalTokens := promptTokens + completionTokens
+		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+	} else {
+		// Use OpenAI provided usage
+		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
+		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+	}
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
-	}
-	msg := comp.Choices[0].Message
-	out := llm.Message{Role: "assistant", Content: msg.Content}
-	for _, tc := range msg.ToolCalls {
-		switch v := tc.AsAny().(type) {
-		case sdk.ChatCompletionMessageFunctionToolCall:
-			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-				Name: v.Function.Name,
-				Args: json.RawMessage(v.Function.Arguments),
-				ID:   v.ID,
-			})
-		case sdk.ChatCompletionMessageCustomToolCall:
-			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-				Name: v.Custom.Name,
-				Args: json.RawMessage(v.Custom.Input),
-				ID:   v.ID,
-			})
-		}
 	}
 	return out, nil
 }
@@ -150,7 +284,11 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	}
 	params.Messages = AdaptMessages(msgs)
 	if len(tools) > 0 {
-		params.Tools = AdaptSchemas(tools)
+		if c.isSelfHosted() {
+			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = AdaptSchemas(tools)
+		}
 	}
 	if len(c.extra) > 0 || len(extra) > 0 {
 		merged := make(map[string]any, len(c.extra)+len(extra))
@@ -209,31 +347,42 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		}
 	}
 	fields.Debug().Msg("chat_completion_ok")
-	// Log response and token counts
+	// Prepare assistant output first
+	var out llm.Message
+	if len(comp.Choices) > 0 {
+		msg := comp.Choices[0].Message
+		out = llm.Message{Role: "assistant", Content: msg.Content}
+		for _, tc := range msg.ToolCalls {
+			switch v := tc.AsAny().(type) {
+			case sdk.ChatCompletionMessageFunctionToolCall:
+				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+					Name: v.Function.Name,
+					Args: json.RawMessage(v.Function.Arguments),
+					ID:   v.ID,
+				})
+			case sdk.ChatCompletionMessageCustomToolCall:
+				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+					Name: v.Custom.Name,
+					Args: json.RawMessage(v.Custom.Input),
+					ID:   v.ID,
+				})
+			}
+		}
+	}
+
 	llm.LogRedactedResponse(ctx, comp.Choices)
-	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-	// Record token metrics for non-streaming ChatWithOptions
-	llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+	if c.isSelfHosted() {
+		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
+		completionTokens := c.tokenizeCount(ctx, out.Content)
+		totalTokens := promptTokens + completionTokens
+		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+	} else {
+		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
+		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+	}
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
-	}
-	msg := comp.Choices[0].Message
-	out := llm.Message{Role: "assistant", Content: msg.Content}
-	for _, tc := range msg.ToolCalls {
-		switch v := tc.AsAny().(type) {
-		case sdk.ChatCompletionMessageFunctionToolCall:
-			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-				Name: v.Function.Name,
-				Args: json.RawMessage(v.Function.Arguments),
-				ID:   v.ID,
-			})
-		case sdk.ChatCompletionMessageCustomToolCall:
-			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-				Name: v.Custom.Name,
-				Args: json.RawMessage(v.Custom.Input),
-				ID:   v.ID,
-			})
-		}
 	}
 	return out, nil
 }
@@ -252,7 +401,11 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	params.Messages = AdaptMessages(msgs)
 	// tools
 	if len(tools) > 0 {
-		params.Tools = AdaptSchemas(tools)
+		if c.isSelfHosted() {
+			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = AdaptSchemas(tools)
+		}
 	}
 	if len(c.extra) > 0 {
 		// When no tools are provided, ensure we don't forward tool-specific
@@ -286,6 +439,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	// Hold any nested usage detail numeric fields so we can log them at the end
 	promptDetails := make(map[string]int)
 	completionDetails := make(map[string]int)
+
+	// Collect assistant content for self-hosted tokenization fallback
+	var assistantContentBuilder strings.Builder
 
 	for stream.Next() {
 		chunk := stream.Current()
@@ -325,6 +481,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		// Handle content deltas
 		if delta.Content != "" {
 			h.OnDelta(delta.Content)
+			assistantContentBuilder.WriteString(delta.Content)
 		}
 
 		// Handle tool calls - accumulate across chunks
@@ -389,10 +546,14 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		base.Error().Err(err).Msg("chat_stream_error")
 		span.RecordError(err)
 	} else {
-		// Record token usage on span and log a compact response summary
+		if c.isSelfHosted() {
+			// Override counts by re-tokenizing prompt and accumulated assistant content
+			promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
+			completionTokens = c.tokenizeCount(ctx, assistantContentBuilder.String())
+			totalTokens = promptTokens + completionTokens
+		}
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
-		// Record cumulative token metrics for streaming path (only once on success)
 		if promptTokens > 0 || completionTokens > 0 {
 			llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
 		}
@@ -457,7 +618,11 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 
 	params.Messages = adaptedMsgs
 	if len(tools) > 0 {
-		params.Tools = AdaptSchemas(tools)
+		if c.isSelfHosted() {
+			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = AdaptSchemas(tools)
+		}
 	}
 	if len(c.extra) > 0 {
 		if len(tools) == 0 {
@@ -484,13 +649,20 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	log.Debug().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_with_image_ok")
 	// Log response and token counts when available
 	llm.LogRedactedResponse(ctx, comp.Choices)
-	llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
 	}
 	msg := comp.Choices[0].Message
 	out := llm.Message{Role: "assistant", Content: msg.Content}
+	if c.isSelfHosted() {
+		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
+		completionTokens := c.tokenizeCount(ctx, out.Content)
+		llm.RecordTokenAttributes(span, promptTokens, completionTokens, promptTokens+completionTokens)
+		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+	} else {
+		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
+		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+	}
 	for _, tc := range msg.ToolCalls {
 		switch v := tc.AsAny().(type) {
 		case sdk.ChatCompletionMessageFunctionToolCall:

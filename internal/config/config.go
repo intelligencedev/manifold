@@ -43,6 +43,16 @@ type Config struct {
 	Embedding EmbeddingConfig
 	// TTS configures text-to-speech defaults and endpoint.
 	TTS TTSConfig `yaml:"tts" json:"tts"`
+	// AgentRunTimeoutSeconds sets an upper wall-clock bound for a single agent
+	// Run() invocation. 0 or negative disables the global timeout (recommended
+	// for long-running, tool-bounded workflows where per-tool timeouts and
+	// MaxSteps already provide safety).
+	AgentRunTimeoutSeconds int `yaml:"agentRunTimeoutSeconds" json:"agentRunTimeoutSeconds"`
+	// StreamRunTimeoutSeconds optionally bounds streaming /agent/run style
+	// operations. 0 disables.
+	StreamRunTimeoutSeconds int `yaml:"streamRunTimeoutSeconds" json:"streamRunTimeoutSeconds"`
+	// WorkflowTimeoutSeconds bounds orchestrator workflow execution; 0 disables.
+	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
 }
 
 // TTSConfig holds text-to-speech specific configuration.

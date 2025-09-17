@@ -116,8 +116,14 @@ func HandleCommandMessage(
 
 	replyTopic := pickReplyTopic(cmd.ReplyTopic, defaultReplyTopic)
 
-	// Execute the workflow with a timeout.
-	runCtx, cancel := context.WithTimeout(ctx, workflowTimeout)
+	// Execute the workflow with a timeout only if configured (>0). A zero or
+	// negative duration disables the global workflow timeout to support long
+	// running workflows while relying on per-step/tool timeouts for safety.
+	var runCtx context.Context = ctx
+	var cancel context.CancelFunc = func() {}
+	if workflowTimeout > 0 {
+		runCtx, cancel = context.WithTimeout(ctx, workflowTimeout)
+	}
 	defer cancel()
 
 	// Build a publisher closure that the runner can call for per-step results.

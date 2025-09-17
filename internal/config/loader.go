@@ -49,6 +49,22 @@ func Load() (Config, error) {
 			cfg.MaxSteps = n
 		}
 	}
+	// Agent / Stream / Workflow timeouts (seconds)
+	if v := strings.TrimSpace(os.Getenv("AGENT_RUN_TIMEOUT_SECONDS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.AgentRunTimeoutSeconds = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("STREAM_RUN_TIMEOUT_SECONDS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.StreamRunTimeoutSeconds = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("WORKFLOW_TIMEOUT_SECONDS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.WorkflowTimeoutSeconds = n
+		}
+	}
 
 	cfg.Obs.ServiceName = strings.TrimSpace(os.Getenv("OTEL_SERVICE_NAME"))
 	cfg.Obs.ServiceVersion = strings.TrimSpace(os.Getenv("SERVICE_VERSION"))
@@ -137,6 +153,16 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxSteps == 0 {
 		cfg.MaxSteps = 8
+	}
+	// Provide sensible large defaults only if explicitly needed; leave 0 = disabled
+	if cfg.AgentRunTimeoutSeconds < 0 {
+		cfg.AgentRunTimeoutSeconds = 0
+	}
+	if cfg.StreamRunTimeoutSeconds < 0 {
+		cfg.StreamRunTimeoutSeconds = 0
+	}
+	if cfg.WorkflowTimeoutSeconds < 0 {
+		cfg.WorkflowTimeoutSeconds = 0
 	}
 
 	// Apply embedding defaults

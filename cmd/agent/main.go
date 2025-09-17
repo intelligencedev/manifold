@@ -193,7 +193,14 @@ func main() {
 		SummaryKeepLast:  cfg.SummaryKeepLast,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	// Global agent run context: honor configurable timeout; 0 => no deadline.
+	var ctx context.Context
+	var cancel context.CancelFunc
+	if cfg.AgentRunTimeoutSeconds > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(cfg.AgentRunTimeoutSeconds)*time.Second)
+	} else {
+		ctx, cancel = context.WithCancel(context.Background())
+	}
 	defer cancel()
 
 	final, err := eng.Run(ctx, *q, nil)

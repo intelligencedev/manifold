@@ -180,3 +180,9 @@ webui:
   port: 8081
   # Backend endpoint to forward prompt submissions to. Should accept POST with JSON {"prompt":"..."}
   backendURL: "http:/localhost:32180/agent/run"
+
+# Runtime timeout controls (seconds)
+# Set to 0 to disable global deadline (recommended for long-running agents with per-tool limits):
+agentRunTimeoutSeconds: 0
+streamRunTimeoutSeconds: 0
+workflowTimeoutSeconds: 0

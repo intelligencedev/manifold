@@ -494,13 +494,18 @@ async function submitPrompt(prompt) {
       // SSE parsing: events separated by double newline
       let idx
       while ((idx = buf.indexOf('\n\n')) !== -1) {
-        const raw = buf.slice(0, idx).trim()
+        // Extract one SSE event block without aggressive trimming to preserve leading spaces in deltas
+        let raw = buf.slice(0, idx)
         buf = buf.slice(idx+2)
+        // Remove trailing single CR if present (Windows line endings) but keep leading spaces
+        if (raw.endsWith('\r')) raw = raw.slice(0, -1)
         // Each line in raw starts with "data: " optionally
         const lines = raw.split(/\r?\n/)
         lines.forEach(line=>{
           if (line.startsWith('data:')) {
-            const payload = line.slice(5).trim()
+            // Per SSE spec, a single optional space may follow 'data:'; preserve any further leading spaces from model output
+            let payload = line.slice(5)
+            if (payload.startsWith(' ')) payload = payload.slice(1)
             // Expect JSON payloads with {type: 'delta'|'tool'|'final', data: '...'}
             try {
               const obj = JSON.parse(payload)
@@ -511,10 +516,22 @@ async function submitPrompt(prompt) {
                 if (last && last.dataset.rawMarkdown !== undefined) {
                   // Append to raw markdown and re-render
                   if (last.dataset.rawMarkdown === '') {
-                    // First delta - trim leading whitespace
-                    last.dataset.rawMarkdown = obj.data.trimStart()
+                    // First delta: keep model's leading spaces except pure leading newlines
+                    last.dataset.rawMarkdown = (obj.data||'').replace(/^[\r\n]+/, '')
                   } else {
-                    last.dataset.rawMarkdown += obj.data
+                    let incoming = obj.data || ''
+                    // Heuristic: if previous char ends a sentence and incoming starts a capital/quote without leading space, insert one
+                    if (incoming && last.dataset.rawMarkdown) {
+                      const prevChar = last.dataset.rawMarkdown.slice(-1)
+                      // Typical sentence terminators
+                      if(/[.!?]/.test(prevChar)) {
+                        // If incoming starts with letter/quote/parenthesis and not a space or newline
+                        if(!/^[ \t\n]/.test(incoming) && /^[A-Z"'(\[]/.test(incoming)) {
+                          incoming = ' ' + incoming
+                        }
+                      }
+                    }
+                    last.dataset.rawMarkdown += incoming
                   }
                   const contentDiv = last.querySelector('div');
                   if (contentDiv) {
@@ -612,7 +629,7 @@ async function submitPrompt(prompt) {
     // process any remaining buffer
     if (buf.trim() !== '') {
       try {
-        const obj = JSON.parse(buf.trim())
+        const obj = JSON.parse(buf.trim()) // final leftover (safe to trim here; it's a standalone JSON object)
         if (obj.type === 'final') appendMessage('agent', obj.data || '', false)
       } catch (e) {
         appendMessage('agent', buf, true)

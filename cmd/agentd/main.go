@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -545,13 +546,6 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 	})
 
-	// Serve static files under /static/
-	fs := http.FS(webui.Assets)
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(fs)))
-
-	// Serve assets (images, gifs) for avatar panel and future UI decoration
-	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
-
 	// Serve TTS audio files
 	mux.HandleFunc("/audio/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -671,24 +665,13 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"text": strings.TrimSpace(sb.String())})
 	})
 
-	// Serve index on /
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		f, err := webui.Assets.Open("templates/index.html")
-		if err != nil {
-			log.Printf("open index: %v", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-		defer f.Close()
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := io.Copy(w, f); err != nil {
-			log.Printf("copy index: %v", err)
-		}
-	})
+	frontendProxy := os.Getenv("FRONTEND_DEV_PROXY")
+	if err := webui.RegisterFrontend(mux, webui.Options{DevProxy: frontendProxy}); err != nil {
+		log.Error().Err(err).Msg("frontend registration failed")
+	}
+	if frontendProxy != "" {
+		log.Info().Str("url", frontendProxy).Msg("frontend dev proxy enabled")
+	}
 
 	log.Info().Msg("agentd listening on :32180")
 	if err := http.ListenAndServe(":32180", mux); err != nil {

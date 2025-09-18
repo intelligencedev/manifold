@@ -2,18 +2,23 @@
 
 ## Coding Conventions
 
+## Project Structure & Module Organization
+
+Source lives in `internal/` (e.g., `internal/agent`, `internal/orchestrator`, `internal/tui`); keep new packages focused on one concern and avoid import cycles. CLI entrypoints sit under `cmd/` with binaries for the agent, TUI, and `embedctl`. Docs reside in `docs/`, assets in `assets/`, and deployment scaffolding in `docker/`, `configs/`, and top-level `example.env`. Co-locate tests with their packages and share fakes through `internal/testhelpers`.
+
 ### Package Organization
 
 * Keep packages small and focused on a single responsibility.
 * Avoid cyclical dependencies; extract interfaces when necessary.
-* Everything under `/internal` is private; use `/pkg` for reusable libraries.
-* Main packages in `/cmd` should remain thin – delegate logic to internal or pkg packages.
 
 ### Dependency Injection
 
 * Promote testability via interface‑driven design.
 * Use constructor functions (e.g., `NewService(...)`) to inject dependencies.
 * Consider a lightweight DI library **only** after weighing complexity (e.g., `uber-go/fx`).
+
+## Build, Test, and Development Commands
+`go run ./cmd/agent -q "status"` exercises the CLI; `go run ./cmd/agent-tui` opens the streaming interface. Use `make build` for host binaries (rebuilds Whisper artifacts) and `make build-tui` when you only need the UI. `make test` wraps `go test -race -coverprofile=coverage.out ./...`; view coverage with `go tool cover -func coverage.out`. `make ci` chains format, import checks, lint, and tests. If Whisper bindings drift, rerun `make whisper-go-bindings`.
 
 ## Essential Go CLI Tools
 
@@ -37,7 +42,8 @@ The following Go command-line tools are essential for development, testing, and 
 
 > **Tip:** Refer to this table whenever you need to build, test, format, or analyze Go code in this project.
 
----
+## Coding Style & Naming Conventions
+Target Go 1.24.5 and keep files `gofmt` clean with tabs. Maintain import order with `goimports` and keep `golangci-lint run` (via `make lint`) silent. Name packages after their capability, keep filenames lowercase, and export concise CamelCase APIs. Prefer constructor-style functions (e.g., `NewService`) for dependency injection.
 
 ### Go Language Features (1.22+)
 

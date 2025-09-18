@@ -22,7 +22,7 @@ WHISPER_INCLUDE_DIR := $(WHISPER_CPP_DIR)/include
 WHISPER_LIB_DIR := $(WHISPER_BUILD_DIR)/src
 WHISPER_GGML_LIB_DIR := $(WHISPER_BUILD_DIR)/ggml/src
 
-.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean whisper-cpp whisper-go-bindings build-tui
+.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean whisper-cpp whisper-go-bindings build-tui frontend
 
 all: build
 
@@ -40,6 +40,7 @@ help:
 	@echo "  make build              # build host platform binaries into $(DIST)/ (includes Whisper)"
 	@echo "  make build-agentd       # build only the agentd binary (skips Whisper)"
 	@echo "  make build-tui          # build the TUI binary quickly (skips Whisper if already built)"
+	@echo "  make frontend           # build the Vue.js frontend assets"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/ (includes Whisper)"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
 	@echo "  make ci                 # run CI checks (fmt-check, imports-check, vet, lint, test)"
@@ -189,6 +190,11 @@ build-agentd: | $(DIST)
 
 # Build only agentd but ensure Whisper dependencies are built and linked (speech-to-text)
 .PHONY: build-agentd-whisper
+FRONTEND_DIR := web/agentd-ui
+FRONTEND_SRC_DIST := $(FRONTEND_DIR)/dist
+FRONTEND_EMBED_DIR := internal/webui/dist
+PNPM := pnpm
+
 build-agentd-whisper: whisper-go-bindings | $(DIST)
 	@echo "Building agentd (with Whisper) into $(DIST)/"
 	C_INCLUDE_PATH=$(WHISPER_INCLUDE_DIR) \
@@ -201,3 +207,20 @@ build-agentd-whisper: whisper-go-bindings | $(DIST)
 build-webui:
 	@echo "Building webui into $(DIST)/"
 	go build -o $(DIST)/webui ./cmd/webui
+
+.PHONY: frontend
+frontend:
+	@if ! command -v $(PNPM) >/dev/null 2>&1; then \
+		echo "pnpm not found; install it from https://pnpm.io/"; \
+		exit 1; \
+	fi
+	@echo "Building frontend in $(FRONTEND_DIR)"
+	cd $(FRONTEND_DIR) && $(PNPM) run build
+	@if [ ! -d "$(FRONTEND_SRC_DIST)" ]; then \
+		echo "Frontend build output not found at $(FRONTEND_SRC_DIST)"; \
+		exit 1; \
+	fi
+	rm -rf $(FRONTEND_EMBED_DIR)
+	mkdir -p $(FRONTEND_EMBED_DIR)
+	cp -R $(FRONTEND_SRC_DIST)/. $(FRONTEND_EMBED_DIR)/
+	@echo "Frontend assets copied into $(FRONTEND_EMBED_DIR)"

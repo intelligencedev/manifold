@@ -413,13 +413,15 @@ If you prefer manual control:
 
 #### Available Make Targets
 
-- `make build` - Build all binaries (includes Whisper)
+- `make build` - Build the agentd binary with Whisper support
 - `make build-tui` - Build the TUI binary quickly (skips Whisper if already built)
 - `make whisper-cpp` - Build Whisper.cpp library
 - `make whisper-go-bindings` - Build Go bindings for Whisper
 - `make cross` - Cross-compile for multiple platforms (CGO binaries skipped)
+- `make dev-frontend` - Start the Vite dev server (requires pnpm)
+- `make frontend` - Build the Vue SPA assets into `internal/webui/dist`
 - `make checksums` - Generate SHA256 checksums for artifacts in dist/
-- `make ci` - Run CI checks (fmt-check, imports-check, vet, lint, test)
+- `make ci` - Run CI checks (fmt-check, imports-check, vet, lint, Go tests)
 - `make clean` - Clean all build artifacts
 - `make test` - Run tests
 - `make fmt` - Format code
@@ -441,6 +443,19 @@ If you prefer manual control:
 - The TUI binary (`agent-tui`) includes Whisper integration and will be ~50MB
 - Cross-compilation skips CGO-dependent binaries like `agent-tui`
 - Whisper models are not included in the build; download separately if needed
+
+### Frontend UI
+
+The dashboard lives in `web/agentd-ui` and is built with Vite, Vue 3, TypeScript, Pinia, Tailwind, and Vue Query.
+
+- Install [pnpm](https://pnpm.io/) and Node.js ≥ 20.
+- Run `pnpm install` from `web/agentd-ui` to set up dependencies.
+- Development: `make dev-frontend` (or `pnpm dev`) starts the Vite server on port 5173. Set `FRONTEND_DEV_PROXY=http://localhost:5173` before running `agentd` to proxy requests directly to the dev server.
+- Production build: run `make frontend` followed by `make build-agentd-whisper` (or `make build`) to embed the latest assets.
+- Tests: `pnpm test:unit` runs Vitest; Playwright smoke tests are available via `pnpm test:e2e` once the preview server is running (`pnpm preview`).
+- Clean UI artifacts: remove `web/agentd-ui/dist` and `internal/webui/dist` before rebuilding if you need a fresh slate.
+
+The Go binary embeds the contents of `internal/webui/dist`. If you see `frontend registration failed` at startup, ensure `make frontend` completed successfully before rebuilding `agentd`.
 
 ### Test
 

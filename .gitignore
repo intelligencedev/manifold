@@ -68,3 +68,10 @@ alice.png
 bride_final.jpg
 models/
 agentd
+web/agentd-ui/node_modules/
+web/agentd-ui/dist/
+web/agentd-ui/.vite/
+web/agentd-ui/coverage/
+web/agentd-ui/playwright-report/
+internal/webui/dist/
+!internal/webui/dist/index.html

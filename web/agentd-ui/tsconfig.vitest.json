@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "types": ["node", "jsdom"]
+  },
+  "include": ["env.d.ts", "src/**/*", "tests/**/*.ts"],
+  "exclude": ["e2e"]
+}

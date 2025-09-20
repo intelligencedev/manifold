@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -159,7 +160,12 @@ func main() {
 	cancelInit()
 
 	// WARPP runner for workflow execution
-	wfreg, _ := warpp.LoadFromDir("configs/workflows")
+	workflowDir := "configs/workflows"
+	wfreg, err := warpp.LoadFromDir(workflowDir)
+	if err != nil {
+		log.Warn().Err(err).Str("dir", workflowDir).Msg("failed to load workflows, using defaults")
+	}
+	var warppMu sync.RWMutex
 	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 
 	eng := &agent.Engine{
@@ -203,6 +209,127 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"timestamp": time.Now().Unix(), "models": llmpkg.TokenTotalsSnapshot()})
+	})
+
+	mux.HandleFunc("/api/warpp/tools", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		schemas := registry.Schemas()
+		out := make([]map[string]any, 0, len(schemas))
+		for _, s := range schemas {
+			out = append(out, map[string]any{
+				"name":        s.Name,
+				"description": s.Description,
+				"parameters":  s.Parameters,
+			})
+		}
+		json.NewEncoder(w).Encode(out)
+	})
+
+	mux.HandleFunc("/api/warpp/workflows", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		warppMu.RLock()
+		list := wfreg.All()
+		warppMu.RUnlock()
+		sort.Slice(list, func(i, j int) bool { return list[i].Intent < list[j].Intent })
+		json.NewEncoder(w).Encode(list)
+	})
+
+	mux.HandleFunc("/api/warpp/workflows/", func(w http.ResponseWriter, r *http.Request) {
+		intent := strings.TrimPrefix(r.URL.Path, "/api/warpp/workflows/")
+		intent = strings.TrimSpace(intent)
+		if intent == "" {
+			http.NotFound(w, r)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			warppMu.RLock()
+			wf, err := wfreg.Get(intent)
+			warppMu.RUnlock()
+			if err != nil {
+				http.Error(w, "workflow not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(wf)
+		case http.MethodPut:
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			defer r.Body.Close()
+			var wf warpp.Workflow
+			if err := json.NewDecoder(r.Body).Decode(&wf); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if wf.Intent == "" {
+				wf.Intent = intent
+			}
+			if wf.Intent != intent {
+				http.Error(w, "intent mismatch", http.StatusBadRequest)
+				return
+			}
+			if len(wf.Steps) == 0 {
+				http.Error(w, "workflow requires steps", http.StatusBadRequest)
+				return
+			}
+			seen := make(map[string]struct{}, len(wf.Steps))
+			for _, step := range wf.Steps {
+				if step.ID == "" {
+					http.Error(w, "step id required", http.StatusBadRequest)
+					return
+				}
+				if _, ok := seen[step.ID]; ok {
+					http.Error(w, "duplicate step id", http.StatusBadRequest)
+					return
+				}
+				seen[step.ID] = struct{}{}
+				if step.Tool != nil && step.Tool.Name == "" {
+					http.Error(w, "tool name required", http.StatusBadRequest)
+					return
+				}
+			}
+			warppMu.Lock()
+			existingPath := ""
+			if wfreg != nil {
+				existingPath = wfreg.Path(intent)
+			}
+			var saveErr error
+			var path string
+			if existingPath != "" {
+				saveErr = warpp.SaveWorkflowToPath(existingPath, wf)
+				path = existingPath
+			}
+			if saveErr != nil || existingPath == "" {
+				path, saveErr = warpp.SaveWorkflow(workflowDir, wf)
+			}
+			if saveErr != nil {
+				warppMu.Unlock()
+				http.Error(w, "failed to save workflow", http.StatusInternalServerError)
+				return
+			}
+			if wfreg == nil {
+				wfreg = &warpp.Registry{}
+			}
+			wfreg.Upsert(wf, path)
+			warppRunner.Workflows = wfreg
+			warppMu.Unlock()
+			status := http.StatusOK
+			if existingPath == "" {
+				status = http.StatusCreated
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(wf)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	mux.HandleFunc("/agent/run", func(w http.ResponseWriter, r *http.Request) {

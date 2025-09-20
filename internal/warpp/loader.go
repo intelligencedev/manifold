@@ -6,17 +6,19 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Registry provides access to workflows by intent.
 type Registry struct {
-	byIntent map[string]Workflow
+	byIntent     map[string]Workflow
+	pathByIntent map[string]string
 }
 
 // LoadFromDir loads all .json workflows from a directory. If the directory is
 // missing or empty, it returns a registry with built-in defaults.
 func LoadFromDir(dir string) (*Registry, error) {
-	r := &Registry{byIntent: map[string]Workflow{}}
+	r := &Registry{byIntent: map[string]Workflow{}, pathByIntent: map[string]string{}}
 	if dir != "" {
 		_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
@@ -35,6 +37,7 @@ func LoadFromDir(dir string) (*Registry, error) {
 			}
 			if w.Intent != "" {
 				r.byIntent[w.Intent] = w
+				r.pathByIntent[w.Intent] = path
 			}
 			return nil
 		})
@@ -62,6 +65,98 @@ func (r *Registry) All() []Workflow {
 		out = append(out, w)
 	}
 	return out
+}
+
+// Upsert stores or updates the workflow for the given intent and records the
+// source file path when provided.
+func (r *Registry) Upsert(w Workflow, path string) {
+	if r == nil || w.Intent == "" {
+		return
+	}
+	if r.byIntent == nil {
+		r.byIntent = map[string]Workflow{}
+	}
+	if r.pathByIntent == nil {
+		r.pathByIntent = map[string]string{}
+	}
+	r.byIntent[w.Intent] = w
+	if path != "" {
+		r.pathByIntent[w.Intent] = path
+	}
+}
+
+// Remove deletes a workflow from the registry maps.
+func (r *Registry) Remove(intent string) {
+	if r == nil {
+		return
+	}
+	delete(r.byIntent, intent)
+	if r.pathByIntent != nil {
+		delete(r.pathByIntent, intent)
+	}
+}
+
+// Path returns the on-disk location for a workflow if known.
+func (r *Registry) Path(intent string) string {
+	if r == nil || r.pathByIntent == nil {
+		return ""
+	}
+	return r.pathByIntent[intent]
+}
+
+// SaveWorkflow writes the workflow JSON to dir, returning the resulting path.
+func SaveWorkflow(dir string, w Workflow) (string, error) {
+	if w.Intent == "" {
+		return "", errors.New("workflow intent required")
+	}
+	if dir == "" {
+		return "", errors.New("workflow dir required")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	filename := sanitizeIntent(w.Intent) + ".json"
+	path := filepath.Join(dir, filename)
+	if err := SaveWorkflowToPath(path, w); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// SaveWorkflowToPath writes the workflow JSON to an explicit path.
+func SaveWorkflowToPath(path string, w Workflow) error {
+	if path == "" {
+		return errors.New("workflow path required")
+	}
+	data, err := json.MarshalIndent(w, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o644)
+}
+
+func sanitizeIntent(intent string) string {
+	var b strings.Builder
+	b.Grow(len(intent))
+	for _, r := range intent {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r + ('a' - 'A'))
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteByte('_')
+		}
+	}
+	if b.Len() == 0 {
+		return "workflow"
+	}
+	return b.String()
 }
 
 func defaultWorkflows() []Workflow {

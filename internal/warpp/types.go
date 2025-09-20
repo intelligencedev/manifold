@@ -3,10 +3,22 @@ package warpp
 // Workflow is a typed representation of a natural-language workflow with
 // optional guards and tool references per step.
 type Workflow struct {
-	Intent      string   `json:"intent"`
-	Description string   `json:"description"`
-	Keywords    []string `json:"keywords"`
-	Steps       []Step   `json:"steps"`
+	Intent      string      `json:"intent"`
+	Description string      `json:"description"`
+	Keywords    []string    `json:"keywords"`
+	Steps       []Step      `json:"steps"`
+	UI          *WorkflowUI `json:"ui,omitempty"`
+}
+
+// WorkflowUI holds optional editor metadata (for example, node layout).
+type WorkflowUI struct {
+	Layout map[string]NodeLayout `json:"layout,omitempty"`
+}
+
+// NodeLayout captures the 2D position of a node on the editor canvas.
+type NodeLayout struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
 }
 
 type Step struct {

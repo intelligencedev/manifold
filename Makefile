@@ -197,6 +197,7 @@ PNPM := pnpm
 
 build-agentd-whisper: whisper-go-bindings | $(DIST)
 	@echo "Building agentd (with Whisper) into $(DIST)/"
+	$(MAKE) frontend
 	C_INCLUDE_PATH=$(WHISPER_INCLUDE_DIR) \
 	LIBRARY_PATH=$(WHISPER_LIB_DIR):$(WHISPER_GGML_LIB_DIR):$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas:$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal \
 	go build -o $(DIST)/agentd ./cmd/agentd

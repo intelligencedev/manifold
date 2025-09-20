@@ -17,7 +17,10 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { VueFlow, Background, Controls, MiniMap, type Node, type Edge } from '@vue-flow/core'
+import { VueFlow, type Node, type Edge } from '@vue-flow/core'
+import { Background } from '@vue-flow/background'
+import { Controls } from '@vue-flow/controls'
+import { MiniMap } from '@vue-flow/minimap'
 
 const nodes = ref<Node[]>([
   { id: '1', type: 'input', position: { x: 50, y: 25 }, data: { label: 'Start' } },

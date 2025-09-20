@@ -4,6 +4,7 @@ import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
 import App from './App.vue'
 import router from './router'
 import './assets/tailwind.css'
+import './assets/vueflow.css'
 
 const app = createApp(App)
 

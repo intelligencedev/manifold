@@ -9,6 +9,16 @@ const router = createRouter({
       component: () => import('@/views/OverviewView.vue')
     },
     {
+      path: '/chat',
+      name: 'chat',
+      component: () => import('@/views/ChatView.vue')
+    },
+    {
+      path: '/flow',
+      name: 'flow',
+      component: () => import('@/views/FlowView.vue')
+    },
+    {
       path: '/runs',
       name: 'runs',
       component: () => import('@/views/RunsView.vue')

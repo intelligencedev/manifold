@@ -48,6 +48,8 @@ import { RouterLink, RouterView } from 'vue-router'
 
 const navigation = [
   { label: 'Overview', to: '/' },
+  { label: 'Chat', to: '/chat' },
+  { label: 'Flow', to: '/flow' },
   { label: 'Runs', to: '/runs' },
   { label: 'Settings', to: '/settings' }
 ]

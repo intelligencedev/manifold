@@ -115,7 +115,11 @@
           <div class="mt-3 space-y-3 text-sm leading-relaxed text-slate-100">
             <p v-if="message.title" class="font-semibold text-slate-200">{{ message.title }}</p>
             <pre v-if="message.toolArgs" class="whitespace-pre-wrap rounded-md bg-slate-950/60 p-3 text-xs text-slate-300">{{ message.toolArgs }}</pre>
-            <p v-if="message.content" class="whitespace-pre-wrap">{{ message.content }}</p>
+            <div
+              v-if="message.content"
+              class="chat-markdown"
+              v-html="renderMarkdown(message.content)"
+            ></div>
             <audio
               v-if="message.audioUrl"
               :src="message.audioUrl"
@@ -207,6 +211,8 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { streamAgentRun, type ChatStreamEvent } from '@/api/chat'
 import type { ChatMessage, ChatSessionMeta, ChatRole } from '@/types/chat'
+import { renderMarkdown } from '@/utils/markdown'
+import 'highlight.js/styles/github-dark-dimmed.css'
 
 const router = useRouter()
 const isBrowser = typeof window !== 'undefined'
@@ -725,3 +731,48 @@ function goToDashboard() {
   router.push({ name: 'overview' })
 }
 </script>
+
+<style scoped>
+.chat-markdown {
+  white-space: normal;
+}
+
+.chat-markdown p {
+  margin: 0 0 0.75rem;
+}
+
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0 0 0.75rem 1.25rem;
+  padding: 0;
+}
+
+.chat-markdown li {
+  margin-bottom: 0.25rem;
+}
+
+.chat-markdown pre {
+  margin: 0 0 0.75rem;
+}
+
+.chat-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875rem;
+}
+
+.chat-markdown :deep(pre.hljs) {
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  padding: 0.75rem;
+  background-color: rgba(15, 23, 42, 0.85);
+}
+
+.chat-markdown :deep(code.hljs) {
+  display: block;
+  white-space: pre;
+}
+</style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100">
+  <div class="flex h-screen min-h-0 flex-col overflow-hidden bg-slate-950 text-slate-100">
     <header class="border-b border-slate-800 bg-slate-900/70 backdrop-blur">
       <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         <div class="flex items-center gap-3">
@@ -37,7 +37,7 @@
       </div>
     </header>
 
-    <main class="mx-auto max-w-7xl px-6 py-10">
+    <main class="flex w-full flex-1 min-h-0 flex-col overflow-hidden px-6 py-10">
       <RouterView />
     </main>
   </div>

@@ -1,7 +1,8 @@
 <template>
-  <section class="grid gap-6 xl:grid-cols-[300px_1fr_260px] lg:grid-cols-[280px_1fr] min-h-[75vh]">
+  <div class="flex h-full min-h-0 flex-1 overflow-hidden">
+    <section class="grid flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px]">
     <!-- Sessions sidebar -->
-    <aside class="hidden lg:flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <aside class="hidden min-h-0 lg:flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
       <header class="flex items-center justify-between">
         <h2 class="text-sm font-semibold text-slate-200">Conversations</h2>
         <button
@@ -23,7 +24,7 @@
           <div class="flex items-center justify-between gap-2">
             <template v-if="renamingSessionId === session.id">
               <input
-                :ref="setRenameInput"
+                ref="renameInput"
                 v-model="renamingName"
                 type="text"
                 class="w-full rounded bg-slate-900 px-2 py-1 text-xs text-slate-100 outline-none ring-2 ring-emerald-500/80"
@@ -61,7 +62,7 @@
     </aside>
 
     <!-- Chat pane -->
-    <section class="flex min-h-[75vh] flex-col rounded-2xl border border-slate-800 bg-slate-900/60">
+  <section class="relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
         <div>
           <h1 class="text-base font-semibold text-slate-200">
@@ -84,7 +85,11 @@
         </div>
       </header>
 
-      <div ref="messagesPane" class="flex-1 space-y-5 overflow-y-auto px-4 py-6">
+      <div
+        ref="messagesPane"
+        class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6"
+        @scroll="handleMessagesScroll"
+      >
         <div
           v-if="!activeMessages.length"
           class="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-500"
@@ -112,7 +117,7 @@
             </span>
           </header>
 
-          <div class="mt-3 space-y-3 text-sm leading-relaxed text-slate-100">
+          <div class="mt-3 space-y-3 break-words text-sm leading-relaxed text-slate-100">
             <p v-if="message.title" class="font-semibold text-slate-200">{{ message.title }}</p>
             <pre v-if="message.toolArgs" class="whitespace-pre-wrap rounded-md bg-slate-950/60 p-3 text-xs text-slate-300">{{ message.toolArgs }}</pre>
             <div
@@ -149,6 +154,16 @@
           </footer>
         </article>
       </div>
+
+      <button
+        type="button"
+        class="absolute bottom-28 right-6 z-10 flex items-center gap-2 rounded-full bg-slate-800/90 px-3 py-2 text-xs font-semibold text-slate-200 shadow-lg ring-1 ring-slate-700/50 transition-all duration-200"
+        :class="showScrollToBottom ? 'pointer-events-auto opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-2'"
+        @click="handleScrollToLatest"
+      >
+        <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+        <span>Scroll to latest</span>
+      </button>
 
       <footer class="border-t border-slate-800 p-4">
         <form class="space-y-3" @submit.prevent="sendCurrentPrompt">
@@ -188,7 +203,7 @@
     </section>
 
     <!-- Context sidebar -->
-    <aside class="hidden xl:flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">
+    <aside class="hidden min-h-0 xl:flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">
       <div>
         <h2 class="text-sm font-semibold text-slate-200">Session details</h2>
         <p class="mt-2 text-xs text-slate-500">Session ID: {{ activeSessionId }}</p>
@@ -203,7 +218,8 @@
         </ul>
       </div>
     </aside>
-  </section>
+    </section>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -216,6 +232,7 @@ import 'highlight.js/styles/github-dark-dimmed.css'
 
 const router = useRouter()
 const isBrowser = typeof window !== 'undefined'
+const SCROLL_LOCK_THRESHOLD = 80
 
 const sessionsStorageKey = 'agentd.chat.sessions.v1'
 const messagesStorageKey = 'agentd.chat.messages.v1'
@@ -281,9 +298,11 @@ const renameInput = ref<HTMLInputElement | null>(null)
 const messagesPane = ref<HTMLDivElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
+const autoScrollEnabled = ref(true)
 
 const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) || null)
 const activeMessages = computed(() => messagesBySession.value[activeSessionId.value] || [])
+const showScrollToBottom = computed(() => !autoScrollEnabled.value && activeMessages.value.length > 0)
 const lastUser = computed(() => findLast(activeMessages.value, (msg) => msg.role === 'user'))
 const lastAssistant = computed(() => findLast(activeMessages.value, (msg) => msg.role === 'assistant'))
 const lastAssistantId = computed(() => lastAssistant.value?.id || '')
@@ -324,7 +343,7 @@ watch(renamingSessionId, (value) => {
 onMounted(() => {
   nextTick(() => {
     autoSizeComposer()
-    scrollMessagesToBottom()
+    scrollMessagesToBottom({ force: true, behavior: 'auto' })
   })
 })
 
@@ -340,6 +359,7 @@ function ensureSession(): string {
     sessions.value = [session, ...sessions.value]
     messagesBySession.value = { ...messagesBySession.value, [session.id]: [] }
     activeSessionId.value = session.id
+    autoScrollEnabled.value = true
   } else if (!(activeSessionId.value in messagesBySession.value)) {
     messagesBySession.value = { ...messagesBySession.value, [activeSessionId.value]: [] }
   }
@@ -389,7 +409,8 @@ function touchSession(sessionId: string, preview?: string) {
 
 function selectSession(sessionId: string) {
   activeSessionId.value = sessionId
-  nextTick(() => scrollMessagesToBottom())
+  autoScrollEnabled.value = true
+  nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
 }
 
 function createSession() {
@@ -399,6 +420,8 @@ function createSession() {
   activeSessionId.value = session.id
   renamingSessionId.value = session.id
   renamingName.value = session.name
+  autoScrollEnabled.value = true
+  nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
 }
 
 function deleteSession(sessionId: string) {
@@ -409,12 +432,16 @@ function deleteSession(sessionId: string) {
     sessions.value = [fresh]
     messagesBySession.value = { [fresh.id]: [] }
     activeSessionId.value = fresh.id
+    autoScrollEnabled.value = true
+    nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
     return
   }
   sessions.value = nextSessions
   messagesBySession.value = rest
   if (activeSessionId.value === sessionId) {
     activeSessionId.value = nextSessions[0]?.id || ''
+    autoScrollEnabled.value = true
+    nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
   }
 }
 
@@ -453,6 +480,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
 
   const sessionId = ensureSession()
   const now = new Date().toISOString()
+  autoScrollEnabled.value = true
 
   if (options.echoUser !== false) {
     appendMessage(sessionId, {
@@ -559,7 +587,7 @@ function handleStreamEvent(event: ChatStreamEvent, sessionId: string, assistantI
         }))
         toolMessageIndex.delete(key)
       } else {
-        const pending = findLastIndex(messagesBySession.value[sessionId] || [], (msg) => msg.role === 'tool' && msg.streaming)
+        const pending = findLastIndex(messagesBySession.value[sessionId] || [], (msg) => msg.role === 'tool' && !!msg.streaming)
         if (pending !== -1) {
           const messageId = (messagesBySession.value[sessionId] || [])[pending].id
           updateMessage(sessionId, messageId, (message) => ({
@@ -701,12 +729,43 @@ function autoSizeComposer() {
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`
 }
 
-function scrollMessagesToBottom() {
+type ScrollToBottomOptions = {
+  force?: boolean
+  behavior?: ScrollBehavior
+}
+
+function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
   nextTick(() => {
     const container = messagesPane.value
     if (!container) return
-    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+
+    if (!options.force && !autoScrollEnabled.value) {
+      return
+    }
+
+    const behavior = options.behavior ?? (options.force ? 'smooth' : 'auto')
+    const target = Math.max(container.scrollHeight - container.clientHeight, 0)
+    container.scrollTo({ top: target, behavior })
+
+    if (options.force) {
+      autoScrollEnabled.value = true
+    }
   })
+}
+
+function isNearBottom(container: HTMLElement) {
+  const distance = container.scrollHeight - (container.scrollTop + container.clientHeight)
+  return distance <= SCROLL_LOCK_THRESHOLD
+}
+
+function handleMessagesScroll(event: Event) {
+  const container = event.target as HTMLElement | null
+  if (!container) return
+  autoScrollEnabled.value = isNearBottom(container)
+}
+
+function handleScrollToLatest() {
+  scrollMessagesToBottom({ force: true, behavior: 'smooth' })
 }
 
 function findLast<T>(items: T[], predicate: (item: T) => boolean): T | null {
@@ -735,6 +794,8 @@ function goToDashboard() {
 <style scoped>
 .chat-markdown {
   white-space: normal;
+  overflow-wrap: anywhere; /* allow breaking long tokens */
+  word-break: break-word;  /* legacy support */
 }
 
 .chat-markdown p {
@@ -769,10 +830,25 @@ function goToDashboard() {
   overflow-x: auto;
   padding: 0.75rem;
   background-color: rgba(15, 23, 42, 0.85);
+  max-width: 100%;
 }
 
 .chat-markdown :deep(code.hljs) {
   display: block;
   white-space: pre;
+  max-width: 100%;
+}
+
+/* Ensure images and tables don't overflow horizontally */
+.chat-markdown :deep(img),
+.chat-markdown :deep(table) {
+  max-width: 100%;
+  width: 100%;
+}
+
+/* Markdown tables: wrap cell content when needed */
+.chat-markdown :deep(table) {
+  display: block;
+  overflow-x: auto; /* allow scroll within table if necessary */
 }
 </style>

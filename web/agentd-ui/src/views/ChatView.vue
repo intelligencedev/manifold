@@ -89,6 +89,7 @@
         ref="messagesPane"
         class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6"
         @scroll="handleMessagesScroll"
+        @click="handleMarkdownClick"
       >
         <div
           v-if="!activeMessages.length"
@@ -299,6 +300,25 @@ const messagesPane = ref<HTMLDivElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const autoScrollEnabled = ref(true)
+function handleMarkdownClick(e: MouseEvent) {
+  const target = e.target as HTMLElement
+  const btn = target.closest('[data-copy]') as HTMLElement | null
+  if (!btn) return
+  const wrapper = btn.closest('.md-codeblock') as HTMLElement | null
+  if (!wrapper) return
+  const codeEl = wrapper.querySelector('pre > code') as HTMLElement | null
+  if (!codeEl) return
+  const text = codeEl.innerText || codeEl.textContent || ''
+  if (!text) return
+  navigator.clipboard?.writeText(text).then(() => {
+    btn.classList.add('copied')
+    btn.textContent = 'Copied'
+    setTimeout(() => {
+      btn.classList.remove('copied')
+      btn.textContent = 'Copy'
+    }, 1200)
+  }).catch(() => {})
+}
 
 const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) || null)
 const activeMessages = computed(() => messagesBySession.value[activeSessionId.value] || [])
@@ -837,6 +857,54 @@ function goToDashboard() {
   display: block;
   white-space: pre;
   max-width: 100%;
+}
+/* Code block wrapper and toolbar */
+.chat-markdown :deep(.md-codeblock) {
+  position: relative;
+}
+
+.chat-markdown :deep(.md-codeblock-toolbar) {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: linear-gradient(rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.6));
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  z-index: 1;
+}
+
+.chat-markdown :deep(.md-codeblock .hljs) {
+  margin-top: 0; /* snug under toolbar */
+}
+
+.chat-markdown :deep(.md-lang) {
+  font-size: 0.75rem;
+  color: rgb(148 163 184); /* slate-400 */
+}
+
+.chat-markdown :deep(.md-copy-btn) {
+  font-size: 0.75rem;
+  line-height: 1;
+  color: rgb(226 232 240); /* slate-200 */
+  background: rgb(30 41 59 / 0.8); /* slate-800/80 */
+  border: 1px solid rgb(51 65 85); /* slate-700 */
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  cursor: pointer;
+}
+
+.chat-markdown :deep(.md-copy-btn:hover) {
+  color: rgb(16 185 129); /* emerald-500 */
+  border-color: rgb(16 185 129);
+}
+
+.chat-markdown :deep(.md-copy-btn.copied) {
+  color: rgb(74 222 128); /* emerald-400 */
+  border-color: rgb(74 222 128);
 }
 
 /* Ensure images and tables don't overflow horizontally */

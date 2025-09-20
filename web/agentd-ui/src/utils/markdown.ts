@@ -3,7 +3,16 @@ import hljs from 'highlight.js'
 
 function wrapHighlighted(value: string, language?: string) {
   const languageClass = language ? ` language-${language}` : ''
-  return `<pre class="hljs${languageClass}"><code class="hljs${languageClass}">${value}</code></pre>`
+  const langLabel = language ? `<span class="md-lang">${md.utils.escapeHtml(language)}</span>` : ''
+  return `
+    <div class="md-codeblock">
+      <div class="md-codeblock-toolbar">
+        ${langLabel}
+        <button type="button" class="md-copy-btn" data-copy>Copy</button>
+      </div>
+      <pre class="hljs${languageClass}"><code class="hljs${languageClass}">${value}</code></pre>
+    </div>
+  `
 }
 
 const md = new MarkdownIt({
@@ -11,7 +20,7 @@ const md = new MarkdownIt({
   linkify: true,
   typographer: true,
   breaks: true,
-  highlight(code, language) {
+  highlight(code: string, language?: string) {
     const lang = language?.trim().split(/\s+/)[0]
     if (lang && hljs.getLanguage(lang)) {
       try {
@@ -27,9 +36,9 @@ const md = new MarkdownIt({
   }
 })
 
-const defaultFence = md.renderer.rules.fence ?? ((tokens, idx, options, env, self) => self.renderToken(tokens, idx, options))
+const defaultFence = md.renderer.rules.fence ?? ((tokens: any[], idx: number, options: any, env: any, self: any) => self.renderToken(tokens, idx, options))
 
-md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+md.renderer.rules.fence = (tokens: any[], idx: number, options: any, env: any, self: any) => {
   const token = tokens[idx]
   const info = token.info ? token.info.trim().split(/\s+/)[0] : ''
   const highlighted = options.highlight ? options.highlight(token.content, info) : ''

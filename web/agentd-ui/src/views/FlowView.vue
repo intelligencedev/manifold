@@ -102,6 +102,9 @@ type LayoutMap = Record<string, { x: number; y: number }>
 type StepNode = Node<StepNodeData> & { data: StepNodeData }
 
 const DRAG_DATA_TYPE = 'application/warpp-tool'
+const DEFAULT_LAYOUT_START_X = 140
+const DEFAULT_LAYOUT_START_Y = 160
+const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320
 
 const nodeTypes = { warppStep: WarppStepNode }
 
@@ -188,10 +191,11 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
   const layout = wf.ui?.layout ?? {}
   return wf.steps.map((step, idx) => {
     const stored = layout[step.id]
+    const position = resolveNodePosition(stored, idx)
     return {
       id: step.id,
       type: 'warppStep',
-      position: stored ? { x: stored.x, y: stored.y } : { x: 160, y: idx * 140 },
+      position,
       data: {
         order: idx,
         step: JSON.parse(JSON.stringify(step)) as WarppStep,
@@ -199,6 +203,16 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
       draggable: true,
     }
   })
+}
+
+function resolveNodePosition(stored: { x: number; y: number } | undefined, index: number) {
+  if (stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)) {
+    return { x: stored.x, y: stored.y }
+  }
+  return {
+    x: DEFAULT_LAYOUT_START_X + index * DEFAULT_LAYOUT_HORIZONTAL_GAP,
+    y: DEFAULT_LAYOUT_START_Y,
+  }
 }
 
 function workflowToEdges(wf: WarppWorkflow): Edge[] {

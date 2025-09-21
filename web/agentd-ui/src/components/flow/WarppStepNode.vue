@@ -1,6 +1,6 @@
 <template>
   <div class="relative min-w-[240px] max-w-[320px] rounded-lg border border-slate-700 bg-slate-900/90 p-3 text-xs text-slate-200 shadow-lg">
-    <Handle type="target" :position="Position.Top" class="!bg-blue-500" />
+    <Handle type="target" :position="Position.Left" class="!bg-blue-500" />
     <div class="flex items-start justify-between gap-2">
       <div class="flex-1">
         <div class="text-sm font-semibold text-white">
@@ -65,7 +65,7 @@
       <p v-else class="text-[11px] italic text-slate-500">Select a tool to edit parameters.</p>
     </div>
 
-    <Handle type="source" :position="Position.Bottom" class="!bg-blue-500" />
+    <Handle type="source" :position="Position.Right" class="!bg-blue-500" />
   </div>
 </template>
 

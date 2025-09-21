@@ -49,8 +49,8 @@
       class="space-y-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4"
     >
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <h3 class="text-base font-semibold text-white">Step {{ selectedNode.id }}</h3>
-        <span class="text-xs uppercase tracking-wide text-slate-400">Order {{ selectedNode.data.order + 1 }}</span>
+  <h3 class="text-base font-semibold text-white">Step {{ selectedNode?.id }}</h3>
+  <span class="text-xs uppercase tracking-wide text-slate-400">Order {{ (selectedNode?.data?.order ?? 0) + 1 }}</span>
       </div>
       <div class="grid gap-4 md:grid-cols-2">
         <label class="flex flex-col gap-1 text-sm text-slate-300">
@@ -136,7 +136,8 @@ type StepNodeData = {
   order: number
 }
 
-type StepNode = Node<StepNodeData>
+// Ensure data is required on nodes of this kind so we can safely access `node.data.*`
+type StepNode = Node<StepNodeData> & { data: StepNodeData }
 
 const nodes = ref<StepNode[]>([])
 const edges = ref<Edge[]>([])
@@ -242,12 +243,13 @@ watch(selectedNode, (node) => {
     stepForm.toolArgsText = ''
     toolArgsError.value = ''
   } else {
-    stepForm.text = node.data.step.text ?? ''
-    stepForm.guard = node.data.step.guard ?? ''
-    stepForm.publishResult = !!node.data.step.publish_result
-    stepForm.toolName = node.data.step.tool?.name ?? ''
-    stepForm.toolArgsText = node.data.step.tool?.args
-      ? JSON.stringify(node.data.step.tool?.args, null, 2)
+    // use optional chaining to be defensive about the node shape
+    stepForm.text = node?.data?.step?.text ?? ''
+    stepForm.guard = node?.data?.step?.guard ?? ''
+    stepForm.publishResult = !!node?.data?.step?.publish_result
+    stepForm.toolName = node?.data?.step?.tool?.name ?? ''
+    stepForm.toolArgsText = node?.data?.step?.tool?.args
+      ? JSON.stringify(node?.data?.step?.tool?.args, null, 2)
       : ''
     toolArgsError.value = ''
   }
@@ -263,7 +265,7 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
       type: idx === 0 ? 'input' : idx === wf.steps.length - 1 ? 'output' : undefined,
       position: stored ? { x: stored.x, y: stored.y } : { x: 160, y: idx * 140 },
       data: {
-        order: idx,
+        order: idx as number,
         step: JSON.parse(JSON.stringify(step)) as WarppStep,
       },
       draggable: true,
@@ -295,7 +297,7 @@ function applyFormToNode() {
     return
   }
   const currentNode = nodes.value[idx]
-  const previousStep = currentNode.data.step
+  const previousStep = currentNode?.data?.step ?? ({} as WarppStep)
   let nextTool: WarppStep['tool']
 
   if (!stepForm.toolName) {
@@ -330,7 +332,8 @@ function applyFormToNode() {
   const updatedNode: StepNode = {
     ...currentNode,
     data: {
-      ...currentNode.data,
+      // ensure data exists and preserve order
+      ...(currentNode.data ?? { order: 0 }),
       step: nextStep,
     },
   }
@@ -345,9 +348,9 @@ function syncWorkflowFromNodes() {
   if (!activeWorkflow.value) {
     return
   }
-  const orderedNodes = [...nodes.value].sort((a, b) => a.data.order - b.data.order)
+  const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
   const steps = orderedNodes.map((node) => ({
-    ...node.data.step,
+    ...((node.data?.step) ?? {} as WarppStep),
     id: node.id,
   }))
   activeWorkflow.value = { ...activeWorkflow.value, steps }
@@ -376,9 +379,9 @@ async function onSave() {
   saving.value = true
   error.value = ''
   try {
-    const orderedNodes = [...nodes.value].sort((a, b) => a.data.order - b.data.order)
+    const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
     const steps = orderedNodes.map((node) => ({
-      ...node.data.step,
+      ...((node.data?.step) ?? {} as WarppStep),
       id: node.id,
     }))
     const layout: LayoutMap = {}

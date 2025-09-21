@@ -1,10 +1,12 @@
 {
   "compilerOptions": {
+    // Don't emit files during type-checking builds; this allows "allowImportingTsExtensions"
+    "noEmit": true,
     "target": "ES2020",
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "allowImportingTsExtensions": true,
+  "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "strict": true,
     "jsx": "preserve",

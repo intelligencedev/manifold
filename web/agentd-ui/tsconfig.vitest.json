@@ -1,8 +1,9 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "composite": true,
-    "types": ["node", "jsdom"]
+    // Ensure noEmit is explicitly set here so allowImportingTsExtensions from base config is valid
+    "noEmit": true,
+    "types": ["node", "vitest/globals"]
   },
   "include": ["env.d.ts", "src/**/*", "tests/**/*.ts"],
   "exclude": ["e2e"]

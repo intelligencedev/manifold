@@ -220,24 +220,53 @@
           <article
             v-for="tool in toolMessages"
             :key="tool.id"
-            class="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs"
+            class="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs"
           >
-            <header class="mb-2 flex flex-wrap items-center gap-2">
-              <span class="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
-                {{ tool.title || 'Tool' }}
-              </span>
-              <span class="text-[11px] text-slate-500">{{ formatTimestamp(tool.createdAt) }}</span>
-              <span v-if="tool.streaming" class="flex items-center gap-1 text-[11px] text-emerald-300">
-                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"></span>
-                Running
-              </span>
-              <span v-if="tool.error" class="rounded bg-rose-500/20 px-2 py-0.5 text-[11px] text-rose-300">
-                {{ tool.error }}
-              </span>
+            <header class="flex items-center justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <span
+                  class="block max-w-full truncate rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300"
+                >
+                  {{ tool.title || 'Tool' }}
+                </span>
+              </div>
+              <div class="flex shrink-0 items-center gap-2 text-[11px] text-slate-500">
+                <span>{{ formatTimestamp(tool.createdAt) }}</span>
+                <span v-if="tool.streaming" class="flex items-center gap-1 text-emerald-300">
+                  <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"></span>
+                  Running
+                </span>
+                <span
+                  v-if="tool.error"
+                  class="rounded bg-rose-500/20 px-2 py-0.5 text-rose-300"
+                >
+                  {{ tool.error }}
+                </span>
+              </div>
             </header>
-            <pre v-if="tool.toolArgs" class="whitespace-pre-wrap rounded bg-slate-950/60 p-2 text-[11px] text-slate-400">{{ tool.toolArgs }}</pre>
-            <div v-if="tool.content" class="chat-markdown mt-2" v-html="renderMarkdown(tool.content)"></div>
-            <audio v-if="tool.audioUrl" :src="tool.audioUrl" controls class="mt-2 w-full"></audio>
+            <details
+              class="group mt-2 overflow-hidden rounded border border-slate-800/70 bg-slate-900/70"
+            >
+              <summary
+                class="flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:text-slate-100 focus-visible:outline-none focus-visible:ring focus-visible:ring-emerald-500/40"
+              >
+                <span>View details</span>
+                <span class="text-xs text-slate-500 transition-transform group-open:rotate-45">+</span>
+              </summary>
+              <div class="space-y-2 px-2 pb-2 pt-1 text-slate-300">
+                <pre
+                  v-if="tool.toolArgs"
+                  class="max-w-full overflow-x-hidden whitespace-pre-wrap rounded bg-slate-950/60 p-2 text-[11px] text-slate-400"
+                  >{{ tool.toolArgs }}</pre
+                >
+                <div
+                  v-if="tool.content"
+                  class="chat-markdown mt-1 break-words"
+                  v-html="renderMarkdown(tool.content)"
+                ></div>
+                <audio v-if="tool.audioUrl" :src="tool.audioUrl" controls class="mt-1 w-full"></audio>
+              </div>
+            </details>
           </article>
         </div>
     </aside>

@@ -23,13 +23,18 @@ export interface WarppStep {
   text: string
   guard?: string
   publish_result?: boolean
+  publish_mode?: 'immediate' | 'topo'
+  continue_on_error?: boolean
   tool?: WarppToolRef
+  depends_on?: string[]
 }
 
 export interface WarppWorkflow {
   intent: string
   description?: string
   keywords?: string[]
+  max_concurrency?: number
+  fail_fast?: boolean
   steps: WarppStep[]
   ui?: WarppWorkflowUI
 }

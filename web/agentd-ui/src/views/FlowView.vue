@@ -230,6 +230,18 @@ function resolveNodePosition(stored: { x: number; y: number } | undefined, index
 
 function workflowToEdges(wf: WarppWorkflow): Edge[] {
   const out: Edge[] = []
+  // Prefer explicit depends_on if present on any step
+  const hasDag = wf.steps.some((s) => Array.isArray(s.depends_on) && s.depends_on.length > 0)
+  if (hasDag) {
+    for (const step of wf.steps) {
+      const deps = step.depends_on ?? []
+      for (const dep of deps) {
+        out.push({ id: `e-${dep}-${step.id}`, source: dep, target: step.id })
+      }
+    }
+    return out
+  }
+  // Fallback to sequential
   for (let i = 1; i < wf.steps.length; i += 1) {
     const prev = wf.steps[i - 1]
     const curr = wf.steps[i]
@@ -250,10 +262,18 @@ function syncWorkflowFromNodes() {
     return
   }
   const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
-  const steps = orderedNodes.map((node) => ({
-    ...(node.data?.step ?? ({} as WarppStep)),
-    id: node.id,
-  }))
+  // Build depends_on from current edges graph
+  const incoming: Record<string, string[]> = {}
+  for (const e of edges.value) {
+    if (!incoming[e.target]) incoming[e.target] = []
+    incoming[e.target].push(e.source)
+  }
+  const steps = orderedNodes.map((node) => {
+    const step = { ...(node.data?.step ?? ({} as WarppStep)) }
+    step.id = node.id
+    step.depends_on = (incoming[node.id] ?? []).slice()
+    return step
+  })
   activeWorkflow.value = { ...activeWorkflow.value, steps }
 }
 
@@ -367,10 +387,18 @@ async function onSave() {
     const orderedNodes = [...nodes.value].sort(
       (a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0),
     )
-    const steps = orderedNodes.map((node) => ({
-      ...(node.data?.step ?? ({} as WarppStep)),
-      id: node.id,
-    }))
+    // Persist depends_on derived from current edges
+    const incoming: Record<string, string[]> = {}
+    for (const e of edges.value) {
+      if (!incoming[e.target]) incoming[e.target] = []
+      incoming[e.target].push(e.source)
+    }
+    const steps = orderedNodes.map((node) => {
+      const step = { ...(node.data?.step ?? ({} as WarppStep)) }
+      step.id = node.id
+      step.depends_on = (incoming[node.id] ?? []).slice()
+      return step as WarppStep
+    })
     const layout: LayoutMap = {}
     orderedNodes.forEach((node) => {
       const pos = node.position ?? { x: 0, y: 0 }

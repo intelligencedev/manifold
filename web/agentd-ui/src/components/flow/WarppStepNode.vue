@@ -1,71 +1,73 @@
 <template>
-  <div class="relative min-w-[240px] max-w-[320px] rounded-lg border border-slate-700 bg-slate-900/90 p-3 text-xs text-slate-200 shadow-lg">
-    <Handle type="target" :position="Position.Left" class="!bg-blue-500" />
+  <div
+    class="relative min-w-[240px] max-w-[320px] rounded-lg border border-border/60 bg-surface/90 p-3 text-xs text-muted-foreground shadow-lg"
+  >
+    <Handle type="target" :position="Position.Left" class="!bg-accent" />
     <div class="flex items-start justify-between gap-2">
       <div class="flex-1">
-        <div class="text-sm font-semibold text-white">
+        <div class="text-sm font-semibold text-foreground">
           {{ headerLabel }}
         </div>
-        <label class="mt-1 flex flex-col gap-1 text-[11px] text-slate-300">
-          <span class="text-[10px] uppercase tracking-wide text-slate-500">Tool</span>
+        <label class="mt-1 flex flex-col gap-1 text-[11px] text-muted-foreground">
+          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Tool</span>
           <select
             v-model="toolName"
-            class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-white"
+            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
           >
             <option value="">(none)</option>
-            <option
-              v-for="option in toolOptions"
-              :key="option.name"
-              :value="option.name"
-            >
+            <option v-for="option in toolOptions" :key="option.name" :value="option.name">
               {{ option.name }}
             </option>
           </select>
         </label>
       </div>
-      <span class="text-[10px] uppercase tracking-wide text-slate-500">#{{ orderLabel }}</span>
+      <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
+        >#{{ orderLabel }}</span
+      >
     </div>
 
     <div class="mt-3 space-y-2">
-      <label class="flex flex-col gap-1 text-[11px] text-slate-300">
+      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
         Step Text
         <input
           v-model="stepText"
           type="text"
-          class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-white"
+          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
           placeholder="Describe this step"
         />
       </label>
-      <label class="flex flex-col gap-1 text-[11px] text-slate-300">
+      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
         Guard
         <input
           v-model="guardText"
           type="text"
-          class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] text-white"
+          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
           placeholder="Example: A.os != 'windows'"
         />
       </label>
-      <label class="flex items-center gap-2 text-[11px] text-slate-300">
-        <input v-model="publishResult" type="checkbox" />
+      <label class="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <input v-model="publishResult" type="checkbox" class="accent-accent" />
         Publish result
       </label>
     </div>
 
     <div class="mt-3 space-y-2">
-      <div class="text-[11px] font-semibold text-slate-300">Parameters</div>
+      <div class="text-[11px] font-semibold text-muted-foreground">Parameters</div>
       <ParameterFormField
         v-if="parameterSchema"
         :schema="parameterSchema"
         :model-value="argsState"
-        @update:modelValue="onArgsUpdate"
+        @update:model-value="onArgsUpdate"
       />
-      <p v-else-if="toolName" class="text-[11px] italic text-slate-500">
+      <p v-else-if="toolName" class="text-[11px] italic text-faint-foreground">
         This tool has no configurable parameters.
       </p>
-      <p v-else class="text-[11px] italic text-slate-500">Select a tool to edit parameters.</p>
+      <p v-else class="text-[11px] italic text-faint-foreground">
+        Select a tool to edit parameters.
+      </p>
     </div>
 
-    <Handle type="source" :position="Position.Right" class="!bg-blue-500" />
+    <Handle type="source" :position="Position.Right" class="!bg-accent" />
   </div>
 </template>
 
@@ -101,7 +103,9 @@ const argsState = ref<Record<string, unknown>>({})
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1)
 
-const currentTool = computed(() => toolOptions.value.find((tool) => tool.name === toolName.value) ?? null)
+const currentTool = computed(
+  () => toolOptions.value.find((tool) => tool.name === toolName.value) ?? null,
+)
 const parameterSchema = computed(() => currentTool.value?.parameters ?? null)
 
 const headerLabel = computed(() => currentTool.value?.name ?? 'Workflow Step')

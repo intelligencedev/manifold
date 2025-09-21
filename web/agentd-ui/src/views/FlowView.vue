@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-full min-h-0 flex-col space-y-4">
     <div class="flex flex-wrap items-center gap-3">
-      <label class="text-sm text-slate-300">
+      <label class="text-sm text-muted-foreground">
         Workflow
         <select
           v-model="selectedIntent"
-          class="ml-2 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-white"
+          class="ml-2 rounded border border-border/70 bg-surface-muted/60 px-2 py-1 text-sm text-foreground"
         >
           <option disabled value="">Select workflow</option>
           <option v-for="wf in workflowList" :key="wf.intent" :value="wf.intent">
@@ -14,33 +14,41 @@
         </select>
       </label>
       <button
-        class="rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white disabled:opacity-40"
+        class="rounded bg-accent px-3 py-1 text-sm font-medium text-accent-foreground transition disabled:opacity-40"
         :disabled="!canSave"
         @click="onSave"
       >
         Save
       </button>
-      <span v-if="loading" class="text-sm text-slate-400">Loading…</span>
-      <span v-else-if="error" class="text-sm text-red-400">{{ error }}</span>
-      <span v-else class="text-sm text-slate-500">
-        Tools: {{ tools.length }}
-      </span>
+      <span v-if="loading" class="text-sm text-subtle-foreground">Loading…</span>
+      <span v-else-if="error" class="text-sm text-danger-foreground">{{ error }}</span>
+      <span v-else class="text-sm text-faint-foreground"> Tools: {{ tools.length }} </span>
     </div>
 
-  <div class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden">
+    <div
+      class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden"
+    >
       <aside class="lg:w-72">
-        <div class="flex min-h-0 flex-col rounded-xl border border-slate-800 bg-slate-900/70 p-4 lg:h-full">
+        <div
+          class="flex min-h-0 flex-col rounded-xl border border-border/70 bg-surface p-4 lg:h-full"
+        >
           <div class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold text-white">Tool Palette</h2>
-            <span class="text-[10px] uppercase tracking-wide text-slate-500">Drag to add</span>
+            <h2 class="text-sm font-semibold text-foreground">Tool Palette</h2>
+            <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
+              >Drag to add</span
+            >
           </div>
-          <p class="mt-1 text-xs text-slate-400">Drag a tool onto the canvas to create a WARPP step.</p>
+          <p class="mt-1 text-xs text-subtle-foreground">
+            Drag a tool onto the canvas to create a WARPP step.
+          </p>
 
-          <div class="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none">
+          <div
+            class="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none"
+          >
             <div
               v-for="tool in tools"
               :key="tool.name"
-              class="cursor-grab rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:border-blue-500 hover:bg-slate-900"
+              class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
               draggable="true"
               :title="tool.description ?? tool.name"
               @dragstart="(event) => onPaletteDragStart(event, tool)"
@@ -50,7 +58,7 @@
             </div>
             <div
               v-if="!tools.length && !loading"
-              class="rounded border border-dashed border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-500"
+              class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
             >
               No tools available for this configuration.
             </div>
@@ -61,8 +69,8 @@
       <div class="flex-1 min-h-0">
         <div
           ref="flowWrapper"
-          class="flex h-full min-h-0 w-full overflow-hidden rounded-xl border bg-slate-900/60"
-          :class="isDraggingFromPalette ? 'border-blue-500/70' : 'border-slate-800'"
+          class="flex h-full min-h-0 w-full overflow-hidden rounded-xl border bg-surface"
+          :class="isDraggingFromPalette ? 'border-accent/60' : 'border-border/70'"
         >
           <VueFlow
             v-model:nodes="nodes"
@@ -93,7 +101,12 @@ import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 
 import WarppStepNode from '@/components/flow/WarppStepNode.vue'
-import { fetchWarppTools, fetchWarppWorkflow, fetchWarppWorkflows, saveWarppWorkflow } from '@/api/warpp'
+import {
+  fetchWarppTools,
+  fetchWarppWorkflow,
+  fetchWarppWorkflows,
+  saveWarppWorkflow,
+} from '@/api/warpp'
 import type { WarppStep, WarppTool, WarppWorkflow } from '@/types/warpp'
 import type { StepNodeData } from '@/types/flow'
 
@@ -238,7 +251,7 @@ function syncWorkflowFromNodes() {
   }
   const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
   const steps = orderedNodes.map((node) => ({
-    ...((node.data?.step) ?? ({} as WarppStep)),
+    ...(node.data?.step ?? ({} as WarppStep)),
     id: node.id,
   }))
   activeWorkflow.value = { ...activeWorkflow.value, steps }
@@ -328,12 +341,17 @@ function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
 }
 
 function generateStepId(toolName: string): string {
-  const base = toolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'step'
+  const base =
+    toolName
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '') || 'step'
   let candidate = ''
   do {
-    const unique = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10))
-      : Math.random().toString(36).slice(2, 10)
+    const unique =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10))
+        : Math.random().toString(36).slice(2, 10)
     candidate = `${base}-${unique.slice(0, 8)}`
   } while (nodes.value.some((node) => node.id === candidate))
   return candidate
@@ -346,9 +364,11 @@ async function onSave() {
   saving.value = true
   error.value = ''
   try {
-    const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
+    const orderedNodes = [...nodes.value].sort(
+      (a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0),
+    )
     const steps = orderedNodes.map((node) => ({
-      ...((node.data?.step) ?? ({} as WarppStep)),
+      ...(node.data?.step ?? ({} as WarppStep)),
       id: node.id,
     }))
     const layout: LayoutMap = {}
@@ -384,5 +404,7 @@ async function onSave() {
 
 <style>
 /* ensure flow canvas fills area */
-.vue-flow__container { height: 100%; }
+.vue-flow__container {
+  height: 100%;
+}
 </style>

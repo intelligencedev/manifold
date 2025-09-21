@@ -2,7 +2,7 @@
   <span
     :class="[
       'inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide',
-      statusClasses
+      statusClasses,
     ]"
   >
     <span :class="['h-2.5 w-2.5 rounded-full', dotClass]"></span>
@@ -13,21 +13,23 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps<{ state: 'online' | 'offline' | 'degraded' | 'running' | 'failed' | 'completed' }>()
+const props = defineProps<{
+  state: 'online' | 'offline' | 'degraded' | 'running' | 'failed' | 'completed'
+}>()
 
 const statusClasses = computed(() => {
   switch (props.state) {
     case 'online':
     case 'completed':
-      return 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+      return 'border border-success/40 bg-success/10 text-success-foreground'
     case 'running':
-      return 'bg-sky-500/10 text-sky-300 border border-sky-500/20'
+      return 'border border-info/40 bg-info/10 text-info-foreground'
     case 'degraded':
-      return 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+      return 'border border-warning/40 bg-warning/10 text-warning-foreground'
     case 'failed':
     case 'offline':
     default:
-      return 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+      return 'border border-danger/40 bg-danger/10 text-danger-foreground'
   }
 })
 
@@ -35,15 +37,15 @@ const dotClass = computed(() => {
   switch (props.state) {
     case 'online':
     case 'completed':
-      return 'bg-emerald-400'
+      return 'bg-success'
     case 'running':
-      return 'bg-sky-400 animate-pulse'
+      return 'animate-pulse bg-info'
     case 'degraded':
-      return 'bg-amber-400 animate-pulse'
+      return 'animate-pulse bg-warning'
     case 'failed':
     case 'offline':
     default:
-      return 'bg-rose-400'
+      return 'bg-danger'
   }
 })
 </script>

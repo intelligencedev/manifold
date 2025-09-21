@@ -1,13 +1,13 @@
 <template>
-  <div class="flex flex-col rounded-2xl border border-slate-800 bg-slate-900/60 p-6 shadow-lg">
+  <div class="flex flex-col rounded-2xl border border-border/70 bg-surface p-6 shadow-lg">
     <div class="flex items-center justify-between">
       <div>
-        <p class="text-base font-medium text-slate-300">{{ agent.name }}</p>
-        <p class="text-sm text-slate-500">Model {{ agent.model }}</p>
+        <p class="text-base font-medium text-muted-foreground">{{ agent.name }}</p>
+        <p class="text-sm text-subtle-foreground">Model {{ agent.model }}</p>
       </div>
       <StatusBadge :state="agent.state">{{ agent.state }}</StatusBadge>
     </div>
-    <div class="mt-6 flex items-center justify-between text-sm text-slate-400">
+    <div class="mt-6 flex items-center justify-between text-sm text-subtle-foreground">
       <p>ID: {{ agent.id }}</p>
       <p>
         Updated

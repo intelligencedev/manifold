@@ -72,10 +72,18 @@ afterEach(() => {
 })
 
 describe('FlowView', () => {
-  it('renders tool palette with fetched tools', async () => {
-    const { findByText } = render(FlowView)
+  it('shows tool palette and renders node with editable parameters', async () => {
+    const { findByText, findByLabelText, queryByText } = render(FlowView)
 
     expect(await findByText('Tool Palette')).toBeTruthy()
     expect(await findByText('web-search')).toBeTruthy()
+
+    const stepInput = await findByLabelText('Step Text')
+    expect(stepInput).toBeTruthy()
+
+    const queryField = await findByLabelText(/query/i)
+    expect(queryField).toBeTruthy()
+
+    expect(queryByText(/Select a node to edit step details/)).toBeNull()
   })
 })

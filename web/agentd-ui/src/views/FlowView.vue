@@ -74,8 +74,6 @@
             class="h-full"
             @dragover="onDragOver"
             @drop="onDrop"
-            @node-click="onNodeClick"
-            @pane-click="onPaneClick"
           >
             <Background />
             <Controls />
@@ -84,89 +82,11 @@
         </div>
       </div>
     </div>
-
-    <div
-      v-if="selectedNode"
-      class="space-y-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4"
-    >
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <h3 class="text-base font-semibold text-white">Step {{ selectedNode?.id }}</h3>
-        <span class="text-xs uppercase tracking-wide text-slate-400">Order {{ (selectedNode?.data?.order ?? 0) + 1 }}</span>
-      </div>
-      <div class="grid gap-4 md:grid-cols-2">
-        <label class="flex flex-col gap-1 text-sm text-slate-300">
-          Text
-          <input
-            v-model="stepForm.text"
-            type="text"
-            class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-white"
-            placeholder="Describe the step"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-sm text-slate-300">
-          Guard
-          <input
-            v-model="stepForm.guard"
-            type="text"
-            class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-white"
-            placeholder="Example: A.os != 'windows'"
-          />
-        </label>
-        <label class="flex items-center gap-2 text-sm text-slate-300">
-          <input v-model="stepForm.publishResult" type="checkbox" />
-          Publish result
-        </label>
-        <label class="flex flex-col gap-1 text-sm text-slate-300">
-          Tool
-          <select
-            v-model="stepForm.toolName"
-            class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-white"
-          >
-            <option value="">(none)</option>
-            <option v-for="tool in tools" :key="tool.name" :value="tool.name">
-              {{ tool.name }}
-            </option>
-          </select>
-        </label>
-      </div>
-      <div class="grid gap-4 md:grid-cols-2">
-        <label class="flex flex-col gap-1 text-sm text-slate-300">
-          Tool Args (JSON)
-          <textarea
-            v-model="stepForm.toolArgsText"
-            rows="8"
-            class="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-white font-mono"
-            placeholder="{ &quot;query&quot;: &quot;${A.query}&quot; }"
-          ></textarea>
-          <span v-if="toolArgsError" class="text-xs text-red-400">{{ toolArgsError }}</span>
-        </label>
-        <div
-          v-if="selectedToolSchema"
-          class="rounded border border-slate-800 bg-slate-950 p-3 text-xs text-slate-200"
-        >
-          <div class="font-semibold">{{ selectedToolSchema.name }}</div>
-          <p v-if="selectedToolSchema.description" class="mt-1 text-slate-400">
-            {{ selectedToolSchema.description }}
-          </p>
-          <pre
-            v-if="toolSchemaJSON"
-            class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap leading-tight text-slate-300"
-            >{{ toolSchemaJSON }}</pre
-          >
-        </div>
-      </div>
-    </div>
-    <div
-      v-else
-      class="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center text-sm text-slate-400"
-    >
-      Select a node to edit step details.
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { VueFlow, type Edge, type Node, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -198,20 +118,11 @@ const selectedIntent = ref<string>('')
 const activeWorkflow = ref<WarppWorkflow | null>(null)
 
 const tools = ref<WarppTool[]>([])
+provide('warppTools', tools)
+
 const loading = ref(false)
 const error = ref('')
 const saving = ref(false)
-
-const selectedNodeId = ref<string>('')
-const toolArgsError = ref('')
-
-const stepForm = reactive({
-  text: '',
-  guard: '',
-  publishResult: false,
-  toolName: '',
-  toolArgsText: '',
-})
 
 const toolMap = computed(() => {
   const map = new Map<string, WarppTool>()
@@ -221,23 +132,7 @@ const toolMap = computed(() => {
   return map
 })
 
-const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? null)
-const selectedToolSchema = computed(() => tools.value.find((tool) => tool.name === stepForm.toolName) ?? null)
-const toolSchemaJSON = computed(() => {
-  if (!selectedToolSchema.value?.parameters) {
-    return ''
-  }
-  try {
-    return JSON.stringify(selectedToolSchema.value.parameters, null, 2)
-  } catch (err) {
-    console.error('schema stringify failed', err)
-    return ''
-  }
-})
-
-const canSave = computed(() => !!activeWorkflow.value && !saving.value && !toolArgsError.value)
-
-let initializingForm = false
+const canSave = computed(() => !!activeWorkflow.value && !saving.value)
 
 onMounted(async () => {
   loading.value = true
@@ -263,12 +158,11 @@ onMounted(async () => {
   }
 })
 
-watch(selectedIntent, async (intent, _old) => {
+watch(selectedIntent, async (intent) => {
   if (!intent) {
     nodes.value = []
     edges.value = []
     activeWorkflow.value = null
-    selectedNodeId.value = ''
     return
   }
   loading.value = true
@@ -283,55 +177,17 @@ watch(selectedIntent, async (intent, _old) => {
 })
 
 watch(
-  () => [stepForm.text, stepForm.guard, stepForm.publishResult, stepForm.toolName, stepForm.toolArgsText],
+  nodes,
   () => {
-    if (initializingForm) {
-      return
-    }
-    applyFormToNode()
+    syncWorkflowFromNodes()
   },
+  { deep: true },
 )
-
-watch(selectedNode, (node) => {
-  initializingForm = true
-  if (!node) {
-    stepForm.text = ''
-    stepForm.guard = ''
-    stepForm.publishResult = false
-    stepForm.toolName = ''
-    stepForm.toolArgsText = ''
-    toolArgsError.value = ''
-  } else {
-    stepForm.text = node?.data?.step?.text ?? ''
-    stepForm.guard = node?.data?.step?.guard ?? ''
-    stepForm.publishResult = !!node?.data?.step?.publish_result
-    stepForm.toolName = node?.data?.step?.tool?.name ?? ''
-    stepForm.toolArgsText = node?.data?.step?.tool?.args
-      ? JSON.stringify(node?.data?.step?.tool?.args, null, 2)
-      : ''
-    toolArgsError.value = ''
-  }
-  initializingForm = false
-})
-
-watch(tools, () => {
-  nodes.value = nodes.value.map((node) => {
-    const toolDef = node.data?.step?.tool?.name ? toolMap.value.get(node.data.step.tool.name) ?? null : null
-    return {
-      ...node,
-      data: {
-        ...node.data,
-        toolDefinition: toolDef,
-      },
-    }
-  })
-})
 
 function workflowToNodes(wf: WarppWorkflow): StepNode[] {
   const layout = wf.ui?.layout ?? {}
   return wf.steps.map((step, idx) => {
     const stored = layout[step.id]
-    const toolDefinition = step.tool?.name ? toolMap.value.get(step.tool.name) ?? null : null
     return {
       id: step.id,
       type: 'warppStep',
@@ -339,7 +195,6 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
       data: {
         order: idx,
         step: JSON.parse(JSON.stringify(step)) as WarppStep,
-        toolDefinition,
       },
       draggable: true,
     }
@@ -361,62 +216,6 @@ async function loadWorkflow(intent: string) {
   activeWorkflow.value = wf
   nodes.value = workflowToNodes(wf)
   edges.value = workflowToEdges(wf)
-  selectedNodeId.value = wf.steps[0]?.id ?? ''
-}
-
-function applyFormToNode() {
-  const idx = nodes.value.findIndex((node) => node.id === selectedNodeId.value)
-  if (idx === -1) {
-    return
-  }
-  const currentNode = nodes.value[idx]
-  const previousStep = currentNode?.data?.step ?? ({} as WarppStep)
-  let nextTool: WarppStep['tool']
-
-  if (!stepForm.toolName) {
-    nextTool = undefined
-    toolArgsError.value = ''
-  } else {
-    nextTool = { name: stepForm.toolName }
-    const trimmed = stepForm.toolArgsText.trim()
-    if (!trimmed) {
-      toolArgsError.value = ''
-    } else {
-      try {
-        const parsed = JSON.parse(trimmed) as Record<string, any>
-        nextTool.args = parsed
-        toolArgsError.value = ''
-      } catch (err) {
-        console.error('tool args parse failed', err)
-        toolArgsError.value = 'Tool args must be valid JSON'
-      }
-    }
-  }
-
-  const nextStep: WarppStep = {
-    ...previousStep,
-    id: currentNode.id,
-    text: stepForm.text,
-    guard: stepForm.guard.trim() ? stepForm.guard.trim() : undefined,
-    publish_result: stepForm.publishResult,
-    tool: nextTool,
-  }
-
-  const toolDefinition = nextStep.tool?.name ? toolMap.value.get(nextStep.tool.name) ?? null : null
-
-  const updatedNode: StepNode = {
-    ...currentNode,
-    data: {
-      ...(currentNode.data ?? { order: 0 }),
-      step: nextStep,
-      toolDefinition,
-    },
-  }
-
-  const updatedNodes = [...nodes.value]
-  updatedNodes.splice(idx, 1, updatedNode)
-  nodes.value = updatedNodes
-  syncWorkflowFromNodes()
 }
 
 function syncWorkflowFromNodes() {
@@ -425,22 +224,10 @@ function syncWorkflowFromNodes() {
   }
   const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
   const steps = orderedNodes.map((node) => ({
-    ...((node.data?.step) ?? {} as WarppStep),
+    ...((node.data?.step) ?? ({} as WarppStep)),
     id: node.id,
   }))
   activeWorkflow.value = { ...activeWorkflow.value, steps }
-}
-
-function onNodeClick(payload: any) {
-  if (payload?.node?.id) {
-    selectedNodeId.value = payload.node.id
-  } else if (payload?.id) {
-    selectedNodeId.value = payload.id
-  }
-}
-
-function onPaneClick() {
-  selectedNodeId.value = ''
 }
 
 function onDragOver(event: DragEvent) {
@@ -510,7 +297,6 @@ function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
     data: {
       order,
       step,
-      toolDefinition: tool,
     },
     draggable: true,
   }
@@ -525,9 +311,6 @@ function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
       { id: `e-${previous.id}-${newNode.id}`, source: previous.id, target: newNode.id },
     ]
   }
-
-  selectedNodeId.value = id
-  syncWorkflowFromNodes()
 }
 
 function generateStepId(toolName: string): string {
@@ -546,16 +329,12 @@ async function onSave() {
   if (!activeWorkflow.value) {
     return
   }
-  if (toolArgsError.value) {
-    error.value = 'Fix tool argument JSON before saving'
-    return
-  }
   saving.value = true
   error.value = ''
   try {
     const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
     const steps = orderedNodes.map((node) => ({
-      ...((node.data?.step) ?? {} as WarppStep),
+      ...((node.data?.step) ?? ({} as WarppStep)),
       id: node.id,
     }))
     const layout: LayoutMap = {}
@@ -571,7 +350,6 @@ async function onSave() {
         layout,
       },
     }
-    const prevSelected = selectedNodeId.value
     const saved = await saveWarppWorkflow(payload)
     const listIdx = workflowList.value.findIndex((wf) => wf.intent === saved.intent)
     if (listIdx !== -1) {
@@ -582,11 +360,6 @@ async function onSave() {
     activeWorkflow.value = saved
     nodes.value = workflowToNodes(saved)
     edges.value = workflowToEdges(saved)
-    if (prevSelected && saved.steps.some((step) => step.id === prevSelected)) {
-      selectedNodeId.value = prevSelected
-    } else {
-      selectedNodeId.value = saved.steps[0]?.id ?? ''
-    }
   } catch (err: any) {
     error.value = err?.message ?? 'Failed to save workflow'
   } finally {

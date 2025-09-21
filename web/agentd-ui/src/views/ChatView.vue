@@ -92,7 +92,7 @@
         @click="handleMarkdownClick"
       >
         <div
-          v-if="!activeMessages.length"
+          v-if="!chatMessages.length"
           class="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-500"
         >
           <p class="text-base font-medium text-slate-200">Start a new conversation</p>
@@ -100,7 +100,7 @@
         </div>
 
         <article
-          v-for="message in activeMessages"
+          v-for="message in chatMessages"
           :key="message.id"
           class="relative rounded-xl border border-slate-800 bg-slate-900/80 p-4"
         >
@@ -210,14 +210,36 @@
         <p class="mt-2 text-xs text-slate-500">Session ID: {{ activeSessionId }}</p>
         <p class="text-xs text-slate-500">Messages: {{ activeMessages.length }}</p>
       </div>
-      <div class="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-400">
-        <p class="font-semibold text-slate-200">Tips</p>
-        <ul class="mt-2 list-disc space-y-1 pl-4">
-          <li>Ask follow-up questions to refine the agent response.</li>
-          <li>Use Stop to cancel a long generation and tweak your prompt.</li>
-          <li>Switch back to the dashboard anytime with the button above.</li>
-        </ul>
-      </div>
+        <div class="flex-1 h-full space-y-2 overflow-y-auto pr-1" @click="handleMarkdownClick">
+          <div
+            v-if="!toolMessages.length"
+            class="rounded border border-dashed border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-500"
+          >
+            No tool activity yet
+          </div>
+          <article
+            v-for="tool in toolMessages"
+            :key="tool.id"
+            class="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs"
+          >
+            <header class="mb-2 flex flex-wrap items-center gap-2">
+              <span class="rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300">
+                {{ tool.title || 'Tool' }}
+              </span>
+              <span class="text-[11px] text-slate-500">{{ formatTimestamp(tool.createdAt) }}</span>
+              <span v-if="tool.streaming" class="flex items-center gap-1 text-[11px] text-emerald-300">
+                <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"></span>
+                Running
+              </span>
+              <span v-if="tool.error" class="rounded bg-rose-500/20 px-2 py-0.5 text-[11px] text-rose-300">
+                {{ tool.error }}
+              </span>
+            </header>
+            <pre v-if="tool.toolArgs" class="whitespace-pre-wrap rounded bg-slate-950/60 p-2 text-[11px] text-slate-400">{{ tool.toolArgs }}</pre>
+            <div v-if="tool.content" class="chat-markdown mt-2" v-html="renderMarkdown(tool.content)"></div>
+            <audio v-if="tool.audioUrl" :src="tool.audioUrl" controls class="mt-2 w-full"></audio>
+          </article>
+        </div>
     </aside>
     </section>
   </div>
@@ -322,7 +344,9 @@ function handleMarkdownClick(e: MouseEvent) {
 
 const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) || null)
 const activeMessages = computed(() => messagesBySession.value[activeSessionId.value] || [])
-const showScrollToBottom = computed(() => !autoScrollEnabled.value && activeMessages.value.length > 0)
+const chatMessages = computed(() => activeMessages.value.filter((m) => m.role !== 'tool'))
+const toolMessages = computed(() => activeMessages.value.filter((m) => m.role === 'tool'))
+const showScrollToBottom = computed(() => !autoScrollEnabled.value && chatMessages.value.length > 0)
 const lastUser = computed(() => findLast(activeMessages.value, (msg) => msg.role === 'user'))
 const lastAssistant = computed(() => findLast(activeMessages.value, (msg) => msg.role === 'assistant'))
 const lastAssistantId = computed(() => lastAssistant.value?.id || '')

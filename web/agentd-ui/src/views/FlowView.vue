@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-4">
+  <div class="flex h-full min-h-0 flex-col space-y-4">
     <div class="flex flex-wrap items-center gap-3">
       <label class="text-sm text-slate-300">
         Workflow
@@ -27,16 +27,16 @@
       </span>
     </div>
 
-    <div class="flex flex-col gap-4 lg:flex-row">
+  <div class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden">
       <aside class="lg:w-72">
-        <div class="h-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+        <div class="flex min-h-0 flex-col rounded-xl border border-slate-800 bg-slate-900/70 p-4 lg:h-full">
           <div class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-white">Tool Palette</h2>
             <span class="text-[10px] uppercase tracking-wide text-slate-500">Drag to add</span>
           </div>
           <p class="mt-1 text-xs text-slate-400">Drag a tool onto the canvas to create a WARPP step.</p>
 
-          <div class="mt-3 max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+          <div class="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none">
             <div
               v-for="tool in tools"
               :key="tool.name"
@@ -58,10 +58,10 @@
         </div>
       </aside>
 
-      <div class="flex-1">
+      <div class="flex-1 min-h-0">
         <div
           ref="flowWrapper"
-          class="h-[60vh] overflow-hidden rounded-xl border bg-slate-900/60"
+          class="flex h-full min-h-0 w-full overflow-hidden rounded-xl border bg-slate-900/60"
           :class="isDraggingFromPalette ? 'border-blue-500/70' : 'border-slate-800'"
         >
           <VueFlow
@@ -71,7 +71,7 @@
             :zoom-on-scroll="true"
             :zoom-on-double-click="false"
             :node-types="nodeTypes"
-            class="h-full"
+            class="h-full w-full"
             @dragover="onDragOver"
             @drop="onDrop"
           >

@@ -2,12 +2,12 @@
   <div class="flex h-full min-h-0 flex-1 overflow-hidden">
     <section class="grid flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px]">
     <!-- Sessions sidebar -->
-    <aside class="hidden min-h-0 lg:flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <aside class="hidden min-h-0 lg:flex flex-col gap-4 rounded-5 border border-border bg-surface p-4 surface-noise">
       <header class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-slate-200">Conversations</h2>
+        <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
         <button
           type="button"
-          class="rounded-lg border border-slate-700 px-2 py-1 text-xs font-semibold text-slate-200 transition hover:border-emerald-500 hover:text-emerald-300"
+          class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-accent hover:text-accent"
           @click="createSession"
         >
           New
@@ -18,7 +18,7 @@
           v-for="session in sessions"
           :key="session.id"
           class="group rounded-lg border border-transparent px-3 py-2 transition"
-          :class="session.id === activeSessionId ? 'border-emerald-500/70 bg-slate-800/60' : 'hover:border-slate-700 hover:bg-slate-800/30'"
+          :class="session.id === activeSessionId ? 'border-accent/70 bg-surface-muted/60' : 'hover:border-border hover:bg-surface-muted/40'"
           @click="selectSession(session.id)"
         >
           <div class="flex items-center justify-between gap-2">
@@ -27,31 +27,31 @@
                 ref="renameInput"
                 v-model="renamingName"
                 type="text"
-                class="w-full rounded bg-slate-900 px-2 py-1 text-xs text-slate-100 outline-none ring-2 ring-emerald-500/80"
+                class="w-full rounded bg-surface px-2 py-1 text-xs text-foreground outline-none focus:ring-0 focus:border-accent focus-visible:shadow-outline"
                 @keyup.enter.prevent="commitRename(session.id)"
                 @keyup.esc.prevent="cancelRename"
                 @blur="commitRename(session.id)"
               />
             </template>
             <template v-else>
-              <p class="truncate font-medium text-slate-200">{{ session.name }}</p>
+              <p class="truncate font-medium text-foreground">{{ session.name }}</p>
               <button
                 type="button"
-                class="rounded px-2 py-1 text-[10px] text-slate-500 opacity-0 transition group-hover:opacity-100 hover:text-emerald-300"
+                class="rounded px-2 py-1 text-[10px] text-faint-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
                 @click.stop="startRename(session)"
               >
                 Rename
               </button>
             </template>
           </div>
-          <p class="mt-1 truncate text-xs text-slate-500">
+          <p class="mt-1 truncate text-xs text-subtle-foreground">
             {{ session.lastMessagePreview || 'No messages yet' }}
           </p>
-          <div class="mt-2 flex items-center justify-between text-[10px] text-slate-600">
+          <div class="mt-2 flex items-center justify-between text-[10px] text-faint-foreground">
             <span>{{ formatTimestamp(session.updatedAt) }}</span>
             <button
               type="button"
-              class="rounded px-1 text-[10px] text-rose-400 opacity-0 transition group-hover:opacity-100 hover:text-rose-300"
+              class="rounded px-1 text-[10px] text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
               @click.stop="deleteSession(session.id)"
             >
               Delete
@@ -62,22 +62,22 @@
     </aside>
 
     <!-- Chat pane -->
-  <section class="relative flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/60">
-      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+  <section class="relative flex min-h-0 flex-col overflow-hidden rounded-5 border border-border bg-surface">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div>
-          <h1 class="text-base font-semibold text-slate-200">
+          <h1 class="text-base font-semibold text-foreground">
             {{ activeSession?.name || 'Conversation' }}
           </h1>
-          <p class="text-xs text-slate-500">{{ activeSession?.model || 'Model: agent default' }}</p>
+          <p class="text-xs text-subtle-foreground">{{ activeSession?.model || 'Model: agent default' }}</p>
         </div>
-        <div class="flex items-center gap-2 text-xs text-slate-400">
-          <span v-if="isStreaming" class="flex items-center gap-1 text-emerald-300">
-            <span class="h-2 w-2 animate-pulse rounded-full bg-emerald-300"></span>
+        <div class="flex items-center gap-2 text-xs text-subtle-foreground">
+          <span v-if="isStreaming" class="flex items-center gap-1 text-accent">
+            <span class="h-2 w-2 animate-pulse rounded-full bg-accent"></span>
             Streaming response…
           </span>
           <button
             type="button"
-            class="rounded border border-slate-700 px-3 py-1 font-medium text-slate-200 transition hover:border-emerald-500 hover:text-emerald-300"
+            class="rounded-4 border border-border px-3 py-1 font-medium text-foreground transition hover:border-accent hover:text-accent"
             @click="goToDashboard"
           >
             Dashboard
@@ -93,34 +93,38 @@
       >
         <div
           v-if="!chatMessages.length"
-          class="flex h-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-800 bg-slate-900/60 p-8 text-center text-sm text-slate-500"
+          class="flex h-full flex-col items-center justify-center gap-2 rounded-5 border border-dashed border-border bg-surface p-8 text-center text-sm text-subtle-foreground"
         >
-          <p class="text-base font-medium text-slate-200">Start a new conversation</p>
+          <p class="text-base font-medium text-foreground">Start a new conversation</p>
           <p>Ask the agent anything about your operations, tooling, or recent runs.</p>
         </div>
 
         <article
           v-for="message in chatMessages"
           :key="message.id"
-          class="relative rounded-xl border border-slate-800 bg-slate-900/80 p-4"
+          class="relative max-w-[72ch] rounded-5 border border-border bg-surface shadow-1 p-5"
+          :class="message.role === 'assistant' ? 'bg-accent/5' : ''"
         >
           <header class="flex flex-wrap items-center gap-2">
-            <span class="rounded-full bg-slate-800 px-2 py-1 text-xs font-semibold text-slate-300">
+            <span
+              class="rounded-full px-2 py-1 text-xs font-semibold"
+              :class="message.role === 'assistant' ? 'bg-accent/10 text-accent' : message.role === 'user' ? 'bg-surface-muted text-muted-foreground' : 'bg-surface-muted text-muted-foreground'"
+            >
               {{ labelForRole(message.role) }}
             </span>
-            <span class="text-xs text-slate-500">{{ formatTimestamp(message.createdAt) }}</span>
-            <span v-if="message.streaming" class="flex items-center gap-1 text-xs text-emerald-300">
-              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"></span>
+            <span class="text-xs text-faint-foreground">{{ formatTimestamp(message.createdAt) }}</span>
+            <span v-if="message.streaming" class="flex items-center gap-1 text-xs text-accent">
+              <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"></span>
               Streaming
             </span>
-            <span v-if="message.error" class="rounded bg-rose-500/20 px-2 py-0.5 text-[11px] text-rose-300">
+            <span v-if="message.error" class="rounded bg-danger/20 px-2 py-0.5 text-[11px] text-danger-foreground">
               {{ message.error }}
             </span>
           </header>
 
-          <div class="mt-3 space-y-3 break-words text-sm leading-relaxed text-slate-100">
-            <p v-if="message.title" class="font-semibold text-slate-200">{{ message.title }}</p>
-            <pre v-if="message.toolArgs" class="whitespace-pre-wrap rounded-md bg-slate-950/60 p-3 text-xs text-slate-300">{{ message.toolArgs }}</pre>
+          <div class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground">
+            <p v-if="message.title" class="font-semibold text-foreground">{{ message.title }}</p>
+            <pre v-if="message.toolArgs" class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground">{{ message.toolArgs }}</pre>
             <div
               v-if="message.content"
               class="chat-markdown"
@@ -134,11 +138,11 @@
             ></audio>
           </div>
 
-          <footer class="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+          <footer class="mt-3 flex flex-wrap items-center gap-2 text-xs text-subtle-foreground">
             <button
               v-if="message.role === 'assistant' && message.content"
               type="button"
-              class="rounded border border-slate-700 px-2 py-1 transition hover:border-emerald-500 hover:text-emerald-300"
+              class="rounded-4 border border-border px-2 py-1 transition hover:border-accent hover:text-accent"
               @click="copyMessage(message)"
             >
               <span v-if="copiedMessageId === message.id">Copied</span>
@@ -147,7 +151,7 @@
             <button
               v-if="canRegenerate && message.id === lastAssistantId"
               type="button"
-              class="rounded border border-slate-700 px-2 py-1 transition hover:border-emerald-500 hover:text-emerald-300"
+              class="rounded-4 border border-border px-2 py-1 transition hover:border-accent hover:text-accent"
               @click="regenerateAssistant"
             >
               Regenerate
@@ -158,41 +162,41 @@
 
       <button
         type="button"
-        class="absolute bottom-28 right-6 z-10 flex items-center gap-2 rounded-full bg-slate-800/90 px-3 py-2 text-xs font-semibold text-slate-200 shadow-lg ring-1 ring-slate-700/50 transition-all duration-200"
+        class="absolute bottom-28 right-6 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transition-all duration-200"
         :class="showScrollToBottom ? 'pointer-events-auto opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-2'"
         @click="handleScrollToLatest"
       >
-        <span class="h-2 w-2 rounded-full bg-emerald-400"></span>
+        <span class="h-2 w-2 rounded-full bg-accent"></span>
         <span>Scroll to latest</span>
       </button>
 
-      <footer class="border-t border-slate-800 p-4">
+      <footer class="border-t border-border p-4">
         <form class="space-y-3" @submit.prevent="sendCurrentPrompt">
-          <div class="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+          <div class="rounded-4 border border-border bg-surface-muted/70 p-3 etched-dark">
             <textarea
               ref="composer"
               v-model="draft"
               rows="1"
-              class="w-full resize-none bg-transparent text-sm text-slate-100 outline-none"
+              class="w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-faint-foreground"
               placeholder="Message the agent..."
               @keydown="handleComposerKeydown"
               @input="autoSizeComposer"
             ></textarea>
           </div>
-          <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+          <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-subtle-foreground">
             <p>Shift+Enter for newline</p>
             <div class="flex items-center gap-2">
               <button
                 v-if="isStreaming"
                 type="button"
-                class="rounded-lg border border-rose-500/70 px-3 py-2 font-semibold text-rose-300 transition hover:border-rose-400 hover:text-rose-200"
+                class="rounded-4 border border-danger/70 px-3 py-2 font-semibold text-danger-foreground transition hover:border-danger hover:text-danger-foreground"
                 @click="stopStreaming"
               >
                 Stop
               </button>
               <button
                 type="submit"
-                class="rounded-lg bg-emerald-600 px-4 py-2 font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+                class="rounded-4 bg-accent px-4 py-2 font-semibold text-accent-foreground transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
                 :disabled="!draft.trim() || isStreaming"
               >
                 Send
@@ -204,59 +208,55 @@
     </section>
 
     <!-- Context sidebar -->
-    <aside class="hidden min-h-0 xl:flex flex-col gap-4 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-300">
+    <aside class="hidden min-h-0 xl:flex flex-col gap-4 rounded-5 border border-border bg-surface p-4 text-sm text-subtle-foreground surface-noise">
       <div>
-        <h2 class="text-sm font-semibold text-slate-200">Session details</h2>
-        <p class="mt-2 text-xs text-slate-500">Session ID: {{ activeSessionId }}</p>
-        <p class="text-xs text-slate-500">Messages: {{ activeMessages.length }}</p>
+        <h2 class="text-sm font-semibold text-foreground">Session details</h2>
+        <p class="mt-2 text-xs text-subtle-foreground">Session ID: {{ activeSessionId }}</p>
+        <p class="text-xs text-subtle-foreground">Messages: {{ activeMessages.length }}</p>
       </div>
         <div class="flex-1 h-full space-y-2 overflow-y-auto pr-1" @click="handleMarkdownClick">
           <div
             v-if="!toolMessages.length"
-            class="rounded border border-dashed border-slate-800 bg-slate-900/40 p-3 text-xs text-slate-500"
+            class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
           >
             No tool activity yet
           </div>
           <article
             v-for="tool in toolMessages"
             :key="tool.id"
-            class="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-xs"
+            class="overflow-hidden rounded-4 border border-border bg-surface p-3 text-xs shadow-1"
           >
             <header class="flex items-center justify-between gap-2">
               <div class="min-w-0 flex-1">
-                <span
-                  class="block max-w-full truncate rounded bg-slate-800 px-2 py-0.5 text-[11px] text-slate-300"
-                >
+                <span class="block max-w-full truncate rounded bg-surface-muted px-2 py-0.5 text-[11px] text-muted-foreground">
                   {{ tool.title || 'Tool' }}
                 </span>
               </div>
-              <div class="flex shrink-0 items-center gap-2 text-[11px] text-slate-500">
+              <div class="flex shrink-0 items-center gap-2 text-[11px] text-faint-foreground">
                 <span>{{ formatTimestamp(tool.createdAt) }}</span>
-                <span v-if="tool.streaming" class="flex items-center gap-1 text-emerald-300">
-                  <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300"></span>
+                <span v-if="tool.streaming" class="flex items-center gap-1 text-accent">
+                  <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"></span>
                   Running
                 </span>
                 <span
                   v-if="tool.error"
-                  class="rounded bg-rose-500/20 px-2 py-0.5 text-rose-300"
+                  class="rounded bg-danger/20 px-2 py-0.5 text-danger-foreground"
                 >
                   {{ tool.error }}
                 </span>
               </div>
             </header>
-            <details
-              class="group mt-2 overflow-hidden rounded border border-slate-800/70 bg-slate-900/70"
-            >
+            <details class="group mt-2 overflow-hidden rounded-4 border border-border bg-surface">
               <summary
-                class="flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[11px] font-semibold text-slate-300 hover:text-slate-100 focus-visible:outline-none focus-visible:ring focus-visible:ring-emerald-500/40"
+                class="flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[11px] font-semibold text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:shadow-outline"
               >
                 <span>View details</span>
-                <span class="text-xs text-slate-500 transition-transform group-open:rotate-45">+</span>
+                <span class="text-xs text-faint-foreground transition-transform group-open:rotate-45">+</span>
               </summary>
-              <div class="space-y-2 px-2 pb-2 pt-1 text-slate-300">
+              <div class="space-y-2 px-2 pb-2 pt-1 text-subtle-foreground">
                 <pre
                   v-if="tool.toolArgs"
-                  class="max-w-full overflow-x-hidden whitespace-pre-wrap rounded bg-slate-950/60 p-2 text-[11px] text-slate-400"
+                  class="max-w-full overflow-x-hidden whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-2 text-[11px] text-subtle-foreground"
                   >{{ tool.toolArgs }}</pre
                 >
                 <div
@@ -976,7 +976,7 @@ function goToDashboard() {
   border-radius: 0.5rem;
   overflow-x: auto;
   padding: 0.75rem;
-  background-color: rgba(15, 23, 42, 0.85);
+  background-color: rgb(var(--color-surface-muted) / 0.9);
   max-width: 100%;
 }
 
@@ -998,7 +998,10 @@ function goToDashboard() {
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
-  background: linear-gradient(rgba(15, 23, 42, 0.95), rgba(15, 23, 42, 0.6));
+  background: linear-gradient(
+    rgb(var(--color-surface-muted) / 0.95),
+    rgb(var(--color-surface-muted) / 0.6)
+  );
   border-top-left-radius: 0.5rem;
   border-top-right-radius: 0.5rem;
   z-index: 1;
@@ -1010,28 +1013,28 @@ function goToDashboard() {
 
 .chat-markdown :deep(.md-lang) {
   font-size: 0.75rem;
-  color: rgb(148 163 184); /* slate-400 */
+  color: rgb(var(--color-subtle-foreground));
 }
 
 .chat-markdown :deep(.md-copy-btn) {
   font-size: 0.75rem;
   line-height: 1;
-  color: rgb(226 232 240); /* slate-200 */
-  background: rgb(30 41 59 / 0.8); /* slate-800/80 */
-  border: 1px solid rgb(51 65 85); /* slate-700 */
+  color: rgb(var(--color-foreground));
+  background: rgb(var(--color-surface-muted) / 0.8);
+  border: 1px solid rgb(var(--color-border));
   padding: 0.25rem 0.5rem;
   border-radius: 0.375rem;
   cursor: pointer;
 }
 
 .chat-markdown :deep(.md-copy-btn:hover) {
-  color: rgb(16 185 129); /* emerald-500 */
-  border-color: rgb(16 185 129);
+  color: rgb(var(--color-accent));
+  border-color: rgb(var(--color-accent));
 }
 
 .chat-markdown :deep(.md-copy-btn.copied) {
-  color: rgb(74 222 128); /* emerald-400 */
-  border-color: rgb(74 222 128);
+  color: rgb(var(--color-success));
+  border-color: rgb(var(--color-success));
 }
 
 /* Ensure images and tables don't overflow horizontally */

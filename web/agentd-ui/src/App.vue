@@ -7,8 +7,8 @@
             <span class="text-xl font-semibold text-accent">A</span>
           </span>
           <div>
-            <p class="text-lg font-semibold">agentd</p>
-            <p class="text-sm text-subtle-foreground">Operational intelligence dashboard</p>
+            <p class="text-lg font-semibold">Manifold</p>
+            <p class="text-sm text-subtle-foreground">Intelligent assistants platform</p>
           </div>
         </div>
         <nav class="hidden gap-4 text-sm font-medium md:flex">
@@ -38,7 +38,7 @@
       </div>
     </header>
 
-    <main class="flex w-full flex-1 min-h-0 flex-col overflow-hidden px-6 py-10">
+    <main class="flex w-full flex-1 min-h-0 flex-col overflow-hidden px-6 py-4">
       <RouterView />
     </main>
   </div>

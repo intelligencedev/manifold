@@ -3,6 +3,12 @@ import type { Config } from 'tailwindcss'
 export default {
   content: ['index.html', './src/**/*.{vue,js,ts,jsx,tsx}'],
   theme: {
+    borderWidth: {
+      DEFAULT: '1.5px',
+      0: '0',
+      1: '1px',
+      2: '2px',
+    },
     extend: {
       colors: {
         background: 'rgb(var(--color-background) / <alpha-value>)',
@@ -35,7 +41,41 @@ export default {
       ringColor: {
         DEFAULT: 'rgb(var(--color-ring) / <alpha-value>)',
       },
+      borderRadius: {
+        2: '4px',
+        3: '6px',
+        4: '9px',
+        5: '14px',
+        6: '20px',
+      },
+      boxShadow: {
+        0: 'none',
+        1: '0 1px 0 rgba(0,0,0,0.05)',
+        2: '0 2px 4px rgba(0,0,0,0.06)',
+        3: '0 8px 24px rgba(0,0,0,0.10)',
+        outline: '0 0 0 3px rgb(var(--color-ring))',
+      },
+      transitionTimingFunction: {
+        'ease-out-custom': 'cubic-bezier(.16,.84,.44,1)',
+        'ease-in-custom': 'cubic-bezier(.3,0,.8,.15)',
+      },
+      animation: {
+        'cursor-blink': 'cursorBlink 0.8s steps(2, start) infinite',
+      },
+      keyframes: {
+        cursorBlink: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0' },
+        },
+      },
     },
   },
-  plugins: [],
+  plugins: [
+  function (api: any) {
+      api.addUtilities({
+        '.etched-light': { boxShadow: 'inset 0 1px 0 rgba(0,0,0,0.04)' },
+        '.etched-dark': { boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)' },
+      })
+    },
+  ],
 } satisfies Config

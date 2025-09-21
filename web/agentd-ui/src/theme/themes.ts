@@ -1,4 +1,10 @@
-export type ThemeId = 'midnight' | 'dawn' | 'aurora'
+export type ThemeId =
+  | 'midnight'
+  | 'dawn'
+  | 'aurora'
+  | 'minimalist-future'
+  | 'aperture-dark'
+  | 'aperture-light'
 
 export type ThemeTokenName =
   | 'background'
@@ -39,6 +45,74 @@ export const defaultDarkTheme: ThemeId = 'midnight'
 export const defaultLightTheme: ThemeId = 'dawn'
 
 export const themes: ThemeDefinition[] = [
+  // Aperture — Dark
+  {
+    id: 'aperture-dark',
+    label: 'Aperture (Dark)',
+    description: 'Warm near-black neutrals with Iris primary, hairline strokes, and quiet contrast.',
+    appearance: 'dark',
+    tokens: {
+      // Neutrals (dark)
+      background: '12 14 16', // neutral-1 #0C0E10
+      surface: '17 20 23', // neutral-2 #111417
+      'surface-muted': '22 26 30', // neutral-3 #161A1E
+      border: '22 26 30', // stroke-soft = neutral-3
+      input: '28 33 38', // neutral-4 #1C2126
+      ring: '112 109 230', // iris-8 #706DE6
+      foreground: '231 235 239', // neutral-12 #E7EBEF
+      'muted-foreground': '138 151 163', // neutral-10 #8A97A3
+      'subtle-foreground': '104 119 132', // neutral-9 #687784
+      'faint-foreground': '77 90 102', // neutral-8 #4D5A66
+      muted: '17 20 23', // surface-2 equivalent
+      // Primary/semantics
+      accent: '90 89 211', // iris-9 #5A59D3
+      'accent-foreground': '255 255 255',
+      destructive: '227 93 77', // coral-6 #E35D4D
+      'destructive-foreground': '24 24 27',
+      success: '34 201 166', // verdigris-6 #22C9A6
+      'success-foreground': '15 23 42',
+      info: '69 148 234', // cerulean-6 #4594EA
+      'info-foreground': '15 23 42',
+      warning: '232 177 9', // citrine-6 #E8B109
+      'warning-foreground': '24 24 27',
+      danger: '227 93 77', // coral-6 #E35D4D
+      'danger-foreground': '24 24 27',
+    },
+  },
+  // Aperture — Light
+  {
+    id: 'aperture-light',
+    label: 'Aperture (Light)',
+    description: 'Editorial warm neutrals, Iris primary, 1.5px hairlines, and etched materials.',
+    appearance: 'light',
+    tokens: {
+      // Neutrals (light)
+      background: '252 252 250', // neutral-1 #FCFCFA
+      surface: '247 247 244', // neutral-2 #F7F7F4
+      'surface-muted': '242 242 239', // neutral-3 #F2F2EF
+      border: '234 236 231', // stroke-soft = neutral-4 #EAECE7
+      input: '242 242 239', // neutral-3
+      ring: '112 109 230', // iris-8 #706DE6
+      foreground: '22 26 26', // neutral-12 #161A1A
+      'muted-foreground': '91 101 96', // neutral-10 #5B6560
+      'subtle-foreground': '125 136 129', // neutral-9 #7D8881
+      'faint-foreground': '157 167 160', // neutral-8 #9DA7A0
+      muted: '247 247 244', // neutral-2
+      // Primary/semantics
+      accent: '90 89 211', // iris-9 #5A59D3
+      'accent-foreground': '255 255 255',
+      destructive: '227 93 77', // coral-6 #E35D4D
+      'destructive-foreground': '255 255 255',
+      success: '34 201 166', // verdigris-6 #22C9A6
+      'success-foreground': '6 43 34', // dark ink on light success
+      info: '69 148 234', // cerulean-6 #4594EA
+      'info-foreground': '255 255 255',
+      warning: '232 177 9', // citrine-6 #E8B109
+      'warning-foreground': '43 30 0',
+      danger: '227 93 77', // coral-6
+      'danger-foreground': '255 255 255',
+    },
+  },
   {
     id: 'midnight',
     label: 'Midnight',
@@ -102,6 +176,45 @@ export const themes: ThemeDefinition[] = [
     },
   },
   {
+    id: 'minimalist-future',
+    label: 'Minimalist Future',
+    description:
+      'Ultra-clean light theme: airy neutrals, near-invisible chrome, and an electric jade accent for timeless focus.',
+    appearance: 'light',
+    tokens: {
+      // Foundation — bone white with a fresh mint undertone (not blue like Dawn)
+      background: '252 255 252', // bone-mint white
+      surface: '255 255 255',
+      'surface-muted': '238 250 244', // whisper mint
+      border: '186 219 206', // hairline mint-gray
+      input: '228 244 238',
+      ring: '0 224 189', // neon jade ring
+
+      // Typography — graphite on bone for ultra readability
+      foreground: '10 17 24',
+      'muted-foreground': '35 48 56',
+      'subtle-foreground': '64 84 92',
+      'faint-foreground': '98 120 128',
+
+      // Surfaces & accents — singular, futuristic accent
+      muted: '241 250 246',
+      accent: '0 224 189', // neon jade
+      'accent-foreground': '2 10 16',
+
+      // Semantic colors — modern but accessible
+      destructive: '255 99 132',
+      'destructive-foreground': '255 255 255',
+      success: '6 214 160',
+      'success-foreground': '2 10 16',
+      info: '0 184 255',
+      'info-foreground': '2 10 16',
+      warning: '255 191 0',
+      'warning-foreground': '23 23 23',
+      danger: '255 99 132',
+      'danger-foreground': '255 255 255',
+    },
+  },
+  {
     id: 'aurora',
     label: 'Aurora',
     description: 'Dark teal and violet blend for dashboards that need a little flair.',
@@ -156,3 +269,8 @@ export const themeOptions = themes.map((theme) => ({
   description: theme.description,
   appearance: theme.appearance,
 }))
+
+// Notes:
+// - The Aperture themes follow the design system in src/theme/aperture.md.
+// - Tokens map to CSS custom properties consumed by Tailwind (see tailwind.config.ts).
+// - Theme application is handled in the theme store by writing --color-* variables to :root.

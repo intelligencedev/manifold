@@ -27,21 +27,62 @@
       </span>
     </div>
 
-    <div class="h-[60vh] rounded-xl border border-slate-800 overflow-hidden">
-      <VueFlow
-        v-model:nodes="nodes"
-        v-model:edges="edges"
-        :fit-view="true"
-        :zoom-on-scroll="true"
-        :zoom-on-double-click="false"
-        class="bg-slate-900/60"
-        @node-click="onNodeClick"
-        @pane-click="onPaneClick"
-      >
-        <Background />
-        <Controls />
-        <MiniMap />
-      </VueFlow>
+    <div class="flex flex-col gap-4 lg:flex-row">
+      <aside class="lg:w-72">
+        <div class="h-full rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+          <div class="flex items-center justify-between gap-2">
+            <h2 class="text-sm font-semibold text-white">Tool Palette</h2>
+            <span class="text-[10px] uppercase tracking-wide text-slate-500">Drag to add</span>
+          </div>
+          <p class="mt-1 text-xs text-slate-400">Drag a tool onto the canvas to create a WARPP step.</p>
+
+          <div class="mt-3 max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+            <div
+              v-for="tool in tools"
+              :key="tool.name"
+              class="cursor-grab rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:border-blue-500 hover:bg-slate-900"
+              draggable="true"
+              :title="tool.description ?? tool.name"
+              @dragstart="(event) => onPaletteDragStart(event, tool)"
+              @dragend="onPaletteDragEnd"
+            >
+              {{ tool.name }}
+            </div>
+            <div
+              v-if="!tools.length && !loading"
+              class="rounded border border-dashed border-slate-700 bg-slate-950/60 p-3 text-xs text-slate-500"
+            >
+              No tools available for this configuration.
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <div class="flex-1">
+        <div
+          ref="flowWrapper"
+          class="h-[60vh] overflow-hidden rounded-xl border bg-slate-900/60"
+          :class="isDraggingFromPalette ? 'border-blue-500/70' : 'border-slate-800'"
+        >
+          <VueFlow
+            v-model:nodes="nodes"
+            v-model:edges="edges"
+            :fit-view="true"
+            :zoom-on-scroll="true"
+            :zoom-on-double-click="false"
+            :node-types="nodeTypes"
+            class="h-full"
+            @dragover="onDragOver"
+            @drop="onDrop"
+            @node-click="onNodeClick"
+            @pane-click="onPaneClick"
+          >
+            <Background />
+            <Controls />
+            <MiniMap />
+          </VueFlow>
+        </div>
+      </div>
     </div>
 
     <div
@@ -49,8 +90,8 @@
       class="space-y-4 rounded-xl border border-slate-800 bg-slate-900/60 p-4"
     >
       <div class="flex flex-wrap items-center justify-between gap-2">
-  <h3 class="text-base font-semibold text-white">Step {{ selectedNode?.id }}</h3>
-  <span class="text-xs uppercase tracking-wide text-slate-400">Order {{ (selectedNode?.data?.order ?? 0) + 1 }}</span>
+        <h3 class="text-base font-semibold text-white">Step {{ selectedNode?.id }}</h3>
+        <span class="text-xs uppercase tracking-wide text-slate-400">Order {{ (selectedNode?.data?.order ?? 0) + 1 }}</span>
       </div>
       <div class="grid gap-4 md:grid-cols-2">
         <label class="flex flex-col gap-1 text-sm text-slate-300">
@@ -99,16 +140,26 @@
           ></textarea>
           <span v-if="toolArgsError" class="text-xs text-red-400">{{ toolArgsError }}</span>
         </label>
-        <div v-if="selectedToolSchema" class="rounded border border-slate-800 bg-slate-950 p-3 text-xs text-slate-200">
+        <div
+          v-if="selectedToolSchema"
+          class="rounded border border-slate-800 bg-slate-950 p-3 text-xs text-slate-200"
+        >
           <div class="font-semibold">{{ selectedToolSchema.name }}</div>
           <p v-if="selectedToolSchema.description" class="mt-1 text-slate-400">
             {{ selectedToolSchema.description }}
           </p>
-          <pre v-if="toolSchemaJSON" class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap leading-tight text-slate-300">{{ toolSchemaJSON }}</pre>
+          <pre
+            v-if="toolSchemaJSON"
+            class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap leading-tight text-slate-300"
+            >{{ toolSchemaJSON }}</pre
+          >
         </div>
       </div>
     </div>
-    <div v-else class="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center text-sm text-slate-400">
+    <div
+      v-else
+      class="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-8 text-center text-sm text-slate-400"
+    >
       Select a node to edit step details.
     </div>
   </div>
@@ -116,28 +167,28 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { VueFlow, type Edge, type Node } from '@vue-flow/core'
+import { VueFlow, type Edge, type Node, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 
-import {
-  fetchWarppTools,
-  fetchWarppWorkflow,
-  fetchWarppWorkflows,
-  saveWarppWorkflow,
-} from '@/api/warpp'
+import WarppStepNode from '@/components/flow/WarppStepNode.vue'
+import { fetchWarppTools, fetchWarppWorkflow, fetchWarppWorkflows, saveWarppWorkflow } from '@/api/warpp'
 import type { WarppStep, WarppTool, WarppWorkflow } from '@/types/warpp'
+import type { StepNodeData } from '@/types/flow'
 
 type LayoutMap = Record<string, { x: number; y: number }>
 
-type StepNodeData = {
-  step: WarppStep
-  order: number
-}
-
-// Ensure data is required on nodes of this kind so we can safely access `node.data.*`
 type StepNode = Node<StepNodeData> & { data: StepNodeData }
+
+const DRAG_DATA_TYPE = 'application/warpp-tool'
+
+const nodeTypes = { warppStep: WarppStepNode }
+
+const { project } = useVueFlow()
+
+const flowWrapper = ref<HTMLDivElement | null>(null)
+const isDraggingFromPalette = ref(false)
 
 const nodes = ref<StepNode[]>([])
 const edges = ref<Edge[]>([])
@@ -160,6 +211,14 @@ const stepForm = reactive({
   publishResult: false,
   toolName: '',
   toolArgsText: '',
+})
+
+const toolMap = computed(() => {
+  const map = new Map<string, WarppTool>()
+  tools.value.forEach((tool) => {
+    map.set(tool.name, tool)
+  })
+  return map
 })
 
 const selectedNode = computed(() => nodes.value.find((node) => node.id === selectedNodeId.value) ?? null)
@@ -243,7 +302,6 @@ watch(selectedNode, (node) => {
     stepForm.toolArgsText = ''
     toolArgsError.value = ''
   } else {
-    // use optional chaining to be defensive about the node shape
     stepForm.text = node?.data?.step?.text ?? ''
     stepForm.guard = node?.data?.step?.guard ?? ''
     stepForm.publishResult = !!node?.data?.step?.publish_result
@@ -256,17 +314,32 @@ watch(selectedNode, (node) => {
   initializingForm = false
 })
 
+watch(tools, () => {
+  nodes.value = nodes.value.map((node) => {
+    const toolDef = node.data?.step?.tool?.name ? toolMap.value.get(node.data.step.tool.name) ?? null : null
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        toolDefinition: toolDef,
+      },
+    }
+  })
+})
+
 function workflowToNodes(wf: WarppWorkflow): StepNode[] {
   const layout = wf.ui?.layout ?? {}
   return wf.steps.map((step, idx) => {
     const stored = layout[step.id]
+    const toolDefinition = step.tool?.name ? toolMap.value.get(step.tool.name) ?? null : null
     return {
       id: step.id,
-      type: idx === 0 ? 'input' : idx === wf.steps.length - 1 ? 'output' : undefined,
+      type: 'warppStep',
       position: stored ? { x: stored.x, y: stored.y } : { x: 160, y: idx * 140 },
       data: {
-        order: idx as number,
+        order: idx,
         step: JSON.parse(JSON.stringify(step)) as WarppStep,
+        toolDefinition,
       },
       draggable: true,
     }
@@ -329,12 +402,14 @@ function applyFormToNode() {
     tool: nextTool,
   }
 
+  const toolDefinition = nextStep.tool?.name ? toolMap.value.get(nextStep.tool.name) ?? null : null
+
   const updatedNode: StepNode = {
     ...currentNode,
     data: {
-      // ensure data exists and preserve order
       ...(currentNode.data ?? { order: 0 }),
       step: nextStep,
+      toolDefinition,
     },
   }
 
@@ -366,6 +441,105 @@ function onNodeClick(payload: any) {
 
 function onPaneClick() {
   selectedNodeId.value = ''
+}
+
+function onDragOver(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes(DRAG_DATA_TYPE)) {
+    return
+  }
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'copy'
+}
+
+function onDrop(event: DragEvent) {
+  if (!event.dataTransfer?.types.includes(DRAG_DATA_TYPE)) {
+    return
+  }
+  event.preventDefault()
+  isDraggingFromPalette.value = false
+
+  const toolName = event.dataTransfer.getData(DRAG_DATA_TYPE)
+  if (!toolName) {
+    return
+  }
+  const tool = toolMap.value.get(toolName)
+  if (!tool || !flowWrapper.value) {
+    return
+  }
+
+  const bounds = flowWrapper.value.getBoundingClientRect()
+  const position = project({
+    x: event.clientX - bounds.left,
+    y: event.clientY - bounds.top,
+  })
+
+  addToolNode(tool, position)
+}
+
+function onPaletteDragStart(event: DragEvent, tool: WarppTool) {
+  if (!event.dataTransfer) {
+    return
+  }
+  isDraggingFromPalette.value = true
+  event.dataTransfer.setData(DRAG_DATA_TYPE, tool.name)
+  event.dataTransfer.setData('text/plain', tool.name)
+  event.dataTransfer.effectAllowed = 'copyMove'
+}
+
+function onPaletteDragEnd() {
+  isDraggingFromPalette.value = false
+}
+
+function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
+  if (!activeWorkflow.value) {
+    return
+  }
+  const id = generateStepId(tool.name)
+  const order = nodes.value.length
+  const step: WarppStep = {
+    id,
+    text: tool.description ?? tool.name,
+    publish_result: false,
+    tool: { name: tool.name },
+  }
+
+  const newNode: StepNode = {
+    id,
+    type: 'warppStep',
+    position,
+    data: {
+      order,
+      step,
+      toolDefinition: tool,
+    },
+    draggable: true,
+  }
+
+  const updatedNodes = [...nodes.value, newNode]
+  nodes.value = updatedNodes
+
+  if (updatedNodes.length > 1) {
+    const previous = updatedNodes[updatedNodes.length - 2]
+    edges.value = [
+      ...edges.value,
+      { id: `e-${previous.id}-${newNode.id}`, source: previous.id, target: newNode.id },
+    ]
+  }
+
+  selectedNodeId.value = id
+  syncWorkflowFromNodes()
+}
+
+function generateStepId(toolName: string): string {
+  const base = toolName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'step'
+  let candidate = ''
+  do {
+    const unique = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10))
+      : Math.random().toString(36).slice(2, 10)
+    candidate = `${base}-${unique.slice(0, 8)}`
+  } while (nodes.value.some((node) => node.id === candidate))
+  return candidate
 }
 
 async function onSave() {

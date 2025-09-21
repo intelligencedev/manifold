@@ -52,5 +52,19 @@ export function renderMarkdown(value: string): string {
   if (!value) {
     return ''
   }
-  return md.render(value)
+  // During streaming, the content may include an unclosed fenced code block (```)
+  // which prevents proper formatting until the final chunk arrives. To improve
+  // UX, temporarily close an unbalanced fence before rendering.
+  let text = value
+  try {
+    const re = /(^|\n)```/g
+    let count = 0
+    while (re.exec(text)) count += 1
+    if (count % 2 === 1) {
+      text += '\n```'
+    }
+  } catch {
+    // no-op: fallback to raw value
+  }
+  return md.render(text)
 }

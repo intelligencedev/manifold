@@ -103,7 +103,10 @@
           v-for="message in chatMessages"
           :key="message.id"
           class="relative max-w-[72ch] rounded-5 border border-border bg-surface shadow-1 p-5"
-          :class="message.role === 'assistant' ? 'bg-accent/5' : ''"
+          :class="[
+            message.role === 'assistant' ? 'bg-accent/5' : '',
+            message.role === 'user' ? 'ml-auto' : ''
+          ]"
         >
           <header class="flex flex-wrap items-center gap-2">
             <span

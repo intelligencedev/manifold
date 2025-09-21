@@ -8,6 +8,9 @@ type Workflow struct {
 	Keywords    []string    `json:"keywords"`
 	Steps       []Step      `json:"steps"`
 	UI          *WorkflowUI `json:"ui,omitempty"`
+	// Optional execution hints
+	MaxConcurrency int  `json:"max_concurrency,omitempty"`
+	FailFast       bool `json:"fail_fast,omitempty"`
 }
 
 // WorkflowUI holds optional editor metadata (for example, node layout).
@@ -29,6 +32,13 @@ type Step struct {
 	// PublishResult controls whether the result payload of this step should
 	// be published to Kafka (or any configured publisher) as it completes.
 	PublishResult bool `json:"publish_result,omitempty"`
+	// DAG: optional list of step IDs this step depends on
+	DependsOn []string `json:"depends_on,omitempty"`
+	// Execution hints
+	ContinueOnError bool   `json:"continue_on_error,omitempty"`
+	PublishMode     string `json:"publish_mode,omitempty"` // "immediate" (default) | "topo"
+	Timeout         string `json:"timeout,omitempty"`      // e.g., "30s"
+	Retries         int    `json:"retries,omitempty"`
 }
 
 type ToolRef struct {

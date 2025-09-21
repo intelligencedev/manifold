@@ -35,6 +35,10 @@ func LoadFromDir(dir string) (*Registry, error) {
 			if err := json.Unmarshal(b, &w); err != nil {
 				return nil
 			}
+			if err := ValidateWorkflow(w); err != nil {
+				// Skip invalid workflows; could log in a higher layer
+				return nil
+			}
 			if w.Intent != "" {
 				r.byIntent[w.Intent] = w
 				r.pathByIntent[w.Intent] = path
@@ -112,6 +116,9 @@ func SaveWorkflow(dir string, w Workflow) (string, error) {
 	if dir == "" {
 		return "", errors.New("workflow dir required")
 	}
+	if err := ValidateWorkflow(w); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
@@ -127,6 +134,9 @@ func SaveWorkflow(dir string, w Workflow) (string, error) {
 func SaveWorkflowToPath(path string, w Workflow) error {
 	if path == "" {
 		return errors.New("workflow path required")
+	}
+	if err := ValidateWorkflow(w); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(w, "", "  ")
 	if err != nil {
@@ -193,4 +203,57 @@ func defaultWorkflows() []Workflow {
 			},
 		},
 	}
+}
+
+// ValidateWorkflow checks IDs, references, and acyclicity of a workflow DAG.
+func ValidateWorkflow(w Workflow) error {
+	// Unique step IDs
+	ids := make(map[string]struct{}, len(w.Steps))
+	for _, s := range w.Steps {
+		if s.ID == "" {
+			return errors.New("step id required")
+		}
+		if _, dup := ids[s.ID]; dup {
+			return errors.New("duplicate step id: " + s.ID)
+		}
+		ids[s.ID] = struct{}{}
+	}
+	// DependsOn references must exist
+	indegree := make(map[string]int, len(w.Steps))
+	adj := make(map[string][]string, len(w.Steps))
+	for _, s := range w.Steps {
+		indegree[s.ID] = 0
+	}
+	for _, s := range w.Steps {
+		for _, dep := range s.DependsOn {
+			if _, ok := ids[dep]; !ok {
+				return errors.New("unknown depends_on reference: " + dep + " -> " + s.ID)
+			}
+			indegree[s.ID]++
+			adj[dep] = append(adj[dep], s.ID)
+		}
+	}
+	// Kahn's algorithm for cycle detection
+	queue := make([]string, 0)
+	for id, d := range indegree {
+		if d == 0 {
+			queue = append(queue, id)
+		}
+	}
+	visited := 0
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		visited++
+		for _, m := range adj[n] {
+			indegree[m]--
+			if indegree[m] == 0 {
+				queue = append(queue, m)
+			}
+		}
+	}
+	if visited != len(w.Steps) {
+		return errors.New("workflow has a cycle or unreachable dependency")
+	}
+	return nil
 }

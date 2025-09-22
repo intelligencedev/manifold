@@ -20,6 +20,11 @@ import (
 
 type Options struct {
 	DevProxy string
+	// AuthGate, when provided, will be called for UI asset requests. If it returns false
+	// the request will be redirected to UnauthedRedirect (or /auth/login by default).
+	AuthGate func(r *http.Request) bool
+	// UnauthedRedirect target path. Default: /auth/login
+	UnauthedRedirect string
 }
 
 func RegisterFrontend(mux *http.ServeMux, opts Options) error {
@@ -32,7 +37,11 @@ func RegisterFrontend(mux *http.ServeMux, opts Options) error {
 		if err != nil {
 			return fmt.Errorf("webui: parse dev proxy url: %w", err)
 		}
-		mux.Handle("/", newDevProxy(target))
+		h := newDevProxy(target)
+		if opts.AuthGate != nil {
+			h = authWrapper(h, opts)
+		}
+		mux.Handle("/", h)
 		return nil
 	}
 
@@ -46,6 +55,9 @@ func RegisterFrontend(mux *http.ServeMux, opts Options) error {
 		return err
 	}
 
+	if opts.AuthGate != nil {
+		handler = authWrapper(handler, opts)
+	}
 	mux.Handle("/", handler)
 	return nil
 }
@@ -96,6 +108,28 @@ func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 	}
+}
+
+// authWrapper enforces authentication on UI routes by delegating to opts.AuthGate.
+func authWrapper(next http.Handler, opts Options) http.Handler {
+	redirect := opts.UnauthedRedirect
+	if redirect == "" {
+		redirect = "/auth/login"
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if opts.AuthGate != nil {
+			if ok := opts.AuthGate(r); !ok {
+				// Allow auth endpoints themselves to be reachable
+				if strings.HasPrefix(r.URL.Path, "/auth/") {
+					next.ServeHTTP(w, r)
+					return
+				}
+				http.Redirect(w, r, redirect, http.StatusFound)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (h *spaHandler) serveIndex(w http.ResponseWriter, r *http.Request) {

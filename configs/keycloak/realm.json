@@ -1,0 +1,33 @@
+{
+  "realm": "sio-local",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "clients": [
+    {
+      "clientId": "agentd",
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "dev-agentd-secret",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:32180/*"
+      ],
+      "webOrigins": [
+        "http://localhost:32180"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "+"
+      }
+    }
+  ],
+  "roles": {
+    "realm": [
+      { "name": "admin" },
+      { "name": "user" }
+    ]
+  }
+}

@@ -348,6 +348,20 @@ func loadSpecialists(cfg *Config) error {
 		Voice   string `yaml:"voice"`
 		Format  string `yaml:"format"`
 	}
+	type authYAML struct {
+		Enabled         bool     `yaml:"enabled"`
+		Provider        string   `yaml:"provider"`
+		IssuerURL       string   `yaml:"issuerURL"`
+		ClientID        string   `yaml:"clientID"`
+		ClientSecret    string   `yaml:"clientSecret"`
+		RedirectURL     string   `yaml:"redirectURL"`
+		AllowedDomains  []string `yaml:"allowedDomains"`
+		CookieName      string   `yaml:"cookieName"`
+		CookieSecure    bool     `yaml:"cookieSecure"`
+		CookieDomain    string   `yaml:"cookieDomain"`
+		StateTTLSeconds int      `yaml:"stateTTLSeconds"`
+		SessionTTLHours int      `yaml:"sessionTTLHours"`
+	}
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
@@ -368,6 +382,7 @@ func loadSpecialists(cfg *Config) error {
 		Embedding        embeddingYAML      `yaml:"embedding"`
 		TTS              ttsYAML            `yaml:"tts"`
 		EnableTools      *bool              `yaml:"enableTools"`
+		Auth             authYAML           `yaml:"auth"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
@@ -524,6 +539,43 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.TTS.Voice == "" && strings.TrimSpace(w.TTS.Voice) != "" {
 			cfg.TTS.Voice = strings.TrimSpace(w.TTS.Voice)
+		}
+		// Auth from YAML (env overrides not yet implemented)
+		if w.Auth.Enabled {
+			cfg.Auth.Enabled = true
+		}
+		if cfg.Auth.Provider == "" && strings.TrimSpace(w.Auth.Provider) != "" {
+			cfg.Auth.Provider = strings.TrimSpace(w.Auth.Provider)
+		}
+		if cfg.Auth.IssuerURL == "" && strings.TrimSpace(w.Auth.IssuerURL) != "" {
+			cfg.Auth.IssuerURL = strings.TrimSpace(w.Auth.IssuerURL)
+		}
+		if cfg.Auth.ClientID == "" && strings.TrimSpace(w.Auth.ClientID) != "" {
+			cfg.Auth.ClientID = strings.TrimSpace(w.Auth.ClientID)
+		}
+		if cfg.Auth.ClientSecret == "" && strings.TrimSpace(w.Auth.ClientSecret) != "" {
+			cfg.Auth.ClientSecret = strings.TrimSpace(w.Auth.ClientSecret)
+		}
+		if cfg.Auth.RedirectURL == "" && strings.TrimSpace(w.Auth.RedirectURL) != "" {
+			cfg.Auth.RedirectURL = strings.TrimSpace(w.Auth.RedirectURL)
+		}
+		if len(cfg.Auth.AllowedDomains) == 0 && len(w.Auth.AllowedDomains) > 0 {
+			cfg.Auth.AllowedDomains = append([]string{}, w.Auth.AllowedDomains...)
+		}
+		if cfg.Auth.CookieName == "" && strings.TrimSpace(w.Auth.CookieName) != "" {
+			cfg.Auth.CookieName = strings.TrimSpace(w.Auth.CookieName)
+		}
+		if !cfg.Auth.CookieSecure && w.Auth.CookieSecure {
+			cfg.Auth.CookieSecure = true
+		}
+		if cfg.Auth.CookieDomain == "" && strings.TrimSpace(w.Auth.CookieDomain) != "" {
+			cfg.Auth.CookieDomain = strings.TrimSpace(w.Auth.CookieDomain)
+		}
+		if cfg.Auth.StateTTLSeconds == 0 && w.Auth.StateTTLSeconds > 0 {
+			cfg.Auth.StateTTLSeconds = w.Auth.StateTTLSeconds
+		}
+		if cfg.Auth.SessionTTLHours == 0 && w.Auth.SessionTTLHours > 0 {
+			cfg.Auth.SessionTTLHours = w.Auth.SessionTTLHours
 		}
 		return nil
 	}

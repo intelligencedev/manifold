@@ -52,3 +52,53 @@ services:
     ports:
       - "9000:9000"
     restart: unless-stopped
+
+  keycloak-db:
+    image: postgres:15-alpine
+    container_name: sio_keycloak_db
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: keycloak
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak -d keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.2
+    container_name: sio_keycloak
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Database configuration
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_PORT: 5432
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: keycloak
+      # Proxy/hostname tuning for local dev
+      KC_PROXY: edge
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      # Disable strict hostname checks so http://localhost works in dev
+      KC_HOSTNAME_STRICT: "false"
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "8080:8080" # Keycloak
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+      - ./configs/keycloak:/opt/keycloak/data/import:ro
+    restart: unless-stopped
+
+volumes:
+  keycloak_db_data:
+  keycloak_data:

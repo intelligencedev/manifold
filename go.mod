@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/charmbracelet/x/ansi v0.10.1
+	github.com/coreos/go-oidc/v3 v3.15.0
 	github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20250824095233-c09b0e0c4c20
 	github.com/go-shiori/go-readability v0.0.0-20250217085726-9f5bf5ca7612
 	github.com/gordonklaus/portaudio v0.0.0-20250206071425-98a94950218b
@@ -29,6 +30,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.37.0
 	go.opentelemetry.io/otel/trace v1.37.0
 	golang.org/x/net v0.43.0
+	golang.org/x/oauth2 v0.30.0
 	golang.org/x/sync v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
 )
@@ -52,6 +54,7 @@ require (
 	github.com/ebitengine/purego v0.8.4 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect

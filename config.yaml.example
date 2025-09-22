@@ -186,3 +186,18 @@ webui:
 agentRunTimeoutSeconds: 0
 streamRunTimeoutSeconds: 0
 workflowTimeoutSeconds: 0
+
+# Authentication (OIDC) — optional
+auth:
+  enabled: false
+  provider: oidc
+  issuerURL: "https://accounts.google.com"
+  clientID: ${OIDC_CLIENT_ID}
+  clientSecret: ${OIDC_CLIENT_SECRET}
+  redirectURL: "http://localhost:32180/auth/callback"
+  allowedDomains: ["example.com"]
+  cookieName: "sio_session"
+  cookieSecure: false # set true in production (HTTPS)
+  cookieDomain: ""
+  stateTTLSeconds: 600
+  sessionTTLHours: 72

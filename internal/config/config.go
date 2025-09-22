@@ -19,6 +19,8 @@ type Config struct {
 	OpenAI      OpenAIConfig
 	Obs         ObsConfig
 	Web         WebConfig
+	// Auth configures optional user authentication (OIDC/OAuth2) and RBAC.
+	Auth AuthConfig
 	// MCP defines Model Context Protocol client configuration. If configured,
 	// the application will connect to the listed servers and expose their tools
 	// in the agent tool registry.
@@ -120,6 +122,32 @@ type ObsConfig struct {
 
 type WebConfig struct {
 	SearXNGURL string
+}
+
+// AuthConfig holds OAuth2/OIDC and session cookie settings. If Enabled is true,
+// the HTTP server will require authentication for protected endpoints.
+type AuthConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Provider currently supports "oidc" (recommended). When empty and Enabled,
+	// defaults to OIDC.
+	Provider string `yaml:"provider" json:"provider"`
+	// IssuerURL is the OIDC issuer discovery URL, e.g. https://accounts.google.com
+	IssuerURL    string `yaml:"issuerURL" json:"issuerURL"`
+	ClientID     string `yaml:"clientID" json:"clientID"`
+	ClientSecret string `yaml:"clientSecret" json:"clientSecret"`
+	RedirectURL  string `yaml:"redirectURL" json:"redirectURL"`
+	// AllowedDomains restricts sign-in to specific email domains; empty allows any.
+	AllowedDomains []string `yaml:"allowedDomains" json:"allowedDomains"`
+	// CookieName is the name of the auth session cookie; default "sio_session".
+	CookieName string `yaml:"cookieName" json:"cookieName"`
+	// CookieSecure sets the Secure attribute on cookies. Set true in production (HTTPS).
+	CookieSecure bool `yaml:"cookieSecure" json:"cookieSecure"`
+	// CookieDomain optionally scopes the cookie domain; empty leaves default host-only.
+	CookieDomain string `yaml:"cookieDomain" json:"cookieDomain"`
+	// StateTTLSeconds bounds the lifetime of the OAuth state/PKCE cookies.
+	StateTTLSeconds int `yaml:"stateTTLSeconds" json:"stateTTLSeconds"`
+	// SessionTTLHours controls how long a server-side session remains valid.
+	SessionTTLHours int `yaml:"sessionTTLHours" json:"sessionTTLHours"`
 }
 
 // DBConfig contains sub-config for each pluggable database backend.

@@ -18,10 +18,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 
 	"intelligence.dev/internal/agent"
 	"intelligence.dev/internal/agent/prompts"
+	"intelligence.dev/internal/auth"
 	"intelligence.dev/internal/config"
 	llmpkg "intelligence.dev/internal/llm"
 	openaillm "intelligence.dev/internal/llm/openai"
@@ -255,6 +257,41 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	// AUTH setup
+	var authStore *auth.Store
+	var oidcAuth *auth.OIDC
+	if cfg.Auth.Enabled {
+		// Reuse default DB DSN for sessions/users if available
+		dsn := cfg.Databases.DefaultDSN
+		if dsn == "" {
+			log.Fatal().Msg("auth enabled but databases.defaultDSN is empty")
+		}
+		pool, err := databasesTestPool(context.Background(), dsn)
+		if err != nil {
+			log.Fatal().Err(err).Msg("auth db connect failed")
+		}
+		authStore = auth.NewStore(pool, cfg.Auth.SessionTTLHours)
+		if err := authStore.InitSchema(context.Background()); err != nil {
+			log.Fatal().Err(err).Msg("auth schema init failed")
+		}
+		_ = authStore.EnsureDefaultRoles(context.Background())
+		// OIDC provider
+		issuer := cfg.Auth.IssuerURL
+		clientID := cfg.Auth.ClientID
+		clientSecret := cfg.Auth.ClientSecret
+		redirectURL := cfg.Auth.RedirectURL
+		var errOIDC error
+		oidcAuth, errOIDC = auth.NewOIDC(context.Background(), issuer, clientID, clientSecret, redirectURL, authStore, cfg.Auth.CookieName, cfg.Auth.AllowedDomains, cfg.Auth.StateTTLSeconds)
+		if errOIDC != nil {
+			log.Fatal().Err(errOIDC).Msg("oidc init failed")
+		}
+		// public auth endpoints
+		mux.HandleFunc("/auth/login", oidcAuth.LoginHandler())
+		mux.HandleFunc("/auth/callback", oidcAuth.CallbackHandler(cfg.Auth.CookieSecure, cfg.Auth.CookieDomain))
+		mux.HandleFunc("/auth/logout", oidcAuth.LogoutHandler(cfg.Auth.CookieSecure, cfg.Auth.CookieDomain))
+		mux.HandleFunc("/api/me", oidcAuth.MeHandler())
+	}
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
@@ -263,7 +300,16 @@ func main() {
 	})
 
 	// Runs list endpoint for the web UI
+	// Protected API: runs list
 	mux.HandleFunc("/api/runs", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			// require auth for this endpoint
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -275,6 +321,13 @@ func main() {
 
 	// Simple in-process metrics endpoint for web UI token graph.
 	mux.HandleFunc("/api/metrics/tokens", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -285,6 +338,13 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/warpp/tools", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -303,6 +363,13 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/warpp/workflows", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -316,6 +383,13 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/warpp/workflows/", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		intent := strings.TrimPrefix(r.URL.Path, "/api/warpp/workflows/")
 		intent = strings.TrimSpace(intent)
 		if intent == "" {
@@ -334,6 +408,18 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(wf)
 		case http.MethodPut:
+			if cfg.Auth.Enabled {
+				if u, ok := auth.CurrentUser(r.Context()); ok {
+					okRole, err := authStore.HasRole(r.Context(), u.ID, "admin")
+					if err != nil || !okRole {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+				} else {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
 			var wf warpp.Workflow
@@ -406,6 +492,13 @@ func main() {
 	})
 
 	mux.HandleFunc("/agent/run", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -614,6 +707,13 @@ func main() {
 	// - session_id: optional string
 	// Returns JSON {result: "..."} or streams SSE deltas/final like /agent/run when Accept: text/event-stream
 	mux.HandleFunc("/agent/vision", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -745,6 +845,13 @@ func main() {
 
 	// POST /api/prompt accepts {"prompt":"..."} and runs the agent (for web UI compatibility)
 	mux.HandleFunc("/api/prompt", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
 		// Basic CORS support
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Vary", "Origin")
@@ -1019,17 +1126,51 @@ func main() {
 	})
 
 	frontendProxy := os.Getenv("FRONTEND_DEV_PROXY")
-	if err := webui.RegisterFrontend(mux, webui.Options{DevProxy: frontendProxy}); err != nil {
+	uiOpts := webui.Options{DevProxy: frontendProxy}
+	if cfg.Auth.Enabled {
+		uiOpts.AuthGate = func(r *http.Request) bool {
+			_, ok := auth.CurrentUser(r.Context())
+			return ok
+		}
+		uiOpts.UnauthedRedirect = "/auth/login"
+	}
+	if err := webui.RegisterFrontend(mux, uiOpts); err != nil {
 		log.Error().Err(err).Msg("frontend registration failed")
 	}
 	if frontendProxy != "" {
 		log.Info().Str("url", frontendProxy).Msg("frontend dev proxy enabled")
 	}
 
+	// Wrap with auth middleware to attach user to context if enabled
+	var root http.Handler = mux
+	if cfg.Auth.Enabled && authStore != nil {
+		root = auth.Middleware(authStore, cfg.Auth.CookieName, false)(mux)
+	}
+
 	log.Info().Msg("agentd listening on :32180")
-	if err := http.ListenAndServe(":32180", mux); err != nil {
+	if err := http.ListenAndServe(":32180", root); err != nil {
 		log.Fatal().Err(err).Msg("server failed")
 	}
+}
+
+// databasesTestPool is a small wrapper to reuse the existing newPgPool from internal/persistence/databases.
+// We can't import unexported symbol, so replicate minimal connection here for auth.
+func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := pool.Ping(cctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
 }
 
 // formatToolPayload helper is defined and used in internal/tui; no duplicate needed here.

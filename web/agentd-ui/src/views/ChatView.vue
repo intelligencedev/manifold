@@ -412,15 +412,19 @@ async function addFiles(files: FileList | File[]) {
     const kind = validateFile(f)
     if (!kind) continue
     if (kind === 'image') {
+      const id = crypto.randomUUID()
+      filesByAttachment.set(id, f)
       const url = await new Promise<string>((resolve) => {
         const reader = new FileReader()
         reader.onload = () => resolve(String(reader.result))
         reader.readAsDataURL(f)
       })
-      pendingAttachments.value.push({ id: crypto.randomUUID(), kind: 'image', name: f.name, size: f.size, mime: f.type || undefined, previewUrl: url })
+      pendingAttachments.value.push({ id, kind: 'image', name: f.name, size: f.size, mime: f.type || undefined, previewUrl: url })
     } else {
-      // For text we don't have content yet; we'll read on send
-      pendingAttachments.value.push({ id: crypto.randomUUID(), kind: 'text', name: f.name, size: f.size, mime: f.type || undefined })
+      // For text, store the File and read on send
+      const id = crypto.randomUUID()
+      filesByAttachment.set(id, f)
+      pendingAttachments.value.push({ id, kind: 'text', name: f.name, size: f.size, mime: f.type || undefined })
     }
   }
 }
@@ -441,6 +445,7 @@ function handleDrop(e: DragEvent) {
 
 function removeAttachment(id: string) {
   pendingAttachments.value = pendingAttachments.value.filter((a) => a.id !== id)
+  filesByAttachment.delete(id)
 }
 function handleMarkdownClick(e: MouseEvent) {
   const target = e.target as HTMLElement

@@ -133,6 +133,16 @@
               class="chat-markdown"
               v-html="renderMarkdown(message.content)"
             ></div>
+            <div v-if="message.attachments?.length" class="space-y-2">
+              <div v-if="message.attachments.some(a => a.kind === 'image')" class="flex gap-2 overflow-x-auto pb-1">
+                <img v-for="img in message.attachments.filter(a => a.kind === 'image')" :key="img.id" :src="img.previewUrl" :alt="img.name" class="h-16 w-16 rounded object-cover border border-border" />
+              </div>
+              <div v-if="message.attachments.some(a => a.kind === 'text')" class="flex flex-wrap gap-2">
+                <span v-for="t in message.attachments.filter(a => a.kind === 'text')" :key="t.id" class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px]">
+                  <span class="max-w-[180px] truncate">{{ t.name }}</span>
+                </span>
+              </div>
+            </div>
             <audio
               v-if="message.audioUrl"
               :src="message.audioUrl"
@@ -174,7 +184,9 @@
       </button>
 
       <footer class="border-t border-border p-4">
-        <form class="space-y-3" @submit.prevent="sendCurrentPrompt">
+        <form class="space-y-3" @submit.prevent="sendCurrentPrompt"
+              @dragover.prevent
+              @drop.prevent="handleDrop">
           <div class="rounded-4 border border-border bg-surface-muted/70 p-3 etched-dark">
             <textarea
               ref="composer"
@@ -186,9 +198,31 @@
               @input="autoSizeComposer"
             ></textarea>
           </div>
+          <div v-if="pendingAttachments.length" class="space-y-2">
+            <div v-if="imageAttachments.length" class="flex gap-2 overflow-x-auto pb-1">
+              <div v-for="img in imageAttachments" :key="img.id" class="relative shrink-0">
+                <img :src="img.previewUrl" :alt="img.name" class="h-16 w-16 rounded object-cover border border-border" />
+                <button type="button" class="absolute -right-1 -top-1 rounded-full bg-surface px-1 text-[10px] shadow ring-1 ring-border hover:text-danger"
+                        @click="removeAttachment(img.id)">×</button>
+              </div>
+            </div>
+            <div v-if="textAttachments.length" class="flex flex-wrap gap-2">
+              <span v-for="t in textAttachments" :key="t.id" class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px]">
+                <span class="max-w-[180px] truncate">{{ t.name }}</span>
+                <button type="button" class="text-faint-foreground hover:text-danger" @click="removeAttachment(t.id)">×</button>
+              </span>
+            </div>
+          </div>
           <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-subtle-foreground">
             <p>Shift+Enter for newline</p>
             <div class="flex items-center gap-2">
+              <input ref="fileInput" type="file" multiple class="hidden" accept="image/png,image/jpeg,text/plain,text/markdown,text/*"
+                     @change="handleFileInputChange" />
+              <button type="button"
+                class="rounded-4 border border-border px-3 py-1 font-medium text-foreground transition hover:border-accent hover:text-accent"
+                @click="fileInput?.click()">
+                Attach
+              </button>
               <button
                 v-if="isStreaming"
                 type="button"
@@ -200,7 +234,7 @@
               <button
                 type="submit"
                 class="rounded-4 bg-accent px-4 py-2 font-semibold text-accent-foreground transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
-                :disabled="!draft.trim() || isStreaming"
+                :disabled="(!draft.trim() && !pendingAttachments.length) || isStreaming"
               >
                 Send
               </button>
@@ -280,8 +314,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { streamAgentRun, type ChatStreamEvent } from '@/api/chat'
-import type { ChatMessage, ChatSessionMeta, ChatRole } from '@/types/chat'
+import { streamAgentRun, streamAgentVisionRun, type ChatStreamEvent } from '@/api/chat'
+import type { ChatAttachment, ChatMessage, ChatSessionMeta, ChatRole } from '@/types/chat'
 import { renderMarkdown } from '@/utils/markdown'
 import 'highlight.js/styles/github-dark-dimmed.css'
 
@@ -354,6 +388,60 @@ const messagesPane = ref<HTMLDivElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const autoScrollEnabled = ref(true)
+// Attachments state for composer
+const fileInput = ref<HTMLInputElement | null>(null)
+const pendingAttachments = ref<ChatAttachment[]>([])
+const imageAttachments = computed(() => pendingAttachments.value.filter((a) => a.kind === 'image'))
+const textAttachments = computed(() => pendingAttachments.value.filter((a) => a.kind === 'text'))
+const filesByAttachment: Map<string, File> = new Map()
+
+function validateFile(f: File): 'image' | 'text' | null {
+  const type = (f.type || '').toLowerCase()
+  if (type === 'image/png' || type === 'image/jpeg') return 'image'
+  if (type.startsWith('text/')) return 'text'
+  // Fallback to extension check if type missing
+  const name = f.name.toLowerCase()
+  if (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image'
+  if (name.endsWith('.txt') || name.endsWith('.md') || name.endsWith('.log')) return 'text'
+  return null
+}
+
+async function addFiles(files: FileList | File[]) {
+  const arr = Array.from(files)
+  for (const f of arr) {
+    const kind = validateFile(f)
+    if (!kind) continue
+    if (kind === 'image') {
+      const url = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result))
+        reader.readAsDataURL(f)
+      })
+      pendingAttachments.value.push({ id: crypto.randomUUID(), kind: 'image', name: f.name, size: f.size, mime: f.type || undefined, previewUrl: url })
+    } else {
+      // For text we don't have content yet; we'll read on send
+      pendingAttachments.value.push({ id: crypto.randomUUID(), kind: 'text', name: f.name, size: f.size, mime: f.type || undefined })
+    }
+  }
+}
+
+function handleFileInputChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files) return
+  void addFiles(input.files)
+  // reset so selecting the same file again still triggers change
+  input.value = ''
+}
+
+function handleDrop(e: DragEvent) {
+  const items = e.dataTransfer?.files
+  if (!items) return
+  void addFiles(items)
+}
+
+function removeAttachment(id: string) {
+  pendingAttachments.value = pendingAttachments.value.filter((a) => a.id !== id)
+}
 function handleMarkdownClick(e: MouseEvent) {
   const target = e.target as HTMLElement
   const btn = target.closest('[data-copy]') as HTMLElement | null
@@ -552,18 +640,20 @@ async function sendCurrentPrompt() {
 
 async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   const content = text.trim()
-  if (!content || isStreaming.value) return
+  if ((!content && !pendingAttachments.value.length) || isStreaming.value) return
 
   const sessionId = ensureSession()
   const now = new Date().toISOString()
   autoScrollEnabled.value = true
 
   if (options.echoUser !== false) {
+    const attachmentsCopy = pendingAttachments.value.map((a) => ({ ...a }))
     appendMessage(sessionId, {
       id: crypto.randomUUID(),
       role: 'user',
       content,
-      createdAt: now
+      createdAt: now,
+      attachments: attachmentsCopy
     })
   }
 
@@ -583,12 +673,40 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   abortController.value = new AbortController()
 
   try {
-    await streamAgentRun({
-      prompt: content,
-      sessionId,
-      signal: abortController.value.signal,
-      onEvent: (event) => handleStreamEvent(event, sessionId, assistantId)
-    })
+    // Append text attachments into the prompt with delimiters
+    let promptToSend = content
+    for (const att of textAttachments.value) {
+      const f = filesByAttachment.get(att.id)
+      if (!f) continue
+      const textContent = await f.text()
+      const header = `\n\n--- Attached Document: ${att.name} (${att.mime || 'text'}) ---\n`
+      const footer = `\n--- End Document ---\n`
+      promptToSend += header + textContent + footer
+    }
+
+    // Gather image files if any
+    const imageFiles: File[] = []
+    for (const att of imageAttachments.value) {
+      const f = filesByAttachment.get(att.id)
+      if (f) imageFiles.push(f)
+    }
+
+    if (imageFiles.length) {
+      await streamAgentVisionRun({
+        prompt: promptToSend,
+        sessionId,
+        files: imageFiles,
+        signal: abortController.value!.signal,
+        onEvent: (event) => handleStreamEvent(event, sessionId, assistantId)
+      })
+    } else {
+      await streamAgentRun({
+        prompt: promptToSend,
+        sessionId,
+        signal: abortController.value!.signal,
+        onEvent: (event) => handleStreamEvent(event, sessionId, assistantId)
+      })
+    }
   } catch (error) {
     const assistantUpdater = (message: ChatMessage) => ({
       ...message,
@@ -604,6 +722,8 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
     isStreaming.value = false
     streamingAssistantId.value = null
     abortController.value = null
+    pendingAttachments.value = []
+    filesByAttachment.clear()
   }
 }
 

@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"sort"
@@ -524,6 +526,134 @@ func main() {
 		userMsg := llmpkg.Message{Role: "user", Content: req.Prompt}
 		assistantMsg := llmpkg.Message{Role: "assistant", Content: result}
 		sessions.addToHistory(req.SessionID, userMsg, assistantMsg)
+	})
+
+	// POST /agent/vision accepts multipart/form-data with fields:
+	// - images: one or more files (image/png or image/jpeg)
+	// - prompt: string
+	// - session_id: optional string
+	// Returns JSON {result: "..."} or streams SSE deltas/final like /agent/run when Accept: text/event-stream
+	mux.HandleFunc("/agent/vision", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// Limit total form size to 20MB
+		if err := r.ParseMultipartForm(20 << 20); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		prompt := r.FormValue("prompt")
+		sessionID := r.FormValue("session_id")
+		if sessionID == "" {
+			sessionID = "default"
+		}
+
+		// Collect image files (field name can be "images" repeated or any files in multipart form)
+		form := r.MultipartForm
+		var files []*multipart.FileHeader
+		if form != nil {
+			// Prefer "images" field
+			if fh := form.File["images"]; len(fh) > 0 {
+				files = append(files, fh...)
+			}
+			// Also accept legacy "image" field
+			if fh := form.File["image"]; len(fh) > 0 {
+				files = append(files, fh...)
+			}
+		}
+		if len(files) == 0 {
+			http.Error(w, "no images provided", http.StatusBadRequest)
+			return
+		}
+
+		// If no API key configured, return a dev mock
+		if cfg.OpenAI.APIKey == "" {
+			if r.Header.Get("Accept") == "text/event-stream" {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				fl, _ := w.(http.Flusher)
+				if b, err := json.Marshal("(dev) mock vision response: " + prompt); err == nil {
+					fmt.Fprintf(w, "event: final\ndata: %s\n\n", b)
+				} else {
+					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock vision response")
+				}
+				fl.Flush()
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock vision response: " + prompt})
+			return
+		}
+
+		// Read and validate images; build attachments for provider
+		type imgAtt struct {
+			mime string
+			b64  string
+		}
+		var atts []imgAtt
+		for _, fh := range files {
+			f, err := fh.Open()
+			if err != nil {
+				http.Error(w, "file open", http.StatusBadRequest)
+				return
+			}
+			data, err := io.ReadAll(f)
+			f.Close()
+			if err != nil {
+				http.Error(w, "file read", http.StatusBadRequest)
+				return
+			}
+			// Basic mime detection
+			mt := http.DetectContentType(data)
+			if mt != "image/png" && mt != "image/jpeg" && mt != "image/jpg" {
+				http.Error(w, "unsupported image type", http.StatusBadRequest)
+				return
+			}
+			// Normalize jpg
+			if mt == "image/jpg" {
+				mt = "image/jpeg"
+			}
+			atts = append(atts, imgAtt{mime: mt, b64: base64.StdEncoding.EncodeToString(data)})
+		}
+
+		// Build initial message list with user prompt only; vision content will be added in provider call
+		msgs := []llmpkg.Message{{Role: "user", Content: prompt}}
+
+		// Non-streaming path for simplicity (vision responses are usually short). We can extend to stream later if needed.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		// Convert to openai.ImageAttachment slice
+		images := make([]openaillm.ImageAttachment, 0, len(atts))
+		for _, a := range atts {
+			images = append(images, openaillm.ImageAttachment{MimeType: a.mime, Base64Data: a.b64})
+		}
+
+		out, err := llm.ChatWithImageAttachments(ctx, msgs, images, nil, cfg.OpenAI.Model)
+		if err != nil {
+			log.Error().Err(err).Msg("vision chat error")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if r.Header.Get("Accept") == "text/event-stream" {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			fl, ok := w.(http.Flusher)
+			if !ok {
+				http.Error(w, "streaming not supported", http.StatusInternalServerError)
+				return
+			}
+			// Emit final only (no deltas since we used non-streaming provider call)
+			payload := map[string]string{"type": "final", "data": out.Content}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"result": out.Content})
 	})
 
 	// POST /api/prompt accepts {"prompt":"..."} and runs the agent (for web UI compatibility)

@@ -1,5 +1,19 @@
 export type ChatRole = 'user' | 'assistant' | 'tool' | 'system' | 'status'
 
+export type ChatAttachmentKind = 'image' | 'text'
+
+export interface ChatAttachment {
+  id: string
+  kind: ChatAttachmentKind
+  name: string
+  size?: number
+  mime?: string
+  // For images we store a data URL so thumbnails persist across reloads
+  previewUrl?: string
+  // For text attachments, optionally cache the text content for display/debug
+  text?: string
+}
+
 export interface ChatMessage {
   id: string
   role: ChatRole
@@ -11,6 +25,7 @@ export interface ChatMessage {
   toolArgs?: string
   audioUrl?: string
   audioFilePath?: string
+  attachments?: ChatAttachment[]
 }
 
 export interface ChatSessionMeta {

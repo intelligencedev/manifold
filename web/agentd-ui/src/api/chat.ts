@@ -30,6 +30,7 @@ export interface StreamAgentRunOptions {
 
 const baseURL = (import.meta.env.VITE_AGENTD_BASE_URL || '').replace(/\/$/, '')
 const runEndpoint = `${baseURL}/agent/run`
+const visionEndpoint = `${baseURL}/agent/vision`
 
 export async function streamAgentRun(options: StreamAgentRunOptions): Promise<void> {
   const { prompt, sessionId, fetchImpl, signal, onEvent } = options
@@ -137,5 +138,71 @@ export function extractEventPayload(raw: string): ChatStreamEvent | null {
   } catch (error) {
     console.error('Failed to parse SSE payload', error)
     return null
+  }
+}
+
+// Stream a vision run using multipart/form-data with one or more images.
+// The backend endpoint accepts fields:
+//  - prompt: string
+//  - session_id: string (optional)
+//  - images: one or more file parts
+export async function streamAgentVisionRun(
+  options: Omit<StreamAgentRunOptions, 'prompt'> & { prompt: string; files: File[] }
+): Promise<void> {
+  const { prompt, sessionId, files, fetchImpl, signal, onEvent } = options
+  const fetchFn = fetchImpl ?? fetch
+  const form = new FormData()
+  form.set('prompt', prompt)
+  if (sessionId) form.set('session_id', sessionId)
+  for (const f of files) {
+    form.append('images', f, f.name)
+  }
+
+  let response: Response
+  const decoder = new TextDecoder()
+  try {
+    response = await fetchFn(visionEndpoint, {
+      method: 'POST',
+      headers: { Accept: 'text/event-stream' },
+      body: form,
+      signal
+    })
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      onEvent({ type: 'error', data: error instanceof Error ? error.message : String(error) })
+    }
+    throw error
+  }
+
+  if (!response.ok) {
+    const message = `agent vision run failed (${response.status})`
+    onEvent({ type: 'error', data: message })
+    throw new Error(message)
+  }
+
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.includes('text/event-stream')) {
+    const body = await response.json().catch(() => ({}))
+    const result = typeof (body as any)?.result === 'string' ? (body as any).result : ''
+    onEvent({ type: 'final', data: result })
+    return
+  }
+  if (!response.body) {
+    onEvent({ type: 'error', data: 'stream body missing' })
+    throw new Error('stream body missing')
+  }
+
+  const reader = response.body.getReader()
+  let buffer = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      buffer = processBuffer(buffer, onEvent)
+    }
+    if (buffer.trim().length > 0) processBuffer(buffer, onEvent, true)
+  } finally {
+    reader.releaseLock()
   }
 }

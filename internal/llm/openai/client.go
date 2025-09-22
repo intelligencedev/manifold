@@ -26,6 +26,14 @@ type Client struct {
 	httpClient  *http.Client
 }
 
+// ImageAttachment represents a single image attachment to include in a user message.
+// MimeType should be a valid image MIME type, e.g., "image/png" or "image/jpeg".
+// Base64Data must be the base64-encoded image bytes (without data URL prefix).
+type ImageAttachment struct {
+	MimeType   string
+	Base64Data string
+}
+
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}
 	if c.BaseURL != "" {
@@ -677,6 +685,113 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 				Args: json.RawMessage(v.Custom.Input),
 				ID:   v.ID,
 			})
+		}
+	}
+	return out, nil
+}
+
+// ChatWithImageAttachments sends a chat completion with one or more image attachments.
+// The images are included as content parts alongside the user's text.
+func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Message, images []ImageAttachment, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	log := observability.LoggerWithTrace(ctx)
+	// Tracing and prompt logging
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatWithImageAttachments", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	params := sdk.ChatCompletionNewParams{
+		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	}
+
+	// Convert messages, then replace the last user message with text+image content parts
+	adaptedMsgs := AdaptMessages(msgs)
+	if len(adaptedMsgs) > 0 {
+		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
+			if adaptedMsgs[i].OfUser != nil {
+				userMsg := adaptedMsgs[i].OfUser
+
+				// Build content parts: optional text + N images
+				var contentParts []sdk.ChatCompletionContentPartUnionParam
+
+				if userMsg.Content.OfString.Valid() && userMsg.Content.OfString.Value != "" {
+					contentParts = append(contentParts, sdk.ChatCompletionContentPartUnionParam{
+						OfText: &sdk.ChatCompletionContentPartTextParam{Text: userMsg.Content.OfString.Value},
+					})
+				}
+
+				for _, img := range images {
+					if strings.TrimSpace(img.MimeType) == "" || strings.TrimSpace(img.Base64Data) == "" {
+						continue
+					}
+					dataURL := "data:" + img.MimeType + ";base64," + img.Base64Data
+					contentParts = append(contentParts, sdk.ChatCompletionContentPartUnionParam{
+						OfImageURL: &sdk.ChatCompletionContentPartImageParam{
+							ImageURL: sdk.ChatCompletionContentPartImageImageURLParam{URL: dataURL},
+						},
+					})
+				}
+
+				newUserMsg := sdk.ChatCompletionUserMessageParam{
+					Content: sdk.ChatCompletionUserMessageParamContentUnion{OfArrayOfContentParts: contentParts},
+				}
+				adaptedMsgs[i] = sdk.ChatCompletionMessageParamUnion{OfUser: &newUserMsg}
+				break
+			}
+		}
+	}
+
+	params.Messages = adaptedMsgs
+	if len(tools) > 0 {
+		if c.isSelfHosted() {
+			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = AdaptSchemas(tools)
+		}
+	}
+	if len(c.extra) > 0 {
+		if len(tools) == 0 {
+			tmp := make(map[string]any, len(c.extra))
+			for k, v := range c.extra {
+				tmp[k] = v
+			}
+			delete(tmp, "parallel_tool_calls")
+			params.SetExtraFields(tmp)
+		} else {
+			params.SetExtraFields(c.extra)
+		}
+	}
+
+	start := time.Now()
+	comp, err := c.sdk.Chat.Completions.New(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_with_images_error")
+		span.RecordError(err)
+		return llm.Message{}, err
+	}
+
+	log.Debug().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_with_images_ok")
+	llm.LogRedactedResponse(ctx, comp.Choices)
+	if len(comp.Choices) == 0 {
+		return llm.Message{}, nil
+	}
+	msg := comp.Choices[0].Message
+	out := llm.Message{Role: "assistant", Content: msg.Content}
+	if c.isSelfHosted() {
+		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
+		completionTokens := c.tokenizeCount(ctx, out.Content)
+		llm.RecordTokenAttributes(span, promptTokens, completionTokens, promptTokens+completionTokens)
+		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+	} else {
+		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
+		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+	}
+	for _, tc := range msg.ToolCalls {
+		switch v := tc.AsAny().(type) {
+		case sdk.ChatCompletionMessageFunctionToolCall:
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{Name: v.Function.Name, Args: json.RawMessage(v.Function.Arguments), ID: v.ID})
+		case sdk.ChatCompletionMessageCustomToolCall:
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{Name: v.Custom.Name, Args: json.RawMessage(v.Custom.Input), ID: v.ID})
 		}
 	}
 	return out, nil

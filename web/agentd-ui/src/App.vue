@@ -4,11 +4,10 @@
       <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
         <div class="flex items-center gap-3">
           <span class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent/20">
-            <span class="text-xl font-semibold text-accent">A</span>
+            <span class="text-xl font-semibold text-accent">M</span>
           </span>
           <div>
             <p class="text-lg font-semibold">Manifold</p>
-            <p class="text-sm text-subtle-foreground">Intelligent assistants platform</p>
           </div>
         </div>
         <nav class="hidden gap-4 text-sm font-medium md:flex">

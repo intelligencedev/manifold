@@ -85,6 +85,7 @@ const props = defineProps<NodeProps<StepNodeData>>()
 const { updateNodeData } = useVueFlow()
 
 const toolsRef = inject<Ref<WarppTool[]>>('warppTools', ref<WarppTool[]>([]))
+const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
 
 const toolOptions = computed(() => {
   const options = [...(toolsRef?.value ?? [])]
@@ -154,7 +155,7 @@ watch(
 )
 
 function commitIfNeeded() {
-  if (suppressCommit) {
+  if (suppressCommit || hydratingRef.value) {
     return
   }
   commit()
@@ -169,6 +170,9 @@ function onArgsUpdate(value: unknown) {
 }
 
 function commit() {
+  if (hydratingRef.value) {
+    return
+  }
   const toolPayload = buildToolPayload(toolName.value, argsState.value)
   const nextStep = {
     ...(props.data?.step ?? {}),

@@ -94,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
 import { VueFlow, type Edge, type Node, useVueFlow } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
@@ -128,6 +128,7 @@ const isDraggingFromPalette = ref(false)
 
 const nodes = ref<StepNode[]>([])
 const edges = ref<Edge[]>([])
+const isHydrating = ref(false)
 
 const workflowList = ref<WarppWorkflow[]>([])
 const selectedIntent = ref<string>('')
@@ -135,6 +136,7 @@ const activeWorkflow = ref<WarppWorkflow | null>(null)
 
 const tools = ref<WarppTool[]>([])
 provide('warppTools', tools)
+provide('warppHydrating', isHydrating)
 
 const loading = ref(false)
 const error = ref('')
@@ -195,6 +197,9 @@ watch(selectedIntent, async (intent) => {
 watch(
   nodes,
   () => {
+    if (isHydrating.value) {
+      return
+    }
     syncWorkflowFromNodes()
   },
   { deep: true },
@@ -251,13 +256,25 @@ function workflowToEdges(wf: WarppWorkflow): Edge[] {
 }
 
 async function loadWorkflow(intent: string) {
-  const wf = await fetchWarppWorkflow(intent)
-  activeWorkflow.value = wf
-  nodes.value = workflowToNodes(wf)
-  edges.value = workflowToEdges(wf)
+  isHydrating.value = true
+  try {
+    const wf = await fetchWarppWorkflow(intent)
+    const nextNodes = workflowToNodes(wf)
+    const nextEdges = workflowToEdges(wf)
+
+    activeWorkflow.value = wf
+    edges.value = nextEdges
+    nodes.value = nextNodes
+  } finally {
+    await nextTick()
+    isHydrating.value = false
+  }
 }
 
 function syncWorkflowFromNodes() {
+  if (isHydrating.value) {
+    return
+  }
   if (!activeWorkflow.value) {
     return
   }

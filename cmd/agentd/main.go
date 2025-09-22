@@ -69,6 +69,63 @@ func (s *sessionStore) addToHistory(sessionID string, userMsg, assistantMsg llmp
 	s.histories[sessionID] = append(s.histories[sessionID], userMsg, assistantMsg)
 }
 
+// AgentRun represents a single agent invocation for the Runs view (in-memory only)
+type AgentRun struct {
+	ID        string `json:"id"`
+	Prompt    string `json:"prompt"`
+	CreatedAt string `json:"createdAt"`
+	Status    string `json:"status"` // running | failed | completed
+	Tokens    int    `json:"tokens,omitempty"`
+}
+
+type runStore struct {
+	mu   sync.RWMutex
+	runs []AgentRun
+}
+
+func newRunStore() *runStore {
+	return &runStore{runs: make([]AgentRun, 0, 64)}
+}
+
+func (s *runStore) create(prompt string) AgentRun {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := AgentRun{
+		ID:        fmt.Sprintf("run_%d", time.Now().UnixNano()),
+		Prompt:    prompt,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Status:    "running",
+	}
+	s.runs = append(s.runs, run)
+	return run
+}
+
+func (s *runStore) updateStatus(id string, status string, tokens int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.runs {
+		if s.runs[i].ID == id {
+			s.runs[i].Status = status
+			if tokens > 0 {
+				s.runs[i].Tokens = tokens
+			}
+			break
+		}
+	}
+}
+
+func (s *runStore) list() []AgentRun {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]AgentRun, len(s.runs))
+	copy(out, s.runs)
+	// Return newest-first for convenience
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
 func main() {
 	// Load environment from .env (or fallback to example.env) so local
 	// development can run without exporting variables manually. Do this
@@ -184,6 +241,9 @@ func main() {
 	// Initialize session store for conversation history
 	sessions := newSessionStore()
 
+	// Initialize in-memory run store for Runs view
+	runs := newRunStore()
+
 	// Initialize Whisper model for speech-to-text (optional – if model file present)
 	var whisperModel whisper.Model
 	modelPath := "models/ggml-small.en.bin"
@@ -200,6 +260,17 @@ func main() {
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ready")
+	})
+
+	// Runs list endpoint for the web UI
+	mux.HandleFunc("/api/runs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(runs.list())
 	})
 
 	// Simple in-process metrics endpoint for web UI token graph.
@@ -348,6 +419,9 @@ func main() {
 			return
 		}
 
+		// Create run record (running)
+		currentRun := runs.create(req.Prompt)
+
 		// Use default session if not provided
 		if req.SessionID == "" {
 			req.SessionID = "default"
@@ -421,10 +495,12 @@ func main() {
 					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock response")
 				}
 				fl.Flush()
+				runs.updateStatus(currentRun.ID, "completed", 0)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock response: " + req.Prompt})
+			runs.updateStatus(currentRun.ID, "completed", 0)
 			return
 		}
 
@@ -500,6 +576,7 @@ func main() {
 					fmt.Fprintf(w, "data: %q\n\n", "(error)")
 				}
 				fl.Flush()
+				runs.updateStatus(currentRun.ID, "failed", 0)
 				return
 			}
 			// send final event
@@ -507,6 +584,7 @@ func main() {
 			b, _ := json.Marshal(payload)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
+			runs.updateStatus(currentRun.ID, "completed", 0)
 			return
 		}
 
@@ -517,10 +595,12 @@ func main() {
 		if err != nil {
 			log.Error().Err(err).Msg("agent run error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
+			runs.updateStatus(currentRun.ID, "failed", 0)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
+		runs.updateStatus(currentRun.ID, "completed", 0)
 
 		// Add to conversation history
 		userMsg := llmpkg.Message{Role: "user", Content: req.Prompt}
@@ -569,6 +649,7 @@ func main() {
 
 		// If no API key configured, return a dev mock
 		if cfg.OpenAI.APIKey == "" {
+			vrun := runs.create("[vision] " + prompt)
 			if r.Header.Get("Accept") == "text/event-stream" {
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.Header().Set("Cache-Control", "no-cache")
@@ -579,10 +660,12 @@ func main() {
 					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock vision response")
 				}
 				fl.Flush()
+				runs.updateStatus(vrun.ID, "completed", 0)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock vision response: " + prompt})
+			runs.updateStatus(vrun.ID, "completed", 0)
 			return
 		}
 
@@ -630,10 +713,12 @@ func main() {
 			images = append(images, openaillm.ImageAttachment{MimeType: a.mime, Base64Data: a.b64})
 		}
 
+		vrun := runs.create("[vision] " + prompt)
 		out, err := llm.ChatWithImageAttachments(ctx, msgs, images, nil, cfg.OpenAI.Model)
 		if err != nil {
 			log.Error().Err(err).Msg("vision chat error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
+			runs.updateStatus(vrun.ID, "failed", 0)
 			return
 		}
 
@@ -650,10 +735,12 @@ func main() {
 			b, _ := json.Marshal(payload)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
+			runs.updateStatus(vrun.ID, "completed", 0)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": out.Content})
+		runs.updateStatus(vrun.ID, "completed", 0)
 	})
 
 	// POST /api/prompt accepts {"prompt":"..."} and runs the agent (for web UI compatibility)
@@ -695,6 +782,7 @@ func main() {
 
 		// If no OpenAI API key is configured, return a deterministic dev response
 		if cfg.OpenAI.APIKey == "" {
+			prun := runs.create(req.Prompt)
 			// Support SSE if requested
 			if r.Header.Get("Accept") == "text/event-stream" {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -706,10 +794,12 @@ func main() {
 					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock response")
 				}
 				fl.Flush()
+				runs.updateStatus(prun.ID, "completed", 0)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock response: " + req.Prompt})
+			runs.updateStatus(prun.ID, "completed", 0)
 			return
 		}
 
@@ -771,6 +861,7 @@ func main() {
 			}
 
 			// Run streaming engine
+			prun := runs.create(req.Prompt)
 			res, err := eng.RunStream(ctx, req.Prompt, nil)
 			if err != nil {
 				log.Error().Err(err).Msg("agent run error")
@@ -780,6 +871,7 @@ func main() {
 					fmt.Fprintf(w, "data: %q\n\n", "(error)")
 				}
 				fl.Flush()
+				runs.updateStatus(prun.ID, "failed", 0)
 				return
 			}
 			// send final event
@@ -787,20 +879,24 @@ func main() {
 			b, _ := json.Marshal(payload)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
+			runs.updateStatus(prun.ID, "completed", 0)
 			return
 		}
 
 		// Non-streaming path
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
+		prun := runs.create(req.Prompt)
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
 			log.Error().Err(err).Msg("agent run error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
+			runs.updateStatus(prun.ID, "failed", 0)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
+		runs.updateStatus(prun.ID, "completed", 0)
 	})
 
 	// Serve TTS audio files
@@ -936,22 +1032,4 @@ func main() {
 	}
 }
 
-func formatToolPayload(cmd string, args []string, res cli.ExecResult) string {
-	var b strings.Builder
-	if cmd != "" {
-		b.WriteString(fmt.Sprintf("$ %s %s\n", cmd, strings.Join(args, " ")))
-	}
-	b.WriteString(fmt.Sprintf("exit %d | ok=%v | %dms\n", res.ExitCode, res.OK, res.Duration))
-	if res.Truncated {
-		b.WriteString("(output truncated)\n")
-	}
-	if strings.TrimSpace(res.Stdout) != "" {
-		b.WriteString("\nstdout:\n")
-		b.WriteString(res.Stdout)
-	}
-	if strings.TrimSpace(res.Stderr) != "" {
-		b.WriteString("\nstderr:\n")
-		b.WriteString(res.Stderr)
-	}
-	return b.String()
-}
+// formatToolPayload helper is defined and used in internal/tui; no duplicate needed here.

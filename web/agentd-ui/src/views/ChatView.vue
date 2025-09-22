@@ -313,6 +313,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useQueryClient } from '@tanstack/vue-query'
 import { useRouter } from 'vue-router'
 import { streamAgentRun, streamAgentVisionRun, type ChatStreamEvent } from '@/api/chat'
 import type { ChatAttachment, ChatMessage, ChatSessionMeta, ChatRole } from '@/types/chat'
@@ -320,6 +321,7 @@ import { renderMarkdown } from '@/utils/markdown'
 import 'highlight.js/styles/github-dark-dimmed.css'
 
 const router = useRouter()
+const queryClient = useQueryClient()
 const isBrowser = typeof window !== 'undefined'
 const SCROLL_LOCK_THRESHOLD = 80
 
@@ -752,6 +754,12 @@ function handleStreamEvent(event: ChatStreamEvent, sessionId: string, assistantI
       }))
       if (text) {
         touchSession(sessionId, snippet(text))
+      }
+      // Refresh runs list so Runs view reflects completed runs
+      try {
+        queryClient.invalidateQueries({ queryKey: ['agent-runs'] })
+      } catch (e) {
+        // ignore if queryClient unavailable in some contexts
       }
       break
     }

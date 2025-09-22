@@ -8,18 +8,6 @@
         <div class="text-sm font-semibold text-foreground">
           {{ headerLabel }}
         </div>
-        <label class="mt-1 flex flex-col gap-1 text-[11px] text-muted-foreground">
-          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Tool</span>
-          <select
-            v-model="toolName"
-            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-          >
-            <option value="">(none)</option>
-            <option v-for="option in toolOptions" :key="option.name" :value="option.name">
-              {{ option.name }}
-            </option>
-          </select>
-        </label>
       </div>
       <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
         >#{{ orderLabel }}</span

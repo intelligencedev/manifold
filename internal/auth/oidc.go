@@ -13,13 +13,14 @@ import (
 )
 
 type OIDC struct {
-	Provider       *oidc.Provider
-	OAuth2Config   *oauth2.Config
-	Verifier       *oidc.IDTokenVerifier
-	Store          *Store
-	CookieName     string
-	AllowedDomains []string
-	StateTTL       time.Duration
+	Provider         *oidc.Provider
+	OAuth2Config     *oauth2.Config
+	Verifier         *oidc.IDTokenVerifier
+	Store            *Store
+	CookieName       string
+	AllowedDomains   []string
+	StateTTL         time.Duration
+	TempCookieSecure bool
 }
 
 type Claims struct {
@@ -29,7 +30,7 @@ type Claims struct {
 	// 'sub' provided by oidc.Verifier extraction
 }
 
-func NewOIDC(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, store *Store, cookieName string, allowedDomains []string, stateTTLSeconds int) (*OIDC, error) {
+func NewOIDC(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, store *Store, cookieName string, allowedDomains []string, stateTTLSeconds int, tempCookieSecure bool) (*OIDC, error) {
 	prov, err := oidc.NewProvider(ctx, issuer)
 	if err != nil {
 		return nil, err
@@ -49,7 +50,7 @@ func NewOIDC(ctx context.Context, issuer, clientID, clientSecret, redirectURL st
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
-	return &OIDC{Provider: prov, OAuth2Config: conf, Verifier: v, Store: store, CookieName: cookieName, AllowedDomains: allowedDomains, StateTTL: ttl}, nil
+	return &OIDC{Provider: prov, OAuth2Config: conf, Verifier: v, Store: store, CookieName: cookieName, AllowedDomains: allowedDomains, StateTTL: ttl, TempCookieSecure: tempCookieSecure}, nil
 }
 
 // LoginHandler begins the OIDC authorization code flow with PKCE.
@@ -59,9 +60,12 @@ func (o *OIDC) LoginHandler() http.HandlerFunc {
 		state, _ := randToken(16)
 		cv, _ := randToken(32)
 		cChallenge := pkceChallenge(cv)
-		// Save state+cv to short-lived cookies
-		setTempCookie(w, "oidc_state", state, o.StateTTL)
-		setTempCookie(w, "oidc_code_verifier", cv, o.StateTTL)
+		// Save state+cv to short-lived cookies. Honor HTTPS at runtime even if config says secure.
+		// If request is HTTP (no TLS and not forwarded as https), do not mark Secure to ensure browser sends it back.
+		https := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+		secure := o.TempCookieSecure && https
+		setTempCookie(w, "oidc_state", state, o.StateTTL, secure)
+		setTempCookie(w, "oidc_code_verifier", cv, o.StateTTL, secure)
 		// Build AuthCodeURL with PKCE
 		url := o.OAuth2Config.AuthCodeURL(state, oauth2.SetAuthURLParam("code_challenge", cChallenge), oauth2.SetAuthURLParam("code_challenge_method", "S256"))
 		http.Redirect(w, r, url, http.StatusFound)
@@ -199,10 +203,10 @@ func pkceChallenge(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
-func setTempCookie(w http.ResponseWriter, name, value string, ttl time.Duration) {
+func setTempCookie(w http.ResponseWriter, name, value string, ttl time.Duration, secure bool) {
 	http.SetCookie(w, &http.Cookie{
 		Name: name, Value: value, Path: "/",
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
 		Expires: time.Now().Add(ttl),
 	})
 }

@@ -281,7 +281,7 @@ func main() {
 		clientSecret := cfg.Auth.ClientSecret
 		redirectURL := cfg.Auth.RedirectURL
 		var errOIDC error
-		oidcAuth, errOIDC = auth.NewOIDC(context.Background(), issuer, clientID, clientSecret, redirectURL, authStore, cfg.Auth.CookieName, cfg.Auth.AllowedDomains, cfg.Auth.StateTTLSeconds)
+		oidcAuth, errOIDC = auth.NewOIDC(context.Background(), issuer, clientID, clientSecret, redirectURL, authStore, cfg.Auth.CookieName, cfg.Auth.AllowedDomains, cfg.Auth.StateTTLSeconds, cfg.Auth.CookieSecure)
 		if errOIDC != nil {
 			log.Fatal().Err(errOIDC).Msg("oidc init failed")
 		}

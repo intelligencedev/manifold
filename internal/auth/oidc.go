@@ -172,7 +172,12 @@ func (o *OIDC) LogoutHandler(cookieSecure bool, cookieDomain string) http.Handle
 			SameSite: http.SameSiteLaxMode,
 			Domain:   cookieDomain,
 		})
-		w.WriteHeader(http.StatusNoContent)
+		// Redirect to next (if provided) or login page
+		next := r.URL.Query().Get("next")
+		if next == "" {
+			next = "/auth/login"
+		}
+		http.Redirect(w, r, next, http.StatusFound)
 	}
 }
 

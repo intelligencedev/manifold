@@ -120,7 +120,7 @@
               <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"></span>
               Streaming
             </span>
-            <span v-if="message.error" class="rounded bg-danger/20 px-2 py-0.5 text-[11px] text-danger-foreground">
+            <span v-if="message.error" class="rounded bg-danger px-2 py-0.5 text-[11px] text-danger-foreground font-semibold">
               {{ message.error }}
             </span>
           </header>
@@ -277,7 +277,7 @@
                 </span>
                 <span
                   v-if="tool.error"
-                  class="rounded bg-danger/20 px-2 py-0.5 text-danger-foreground"
+                  class="rounded bg-danger px-2 py-0.5 text-danger-foreground font-semibold"
                 >
                   {{ tool.error }}
                 </span>

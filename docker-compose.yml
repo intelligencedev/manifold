@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  app-postgres:
+    image: postgres:15-alpine
+    container_name: sio_app_postgres
+    environment:
+      POSTGRES_DB: singularityio
+      POSTGRES_USER: singularityio
+      POSTGRES_PASSWORD: singularityio
+    ports:
+      - "5433:5432"
+    volumes:
+      - app_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U singularityio -d singularityio"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: sio_zookeeper
@@ -93,12 +110,13 @@ services:
       KC_HOSTNAME_STRICT: "false"
     command: ["start-dev", "--import-realm"]
     ports:
-      - "8080:8080" # Keycloak
+      - "8083:8080" # Keycloak (host 8083 to avoid conflicts)
     volumes:
       - keycloak_data:/opt/keycloak/data
       - ./configs/keycloak:/opt/keycloak/data/import:ro
     restart: unless-stopped
 
 volumes:
+  app_pg_data:
   keycloak_db_data:
   keycloak_data:

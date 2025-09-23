@@ -223,20 +223,20 @@
                 @click="fileInput?.click()">
                 Attach
               </button>
+              <!-- Single button that toggles between Send and Stop -->
               <button
-                v-if="isStreaming"
                 type="button"
-                class="rounded-4 border border-danger/70 px-3 py-2 font-semibold text-danger-foreground transition hover:border-danger hover:text-danger-foreground"
-                @click="stopStreaming"
+                :class="[
+                  'px-4 py-2 font-semibold rounded-4',
+                  isStreaming
+                    ? 'bg-danger text-danger-foreground hover:bg-danger/90'
+                    : 'bg-accent text-accent-foreground transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50'
+                ]"
+                @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
+                :disabled="!isStreaming && (!draft.trim() && !pendingAttachments.length)"
               >
-                Stop
-              </button>
-              <button
-                type="submit"
-                class="rounded-4 bg-accent px-4 py-2 font-semibold text-accent-foreground transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
-                :disabled="(!draft.trim() && !pendingAttachments.length) || isStreaming"
-              >
-                Send
+                <span v-if="isStreaming">Stop</span>
+                <span v-else>Send</span>
               </button>
             </div>
           </div>

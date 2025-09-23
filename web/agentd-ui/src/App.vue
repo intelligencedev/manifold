@@ -1,8 +1,18 @@
 <template>
   <div class="flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
     <header class="border-b border-border/70 bg-surface/70 backdrop-blur">
-  <div class="mx-auto flex max-w-7xl items-center justify-between px-2 py-2">
-          <nav class="hidden gap-4 text-sm font-medium md:flex">
+  <!-- Use a 3-column grid so left is flush left, center is perfectly centered, and right is flush right -->
+  <div class="relative w-full grid grid-cols-[1fr_auto_1fr] items-center px-0 py-2 px-4">
+          <!-- Left: logo (flush left) -->
+          <div class="flex items-center gap-3 justify-self-start">
+            <img :src="manifoldLogo" alt="Manifold logo" class="h-12 w-12 rounded-lg object-contain" />
+            <div>
+              <p class="text-lg font-semibold">Manifold</p>
+            </div>
+          </div>
+
+          <!-- Center: nav (perfectly centered via grid middle column) -->
+          <nav class="hidden md:flex gap-4 justify-self-center text-sm font-medium">
           <RouterLink
             v-for="item in navigation"
             :key="item.to"
@@ -13,13 +23,9 @@
             {{ item.label }}
           </RouterLink>
           </nav>
-          <div class="flex items-center gap-3">
-            <img :src="manifoldLogo" alt="Manifold logo" class="h-12 w-12 rounded-lg object-contain" />
-            <div>
-              <p class="text-lg font-semibold">Manifold</p>
-            </div>
-          </div>
-          <div class="relative z-40 flex items-center gap-2 ml-auto">
+
+          <!-- Right: controls (flush right) -->
+          <div class="relative z-40 flex items-center gap-2 justify-self-end">
           <span class="hidden items-center gap-2 text-sm text-subtle-foreground sm:flex">
             <span class="h-2.5 w-2.5 rounded-full bg-success"></span>
             Online

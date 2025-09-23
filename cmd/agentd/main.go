@@ -29,6 +29,7 @@ import (
 	openaillm "intelligence.dev/internal/llm/openai"
 	"intelligence.dev/internal/mcpclient"
 	"intelligence.dev/internal/observability"
+	persist "intelligence.dev/internal/persistence"
 	"intelligence.dev/internal/persistence/databases"
 	"intelligence.dev/internal/specialists"
 	"intelligence.dev/internal/tools"
@@ -317,6 +318,209 @@ func main() {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(runs.list())
+	})
+
+	// Specialists store: prefer Postgres if configured, else memory
+	var specStore persist.SpecialistsStore
+	{
+		// Use default DB DSN if available
+		var pg *pgxpool.Pool
+		if cfg.Databases.DefaultDSN != "" {
+			if p, err := databasesTestPool(context.Background(), cfg.Databases.DefaultDSN); err == nil {
+				pg = p
+			}
+		}
+		specStore = databases.NewSpecialistsStore(pg)
+		_ = specStore.Init(context.Background())
+		// Seed from YAML only if the store is empty or missing entries
+		if list, err := specStore.List(context.Background()); err == nil {
+			existing := map[string]bool{}
+			for _, s := range list {
+				existing[s.Name] = true
+			}
+			for _, sc := range cfg.Specialists {
+				if sc.Name == "" {
+					continue
+				}
+				if existing[sc.Name] {
+					continue
+				}
+				_, _ = specStore.Upsert(context.Background(), persist.Specialist{
+					Name: sc.Name, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
+					EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
+					ReasoningEffort: sc.ReasoningEffort, System: sc.System,
+					ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
+				})
+			}
+		}
+		// Ensure registry reflects persisted store on startup
+		if list, err := specStore.List(context.Background()); err == nil {
+			specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+		}
+	}
+
+	// Status endpoint: reflect specialists as agents for UI
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		type agent struct {
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			State     string `json:"state"`
+			Model     string `json:"model"`
+			UpdatedAt string `json:"updatedAt"`
+		}
+		list, _ := specStore.List(r.Context())
+		out := make([]agent, 0, len(list))
+		now := time.Now().UTC().Format(time.RFC3339)
+		for _, s := range list {
+			if s.Paused {
+				continue
+			}
+			state := "online"
+			out = append(out, agent{ID: s.Name, Name: s.Name, State: state, Model: s.Model, UpdatedAt: now})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
+	})
+
+	// Specialists CRUD: list/create/update/delete/pause
+	mux.HandleFunc("/api/specialists", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+		switch r.Method {
+		case http.MethodGet:
+			list, err := specStore.List(r.Context())
+			if err != nil {
+				http.Error(w, "error", http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(list)
+		case http.MethodPost:
+			// admin-only when auth enabled
+			if cfg.Auth.Enabled {
+				if u, ok := auth.CurrentUser(r.Context()); ok {
+					okRole, err := authStore.HasRole(r.Context(), u.ID, "admin")
+					if err != nil || !okRole {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+				} else {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			defer r.Body.Close()
+			var sp persist.Specialist
+			if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			saved, err := specStore.Upsert(r.Context(), sp)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			// Rebuild registry after change
+			if list, err := specStore.List(r.Context()); err == nil {
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+			}
+			json.NewEncoder(w).Encode(saved)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+	mux.HandleFunc("/api/specialists/", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		name := strings.TrimPrefix(r.URL.Path, "/api/specialists/")
+		name = strings.TrimSpace(name)
+		if name == "" {
+			http.NotFound(w, r)
+			return
+		}
+		// admin-only for mutating
+		isAdmin := true
+		if cfg.Auth.Enabled {
+			isAdmin = false
+			if u, ok := auth.CurrentUser(r.Context()); ok {
+				okRole, err := authStore.HasRole(r.Context(), u.ID, "admin")
+				if err == nil && okRole {
+					isAdmin = true
+				}
+			}
+		}
+		switch r.Method {
+		case http.MethodGet:
+			sp, ok, _ := specStore.GetByName(r.Context(), name)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(sp)
+		case http.MethodPut:
+			if !isAdmin {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			defer r.Body.Close()
+			var sp persist.Specialist
+			if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			sp.Name = name // enforce path name
+			saved, err := specStore.Upsert(r.Context(), sp)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(saved)
+			if list, err := specStore.List(r.Context()); err == nil {
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+			}
+		case http.MethodDelete:
+			if !isAdmin {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if err := specStore.Delete(r.Context(), name); err != nil {
+				http.Error(w, "error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			if list, err := specStore.List(r.Context()); err == nil {
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+			}
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	// Simple in-process metrics endpoint for web UI token graph.
@@ -1174,3 +1378,17 @@ func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 }
 
 // formatToolPayload helper is defined and used in internal/tui; no duplicate needed here.
+
+// specialistsFromStore converts persisted specialists to config structs
+func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
+	out := make([]config.SpecialistConfig, 0, len(list))
+	for _, s := range list {
+		out = append(out, config.SpecialistConfig{
+			Name: s.Name, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
+			EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,
+			ReasoningEffort: s.ReasoningEffort, System: s.System,
+			ExtraHeaders: s.ExtraHeaders, ExtraParams: s.ExtraParams,
+		})
+	}
+	return out
+}

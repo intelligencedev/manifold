@@ -32,3 +32,43 @@ export async function fetchAgentRuns(): Promise<AgentRun[]> {
   const response = await apiClient.get<AgentRun[]>('/runs')
   return response.data
 }
+
+// Specialists CRUD
+export interface Specialist {
+  id?: number
+  name: string
+  baseURL: string
+  apiKey?: string
+  model: string
+  enableTools: boolean
+  paused: boolean
+  allowTools?: string[]
+  reasoningEffort?: 'low' | 'medium' | 'high' | ''
+  system?: string
+  extraHeaders?: Record<string, string>
+  extraParams?: Record<string, any>
+}
+
+export async function listSpecialists(): Promise<Specialist[]> {
+  const { data } = await apiClient.get<Specialist[]>('/specialists')
+  return data
+}
+
+export async function getSpecialist(name: string): Promise<Specialist> {
+  const { data } = await apiClient.get<Specialist>(`/specialists/${encodeURIComponent(name)}`)
+  return data
+}
+
+export async function upsertSpecialist(sp: Specialist): Promise<Specialist> {
+  // POST for create, PUT for update by name
+  if (sp.name && sp.id == null) {
+    const { data } = await apiClient.post<Specialist>('/specialists', sp)
+    return data
+  }
+  const { data } = await apiClient.put<Specialist>(`/specialists/${encodeURIComponent(sp.name)}`, sp)
+  return data
+}
+
+export async function deleteSpecialist(name: string): Promise<void> {
+  await apiClient.delete(`/specialists/${encodeURIComponent(name)}`)
+}

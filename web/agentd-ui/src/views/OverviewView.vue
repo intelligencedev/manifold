@@ -16,7 +16,7 @@
       <div class="lg:col-span-2 space-y-6">
         <div class="flex items-center justify-between">
           <h2 class="text-lg font-semibold text-foreground">Agents</h2>
-          <button class="text-sm font-semibold text-accent hover:text-accent/80">Manage</button>
+          <RouterLink to="/specialists" class="text-sm font-semibold text-accent hover:text-accent/80">Manage</RouterLink>
         </div>
         <div class="grid gap-4 md:grid-cols-2">
           <AgentCard v-for="agent in agents" :key="agent.id" :agent="agent" />
@@ -51,6 +51,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
 import { fetchAgentRuns, fetchAgentStatus } from '@/api/client'
 import AgentCard from '@/components/AgentCard.vue'
@@ -83,7 +84,7 @@ const headlineStats = computed(() => [
   {
     label: 'Active Agents',
     value: agents.value.length,
-    helper: 'Online processes streaming completions',
+    helper: 'Configured specialists currently active',
   },
   {
     label: 'Runs Today',

@@ -94,6 +94,8 @@ type SpecialistConfig struct {
 	APIKey      string `yaml:"apiKey" json:"apiKey"`
 	Model       string `yaml:"model" json:"model"`
 	EnableTools bool   `yaml:"enableTools" json:"enableTools"`
+	// Paused specialists are ignored by the orchestrator and not exposed to tools.
+	Paused bool `yaml:"paused" json:"paused"`
 	// AllowTools is an optional allow-list of tool names exposed to this specialist.
 	// If empty, all tools are exposed (subject to EnableTools). If non-empty, only
 	// listed tools will be included in the tool schema and available for dispatch.

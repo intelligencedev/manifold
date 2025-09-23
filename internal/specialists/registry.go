@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"intelligence.dev/internal/config"
 	"intelligence.dev/internal/llm"
@@ -30,6 +31,7 @@ type Agent struct {
 
 // Registry holds addressable specialists by name.
 type Registry struct {
+	mu     sync.RWMutex
 	agents map[string]*Agent
 }
 
@@ -37,8 +39,20 @@ type Registry struct {
 // The base OpenAI config is used as a default for API key/model unless
 // overridden per specialist.
 func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) *Registry {
+	reg := &Registry{agents: make(map[string]*Agent, len(list))}
+	reg.ReplaceFromConfigs(base, list, httpClient, toolsReg)
+	return reg
+}
+
+// ReplaceFromConfigs rebuilds the registry from configs (skips paused specialists).
+func (r *Registry) ReplaceFromConfigs(base config.OpenAIConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	agents := make(map[string]*Agent, len(list))
 	for _, sc := range list {
+		if sc.Paused {
+			continue
+		}
 		// Derive OpenAI cfg for the specialist
 		oc := config.OpenAIConfig{
 			APIKey:  firstNonEmpty(sc.APIKey, base.APIKey),
@@ -79,11 +93,13 @@ func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpC
 			agents[a.Name] = a
 		}
 	}
-	return &Registry{agents: agents}
+	r.agents = agents
 }
 
 // Names returns sorted agent names.
 func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]string, 0, len(r.agents))
 	for k := range r.agents {
 		out = append(out, k)
@@ -98,7 +114,12 @@ func (r *Registry) Names() []string {
 }
 
 // Get returns the named specialist.
-func (r *Registry) Get(name string) (*Agent, bool) { a, ok := r.agents[name]; return a, ok }
+func (r *Registry) Get(name string) (*Agent, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	a, ok := r.agents[name]
+	return a, ok
+}
 
 // Inference performs a single-turn completion with optional history.
 // If tools are disabled, no tool schema is sent at all.

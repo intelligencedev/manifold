@@ -77,6 +77,9 @@ type OpenAIConfig struct {
 	APIKey  string
 	Model   string
 	BaseURL string
+	// API selects which OpenAI-compatible API surface to use for chat: "completions" or "responses".
+	// Defaults to "completions" if empty or unrecognized.
+	API string `yaml:"api" json:"api"`
 	// ExtraHeaders are added to every main agent HTTP request.
 	ExtraHeaders map[string]string
 	// ExtraParams are merged into the chat completions request for the main agent.
@@ -89,10 +92,12 @@ type OpenAIConfig struct {
 // OpenAI-compatible endpoint and model. It can optionally specify a different
 // API key and base URL than the default OpenAI config.
 type SpecialistConfig struct {
-	Name        string `yaml:"name" json:"name"`
-	BaseURL     string `yaml:"baseURL" json:"baseURL"`
-	APIKey      string `yaml:"apiKey" json:"apiKey"`
-	Model       string `yaml:"model" json:"model"`
+	Name    string `yaml:"name" json:"name"`
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	APIKey  string `yaml:"apiKey" json:"apiKey"`
+	Model   string `yaml:"model" json:"model"`
+	// API, when set, overrides which API surface to use for this specialist: "completions" or "responses".
+	API         string `yaml:"api" json:"api"`
 	EnableTools bool   `yaml:"enableTools" json:"enableTools"`
 	// Paused specialists are ignored by the orchestrator and not exposed to tools.
 	Paused bool `yaml:"paused" json:"paused"`

@@ -58,6 +58,7 @@ func (r *Registry) ReplaceFromConfigs(base config.OpenAIConfig, list []config.Sp
 			APIKey:  firstNonEmpty(sc.APIKey, base.APIKey),
 			Model:   firstNonEmpty(sc.Model, base.Model),
 			BaseURL: firstNonEmpty(sc.BaseURL, base.BaseURL),
+			API:     firstNonEmpty(sc.API, base.API),
 		}
 		// Build per-specialist HTTP client with extra headers if provided
 		hc := httpClient

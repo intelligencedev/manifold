@@ -1,4 +1,12 @@
 openai:
+  # Which API to use for inference against an OpenAI-compatible service.
+  # Valid options: "completions" (default) or "responses".
+  # You can also set via environment variable OPENAI_API.
+  api: completions
+  # Optional: override the API base URL; leave unset for api.openai.com
+  # baseURL: "https://api.openai.com/v1"
+  # Default model for the main agent
+  # model: gpt-4o-mini
   # Optional: request-wide headers for the main agent. These headers will be
   # sent on every request to the LLM provider when the agent invokes it.
   # Example: { X-App-Tenant: example }
@@ -105,6 +113,8 @@ web:
 specialists:
   - name: software_engineer
     baseURL: "https://api.openai.com/v1"
+    # Per-specialist override. Valid values: completions | responses
+    api: responses
     apiKey: ${OPENAI_API_KEY}
     model: gpt-5
     enableTools: true

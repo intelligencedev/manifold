@@ -11,6 +11,8 @@ import (
 
 	sdk "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
+	rs "github.com/openai/openai-go/v2/responses"
+	"github.com/openai/openai-go/v2/shared"
 
 	"intelligence.dev/internal/config"
 	"intelligence.dev/internal/llm"
@@ -24,6 +26,7 @@ type Client struct {
 	logPayloads bool
 	baseURL     string
 	httpClient  *http.Client
+	api         string // "completions" (default) or "responses"
 }
 
 // ImageAttachment represents a single image attachment to include in a user message.
@@ -45,7 +48,11 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads, baseURL: c.BaseURL, httpClient: httpClient}
+	api := strings.ToLower(strings.TrimSpace(c.API))
+	if api == "" {
+		api = "completions"
+	}
+	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads, baseURL: c.BaseURL, httpClient: httpClient, api: api}
 }
 
 // isSelfHosted returns true when we should use the fallback /tokenize endpoint
@@ -155,8 +162,64 @@ func sanitizeToolSchemas(src []llm.ToolSchema) []llm.ToolSchema {
 	return out
 }
 
+// ensureStrictJSONSchema enforces additionalProperties:false wherever a schema
+// object is present. This matches stricter validation requirements of
+// the Responses API for function tool parameters.
+func ensureStrictJSONSchema(in any) any {
+	switch v := in.(type) {
+	case map[string]any:
+		// If it looks like an object schema (has properties or type==object), force additionalProperties:false
+		// Also ensure type: object is present when properties exist.
+		if v["type"] == "object" || v["properties"] != nil || v["required"] != nil {
+			v["additionalProperties"] = false
+			if _, hasType := v["type"]; !hasType && v["properties"] != nil {
+				v["type"] = "object"
+			}
+		}
+		// Recurse into known schema containers
+		if props, ok := v["properties"].(map[string]any); ok {
+			for k, child := range props {
+				props[k] = ensureStrictJSONSchema(child)
+			}
+			v["properties"] = props
+		}
+		if items, ok := v["items"]; ok {
+			v["items"] = ensureStrictJSONSchema(items)
+		}
+		if allOf, ok := v["allOf"].([]any); ok {
+			for i, child := range allOf {
+				allOf[i] = ensureStrictJSONSchema(child)
+			}
+			v["allOf"] = allOf
+		}
+		if anyOf, ok := v["anyOf"].([]any); ok {
+			for i, child := range anyOf {
+				anyOf[i] = ensureStrictJSONSchema(child)
+			}
+			v["anyOf"] = anyOf
+		}
+		if oneOf, ok := v["oneOf"].([]any); ok {
+			for i, child := range oneOf {
+				oneOf[i] = ensureStrictJSONSchema(child)
+			}
+			v["oneOf"] = oneOf
+		}
+		return v
+	case []any:
+		for i, child := range v {
+			v[i] = ensureStrictJSONSchema(child)
+		}
+		return v
+	default:
+		return in
+	}
+}
+
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if strings.EqualFold(c.api, "responses") {
+		return c.chatResponses(ctx, msgs, tools, model, nil)
+	}
 	log := observability.LoggerWithTrace(ctx)
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
@@ -282,6 +345,9 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 //   - inject provider-specific extra fields (e.g., reasoning_effort)
 //     via params.WithExtraField.
 func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
+	if strings.EqualFold(c.api, "responses") {
+		return c.chatResponses(ctx, msgs, tools, model, extra)
+	}
 	log := observability.LoggerWithTrace(ctx)
 	// Tracing and prompt logging
 	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatWithOptions", firstNonEmpty(model, c.model), len(tools), len(msgs))
@@ -397,6 +463,9 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 
 // ChatStream implements streaming chat completions using OpenAI's streaming API.
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	if strings.EqualFold(c.api, "responses") {
+		return c.chatStreamResponses(ctx, msgs, tools, model, h)
+	}
 	log := observability.LoggerWithTrace(ctx)
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
@@ -804,4 +873,321 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// =============== Responses API adapters and implementations ===============
+
+// adaptResponsesTools converts llm.ToolSchema to Responses ToolUnionParam slice.
+func adaptResponsesTools(schemas []llm.ToolSchema) []rs.ToolUnionParam {
+	out := make([]rs.ToolUnionParam, 0, len(schemas))
+	for _, s := range schemas {
+		params := s.Parameters
+		if params != nil {
+			params = ensureStrictJSONSchema(params).(map[string]any)
+		}
+		fn := rs.FunctionToolParam{
+			Name:       s.Name,
+			Parameters: params,
+			// Use non-strict mode to avoid Responses API requirement that
+			// "required" must list every key in properties. This preserves
+			// optional fields like args/stdin/timeout_seconds on tools such as run_cli.
+			Strict:      sdk.Bool(false),
+			Description: sdk.String(s.Description),
+		}
+		out = append(out, rs.ToolUnionParam{OfFunction: &fn})
+	}
+	return out
+}
+
+// adaptResponsesInput builds the Responses Input item list and returns any combined instructions.
+func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instructions string) {
+	items = make([]rs.ResponseInputItemUnionParam, 0, len(msgs))
+	var sys []string
+	for _, m := range msgs {
+		switch m.Role {
+		case "system":
+			if strings.TrimSpace(m.Content) != "" {
+				sys = append(sys, m.Content)
+			}
+		case "user":
+			content := strings.TrimSpace(m.Content)
+			if content == "" {
+				content = " "
+			}
+			part := rs.ResponseInputContentParamOfInputText(content)
+			items = append(items, rs.ResponseInputItemUnionParam{OfInputMessage: &rs.ResponseInputItemMessageParam{
+				Content: rs.ResponseInputMessageContentListParam{part},
+				Role:    "user",
+			}})
+		case "assistant":
+			// If the assistant provided tool calls previously, include those calls so the model has context.
+			if len(m.ToolCalls) > 0 {
+				for _, tc := range m.ToolCalls {
+					callID := tc.ID
+					args := string(tc.Args)
+					items = append(items, rs.ResponseInputItemParamOfFunctionCall(args, callID, tc.Name))
+				}
+			}
+			// We generally omit plain assistant text as an input message for Responses API.
+		case "tool":
+			// Map tool outputs to function_call_output items
+			out := strings.TrimSpace(m.Content)
+			if out == "" {
+				out = "{}"
+			}
+			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(m.ToolID, out))
+		}
+	}
+	if len(sys) > 0 {
+		instructions = strings.Join(sys, "\n\n")
+	}
+	return items, instructions
+}
+
+// chatResponses handles non-streaming chat via the Responses API.
+func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
+	log := observability.LoggerWithTrace(ctx)
+	// Tracing and prompt logging
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Chat", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	params := rs.ResponseNewParams{
+		Model: rs.ResponsesModel(firstNonEmpty(model, c.model)),
+	}
+	// Build input and instructions
+	input, instr := adaptResponsesInput(msgs)
+	if len(input) > 0 {
+		params.Input.OfInputItemList = input
+	}
+	if strings.TrimSpace(instr) != "" {
+		params.Instructions = sdk.String(instr)
+	}
+	// Tools
+	if len(tools) > 0 {
+		if c.isSelfHosted() {
+			params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = adaptResponsesTools(tools)
+		}
+	}
+	// Merge extra params
+	if len(c.extra) > 0 || len(extra) > 0 {
+		merged := make(map[string]any, len(c.extra)+len(extra))
+		for k, v := range c.extra {
+			merged[k] = v
+		}
+		for k, v := range extra {
+			merged[k] = v
+		}
+		// Remove tool-specific flags when no tools are present
+		if len(tools) == 0 {
+			delete(merged, "parallel_tool_calls")
+		}
+		// Map common reasoning_effort string to typed field if provided
+		if v, ok := merged["reasoning_effort"].(string); ok && v != "" {
+			params.Reasoning.Effort = shared.ReasoningEffort(v)
+			// Keep original extra too for back-compat with proxies, but it's safe to leave
+		}
+		params.SetExtraFields(merged)
+	}
+
+	start := time.Now()
+	resp, err := c.sdk.Responses.New(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("responses_error")
+		span.RecordError(err)
+		return llm.Message{}, err
+	}
+
+	// Prepare assistant output
+	out := llm.Message{Role: "assistant", Content: resp.OutputText()}
+	// Extract tool calls from output items if any
+	for _, it := range resp.Output {
+		if fn := it.AsFunctionCall(); fn.Name != "" || fn.CallID != "" || fn.Arguments != "" {
+			id := fn.CallID
+			if id == "" {
+				id = fn.ID
+			}
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: fn.Name,
+				Args: json.RawMessage(fn.Arguments),
+				ID:   id,
+			})
+		}
+		if ct := it.AsCustomToolCall(); ct.Name != "" || ct.CallID != "" || ct.Input != "" {
+			// Map custom tool call as well, using input as args
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: ct.Name,
+				Args: json.RawMessage(ct.Input),
+				ID:   ct.CallID,
+			})
+		}
+	}
+
+	// Usage / token metrics
+	promptTokens := int(resp.Usage.InputTokens)
+	completionTokens := int(resp.Usage.OutputTokens)
+	totalTokens := int(resp.Usage.TotalTokens)
+
+	f := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs))
+	f = f.Int("prompt_tokens", promptTokens).
+		Int("completion_tokens", completionTokens).
+		Int("total_tokens", totalTokens)
+	// Attempt to surface nested details
+	f = f.Int("prompt_tokens_details_cached_tokens", int(resp.Usage.InputTokensDetails.CachedTokens)).
+		Int("completion_tokens_details_reasoning_tokens", int(resp.Usage.OutputTokensDetails.ReasoningTokens))
+	fields := f.Logger()
+	fields.Debug().Msg("responses_ok")
+
+	if c.isSelfHosted() {
+		// Override counts by re-tokenizing prompt and assistant content
+		p := c.tokenizeCount(ctx, buildPromptText(msgs))
+		a := c.tokenizeCount(ctx, out.Content)
+		llm.RecordTokenAttributes(span, p, a, p+a)
+		llm.RecordTokenMetrics(string(params.Model), p, a)
+	} else {
+		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+	}
+	llm.LogRedactedResponse(ctx, map[string]any{"output_text_len": len(out.Content), "tool_calls": len(out.ToolCalls)})
+
+	return out, nil
+}
+
+// chatStreamResponses streams output via the Responses API.
+func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	log := observability.LoggerWithTrace(ctx)
+	// Tracing / prompt
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses ChatStream", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	params := rs.ResponseNewParams{Model: rs.ResponsesModel(firstNonEmpty(model, c.model))}
+	in, instr := adaptResponsesInput(msgs)
+	if len(in) > 0 {
+		params.Input.OfInputItemList = in
+	}
+	if strings.TrimSpace(instr) != "" {
+		params.Instructions = sdk.String(instr)
+	}
+	if len(tools) > 0 {
+		if c.isSelfHosted() {
+			params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = adaptResponsesTools(tools)
+		}
+	}
+	if len(c.extra) > 0 {
+		merged := make(map[string]any, len(c.extra))
+		for k, v := range c.extra {
+			merged[k] = v
+		}
+		if len(tools) == 0 {
+			delete(merged, "parallel_tool_calls")
+		}
+		if v, ok := merged["reasoning_effort"].(string); ok && v != "" {
+			params.Reasoning.Effort = shared.ReasoningEffort(v)
+		}
+		params.SetExtraFields(merged)
+	}
+
+	start := time.Now()
+	stream := c.sdk.Responses.NewStreaming(ctx, params)
+	defer func() { _ = stream.Close() }()
+
+	// Accumulate function call info per output index
+	type callAcc struct {
+		name string
+		id   string // call_id preferred
+		args strings.Builder
+		done bool
+	}
+	acc := map[int64]*callAcc{}
+
+	// Token usage
+	var promptTokens, completionTokens, totalTokens int
+	// Assistant content for self-hosted tokenization
+	var assistantContent strings.Builder
+
+	for stream.Next() {
+		ev := stream.Current()
+		switch v := ev.AsAny().(type) {
+		case rs.ResponseTextDeltaEvent:
+			if v.Delta != "" {
+				h.OnDelta(v.Delta)
+				assistantContent.WriteString(v.Delta)
+			}
+		case rs.ResponseOutputItemAddedEvent:
+			// Capture function call metadata early
+			if fn := v.Item.AsFunctionCall(); fn.Name != "" || fn.CallID != "" || fn.Arguments != "" {
+				ca := acc[v.OutputIndex]
+				if ca == nil {
+					ca = &callAcc{}
+					acc[v.OutputIndex] = ca
+				}
+				ca.name = fn.Name
+				ca.id = fn.CallID
+				if ca.id == "" {
+					ca.id = fn.ID
+				}
+			}
+		case rs.ResponseOutputItemDoneEvent:
+			// Nothing special; metadata already handled
+			_ = v
+		case rs.ResponseFunctionCallArgumentsDeltaEvent:
+			ca := acc[v.OutputIndex]
+			if ca == nil {
+				ca = &callAcc{}
+				acc[v.OutputIndex] = ca
+			}
+			if v.Delta != "" {
+				ca.args.WriteString(v.Delta)
+			}
+		case rs.ResponseFunctionCallArgumentsDoneEvent:
+			ca := acc[v.OutputIndex]
+			if ca != nil && !ca.done {
+				ca.done = true
+				// Emit tool call
+				h.OnToolCall(llm.ToolCall{
+					Name: ca.name,
+					Args: json.RawMessage(ca.args.String()),
+					ID:   ca.id,
+				})
+			}
+		case rs.ResponseCompletedEvent:
+			// Capture usage
+			promptTokens = int(v.Response.Usage.InputTokens)
+			completionTokens = int(v.Response.Usage.OutputTokens)
+			totalTokens = int(v.Response.Usage.TotalTokens)
+		}
+	}
+
+	err := stream.Err()
+	dur := time.Since(start)
+	base := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).
+		Int("prompt_tokens", promptTokens).Int("completion_tokens", completionTokens).Int("total_tokens", totalTokens).Logger()
+	if err != nil {
+		base.Error().Err(err).Msg("responses_stream_error")
+		span.RecordError(err)
+	} else {
+		if c.isSelfHosted() {
+			p := c.tokenizeCount(ctx, buildPromptText(msgs))
+			a := c.tokenizeCount(ctx, assistantContent.String())
+			llm.RecordTokenAttributes(span, p, a, p+a)
+			if p > 0 || a > 0 {
+				llm.RecordTokenMetrics(string(params.Model), p, a)
+			}
+			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": p, "completion_tokens": a, "total_tokens": p + a})
+		} else {
+			llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+			if promptTokens > 0 || completionTokens > 0 {
+				llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+			}
+			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
+		}
+		base.Debug().Msg("responses_stream_ok")
+	}
+	return err
 }

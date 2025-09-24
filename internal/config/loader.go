@@ -26,6 +26,8 @@ func Load() (Config, error) {
 	cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
 	// Allow overriding API base via env (useful for proxies/self-hosted gateways)
 	cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
+	// Allow selecting API surface ("completions" or "responses"). Defaults later.
+	cfg.OpenAI.API = strings.TrimSpace(os.Getenv("OPENAI_API"))
 	cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
 	cfg.LogPath = strings.TrimSpace(os.Getenv("LOG_PATH"))
 	cfg.LogLevel = strings.TrimSpace(os.Getenv("LOG_LEVEL"))
@@ -135,6 +137,10 @@ func Load() (Config, error) {
 	// Apply defaults after merging YAML
 	if cfg.OpenAI.Model == "" {
 		cfg.OpenAI.Model = "gpt-4o-mini"
+	}
+	// Default API surface to completions when absent or invalid
+	if cfg.OpenAI.API == "" {
+		cfg.OpenAI.API = "completions"
 	}
 	if cfg.Obs.ServiceName == "" {
 		cfg.Obs.ServiceName = "intelligence.dev"
@@ -285,6 +291,7 @@ func loadSpecialists(cfg *Config) error {
 		APIKey       string            `yaml:"apiKey"`
 		Model        string            `yaml:"model"`
 		BaseURL      string            `yaml:"baseURL"`
+		API          string            `yaml:"api"`
 		ExtraHeaders map[string]string `yaml:"extraHeaders"`
 		ExtraParams  map[string]any    `yaml:"extraParams"`
 		LogPayloads  bool              `yaml:"logPayloads"`
@@ -415,6 +422,9 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.OpenAI.BaseURL == "" && strings.TrimSpace(w.OpenAI.BaseURL) != "" {
 			cfg.OpenAI.BaseURL = strings.TrimSpace(w.OpenAI.BaseURL)
+		}
+		if cfg.OpenAI.API == "" && strings.TrimSpace(w.OpenAI.API) != "" {
+			cfg.OpenAI.API = strings.TrimSpace(w.OpenAI.API)
 		}
 		// Workdir and others only if empty
 		if cfg.Workdir == "" && strings.TrimSpace(w.Workdir) != "" {

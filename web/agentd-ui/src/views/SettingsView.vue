@@ -77,14 +77,6 @@
         </div>
       </section>
 
-      <section class="rounded-2xl border border-border/70 bg-surface p-6">
-        <h2 class="text-lg font-semibold text-foreground">Development proxy</h2>
-        <p class="mt-2 text-sm text-subtle-foreground">
-          When running <code>pnpm dev</code> you can point the UI at a remote or staging agent by
-          setting <code>VITE_DEV_SERVER_PROXY</code> in <code>.env.local</code>.
-        </p>
-      </section>
-
       <section v-if="isAdmin" class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
         <header class="space-y-1">
           <h2 class="text-lg font-semibold text-foreground">Users</h2>

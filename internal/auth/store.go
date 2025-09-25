@@ -51,11 +51,17 @@ CREATE TABLE IF NOT EXISTS user_roles (
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  expires_at TIMESTAMPTZ NOT NULL,
+	expires_at TIMESTAMPTZ NOT NULL,
+	id_token TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// Ensure id_token column exists on sessions for RP-initiated logout
+	_, _ = s.pool.Exec(ctx, `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS id_token TEXT NOT NULL DEFAULT ''`)
+	return nil
 }
 
 // EnsureDefaultRoles seeds common roles if missing.
@@ -232,7 +238,7 @@ func (s *Store) CreateSession(ctx context.Context, userID int64) (*Session, erro
 		return nil, err
 	}
 	sess := &Session{ID: id, UserID: userID, ExpiresAt: time.Now().Add(s.sessionTTL)}
-	_, err = s.pool.Exec(ctx, `INSERT INTO sessions(id, user_id, expires_at) VALUES($1,$2,$3)`, sess.ID, sess.UserID, sess.ExpiresAt)
+	_, err = s.pool.Exec(ctx, `INSERT INTO sessions(id, user_id, expires_at, id_token) VALUES($1,$2,$3,'')`, sess.ID, sess.UserID, sess.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -242,8 +248,8 @@ func (s *Store) CreateSession(ctx context.Context, userID int64) (*Session, erro
 // GetSession returns the session and associated user if valid.
 func (s *Store) GetSession(ctx context.Context, id string) (*Session, *User, error) {
 	var sess Session
-	err := s.pool.QueryRow(ctx, `SELECT id, user_id, expires_at, created_at FROM sessions WHERE id=$1`, id).
-		Scan(&sess.ID, &sess.UserID, &sess.ExpiresAt, &sess.CreatedAt)
+	err := s.pool.QueryRow(ctx, `SELECT id, user_id, expires_at, created_at, id_token FROM sessions WHERE id=$1`, id).
+		Scan(&sess.ID, &sess.UserID, &sess.ExpiresAt, &sess.CreatedAt, &sess.IDToken)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -259,6 +265,12 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, *User, err
 		return nil, nil, err
 	}
 	return &sess, &u, nil
+}
+
+// SetSessionIDToken stores the OIDC ID token for a session (used for RP-initiated logout).
+func (s *Store) SetSessionIDToken(ctx context.Context, id string, idToken string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE sessions SET id_token=$2 WHERE id=$1`, id, idToken)
+	return err
 }
 
 // DeleteSession removes a session by id.

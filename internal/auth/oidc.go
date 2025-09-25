@@ -153,22 +153,8 @@ func (o *OIDC) CallbackHandler(cookieSecure bool, cookieDomain string) http.Hand
 			cookie.Domain = cookieDomain
 		}
 		http.SetCookie(w, cookie)
-		// Also set a short-lived HttpOnly cookie with the id_token for RP-initiated logout (id_token_hint)
-		// Keep it very short to limit exposure; use the same security attributes as the session cookie.
-		itc := &http.Cookie{
-			Name:     o.CookieName + "_idt",
-			Value:    rawID,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   cookieSecure,
-			SameSite: http.SameSiteLaxMode,
-			// expire alongside the app session TTL window
-			Expires: time.Now().Add(15 * time.Minute),
-		}
-		if cookieDomain != "" {
-			itc.Domain = cookieDomain
-		}
-		http.SetCookie(w, itc)
+		// Persist ID token server-side for RP-initiated logout
+		_ = o.Store.SetSessionIDToken(ctx, sess.ID, rawID)
 		// Redirect to UI root
 		http.Redirect(w, r, "/", http.StatusFound)
 	}
@@ -177,14 +163,15 @@ func (o *OIDC) CallbackHandler(cookieSecure bool, cookieDomain string) http.Hand
 // LogoutHandler deletes the session and clears the cookie.
 func (o *OIDC) LogoutHandler(cookieSecure bool, cookieDomain string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Load session cookie and capture id_token (if any) before deleting session
+		var idToken string
 		c, err := r.Cookie(o.CookieName)
 		if err == nil && c != nil && c.Value != "" {
+			if sess, _, err := o.Store.GetSession(r.Context(), c.Value); err == nil && sess != nil {
+				idToken = sess.IDToken
+			}
+			// Delete the session
 			_ = o.Store.DeleteSession(r.Context(), c.Value)
-		}
-		// Read optional id_token for id_token_hint
-		var idToken string
-		if itc, err := r.Cookie(o.CookieName + "_idt"); err == nil && itc != nil {
-			idToken = itc.Value
 		}
 		// Clear cookie
 		http.SetCookie(w, &http.Cookie{
@@ -198,18 +185,7 @@ func (o *OIDC) LogoutHandler(cookieSecure bool, cookieDomain string) http.Handle
 			SameSite: http.SameSiteLaxMode,
 			Domain:   cookieDomain,
 		})
-		// Clear id token cookie too
-		http.SetCookie(w, &http.Cookie{
-			Name:     o.CookieName + "_idt",
-			Value:    "",
-			Path:     "/",
-			Expires:  time.Unix(0, 0),
-			MaxAge:   -1,
-			HttpOnly: true,
-			Secure:   cookieSecure,
-			SameSite: http.SameSiteLaxMode,
-			Domain:   cookieDomain,
-		})
+		// No id_token cookie used anymore
 		// Determine where the app should land after IdP logout
 		next := r.URL.Query().Get("next")
 		if next == "" {

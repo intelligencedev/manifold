@@ -23,6 +23,7 @@ type Session struct {
 	UserID    int64     `json:"user_id"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+	IDToken   string    `json:"-"` // stored for RP-initiated logout; not exposed via JSON
 }
 
 // contextKey prevents collisions for context values.

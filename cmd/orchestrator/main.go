@@ -24,6 +24,7 @@ import (
 	"intelligence.dev/internal/tools/cli"
 	"intelligence.dev/internal/tools/db"
 	llmtools "intelligence.dev/internal/tools/llmtool"
+	"intelligence.dev/internal/tools/patchtool"
 	specialists_tool "intelligence.dev/internal/tools/specialists"
 	"intelligence.dev/internal/tools/tts"
 	"intelligence.dev/internal/tools/web"
@@ -138,6 +139,7 @@ func main() {
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
 	registry.Register(web.NewFetchTool())              // provides web_fetch
+	registry.Register(patchtool.New(cfg.Workdir))      // provides apply_patch
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))
 

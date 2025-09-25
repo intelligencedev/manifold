@@ -39,6 +39,16 @@ export default defineConfig(({ mode }) => {
               changeOrigin: true,
               secure: false
             },
+            '/stt': {
+              target: proxyTarget,
+              changeOrigin: true,
+              secure: false
+            },
+            '/audio': {
+              target: proxyTarget,
+              changeOrigin: true,
+              secure: false
+            },
             '/auth': {
               target: proxyTarget,
               changeOrigin: true,

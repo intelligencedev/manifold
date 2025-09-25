@@ -8,6 +8,10 @@
       <button @click="startCreate" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground hover:border-border">New</button>
     </header>
 
+    <div v-if="actionError" class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm">
+      {{ actionError }}
+    </div>
+
     <div class="rounded-2xl border border-border/70 bg-surface p-4">
       <table class="w-full text-sm">
         <thead class="text-subtle-foreground">
@@ -91,6 +95,14 @@ const specialists = computed(() => data.value ?? [])
 const editing = ref(false)
 const original = ref<Specialist | null>(null)
 const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false })
+const actionError = ref<string | null>(null)
+
+function setErr(e: unknown, fallback: string) {
+  actionError.value = null
+  const anyErr = e as any
+  const msg = anyErr?.response?.data || anyErr?.message || fallback
+  actionError.value = String(msg)
+}
 
 function startCreate() {
   original.value = null
@@ -103,22 +115,37 @@ function edit(s: Specialist) {
   editing.value = true
 }
 async function save() {
-  const saved = await upsertSpecialist(form.value)
-  editing.value = false
-  original.value = null
-  await qc.invalidateQueries({ queryKey: ['specialists'] })
-  await qc.invalidateQueries({ queryKey: ['agent-status'] })
+  try {
+    await upsertSpecialist(form.value)
+    actionError.value = null
+    editing.value = false
+    original.value = null
+    await qc.invalidateQueries({ queryKey: ['specialists'] })
+    await qc.invalidateQueries({ queryKey: ['agent-status'] })
+  } catch (e) {
+    setErr(e, 'Failed to save specialist.')
+  }
 }
 function cancel() { editing.value = false; original.value = null }
 async function togglePause(s: Specialist) {
-  await upsertSpecialist({ ...s, paused: !s.paused })
-  await qc.invalidateQueries({ queryKey: ['specialists'] })
-  await qc.invalidateQueries({ queryKey: ['agent-status'] })
+  try {
+    await upsertSpecialist({ ...s, paused: !s.paused })
+    actionError.value = null
+    await qc.invalidateQueries({ queryKey: ['specialists'] })
+    await qc.invalidateQueries({ queryKey: ['agent-status'] })
+  } catch (e) {
+    setErr(e, 'Failed to update pause state.')
+  }
 }
 async function remove(s: Specialist) {
   if (!confirm(`Delete specialist ${s.name}?`)) return
-  await deleteSpecialist(s.name)
-  await qc.invalidateQueries({ queryKey: ['specialists'] })
-  await qc.invalidateQueries({ queryKey: ['agent-status'] })
+  try {
+    await deleteSpecialist(s.name)
+    actionError.value = null
+    await qc.invalidateQueries({ queryKey: ['specialists'] })
+    await qc.invalidateQueries({ queryKey: ['agent-status'] })
+  } catch (e) {
+    setErr(e, 'Failed to delete specialist.')
+  }
 }
 </script>

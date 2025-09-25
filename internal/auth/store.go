@@ -115,6 +115,116 @@ SELECT EXISTS (
 	return exists, err
 }
 
+// RolesForUser returns a list of role names for the given user.
+func (s *Store) RolesForUser(ctx context.Context, userID int64) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT r.name
+FROM user_roles ur
+JOIN roles r ON r.id = ur.role_id
+WHERE ur.user_id = $1
+ORDER BY r.name
+`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
+}
+
+// ListUsers returns all users.
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT id, email, name, picture, provider, subject, created_at, updated_at
+FROM users
+ORDER BY id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]User, 0, 128)
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Provider, &u.Subject, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// GetUserByID fetches a user by ID.
+func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
+	var u User
+	err := s.pool.QueryRow(ctx, `
+SELECT id, email, name, picture, provider, subject, created_at, updated_at
+FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Provider, &u.Subject, &u.CreatedAt, &u.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// UpdateUser updates mutable fields for a user (email, name, picture, provider, subject).
+func (s *Store) UpdateUser(ctx context.Context, u *User) error {
+	if u == nil || u.ID == 0 {
+		return errors.New("invalid user")
+	}
+	// Email, provider, and subject are treated as identifiers for OIDC; allow updating with care.
+	_, err := s.pool.Exec(ctx, `
+UPDATE users
+SET email=$1, name=$2, picture=$3, provider=$4, subject=$5, updated_at=now()
+WHERE id=$6
+`, u.Email, u.Name, u.Picture, u.Provider, u.Subject, u.ID)
+	return err
+}
+
+// DeleteUser deletes a user by ID (cascades to sessions and user_roles).
+func (s *Store) DeleteUser(ctx context.Context, id int64) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, id)
+	return err
+}
+
+// SetUserRoles replaces the set of roles for a user.
+func (s *Store) SetUserRoles(ctx context.Context, userID int64, roles []string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		// rollback if still in progress
+		_ = tx.Rollback(ctx)
+	}()
+	if _, err := tx.Exec(ctx, `DELETE FROM user_roles WHERE user_id=$1`, userID); err != nil {
+		return err
+	}
+	for _, name := range roles {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		var roleID int64
+		// Ensure role exists
+		err := tx.QueryRow(ctx, `INSERT INTO roles(name) VALUES($1)
+ON CONFLICT(name) DO UPDATE SET name=EXCLUDED.name
+RETURNING id`, name).Scan(&roleID)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO user_roles(user_id, role_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, userID, roleID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
 // CreateSession issues a new session for a user.
 func (s *Store) CreateSession(ctx context.Context, userID int64) (*Session, error) {
 	id, err := randomID(32)

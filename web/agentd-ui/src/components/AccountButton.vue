@@ -55,8 +55,21 @@ function onDocClick(e: MouseEvent) {
 }
 
 function onLogout() {
-  // Force a full page navigation to the logout endpoint so the server can clear session and redirect
-  window.location.href = '/auth/logout?next=/auth/login'
+  console.log('=== LOGOUT DEBUG ===')
+  console.log('Logout clicked - current URL:', window.location.href)
+  
+  // Close menu 
+  open.value = false
+  
+  // Clear any client-side storage that might contain auth state
+  localStorage.clear()
+  sessionStorage.clear()
+  
+  // IMPORTANT: Use a full navigation so the browser follows the server redirect
+  // to the IdP end-session endpoint (Keycloak) and truly ends the SSO session.
+  const logoutUrl = '/auth/logout?next=/auth/login&t=' + Date.now()
+  console.log('Navigating (top-level) to:', logoutUrl)
+  window.location.href = logoutUrl
 }
 
 onMounted(() => {

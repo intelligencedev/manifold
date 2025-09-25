@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"time"
 
+	"net/url"
+	"strings"
+
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 )
@@ -21,6 +24,8 @@ type OIDC struct {
 	AllowedDomains   []string
 	StateTTL         time.Duration
 	TempCookieSecure bool
+	// Issuer base URL (e.g., https://keycloak.example/realms/myrealm)
+	Issuer string
 }
 
 type Claims struct {
@@ -50,7 +55,7 @@ func NewOIDC(ctx context.Context, issuer, clientID, clientSecret, redirectURL st
 	if ttl <= 0 {
 		ttl = 10 * time.Minute
 	}
-	return &OIDC{Provider: prov, OAuth2Config: conf, Verifier: v, Store: store, CookieName: cookieName, AllowedDomains: allowedDomains, StateTTL: ttl, TempCookieSecure: tempCookieSecure}, nil
+	return &OIDC{Provider: prov, OAuth2Config: conf, Verifier: v, Store: store, CookieName: cookieName, AllowedDomains: allowedDomains, StateTTL: ttl, TempCookieSecure: tempCookieSecure, Issuer: issuer}, nil
 }
 
 // LoginHandler begins the OIDC authorization code flow with PKCE.
@@ -148,6 +153,22 @@ func (o *OIDC) CallbackHandler(cookieSecure bool, cookieDomain string) http.Hand
 			cookie.Domain = cookieDomain
 		}
 		http.SetCookie(w, cookie)
+		// Also set a short-lived HttpOnly cookie with the id_token for RP-initiated logout (id_token_hint)
+		// Keep it very short to limit exposure; use the same security attributes as the session cookie.
+		itc := &http.Cookie{
+			Name:     o.CookieName + "_idt",
+			Value:    rawID,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   cookieSecure,
+			SameSite: http.SameSiteLaxMode,
+			// expire alongside the app session TTL window
+			Expires: time.Now().Add(15 * time.Minute),
+		}
+		if cookieDomain != "" {
+			itc.Domain = cookieDomain
+		}
+		http.SetCookie(w, itc)
 		// Redirect to UI root
 		http.Redirect(w, r, "/", http.StatusFound)
 	}
@@ -159,6 +180,11 @@ func (o *OIDC) LogoutHandler(cookieSecure bool, cookieDomain string) http.Handle
 		c, err := r.Cookie(o.CookieName)
 		if err == nil && c != nil && c.Value != "" {
 			_ = o.Store.DeleteSession(r.Context(), c.Value)
+		}
+		// Read optional id_token for id_token_hint
+		var idToken string
+		if itc, err := r.Cookie(o.CookieName + "_idt"); err == nil && itc != nil {
+			idToken = itc.Value
 		}
 		// Clear cookie
 		http.SetCookie(w, &http.Cookie{
@@ -172,18 +198,51 @@ func (o *OIDC) LogoutHandler(cookieSecure bool, cookieDomain string) http.Handle
 			SameSite: http.SameSiteLaxMode,
 			Domain:   cookieDomain,
 		})
-		// Redirect to next (if provided) or login page
+		// Clear id token cookie too
+		http.SetCookie(w, &http.Cookie{
+			Name:     o.CookieName + "_idt",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   cookieSecure,
+			SameSite: http.SameSiteLaxMode,
+			Domain:   cookieDomain,
+		})
+		// Determine where the app should land after IdP logout
 		next := r.URL.Query().Get("next")
 		if next == "" {
 			next = "/auth/login"
 		}
-		http.Redirect(w, r, next, http.StatusFound)
+		// Build absolute post-logout redirect URI
+		scheme := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			scheme = "https"
+		}
+		origin := scheme + "://" + r.Host
+		// If next is relative, prefix with origin
+		absNext := next
+		if !(len(next) > 7 && (next[:7] == "http://" || (len(next) > 8 && next[:8] == "https://"))) {
+			absNext = origin + next
+		}
+		// For Keycloak (and many OIDC providers), perform RP-initiated logout to end SSO session
+		// Keycloak end-session endpoint: {issuer}/protocol/openid-connect/logout
+		// Use client_id and post_logout_redirect_uri. id_token_hint is optional for browser-initiated logout.
+		logoutBase := strings.TrimSuffix(o.Issuer, "/") + "/protocol/openid-connect/logout"
+		q := url.Values{}
+		q.Set("client_id", o.OAuth2Config.ClientID)
+		q.Set("post_logout_redirect_uri", absNext)
+		if idToken != "" {
+			q.Set("id_token_hint", idToken)
+		}
+		kcLogout := logoutBase + "?" + q.Encode()
+		http.Redirect(w, r, kcLogout, http.StatusFound)
 	}
 }
 
 // MeHandler returns basic info about the current user.
 func (o *OIDC) MeHandler() http.HandlerFunc {
-	type resp struct{ Email, Name, Picture string }
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if u, ok := CurrentUser(r.Context()); ok && u != nil {

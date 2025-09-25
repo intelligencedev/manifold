@@ -1,5 +1,5 @@
 <template>
-  <section class="space-y-6">
+  <section class="space-y-6 flex-1 min-h-0 overflow-auto">
     <header class="space-y-2">
       <h1 class="text-2xl font-semibold text-foreground">Settings</h1>
       <p class="text-sm text-subtle-foreground">
@@ -84,6 +84,73 @@
           setting <code>VITE_DEV_SERVER_PROXY</code> in <code>.env.local</code>.
         </p>
       </section>
+
+      <section v-if="isAdmin" class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+        <header class="space-y-1">
+          <h2 class="text-lg font-semibold text-foreground">Users</h2>
+          <p class="text-sm text-subtle-foreground">Create, modify, and delete users. Admin only.</p>
+        </header>
+        <div class="flex items-center justify-between">
+          <button type="button" class="rounded-lg bg-accent px-3 py-2 text-sm font-semibold text-accent-foreground hover:bg-accent/90" @click="startCreate">New user</button>
+          <div class="text-xs text-faint-foreground">Total: {{ users.length }}</div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-left text-sm">
+            <thead>
+              <tr class="border-b border-border/60 text-muted-foreground">
+                <th class="py-2 pr-2">Email</th>
+                <th class="py-2 pr-2">Name</th>
+                <th class="py-2 pr-2">Roles</th>
+                <th class="py-2 pr-2">Provider</th>
+                <th class="py-2 pr-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="u in users" :key="u.id" class="border-b border-border/40">
+                <td class="py-2 pr-2">{{ u.email }}</td>
+                <td class="py-2 pr-2">{{ u.name }}</td>
+                <td class="py-2 pr-2">{{ u.roles?.join(', ') }}</td>
+                <td class="py-2 pr-2">{{ u.provider }}</td>
+                <td class="py-2 flex gap-2">
+                  <button class="rounded border border-border/70 px-2 py-1 text-xs hover:border-border" @click="edit(u)">Edit</button>
+                  <button class="rounded border border-border/70 px-2 py-1 text-xs text-danger hover:border-border" @click="remove(u)">Delete</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div v-if="editing" class="mt-4 rounded-xl border border-border/60 bg-surface-muted/40 p-4">
+          <h3 class="mb-2 text-sm font-semibold text-foreground">{{ form.id ? 'Edit user' : 'New user' }}</h3>
+          <div class="grid gap-3 md:grid-cols-2">
+            <div>
+              <label class="text-xs text-muted-foreground">Email</label>
+              <input v-model="form.email" type="email" class="mt-1 w-full rounded border border-border/70 bg-surface px-2 py-1 text-sm" />
+            </div>
+            <div>
+              <label class="text-xs text-muted-foreground">Name</label>
+              <input v-model="form.name" type="text" class="mt-1 w-full rounded border border-border/70 bg-surface px-2 py-1 text-sm" />
+            </div>
+            <div>
+              <label class="text-xs text-muted-foreground">Roles (comma-separated)</label>
+              <input v-model="rolesInput" type="text" placeholder="admin, user" class="mt-1 w-full rounded border border-border/70 bg-surface px-2 py-1 text-sm" />
+            </div>
+            <div>
+              <label class="text-xs text-muted-foreground">Provider</label>
+              <input v-model="form.provider" type="text" placeholder="oidc" class="mt-1 w-full rounded border border-border/70 bg-surface px-2 py-1 text-sm" />
+            </div>
+            <div class="md:col-span-2">
+              <label class="text-xs text-muted-foreground">Subject</label>
+              <input v-model="form.subject" type="text" class="mt-1 w-full rounded border border-border/70 bg-surface px-2 py-1 text-sm" />
+            </div>
+          </div>
+          <div class="mt-3 flex gap-2">
+            <button class="rounded bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground hover:bg-accent/90" @click="save">Save</button>
+            <button class="rounded border border-border/70 px-3 py-1 text-xs hover:border-border" @click="cancel">Cancel</button>
+            <span class="text-xs text-faint-foreground" v-if="errorMsg">{{ errorMsg }}</span>
+          </div>
+        </div>
+      </section>
     </div>
   </section>
 </template>
@@ -92,6 +159,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import type { ThemeChoice } from '@/theme/themes'
+import { listUsers, createUser, updateUser, deleteUser } from '@/api/client'
 
 const apiUrl = ref('')
 
@@ -105,6 +173,22 @@ const themeStore = useThemeStore()
 const themeOptions = computed(() => themeStore.options)
 const themeSelection = computed(() => themeStore.selection)
 
+// Admin-only Users section state
+type User = {
+  id: number
+  email: string
+  name: string
+  provider?: string
+  subject?: string
+  roles: string[]
+}
+const users = ref<User[]>([])
+const isAdmin = ref(false)
+const editing = ref(false)
+const form = ref<Partial<User>>({})
+const rolesInput = ref('')
+const errorMsg = ref('')
+
 onMounted(() => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
@@ -115,6 +199,9 @@ onMounted(() => {
   } catch (error) {
     console.warn('Unable to parse stored settings', error)
   }
+  // Determine admin by probing a protected admin endpoint indirectly: list users.
+  // If it succeeds, current user is authenticated and has access (auth middleware already enforces auth).
+  refreshUsers()
 })
 
 function persist() {
@@ -131,5 +218,66 @@ function resetToDefaults() {
 
 function selectTheme(choice: ThemeChoice) {
   themeStore.setTheme(choice)
+}
+
+async function refreshUsers() {
+  try {
+    const data = await listUsers()
+    users.value = data
+    isAdmin.value = true // if call succeeds, treat as admin-capable page
+  } catch (e) {
+    // Not admin or not authenticated; keep hidden
+    isAdmin.value = false
+  }
+}
+
+function startCreate() {
+  form.value = { id: 0, email: '', name: '', provider: 'oidc', subject: '', roles: ['user'] }
+  rolesInput.value = (form.value.roles || []).join(', ')
+  errorMsg.value = ''
+  editing.value = true
+}
+
+function edit(u: User) {
+  form.value = { ...u }
+  rolesInput.value = (u.roles || []).join(', ')
+  errorMsg.value = ''
+  editing.value = true
+}
+
+async function save() {
+  if (!form.value) return
+  const payload: any = {
+    email: form.value.email,
+    name: form.value.name,
+    provider: form.value.provider,
+    subject: form.value.subject,
+    roles: rolesInput.value.split(',').map((s) => s.trim()).filter(Boolean),
+  }
+  try {
+    if (!form.value.id || form.value.id === 0) {
+      await createUser(payload)
+    } else {
+      await updateUser(form.value.id, payload)
+    }
+    editing.value = false
+    await refreshUsers()
+  } catch (e: any) {
+    errorMsg.value = e?.response?.data || 'Save failed'
+  }
+}
+
+function cancel() {
+  editing.value = false
+}
+
+async function remove(u: User) {
+  if (!confirm(`Delete user ${u.email}?`)) return
+  try {
+    await deleteUser(u.id)
+    await refreshUsers()
+  } catch (e) {
+    // ignore
+  }
 }
 </script>

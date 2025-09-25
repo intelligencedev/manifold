@@ -4,7 +4,8 @@ const baseURL = import.meta.env.VITE_AGENT_API_BASE_URL || '/api'
 
 export const apiClient = axios.create({
   baseURL,
-  timeout: 30_000
+  timeout: 30_000,
+  withCredentials: true,
 })
 
 export interface AgentStatus {
@@ -71,4 +72,34 @@ export async function upsertSpecialist(sp: Specialist): Promise<Specialist> {
 
 export async function deleteSpecialist(name: string): Promise<void> {
   await apiClient.delete(`/specialists/${encodeURIComponent(name)}`)
+}
+
+// Users & Roles
+export interface User {
+  id: number
+  email: string
+  name: string
+  picture?: string
+  provider?: string
+  subject?: string
+  roles: string[]
+}
+
+export async function listUsers(): Promise<User[]> {
+  const { data } = await apiClient.get<User[]>('/users')
+  return data
+}
+
+export async function createUser(u: Partial<User>): Promise<User> {
+  const { data } = await apiClient.post<User>('/users', u)
+  return data
+}
+
+export async function updateUser(id: number, u: Partial<User>): Promise<User> {
+  const { data } = await apiClient.put<User>(`/users/${id}`, u)
+  return data
+}
+
+export async function deleteUser(id: number): Promise<void> {
+  await apiClient.delete(`/users/${id}`)
 }

@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  app-postgres:
-    image: postgres:15-alpine
-    container_name: sio_app_postgres
+  postgres:
+    image: localhost/intelligence-dev-postgres:latest
+    container_name: pg-manifold
     environment:
       POSTGRES_DB: singularityio
       POSTGRES_USER: singularityio

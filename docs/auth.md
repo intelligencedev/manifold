@@ -76,3 +76,8 @@ ON CONFLICT DO NOTHING;
 ```
 
 Then wrap sensitive routes with `auth.RequireRoles(store, "admin")` if you need admin-only APIs.
+
+
+
+
+PGPASSWORD=singularityio psql -h localhost -p 5433 -U singularityio -d singularityio -c "INSERT INTO user_roles(user_id, role_id) SELECT u.id, r.id FROM users u, roles r WHERE u.email='art.aquino@icloud.com' AND r.name='admin' ON CONFLICT DO NOTHING;"

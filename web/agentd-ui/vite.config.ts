@@ -38,6 +38,11 @@ export default defineConfig(({ mode }) => {
               target: proxyTarget,
               changeOrigin: true,
               secure: false
+            },
+            '/auth': {
+              target: proxyTarget,
+              changeOrigin: true,
+              secure: false
             }
           }
         }

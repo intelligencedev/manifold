@@ -85,3 +85,15 @@ func TestToolCallAppliesPatchEndToEnd(t *testing.T) {
 	_, err = os.Stat(filepath.Join(dir, "move_src.txt"))
 	require.True(t, os.IsNotExist(err))
 }
+
+func TestJSONSchemaParametersCompliant(t *testing.T) {
+	tool := New(t.TempDir())
+	schema := tool.JSONSchema()
+	params, ok := schema["parameters"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "object", params["type"])
+	for _, key := range []string{"oneOf", "anyOf", "allOf", "enum", "not"} {
+		_, exists := params[key]
+		require.Falsef(t, exists, "schema unexpectedly contains %s", key)
+	}
+}

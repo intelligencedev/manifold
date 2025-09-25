@@ -60,10 +60,6 @@ func (t *Tool) JSONSchema() map[string]any {
 				"patches": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Array of patch bodies"},
 				"dry_run": map[string]any{"type": "boolean", "description": "Validate without modifying files"},
 			},
-			"oneOf": []any{
-				map[string]any{"required": []string{"patch"}},
-				map[string]any{"required": []string{"patches"}},
-			},
 		},
 	}
 }

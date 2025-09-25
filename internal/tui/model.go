@@ -30,6 +30,7 @@ import (
 	"intelligence.dev/internal/tools/db"
 	"intelligence.dev/internal/tools/imagetool"
 	llmtools "intelligence.dev/internal/tools/llmtool"
+	"intelligence.dev/internal/tools/patchtool"
 	specialists_tool "intelligence.dev/internal/tools/specialists"
 	"intelligence.dev/internal/tools/tts"
 	"intelligence.dev/internal/tools/web"
@@ -139,6 +140,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	registry.Register(cli.NewTool(exec))
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	registry.Register(web.NewFetchTool())
+	registry.Register(patchtool.New(cfg.Workdir))
 
 	// Create HTTP client for TTS tool
 	httpClient := observability.NewHTTPClient(nil)

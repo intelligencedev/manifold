@@ -4,7 +4,7 @@
 
 ## Project Structure & Module Organization
 
-Source lives in `internal/` (e.g., `internal/agent`, `internal/orchestrator`, `internal/tui`); keep new packages focused on one concern and avoid import cycles. CLI entrypoints sit under `cmd/` with binaries for the agent, TUI, and `embedctl`. Docs reside in `docs/`, assets in `assets/`, and deployment scaffolding in `docker/`, `configs/`, and top-level `example.env`. Co-locate tests with their packages and share fakes through `internal/testhelpers`.
+Source lives in `internal/` (e.g., `internal/agent`, `internal/orchestrator`); keep new packages focused on one concern and avoid import cycles. CLI/Server entrypoints sit under `cmd/` with binaries for the agent, HTTP server (`agentd`), and `embedctl` (if present). Docs reside in `docs/`, assets in `assets/`, and deployment scaffolding in `docker/`, `configs/`, and top-level `example.env`. Co-locate tests with their packages and share fakes through `internal/testhelpers`.
 
 ### Package Organization
 
@@ -18,7 +18,7 @@ Source lives in `internal/` (e.g., `internal/agent`, `internal/orchestrator`, `i
 * Consider a lightweight DI library **only** after weighing complexity (e.g., `uber-go/fx`).
 
 ## Build, Test, and Development Commands
-`go run ./cmd/agent -q "status"` exercises the CLI; `go run ./cmd/agent-tui` opens the streaming interface. Use `make build` for host binaries (rebuilds Whisper artifacts) and `make build-tui` when you only need the UI. `make test` wraps `go test -race -coverprofile=coverage.out ./...`; view coverage with `go tool cover -func coverage.out`. `make ci` chains format, import checks, lint, and tests. If Whisper bindings drift, rerun `make whisper-go-bindings`.
+`go run ./cmd/agent -q "status"` exercises the CLI; `go run ./cmd/agentd` starts the HTTP + web UI server. Use `make build` for host binaries (rebuilds Whisper artifacts). `make test` wraps `go test -race -coverprofile=coverage.out ./...`; view coverage with `go tool cover -func coverage.out`. `make ci` chains format, import checks, lint, and tests. If Whisper bindings drift, rerun `make whisper-go-bindings`.
 
 ## Essential Go CLI Tools
 

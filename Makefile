@@ -39,7 +39,6 @@ help:
 	@echo "  make test               # run tests with -race and generate coverage.out"
 	@echo "  make build              # build host platform binaries into $(DIST)/ (includes Whisper)"
 	@echo "  make build-agentd       # build only the agentd binary (skips Whisper)"
-	@echo "  make build-tui          # build the TUI binary quickly (skips Whisper if already built)"
 	@echo "  make frontend           # build the Vue.js frontend assets"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/ (includes Whisper)"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
@@ -112,26 +111,12 @@ build: clean whisper-go-bindings | $(DIST)
 	done
 	@echo "Host build complete"
 
-# Build TUI binary for host platform (fast - only rebuild whisper if needed)
-build-tui: | $(DIST)
-	@echo "Checking Whisper dependencies..."
-	@if [ ! -f "$(WHISPER_LIB_DIR)/libwhisper.a" ] || [ ! -f "$(WHISPER_GGML_LIB_DIR)/libggml.a" ]; then \
-		echo "Whisper libraries not found, building..."; \
-		$(MAKE) whisper-go-bindings; \
-	else \
-		echo "Whisper libraries found, skipping build"; \
-	fi
-	@echo "Building TUI into $(DIST)/"
-	C_INCLUDE_PATH=$(WHISPER_INCLUDE_DIR) \
-	LIBRARY_PATH=$(WHISPER_LIB_DIR):$(WHISPER_GGML_LIB_DIR):$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas:$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal \
-	go build -o "$(DIST)/agent-tui" ./cmd/agent-tui
-	@echo "TUI build complete"
 
 # Cross compile all platforms and package them into $(DIST)/
 # Option A: single job builds all platforms (do not run cross in parallel across jobs)
 cross: clean whisper-go-bindings | $(DIST)
 	@echo "Cross-building for: $(PLATFORMS)"
-	@echo "Note: CGO-dependent binaries (like agent-tui with Whisper) will be skipped in cross-compilation"
+	@echo "Note: CGO-dependent binaries will be skipped in cross-compilation if any are added later"
 	set -e
 	for plat in $(PLATFORMS); do \
 		os=$${plat%%/*}; arch=$${plat##*/}; \
@@ -140,11 +125,6 @@ cross: clean whisper-go-bindings | $(DIST)
 			outfile=$${b}; \
 			if [ "$${os}" = "windows" ]; then outfile=$${b}.exe; fi; \
 			echo "Building $$b for $${os}/$${arch} -> $(DIST)/$${os}_$${arch}/$$outfile"; \
-			# Skip CGO-dependent binaries in cross-compilation \
-			if [ "$$b" = "agent-tui" ]; then \
-				echo "Skipping $$b (CGO-dependent) for cross-compilation"; \
-				continue; \
-			fi; \
 			CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} go build -o "$(DIST)/$${os}_$${arch}/$$outfile" ./cmd/$$b; \
 		done; \
 		# Package per-platform directory

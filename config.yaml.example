@@ -67,6 +67,9 @@ databases:
   graph:
     backend: postgres   # memory | postgres
     dsn: ""
+  chat:
+    backend: postgres   # memory | postgres
+    dsn: ""          # uses databases.defaultDSN when empty
 
 systemPrompt: |
   You are a state of the art intelligence capable of solving all objectives. You work carefully, step by step, ensuring to adapt as

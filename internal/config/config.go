@@ -166,6 +166,7 @@ type DBConfig struct {
 	Search     SearchConfig `yaml:"search" json:"search"`
 	Vector     VectorConfig `yaml:"vector" json:"vector"`
 	Graph      GraphConfig  `yaml:"graph" json:"graph"`
+	Chat       ChatConfig   `yaml:"chat" json:"chat"`
 }
 
 // SearchConfig configures the full-text search backend.
@@ -189,6 +190,12 @@ type VectorConfig struct {
 
 // GraphConfig configures the graph database backend.
 type GraphConfig struct {
+	Backend string `yaml:"backend" json:"backend"`
+	DSN     string `yaml:"dsn" json:"dsn"`
+}
+
+// ChatConfig configures the chat history backend.
+type ChatConfig struct {
 	Backend string `yaml:"backend" json:"backend"`
 	DSN     string `yaml:"dsn" json:"dsn"`
 }

@@ -1,6 +1,10 @@
 package databases
 
-import "context"
+import (
+	"context"
+
+	"intelligence.dev/internal/persistence"
+)
 
 // SearchResult represents a single hit from the full-text search backend.
 type SearchResult struct {
@@ -51,6 +55,7 @@ type Manager struct {
 	Search FullTextSearch
 	Vector VectorStore
 	Graph  GraphDB
+	Chat   persistence.ChatStore
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -62,6 +67,9 @@ func (m Manager) Close() {
 		c.Close()
 	}
 	if c, ok := any(m.Graph).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.Chat).(interface{ Close() }); ok {
 		c.Close()
 	}
 }

@@ -20,6 +20,13 @@
       >
         Save
       </button>
+      <button
+        class="rounded bg-primary px-3 py-1 text-sm font-medium text-primary-foreground transition disabled:opacity-40"
+        :disabled="!canRun"
+        @click="onRun"
+      >
+        Run
+      </button>
       <span v-if="loading" class="text-sm text-subtle-foreground">Loading…</span>
       <span v-else-if="error" class="text-sm text-danger-foreground">{{ error }}</span>
       <span v-else class="text-sm text-faint-foreground"> Tools: {{ tools.length }} </span>
@@ -106,6 +113,7 @@ import {
   fetchWarppWorkflow,
   fetchWarppWorkflows,
   saveWarppWorkflow,
+  runWarppWorkflow,
 } from '@/api/warpp'
 import type { WarppStep, WarppTool, WarppWorkflow } from '@/types/warpp'
 import type { StepNodeData } from '@/types/flow'
@@ -141,6 +149,8 @@ provide('warppHydrating', isHydrating)
 const loading = ref(false)
 const error = ref('')
 const saving = ref(false)
+const running = ref(false)
+const runOutput = ref('')
 
 const toolMap = computed(() => {
   const map = new Map<string, WarppTool>()
@@ -151,6 +161,7 @@ const toolMap = computed(() => {
 })
 
 const canSave = computed(() => !!activeWorkflow.value && !saving.value)
+const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
 
 onMounted(async () => {
   loading.value = true
@@ -443,6 +454,28 @@ async function onSave() {
     error.value = err?.message ?? 'Failed to save workflow'
   } finally {
     saving.value = false
+  }
+}
+
+async function onRun() {
+  if (!activeWorkflow.value) return
+  // Auto-save before running to ensure backend has latest DAG/state
+  if (canSave.value) {
+    await onSave()
+  }
+  running.value = true
+  error.value = ''
+  runOutput.value = ''
+  try {
+    const intent = activeWorkflow.value.intent
+    const res = await runWarppWorkflow(intent, `Run workflow: ${intent}`)
+    runOutput.value = res.result || ''
+    // Lightweight toast via console, UX can be improved later
+    console.info('WARPP run summary:', runOutput.value)
+  } catch (err: any) {
+    error.value = err?.message ?? 'Failed to run workflow'
+  } finally {
+    running.value = false
   }
 }
 </script>

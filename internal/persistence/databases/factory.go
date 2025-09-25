@@ -17,6 +17,7 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 	searchDSN := firstNonEmpty(cfg.Search.DSN, cfg.DefaultDSN)
 	vectorDSN := firstNonEmpty(cfg.Vector.DSN, cfg.DefaultDSN)
 	graphDSN := firstNonEmpty(cfg.Graph.DSN, cfg.DefaultDSN)
+	chatDSN := firstNonEmpty(cfg.Chat.DSN, cfg.DefaultDSN)
 
 	// Full-text search
 	switch cfg.Search.Backend {
@@ -101,6 +102,44 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 		m.Graph = noopGraph{}
 	default:
 		return Manager{}, fmt.Errorf("unsupported graph backend: %s", cfg.Graph.Backend)
+	}
+
+	switch cfg.Chat.Backend {
+	case "", "memory":
+		m.Chat = newMemoryChatStore()
+	case "auto":
+		if chatDSN != "" {
+			if p, err := newPgPool(ctx, chatDSN); err == nil {
+				m.Chat = NewPostgresChatStore(p)
+			} else {
+				m.Chat = newMemoryChatStore()
+			}
+		} else {
+			m.Chat = newMemoryChatStore()
+		}
+	case "postgres", "pg":
+		if chatDSN == "" {
+			return Manager{}, fmt.Errorf("chat backend postgres requires DSN")
+		}
+		p, err := newPgPool(ctx, chatDSN)
+		if err != nil {
+			return Manager{}, fmt.Errorf("connect postgres (chat): %w", err)
+		}
+		m.Chat = NewPostgresChatStore(p)
+	case "none", "disabled":
+		m.Chat = newMemoryChatStore()
+	default:
+		return Manager{}, fmt.Errorf("unsupported chat backend: %s", cfg.Chat.Backend)
+	}
+
+	if m.Chat == nil {
+		m.Chat = newMemoryChatStore()
+	}
+	if err := m.Chat.Init(ctx); err != nil {
+		if c, ok := any(m.Chat).(interface{ Close() }); ok {
+			c.Close()
+		}
+		return Manager{}, fmt.Errorf("init chat store: %w", err)
 	}
 	return m, nil
 }

@@ -5,7 +5,7 @@
 
 # intelligence.dev
 
-An agentic CLI and TUI.
+An agent runtime (CLI and HTTP server with embedded web UI). The legacy terminal TUI has been removed.
 
 Contents
 - About
@@ -18,7 +18,7 @@ Contents
   - Precedence
 - Running
   - CLI
-  - TUI (streaming)
+  - HTTP server / Web UI
   - WARPP mode
   - embedctl
 - Tools
@@ -79,28 +79,27 @@ EMBED_MODEL=text-embedding-3-small
 go run ./cmd/agent -q "List files and print README.md if present"
 ```
 
-3) Run the TUI (streaming):
-
-```
-go run ./cmd/agent-tui
-```
+3) (Deprecated) The old terminal TUI has been removed; use the web UI served by agentd instead.
 
 Configuration
 -------------
 Configuration is supported by environment variables (preferred), a `.env` file at repo root (which overrides OS env), and an optional `config.yaml` (or environment variable `SPECIALISTS_CONFIG` pointing to YAML). The precedence is described below.
 
 Environment variables (.env)
+
 - Place variables in a `.env` file at the repo root; values in `.env` override OS-level environment variables.
 - Common variables:
   - OPENAI_API_KEY, OPENAI_MODEL, WORKDIR
   - LOG_PATH, LOG_LEVEL, LOG_PAYLOADS
   - BLOCK_BINARIES, MAX_COMMAND_SECONDS, OUTPUT_TRUNCATE_BYTES
+  - AGENT_RUN_TIMEOUT_SECONDS, STREAM_RUN_TIMEOUT_SECONDS, WORKFLOW_TIMEOUT_SECONDS
   - SEARXNG_URL (for web search)
   - EMBED_BASE_URL, EMBED_MODEL, EMBED_API_KEY, EMBED_API_HEADER, EMBED_PATH, EMBED_TIMEOUT (for embeddings)
   - OTEL_SERVICE_NAME, SERVICE_VERSION, ENVIRONMENT, OTEL_EXPORTER_OTLP_ENDPOINT
 
 Example `.env` (same as Quick Start):
-```
+
+```env
 WORKDIR=./sandbox
 OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini
@@ -158,6 +157,34 @@ Precedence
 - .env > OS environment > config.yaml
 - Defaults apply only when no configuration source provides values.
 
+### Runtime Timeouts
+
+The HTTP server now derives per-request deadlines from environment variables. All values are in seconds; set to 0 or a negative number to disable the server-side timeout for that category (not generally recommended without upstream proxy limits):
+
+| Variable | Applies To | Fallback / Default |
+| -------- | ---------- | ------------------ |
+| `AGENT_RUN_TIMEOUT_SECONDS` | Non‑stream agent prompts (`/agent/run` final path, `/api/prompt` non-stream, `/agent/vision`) | 120s |
+| `STREAM_RUN_TIMEOUT_SECONDS` | Streaming SSE runs (`/agent/run`, `/api/prompt` with `Accept: text/event-stream` or `?stream=1`) | 300s (5m) |
+| `WORKFLOW_TIMEOUT_SECONDS` | Workflows & specialists (`/agent/workflow`, `/agent/specialist`) | 120s |
+
+Resolution order:
+
+1. Streaming: STREAM_RUN_TIMEOUT_SECONDS → AGENT_RUN_TIMEOUT_SECONDS → 300s
+2. Non-stream agent paths: AGENT_RUN_TIMEOUT_SECONDS → 120s
+3. Workflows/specialists: WORKFLOW_TIMEOUT_SECONDS → AGENT_RUN_TIMEOUT_SECONDS → 120s
+
+Each request logs the applied timeout (or absence) at debug level. Disabling a timeout means long-running calls are bounded only by upstream LLM/provider constraints and client disconnects.
+
+Example:
+
+```bash
+export STREAM_RUN_TIMEOUT_SECONDS=900   # 15m streaming sessions for deep research
+export AGENT_RUN_TIMEOUT_SECONDS=180    # 3m standard prompt cap
+export WORKFLOW_TIMEOUT_SECONDS=600     # 10m workflows
+```
+
+Restart `agentd` after changes.
+
 Running
 -------
 CLI
@@ -173,13 +200,7 @@ go run ./cmd/agent -q "Initialize a new module and run go test" [-max-steps 8]
   - -specialist: invoke a configured specialist directly (inference-only)
   - -warpp: run WARPP workflow executor instead of the LLM loop
 
-TUI (streaming)
-```
-go run ./cmd/agent-tui
-```
-Notes:
-- Live streaming of assistant responses.
-- Same safety controls as CLI (locked WORKDIR, sanitization, blocklist).
+HTTP Server / Web UI
 
 ## Run agentd and web UI (local)
 
@@ -372,7 +393,7 @@ Development
 
 ### Build
 
-intelligence.dev uses a comprehensive build system that includes Whisper.cpp for speech-to-text functionality in the TUI.
+intelligence.dev uses a build system that optionally includes Whisper.cpp for speech-to-text functionality (used by agentd endpoints).
 
 #### Quick Build (Recommended)
 
@@ -403,18 +424,17 @@ If you prefer manual control:
    make
    ```
 
-3. **Build Go binaries with proper environment:**
+3. **Build Go binary (agentd) with proper environment:**
 
-   ```bash
-   C_INCLUDE_PATH=external/whisper.cpp/include \
-   LIBRARY_PATH=external/whisper.cpp/build_go/src:external/whisper.cpp/build_go/ggml/src:external/whisper.cpp/build_go/ggml/src/ggml-blas:external/whisper.cpp/build_go/ggml/src/ggml-metal \
-   go build ./cmd/agent-tui
-   ```
+  ```bash
+  C_INCLUDE_PATH=external/whisper.cpp/include \
+  LIBRARY_PATH=external/whisper.cpp/build_go/src:external/whisper.cpp/build_go/ggml/src:external/whisper.cpp/build_go/ggml/src/ggml-blas:external/whisper.cpp/build_go/ggml/src/ggml-metal \
+  go build -o dist/agentd ./cmd/agentd
+  ```
 
 #### Available Make Targets
 
 - `make build` - Build the agentd binary with Whisper support
-- `make build-tui` - Build the TUI binary quickly (skips Whisper if already built)
 - `make whisper-cpp` - Build Whisper.cpp library
 - `make whisper-go-bindings` - Build Go bindings for Whisper
 - `make cross` - Cross-compile for multiple platforms (CGO binaries skipped)
@@ -440,8 +460,7 @@ If you prefer manual control:
 
 #### Build Notes
 
-- The TUI binary (`agent-tui`) includes Whisper integration and will be ~50MB
-- Cross-compilation skips CGO-dependent binaries like `agent-tui`
+-- Cross-compilation skips CGO-dependent binaries if present
 - Whisper models are not included in the build; download separately if needed
 
 ### Frontend UI
@@ -477,10 +496,10 @@ make lint  # Requires golangci-lint
 
 Docker
 ------
-- Build:
-  - `docker build -t agent-tui .`
-- Run (ensure a TTY and pass any volumes/env):
-  - `docker run -it --env-file .env agent-tui`
+- Build the server image:
+  - `docker build -t agentd .`
+- Run:
+  - `docker run -it --env-file .env -p 32180:32180 agentd`
 
 Contributing
 ------------

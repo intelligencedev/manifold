@@ -59,7 +59,6 @@ examples
 gptagent
 PLAN.md
 config.yaml
-agent-tui
 docs/multi-agent-rag.md
 CONTEXT.md
 kafka_plan.md

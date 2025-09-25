@@ -1,7 +1,11 @@
 {
   "intent": "deep_research",
   "description": "Conduct comprehensive research on a given topic and produce a deep research report (≥15,000 characters) in report.md.",
-  "keywords": ["deep research", "comprehensive report", "long report"],
+  "keywords": [
+    "deep research",
+    "comprehensive report",
+    "long report"
+  ],
   "steps": [
     {
       "id": "s1",
@@ -9,9 +13,9 @@
       "tool": {
         "name": "web_search",
         "args": {
-          "query": "${A.query}",
+          "category": "general",
           "max_results": 10,
-          "category": "general"
+          "query": "${A.query}"
         }
       }
     },
@@ -22,10 +26,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.first_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.first_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s1"
+      ]
     },
     {
       "id": "s3",
@@ -34,10 +41,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.second_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.second_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s2"
+      ]
     },
     {
       "id": "s4",
@@ -46,10 +56,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.third_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.third_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s3"
+      ]
     },
     {
       "id": "s5",
@@ -58,10 +71,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.fourth_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.fourth_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s4"
+      ]
     },
     {
       "id": "s6",
@@ -70,10 +86,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.fifth_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.fifth_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s5"
+      ]
     },
     {
       "id": "s7",
@@ -82,10 +101,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.sixth_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.sixth_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s6"
+      ]
     },
     {
       "id": "s8",
@@ -94,10 +116,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.seventh_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.seventh_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s7"
+      ]
     },
     {
       "id": "s9",
@@ -106,10 +131,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.eighth_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.eighth_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s8"
+      ]
     },
     {
       "id": "s10",
@@ -118,10 +146,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.ninth_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.ninth_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s9"
+      ]
     },
     {
       "id": "s11",
@@ -130,10 +161,13 @@
       "tool": {
         "name": "web_fetch",
         "args": {
-          "url": "${A.tenth_url}",
-          "prefer_readable": true
+          "prefer_readable": true,
+          "url": "${A.tenth_url}"
         }
-      }
+      },
+      "depends_on": [
+        "s10"
+      ]
     },
     {
       "id": "s12",
@@ -141,10 +175,13 @@
       "tool": {
         "name": "llm_transform",
         "args": {
-          "instruction": "Using the provided fetched web contents, write a comprehensive deep‑research report on the query. Include an executive summary, well‑structured sections, proper citations where applicable, and ensure the total length is at least 15,000 characters. Output the report in markdown format.",
-          "input": "Query: ${A.query}\n\nContents:\n${A.first_content}\n${A.second_content}\n${A.third_content}\n${A.fourth_content}\n${A.fifth_content}\n${A.sixth_content}\n${A.seventh_content}\n${A.eighth_content}\n${A.ninth_content}\n${A.tenth_content}"
+          "input": "Query: ${A.query}\n\nContents:\n${A.first_content}\n${A.second_content}\n${A.third_content}\n${A.fourth_content}\n${A.fifth_content}\n${A.sixth_content}\n${A.seventh_content}\n${A.eighth_content}\n${A.ninth_content}\n${A.tenth_content}",
+          "instruction": "Using the provided fetched web contents, write a comprehensive deep‑research report on the query. Include an executive summary, well‑structured sections, proper citations where applicable, and ensure the total length is at least 15,000 characters. Output the report in markdown format."
         }
-      }
+      },
+      "depends_on": [
+        "s11"
+      ]
     },
     {
       "id": "s13",
@@ -152,10 +189,13 @@
       "tool": {
         "name": "write_file",
         "args": {
-          "path": "report.md",
-          "content": "${A.llm_output}"
+          "content": "${A.llm_output}",
+          "path": "report.md"
         }
-      }
+      },
+      "depends_on": [
+        "s12"
+      ]
     },
     {
       "id": "s14",
@@ -163,10 +203,13 @@
       "tool": {
         "name": "llm_transform",
         "args": {
-          "instruction": "Refine the draft report to improve clarity, flow, and depth. Ensure the final document is still at least 15,000 characters, contains an executive summary, detailed sections, and properly formatted markdown. Do not ask clarifying questions; simply output the refined report.",
-          "input": "${A.llm_output}"
+          "input": "${A.llm_output}",
+          "instruction": "Refine the draft report to improve clarity, flow, and depth. Ensure the final document is still at least 15,000 characters, contains an executive summary, detailed sections, and properly formatted markdown. Do not ask clarifying questions; simply output the refined report."
         }
-      }
+      },
+      "depends_on": [
+        "s13"
+      ]
     },
     {
       "id": "s15",
@@ -174,10 +217,13 @@
       "tool": {
         "name": "write_file",
         "args": {
-          "path": "report.md",
-          "content": "${A.llm_output}"
+          "content": "${A.llm_output}",
+          "path": "report.md"
         }
-      }
+      },
+      "depends_on": [
+        "s14"
+      ]
     },
     {
       "id": "s16",
@@ -186,10 +232,15 @@
       "tool": {
         "name": "run_cli",
         "args": {
-          "command": "cat",
-          "args": ["report.md"]
+          "args": [
+            "report.md"
+          ],
+          "command": "cat"
         }
-      }
+      },
+      "depends_on": [
+        "s15"
+      ]
     },
     {
       "id": "s17",
@@ -198,10 +249,87 @@
       "tool": {
         "name": "run_cli",
         "args": {
-          "command": "type",
-          "args": ["report.md"]
+          "args": [
+            "report.md"
+          ],
+          "command": "type"
         }
+      },
+      "depends_on": [
+        "s16"
+      ]
+    }
+  ],
+  "ui": {
+    "layout": {
+      "s1": {
+        "x": 140,
+        "y": 160
+      },
+      "s10": {
+        "x": 3020,
+        "y": 160
+      },
+      "s11": {
+        "x": 3340,
+        "y": 160
+      },
+      "s12": {
+        "x": 3660,
+        "y": 160
+      },
+      "s13": {
+        "x": 3980,
+        "y": 160
+      },
+      "s14": {
+        "x": 4300,
+        "y": 160
+      },
+      "s15": {
+        "x": 4620,
+        "y": 160
+      },
+      "s16": {
+        "x": 4940,
+        "y": 160
+      },
+      "s17": {
+        "x": 5260,
+        "y": 160
+      },
+      "s2": {
+        "x": 460,
+        "y": 160
+      },
+      "s3": {
+        "x": 780,
+        "y": 160
+      },
+      "s4": {
+        "x": 1100,
+        "y": 160
+      },
+      "s5": {
+        "x": 1420,
+        "y": 160
+      },
+      "s6": {
+        "x": 1740,
+        "y": 160
+      },
+      "s7": {
+        "x": 2060,
+        "y": 160
+      },
+      "s8": {
+        "x": 2380,
+        "y": 160
+      },
+      "s9": {
+        "x": 2700,
+        "y": 160
       }
     }
-  ]
+  }
 }

@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -46,32 +48,6 @@ import (
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 )
-
-type sessionStore struct {
-	histories map[string][]llmpkg.Message
-	mu        sync.RWMutex
-}
-
-func newSessionStore() *sessionStore {
-	return &sessionStore{
-		histories: make(map[string][]llmpkg.Message),
-	}
-}
-
-func (s *sessionStore) getHistory(sessionID string) []llmpkg.Message {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if history, ok := s.histories[sessionID]; ok {
-		return history
-	}
-	return nil
-}
-
-func (s *sessionStore) addToHistory(sessionID string, userMsg, assistantMsg llmpkg.Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.histories[sessionID] = append(s.histories[sessionID], userMsg, assistantMsg)
-}
 
 // AgentRun represents a single agent invocation for the Runs view (in-memory only)
 type AgentRun struct {
@@ -128,6 +104,79 @@ func (s *runStore) list() []AgentRun {
 		out[i], out[j] = out[j], out[i]
 	}
 	return out
+}
+
+// withMaybeTimeout returns a context derived from parent with an optional timeout.
+// If seconds <= 0, no timeout is applied and the returned duration is 0.
+func withMaybeTimeout(parent context.Context, seconds int) (context.Context, context.CancelFunc, time.Duration) {
+	if seconds > 0 {
+		d := time.Duration(seconds) * time.Second
+		ctx, cancel := context.WithTimeout(parent, d)
+		return ctx, cancel, d
+	}
+	ctx, cancel := context.WithCancel(parent)
+	return ctx, cancel, 0
+}
+
+func ensureChatSession(ctx context.Context, store persist.ChatStore, sessionID string) (persist.ChatSession, error) {
+	return store.EnsureSession(ctx, sessionID, "Conversation")
+}
+
+func loadChatHistory(ctx context.Context, store persist.ChatStore, sessionID string) ([]llmpkg.Message, error) {
+	msgs, err := store.ListMessages(ctx, sessionID, 0)
+	if err != nil {
+		return nil, err
+	}
+	history := make([]llmpkg.Message, 0, len(msgs))
+	for _, msg := range msgs {
+		history = append(history, llmpkg.Message{Role: msg.Role, Content: msg.Content})
+	}
+	return history, nil
+}
+
+func previewSnippet(content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	collapsed := strings.Join(strings.Fields(content), " ")
+	runes := []rune(collapsed)
+	if len(runes) <= 80 {
+		return collapsed
+	}
+	limit := 77
+	if limit > len(runes) {
+		limit = len(runes)
+	}
+	return string(runes[:limit]) + "..."
+}
+
+func storeChatTurn(ctx context.Context, store persist.ChatStore, sessionID, userContent, assistantContent, model string) error {
+	messages := make([]persist.ChatMessage, 0, 2)
+	now := time.Now().UTC()
+	if strings.TrimSpace(userContent) != "" {
+		messages = append(messages, persist.ChatMessage{
+			SessionID: sessionID,
+			Role:      "user",
+			Content:   userContent,
+			CreatedAt: now,
+		})
+	}
+	if strings.TrimSpace(assistantContent) != "" {
+		messages = append(messages, persist.ChatMessage{
+			SessionID: sessionID,
+			Role:      "assistant",
+			Content:   assistantContent,
+			CreatedAt: now.Add(2 * time.Millisecond),
+		})
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	preview := previewSnippet(assistantContent)
+	if preview == "" {
+		preview = previewSnippet(userContent)
+	}
+	return store.AppendMessages(ctx, sessionID, messages, preview, model)
 }
 
 func main() {
@@ -243,8 +292,11 @@ func main() {
 		SummaryKeepLast:  cfg.SummaryKeepLast,
 	}
 
-	// Initialize session store for conversation history
-	sessions := newSessionStore()
+	// Chat history store (Postgres-backed when configured)
+	chatStore := mgr.Chat
+	if chatStore == nil {
+		log.Fatal().Msg("chat store not initialized")
+	}
 
 	// Initialize in-memory run store for Runs view
 	runs := newRunStore()
@@ -335,6 +387,162 @@ func main() {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(runs.list())
+	})
+
+	mux.HandleFunc("/api/chat/sessions", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			sessions, err := chatStore.ListSessions(r.Context())
+			if err != nil {
+				log.Error().Err(err).Msg("list_chat_sessions")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(sessions); err != nil {
+				log.Error().Err(err).Msg("encode_chat_sessions")
+			}
+		case http.MethodPost:
+			defer r.Body.Close()
+			var body struct {
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			sess, err := chatStore.CreateSession(r.Context(), body.Name)
+			if err != nil {
+				log.Error().Err(err).Msg("create_chat_session")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			if err := json.NewEncoder(w).Encode(sess); err != nil {
+				log.Error().Err(err).Msg("encode_chat_session")
+			}
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/chat/sessions/", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		rest := strings.TrimPrefix(r.URL.Path, "/api/chat/sessions/")
+		rest = strings.Trim(rest, "/")
+		if rest == "" {
+			http.NotFound(w, r)
+			return
+		}
+		parts := strings.Split(rest, "/")
+		id := parts[0]
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, PATCH, DELETE, OPTIONS")
+		if len(parts) == 2 && parts[1] == "messages" {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if len(parts) == 2 && parts[1] == "messages" {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			limit := 0
+			if raw := r.URL.Query().Get("limit"); raw != "" {
+				if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+					limit = v
+				}
+			}
+			msgs, err := chatStore.ListMessages(r.Context(), id, limit)
+			if err != nil {
+				log.Error().Err(err).Str("session", id).Msg("list_chat_messages")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(msgs); err != nil {
+				log.Error().Err(err).Msg("encode_chat_messages")
+			}
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			sess, ok, err := chatStore.GetSession(r.Context(), id)
+			if err != nil {
+				log.Error().Err(err).Str("session", id).Msg("get_chat_session")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(sess); err != nil {
+				log.Error().Err(err).Msg("encode_chat_session")
+			}
+		case http.MethodPatch:
+			defer r.Body.Close()
+			var body struct {
+				Name string `json:"name"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			sess, err := chatStore.RenameSession(r.Context(), id, body.Name)
+			if err != nil {
+				if strings.Contains(strings.ToLower(err.Error()), "not found") {
+					http.NotFound(w, r)
+					return
+				}
+				log.Error().Err(err).Str("session", id).Msg("rename_chat_session")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(sess); err != nil {
+				log.Error().Err(err).Msg("encode_chat_session")
+			}
+		case http.MethodDelete:
+			if err := chatStore.DeleteSession(r.Context(), id); err != nil {
+				if strings.Contains(strings.ToLower(err.Error()), "not found") {
+					http.NotFound(w, r)
+					return
+				}
+				log.Error().Err(err).Str("session", id).Msg("delete_chat_session")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	// Users & Roles management (admin)
@@ -929,6 +1137,86 @@ func main() {
 		}
 	})
 
+	// POST /api/warpp/run executes a workflow by intent and returns {result: "..."}
+	mux.HandleFunc("/api/warpp/run", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// Limit body size
+		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
+		defer r.Body.Close()
+		var req struct {
+			Intent string `json:"intent"`
+			Prompt string `json:"prompt"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		intent := strings.TrimSpace(req.Intent)
+		if intent == "" {
+			http.Error(w, "intent required", http.StatusBadRequest)
+			return
+		}
+		// Lookup workflow
+		warppMu.RLock()
+		wf, err := wfreg.Get(intent)
+		warppMu.RUnlock()
+		if err != nil {
+			http.Error(w, "workflow not found", http.StatusNotFound)
+			return
+		}
+		// Build attributes and allow-list
+		prompt := strings.TrimSpace(req.Prompt)
+		if prompt == "" {
+			prompt = "(ui) run workflow"
+		}
+		attrs := warpp.Attrs{"utter": prompt}
+		// Personalize trims by guards; produce allow-list from steps
+		seconds := cfg.WorkflowTimeoutSeconds
+		if seconds <= 0 {
+			seconds = cfg.AgentRunTimeoutSeconds
+		}
+		if seconds <= 0 {
+			seconds = int((2 * time.Minute).Seconds())
+		}
+		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+		defer cancel()
+		if dur > 0 {
+			log.Debug().Dur("timeout", dur).Str("endpoint", "/api/warpp/run").Msg("using configured workflow timeout")
+		} else {
+			log.Debug().Str("endpoint", "/api/warpp/run").Msg("no timeout configured; running until completion")
+		}
+		wfStar, _, attrs2, err := warppRunner.Personalize(ctx, wf, attrs)
+		if err != nil {
+			log.Error().Err(err).Msg("warpp_personalize")
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		allow := map[string]bool{}
+		for _, s := range wfStar.Steps {
+			if s.Tool != nil {
+				allow[s.Tool.Name] = true
+			}
+		}
+		result, err := warppRunner.Execute(ctx, wfStar, allow, attrs2, nil)
+		if err != nil {
+			log.Error().Err(err).Msg("warpp_execute")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{"result": result})
+	})
+
 	mux.HandleFunc("/agent/run", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.Auth.Enabled {
 			if _, ok := auth.CurrentUser(r.Context()); !ok {
@@ -958,8 +1246,18 @@ func main() {
 			req.SessionID = "default"
 		}
 
-		// Get conversation history for this session
-		history := sessions.getHistory(req.SessionID)
+		// Ensure persistent session exists and load prior history
+		if _, err := ensureChatSession(r.Context(), chatStore, req.SessionID); err != nil {
+			log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		history, err := loadChatHistory(r.Context(), chatStore, req.SessionID)
+		if err != nil {
+			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 
 		// Pre-dispatch routing: call a specialist directly if there's a match.
 		if name := specialists.Route(cfg.SpecialistRoutes, req.Prompt); name != "" {
@@ -968,8 +1266,17 @@ func main() {
 			if !ok {
 				log.Error().Str("route", name).Msg("specialist not found for route")
 			} else {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				seconds := cfg.AgentRunTimeoutSeconds
+				if seconds <= 0 { // fallback historical 120s
+					seconds = int((2 * time.Minute).Seconds())
+				}
+				ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 				defer cancel()
+				if dur > 0 {
+					log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "specialist_pre_dispatch").Msg("using configured agent timeout")
+				} else {
+					log.Debug().Str("endpoint", "/agent/run").Str("mode", "specialist_pre_dispatch").Msg("no timeout configured; running until completion")
+				}
 				out, err := a.Inference(ctx, req.Prompt, nil)
 				if err != nil {
 					log.Error().Err(err).Msg("specialist pre-dispatch")
@@ -984,8 +1291,20 @@ func main() {
 
 		// WARPP mode: run the WARPP workflow executor instead of the LLM loop
 		if r.URL.Query().Get("warpp") == "true" {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			seconds := cfg.WorkflowTimeoutSeconds
+			if seconds <= 0 {
+				seconds = cfg.AgentRunTimeoutSeconds
+			}
+			if seconds <= 0 {
+				seconds = int((2 * time.Minute).Seconds())
+			}
+			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			if dur > 0 {
+				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("using configured workflow timeout")
+			} else {
+				log.Debug().Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("no timeout configured; running until completion")
+			}
 			intent := warppRunner.DetectIntent(ctx, req.Prompt)
 			wf, _ := wfreg.Get(intent)
 			attrs := warpp.Attrs{"utter": req.Prompt}
@@ -1045,8 +1364,20 @@ func main() {
 				return
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			seconds := cfg.StreamRunTimeoutSeconds
+			if seconds <= 0 {
+				seconds = cfg.AgentRunTimeoutSeconds
+			}
+			if seconds <= 0 {
+				seconds = int((5 * time.Minute).Seconds())
+			}
+			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			if dur > 0 {
+				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", true).Msg("using configured stream timeout")
+			} else {
+				log.Debug().Str("endpoint", "/agent/run").Bool("stream", true).Msg("no timeout configured; running until completion")
+			}
 
 			// Wire up engine callbacks to write SSE events.
 			// delta -> incremental assistant text
@@ -1098,7 +1429,7 @@ func main() {
 			}
 
 			// Run streaming engine
-			res, err := eng.RunStream(ctx, req.Prompt, nil)
+			res, err := eng.RunStream(ctx, req.Prompt, history)
 			if err != nil {
 				log.Error().Err(err).Msg("agent run error")
 				if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
@@ -1116,12 +1447,24 @@ func main() {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			runs.updateStatus(currentRun.ID, "completed", 0)
+			if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
+			}
 			return
 		}
 
 		// Non-streaming path
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		seconds := cfg.AgentRunTimeoutSeconds
+		if seconds <= 0 {
+			seconds = int((2 * time.Minute).Seconds())
+		}
+		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+		if dur > 0 {
+			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", false).Msg("using configured agent timeout")
+		} else {
+			log.Debug().Str("endpoint", "/agent/run").Bool("stream", false).Msg("no timeout configured; running until completion")
+		}
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
 			log.Error().Err(err).Msg("agent run error")
@@ -1133,10 +1476,9 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		runs.updateStatus(currentRun.ID, "completed", 0)
 
-		// Add to conversation history
-		userMsg := llmpkg.Message{Role: "user", Content: req.Prompt}
-		assistantMsg := llmpkg.Message{Role: "assistant", Content: result}
-		sessions.addToHistory(req.SessionID, userMsg, assistantMsg)
+		if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
+		}
 	})
 
 	// POST /agent/vision accepts multipart/form-data with fields:
@@ -1165,6 +1507,17 @@ func main() {
 		sessionID := r.FormValue("session_id")
 		if sessionID == "" {
 			sessionID = "default"
+		}
+		if _, err := ensureChatSession(r.Context(), chatStore, sessionID); err != nil {
+			log.Error().Err(err).Str("session", sessionID).Msg("ensure_chat_session")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		history, err := loadChatHistory(r.Context(), chatStore, sessionID)
+		if err != nil {
+			log.Error().Err(err).Str("session", sessionID).Msg("load_chat_history")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
 
 		// Collect image files (field name can be "images" repeated or any files in multipart form)
@@ -1238,12 +1591,23 @@ func main() {
 			atts = append(atts, imgAtt{mime: mt, b64: base64.StdEncoding.EncodeToString(data)})
 		}
 
-		// Build initial message list with user prompt only; vision content will be added in provider call
-		msgs := []llmpkg.Message{{Role: "user", Content: prompt}}
+		// Build initial message list including history and current user prompt
+		msgs := make([]llmpkg.Message, 0, len(history)+1)
+		msgs = append(msgs, history...)
+		msgs = append(msgs, llmpkg.Message{Role: "user", Content: prompt})
 
-		// Non-streaming path for simplicity (vision responses are usually short). We can extend to stream later if needed.
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		// Non-streaming path for simplicity (vision responses are usually short). Configurable timeout.
+		vSeconds := cfg.AgentRunTimeoutSeconds
+		if vSeconds <= 0 {
+			vSeconds = int((2 * time.Minute).Seconds())
+		}
+		ctx, cancel, vDur := withMaybeTimeout(r.Context(), vSeconds)
 		defer cancel()
+		if vDur > 0 {
+			log.Debug().Dur("timeout", vDur).Str("endpoint", "/agent/vision").Msg("using configured agent timeout")
+		} else {
+			log.Debug().Str("endpoint", "/agent/vision").Msg("no timeout configured; running until completion")
+		}
 
 		// Convert to openai.ImageAttachment slice
 		images := make([]openaillm.ImageAttachment, 0, len(atts))
@@ -1274,11 +1638,17 @@ func main() {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			runs.updateStatus(vrun.ID, "completed", 0)
+			if err := storeChatTurn(r.Context(), chatStore, sessionID, prompt, out.Content, cfg.OpenAI.Model); err != nil {
+				log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision_stream")
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": out.Content})
 		runs.updateStatus(vrun.ID, "completed", 0)
+		if err := storeChatTurn(r.Context(), chatStore, sessionID, prompt, out.Content, cfg.OpenAI.Model); err != nil {
+			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision")
+		}
 	})
 
 	// POST /api/prompt accepts {"prompt":"..."} and runs the agent (for web UI compatibility)
@@ -1322,8 +1692,17 @@ func main() {
 			req.SessionID = "default"
 		}
 
-		// Get conversation history for this session
-		history := sessions.getHistory(req.SessionID)
+		if _, err := ensureChatSession(r.Context(), chatStore, req.SessionID); err != nil {
+			log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		history, err := loadChatHistory(r.Context(), chatStore, req.SessionID)
+		if err != nil {
+			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 
 		// If no OpenAI API key is configured, return a deterministic dev response
 		if cfg.OpenAI.APIKey == "" {
@@ -1358,8 +1737,20 @@ func main() {
 				return
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			seconds := cfg.StreamRunTimeoutSeconds
+			if seconds <= 0 {
+				seconds = cfg.AgentRunTimeoutSeconds
+			}
+			if seconds <= 0 {
+				seconds = int((5 * time.Minute).Seconds())
+			}
+			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			if dur > 0 {
+				log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", true).Msg("using configured stream timeout")
+			} else {
+				log.Debug().Str("endpoint", "/api/prompt").Bool("stream", true).Msg("no timeout configured; running until completion")
+			}
 
 			// Wire up engine callbacks to write SSE events (duplicate path for /api/prompt).
 			eng.OnDelta = func(d string) {
@@ -1407,7 +1798,7 @@ func main() {
 
 			// Run streaming engine
 			prun := runs.create(req.Prompt)
-			res, err := eng.RunStream(ctx, req.Prompt, nil)
+			res, err := eng.RunStream(ctx, req.Prompt, history)
 			if err != nil {
 				log.Error().Err(err).Msg("agent run error")
 				if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
@@ -1425,12 +1816,24 @@ func main() {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			runs.updateStatus(prun.ID, "completed", 0)
+			if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
+			}
 			return
 		}
 
 		// Non-streaming path
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		seconds := cfg.AgentRunTimeoutSeconds
+		if seconds <= 0 {
+			seconds = int((2 * time.Minute).Seconds())
+		}
+		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+		if dur > 0 {
+			log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", false).Msg("using configured agent timeout")
+		} else {
+			log.Debug().Str("endpoint", "/api/prompt").Bool("stream", false).Msg("no timeout configured; running until completion")
+		}
 		prun := runs.create(req.Prompt)
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
@@ -1442,6 +1845,9 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		runs.updateStatus(prun.ID, "completed", 0)
+		if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
+		}
 	})
 
 	// Serve TTS audio files

@@ -35,11 +35,16 @@ export async function saveWarppWorkflow(workflow: WarppWorkflow): Promise<WarppW
   return handleResponse<WarppWorkflow>(resp)
 }
 
-export async function runWarppWorkflow(intent: string, prompt?: string): Promise<{ result: string }> {
+export async function runWarppWorkflow(
+  intent: string,
+  prompt?: string,
+  signal?: AbortSignal,
+): Promise<{ result: string }> {
   const resp = await fetch(`${apiBase}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ intent, prompt }),
+    signal,
   })
   return handleResponse<{ result: string }>(resp)
 }

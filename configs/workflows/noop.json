@@ -1,7 +1,9 @@
 {
   "intent": "noop",
   "description": "Return a greeting.",
-  "keywords": ["noop"],
+  "keywords": [
+    "noop"
+  ],
   "steps": [
     {
       "id": "s1",
@@ -9,11 +11,19 @@
       "tool": {
         "name": "llm_transform",
         "args": {
-          "instruction": "You are a helpful assistant.",
-          "input": "${A.query}"
+          "input": "${A.query}",
+          "instruction": "You are a helpful assistant."
         }
       },
       "publish_result": true
     }
-  ]
+  ],
+  "ui": {
+    "layout": {
+      "s1": {
+        "x": 140,
+        "y": 160
+      }
+    }
+  }
 }

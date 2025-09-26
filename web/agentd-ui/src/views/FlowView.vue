@@ -25,11 +25,30 @@
         :disabled="!canRun"
         @click="onRun"
       >
-        Run
+        <span v-if="!running">Run</span>
+        <span v-else class="inline-flex items-center gap-1">
+          <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle class="opacity-25" cx="12" cy="12" r="10" />
+            <path class="opacity-75" d="M4 12a8 8 0 018-8" />
+          </svg>
+          Running…
+        </span>
+      </button>
+      <button
+        v-if="running"
+        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80"
+        @click="onCancelRun"
+      >
+        Cancel
       </button>
       <span v-if="loading" class="text-sm text-subtle-foreground">Loading…</span>
       <span v-else-if="error" class="text-sm text-danger-foreground">{{ error }}</span>
-      <span v-else class="text-sm text-faint-foreground"> Tools: {{ tools.length }} </span>
+      <span v-else class="text-sm text-faint-foreground">Tools: {{ tools.length }}</span>
+      <span v-if="runOutput" class="text-xs italic text-subtle-foreground truncate max-w-[320px]" :title="runOutput">Result: {{ runOutput }}</span>
+    </div>
+
+    <div v-if="runLogs.length" class="max-h-32 overflow-y-auto rounded border border-border/50 bg-surface-muted px-3 py-2 text-xs font-mono leading-relaxed space-y-0.5">
+      <div v-for="(l,i) in runLogs" :key="i" class="whitespace-pre-wrap break-words">{{ l }}</div>
     </div>
 
     <div
@@ -58,7 +77,7 @@
               class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
               draggable="true"
               :title="tool.description ?? tool.name"
-              @dragstart="(event) => onPaletteDragStart(event, tool)"
+              @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
               @dragend="onPaletteDragEnd"
             >
               {{ tool.name }}
@@ -151,6 +170,9 @@ const error = ref('')
 const saving = ref(false)
 const running = ref(false)
 const runOutput = ref('')
+let runAbort: AbortController | null = null
+const runLogs = ref<string[]>([])
+const dirty = ref(false)
 
 const toolMap = computed(() => {
   const map = new Map<string, WarppTool>()
@@ -160,7 +182,7 @@ const toolMap = computed(() => {
   return map
 })
 
-const canSave = computed(() => !!activeWorkflow.value && !saving.value)
+const canSave = computed(() => !!activeWorkflow.value && !saving.value && dirty.value)
 const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
 
 onMounted(async () => {
@@ -212,6 +234,7 @@ watch(
       return
     }
     syncWorkflowFromNodes()
+    dirty.value = true
   },
   { deep: true },
 )
@@ -405,17 +428,13 @@ function generateStepId(toolName: string): string {
   return candidate
 }
 
-async function onSave() {
-  if (!activeWorkflow.value) {
-    return
-  }
+async function onSave(): Promise<WarppWorkflow | null> {
+  if (!activeWorkflow.value) return null
+  if (!dirty.value) return activeWorkflow.value
   saving.value = true
   error.value = ''
   try {
-    const orderedNodes = [...nodes.value].sort(
-      (a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0),
-    )
-    // Persist depends_on derived from current edges
+    const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
     const incoming: Record<string, string[]> = {}
     for (const e of edges.value) {
       if (!incoming[e.target]) incoming[e.target] = []
@@ -435,23 +454,30 @@ async function onSave() {
     const payload: WarppWorkflow = {
       ...activeWorkflow.value,
       steps,
-      ui: {
-        ...(activeWorkflow.value.ui ?? {}),
-        layout,
-      },
+      ui: { ...(activeWorkflow.value.ui ?? {}), layout },
     }
+    runLogs.value.push('[save] PUT /api/warpp/workflows/' + encodeURIComponent(payload.intent))
     const saved = await saveWarppWorkflow(payload)
+    runLogs.value.push('[save] 200 OK')
     const listIdx = workflowList.value.findIndex((wf) => wf.intent === saved.intent)
-    if (listIdx !== -1) {
-      workflowList.value.splice(listIdx, 1, saved)
-    } else {
-      workflowList.value.push(saved)
+    if (listIdx !== -1) workflowList.value.splice(listIdx, 1, saved)
+    else workflowList.value.push(saved)
+    isHydrating.value = true
+    try {
+      activeWorkflow.value = saved
+      nodes.value = workflowToNodes(saved)
+      edges.value = workflowToEdges(saved)
+      dirty.value = false
+    } finally {
+      await nextTick()
+      isHydrating.value = false
     }
-    activeWorkflow.value = saved
-    nodes.value = workflowToNodes(saved)
-    edges.value = workflowToEdges(saved)
+    return saved
   } catch (err: any) {
-    error.value = err?.message ?? 'Failed to save workflow'
+    const msg = err?.message ?? 'Failed to save workflow'
+    error.value = msg
+    runLogs.value.push('[save] error: ' + msg)
+    return null
   } finally {
     saving.value = false
   }
@@ -459,23 +485,50 @@ async function onSave() {
 
 async function onRun() {
   if (!activeWorkflow.value) return
-  // Auto-save before running to ensure backend has latest DAG/state
-  if (canSave.value) {
-    await onSave()
-  }
   running.value = true
   error.value = ''
   runOutput.value = ''
+  runLogs.value = []
+  runAbort?.abort()
+  runAbort = new AbortController()
+  const intent = activeWorkflow.value.intent
+  runLogs.value.push(`▶ Starting run for intent "${intent}"`)
+  // Capture need to save at start (canSave may change mid-process)
+  const needSave = canSave.value
+  if (needSave) {
+    runLogs.value.push('… Saving workflow before run')
+    const saved = await onSave()
+    if (saved) runLogs.value.push('✓ Save complete')
+    else runLogs.value.push('✗ Save failed – proceeding with current in-memory workflow')
+  }
   try {
-    const intent = activeWorkflow.value.intent
-    const res = await runWarppWorkflow(intent, `Run workflow: ${intent}`)
+    runLogs.value.push('→ POST /api/warpp/run')
+    console.debug('[warpp] POST /api/warpp/run intent=%s', intent)
+    ;(window as any).__warppLastRunRequest = { intent, ts: Date.now() }
+    const res = await runWarppWorkflow(intent, `Run workflow: ${intent}`, runAbort.signal)
     runOutput.value = res.result || ''
-    // Lightweight toast via console, UX can be improved later
+    runLogs.value.push('✓ Run finished')
+    if (runOutput.value) {
+      runLogs.value.push('Result snippet: ' + runOutput.value.slice(0, 160) + (runOutput.value.length > 160 ? '…' : ''))
+    }
     console.info('WARPP run summary:', runOutput.value)
   } catch (err: any) {
-    error.value = err?.message ?? 'Failed to run workflow'
+    if (err?.name === 'AbortError') {
+      error.value = 'Run cancelled'
+      runLogs.value.push('⚠ Run cancelled by user')
+    } else {
+      const msg = err?.message ?? 'Failed to run workflow'
+      error.value = msg
+      runLogs.value.push('✗ Error: ' + msg)
+    }
   } finally {
     running.value = false
+  }
+}
+
+function onCancelRun() {
+  if (running.value && runAbort) {
+    runAbort.abort()
   }
 }
 </script>

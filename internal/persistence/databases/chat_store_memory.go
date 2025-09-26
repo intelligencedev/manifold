@@ -153,3 +153,17 @@ func (s *memChatStore) AppendMessages(ctx context.Context, sessionID string, mes
 	s.sessions[sessionID] = sess
 	return nil
 }
+
+func (s *memChatStore) UpdateSummary(ctx context.Context, sessionID string, summary string, summarizedCount int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return errors.New("session not found")
+	}
+	sess.Summary = summary
+	sess.SummarizedCount = summarizedCount
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[sessionID] = sess
+	return nil
+}

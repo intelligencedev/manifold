@@ -41,6 +41,23 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if msgs[0].Role != "user" || msgs[1].Role != "assistant" {
 		t.Fatalf("unexpected roles: %#v", msgs)
 	}
+	limited, err := store.ListMessages(ctx, "session-1", 1)
+	if err != nil {
+		t.Fatalf("ListMessages limit: %v", err)
+	}
+	if len(limited) != 1 || limited[0].Role != "assistant" {
+		t.Fatalf("expected only assistant message from limited query, got %#v", limited)
+	}
+	if err := store.UpdateSummary(ctx, "session-1", "summary", 2); err != nil {
+		t.Fatalf("UpdateSummary: %v", err)
+	}
+	updated, ok, err := store.GetSession(ctx, "session-1")
+	if err != nil || !ok {
+		t.Fatalf("GetSession after summary: %v ok=%v", err, ok)
+	}
+	if updated.Summary != "summary" || updated.SummarizedCount != 2 {
+		t.Fatalf("unexpected summary state: %#v", updated)
+	}
 
 	sessions, err := store.ListSessions(ctx)
 	if err != nil {

@@ -5,8 +5,12 @@ openai:
   api: completions
   # Optional: override the API base URL; leave unset for api.openai.com
   # baseURL: "https://api.openai.com/v1"
+  # Optional: use a different endpoint for summarisation requests
+  # summaryBaseURL: "https://api.openai.com/v1"
   # Default model for the main agent
   # model: gpt-4o-mini
+  # Optional: choose a lighter model for summarisation
+  # summaryModel: gpt-4o-mini
   # Optional: request-wide headers for the main agent. These headers will be
   # sent on every request to the LLM provider when the agent invokes it.
   # Example: { X-App-Tenant: example }

@@ -41,6 +41,8 @@ type ChatSession struct {
 	UpdatedAt          time.Time `json:"updatedAt"`
 	LastMessagePreview string    `json:"lastMessagePreview"`
 	Model              string    `json:"model"`
+	Summary            string    `json:"summary"`
+	SummarizedCount    int       `json:"summarizedCount"`
 }
 
 // ChatMessage is a single turn within a chat session.
@@ -63,4 +65,5 @@ type ChatStore interface {
 	DeleteSession(ctx context.Context, id string) error
 	ListMessages(ctx context.Context, sessionID string, limit int) ([]ChatMessage, error)
 	AppendMessages(ctx context.Context, sessionID string, messages []ChatMessage, preview string, model string) error
+	UpdateSummary(ctx context.Context, sessionID string, summary string, summarizedCount int) error
 }

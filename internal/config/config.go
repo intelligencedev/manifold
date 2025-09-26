@@ -74,9 +74,11 @@ type ExecConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey  string
-	Model   string
-	BaseURL string
+	APIKey         string
+	Model          string
+	BaseURL        string
+	SummaryModel   string `yaml:"summaryModel" json:"summaryModel"`
+	SummaryBaseURL string `yaml:"summaryBaseURL" json:"summaryBaseURL"`
 	// API selects which OpenAI-compatible API surface to use for chat: "completions" or "responses".
 	// Defaults to "completions" if empty or unrecognized.
 	API string `yaml:"api" json:"api"`

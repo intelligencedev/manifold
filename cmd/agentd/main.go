@@ -24,6 +24,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"intelligence.dev/internal/agent"
+	"intelligence.dev/internal/agent/memory"
 	"intelligence.dev/internal/agent/prompts"
 	"intelligence.dev/internal/auth"
 	"intelligence.dev/internal/config"
@@ -122,18 +123,6 @@ func ensureChatSession(ctx context.Context, store persist.ChatStore, sessionID s
 	return store.EnsureSession(ctx, sessionID, "Conversation")
 }
 
-func loadChatHistory(ctx context.Context, store persist.ChatStore, sessionID string) ([]llmpkg.Message, error) {
-	msgs, err := store.ListMessages(ctx, sessionID, 0)
-	if err != nil {
-		return nil, err
-	}
-	history := make([]llmpkg.Message, 0, len(msgs))
-	for _, msg := range msgs {
-		history = append(history, llmpkg.Message{Role: msg.Role, Content: msg.Content})
-	}
-	return history, nil
-}
-
 func previewSnippet(content string) string {
 	if strings.TrimSpace(content) == "" {
 		return ""
@@ -212,6 +201,10 @@ func main() {
 	}
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
 	llm := openaillm.New(cfg.OpenAI, httpClient)
+	summaryCfg := cfg.OpenAI
+	summaryCfg.Model = cfg.OpenAI.SummaryModel
+	summaryCfg.BaseURL = cfg.OpenAI.SummaryBaseURL
+	summaryLLM := openaillm.New(summaryCfg, httpClient)
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	// Databases: construct backends and register tools
@@ -297,6 +290,12 @@ func main() {
 	if chatStore == nil {
 		log.Fatal().Msg("chat store not initialized")
 	}
+	chatMemory := memory.NewManager(chatStore, summaryLLM, memory.Config{
+		Enabled:      cfg.SummaryEnabled,
+		Threshold:    cfg.SummaryThreshold,
+		KeepLast:     cfg.SummaryKeepLast,
+		SummaryModel: cfg.OpenAI.SummaryModel,
+	})
 
 	// Initialize in-memory run store for Runs view
 	runs := newRunStore()
@@ -1252,7 +1251,7 @@ func main() {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := loadChatHistory(r.Context(), chatStore, req.SessionID)
+		history, err := chatMemory.BuildContext(r.Context(), req.SessionID)
 		if err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -1513,7 +1512,7 @@ func main() {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := loadChatHistory(r.Context(), chatStore, sessionID)
+		history, err := chatMemory.BuildContext(r.Context(), sessionID)
 		if err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -1697,7 +1696,7 @@ func main() {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := loadChatHistory(r.Context(), chatStore, req.SessionID)
+		history, err := chatMemory.BuildContext(r.Context(), req.SessionID)
 		if err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)

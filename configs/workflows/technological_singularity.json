@@ -1,0 +1,66 @@
+{
+  "intent": "technological_singularity",
+  "description": "Fetch the Wikipedia article for Technological Singularity, summarize it with the LLM, and write the summary to tmp/summary.md",
+  "keywords": [
+    "technological singularity",
+    "singularity",
+    "AI singularity"
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "text": "Fetch the Wikipedia article",
+      "tool": {
+        "name": "web_fetch",
+        "args": {
+          "prefer_readable": true,
+          "url": "https://en.wikipedia.org/wiki/Technological_singularity"
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "text": "Summarize fetched contents with the LLM",
+      "tool": {
+        "name": "llm_transform",
+        "args": {
+          "input": "The web_fetch tool returned the following JSON payload (string): ${A.last_payload}\n\nPlease extract the article markdown or main text from that payload and produce the requested summary.",
+          "instruction": "Produce a concise, well-structured summary in Markdown of the provided article content. Focus on definition, history, main arguments, critical perspectives, and notable authors/works. Keep the summary concise (approx. 300-600 words). Output only the summary in Markdown format."
+        }
+      },
+      "depends_on": [
+        "s1"
+      ]
+    },
+    {
+      "id": "s3",
+      "text": "Write the LLM summary to tmp/summary.md",
+      "tool": {
+        "name": "write_file",
+        "args": {
+          "content": "${A.llm_output}",
+          "path": "tmp/summary.md"
+        }
+      },
+      "depends_on": [
+        "s2"
+      ]
+    }
+  ],
+  "ui": {
+    "layout": {
+      "s1": {
+        "x": 140,
+        "y": 160
+      },
+      "s2": {
+        "x": 460,
+        "y": 160
+      },
+      "s3": {
+        "x": 780,
+        "y": 160
+      }
+    }
+  }
+}

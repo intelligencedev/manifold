@@ -11,7 +11,7 @@
       "tool": {
         "name": "llm_transform",
         "args": {
-          "input": "${A.query}",
+          "input": "Write a haiku",
           "instruction": "You are a helpful assistant."
         }
       },

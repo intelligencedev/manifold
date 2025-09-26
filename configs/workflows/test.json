@@ -1,0 +1,42 @@
+{
+  "intent": "test",
+  "description": "",
+  "keywords": null,
+  "steps": [
+    {
+      "id": "run-cli-4ed0cd88",
+      "text": "Execute a CLI command in a restricted working directory (no shell, no absolute paths).",
+      "tool": {
+        "name": "run_cli",
+        "args": {
+          "command": "ls -al"
+        }
+      }
+    },
+    {
+      "id": "llm-transform-7467a578",
+      "text": "Use the LLM to transform input text according to an instruction (summarize, synthesize, rewrite, extract, etc.)",
+      "tool": {
+        "name": "llm_transform",
+        "args": {
+          "input": "Write the information to a file at `tmp/flowtest.md`."
+        }
+      },
+      "depends_on": [
+        "run-cli-4ed0cd88"
+      ]
+    }
+  ],
+  "ui": {
+    "layout": {
+      "llm-transform-7467a578": {
+        "x": 618.3366538423045,
+        "y": 151.80489834830985
+      },
+      "run-cli-4ed0cd88": {
+        "x": 266.03918905357193,
+        "y": 239.06123637647892
+      }
+    }
+  }
+}

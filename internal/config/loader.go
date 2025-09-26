@@ -26,6 +26,8 @@ func Load() (Config, error) {
 	cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
 	// Allow overriding API base via env (useful for proxies/self-hosted gateways)
 	cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
+	cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL"))
+	cfg.OpenAI.SummaryModel = strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL"))
 	// Allow selecting API surface ("completions" or "responses"). Defaults later.
 	cfg.OpenAI.API = strings.TrimSpace(os.Getenv("OPENAI_API"))
 	cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
@@ -137,6 +139,12 @@ func Load() (Config, error) {
 	// Apply defaults after merging YAML
 	if cfg.OpenAI.Model == "" {
 		cfg.OpenAI.Model = "gpt-4o-mini"
+	}
+	if cfg.OpenAI.SummaryModel == "" {
+		cfg.OpenAI.SummaryModel = cfg.OpenAI.Model
+	}
+	if cfg.OpenAI.SummaryBaseURL == "" {
+		cfg.OpenAI.SummaryBaseURL = cfg.OpenAI.BaseURL
 	}
 	// Default API surface to completions when absent or invalid
 	if cfg.OpenAI.API == "" {
@@ -288,13 +296,15 @@ func loadSpecialists(cfg *Config) error {
 	//   specialists: [ {name: ..., ...}, ... ]
 	// or directly a list: [ {name: ..., ...} ]
 	type openAIYAML struct {
-		APIKey       string            `yaml:"apiKey"`
-		Model        string            `yaml:"model"`
-		BaseURL      string            `yaml:"baseURL"`
-		API          string            `yaml:"api"`
-		ExtraHeaders map[string]string `yaml:"extraHeaders"`
-		ExtraParams  map[string]any    `yaml:"extraParams"`
-		LogPayloads  bool              `yaml:"logPayloads"`
+		APIKey         string            `yaml:"apiKey"`
+		Model          string            `yaml:"model"`
+		BaseURL        string            `yaml:"baseURL"`
+		SummaryModel   string            `yaml:"summaryModel"`
+		SummaryBaseURL string            `yaml:"summaryBaseURL"`
+		API            string            `yaml:"api"`
+		ExtraHeaders   map[string]string `yaml:"extraHeaders"`
+		ExtraParams    map[string]any    `yaml:"extraParams"`
+		LogPayloads    bool              `yaml:"logPayloads"`
 	}
 	type execYAML struct {
 		BlockBinaries     []string `yaml:"blockBinaries"`
@@ -420,8 +430,14 @@ func loadSpecialists(cfg *Config) error {
 		if cfg.OpenAI.Model == "" && strings.TrimSpace(w.OpenAI.Model) != "" {
 			cfg.OpenAI.Model = strings.TrimSpace(w.OpenAI.Model)
 		}
+		if cfg.OpenAI.SummaryModel == "" && strings.TrimSpace(w.OpenAI.SummaryModel) != "" {
+			cfg.OpenAI.SummaryModel = strings.TrimSpace(w.OpenAI.SummaryModel)
+		}
 		if cfg.OpenAI.BaseURL == "" && strings.TrimSpace(w.OpenAI.BaseURL) != "" {
 			cfg.OpenAI.BaseURL = strings.TrimSpace(w.OpenAI.BaseURL)
+		}
+		if cfg.OpenAI.SummaryBaseURL == "" && strings.TrimSpace(w.OpenAI.SummaryBaseURL) != "" {
+			cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(w.OpenAI.SummaryBaseURL)
 		}
 		if cfg.OpenAI.API == "" && strings.TrimSpace(w.OpenAI.API) != "" {
 			cfg.OpenAI.API = strings.TrimSpace(w.OpenAI.API)

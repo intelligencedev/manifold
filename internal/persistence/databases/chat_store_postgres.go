@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	last_message_preview TEXT NOT NULL DEFAULT '',
-	model TEXT NOT NULL DEFAULT ''
+	model TEXT NOT NULL DEFAULT '',
+	summary TEXT NOT NULL DEFAULT '',
+	summarized_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -51,6 +53,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 CREATE INDEX IF NOT EXISTS chat_messages_session_created_idx ON chat_messages(session_id, created_at);
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS summary TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS summarized_count INTEGER NOT NULL DEFAULT 0;
 `)
 	return err
 }
@@ -67,14 +75,14 @@ WITH ins AS (
   INSERT INTO chat_sessions (id, name)
   VALUES ($1, $2)
   ON CONFLICT (id) DO NOTHING
-  RETURNING id, name, created_at, updated_at, last_message_preview, model
+  RETURNING id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count
 )
-SELECT id, name, created_at, updated_at, last_message_preview, model FROM ins
+SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count FROM ins
 UNION ALL
-SELECT id, name, created_at, updated_at, last_message_preview, model FROM chat_sessions WHERE id = $1
+SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count FROM chat_sessions WHERE id = $1
 LIMIT 1`, id, name)
 	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model); err != nil {
+	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
 		return persistence.ChatSession{}, err
 	}
 	return cs, nil
@@ -82,7 +90,7 @@ LIMIT 1`, id, name)
 
 func (s *pgChatStore) ListSessions(ctx context.Context) ([]persistence.ChatSession, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, name, created_at, updated_at, last_message_preview, model
+SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count
 FROM chat_sessions
 ORDER BY updated_at DESC, created_at DESC`)
 	if err != nil {
@@ -93,7 +101,7 @@ ORDER BY updated_at DESC, created_at DESC`)
 	var out []persistence.ChatSession
 	for rows.Next() {
 		var cs persistence.ChatSession
-		if err := rows.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model); err != nil {
+		if err := rows.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
 			return nil, err
 		}
 		out = append(out, cs)
@@ -103,11 +111,11 @@ ORDER BY updated_at DESC, created_at DESC`)
 
 func (s *pgChatStore) GetSession(ctx context.Context, id string) (persistence.ChatSession, bool, error) {
 	row := s.pool.QueryRow(ctx, `
-SELECT id, name, created_at, updated_at, last_message_preview, model
+SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count
 FROM chat_sessions
 WHERE id = $1`, id)
 	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model); err != nil {
+	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return persistence.ChatSession{}, false, nil
 		}
@@ -124,9 +132,9 @@ func (s *pgChatStore) CreateSession(ctx context.Context, name string) (persisten
 	row := s.pool.QueryRow(ctx, `
 INSERT INTO chat_sessions (id, name)
 VALUES ($1, $2)
-RETURNING id, name, created_at, updated_at, last_message_preview, model`, id, name)
+RETURNING id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count`, id, name)
 	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model); err != nil {
+	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
 		return persistence.ChatSession{}, err
 	}
 	return cs, nil
@@ -142,7 +150,7 @@ SET name = $2, updated_at = NOW()
 WHERE id = $1
 RETURNING id, name, created_at, updated_at, last_message_preview, model`, id, name)
 	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model); err != nil {
+	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return persistence.ChatSession{}, errors.New("session not found")
 		}
@@ -170,7 +178,15 @@ WHERE session_id = $1
 ORDER BY created_at ASC, id ASC`
 	args := []any{sessionID}
 	if limit > 0 {
-		query += " LIMIT $2"
+		query = `
+SELECT id, session_id, role, content, created_at FROM (
+	SELECT id, session_id, role, content, created_at
+	FROM chat_messages
+	WHERE session_id = $1
+	ORDER BY created_at DESC, id DESC
+	LIMIT $2
+) sub
+ORDER BY created_at ASC, id ASC`
 		args = append(args, limit)
 	}
 	rows, err := s.pool.Query(ctx, query, args...)
@@ -230,4 +246,14 @@ WHERE id = $1`, sessionID, preview, modelUpdate); err != nil {
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (s *pgChatStore) UpdateSummary(ctx context.Context, sessionID string, summary string, summarizedCount int) error {
+	if _, err := s.pool.Exec(ctx, `
+UPDATE chat_sessions
+SET summary = $2, summarized_count = $3, updated_at = NOW()
+WHERE id = $1`, sessionID, summary, summarizedCount); err != nil {
+		return err
+	}
+	return nil
 }

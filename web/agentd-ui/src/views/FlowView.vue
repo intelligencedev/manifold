@@ -14,6 +14,12 @@
         </select>
       </label>
       <button
+        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80"
+        @click="onNew"
+      >
+        New
+      </button>
+      <button
         class="rounded bg-accent px-3 py-1 text-sm font-medium text-accent-foreground transition disabled:opacity-40"
         :disabled="!canSave"
         @click="onSave"
@@ -173,6 +179,8 @@ const runOutput = ref('')
 let runAbort: AbortController | null = null
 const runLogs = ref<string[]>([])
 const dirty = ref(false)
+// Track unsaved, locally-created workflows by intent
+const localWorkflows = ref(new Map<string, WarppWorkflow>())
 
 const toolMap = computed(() => {
   const map = new Map<string, WarppTool>()
@@ -216,6 +224,22 @@ watch(selectedIntent, async (intent) => {
     activeWorkflow.value = null
     return
   }
+  // If this is a locally-created unsaved workflow, hydrate from local instead of fetching
+  const local = localWorkflows.value.get(intent)
+  if (local) {
+    error.value = ''
+    isHydrating.value = true
+    try {
+      activeWorkflow.value = local
+      nodes.value = []
+      edges.value = []
+      dirty.value = false
+    } finally {
+      await nextTick()
+      isHydrating.value = false
+    }
+    return
+  }
   loading.value = true
   error.value = ''
   try {
@@ -227,14 +251,20 @@ watch(selectedIntent, async (intent) => {
   }
 })
 
+// Throttled sync to avoid heavy recomputation on each keystroke inside node editors
+let syncScheduled = false
 watch(
   nodes,
   () => {
-    if (isHydrating.value) {
-      return
-    }
-    syncWorkflowFromNodes()
-    dirty.value = true
+    if (isHydrating.value) return
+    if (syncScheduled) return
+    syncScheduled = true
+    requestAnimationFrame(() => {
+      syncScheduled = false
+      if (isHydrating.value) return
+      syncWorkflowFromNodes()
+      dirty.value = true
+    })
   },
   { deep: true },
 )
@@ -459,6 +489,8 @@ async function onSave(): Promise<WarppWorkflow | null> {
     runLogs.value.push('[save] PUT /api/warpp/workflows/' + encodeURIComponent(payload.intent))
     const saved = await saveWarppWorkflow(payload)
     runLogs.value.push('[save] 200 OK')
+    // If this workflow was locally-created, clear the local marker
+    localWorkflows.value.delete(payload.intent)
     const listIdx = workflowList.value.findIndex((wf) => wf.intent === saved.intent)
     if (listIdx !== -1) workflowList.value.splice(listIdx, 1, saved)
     else workflowList.value.push(saved)
@@ -529,6 +561,45 @@ async function onRun() {
 function onCancelRun() {
   if (running.value && runAbort) {
     runAbort.abort()
+  }
+}
+
+function normalizeIntent(input: string): string {
+  // Conservative normalization: trim and collapse spaces, restrict to [a-z0-9._-]
+  // Keep it readable and filesystem-friendly
+  const t = input.trim().toLowerCase()
+  const collapsed = t.replace(/\s+/g, '-')
+  const safe = collapsed.replace(/[^a-z0-9._-]/g, '-')
+  return safe.replace(/^-+|-+$/g, '').slice(0, 64) || 'workflow'
+}
+
+async function onNew() {
+  const name = window.prompt('Enter a name for the new workflow (intent):', '')
+  if (name === null) return
+  const intent = normalizeIntent(name)
+  if (!intent) {
+    alert('Please enter a valid name')
+    return
+  }
+  if (workflowList.value.some((w) => w.intent === intent) || localWorkflows.value.has(intent)) {
+    alert('A workflow with that name already exists')
+    return
+  }
+  const wf: WarppWorkflow = { intent, description: '', steps: [] }
+  // Track locally and show in dropdown immediately
+  localWorkflows.value.set(intent, wf)
+  workflowList.value.push(wf)
+  // Switch to the new workflow view
+  isHydrating.value = true
+  try {
+    selectedIntent.value = intent
+    activeWorkflow.value = wf
+    nodes.value = []
+    edges.value = []
+    dirty.value = false
+  } finally {
+    await nextTick()
+    isHydrating.value = false
   }
 }
 </script>

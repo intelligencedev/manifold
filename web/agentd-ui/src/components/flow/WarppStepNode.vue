@@ -22,6 +22,8 @@
           type="text"
           class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
           placeholder="Describe this step"
+          @keydown.meta.enter.prevent="applyChanges"
+          @keydown.ctrl.enter.prevent="applyChanges"
         />
       </label>
       <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -31,6 +33,8 @@
           type="text"
           class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
           placeholder="Example: A.os != 'windows'"
+          @keydown.meta.enter.prevent="applyChanges"
+          @keydown.ctrl.enter.prevent="applyChanges"
         />
       </label>
       <label class="flex items-center gap-2 text-[11px] text-muted-foreground">
@@ -53,6 +57,18 @@
       <p v-else class="text-[11px] italic text-faint-foreground">
         Select a tool to edit parameters.
       </p>
+    </div>
+
+    <div class="mt-4 flex items-center justify-end gap-2">
+      <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
+      <button
+        class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
+        :disabled="!isDirty"
+        @click="applyChanges"
+        title="Apply changes (Cmd/Ctrl+Enter)"
+      >
+        Apply
+      </button>
     </div>
 
     <Handle type="source" :position="Position.Right" class="!bg-accent" />
@@ -89,6 +105,7 @@ const guardText = ref('')
 const publishResult = ref(false)
 const toolName = ref('')
 const argsState = ref<Record<string, unknown>>({})
+const isDirty = ref(false)
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1)
 
@@ -117,44 +134,18 @@ watch(
   { immediate: true, deep: true },
 )
 
-watch(stepText, commitIfNeeded)
-watch(guardText, commitIfNeeded)
-watch(publishResult, commitIfNeeded)
-watch(toolName, (next, prev) => {
-  if (suppressCommit) {
-    return
-  }
-  if (suppressToolReset) {
-    suppressToolReset = false
-    commit()
-    return
-  }
-  if (next !== prev) {
-    argsState.value = {}
-  }
-  commit()
-})
-watch(
-  argsState,
-  () => {
-    commitIfNeeded()
-  },
-  { deep: true },
-)
+watch([stepText, guardText, publishResult, toolName], () => markDirty())
+watch(argsState, () => markDirty(), { deep: true })
 
-function commitIfNeeded() {
-  if (suppressCommit || hydratingRef.value) {
-    return
-  }
-  commit()
+function markDirty() {
+  if (suppressCommit || hydratingRef.value) return
+  isDirty.value = true
 }
 
 function onArgsUpdate(value: unknown) {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    argsState.value = value as Record<string, unknown>
-  } else {
-    argsState.value = {}
-  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) argsState.value = value as Record<string, unknown>
+  else argsState.value = {}
+  markDirty()
 }
 
 function commit() {
@@ -170,11 +161,26 @@ function commit() {
     publish_result: publishResult.value,
     tool: toolPayload,
   }
+  // Skip update if nothing changed (shallow compare key fields + JSON fallback for args)
+  const prev = props.data?.step
+  if (prev) {
+    const same =
+      prev.text === nextStep.text &&
+      prev.guard === nextStep.guard &&
+      Boolean(prev.publish_result) === Boolean(nextStep.publish_result) &&
+      (prev.tool?.name || '') === (nextStep.tool?.name || '') &&
+      JSON.stringify(prev.tool?.args || {}) === JSON.stringify(nextStep.tool?.args || {})
+    if (same) {
+      return
+    }
+  }
+  updateNodeData(props.id, { ...(props.data ?? { order: 0 }), step: cloneStep(nextStep) })
+}
 
-  updateNodeData(props.id, {
-    ...(props.data ?? { order: 0 }),
-    step: cloneStep(nextStep),
-  })
+function applyChanges() {
+  if (!isDirty.value) return
+  commit()
+  isDirty.value = false
 }
 
 function buildToolPayload(name: string, args: Record<string, unknown>) {

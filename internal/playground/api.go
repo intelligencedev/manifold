@@ -40,6 +40,7 @@ type Service struct {
 type RunStore interface {
 	CreateExperiment(ctx context.Context, spec experiment.ExperimentSpec) (experiment.ExperimentSpec, error)
 	GetExperiment(ctx context.Context, id string) (experiment.ExperimentSpec, bool, error)
+	ListExperiments(ctx context.Context) ([]experiment.ExperimentSpec, error)
 	CreateRun(ctx context.Context, run Run) (Run, error)
 	UpdateRunStatus(ctx context.Context, id string, status RunStatus, endedAt time.Time, errMsg string) error
 	AppendResults(ctx context.Context, runID string, results []RunResult) error
@@ -100,6 +101,16 @@ func (s *Service) RegisterDataset(ctx context.Context, ds dataset.Dataset, rows 
 	return s.datasets.CreateDataset(ctx, ds, rows)
 }
 
+// ListDatasets returns dataset metadata for UI listing.
+func (s *Service) ListDatasets(ctx context.Context) ([]dataset.Dataset, error) {
+	return s.datasets.ListDatasets(ctx)
+}
+
+// GetDataset fetches a dataset and indicates whether it exists.
+func (s *Service) GetDataset(ctx context.Context, id string) (dataset.Dataset, bool, error) {
+	return s.datasets.GetDataset(ctx, id)
+}
+
 // CreateExperiment registers an experiment specification and persists it.
 func (s *Service) CreateExperiment(ctx context.Context, spec experiment.ExperimentSpec) (experiment.ExperimentSpec, error) {
 	saved, err := s.store.CreateExperiment(ctx, spec)
@@ -108,6 +119,11 @@ func (s *Service) CreateExperiment(ctx context.Context, spec experiment.Experime
 	}
 	s.experiments.Save(saved)
 	return saved, nil
+}
+
+// ListExperiments returns all experiment specifications persisted in the store.
+func (s *Service) ListExperiments(ctx context.Context) ([]experiment.ExperimentSpec, error) {
+	return s.store.ListExperiments(ctx)
 }
 
 // GetExperiment fetches a stored experiment specification.

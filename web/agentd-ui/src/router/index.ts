@@ -34,6 +34,42 @@ const router = createRouter({
       component: () => import('@/views/SettingsView.vue')
     },
     {
+      path: '/playground',
+      component: () => import('@/views/playground/PlaygroundLayoutView.vue'),
+      children: [
+        {
+          path: '',
+          name: 'playground-overview',
+          component: () => import('@/views/playground/PlaygroundOverviewView.vue')
+        },
+        {
+          path: 'prompts',
+          name: 'playground-prompts',
+          component: () => import('@/views/playground/PlaygroundPromptsView.vue')
+        },
+        {
+          path: 'prompts/:promptId',
+          name: 'playground-prompt-detail',
+          component: () => import('@/views/playground/PlaygroundPromptDetailView.vue')
+        },
+        {
+          path: 'datasets',
+          name: 'playground-datasets',
+          component: () => import('@/views/playground/PlaygroundDatasetsView.vue')
+        },
+        {
+          path: 'experiments',
+          name: 'playground-experiments',
+          component: () => import('@/views/playground/PlaygroundExperimentsView.vue')
+        },
+        {
+          path: 'experiments/:experimentId',
+          name: 'playground-experiment-detail',
+          component: () => import('@/views/playground/PlaygroundExperimentDetailView.vue')
+        },
+      ]
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundView.vue')

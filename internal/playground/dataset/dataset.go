@@ -40,6 +40,7 @@ type Row struct {
 type Store interface {
 	CreateDataset(ctx context.Context, ds Dataset) (Dataset, error)
 	GetDataset(ctx context.Context, id string) (Dataset, bool, error)
+	ListDatasets(ctx context.Context) ([]Dataset, error)
 	CreateSnapshot(ctx context.Context, snapshot Snapshot, rows []Row) (Snapshot, error)
 	ListSnapshotRows(ctx context.Context, datasetID, snapshotID string) ([]Row, error)
 }
@@ -98,6 +99,16 @@ func (s *Service) CreateDataset(ctx context.Context, ds Dataset, rows []Row) (Da
 		}
 	}
 	return created, nil
+}
+
+// ListDatasets retrieves all dataset metadata from the store.
+func (s *Service) ListDatasets(ctx context.Context) ([]Dataset, error) {
+	return s.store.ListDatasets(ctx)
+}
+
+// GetDataset fetches a dataset by ID.
+func (s *Service) GetDataset(ctx context.Context, id string) (Dataset, bool, error) {
+	return s.store.GetDataset(ctx, id)
 }
 
 // ResolveSnapshotRows fetches rows from either a snapshot or the latest snapshot
@@ -161,6 +172,16 @@ func (s *InMemoryStore) CreateDataset(_ context.Context, ds Dataset) (Dataset, e
 func (s *InMemoryStore) GetDataset(_ context.Context, id string) (Dataset, bool, error) {
 	ds, ok := s.datasets[id]
 	return ds, ok, nil
+}
+
+// ListDatasets returns all dataset metadata sorted by creation time descending.
+func (s *InMemoryStore) ListDatasets(_ context.Context) ([]Dataset, error) {
+	items := make([]Dataset, 0, len(s.datasets))
+	for _, ds := range s.datasets {
+		items = append(items, ds)
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
+	return items, nil
 }
 
 // CreateSnapshot replaces the rows for the snapshot identifier.

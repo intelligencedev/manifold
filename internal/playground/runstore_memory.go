@@ -2,6 +2,7 @@ package playground
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,26 @@ func (s *InMemoryRunStore) GetExperiment(_ context.Context, id string) (experime
 	defer s.mu.RUnlock()
 	spec, ok := s.experiments[id]
 	return spec, ok, nil
+}
+
+// ListExperiments returns all experiments sorted by creation time descending.
+func (s *InMemoryRunStore) ListExperiments(_ context.Context) ([]experiment.ExperimentSpec, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := make([]experiment.ExperimentSpec, 0, len(s.experiments))
+	for _, spec := range s.experiments {
+		items = append(items, spec)
+	}
+	slices.SortFunc(items, func(a, b experiment.ExperimentSpec) int {
+		if a.CreatedAt.After(b.CreatedAt) {
+			return -1
+		}
+		if a.CreatedAt.Before(b.CreatedAt) {
+			return 1
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return items, nil
 }
 
 // CreateRun persists the run metadata.

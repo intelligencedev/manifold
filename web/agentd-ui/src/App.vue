@@ -18,8 +18,8 @@
               :key="item.to"
               :to="item.to"
               class="inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded px-3 py-2 transition hover:bg-surface-muted/60"
-              active-class="bg-surface-muted text-accent"
-              :aria-current="$route.path === item.to ? 'page' : undefined"
+              :class="$route.path === item.to || $route.path.startsWith(item.to + '/') ? 'bg-surface-muted text-accent' : ''"
+              :aria-current="$route.path === item.to || $route.path.startsWith(item.to + '/') ? 'page' : undefined"
             >
               {{ item.label }}
             </RouterLink>
@@ -87,6 +87,7 @@ function handleRefresh() {
 const navigation = [
   { label: 'Overview', to: '/' },
   { label: 'Chat', to: '/chat' },
+  { label: 'Playground', to: '/playground' },
   { label: 'Flow', to: '/flow' },
   { label: 'Runs', to: '/runs' },
   { label: 'Settings', to: '/settings' },

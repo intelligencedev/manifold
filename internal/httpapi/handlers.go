@@ -117,6 +117,31 @@ func (s *Server) handleCreateDataset(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusCreated, created)
 }
 
+func (s *Server) handleListDatasets(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	datasets, err := s.service.ListDatasets(ctx)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"datasets": datasets})
+}
+
+func (s *Server) handleGetDataset(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("datasetID")
+	ds, ok, err := s.service.GetDataset(ctx, id)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !ok {
+		respondError(w, http.StatusNotFound, errors.New("dataset not found"))
+		return
+	}
+	respondJSON(w, http.StatusOK, ds)
+}
+
 func (s *Server) handleCreateExperiment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var spec experiment.ExperimentSpec
@@ -136,6 +161,16 @@ func (s *Server) handleCreateExperiment(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	respondJSON(w, http.StatusCreated, created)
+}
+
+func (s *Server) handleListExperiments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	experiments, err := s.service.ListExperiments(ctx)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]any{"experiments": experiments})
 }
 
 func (s *Server) handleGetExperiment(w http.ResponseWriter, r *http.Request) {

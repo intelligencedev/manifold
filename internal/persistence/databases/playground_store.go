@@ -280,6 +280,29 @@ func (s *PlaygroundStore) GetDataset(ctx context.Context, id string) (dataset.Da
 	return ds, true, nil
 }
 
+// ListDatasets returns all dataset metadata sorted by creation time descending.
+func (s *PlaygroundStore) ListDatasets(ctx context.Context) ([]dataset.Dataset, error) {
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_datasets`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var datasets []dataset.Dataset
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var ds dataset.Dataset
+		if err := json.Unmarshal(payload, &ds); err != nil {
+			return nil, err
+		}
+		datasets = append(datasets, ds)
+	}
+	sort.Slice(datasets, func(i, j int) bool { return datasets[i].CreatedAt.After(datasets[j].CreatedAt) })
+	return datasets, rows.Err()
+}
+
 // CreateSnapshot stores snapshot metadata and rows.
 func (s *PlaygroundStore) CreateSnapshot(ctx context.Context, snapshot dataset.Snapshot, rows []dataset.Row) (dataset.Snapshot, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -371,6 +394,29 @@ func (s *PlaygroundStore) GetExperiment(ctx context.Context, id string) (experim
 		return experiment.ExperimentSpec{}, false, err
 	}
 	return spec, true, nil
+}
+
+// ListExperiments returns all experiments sorted by creation time descending.
+func (s *PlaygroundStore) ListExperiments(ctx context.Context) ([]experiment.ExperimentSpec, error) {
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_experiments`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var specs []experiment.ExperimentSpec
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var spec experiment.ExperimentSpec
+		if err := json.Unmarshal(payload, &spec); err != nil {
+			return nil, err
+		}
+		specs = append(specs, spec)
+	}
+	sort.Slice(specs, func(i, j int) bool { return specs[i].CreatedAt.After(specs[j].CreatedAt) })
+	return specs, rows.Err()
 }
 
 // CreateRun stores the run payload.

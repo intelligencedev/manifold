@@ -52,10 +52,11 @@ type GraphDB interface {
 
 // Manager holds concrete database backends resolved from configuration.
 type Manager struct {
-	Search FullTextSearch
-	Vector VectorStore
-	Graph  GraphDB
-	Chat   persistence.ChatStore
+	Search     FullTextSearch
+	Vector     VectorStore
+	Graph      GraphDB
+	Chat       persistence.ChatStore
+	Playground *PlaygroundStore
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -70,6 +71,9 @@ func (m Manager) Close() {
 		c.Close()
 	}
 	if c, ok := any(m.Chat).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.Playground).(interface{ Close() }); ok {
 		c.Close()
 	}
 }

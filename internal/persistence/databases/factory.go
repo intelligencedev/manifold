@@ -135,9 +135,21 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 	if m.Chat == nil {
 		m.Chat = newMemoryChatStore()
 	}
+
+	playgroundDSN := firstNonEmpty(chatDSN, cfg.DefaultDSN)
+	if playgroundDSN != "" {
+		store, err := NewPlaygroundStoreFromDSN(ctx, playgroundDSN)
+		if err != nil {
+			return Manager{}, fmt.Errorf("init playground store: %w", err)
+		}
+		m.Playground = store
+	}
 	if err := m.Chat.Init(ctx); err != nil {
 		if c, ok := any(m.Chat).(interface{ Close() }); ok {
 			c.Close()
+		}
+		if m.Playground != nil {
+			m.Playground.Close()
 		}
 		return Manager{}, fmt.Errorf("init chat store: %w", err)
 	}

@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,12 +29,21 @@ import (
 	"intelligence.dev/internal/agent/prompts"
 	"intelligence.dev/internal/auth"
 	"intelligence.dev/internal/config"
+	"intelligence.dev/internal/httpapi"
 	llmpkg "intelligence.dev/internal/llm"
 	openaillm "intelligence.dev/internal/llm/openai"
 	"intelligence.dev/internal/mcpclient"
 	"intelligence.dev/internal/observability"
 	persist "intelligence.dev/internal/persistence"
 	"intelligence.dev/internal/persistence/databases"
+	"intelligence.dev/internal/playground"
+	"intelligence.dev/internal/playground/artifacts"
+	"intelligence.dev/internal/playground/dataset"
+	"intelligence.dev/internal/playground/eval"
+	"intelligence.dev/internal/playground/experiment"
+	"intelligence.dev/internal/playground/provider"
+	playgroundregistry "intelligence.dev/internal/playground/registry"
+	"intelligence.dev/internal/playground/worker"
 	"intelligence.dev/internal/specialists"
 	"intelligence.dev/internal/tools"
 	"intelligence.dev/internal/tools/cli"
@@ -206,54 +216,54 @@ func main() {
 	summaryCfg.BaseURL = cfg.OpenAI.SummaryBaseURL
 	summaryLLM := openaillm.New(summaryCfg, httpClient)
 
-	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
+	toolRegistry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	// Databases: construct backends and register tools
 	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to init databases")
 	}
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
-	registry.Register(cli.NewTool(exec))
-	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
-	registry.Register(web.NewFetchTool())
-	registry.Register(patchtool.New(cfg.Workdir))
-	registry.Register(tts.New(cfg, httpClient))
-	registry.Register(db.NewSearchIndexTool(mgr.Search))
-	registry.Register(db.NewSearchQueryTool(mgr.Search))
-	registry.Register(db.NewSearchRemoveTool(mgr.Search))
-	registry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
-	registry.Register(db.NewVectorQueryTool(mgr.Vector))
-	registry.Register(db.NewVectorDeleteTool(mgr.Vector))
-	registry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
-	registry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
-	registry.Register(db.NewGraphNeighborsTool(mgr.Graph))
-	registry.Register(db.NewGraphGetNodeTool(mgr.Graph))
+	toolRegistry.Register(cli.NewTool(exec))
+	toolRegistry.Register(web.NewTool(cfg.Web.SearXNGURL))
+	toolRegistry.Register(web.NewFetchTool())
+	toolRegistry.Register(patchtool.New(cfg.Workdir))
+	toolRegistry.Register(tts.New(cfg, httpClient))
+	toolRegistry.Register(db.NewSearchIndexTool(mgr.Search))
+	toolRegistry.Register(db.NewSearchQueryTool(mgr.Search))
+	toolRegistry.Register(db.NewSearchRemoveTool(mgr.Search))
+	toolRegistry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
+	toolRegistry.Register(db.NewVectorQueryTool(mgr.Vector))
+	toolRegistry.Register(db.NewVectorDeleteTool(mgr.Vector))
+	toolRegistry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
+	toolRegistry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
+	toolRegistry.Register(db.NewGraphNeighborsTool(mgr.Graph))
+	toolRegistry.Register(db.NewGraphGetNodeTool(mgr.Graph))
 	// Provider factory for base_url override in llm_transform
 	newProv := func(baseURL string) llmpkg.Provider {
 		c2 := cfg.OpenAI
 		c2.BaseURL = baseURL
 		return openaillm.New(c2, httpClient)
 	}
-	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv))
-	registry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
+	toolRegistry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv))
+	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 	// Specialists tool for LLM-driven routing
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
-	registry.Register(specialists_tool.New(specReg))
+	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
+	toolRegistry.Register(specialists_tool.New(specReg))
 
 	// If tools are globally disabled, use an empty registry
 	if !cfg.EnableTools {
-		registry = tools.NewRegistry() // Empty registry
+		toolRegistry = tools.NewRegistry() // Empty registry
 	} else if len(cfg.ToolAllowList) > 0 {
 		// If a top-level tool allow-list is configured, expose only those tools
 		// to the main orchestrator agent by wrapping the registry.
-		registry = tools.NewFilteredRegistry(registry, cfg.ToolAllowList)
+		toolRegistry = tools.NewFilteredRegistry(toolRegistry, cfg.ToolAllowList)
 	}
 
 	// Debug: log which tools are exposed after any filtering so we can diagnose
 	// missing tool registrations at runtime.
 	{
-		names := make([]string, 0, len(registry.Schemas()))
-		for _, s := range registry.Schemas() {
+		names := make([]string, 0, len(toolRegistry.Schemas()))
+		for _, s := range toolRegistry.Schemas() {
 			names = append(names, s.Name)
 		}
 		log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents")
@@ -262,7 +272,7 @@ func main() {
 	// MCP: connect to configured servers and register their tools
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(context.Background(), 20*time.Second)
-	_ = mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP)
+	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
 	cancelInit()
 
 	// WARPP runner for workflow execution
@@ -272,11 +282,11 @@ func main() {
 		log.Warn().Err(err).Str("dir", workflowDir).Msg("failed to load workflows, using defaults")
 	}
 	var warppMu sync.RWMutex
-	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: registry}
+	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: toolRegistry}
 
 	eng := &agent.Engine{
 		LLM:              llm,
-		Tools:            registry,
+		Tools:            toolRegistry,
 		MaxSteps:         cfg.MaxSteps,
 		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
 		Model:            cfg.OpenAI.Model,
@@ -297,6 +307,21 @@ func main() {
 		SummaryModel: cfg.OpenAI.SummaryModel,
 	})
 
+	if mgr.Playground == nil {
+		log.Fatal().Msg("playground store not initialized; set databases.defaultDSN or chat DSN")
+	}
+	artifactDir := filepath.Join(cfg.Workdir, "playground-artifacts")
+	artifactStore := artifacts.NewFilesystemStore(artifactDir)
+	playgroundRegistry := playgroundregistry.New(mgr.Playground)
+	playgroundDataset := dataset.NewService(mgr.Playground)
+	playgroundRepo := experiment.NewRepository()
+	playgroundPlanner := experiment.NewPlanner(experiment.PlannerConfig{MaxRowsPerShard: 32, MaxVariantsPerShard: 4})
+	playgroundProvider := provider.NewLLMAdapter(llm, cfg.OpenAI.Model)
+	playgroundWorker := worker.NewWorker(playgroundProvider, artifactStore)
+	playgroundEvals := eval.NewRunner(eval.NewRegistry(), playgroundProvider)
+	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
+	playgroundAPI := httpapi.NewServer(playgroundService)
+
 	// Initialize in-memory run store for Runs view
 	runs := newRunStore()
 
@@ -311,6 +336,8 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/api/v1/playground", playgroundAPI)
+	mux.Handle("/api/v1/playground/", playgroundAPI)
 	// AUTH setup
 	var authStore *auth.Store
 	var oidcAuth *auth.OIDC
@@ -767,9 +794,9 @@ func main() {
 				})
 			}
 		}
-		// Ensure registry reflects persisted store on startup
+		// Ensure tool registry reflects persisted store on startup
 		if list, err := specStore.List(context.Background()); err == nil {
-			specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+			specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
 		}
 	}
 
@@ -866,9 +893,9 @@ func main() {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			// Rebuild registry after change
+			// Rebuild tool registry after change
 			if list, err := specStore.List(r.Context()); err == nil {
-				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
 			}
 			json.NewEncoder(w).Encode(saved)
 		default:
@@ -944,7 +971,7 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
 			if list, err := specStore.List(r.Context()); err == nil {
-				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
 			}
 		case http.MethodDelete:
 			if !isAdmin {
@@ -957,7 +984,7 @@ func main() {
 			}
 			w.WriteHeader(http.StatusNoContent)
 			if list, err := specStore.List(r.Context()); err == nil {
-				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
 			}
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -995,7 +1022,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		schemas := registry.Schemas()
+		schemas := toolRegistry.Schemas()
 		out := make([]map[string]any, 0, len(schemas))
 		for _, s := range schemas {
 			out = append(out, map[string]any{

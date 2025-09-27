@@ -66,53 +66,65 @@
 
 <script setup lang="ts">
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { usePlaygroundStore } from '@/stores/playground'
+import type { ExperimentSpec } from '@/api/playground'
 
 const route = useRoute()
 const router = useRouter()
 const store = usePlaygroundStore()
-const experimentId = route.params.experimentId as string
-const experiment = ref(await store.ensureExperiment(experimentId))
-const runs = ref(store.runsByExperiment[experimentId] ?? [])
+const experimentId = ref(route.params.experimentId as string)
+const experiment = ref<ExperimentSpec | null>(null)
+const runs = ref(store.runsByExperiment[experimentId.value] ?? [])
 const loadingRuns = ref(false)
 
-async function refreshRuns() {
+async function refreshRuns(id: string) {
   loadingRuns.value = true
-  await store.refreshExperimentRuns(experimentId)
-  runs.value = store.runsByExperiment[experimentId] ?? []
+  await store.refreshExperimentRuns(id)
+  runs.value = store.runsByExperiment[id] ?? []
   loadingRuns.value = false
 }
 
 onMounted(async () => {
-  if (!experiment.value) {
-    experiment.value = await store.ensureExperiment(experimentId)
+  const ok = await loadExperiment(experimentId.value)
+  if (ok) {
+    await refreshRuns(experimentId.value)
   }
-  await refreshRuns()
+})
+
+onBeforeUnmount(() => {
+  store.clearRunPolling(experimentId.value)
 })
 
 watch(
   () => route.params.experimentId,
   async (next) => {
     if (typeof next !== 'string') return
-    const spec = await store.ensureExperiment(next)
-    if (!spec) {
-      router.replace('/playground/experiments')
-      return
+    experimentId.value = next
+    const ok = await loadExperiment(next)
+    if (ok) {
+      await refreshRuns(next)
     }
-    experiment.value = spec
-    await refreshRuns()
   }
 )
 
 async function startRun() {
-  await store.triggerRun(experimentId)
-  await refreshRuns()
+  await store.triggerRun(experimentId.value)
+  await refreshRuns(experimentId.value)
 }
 
 function formatDate(value?: string) {
   if (!value) return '—'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+async function loadExperiment(id: string) {
+  experiment.value = await store.ensureExperiment(id)
+  if (!experiment.value) {
+    await router.replace('/playground/experiments')
+    return false
+  }
+  return true
 }
 </script>

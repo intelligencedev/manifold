@@ -197,6 +197,7 @@ function extractErr(err: unknown): string {
 async function startRun(experimentId: string) {
   await store.triggerRun(experimentId)
   expandedRun[experimentId] = true
+  await store.refreshExperimentRuns(experimentId)
 }
 
 async function toggleRuns(experimentId: string) {
@@ -204,6 +205,8 @@ async function toggleRuns(experimentId: string) {
   expandedRun[experimentId] = next
   if (next) {
     await store.refreshExperimentRuns(experimentId)
+  } else {
+    store.clearRunPolling(experimentId)
   }
 }
 

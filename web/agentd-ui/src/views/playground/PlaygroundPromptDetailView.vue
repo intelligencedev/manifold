@@ -70,52 +70,57 @@
 </template>
 
 <script setup lang="ts">
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { onMounted, reactive, ref, watch } from 'vue'
 import { usePlaygroundStore } from '@/stores/playground'
+import type { Prompt, PromptVersion } from '@/api/playground'
 
 const route = useRoute()
+const router = useRouter()
 const store = usePlaygroundStore()
-const promptId = route.params.promptId as string
+const promptId = ref(route.params.promptId as string)
 
-const prompt = ref(await store.ensurePrompt(promptId))
-const versions = ref(store.promptVersions[promptId] ?? [])
+const prompt = ref<Prompt | null>(null)
+const versions = ref<PromptVersion[]>(store.promptVersions[promptId.value] ?? [])
 const versionsLoading = ref(false)
 const createMessage = ref('')
 const versionForm = reactive({ semver: '', template: '', variables: '', guardrails: '' })
 
-async function refreshVersions() {
+async function refreshVersions(id: string) {
   versionsLoading.value = true
-  await store.loadPromptVersions(promptId)
-  versions.value = store.promptVersions[promptId] ?? []
+  await store.loadPromptVersions(id)
+  versions.value = store.promptVersions[id] ?? []
   versionsLoading.value = false
 }
 
 onMounted(async () => {
-  if (!prompt.value) {
-    prompt.value = await store.ensurePrompt(promptId)
+  const ok = await loadPrompt(promptId.value)
+  if (ok) {
+    await refreshVersions(promptId.value)
   }
-  await refreshVersions()
 })
 
 watch(
   () => route.params.promptId,
   async (next) => {
     if (typeof next !== 'string') return
+    promptId.value = next
     versions.value = []
-    prompt.value = await store.ensurePrompt(next)
-    await refreshVersions()
+    const ok = await loadPrompt(next)
+    if (ok) {
+      await refreshVersions(next)
+    }
   }
 )
 
 async function handleCreateVersion() {
-  await store.addPromptVersion(promptId, versionForm)
+  await store.addPromptVersion(promptId.value, versionForm)
   createMessage.value = 'Version created.'
   versionForm.semver = ''
   versionForm.template = ''
   versionForm.variables = ''
   versionForm.guardrails = ''
-  await refreshVersions()
+  await refreshVersions(promptId.value)
   setTimeout(() => (createMessage.value = ''), 3000)
 }
 
@@ -123,5 +128,14 @@ function formatDate(value?: string) {
   if (!value) return '—'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
+}
+
+async function loadPrompt(id: string) {
+  prompt.value = await store.ensurePrompt(id)
+  if (!prompt.value) {
+    await router.replace('/playground/prompts')
+    return false
+  }
+  return true
 }
 </script>

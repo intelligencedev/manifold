@@ -51,8 +51,9 @@ export const usePlaygroundStore = defineStore('playground', () => {
   const experimentsLoading = ref(false)
   const experimentsError = ref<string | null>(null)
   const experimentCache = ref<Record<string, ExperimentSpec>>({})
-  const runsByExperiment = ref<Record<string, Run[]>>({})
-  const runsLoading = ref<Record<string, boolean>>({})
+const runsByExperiment = ref<Record<string, Run[]>>({})
+const runsLoading = ref<Record<string, boolean>>({})
+const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   const promptCount = computed(() => prompts.value.length)
   const datasetCount = computed(() => datasets.value.length)
@@ -200,6 +201,7 @@ export const usePlaygroundStore = defineStore('playground', () => {
     runsLoading.value[experimentId] = true
     try {
       runsByExperiment.value[experimentId] = await listExperimentRuns(experimentId)
+      scheduleRunPolling(experimentId)
     } catch (err) {
       experimentsError.value = extractErr(err, 'Failed to load runs.')
     } finally {
@@ -210,6 +212,28 @@ export const usePlaygroundStore = defineStore('playground', () => {
   async function triggerRun(experimentId: string) {
     await startExperimentRun(experimentId)
     await refreshExperimentRuns(experimentId)
+  }
+
+  function scheduleRunPolling(experimentId: string) {
+    const runs = runsByExperiment.value[experimentId] ?? []
+    const hasActive = runs.some((run) => run.status === 'pending' || run.status === 'running')
+    if (hasActive) {
+      clearRunPolling(experimentId)
+      const handle = setTimeout(async () => {
+        await refreshExperimentRuns(experimentId)
+      }, 2000)
+      runPollTimers.set(experimentId, handle)
+    } else {
+      clearRunPolling(experimentId)
+    }
+  }
+
+  function clearRunPolling(experimentId: string) {
+    const handle = runPollTimers.get(experimentId)
+    if (handle) {
+      clearTimeout(handle)
+      runPollTimers.delete(experimentId)
+    }
   }
 
   function extractErr(err: unknown, fallback: string): string {
@@ -248,5 +272,6 @@ export const usePlaygroundStore = defineStore('playground', () => {
     addExperiment,
     refreshExperimentRuns,
     triggerRun,
+    clearRunPolling,
   }
 })

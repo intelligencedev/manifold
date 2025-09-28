@@ -4,21 +4,24 @@
   "keywords": null,
   "steps": [
     {
-      "id": "run-cli-4ed0cd88",
+      "id": "run-cli-4b54b38c",
       "text": "Execute a CLI command in a restricted working directory (no shell, no absolute paths).",
       "tool": {
         "name": "run_cli",
         "args": {
-          "command": "touch tmp/warpptest.md"
+          "args": [
+            "-la"
+          ],
+          "command": "ls"
         }
       }
     }
   ],
   "ui": {
     "layout": {
-      "run-cli-4ed0cd88": {
-        "x": 266.03918905357193,
-        "y": 239.06123637647892
+      "run-cli-4b54b38c": {
+        "x": 572.6488356399495,
+        "y": 72.39128240500574
       }
     }
   }

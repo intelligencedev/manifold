@@ -21,10 +21,62 @@
       </div>
     </template>
     <template v-else-if="isArray">
-      <div
-        class="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] text-warning-foreground"
-      >
-        Array parameters are not yet supported in the visual editor.
+      <div v-if="fieldLabel" class="text-[11px] font-semibold text-muted-foreground">
+        {{ fieldLabel }}
+        <span v-if="required" class="ml-1 text-[10px] text-danger-foreground">*</span>
+      </div>
+      <p v-if="schema.description" class="text-[10px] text-faint-foreground">
+        {{ schema.description }}
+      </p>
+      <div class="space-y-2 border-l border-border/60 pl-3">
+        <div
+          v-for="(item, index) in arrayValue"
+          :key="index"
+          class="flex items-start gap-2"
+        >
+          <div class="flex-1 min-w-0">
+            <ParameterFormField
+              :schema="itemSchema"
+              :label="itemLabel(index)"
+              :model-value="item"
+              @update:model-value="(value) => updateArrayItem(index, value)"
+            />
+          </div>
+          <div class="flex flex-col items-center gap-1 pt-5">
+            <button
+              class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground disabled:opacity-40"
+              title="Move up"
+              :disabled="index === 0"
+              @click="moveItem(index, -1)"
+            >
+              ↑
+            </button>
+            <button
+              class="rounded bg-muted px-1.5 py-0.5 text-[10px] text-foreground disabled:opacity-40"
+              title="Move down"
+              :disabled="index === arrayValue.length - 1"
+              @click="moveItem(index, 1)"
+            >
+              ↓
+            </button>
+            <button
+              class="rounded bg-danger px-1.5 py-0.5 text-[10px] text-danger-foreground"
+              title="Remove"
+              @click="removeArrayItem(index)"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+        <div>
+          <button
+            class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground"
+            @click="addArrayItem"
+            title="Add item"
+          >
+            Add item
+          </button>
+        </div>
       </div>
     </template>
     <template v-else-if="isUnsupported">
@@ -112,6 +164,9 @@ function schemaType(schema: Record<string, any> | undefined): string | undefined
   }
   if (schema.properties) {
     return 'object'
+  }
+  if (schema.items) {
+    return 'array'
   }
   if (schema.enum) {
     return 'string'
@@ -252,5 +307,67 @@ function optionLabel(option: unknown) {
     return JSON.stringify(option)
   }
   return String(option)
+}
+
+// Array handling
+const itemSchema = computed(() => {
+  const it = (props.schema as any)?.items
+  if (Array.isArray(it)) return it[0] ?? { type: 'string' }
+  return it ?? { type: 'string' }
+})
+
+const arrayValue = computed<unknown[]>(() => (Array.isArray(props.modelValue) ? props.modelValue : []))
+
+function defaultForSchema(s: any): unknown {
+  const t = schemaType(s)
+  switch (t) {
+    case 'object':
+      return {}
+    case 'number':
+    case 'integer':
+      return 0
+    case 'boolean':
+      return false
+    case 'array':
+      return []
+    case 'string':
+    default:
+      return ''
+  }
+}
+
+function addArrayItem() {
+  const next = arrayValue.value.slice()
+  next.push(defaultForSchema(itemSchema.value))
+  emit('update:model-value', next)
+}
+
+function updateArrayItem(index: number, value: unknown) {
+  const next = arrayValue.value.slice()
+  if (value === undefined) {
+    next.splice(index, 1)
+  } else {
+    next[index] = value
+  }
+  emit('update:model-value', next)
+}
+
+function removeArrayItem(index: number) {
+  const next = arrayValue.value.slice()
+  next.splice(index, 1)
+  emit('update:model-value', next.length ? next : undefined)
+}
+
+function moveItem(index: number, delta: number) {
+  const next = arrayValue.value.slice()
+  const newIndex = index + delta
+  if (newIndex < 0 || newIndex >= next.length) return
+  const [item] = next.splice(index, 1)
+  next.splice(newIndex, 0, item)
+  emit('update:model-value', next)
+}
+
+function itemLabel(index: number) {
+  return `${props.schema?.items?.title || 'Item'} #${index + 1}`
 }
 </script>

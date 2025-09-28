@@ -42,9 +42,10 @@ type RunStore interface {
 	GetExperiment(ctx context.Context, id string) (experiment.ExperimentSpec, bool, error)
 	ListExperiments(ctx context.Context) ([]experiment.ExperimentSpec, error)
 	CreateRun(ctx context.Context, run Run) (Run, error)
-	UpdateRunStatus(ctx context.Context, id string, status RunStatus, endedAt time.Time, errMsg string) error
+	UpdateRunStatus(ctx context.Context, id string, status RunStatus, endedAt time.Time, errMsg string, metrics map[string]float64) error
 	AppendResults(ctx context.Context, runID string, results []RunResult) error
 	ListRuns(ctx context.Context, experimentID string) ([]Run, error)
+	ListRunResults(ctx context.Context, runID string) ([]RunResult, error)
 }
 
 // Config tunes runtime aspects of the service.
@@ -196,7 +197,7 @@ func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error
 	// Execute synchronously shard by shard.
 	run.Status = RunStatusRunning
 	run.StartedAt = time.Now().UTC()
-	if err := s.store.UpdateRunStatus(ctx, run.ID, RunStatusRunning, time.Time{}, ""); err != nil {
+	if err := s.store.UpdateRunStatus(ctx, run.ID, RunStatusRunning, time.Time{}, "", nil); err != nil {
 		return Run{}, err
 	}
 
@@ -230,7 +231,7 @@ func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error
 	if err := s.store.AppendResults(ctx, run.ID, results); err != nil {
 		return Run{}, err
 	}
-	if err := s.store.UpdateRunStatus(ctx, run.ID, run.Status, run.EndedAt, ""); err != nil {
+	if err := s.store.UpdateRunStatus(ctx, run.ID, run.Status, run.EndedAt, "", run.Metrics); err != nil {
 		return Run{}, err
 	}
 	return run, nil
@@ -283,8 +284,13 @@ func (s *Service) failRun(ctx context.Context, run Run, err error) (Run, error) 
 	run.Status = RunStatusFailed
 	run.EndedAt = time.Now().UTC()
 	run.Error = err.Error()
-	_ = s.store.UpdateRunStatus(ctx, run.ID, run.Status, run.EndedAt, run.Error)
+	_ = s.store.UpdateRunStatus(ctx, run.ID, run.Status, run.EndedAt, run.Error, nil)
 	return run, err
+}
+
+// ListRunResults returns row-level outputs for a run.
+func (s *Service) ListRunResults(ctx context.Context, runID string) ([]RunResult, error) {
+	return s.store.ListRunResults(ctx, runID)
 }
 
 // RunResultFromWorker adapts worker results into the public RunResult type.

@@ -73,7 +73,7 @@ func (s *InMemoryRunStore) CreateRun(_ context.Context, run Run) (Run, error) {
 }
 
 // UpdateRunStatus updates the run status fields.
-func (s *InMemoryRunStore) UpdateRunStatus(_ context.Context, id string, status RunStatus, endedAt time.Time, errMsg string) error {
+func (s *InMemoryRunStore) UpdateRunStatus(_ context.Context, id string, status RunStatus, endedAt time.Time, errMsg string, metrics map[string]float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	run, ok := s.runs[id]
@@ -83,6 +83,9 @@ func (s *InMemoryRunStore) UpdateRunStatus(_ context.Context, id string, status 
 	run.Status = status
 	run.EndedAt = endedAt
 	run.Error = errMsg
+	if metrics != nil {
+		run.Metrics = cloneMetrics(metrics)
+	}
 	s.runs[id] = run
 	return nil
 }
@@ -117,4 +120,43 @@ func (s *InMemoryRunStore) ListRuns(_ context.Context, experimentID string) ([]R
 		return 0
 	})
 	return out, nil
+}
+
+// ListRunResults returns the stored results for a run.
+func (s *InMemoryRunStore) ListRunResults(_ context.Context, runID string) ([]RunResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	items := s.runResults[runID]
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]RunResult, len(items))
+	copy(out, items)
+	slices.SortFunc(out, func(a, b RunResult) int {
+		if a.RowID < b.RowID {
+			return -1
+		}
+		if a.RowID > b.RowID {
+			return 1
+		}
+		if a.VariantID < b.VariantID {
+			return -1
+		}
+		if a.VariantID > b.VariantID {
+			return 1
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out, nil
+}
+
+func cloneMetrics(in map[string]float64) map[string]float64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }

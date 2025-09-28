@@ -43,4 +43,5 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/playground/experiments/{experimentID}", s.handleGetExperiment)
 	s.mux.HandleFunc("POST /api/v1/playground/experiments/{experimentID}/runs", s.handleStartRun)
 	s.mux.HandleFunc("GET /api/v1/playground/experiments/{experimentID}/runs", s.handleListRuns)
+	s.mux.HandleFunc("GET /api/v1/playground/runs/{runID}/results", s.handleListRunResults)
 }

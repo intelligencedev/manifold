@@ -7,6 +7,7 @@ import {
   type DatasetRow,
   type ExperimentSpec,
   type Run,
+  type RunResult,
   createDataset,
   updateDataset,
   createExperiment,
@@ -18,6 +19,7 @@ import {
   listDatasets,
   listExperiments,
   listExperimentRuns,
+  listRunResults,
   listPrompts,
   listPromptVersions,
   startExperimentRun,
@@ -52,9 +54,11 @@ export const usePlaygroundStore = defineStore('playground', () => {
   const experimentsLoading = ref(false)
   const experimentsError = ref<string | null>(null)
   const experimentCache = ref<Record<string, ExperimentSpec>>({})
-const runsByExperiment = ref<Record<string, Run[]>>({})
-const runsLoading = ref<Record<string, boolean>>({})
-const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const runsByExperiment = ref<Record<string, Run[]>>({})
+  const runsLoading = ref<Record<string, boolean>>({})
+  const runResultsByRun = ref<Record<string, RunResult[]>>({})
+  const runResultsLoading = ref<Record<string, boolean>>({})
+  const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   const promptCount = computed(() => prompts.value.length)
   const datasetCount = computed(() => datasets.value.length)
@@ -243,6 +247,27 @@ const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     await refreshExperimentRuns(experimentId)
   }
 
+  async function ensureRunResults(runId: string) {
+    if (runResultsByRun.value[runId]) {
+      return runResultsByRun.value[runId]
+    }
+    return refreshRunResults(runId)
+  }
+
+  async function refreshRunResults(runId: string) {
+    runResultsLoading.value[runId] = true
+    try {
+      const results = await listRunResults(runId)
+      runResultsByRun.value[runId] = results
+      return results
+    } catch (err) {
+      experimentsError.value = extractErr(err, 'Failed to load run results.')
+      throw err
+    } finally {
+      runResultsLoading.value[runId] = false
+    }
+  }
+
   function scheduleRunPolling(experimentId: string) {
     const runs = runsByExperiment.value[experimentId] ?? []
     const hasActive = runs.some((run) => run.status === 'pending' || run.status === 'running')
@@ -284,6 +309,8 @@ const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     experimentsError,
     runsByExperiment,
     runsLoading,
+    runResultsByRun,
+    runResultsLoading,
     promptCount,
     datasetCount,
     experimentCount,
@@ -302,6 +329,8 @@ const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     addExperiment,
     refreshExperimentRuns,
     triggerRun,
+    ensureRunResults,
+    refreshRunResults,
     clearRunPolling,
   }
 })

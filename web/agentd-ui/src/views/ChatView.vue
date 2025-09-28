@@ -162,6 +162,15 @@
               <span v-else>Copy</span>
             </button>
             <button
+              v-if="message.role === 'user' && message.content"
+              type="button"
+              class="rounded-4 border border-border px-2 py-1 transition hover:border-accent hover:text-accent"
+              @click="copyMessage(message)"
+            >
+              <span v-if="copiedMessageId === message.id">Copied</span>
+              <span v-else>Copy</span>
+            </button>
+            <button
               v-if="canRegenerate && message.id === lastAssistantId"
               type="button"
               class="rounded-4 border border-border px-2 py-1 transition hover:border-accent hover:text-accent"

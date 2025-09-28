@@ -211,3 +211,8 @@ export async function listExperimentRuns(experimentId: string): Promise<Run[]> {
   const { data } = await apiClient.get<{ runs: Run[] }>(`/v1/playground/experiments/${encodeURIComponent(experimentId)}/runs`)
   return data.runs ?? []
 }
+
+export async function listRunResults(runId: string): Promise<RunResult[]> {
+  const { data } = await apiClient.get<{ results: RunResult[] }>(`/v1/playground/runs/${encodeURIComponent(runId)}/results`)
+  return data.results ?? []
+}

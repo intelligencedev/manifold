@@ -74,3 +74,4 @@ web/agentd-ui/coverage/
 web/agentd-ui/playwright-report/
 internal/webui/dist/
 !internal/webui/dist/index.html
+playground-artifacts

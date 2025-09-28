@@ -450,7 +450,7 @@ func (s *PlaygroundStore) CreateRun(ctx context.Context, run playground.Run) (pl
 }
 
 // UpdateRunStatus updates the stored run with new status values.
-func (s *PlaygroundStore) UpdateRunStatus(ctx context.Context, id string, status playground.RunStatus, endedAt time.Time, errMsg string) error {
+func (s *PlaygroundStore) UpdateRunStatus(ctx context.Context, id string, status playground.RunStatus, endedAt time.Time, errMsg string, metrics map[string]float64) error {
 	run, ok, err := s.getRun(ctx, id)
 	if err != nil {
 		return err
@@ -461,6 +461,9 @@ func (s *PlaygroundStore) UpdateRunStatus(ctx context.Context, id string, status
 	run.Status = status
 	run.EndedAt = endedAt
 	run.Error = errMsg
+	if metrics != nil {
+		run.Metrics = cloneMetrics(metrics)
+	}
 	payload, err := json.Marshal(run)
 	if err != nil {
 		return err
@@ -512,6 +515,53 @@ func (s *PlaygroundStore) ListRuns(ctx context.Context, experimentID string) ([]
 	}
 	sort.Slice(runs, func(i, j int) bool { return runs[i].CreatedAt.After(runs[j].CreatedAt) })
 	return runs, rows.Err()
+}
+
+// ListRunResults returns persisted results for a run ordered by row and variant.
+func (s *PlaygroundStore) ListRunResults(ctx context.Context, runID string) ([]playground.RunResult, error) {
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_run_results WHERE run_id=$1`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []playground.RunResult
+	for rows.Next() {
+		var payload []byte
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var res playground.RunResult
+		if err := json.Unmarshal(payload, &res); err != nil {
+			return nil, err
+		}
+		results = append(results, res)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(results, func(i, j int) bool {
+		a, b := results[i], results[j]
+		if a.RowID != b.RowID {
+			return a.RowID < b.RowID
+		}
+		if a.VariantID != b.VariantID {
+			return a.VariantID < b.VariantID
+		}
+		return a.ID < b.ID
+	})
+	return results, nil
+}
+
+func cloneMetrics(in map[string]float64) map[string]float64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *PlaygroundStore) getRun(ctx context.Context, id string) (playground.Run, bool, error) {

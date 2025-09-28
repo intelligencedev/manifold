@@ -1,11 +1,13 @@
 <template>
-  <div class="grid h-full min-h-0 gap-6 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-    <section class="flex min-h-0 flex-col rounded-2xl border border-border/70 bg-surface p-4">
+  <!-- Responsive layout: stack on small screens with a sized upload card; split columns on large screens -->
+  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+    <!-- Upload card: cap height on small screens so it never pushes past the viewport; full height on large screens -->
+    <section class="flex min-h-0 max-h-[50vh] flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full lg:max-h-none">
       <header class="mb-4">
         <h2 class="text-lg font-semibold">Upload Dataset</h2>
         <p class="text-sm text-subtle-foreground">Provide metadata and JSON rows for quick experiments.</p>
       </header>
-      <div class="flex-1 overflow-auto pr-1">
+      <div class="flex-1 overflow-auto overscroll-contain pr-1">
         <form class="grid gap-3 md:grid-cols-2" @submit.prevent="handleCreate">
           <label class="text-sm">
             <span class="text-subtle-foreground mb-1">Name</span>
@@ -24,7 +26,7 @@
             <textarea
               v-model="form.rows"
               rows="6"
-              class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-sm"
+              class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-sm resize-none min-h-[12rem]"
               placeholder='[
   { "id": "sample-1", "inputs": { "question": "Hello" }, "expected": "Hi" }
 ]'
@@ -39,10 +41,11 @@
       </div>
     </section>
 
-    <div class="flex min-h-0 flex-col">
+    <!-- Right column (list/detail): consumes remaining height in stacked layout -->
+    <div class="flex min-h-0 flex-1 flex-col">
       <section
         v-if="!selectedDatasetId"
-        class="flex min-h-0 flex-col rounded-2xl border border-border/70 bg-surface p-4"
+        class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4"
       >
         <header class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
@@ -51,7 +54,7 @@
           </div>
           <button @click="store.loadDatasets" class="rounded border border-border/70 px-3 py-2 text-sm">Refresh</button>
         </header>
-        <div class="flex-1 overflow-auto pr-1">
+        <div class="flex-1 overflow-auto overscroll-contain pr-1">
           <table class="min-w-full text-sm">
             <thead class="sticky top-0 bg-surface text-subtle-foreground">
               <tr>
@@ -91,7 +94,7 @@
 
       <section
         v-else
-        class="flex min-h-0 flex-col rounded-2xl border border-border/70 bg-surface p-4"
+        class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4"
       >
         <header class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div class="flex flex-wrap items-center gap-3">
@@ -121,7 +124,7 @@
         <div v-if="detailLoading" class="flex-1 py-6 text-center text-sm text-subtle-foreground">
           Loading dataset…
         </div>
-        <div v-else class="flex-1 overflow-auto pr-1">
+        <div v-else class="flex-1 overflow-auto overscroll-contain pr-1">
           <div
             v-if="selectedDataset"
             class="grid gap-6 lg:grid-cols-[minmax(0,360px),minmax(0,1fr)]"
@@ -202,7 +205,7 @@
                   v-if="rowViewMode === 'table'"
                   class="flex-1 border border-border/60 rounded overflow-hidden"
                 >
-                  <div class="h-full overflow-auto">
+                  <div class="h-full overflow-auto overscroll-contain">
                     <table class="min-w-full text-xs">
                       <thead class="bg-surface-muted/60 text-subtle-foreground sticky top-0">
                         <tr>

@@ -1,6 +1,7 @@
 <template>
-  <section class="space-y-6 h-full">
-    <header class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+  <!-- Make this view a proper column flex layout so inner routes can consume remaining height -->
+  <section class="flex h-full min-h-0 flex-col">
+    <header class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
       <div>
         <h1 class="text-2xl font-semibold text-foreground">Playground</h1>
         <p class="text-sm text-subtle-foreground">Experiment with prompts, datasets, and runs.</p>
@@ -18,8 +19,12 @@
       </nav>
     </header>
 
-    <RouterView />
+    <!-- Constrain child views height and prevent page scroll bleed -->
+    <div class="flex-1 min-h-0 overflow-hidden">
+      <RouterView />
+    </div>
   </section>
+  
 </template>
 
 <script setup lang="ts">

@@ -117,8 +117,77 @@
             @connect="onConnect"
           >
             <Background />
-            <Controls />
-            <MiniMap />
+
+            <!-- Themed Controls (replaces default Controls) -->
+            <Panel position="bottom-left">
+              <div
+                class="flex items-center gap-1 rounded-md border border-border/70 bg-surface/90 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/75"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  aria-label="Zoom in"
+                  @click="onZoomIn"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                    <path d="M12 5a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H6a1 1 0 110-2h5V6a1 1 0 011-1z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  aria-label="Zoom out"
+                  @click="onZoomOut"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                    <path d="M6 11a1 1 0 100 2h12a1 1 0 100-2H6z" />
+                  </svg>
+                </button>
+                <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  aria-label="Fit view"
+                  @click="onFitView"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                    <path d="M4 7a3 3 0 013-3h2a1 1 0 110 2H7a1 1 0 00-1 1v2a1 1 0 11-2 0V7zm0 10a3 3 0 003 3h2a1 1 0 000-2H7a1 1 0 01-1-1v-2a1 1 0 10-2 0v2zm16-10a3 3 0 00-3-3h-2a1 1 0 100 2h2a1 1 0 011 1v2a1 1 0 102 0V7zm0 10v-2a1 1 0 10-2 0v2a1 1 0 01-1 1h-2a1 1 0 000 2h2a3 3 0 003-3z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  :aria-pressed="!interactive"
+                  :aria-label="interactive ? 'Disable interactions' : 'Enable interactions'"
+                  @click="toggleInteractive"
+                >
+                  <svg v-if="interactive" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                    <path d="M12 2a1 1 0 011 1v5a1 1 0 11-2 0V3a1 1 0 011-1zm7 10a1 1 0 011 1v6a3 3 0 01-3 3h-6a1 1 0 110-2h6a1 1 0 001-1v-6a1 1 0 011-1zM3 9a1 1 0 011-1h6a1 1 0 110 2H5v10h10v-5a1 1 0 112 0v5a3 3 0 01-3 3H6a3 3 0 01-3-3V9z" />
+                  </svg>
+                  <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                    <path d="M17 8V7a5 5 0 10-10 0v1H5a1 1 0 00-1 1v10a3 3 0 003 3h10a3 3 0 003-3V9a1 1 0 00-1-1h-2zm-8-1a3 3 0 016 0v1H9V7z" />
+                  </svg>
+                </button>
+              </div>
+            </Panel>
+
+            <!-- Themed MiniMap -->
+            <MiniMap
+              class="rounded-md border border-border/70 bg-surface/90 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/75"
+              :position="'bottom-right'"
+              :pannable="true"
+              :zoomable="true"
+              :width="180"
+              :height="120"
+              :mask-color="'rgb(var(--color-surface) / 0.85)'"
+              :mask-stroke-color="'rgb(var(--color-border) / 0.7)'"
+              :mask-stroke-width="1"
+              :mask-border-radius="8"
+              :node-color="miniMapNodeColor"
+              :node-stroke-color="miniMapNodeStroke"
+              :node-border-radius="6"
+              :node-stroke-width="1"
+            />
           </VueFlow>
         </div>
       </div>
@@ -128,9 +197,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
-import { VueFlow, type Edge, type Node, useVueFlow, type Connection } from '@vue-flow/core'
+import { VueFlow, type Edge, type Node, useVueFlow, type Connection, Panel } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
 
 import WarppStepNode from '@/components/flow/WarppStepNode.vue'
@@ -155,7 +223,7 @@ const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320
 
 const nodeTypes = { warppStep: WarppStepNode }
 
-const { project } = useVueFlow()
+const { project, zoomIn, zoomOut, fitView, setInteractive, nodesDraggable, nodesConnectable, elementsSelectable } = useVueFlow()
 
 const flowWrapper = ref<HTMLDivElement | null>(null)
 const isDraggingFromPalette = ref(false)
@@ -193,6 +261,34 @@ const toolMap = computed(() => {
 
 const canSave = computed(() => !!activeWorkflow.value && !saving.value && dirty.value)
 const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
+
+// Controls state
+const interactive = computed({
+  get: () => (nodesDraggable.value || nodesDraggable.value === undefined) && (nodesConnectable.value || nodesConnectable.value === undefined) && (elementsSelectable.value || elementsSelectable.value === undefined),
+  set: (val: boolean) => setInteractive(val),
+})
+
+function onZoomIn() {
+  zoomIn()
+}
+function onZoomOut() {
+  zoomOut()
+}
+function onFitView() {
+  fitView({ padding: 0.15 })
+}
+function toggleInteractive() {
+  interactive.value = !interactive.value
+}
+
+// MiniMap styling helpers (use theme CSS variables)
+function miniMapNodeColor() {
+  // Base fill uses surface-muted for cohesion; selection handled by library styles
+  return 'rgb(var(--color-surface-muted))'
+}
+function miniMapNodeStroke() {
+  return 'rgb(var(--color-border))'
+}
 
 onMounted(async () => {
   loading.value = true

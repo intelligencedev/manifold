@@ -1,10 +1,12 @@
 <template>
-  <div class="space-y-6">
-    <section class="rounded-2xl border border-border/70 bg-surface p-4 space-y-3">
+  <!-- Responsive, non-overflowing layout: stack on small screens; split columns on large -->
+  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+    <section class="flex min-h-0 max-h-[55vh] flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 space-y-3 lg:h-full lg:max-h-none">
       <header>
         <h2 class="text-lg font-semibold">New Experiment</h2>
         <p class="text-sm text-subtle-foreground">Select a dataset and prompt version to compare model outputs.</p>
       </header>
+      <div class="flex-1 overflow-auto overscroll-contain pr-1">
       <form class="grid gap-3 md:grid-cols-2" @submit.prevent="handleCreateExperiment">
         <label class="text-sm">
           <span class="text-subtle-foreground mb-1">Name</span>
@@ -49,9 +51,10 @@
           <span v-if="createError" class="text-sm text-danger-foreground">{{ createError }}</span>
         </div>
       </form>
+      </div>
     </section>
 
-    <section class="rounded-2xl border border-border/70 bg-surface p-4 space-y-4">
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 gap-4 lg:h-full">
       <header class="flex items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Experiments</h2>
@@ -59,10 +62,11 @@
         </div>
         <button @click="store.loadExperiments" class="rounded border border-border/70 px-3 py-2 text-sm">Refresh</button>
       </header>
-      <div v-if="store.experimentsLoading" class="text-sm text-subtle-foreground">Loading experiments…</div>
-      <div v-else-if="store.experiments.length === 0" class="text-sm text-subtle-foreground">No experiments yet.</div>
-      <div v-else class="space-y-3">
-        <article v-for="experiment in store.experiments" :key="experiment.id" class="rounded-xl border border-border/60 bg-surface-muted/60 p-4 space-y-2">
+      <div class="flex-1 min-h-0 overflow-auto overscroll-contain pr-1">
+        <div v-if="store.experimentsLoading" class="text-sm text-subtle-foreground">Loading experiments…</div>
+        <div v-else-if="store.experiments.length === 0" class="text-sm text-subtle-foreground">No experiments yet.</div>
+        <div v-else class="space-y-3 min-w-0">
+          <article v-for="experiment in store.experiments" :key="experiment.id" class="rounded-xl border border-border/60 bg-surface-muted/60 p-4 space-y-2">
           <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
             <div>
               <h3 class="text-base font-semibold">{{ experiment.name }}</h3>
@@ -79,29 +83,32 @@
               {{ expandedRun[experiment.id] ? 'Hide runs' : 'Show runs' }}
             </button>
           </div>
-          <div v-if="expandedRun[experiment.id]" class="rounded border border-border/60 bg-surface p-3">
-            <div v-if="store.runsLoading[experiment.id]" class="text-sm text-subtle-foreground">Loading runs…</div>
-            <table v-else class="w-full text-sm">
-              <thead class="text-subtle-foreground">
-                <tr>
-                  <th class="text-left py-2">Run</th>
-                  <th class="text-left py-2">Status</th>
-                  <th class="text-left py-2">Started</th>
-                  <th class="text-left py-2">Completed</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="run in store.runsByExperiment[experiment.id] ?? []" :key="run.id" class="border-t border-border/60">
-                  <td class="py-2 text-sm">{{ run.id }}</td>
-                  <td class="py-2 capitalize">{{ run.status }}</td>
-                  <td class="py-2">{{ formatDate(run.startedAt) }}</td>
-                  <td class="py-2">{{ formatDate(run.endedAt) }}</td>
-                </tr>
-                <tr v-if="(store.runsByExperiment[experiment.id] ?? []).length === 0"><td colspan="4" class="py-2 text-sm text-subtle-foreground">No runs yet.</td></tr>
-              </tbody>
-            </table>
+          <div v-if="expandedRun[experiment.id]" class="rounded border border-border/60 bg-surface">
+            <div v-if="store.runsLoading[experiment.id]" class="p-3 text-sm text-subtle-foreground">Loading runs…</div>
+            <div v-else class="max-h-60 overflow-auto overscroll-contain pr-1">
+              <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-surface text-subtle-foreground">
+                  <tr>
+                    <th class="text-left py-2">Run</th>
+                    <th class="text-left py-2">Status</th>
+                    <th class="text-left py-2">Started</th>
+                    <th class="text-left py-2">Completed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="run in store.runsByExperiment[experiment.id] ?? []" :key="run.id" class="border-t border-border/60">
+                    <td class="py-2 text-sm">{{ run.id }}</td>
+                    <td class="py-2 capitalize">{{ run.status }}</td>
+                    <td class="py-2">{{ formatDate(run.startedAt) }}</td>
+                    <td class="py-2">{{ formatDate(run.endedAt) }}</td>
+                  </tr>
+                  <tr v-if="(store.runsByExperiment[experiment.id] ?? []).length === 0"><td colspan="4" class="py-2 text-sm text-subtle-foreground">No runs yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </article>
+        </div>
       </div>
     </section>
   </div>

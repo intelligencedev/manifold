@@ -42,10 +42,10 @@
     </section>
 
     <!-- Right column (list/detail): consumes remaining height in stacked layout -->
-    <div class="flex min-h-0 flex-1 flex-col">
+    <div class="flex min-h-0 flex-1 flex-col lg:h-full">
       <section
         v-if="!selectedDatasetId"
-        class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4"
+        class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full"
       >
         <header class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
@@ -94,7 +94,7 @@
 
       <section
         v-else
-        class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4"
+        class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full"
       >
         <header class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div class="flex flex-wrap items-center gap-3">
@@ -127,7 +127,7 @@
         <div v-else class="flex-1 overflow-auto overscroll-contain pr-1">
           <div
             v-if="selectedDataset"
-            class="grid gap-6 lg:grid-cols-[minmax(0,360px),minmax(0,1fr)]"
+            class="grid min-h-full gap-6 lg:grid-cols-[minmax(0,360px),minmax(0,1fr)]"
           >
             <div class="space-y-3">
               <label class="text-sm">
@@ -175,7 +175,7 @@
                 <span v-if="detailError" class="text-sm text-danger-foreground">{{ detailError }}</span>
               </div>
             </div>
-            <div class="flex min-h-[16rem] flex-col space-y-3">
+            <div class="flex h-full min-h-0 flex-col space-y-3">
               <div class="flex items-center justify-between">
                 <span class="text-sm font-medium">Rows preview</span>
                 <div class="flex gap-2 text-xs">

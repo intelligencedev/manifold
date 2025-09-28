@@ -263,13 +263,18 @@
     </section>
 
     <!-- Context sidebar -->
-    <aside class="hidden min-h-0 xl:flex flex-col gap-4 rounded-5 border border-border bg-surface p-4 text-sm text-subtle-foreground surface-noise">
+    <aside class="hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 border border-border bg-surface p-4 text-sm text-subtle-foreground surface-noise">
       <div>
         <h2 class="text-sm font-semibold text-foreground">Session details</h2>
         <p class="mt-2 text-xs text-subtle-foreground">Session ID: {{ activeSessionId }}</p>
         <p class="text-xs text-subtle-foreground">Messages: {{ activeMessages.length }}</p>
       </div>
-        <div class="flex-1 h-full space-y-2 overflow-y-auto pr-1" @click="handleMarkdownClick">
+        <div
+          ref="toolsPane"
+          class="flex-1 h-full space-y-2 overflow-y-auto pr-1"
+          @scroll="handleToolsScroll"
+          @click="handleMarkdownClick"
+        >
           <div
             v-if="!toolMessages.length"
             class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
@@ -324,6 +329,16 @@
             </details>
           </article>
         </div>
+
+        <button
+          type="button"
+          class="absolute bottom-6 right-6 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transition-all duration-200"
+          :class="showToolScrollToBottom ? 'pointer-events-auto opacity-100 translate-y-0' : 'pointer-events-none opacity-0 translate-y-2'"
+          @click="handleScrollToolsToLatest"
+        >
+          <span class="h-2 w-2 rounded-full bg-accent"></span>
+          <span>Scroll to latest</span>
+        </button>
     </aside>
     </section>
   </div>
@@ -408,6 +423,9 @@ const messagesPane = ref<HTMLDivElement | null>(null)
 const composer = ref<HTMLTextAreaElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const autoScrollEnabled = ref(true)
+// Tools pane scrolling state
+const toolsPane = ref<HTMLDivElement | null>(null)
+const toolAutoScrollEnabled = ref(true)
 // Attachments state for composer
 const fileInput = ref<HTMLInputElement | null>(null)
 const pendingAttachments = ref<ChatAttachment[]>([])
@@ -492,6 +510,7 @@ const activeMessages = computed(() => messagesBySession.value[activeSessionId.va
 const chatMessages = computed(() => activeMessages.value.filter((m) => m.role !== 'tool'))
 const toolMessages = computed(() => activeMessages.value.filter((m) => m.role === 'tool'))
 const showScrollToBottom = computed(() => !autoScrollEnabled.value && chatMessages.value.length > 0)
+const showToolScrollToBottom = computed(() => !toolAutoScrollEnabled.value && toolMessages.value.length > 0)
 const lastUser = computed(() => findLast(activeMessages.value, (msg) => msg.role === 'user'))
 const lastAssistant = computed(() => findLast(activeMessages.value, (msg) => msg.role === 'assistant'))
 const lastAssistantId = computed(() => lastAssistant.value?.id || '')
@@ -521,6 +540,13 @@ watch(
   { flush: 'post' }
 )
 
+// Tools pane: auto-scroll on content changes
+watch(
+  () => toolMessages.value.map((msg) => `${msg.id}:${msg.content.length}:${msg.streaming ? 1 : 0}`),
+  () => scrollToolsToBottom(),
+  { flush: 'post' }
+)
+
 watch(renamingSessionId, (value) => {
   if (!value) return
   nextTick(() => {
@@ -533,6 +559,7 @@ onMounted(() => {
   nextTick(() => {
     autoSizeComposer()
     scrollMessagesToBottom({ force: true, behavior: 'auto' })
+    scrollToolsToBottom({ force: true, behavior: 'auto' })
   })
 })
 
@@ -599,7 +626,9 @@ function touchSession(sessionId: string, preview?: string) {
 function selectSession(sessionId: string) {
   activeSessionId.value = sessionId
   autoScrollEnabled.value = true
+  toolAutoScrollEnabled.value = true
   nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
+  nextTick(() => scrollToolsToBottom({ force: true, behavior: 'auto' }))
 }
 
 function createSession() {
@@ -610,7 +639,9 @@ function createSession() {
   renamingSessionId.value = session.id
   renamingName.value = session.name
   autoScrollEnabled.value = true
+  toolAutoScrollEnabled.value = true
   nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
+  nextTick(() => scrollToolsToBottom({ force: true, behavior: 'auto' }))
 }
 
 function deleteSession(sessionId: string) {
@@ -622,7 +653,9 @@ function deleteSession(sessionId: string) {
     messagesBySession.value = { [fresh.id]: [] }
     activeSessionId.value = fresh.id
     autoScrollEnabled.value = true
+    toolAutoScrollEnabled.value = true
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
+    nextTick(() => scrollToolsToBottom({ force: true, behavior: 'auto' }))
     return
   }
   sessions.value = nextSessions
@@ -630,7 +663,9 @@ function deleteSession(sessionId: string) {
   if (activeSessionId.value === sessionId) {
     activeSessionId.value = nextSessions[0]?.id || ''
     autoScrollEnabled.value = true
+    toolAutoScrollEnabled.value = true
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: 'auto' }))
+    nextTick(() => scrollToolsToBottom({ force: true, behavior: 'auto' }))
   }
 }
 
@@ -980,6 +1015,25 @@ function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
   })
 }
 
+function scrollToolsToBottom(options: ScrollToBottomOptions = {}) {
+  nextTick(() => {
+    const container = toolsPane.value
+    if (!container) return
+
+    if (!options.force && !toolAutoScrollEnabled.value) {
+      return
+    }
+
+    const behavior = options.behavior ?? (options.force ? 'smooth' : 'auto')
+    const target = Math.max(container.scrollHeight - container.clientHeight, 0)
+    container.scrollTo({ top: target, behavior })
+
+    if (options.force) {
+      toolAutoScrollEnabled.value = true
+    }
+  })
+}
+
 function isNearBottom(container: HTMLElement) {
   const distance = container.scrollHeight - (container.scrollTop + container.clientHeight)
   return distance <= SCROLL_LOCK_THRESHOLD
@@ -993,6 +1047,16 @@ function handleMessagesScroll(event: Event) {
 
 function handleScrollToLatest() {
   scrollMessagesToBottom({ force: true, behavior: 'smooth' })
+}
+
+function handleToolsScroll(event: Event) {
+  const container = event.target as HTMLElement | null
+  if (!container) return
+  toolAutoScrollEnabled.value = isNearBottom(container)
+}
+
+function handleScrollToolsToLatest() {
+  scrollToolsToBottom({ force: true, behavior: 'smooth' })
 }
 
 function findLast<T>(items: T[], predicate: (item: T) => boolean): T | null {

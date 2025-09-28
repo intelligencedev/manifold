@@ -1,20 +1,41 @@
 <template>
   <div
-    class="relative min-w-[240px] max-w-[320px] rounded-lg border border-border/60 bg-surface/90 p-3 text-xs text-muted-foreground shadow-lg"
+    class="relative rounded-lg border border-border/60 bg-surface/90 p-3 text-xs text-muted-foreground shadow-lg"
+    :class="collapsed ? 'min-w-[160px] max-w-[220px]' : 'min-w-[240px] max-w-[320px]'"
   >
     <Handle type="target" :position="Position.Left" class="!bg-accent" />
     <div class="flex items-start justify-between gap-2">
       <div class="flex-1">
-        <div class="text-sm font-semibold text-foreground">
-          {{ headerLabel }}
+        <div class="flex items-center gap-2">
+          <button
+            class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
+            :aria-expanded="!collapsed"
+            :title="collapsed ? 'Expand' : 'Collapse'"
+            @click.prevent.stop="toggleCollapsed"
+          >
+            <!-- chevron icon -->
+            <svg
+              class="h-3.5 w-3.5 transition-transform"
+              :class="collapsed ? '-rotate-90' : 'rotate-0'"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+          </button>
+          <div class="text-sm font-semibold text-foreground select-none">
+            {{ headerLabel }}
+          </div>
         </div>
       </div>
-      <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
-        >#{{ orderLabel }}</span
-      >
+      <span v-show="!collapsed" class="text-[10px] uppercase tracking-wide text-faint-foreground">#{{ orderLabel }}</span>
     </div>
 
-    <div class="mt-3 space-y-2">
+    <div v-show="!collapsed" class="mt-3 space-y-2">
       <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
         Step Text
         <input
@@ -43,7 +64,7 @@
       </label>
     </div>
 
-    <div class="mt-3 space-y-2">
+    <div v-show="!collapsed" class="mt-3 space-y-2">
       <div class="text-[11px] font-semibold text-muted-foreground">Parameters</div>
       <ParameterFormField
         v-if="parameterSchema"
@@ -59,7 +80,7 @@
       </p>
     </div>
 
-    <div class="mt-4 flex items-center justify-end gap-2">
+    <div v-show="!collapsed" class="mt-4 flex items-center justify-end gap-2">
       <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
       <button
         class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
@@ -106,6 +127,7 @@ const publishResult = ref(false)
 const toolName = ref('')
 const argsState = ref<Record<string, unknown>>({})
 const isDirty = ref(false)
+const collapsed = ref(false)
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1)
 
@@ -181,6 +203,10 @@ function applyChanges() {
   if (!isDirty.value) return
   commit()
   isDirty.value = false
+}
+
+function toggleCollapsed() {
+  collapsed.value = !collapsed.value
 }
 
 function buildToolPayload(name: string, args: Record<string, unknown>) {

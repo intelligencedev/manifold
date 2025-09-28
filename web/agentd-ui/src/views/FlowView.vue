@@ -114,6 +114,7 @@
             class="h-full w-full"
             @dragover="onDragOver"
             @drop="onDrop"
+            @connect="onConnect"
           >
             <Background />
             <Controls />
@@ -127,7 +128,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
-import { VueFlow, type Edge, type Node, useVueFlow } from '@vue-flow/core'
+import { VueFlow, type Edge, type Node, useVueFlow, type Connection } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
@@ -255,6 +256,23 @@ watch(selectedIntent, async (intent) => {
 let syncScheduled = false
 watch(
   nodes,
+  () => {
+    if (isHydrating.value) return
+    if (syncScheduled) return
+    syncScheduled = true
+    requestAnimationFrame(() => {
+      syncScheduled = false
+      if (isHydrating.value) return
+      syncWorkflowFromNodes()
+      dirty.value = true
+    })
+  },
+  { deep: true },
+)
+
+// Keep workflow.depends_on in sync when edges change (add/remove/reconnect)
+watch(
+  edges,
   () => {
     if (isHydrating.value) return
     if (syncScheduled) return
@@ -403,6 +421,16 @@ function onPaletteDragStart(event: DragEvent, tool: WarppTool) {
 
 function onPaletteDragEnd() {
   isDraggingFromPalette.value = false
+}
+
+function onConnect(connection: Connection) {
+  const { source, target } = connection
+  if (!source || !target) return
+  if (source === target) return // no self-loop
+  // prevent duplicate edges
+  if (edges.value.some((e) => e.source === source && e.target === target)) return
+  const id = `e-${source}-${target}-${Math.random().toString(36).slice(2, 8)}`
+  edges.value = [...edges.value, { id, source, target }]
 }
 
 function addToolNode(tool: WarppTool, position: { x: number; y: number }) {

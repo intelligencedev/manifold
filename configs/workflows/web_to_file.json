@@ -1,0 +1,83 @@
+{
+  "intent": "web_to_file",
+  "description": "Fetch top 2 web results for a query, extract their content, and save to a file.",
+  "keywords": null,
+  "steps": [
+    {
+      "id": "web-search-10faa81a",
+      "text": "Search the web using SearXNG and return top result links. Use for fact lookup and recent info.",
+      "tool": {
+        "name": "web_search",
+        "args": {
+          "category": "general",
+          "max_results": 2,
+          "query": "technological singularity"
+        }
+      }
+    },
+    {
+      "id": "web-fetch-7a690fb5",
+      "text": "Fetch a web URL over HTTP(S) and return best-effort Markdown (readability extraction when possible).",
+      "tool": {
+        "name": "web_fetch",
+        "args": {
+          "url": "${A.first_url}"
+        }
+      },
+      "depends_on": [
+        "web-search-10faa81a"
+      ]
+    },
+    {
+      "id": "web-fetch-4f5dfc0c",
+      "text": "Fetch a web URL over HTTP(S) and return best-effort Markdown (readability extraction when possible).",
+      "tool": {
+        "name": "web_fetch",
+        "args": {
+          "url": "${A.second_url}"
+        }
+      },
+      "depends_on": [
+        "web-search-10faa81a"
+      ]
+    },
+    {
+      "id": "run-cli-c35a80fd",
+      "text": "Execute a CLI command in a restricted working directory (no shell, no absolute paths).",
+      "tool": {
+        "name": "run_cli",
+        "args": {
+          "args": [
+            "tmp/patchtest.md"
+          ],
+          "command": "tee",
+          "stdin": "${A.payloads}"
+        }
+      },
+      "depends_on": [
+        "web-fetch-7a690fb5",
+        "web-fetch-4f5dfc0c"
+      ]
+    }
+  ],
+  "ui": {
+    "layout": {
+      "run-cli-c35a80fd": {
+        "x": 1298,
+        "y": 557
+      },
+      "web-fetch-4f5dfc0c": {
+        "x": 903.0252096918041,
+        "y": 826.2380131702042
+      },
+      "web-fetch-7a690fb5": {
+        "x": 903.695214379307,
+        "y": 97.92215028383427
+      },
+      "web-search-10faa81a": {
+        "x": 502.61537303172236,
+        "y": 535.1332278531485
+      }
+    }
+  }
+}

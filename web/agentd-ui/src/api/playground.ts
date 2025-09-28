@@ -40,6 +40,7 @@ export interface Dataset {
   tags?: string[]
   createdAt: string
   metadata?: Record<string, string>
+  rows?: DatasetRow[]
 }
 
 export interface DatasetRow {
@@ -178,6 +179,11 @@ export interface CreateDatasetPayload {
 
 export async function createDataset(payload: CreateDatasetPayload): Promise<Dataset> {
   const { data } = await apiClient.post<Dataset>('/v1/playground/datasets', payload)
+  return data
+}
+
+export async function updateDataset(id: string, payload: CreateDatasetPayload): Promise<Dataset> {
+  const { data } = await apiClient.put<Dataset>(`/v1/playground/datasets/${encodeURIComponent(id)}`, payload)
   return data
 }
 

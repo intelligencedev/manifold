@@ -101,6 +101,11 @@ func (s *Service) RegisterDataset(ctx context.Context, ds dataset.Dataset, rows 
 	return s.datasets.CreateDataset(ctx, ds, rows)
 }
 
+// UpdateDataset updates dataset metadata and rows.
+func (s *Service) UpdateDataset(ctx context.Context, ds dataset.Dataset, rows []dataset.Row) (dataset.Dataset, error) {
+	return s.datasets.UpdateDataset(ctx, ds, rows)
+}
+
 // ListDatasets returns dataset metadata for UI listing.
 func (s *Service) ListDatasets(ctx context.Context) ([]dataset.Dataset, error) {
 	return s.datasets.ListDatasets(ctx)
@@ -109,6 +114,11 @@ func (s *Service) ListDatasets(ctx context.Context) ([]dataset.Dataset, error) {
 // GetDataset fetches a dataset and indicates whether it exists.
 func (s *Service) GetDataset(ctx context.Context, id string) (dataset.Dataset, bool, error) {
 	return s.datasets.GetDataset(ctx, id)
+}
+
+// ListDatasetRows returns the current rows for the dataset's initial snapshot.
+func (s *Service) ListDatasetRows(ctx context.Context, id string) ([]dataset.Row, error) {
+	return s.datasets.ResolveSnapshotRows(ctx, id, "", "")
 }
 
 // CreateExperiment registers an experiment specification and persists it.

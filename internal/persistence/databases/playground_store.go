@@ -263,6 +263,22 @@ func (s *PlaygroundStore) CreateDataset(ctx context.Context, ds dataset.Dataset)
 	return ds, nil
 }
 
+// UpdateDataset updates dataset metadata payload.
+func (s *PlaygroundStore) UpdateDataset(ctx context.Context, ds dataset.Dataset) (dataset.Dataset, error) {
+	data, err := json.Marshal(ds)
+	if err != nil {
+		return dataset.Dataset{}, err
+	}
+	cmd, err := s.pool.Exec(ctx, `UPDATE playground_datasets SET payload=$2 WHERE id=$1`, ds.ID, data)
+	if err != nil {
+		return dataset.Dataset{}, err
+	}
+	if cmd.RowsAffected() == 0 {
+		return dataset.Dataset{}, dataset.ErrDatasetNotFound
+	}
+	return ds, nil
+}
+
 // GetDataset fetches dataset metadata.
 func (s *PlaygroundStore) GetDataset(ctx context.Context, id string) (dataset.Dataset, bool, error) {
 	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_datasets WHERE id=$1`, id)

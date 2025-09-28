@@ -39,6 +39,7 @@ type Row struct {
 // Store defines how datasets and rows are persisted.
 type Store interface {
 	CreateDataset(ctx context.Context, ds Dataset) (Dataset, error)
+	UpdateDataset(ctx context.Context, ds Dataset) (Dataset, error)
 	GetDataset(ctx context.Context, id string) (Dataset, bool, error)
 	ListDatasets(ctx context.Context) ([]Dataset, error)
 	CreateSnapshot(ctx context.Context, snapshot Snapshot, rows []Row) (Snapshot, error)
@@ -99,6 +100,47 @@ func (s *Service) CreateDataset(ctx context.Context, ds Dataset, rows []Row) (Da
 		}
 	}
 	return created, nil
+}
+
+// UpdateDataset merges new metadata and optionally replaces the initial snapshot rows.
+func (s *Service) UpdateDataset(ctx context.Context, ds Dataset, rows []Row) (Dataset, error) {
+	if strings.TrimSpace(ds.ID) == "" {
+		return Dataset{}, fmt.Errorf("dataset ID is required")
+	}
+	if strings.TrimSpace(ds.Name) == "" {
+		return Dataset{}, fmt.Errorf("dataset name is required")
+	}
+	existing, ok, err := s.store.GetDataset(ctx, ds.ID)
+	if err != nil {
+		return Dataset{}, err
+	}
+	if !ok {
+		return Dataset{}, ErrDatasetNotFound
+	}
+	updated := existing
+	updated.Name = ds.Name
+	updated.Description = ds.Description
+	if ds.Tags != nil {
+		updated.Tags = append([]string(nil), ds.Tags...)
+	}
+	if ds.Metadata != nil {
+		updated.Metadata = ds.Metadata
+	}
+	saved, err := s.store.UpdateDataset(ctx, updated)
+	if err != nil {
+		return Dataset{}, err
+	}
+	if rows != nil {
+		snapshot := Snapshot{
+			ID:        fmt.Sprintf("%s-initial", ds.ID),
+			DatasetID: ds.ID,
+			CreatedAt: s.clock.Now(),
+		}
+		if _, err := s.store.CreateSnapshot(ctx, snapshot, rows); err != nil {
+			return Dataset{}, fmt.Errorf("update snapshot: %w", err)
+		}
+	}
+	return saved, nil
 }
 
 // ListDatasets retrieves all dataset metadata from the store.
@@ -163,6 +205,15 @@ type InMemoryStore struct {
 func (s *InMemoryStore) CreateDataset(_ context.Context, ds Dataset) (Dataset, error) {
 	if _, ok := s.datasets[ds.ID]; ok {
 		return Dataset{}, ErrDatasetExists
+	}
+	s.datasets[ds.ID] = ds
+	return ds, nil
+}
+
+// UpdateDataset updates metadata for an existing dataset.
+func (s *InMemoryStore) UpdateDataset(_ context.Context, ds Dataset) (Dataset, error) {
+	if _, ok := s.datasets[ds.ID]; !ok {
+		return Dataset{}, ErrDatasetNotFound
 	}
 	s.datasets[ds.ID] = ds
 	return ds, nil

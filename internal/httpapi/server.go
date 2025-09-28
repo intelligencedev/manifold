@@ -36,6 +36,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/playground/datasets", s.handleListDatasets)
 	s.mux.HandleFunc("GET /api/v1/playground/datasets/{datasetID}", s.handleGetDataset)
 	s.mux.HandleFunc("POST /api/v1/playground/datasets", s.handleCreateDataset)
+	s.mux.HandleFunc("PUT /api/v1/playground/datasets/{datasetID}", s.handleUpdateDataset)
 	// Experiments
 	s.mux.HandleFunc("GET /api/v1/playground/experiments", s.handleListExperiments)
 	s.mux.HandleFunc("POST /api/v1/playground/experiments", s.handleCreateExperiment)

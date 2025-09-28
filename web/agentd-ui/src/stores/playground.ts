@@ -8,6 +8,7 @@ import {
   type ExperimentSpec,
   type Run,
   createDataset,
+  updateDataset,
   createExperiment,
   createPrompt,
   createPromptVersion,
@@ -132,7 +133,13 @@ const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
       const items = await listDatasets()
       datasets.value = items
       for (const ds of items) {
-        datasetCache.value[ds.id] = ds
+        const cached = datasetCache.value[ds.id]
+        const merged: Dataset = {
+          ...ds,
+          metadata: ds.metadata ?? cached?.metadata,
+          rows: cached?.rows ? [...cached.rows] : undefined,
+        }
+        datasetCache.value[ds.id] = merged
       }
     } catch (err) {
       datasetsError.value = extractErr(err, 'Failed to load datasets.')
@@ -141,14 +148,22 @@ const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     }
   }
 
-  async function ensureDataset(id: string): Promise<Dataset | null> {
-    if (datasetCache.value[id]) {
-      return datasetCache.value[id]
+  async function ensureDataset(id: string, options?: { force?: boolean }): Promise<Dataset | null> {
+    const force = options?.force ?? false
+    const cached = datasetCache.value[id]
+    if (!force && cached?.rows) {
+      return cached
     }
     try {
       const ds = await getDataset(id)
-      datasetCache.value[id] = ds
-      return ds
+      const merged: Dataset = {
+        ...ds,
+        metadata: ds.metadata ?? cached?.metadata,
+        rows: ds.rows ? [...ds.rows] : cached?.rows ? [...cached.rows] : undefined,
+      }
+      datasetCache.value[id] = merged
+      datasets.value = datasets.value.map((item) => (item.id === id ? { ...item, ...ds } : item))
+      return merged
     } catch (err) {
       datasetsError.value = extractErr(err, 'Failed to load dataset.')
       return null
@@ -158,7 +173,21 @@ const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
   async function addDataset(dataset: { name: string; description?: string; tags: string[] }, rows: DatasetRow[]) {
     const payload = await createDataset({ dataset, rows })
     datasets.value = [payload, ...datasets.value]
-    datasetCache.value[payload.id] = payload
+    datasetCache.value[payload.id] = { ...payload, rows: [...rows] }
+  }
+
+  async function saveDataset(id: string, dataset: { name: string; description?: string; tags: string[] }, rows: DatasetRow[]): Promise<Dataset> {
+    const response = await updateDataset(id, { dataset: { ...dataset, id }, rows })
+    const existing = datasetCache.value[id]
+    const merged: Dataset = {
+      ...(existing ?? {}),
+      ...response,
+      metadata: response.metadata ?? existing?.metadata,
+      rows: response.rows ? [...response.rows] : [...rows],
+    }
+    datasetCache.value[id] = merged
+    datasets.value = datasets.value.map((item) => (item.id === id ? { ...item, ...response } : item))
+    return merged
   }
 
   async function loadExperiments() {
@@ -267,6 +296,7 @@ const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>()
     loadDatasets,
     ensureDataset,
     addDataset,
+    saveDataset,
     loadExperiments,
     ensureExperiment,
     addExperiment,

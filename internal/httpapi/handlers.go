@@ -139,7 +139,53 @@ func (s *Server) handleGetDataset(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, errors.New("dataset not found"))
 		return
 	}
-	respondJSON(w, http.StatusOK, ds)
+	rows, err := s.service.ListDatasetRows(ctx, id)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, struct {
+		dataset.Dataset
+		Rows []dataset.Row `json:"rows"`
+	}{Dataset: ds, Rows: rows})
+}
+
+func (s *Server) handleUpdateDataset(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("datasetID")
+	var payload struct {
+		Dataset dataset.Dataset `json:"dataset"`
+		Rows    []dataset.Row   `json:"rows"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		respondError(w, http.StatusBadRequest, err)
+		return
+	}
+	if payload.Dataset.ID == "" {
+		payload.Dataset.ID = id
+	}
+	if payload.Dataset.ID != id {
+		respondError(w, http.StatusBadRequest, errors.New("dataset ID mismatch"))
+		return
+	}
+	updated, err := s.service.UpdateDataset(ctx, payload.Dataset, payload.Rows)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, dataset.ErrDatasetNotFound) {
+			status = http.StatusNotFound
+		}
+		respondError(w, status, err)
+		return
+	}
+	rows, err := s.service.ListDatasetRows(ctx, id)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	respondJSON(w, http.StatusOK, struct {
+		dataset.Dataset
+		Rows []dataset.Row `json:"rows"`
+	}{Dataset: updated, Rows: rows})
 }
 
 func (s *Server) handleCreateExperiment(w http.ResponseWriter, r *http.Request) {

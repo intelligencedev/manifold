@@ -19,8 +19,8 @@ env:
 
 jobs:
   build:
-    name: Build agentd with Whisper (Linux amd64)
-    runs-on: ubuntu-latest
+    name: Build agentd with Whisper (macOS arm64)
+    runs-on: macos-14
     steps:
       - name: Checkout repository (with submodules)
         uses: actions/checkout@v4
@@ -29,9 +29,7 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake libopenblas-dev zip
+          brew install cmake
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -72,6 +70,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-${{ env.GO_VERSION }}-
 
+      - name: Build Whisper core (C/C++)
+        run: make whisper-cpp
+
+      - name: Build Whisper Go bindings
+        run: make whisper-go-bindings
+
       - name: Build agentd (with Whisper)
         run: make build-agentd-whisper
 
@@ -94,5 +98,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agentd-whisper-linux-amd64
+          name: agentd-whisper-macos-arm64
           path: agentd-whisper-${{ github.sha }}.zip

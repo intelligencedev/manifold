@@ -2,14 +2,15 @@
   <div class="flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
     <header class="border-b border-border/70 bg-surface/70 backdrop-blur">
       <!-- Use a 3-column grid so left is flush left, center is perfectly centered, and right is flush right -->
-      <div class="relative w-full grid grid-cols-[auto_1fr_auto] items-center gap-6 px-4 py-2">
-      <!-- Left: logo (flush left) -->
-      <div class="flex flex-col items-center gap-1" style="min-width:0;">
+  <div class="relative w-full grid grid-cols-[auto_1fr_auto] items-center px-4 py-2">
+      <!-- Left: logo + app name (flush left) -->
+      <div class="flex items-center gap-3" style="min-width:0;">
         <img :src="manifoldLogo" alt="Manifold logo" class="h-10 w-10 rounded object-contain" />
+        <span class="text-lg font-semibold leading-none">Manifold</span>
       </div>
 
-      <!-- Middle: centered nav -->
-      <nav aria-label="Primary" class="hidden md:flex items-center justify-center gap-2 text-sm font-medium overflow-hidden">
+  <!-- Middle: centered nav (absolutely centered on md+ screens) -->
+  <nav aria-label="Primary" class="hidden md:absolute md:left-1/2 md:-translate-x-1/2 md:inset-y-0 md:flex items-center justify-center gap-2 text-sm font-medium overflow-hidden">
         <RouterLink v-for="item in navigation" :key="item.to" :to="item.to"
         class="inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded px-3 py-2 transition hover:bg-surface-muted/60"
         :class="$route.path === item.to || $route.path.startsWith(item.to + '/') ? 'bg-surface-muted text-accent' : ''"

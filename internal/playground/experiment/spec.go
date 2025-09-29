@@ -159,3 +159,8 @@ func (r *Repository) Get(id string) (ExperimentSpec, bool) {
 	spec, ok := r.experiments[id]
 	return spec, ok
 }
+
+// Delete removes an experiment spec from the repository cache.
+func (r *Repository) Delete(id string) {
+	delete(r.experiments, id)
+}

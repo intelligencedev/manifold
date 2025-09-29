@@ -196,16 +196,73 @@
         <form class="space-y-3" @submit.prevent="sendCurrentPrompt"
               @dragover.prevent
               @drop.prevent="handleDrop">
-          <div class="rounded-4 border border-border bg-surface-muted/70 p-3 etched-dark">
+          <div class="relative rounded-4 border border-border bg-surface-muted/70 p-3 etched-dark">
             <textarea
               ref="composer"
               v-model="draft"
               rows="1"
-              class="w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-faint-foreground"
+              class="w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-faint-foreground pr-28"
               placeholder="Message the agent..."
               @keydown="handleComposerKeydown"
               @input="autoSizeComposer"
             ></textarea>
+
+            <!-- Inline actions inside the input box (right aligned) -->
+            <div class="absolute inset-y-2 right-2 flex items-end gap-1">
+              <!-- Hidden file input to trigger Attach -->
+              <input
+                ref="fileInput"
+                type="file"
+                multiple
+                class="hidden"
+                accept="image/png,image/jpeg,text/plain,text/markdown,text/*"
+                @change="handleFileInputChange"
+              />
+
+              <!-- Attach -->
+              <button
+                type="button"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-3 text-foreground/80 hover:text-accent focus-visible:shadow-outline"
+                title="Attach files"
+                aria-label="Attach files"
+                @click="fileInput?.click()"
+              >
+                <SolarPaperclip2Bold class="h-5 w-5" />
+              </button>
+
+              <!-- Record / Stop Recording -->
+              <button
+                type="button"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
+                :class="[
+                  isRecording ? 'text-danger hover:text-danger/90' : 'text-foreground/80 hover:text-accent',
+                  (isStreaming || !canUseMic) ? 'opacity-50 cursor-not-allowed' : ''
+                ]"
+                :disabled="isStreaming || !canUseMic"
+                :title="isRecording ? 'Stop recording' : 'Record voice prompt'"
+                :aria-label="isRecording ? 'Stop recording' : 'Record voice prompt'"
+                @click="isRecording ? stopRecording() : startRecording()"
+              >
+                <SolarMicrophone3Bold class="h-5 w-5" />
+              </button>
+
+              <!-- Send / Stop Streaming -->
+              <button
+                type="button"
+                :class="[
+                  'inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline',
+                  isStreaming
+                    ? 'bg-danger text-danger-foreground hover:bg-danger/90'
+                    : 'bg-accent text-accent-foreground hover:bg-accent/90',
+                ]"
+                :title="isStreaming ? 'Stop generating' : 'Send message'"
+                :aria-label="isStreaming ? 'Stop generating' : 'Send message'"
+                @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
+                :disabled="!isStreaming && (!draft.trim() && !pendingAttachments.length)"
+              >
+                <SolarArrowToTopLeftBold class="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <div v-if="pendingAttachments.length" class="space-y-2">
             <div v-if="imageAttachments.length" class="flex gap-2 overflow-x-auto pb-1">
@@ -220,51 +277,6 @@
                 <span class="max-w-[180px] truncate">{{ t.name }}</span>
                 <button type="button" class="text-faint-foreground hover:text-danger" @click="removeAttachment(t.id)">×</button>
               </span>
-            </div>
-          </div>
-          <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-subtle-foreground">
-            <p>Shift+Enter for newline</p>
-            <div class="flex items-center gap-2">
-              <input ref="fileInput" type="file" multiple class="hidden" accept="image/png,image/jpeg,text/plain,text/markdown,text/*"
-                     @change="handleFileInputChange" />
-              <button type="button"
-                class="rounded-4 border border-border px-3 py-1 font-medium text-foreground transition hover:border-accent hover:text-accent"
-                @click="fileInput?.click()">
-                Attach
-              </button>
-              <!-- Record voice prompt button (placed before Send) -->
-              <button
-                type="button"
-                class="rounded-4 border border-border px-3 py-1 font-medium text-foreground transition hover:border-accent hover:text-accent disabled:opacity-50 disabled:cursor-not-allowed"
-                :disabled="isStreaming || isRecording"
-                v-if="canUseMic && !isRecording"
-                @click="startRecording"
-              >
-                Record
-              </button>
-              <button
-                type="button"
-                class="rounded-4 border border-border px-3 py-1 font-medium text-danger transition hover:border-danger hover:text-danger disabled:opacity-50 disabled:cursor-not-allowed"
-                v-if="isRecording"
-                @click="stopRecording"
-              >
-                Stop
-              </button>
-              <!-- Single button that toggles between Send and Stop -->
-              <button
-                type="button"
-                :class="[
-                  'px-4 py-2 font-semibold rounded-4',
-                  isStreaming
-                    ? 'bg-danger text-danger-foreground hover:bg-danger/90'
-                    : 'bg-accent text-accent-foreground transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50'
-                ]"
-                @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
-                :disabled="!isStreaming && (!draft.trim() && !pendingAttachments.length)"
-              >
-                <span v-if="isStreaming">Stop</span>
-                <span v-else>Send</span>
-              </button>
             </div>
           </div>
         </form>
@@ -361,6 +373,9 @@ import { streamAgentRun, streamAgentVisionRun, type ChatStreamEvent } from '@/ap
 import type { ChatAttachment, ChatMessage, ChatSessionMeta, ChatRole } from '@/types/chat'
 import { renderMarkdown } from '@/utils/markdown'
 import 'highlight.js/styles/github-dark-dimmed.css'
+import SolarPaperclip2Bold from '@/components/icons/SolarPaperclip2Bold.vue'
+import SolarMicrophone3Bold from '@/components/icons/SolarMicrophone3Bold.vue'
+import SolarArrowToTopLeftBold from '@/components/icons/SolarArrowToTopLeftBold.vue'
 
 const router = useRouter()
 const queryClient = useQueryClient()
@@ -996,6 +1011,12 @@ function handleComposerKeydown(event: KeyboardEvent) {
 function autoSizeComposer() {
   const el = composer.value
   if (!el) return
+  // If draft is empty, reset to default (1 row) height
+  if (!draft.value || !draft.value.trim()) {
+    el.style.height = ''
+    return
+  }
+  // Otherwise autosize up to a max height
   el.style.height = 'auto'
   el.style.height = `${Math.min(el.scrollHeight, 160)}px`
 }

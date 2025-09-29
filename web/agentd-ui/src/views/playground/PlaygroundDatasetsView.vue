@@ -84,7 +84,7 @@
                 <td class="px-3 py-2 text-subtle-foreground">{{ formatDate(dataset.createdAt) }}</td>
                 <td class="px-3 py-2 text-right">
                   <button
-                    class="rounded border border-danger/60 text-danger-foreground px-2 py-1 text-xs"
+                    class="rounded border border-danger/60 text-danger/60 px-2 py-1 text-xs"
                     @click.stop="deleteDataset(dataset.id)"
                   >Delete</button>
                 </td>
@@ -130,7 +130,7 @@
             </button>
             <button
               v-if="selectedDatasetId"
-              class="rounded border border-danger/60 text-danger-foreground px-3 py-2 text-sm"
+              class="rounded border border-danger/60 text-danger/60 px-3 py-2 text-sm"
               type="button"
               @click="deleteDataset(selectedDatasetId!)"
               :disabled="detailLoading"

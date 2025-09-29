@@ -53,7 +53,7 @@
             <td class="py-2">{{ prompt.tags?.join(', ') || '—' }}</td>
             <td class="py-2 text-subtle-foreground">{{ formatDate(prompt.createdAt) }}</td>
             <td class="py-2 pr-2 text-right">
-              <button class="rounded border border-danger/60 text-danger-foreground px-2 py-1 text-xs"
+              <button class="rounded border border-danger/60 text-danger/60 px-2 py-1 text-xs"
                 @click="confirmDeletePrompt(prompt.id)">Delete</button>
             </td>
           </tr>

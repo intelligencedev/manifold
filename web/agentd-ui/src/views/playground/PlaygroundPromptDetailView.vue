@@ -9,7 +9,7 @@
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <RouterLink to="/playground/prompts" class="text-sm text-accent hover:underline">Back to prompts</RouterLink>
-          <button class="rounded border border-danger/60 text-danger-foreground px-3 py-1.5 text-sm" @click="deletePrompt(promptId)">Delete</button>
+          <button class="rounded border border-danger/60 text-danger/60 px-3 py-1.5 text-sm" @click="deletePrompt(promptId)">Delete</button>
         </div>
       </div>
       <div class="text-sm text-subtle-foreground break-words">Tags: {{ prompt.tags?.join(', ') || '—' }}</div>

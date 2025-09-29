@@ -75,7 +75,7 @@
             <div class="flex gap-2">
               <RouterLink :to="`/playground/experiments/${experiment.id}`" class="rounded border border-border/70 px-3 py-2 text-sm">Details</RouterLink>
               <button @click="startRun(experiment.id)" class="rounded border border-border/70 px-3 py-2 text-sm">Start run</button>
-              <button @click="deleteExperiment(experiment.id)" class="rounded border border-danger/60 text-danger-foreground px-3 py-2 text-sm">Delete</button>
+              <button @click="deleteExperiment(experiment.id)" class="rounded border border-danger/60 text-danger/60 px-3 py-2 text-sm">Delete</button>
             </div>
           </div>
           <div class="text-sm text-subtle-foreground">Created {{ formatDate(experiment.createdAt) }}</div>

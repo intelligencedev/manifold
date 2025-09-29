@@ -399,7 +399,10 @@ func loadSpecialists(cfg *Config) error {
 		Embedding        embeddingYAML      `yaml:"embedding"`
 		TTS              ttsYAML            `yaml:"tts"`
 		EnableTools      *bool              `yaml:"enableTools"`
-		Auth             authYAML           `yaml:"auth"`
+		// AllowTools is a top-level allow-list for tools exposed to the main agent.
+		// If present, it should map into cfg.ToolAllowList.
+		AllowTools []string `yaml:"allowTools"`
+		Auth       authYAML `yaml:"auth"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
@@ -555,6 +558,10 @@ func loadSpecialists(cfg *Config) error {
 		// Global enableTools only if not set via env (env takes precedence)
 		if !cfg.EnableTools && w.EnableTools != nil {
 			cfg.EnableTools = *w.EnableTools
+		}
+		// Top-level AllowTools mapping into cfg.ToolAllowList (env would override if implemented)
+		if len(cfg.ToolAllowList) == 0 && len(w.AllowTools) > 0 {
+			cfg.ToolAllowList = append([]string{}, w.AllowTools...)
 		}
 		// TTS defaults from YAML if not set by env
 		if cfg.TTS.BaseURL == "" && strings.TrimSpace(w.TTS.BaseURL) != "" {

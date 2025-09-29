@@ -1,0 +1,210 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # default Go version for build job; tests use a matrix
+  BUILD_GO_VERSION: 1.24
+
+jobs:
+  test:
+    name: Test & Lint (Go matrix)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.24, 1.23, 1.22]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.go-version }}-
+
+      - name: Ensure modules tidy
+        run: go mod tidy
+
+      - name: Check formatting (gofmt)
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt found unformatted files:" && echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Install goimports
+        run: go install golang.org/x/tools/cmd/goimports@latest
+
+      - name: Check imports (goimports)
+        run: |
+          bad=$(goimports -l .)
+          if [ -n "$bad" ]; then
+            echo "goimports found files with import issues:" && echo "$bad"
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $GOMODCACHE/bin v1.59.0 || true
+          export PATH="$GOMODCACHE/bin:$PATH"
+        env:
+          GOMODCACHE: ${{ runner.temp }}
+
+      - name: Run golangci-lint
+        run: ${{ runner.temp }}/golangci-lint run --timeout=5m
+
+      - name: Run tests (race, coverage)
+        run: |
+          go test -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.go-version }}.out
+          path: coverage.out
+
+  build:
+    name: Build platform artifacts (main only)
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [linux, windows, darwin]
+        arch: [amd64, arm64]
+    env:
+      BINARY_NAME: ${{ github.event.repository.name }}
+      VERSION: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.BUILD_GO_VERSION }}
+
+      - name: Create dist directory
+        run: mkdir -p dist
+
+      - name: Build binary
+        run: |
+          ext=""
+          if [ "${{ matrix.os }}" = "windows" ]; then ext=".exe"; fi
+          out=dist/${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}${ext}
+          echo "Building $out"
+          env GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -ldflags "-s -w" -o "$out" ./cmd/... || (echo "Build failed. Adjust the build path (./cmd/...) to your main package." && exit 1)
+
+      - name: Package artifact
+        run: |
+          cd dist
+          archive_name="${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}-${{ env.VERSION }}"
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            zip -j "${archive_name}.zip" "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}.exe"
+          else
+            tar -czf "${archive_name}.tar.gz" "${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}"
+          fi
+
+      - name: Create checksum
+        run: |
+          cd dist
+          archive_name="${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}-${{ env.VERSION }}"
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            shasum -a 256 "${archive_name}.zip" > "${archive_name}.zip.sha256"
+          else
+            shasum -a 256 "${archive_name}.tar.gz" > "${archive_name}.tar.gz.sha256"
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            dist/${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}-*.tar.gz
+            dist/${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}-*.zip
+            dist/${{ env.BINARY_NAME }}-${{ matrix.os }}-${{ matrix.arch }}-*.sha256
+
+  release:
+    name: Create GitHub Release and upload artifacts (tags)
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      BINARY_NAME: ${{ github.event.repository.name }}
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.BUILD_GO_VERSION }}
+
+      - name: Prepare dist
+        run: rm -rf dist && mkdir -p dist
+
+      - name: Build all platform artifacts
+        run: |
+          set -e
+          OS_LIST=(linux windows darwin)
+          ARCH_LIST=(amd64 arm64)
+          for os in "${OS_LIST[@]}"; do
+            for arch in "${ARCH_LIST[@]}"; do
+              ext=""
+              if [ "$os" = "windows" ]; then ext=".exe"; fi
+              out=dist/${{ env.BINARY_NAME }}-${os}-${arch}${ext}
+              echo "Building $out"
+              env GOOS=$os GOARCH=$arch go build -ldflags "-s -w" -o "$out" ./cmd/... || (echo "Build failed for $os/$arch. Adjust build path." && exit 1)
+              archive_name="${{ env.BINARY_NAME }}-${os}-${arch}-${{ env.VERSION }}"
+              if [ "$os" = "windows" ]; then
+                zip -j "dist/${archive_name}.zip" "$out"
+                shasum -a 256 "dist/${archive_name}.zip" > "dist/${archive_name}.zip.sha256"
+              else
+                tar -czf "dist/${archive_name}.tar.gz" -C dist "${{ env.BINARY_NAME }}-${os}-${arch}"
+                shasum -a 256 "dist/${archive_name}.tar.gz" > "dist/${archive_name}.tar.gz.sha256"
+              fi
+            done
+          done
+
+      - name: List dist contents
+        run: ls -lah dist
+
+      - name: Create GitHub Release and upload artifacts
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ github.ref_name }}
+          artifacts: dist/*
+          name: ${{ github.ref_name }}
+          body: |
+            Release ${{ github.ref_name }}

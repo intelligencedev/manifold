@@ -52,6 +52,8 @@ coverage.out
 # Ignore by default all hidden files except .gitignore
 .*
 !.gitignore
+!.github/
+!.github/**
 
 # Ignore specific files or folders
 dist/
@@ -75,3 +77,4 @@ web/agentd-ui/playwright-report/
 internal/webui/dist/
 !internal/webui/dist/index.html
 playground-artifacts
+.github/chatmodes/ManifoldAgent.chatmode.md

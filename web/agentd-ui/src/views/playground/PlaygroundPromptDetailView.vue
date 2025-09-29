@@ -7,7 +7,10 @@
           <h2 class="text-xl font-semibold break-words">{{ prompt.name }}</h2>
           <p class="text-sm text-subtle-foreground break-words">{{ prompt.description || 'No description provided.' }}</p>
         </div>
-        <RouterLink to="/playground/prompts" class="text-sm text-accent hover:underline shrink-0">Back to prompts</RouterLink>
+        <div class="flex items-center gap-2 shrink-0">
+          <RouterLink to="/playground/prompts" class="text-sm text-accent hover:underline">Back to prompts</RouterLink>
+          <button class="rounded border border-danger/60 text-danger-foreground px-3 py-1.5 text-sm" @click="deletePrompt(promptId)">Delete</button>
+        </div>
       </div>
       <div class="text-sm text-subtle-foreground break-words">Tags: {{ prompt.tags?.join(', ') || '—' }}</div>
       <div class="text-sm text-subtle-foreground">Created: {{ formatDate(prompt.createdAt) }}</div>
@@ -172,6 +175,13 @@ async function handleCreateVersion() {
   formDirty.value = false
   await refreshVersions(promptId.value)
   setTimeout(() => (createMessage.value = ''), 3000)
+}
+
+async function deletePrompt(id: string) {
+  const ok = window.confirm('Delete this prompt and all versions?')
+  if (!ok) return
+  await store.removePrompt(id)
+  await router.replace('/playground/prompts')
 }
 
 function formatDate(value?: string) {

@@ -44,6 +44,7 @@ type Store interface {
 	ListDatasets(ctx context.Context) ([]Dataset, error)
 	CreateSnapshot(ctx context.Context, snapshot Snapshot, rows []Row) (Snapshot, error)
 	ListSnapshotRows(ctx context.Context, datasetID, snapshotID string) ([]Row, error)
+	DeleteDataset(ctx context.Context, id string) error
 }
 
 // Service offers convenience helpers on top of the persistence store.
@@ -72,6 +73,11 @@ func NewService(store Store) *Service {
 func (s *Service) WithClock(clock Clock) *Service {
 	s.clock = clock
 	return s
+}
+
+// DeleteDataset removes a dataset and associated rows/snapshots.
+func (s *Service) DeleteDataset(ctx context.Context, id string) error {
+	return s.store.DeleteDataset(ctx, id)
 }
 
 var (
@@ -249,6 +255,18 @@ func (s *InMemoryStore) ListSnapshotRows(_ context.Context, datasetID, snapshotI
 	rows := append([]Row(nil), s.rows[key]...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	return rows, nil
+}
+
+// DeleteDataset removes dataset and its rows.
+func (s *InMemoryStore) DeleteDataset(_ context.Context, id string) error {
+	delete(s.datasets, id)
+	// remove snapshots/rows for initial snapshot key if present
+	for k := range s.rows {
+		if strings.HasPrefix(k, id+":") {
+			delete(s.rows, k)
+		}
+	}
+	return nil
 }
 
 func snapshotKey(datasetID, snapshotID string) string {

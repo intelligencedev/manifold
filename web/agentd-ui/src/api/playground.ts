@@ -146,6 +146,10 @@ export async function getPrompt(id: string): Promise<Prompt> {
   return data
 }
 
+export async function deletePrompt(id: string): Promise<void> {
+  await apiClient.delete(`/v1/playground/prompts/${encodeURIComponent(id)}`)
+}
+
 export async function listPromptVersions(id: string): Promise<PromptVersion[]> {
   const { data } = await apiClient.get<{ versions: PromptVersion[] }>(`/v1/playground/prompts/${encodeURIComponent(id)}/versions`)
   return data.versions ?? []
@@ -187,6 +191,10 @@ export async function updateDataset(id: string, payload: CreateDatasetPayload): 
   return data
 }
 
+export async function deleteDataset(id: string): Promise<void> {
+  await apiClient.delete(`/v1/playground/datasets/${encodeURIComponent(id)}`)
+}
+
 export async function listExperiments(): Promise<ExperimentSpec[]> {
   const { data } = await apiClient.get<{ experiments: ExperimentSpec[] }>('/v1/playground/experiments')
   return data.experiments ?? []
@@ -200,6 +208,10 @@ export async function getExperiment(id: string): Promise<ExperimentSpec> {
 export async function createExperiment(spec: ExperimentSpec): Promise<ExperimentSpec> {
   const { data } = await apiClient.post<ExperimentSpec>('/v1/playground/experiments', spec)
   return data
+}
+
+export async function deleteExperiment(id: string): Promise<void> {
+  await apiClient.delete(`/v1/playground/experiments/${encodeURIComponent(id)}`)
 }
 
 export async function startExperimentRun(experimentId: string): Promise<Run> {

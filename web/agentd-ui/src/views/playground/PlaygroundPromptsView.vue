@@ -41,6 +41,7 @@
             <th class="text-left py-2">Description</th>
             <th class="text-left py-2">Tags</th>
             <th class="text-left py-2">Created</th>
+            <th class="text-right py-2 pr-2">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -51,9 +52,13 @@
             <td class="py-2 max-w-[280px] truncate">{{ prompt.description || '—' }}</td>
             <td class="py-2">{{ prompt.tags?.join(', ') || '—' }}</td>
             <td class="py-2 text-subtle-foreground">{{ formatDate(prompt.createdAt) }}</td>
+            <td class="py-2 pr-2 text-right">
+              <button class="rounded border border-danger/60 text-danger-foreground px-2 py-1 text-xs"
+                @click="confirmDeletePrompt(prompt.id)">Delete</button>
+            </td>
           </tr>
-          <tr v-if="store.promptsLoading"><td colspan="4" class="py-3 text-center text-subtle-foreground">Loading…</td></tr>
-          <tr v-else-if="filteredPrompts.length === 0"><td colspan="4" class="py-3 text-center text-subtle-foreground">No prompts found.</td></tr>
+          <tr v-if="store.promptsLoading"><td colspan="5" class="py-3 text-center text-subtle-foreground">Loading…</td></tr>
+          <tr v-else-if="filteredPrompts.length === 0"><td colspan="5" class="py-3 text-center text-subtle-foreground">No prompts found.</td></tr>
         </tbody>
       </table>
       <div v-if="store.promptsError" class="rounded border border-danger/60 bg-danger/10 px-3 py-2 text-danger-foreground text-sm">
@@ -72,6 +77,7 @@ const store = usePlaygroundStore()
 const form = reactive({ name: '', description: '', tags: '' })
 const createStatus = ref('')
 const search = ref('')
+const deleting = ref<string | null>(null)
 
 onMounted(async () => {
   if (!store.prompts.length) {
@@ -98,6 +104,18 @@ async function handleCreate() {
   form.description = ''
   form.tags = ''
   setTimeout(() => (createStatus.value = ''), 3_000)
+}
+
+async function confirmDeletePrompt(id: string) {
+  if (deleting.value) return
+  const ok = window.confirm('Delete this prompt and all its versions?')
+  if (!ok) return
+  try {
+    deleting.value = id
+    await store.removePrompt(id)
+  } finally {
+    deleting.value = null
+  }
 }
 
 function formatDate(value?: string) {

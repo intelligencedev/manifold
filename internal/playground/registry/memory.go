@@ -76,6 +76,19 @@ func (s *InMemoryStore) GetPromptVersion(_ context.Context, id string) (PromptVe
 	return version, ok, nil
 }
 
+// DeletePrompt removes a prompt and all of its versions.
+func (s *InMemoryStore) DeletePrompt(_ context.Context, id string) error {
+	delete(s.prompts, id)
+	delete(s.versions, id)
+	// remove versionByID entries for this prompt
+	for vid, v := range s.versionByID {
+		if v.PromptID == id {
+			delete(s.versionByID, vid)
+		}
+	}
+	return nil
+}
+
 func matchesQuery(prompt Prompt, q string) bool {
 	return strings.Contains(strings.ToLower(prompt.Name), strings.ToLower(q)) || strings.Contains(strings.ToLower(prompt.Description), strings.ToLower(q))
 }

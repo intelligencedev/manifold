@@ -11,7 +11,9 @@ import {
   createDataset,
   updateDataset,
   createExperiment,
+  deleteExperiment,
   createPrompt,
+  deletePrompt,
   createPromptVersion,
   getDataset,
   getExperiment,
@@ -23,6 +25,7 @@ import {
   listPrompts,
   listPromptVersions,
   startExperimentRun,
+  deleteDataset,
 } from '@/api/playground'
 
 export interface PromptForm {
@@ -111,6 +114,13 @@ export const usePlaygroundStore = defineStore('playground', () => {
     promptCache.value[created.id] = created
   }
 
+  async function removePrompt(id: string) {
+    await deletePrompt(id)
+    prompts.value = prompts.value.filter((p) => p.id !== id)
+    delete promptCache.value[id]
+    delete promptVersions.value[id]
+  }
+
   async function addPromptVersion(promptId: string, payload: PromptVersionForm) {
     let variables: Record<string, any> | undefined
     if (payload.variables && payload.variables.trim().length > 0) {
@@ -180,6 +190,12 @@ export const usePlaygroundStore = defineStore('playground', () => {
     datasetCache.value[payload.id] = { ...payload, rows: [...rows] }
   }
 
+  async function removeDataset(id: string) {
+    await deleteDataset(id)
+    datasets.value = datasets.value.filter((d) => d.id !== id)
+    delete datasetCache.value[id]
+  }
+
   async function saveDataset(id: string, dataset: { name: string; description?: string; tags: string[] }, rows: DatasetRow[]): Promise<Dataset> {
     const response = await updateDataset(id, { dataset: { ...dataset, id }, rows })
     const existing = datasetCache.value[id]
@@ -228,6 +244,13 @@ export const usePlaygroundStore = defineStore('playground', () => {
     const created = await createExperiment(spec)
     experiments.value = [created, ...experiments.value]
     experimentCache.value[created.id] = created
+  }
+
+  async function removeExperiment(id: string) {
+    await deleteExperiment(id)
+    experiments.value = experiments.value.filter((e) => e.id !== id)
+    delete experimentCache.value[id]
+    delete runsByExperiment.value[id]
   }
 
   async function refreshExperimentRuns(experimentId: string) {
@@ -319,14 +342,17 @@ export const usePlaygroundStore = defineStore('playground', () => {
     ensurePrompt,
     loadPromptVersions,
     addPrompt,
+  removePrompt,
     addPromptVersion,
     loadDatasets,
     ensureDataset,
     addDataset,
+  removeDataset,
     saveDataset,
     loadExperiments,
     ensureExperiment,
     addExperiment,
+  removeExperiment,
     refreshExperimentRuns,
     triggerRun,
     ensureRunResults,

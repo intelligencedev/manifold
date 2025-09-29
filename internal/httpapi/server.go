@@ -29,6 +29,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/playground/prompts", s.handleListPrompts)
 	s.mux.HandleFunc("POST /api/v1/playground/prompts", s.handleCreatePrompt)
 	s.mux.HandleFunc("GET /api/v1/playground/prompts/{promptID}", s.handleGetPrompt)
+	s.mux.HandleFunc("DELETE /api/v1/playground/prompts/{promptID}", s.handleDeletePrompt)
 	s.mux.HandleFunc("POST /api/v1/playground/prompts/{promptID}/versions", s.handleCreatePromptVersion)
 	s.mux.HandleFunc("GET /api/v1/playground/prompts/{promptID}/versions", s.handleListPromptVersions)
 
@@ -37,10 +38,12 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/v1/playground/datasets/{datasetID}", s.handleGetDataset)
 	s.mux.HandleFunc("POST /api/v1/playground/datasets", s.handleCreateDataset)
 	s.mux.HandleFunc("PUT /api/v1/playground/datasets/{datasetID}", s.handleUpdateDataset)
+	s.mux.HandleFunc("DELETE /api/v1/playground/datasets/{datasetID}", s.handleDeleteDataset)
 	// Experiments
 	s.mux.HandleFunc("GET /api/v1/playground/experiments", s.handleListExperiments)
 	s.mux.HandleFunc("POST /api/v1/playground/experiments", s.handleCreateExperiment)
 	s.mux.HandleFunc("GET /api/v1/playground/experiments/{experimentID}", s.handleGetExperiment)
+	s.mux.HandleFunc("DELETE /api/v1/playground/experiments/{experimentID}", s.handleDeleteExperiment)
 	s.mux.HandleFunc("POST /api/v1/playground/experiments/{experimentID}/runs", s.handleStartRun)
 	s.mux.HandleFunc("GET /api/v1/playground/experiments/{experimentID}/runs", s.handleListRuns)
 	s.mux.HandleFunc("GET /api/v1/playground/runs/{runID}/results", s.handleListRunResults)

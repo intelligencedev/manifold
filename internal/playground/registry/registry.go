@@ -61,6 +61,7 @@ type Store interface {
 	CreatePromptVersion(ctx context.Context, version PromptVersion) (PromptVersion, error)
 	ListPromptVersions(ctx context.Context, promptID string) ([]PromptVersion, error)
 	GetPromptVersion(ctx context.Context, id string) (PromptVersion, bool, error)
+	DeletePrompt(ctx context.Context, id string) error
 }
 
 // ListFilter controls pagination and fuzzy matching behaviour.
@@ -138,6 +139,11 @@ func (r *Registry) ListPrompts(ctx context.Context, filter ListFilter) ([]Prompt
 // GetPrompt fetches a prompt by ID.
 func (r *Registry) GetPrompt(ctx context.Context, id string) (Prompt, bool, error) {
 	return r.store.GetPrompt(ctx, id)
+}
+
+// DeletePrompt removes a prompt and its versions.
+func (r *Registry) DeletePrompt(ctx context.Context, id string) error {
+	return r.store.DeletePrompt(ctx, id)
 }
 
 // ListPromptVersions retrieves versions for a prompt.

@@ -66,6 +66,16 @@ func (s *Server) handleGetPrompt(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, prompt)
 }
 
+func (s *Server) handleDeletePrompt(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	promptID := r.PathValue("promptID")
+	if err := s.service.DeletePrompt(ctx, promptID); err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleCreatePromptVersion(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	promptID := r.PathValue("promptID")
@@ -150,6 +160,16 @@ func (s *Server) handleGetDataset(w http.ResponseWriter, r *http.Request) {
 	}{Dataset: ds, Rows: rows})
 }
 
+func (s *Server) handleDeleteDataset(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("datasetID")
+	if err := s.service.DeleteDataset(ctx, id); err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) handleUpdateDataset(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("datasetID")
@@ -232,6 +252,16 @@ func (s *Server) handleGetExperiment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, spec)
+}
+
+func (s *Server) handleDeleteExperiment(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	experimentID := r.PathValue("experimentID")
+	if err := s.service.DeleteExperiment(ctx, experimentID); err != nil {
+		respondError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {

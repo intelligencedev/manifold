@@ -62,6 +62,7 @@
                 <th class="text-left px-3 py-2">Description</th>
                 <th class="text-left px-3 py-2">Tags</th>
                 <th class="text-left px-3 py-2">Created</th>
+                <th class="text-right px-3 py-2">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -81,9 +82,15 @@
                 <td class="px-3 py-2 max-w-[280px] truncate">{{ dataset.description || '—' }}</td>
                 <td class="px-3 py-2">{{ dataset.tags?.join(', ') || '—' }}</td>
                 <td class="px-3 py-2 text-subtle-foreground">{{ formatDate(dataset.createdAt) }}</td>
+                <td class="px-3 py-2 text-right">
+                  <button
+                    class="rounded border border-danger/60 text-danger-foreground px-2 py-1 text-xs"
+                    @click.stop="deleteDataset(dataset.id)"
+                  >Delete</button>
+                </td>
               </tr>
-              <tr v-if="store.datasetsLoading"><td colspan="4" class="px-3 py-3 text-center text-subtle-foreground">Loading…</td></tr>
-              <tr v-else-if="store.datasets.length === 0"><td colspan="4" class="px-3 py-3 text-center text-subtle-foreground">No datasets yet.</td></tr>
+              <tr v-if="store.datasetsLoading"><td colspan="5" class="px-3 py-3 text-center text-subtle-foreground">Loading…</td></tr>
+              <tr v-else-if="store.datasets.length === 0"><td colspan="5" class="px-3 py-3 text-center text-subtle-foreground">No datasets yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -112,14 +119,25 @@
               </p>
             </div>
           </div>
-          <button
-            class="rounded border border-border/70 px-3 py-2 text-sm"
-            type="button"
-            @click="refreshSelected"
-            :disabled="detailLoading"
-          >
-            Refresh
-          </button>
+          <div class="flex gap-2">
+            <button
+              class="rounded border border-border/70 px-3 py-2 text-sm"
+              type="button"
+              @click="refreshSelected"
+              :disabled="detailLoading"
+            >
+              Refresh
+            </button>
+            <button
+              v-if="selectedDatasetId"
+              class="rounded border border-danger/60 text-danger-foreground px-3 py-2 text-sm"
+              type="button"
+              @click="deleteDataset(selectedDatasetId!)"
+              :disabled="detailLoading"
+            >
+              Delete
+            </button>
+          </div>
         </header>
         <div v-if="detailLoading" class="flex-1 py-6 text-center text-sm text-subtle-foreground">
           Loading dataset…
@@ -354,6 +372,19 @@ function clearSelection() {
   detailStatus.value = ''
   detailError.value = ''
   resetEditForm()
+}
+
+async function deleteDataset(id: string) {
+  const ok = window.confirm('Delete this dataset and all its rows?')
+  if (!ok) return
+  try {
+    await store.removeDataset(id)
+    if (selectedDatasetId.value === id) {
+      clearSelection()
+    }
+  } catch (err) {
+    alert(extractErr(err, 'Failed to delete dataset.'))
+  }
 }
 
 async function handleCreate() {

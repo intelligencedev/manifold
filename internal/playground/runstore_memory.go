@@ -150,6 +150,21 @@ func (s *InMemoryRunStore) ListRunResults(_ context.Context, runID string) ([]Ru
 	return out, nil
 }
 
+// DeleteExperiment removes an experiment spec and any runs/results for it.
+func (s *InMemoryRunStore) DeleteExperiment(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.experiments, id)
+	// delete runs and their results
+	for runID, run := range s.runs {
+		if run.ExperimentID == id {
+			delete(s.runs, runID)
+			delete(s.runResults, runID)
+		}
+	}
+	return nil
+}
+
 func cloneMetrics(in map[string]float64) map[string]float64 {
 	if len(in) == 0 {
 		return nil

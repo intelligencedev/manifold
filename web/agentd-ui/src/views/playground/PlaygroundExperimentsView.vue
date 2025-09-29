@@ -75,6 +75,7 @@
             <div class="flex gap-2">
               <RouterLink :to="`/playground/experiments/${experiment.id}`" class="rounded border border-border/70 px-3 py-2 text-sm">Details</RouterLink>
               <button @click="startRun(experiment.id)" class="rounded border border-border/70 px-3 py-2 text-sm">Start run</button>
+              <button @click="deleteExperiment(experiment.id)" class="rounded border border-danger/60 text-danger-foreground px-3 py-2 text-sm">Delete</button>
             </div>
           </div>
           <div class="text-sm text-subtle-foreground">Created {{ formatDate(experiment.createdAt) }}</div>
@@ -205,6 +206,12 @@ async function startRun(experimentId: string) {
   await store.triggerRun(experimentId)
   expandedRun[experimentId] = true
   await store.refreshExperimentRuns(experimentId)
+}
+
+async function deleteExperiment(id: string) {
+  const ok = window.confirm('Delete this experiment and its runs/results?')
+  if (!ok) return
+  await store.removeExperiment(id)
 }
 
 async function toggleRuns(experimentId: string) {

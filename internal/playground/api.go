@@ -46,6 +46,7 @@ type RunStore interface {
 	AppendResults(ctx context.Context, runID string, results []RunResult) error
 	ListRuns(ctx context.Context, experimentID string) ([]Run, error)
 	ListRunResults(ctx context.Context, runID string) ([]RunResult, error)
+	DeleteExperiment(ctx context.Context, id string) error
 }
 
 // Config tunes runtime aspects of the service.
@@ -97,6 +98,11 @@ func (s *Service) ListPromptVersions(ctx context.Context, promptID string) ([]re
 	return s.registry.ListPromptVersions(ctx, promptID)
 }
 
+// DeletePrompt removes a prompt and associated versions.
+func (s *Service) DeletePrompt(ctx context.Context, id string) error {
+	return s.registry.DeletePrompt(ctx, id)
+}
+
 // RegisterDataset writes the dataset metadata and rows.
 func (s *Service) RegisterDataset(ctx context.Context, ds dataset.Dataset, rows []dataset.Row) (dataset.Dataset, error) {
 	return s.datasets.CreateDataset(ctx, ds, rows)
@@ -115,6 +121,11 @@ func (s *Service) ListDatasets(ctx context.Context) ([]dataset.Dataset, error) {
 // GetDataset fetches a dataset and indicates whether it exists.
 func (s *Service) GetDataset(ctx context.Context, id string) (dataset.Dataset, bool, error) {
 	return s.datasets.GetDataset(ctx, id)
+}
+
+// DeleteDataset removes dataset metadata and rows.
+func (s *Service) DeleteDataset(ctx context.Context, id string) error {
+	return s.datasets.DeleteDataset(ctx, id)
 }
 
 // ListDatasetRows returns the current rows for the dataset's initial snapshot.
@@ -150,6 +161,12 @@ func (s *Service) GetExperiment(ctx context.Context, id string) (experiment.Expe
 		s.experiments.Save(spec)
 	}
 	return spec, ok, nil
+}
+
+// DeleteExperiment removes an experiment spec and associated runs/results.
+func (s *Service) DeleteExperiment(ctx context.Context, id string) error {
+	s.experiments.Delete(id)
+	return s.store.DeleteExperiment(ctx, id)
 }
 
 // StartRun plans and executes a run for an experiment. The execution happens

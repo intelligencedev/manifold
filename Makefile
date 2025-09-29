@@ -61,17 +61,30 @@ whisper-cpp:
 		echo "Error: $(WHISPER_CPP_DIR) not found. Make sure the submodule is initialized."; \
 		exit 1; \
 	fi
-	cd $(WHISPER_CPP_DIR) && make build
+	# Favor Metal backend on macOS runners; disable examples/tests to reduce build
+	cd $(WHISPER_CPP_DIR) && \
+		CMAKE_ARGS="-DGGML_METAL=ON -DGGML_OPENMP=OFF -DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF -DGGML_BUILD_TESTS=OFF" make build
 	@echo "Whisper.cpp library built successfully"
 
 # Build Go bindings for Whisper.cpp
 whisper-go-bindings: whisper-cpp
-	@echo "Building Go bindings for Whisper.cpp..."
+	@echo "Building Go bindings for Whisper.cpp (Metal-only)..."
 	@if [ ! -d "$(WHISPER_BINDINGS_DIR)" ]; then \
 		echo "Error: $(WHISPER_BINDINGS_DIR) not found."; \
 		exit 1; \
 	fi
-	cd $(WHISPER_BINDINGS_DIR) && make
+	# Configure build_go with Metal backend enabled, BLAS/OpenMP/tests/examples disabled, static libs
+	cmake -S $(WHISPER_CPP_DIR) -B $(WHISPER_BUILD_DIR) \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DBUILD_SHARED_LIBS=OFF \
+		-DGGML_METAL=ON \
+		-DGGML_CPU=ON \
+		-DGGML_OPENMP=OFF \
+		-DWHISPER_BUILD_EXAMPLES=OFF \
+		-DWHISPER_BUILD_TESTS=OFF \
+		-DGGML_BUILD_TESTS=OFF
+	# Build only the whisper target which will build required ggml libraries
+	cmake --build $(WHISPER_BUILD_DIR) --target whisper --config Release
 	@echo "Go bindings built successfully"
 
 fmt:
@@ -178,8 +191,9 @@ PNPM := pnpm
 build-agentd-whisper: whisper-go-bindings | $(DIST)
 	@echo "Building agentd (with Whisper) into $(DIST)/"
 	$(MAKE) frontend
-	C_INCLUDE_PATH=$(WHISPER_INCLUDE_DIR) \
-	LIBRARY_PATH=$(WHISPER_LIB_DIR):$(WHISPER_GGML_LIB_DIR):$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas:$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal \
+	# Ensure cgo can find headers and link against static libs and Metal frameworks
+	CGO_CFLAGS="-I$(WHISPER_INCLUDE_DIR) -I$(WHISPER_CPP_DIR)/ggml/include" \
+	CGO_LDFLAGS="-L$(WHISPER_LIB_DIR) -L$(WHISPER_GGML_LIB_DIR) -L$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas -L$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate" \
 	go build -o $(DIST)/agentd ./cmd/agentd
 	@echo "agentd (with Whisper) build complete"
 

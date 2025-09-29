@@ -1,10 +1,6 @@
 name: Build agentd (with Whisper)
 
 on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["main"]
   workflow_dispatch: {}
 
 concurrency:
@@ -71,12 +67,20 @@ jobs:
             ${{ runner.os }}-go-${{ env.GO_VERSION }}-
 
       - name: Build Whisper core (C/C++)
+        env:
+          CMAKE_ARGS: -DGGML_METAL=ON -DGGML_OPENMP=OFF -DWHISPER_BUILD_EXAMPLES=OFF -DWHISPER_BUILD_TESTS=OFF -DGGML_BUILD_TESTS=OFF
         run: make whisper-cpp
 
       - name: Build Whisper Go bindings
+        env:
+          CGO_CFLAGS: -Iexternal/whisper.cpp/include -Iexternal/whisper.cpp/ggml/include
+          CGO_LDFLAGS: -Lexternal/whisper.cpp/build_go/src -Lexternal/whisper.cpp/build_go/ggml/src -Lexternal/whisper.cpp/build_go/ggml/src/ggml-blas -Lexternal/whisper.cpp/build_go/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate
         run: make whisper-go-bindings
 
       - name: Build agentd (with Whisper)
+        env:
+          CGO_CFLAGS: -Iexternal/whisper.cpp/include -Iexternal/whisper.cpp/ggml/include
+          CGO_LDFLAGS: -Lexternal/whisper.cpp/build_go/src -Lexternal/whisper.cpp/build_go/ggml/src -Lexternal/whisper.cpp/build_go/ggml/src/ggml-blas -Lexternal/whisper.cpp/build_go/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate
         run: make build-agentd-whisper
 
       - name: Verify build outputs

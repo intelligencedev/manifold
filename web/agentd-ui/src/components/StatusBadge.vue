@@ -21,15 +21,15 @@ const statusClasses = computed(() => {
   switch (props.state) {
     case 'online':
     case 'completed':
-      return 'border border-success/40 bg-success/10 text-success-foreground'
+      return 'border border-success/40 bg-success/10 text-success'
     case 'running':
-      return 'border border-info/40 bg-info/10 text-info-foreground'
+      return 'border border-info/40 bg-info/10 text-info'
     case 'degraded':
-      return 'border border-warning/40 bg-warning/10 text-warning-foreground'
+      return 'border border-warning/40 bg-warning/10 text-warning'
     case 'failed':
     case 'offline':
     default:
-      return 'border border-danger/40 bg-danger/10 text-danger-foreground'
+      return 'border border-danger/40 bg-danger/10 text-danger'
   }
 })
 

@@ -34,7 +34,7 @@
             <td class="py-2 text-right space-x-2">
               <button @click="edit(s)" class="rounded border border-border/70 px-2 py-1">Edit</button>
               <button @click="togglePause(s)" class="rounded border border-border/70 px-2 py-1">{{ s.paused ? 'Resume' : 'Pause' }}</button>
-              <button @click="remove(s)" class="rounded border border-danger/60 text-danger-foreground px-2 py-1">Delete</button>
+              <button @click="remove(s)" class="rounded border border-danger/60 text-danger/60 px-2 py-1">Delete</button>
             </td>
           </tr>
           <tr v-if="loading"><td colspan="5" class="py-4 text-center text-faint-foreground">Loading…</td></tr>

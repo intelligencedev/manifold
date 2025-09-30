@@ -49,6 +49,7 @@ help:
 	@echo "  make test               # run tests with -race and generate coverage.out"
 	@echo "  make build              # build host platform binaries into $(DIST)/ (includes Whisper)"
 	@echo "  make build-agentd       # build only the agentd binary (skips Whisper)"
+	@echo "  make build-agent        # build only the agent binary (skips Whisper)"
 	@echo "  make frontend           # build the Vue.js frontend assets"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/ (includes Whisper)"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
@@ -190,6 +191,12 @@ build-agentd: | $(DIST)
 	@echo "Building agentd only into $(DIST)/"
 	go build -o $(DIST)/agentd ./cmd/agentd
 	@echo "agentd build complete"
+
+.PHONY: build-agent
+build-agent: | $(DIST)
+	@echo "Building agent only into $(DIST)/"
+	go build -o $(DIST)/agent ./cmd/agent
+	@echo "agent build complete"
 
 # Build only agentd but ensure Whisper dependencies are built and linked (speech-to-text)
 .PHONY: build-agentd-whisper

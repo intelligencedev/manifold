@@ -260,7 +260,8 @@
                 @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
                 :disabled="!isStreaming && (!draft.trim() && !pendingAttachments.length)"
               >
-                <SolarArrowToTopLeftBold class="h-4 w-4" />
+                <SolarStopBold v-if="isStreaming" class="h-4 w-4" />
+                <SolarArrowToTopLeftBold v-else class="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -376,6 +377,7 @@ import 'highlight.js/styles/github-dark-dimmed.css'
 import SolarPaperclip2Bold from '@/components/icons/SolarPaperclip2Bold.vue'
 import SolarMicrophone3Bold from '@/components/icons/SolarMicrophone3Bold.vue'
 import SolarArrowToTopLeftBold from '@/components/icons/SolarArrowToTopLeftBold.vue'
+import SolarStopBold from '@/components/icons/SolarStopBold.vue'
 
 const router = useRouter()
 const queryClient = useQueryClient()

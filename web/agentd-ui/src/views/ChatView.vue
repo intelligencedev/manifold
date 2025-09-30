@@ -252,7 +252,7 @@
                 :class="[
                   'inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline',
                   isStreaming
-                    ? 'bg-danger text-danger-foreground hover:bg-danger/90'
+                    ? 'border border-danger/60 text-foreground/80 hover:text-danger'
                     : 'bg-accent text-accent-foreground hover:bg-accent/90',
                 ]"
                 :title="isStreaming ? 'Stop generating' : 'Send message'"

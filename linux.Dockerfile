@@ -40,15 +40,17 @@ COPY . .
 
 # Ensure whisper.cpp submodule is present (fallback clone if missing)
 RUN set -e; \
-    if [ ! -f external/whisper.cpp/CMakeLists.txt ]; then \
-      echo "Initializing whisper.cpp submodule..."; \
-      (git submodule update --init --recursive || true); \
-    fi; \
-    if [ ! -f external/whisper.cpp/CMakeLists.txt ]; then \
-      echo "Submodule missing; shallow clone whisper.cpp"; \
-      rm -rf external/whisper.cpp; \
-      git clone --depth 1 https:/github.com/ggerganov/whisper.cpp.git external/whisper.cpp; \
-    fi
+        # Ensure git uses HTTPS for github hosts (avoids requiring ssh client in the build image)
+        git config --global url."https://github.com/".insteadOf "git@github.com:"; \
+        if [ ! -f external/whisper.cpp/CMakeLists.txt ]; then \
+            echo "Initializing whisper.cpp submodule..."; \
+            (git submodule update --init --recursive || true); \
+        fi; \
+        if [ ! -f external/whisper.cpp/CMakeLists.txt ]; then \
+            echo "Submodule missing; shallow clone whisper.cpp"; \
+            rm -rf external/whisper.cpp; \
+            git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git external/whisper.cpp; \
+        fi
 
 # Build frontend assets and embed (mirrors Makefile frontend target)
 RUN pnpm install --frozen-lockfile \
@@ -69,12 +71,13 @@ RUN cmake -S ${WHISPER_CPP_DIR} -B ${WHISPER_BUILD_DIR} \
       -DWHISPER_BUILD_EXAMPLES=OFF \
       -DWHISPER_BUILD_TESTS=OFF \
       -DGGML_BUILD_TESTS=OFF \
-    && cmake --build ${WHISPER_BUILD_DIR} --target whisper --config Release -j
+    # Limit parallel jobs to reduce memory/IO pressure inside Docker build (prevents BuildKit disconnects)
+    && cmake --build ${WHISPER_BUILD_DIR} --target whisper --config Release -j1
 
 # CGO include/link paths + CUDA link flags for Linux
 ENV CPATH=${WHISPER_CPP_DIR}:${WHISPER_CPP_DIR}/include:${WHISPER_CPP_DIR}/ggml/include \
-    CGO_CPPFLAGS=-I${WHISPER_CPP_DIR} -I${WHISPER_CPP_DIR}/include -I${WHISPER_CPP_DIR}/ggml/include \
-    CGO_CFLAGS=-I${WHISPER_CPP_DIR} -I${WHISPER_CPP_DIR}/include -I${WHISPER_CPP_DIR}/ggml/include \
+    CGO_CPPFLAGS="-I${WHISPER_CPP_DIR} -I${WHISPER_CPP_DIR}/include -I${WHISPER_CPP_DIR}/ggml/include" \
+    CGO_CFLAGS="-I${WHISPER_CPP_DIR} -I${WHISPER_CPP_DIR}/include -I${WHISPER_CPP_DIR}/ggml/include" \
     CGO_LDFLAGS="-L${WHISPER_BUILD_DIR}/src -L${WHISPER_BUILD_DIR}/ggml/src -L${WHISPER_BUILD_DIR}/ggml/src/ggml-cuda \
                  -lwhisper -lggml -lggml-cuda -lggml-cpu -lggml-base \
                  -lcublas -lcublasLt -lcudart -lcuda -lstdc++ -lm -ldl -lpthread \

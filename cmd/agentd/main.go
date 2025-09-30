@@ -1211,9 +1211,6 @@ func main() {
 		if seconds <= 0 {
 			seconds = cfg.AgentRunTimeoutSeconds
 		}
-		if seconds <= 0 {
-			seconds = int((2 * time.Minute).Seconds())
-		}
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
 		if dur > 0 {
@@ -1293,9 +1290,6 @@ func main() {
 				log.Error().Str("route", name).Msg("specialist not found for route")
 			} else {
 				seconds := cfg.AgentRunTimeoutSeconds
-				if seconds <= 0 { // fallback historical 120s
-					seconds = int((2 * time.Minute).Seconds())
-				}
 				ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 				defer cancel()
 				if dur > 0 {
@@ -1320,9 +1314,6 @@ func main() {
 			seconds := cfg.WorkflowTimeoutSeconds
 			if seconds <= 0 {
 				seconds = cfg.AgentRunTimeoutSeconds
-			}
-			if seconds <= 0 {
-				seconds = int((2 * time.Minute).Seconds())
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
@@ -1393,9 +1384,6 @@ func main() {
 			seconds := cfg.StreamRunTimeoutSeconds
 			if seconds <= 0 {
 				seconds = cfg.AgentRunTimeoutSeconds
-			}
-			if seconds <= 0 {
-				seconds = int((5 * time.Minute).Seconds())
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
@@ -1481,9 +1469,6 @@ func main() {
 
 		// Non-streaming path
 		seconds := cfg.AgentRunTimeoutSeconds
-		if seconds <= 0 {
-			seconds = int((2 * time.Minute).Seconds())
-		}
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
 		if dur > 0 {
@@ -1624,9 +1609,6 @@ func main() {
 
 		// Non-streaming path for simplicity (vision responses are usually short). Configurable timeout.
 		vSeconds := cfg.AgentRunTimeoutSeconds
-		if vSeconds <= 0 {
-			vSeconds = int((2 * time.Minute).Seconds())
-		}
 		ctx, cancel, vDur := withMaybeTimeout(r.Context(), vSeconds)
 		defer cancel()
 		if vDur > 0 {
@@ -1767,9 +1749,6 @@ func main() {
 			if seconds <= 0 {
 				seconds = cfg.AgentRunTimeoutSeconds
 			}
-			if seconds <= 0 {
-				seconds = int((5 * time.Minute).Seconds())
-			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
 			if dur > 0 {
@@ -1850,9 +1829,6 @@ func main() {
 
 		// Non-streaming path
 		seconds := cfg.AgentRunTimeoutSeconds
-		if seconds <= 0 {
-			seconds = int((2 * time.Minute).Seconds())
-		}
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
 		if dur > 0 {

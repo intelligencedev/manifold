@@ -22,6 +22,16 @@ WHISPER_INCLUDE_DIR := $(WHISPER_CPP_DIR)/include
 WHISPER_LIB_DIR := $(WHISPER_BUILD_DIR)/src
 WHISPER_GGML_LIB_DIR := $(WHISPER_BUILD_DIR)/ggml/src
 
+# Absolute paths (needed for CGO when building modules in GOMODCACHE)
+WHISPER_CPP_ABS := $(abspath $(WHISPER_CPP_DIR))
+WHISPER_BUILD_ABS := $(abspath $(WHISPER_BUILD_DIR))
+WHISPER_INCLUDE_ABS := $(abspath $(WHISPER_INCLUDE_DIR))
+WHISPER_GGML_INCLUDE_ABS := $(abspath $(WHISPER_CPP_DIR)/ggml/include)
+WHISPER_LIB_ABS := $(abspath $(WHISPER_LIB_DIR))
+WHISPER_GGML_LIB_ABS := $(abspath $(WHISPER_GGML_LIB_DIR))
+WHISPER_BLAS_LIB_ABS := $(abspath $(WHISPER_BUILD_DIR)/ggml/src/ggml-blas)
+WHISPER_METAL_LIB_ABS := $(abspath $(WHISPER_BUILD_DIR)/ggml/src/ggml-metal)
+
 .PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean whisper-cpp whisper-go-bindings build-tui frontend
 
 all: build
@@ -192,8 +202,10 @@ build-agentd-whisper: whisper-go-bindings | $(DIST)
 	@echo "Building agentd (with Whisper) into $(DIST)/"
 	$(MAKE) frontend
 	# Ensure cgo can find headers and link against static libs and Metal frameworks
-	CGO_CFLAGS="-I$(WHISPER_INCLUDE_DIR) -I$(WHISPER_CPP_DIR)/ggml/include" \
-	CGO_LDFLAGS="-L$(WHISPER_LIB_DIR) -L$(WHISPER_GGML_LIB_DIR) -L$(WHISPER_BUILD_DIR)/ggml/src/ggml-blas -L$(WHISPER_BUILD_DIR)/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate" \
+	CGO_CFLAGS="-I$(WHISPER_CPP_ABS) -I$(WHISPER_INCLUDE_ABS) -I$(WHISPER_GGML_INCLUDE_ABS)" \
+	CGO_CPPFLAGS="-I$(WHISPER_CPP_ABS) -I$(WHISPER_INCLUDE_ABS) -I$(WHISPER_GGML_INCLUDE_ABS)" \
+	CPATH="$(WHISPER_CPP_ABS):$(WHISPER_INCLUDE_ABS):$(WHISPER_GGML_INCLUDE_ABS)" \
+	CGO_LDFLAGS="-L$(WHISPER_LIB_ABS) -L$(WHISPER_GGML_LIB_ABS) -L$(WHISPER_BLAS_LIB_ABS) -L$(WHISPER_METAL_LIB_ABS) -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate" \
 	go build -o $(DIST)/agentd ./cmd/agentd
 	@echo "agentd (with Whisper) build complete"
 

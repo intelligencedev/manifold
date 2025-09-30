@@ -73,14 +73,18 @@ jobs:
 
       - name: Build Whisper Go bindings
         env:
-          CGO_CFLAGS: -Iexternal/whisper.cpp/include -Iexternal/whisper.cpp/ggml/include
-          CGO_LDFLAGS: -Lexternal/whisper.cpp/build_go/src -Lexternal/whisper.cpp/build_go/ggml/src -Lexternal/whisper.cpp/build_go/ggml/src/ggml-blas -Lexternal/whisper.cpp/build_go/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate
+          CPATH: ${{ github.workspace }}/external/whisper.cpp:${{ github.workspace }}/external/whisper.cpp/include:${{ github.workspace }}/external/whisper.cpp/ggml/include
+          CGO_CPPFLAGS: -I${{ github.workspace }}/external/whisper.cpp -I${{ github.workspace }}/external/whisper.cpp/include -I${{ github.workspace }}/external/whisper.cpp/ggml/include
+          CGO_CFLAGS: -I${{ github.workspace }}/external/whisper.cpp -I${{ github.workspace }}/external/whisper.cpp/include -I${{ github.workspace }}/external/whisper.cpp/ggml/include
+          CGO_LDFLAGS: -L${{ github.workspace }}/external/whisper.cpp/build_go/src -L${{ github.workspace }}/external/whisper.cpp/build_go/ggml/src -L${{ github.workspace }}/external/whisper.cpp/build_go/ggml/src/ggml-blas -L${{ github.workspace }}/external/whisper.cpp/build_go/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate
         run: make whisper-go-bindings
 
       - name: Build agentd (with Whisper)
         env:
-          CGO_CFLAGS: -Iexternal/whisper.cpp/include -Iexternal/whisper.cpp/ggml/include
-          CGO_LDFLAGS: -Lexternal/whisper.cpp/build_go/src -Lexternal/whisper.cpp/build_go/ggml/src -Lexternal/whisper.cpp/build_go/ggml/src/ggml-blas -Lexternal/whisper.cpp/build_go/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate
+          CPATH: ${{ github.workspace }}/external/whisper.cpp:${{ github.workspace }}/external/whisper.cpp/include:${{ github.workspace }}/external/whisper.cpp/ggml/include
+          CGO_CPPFLAGS: -I${{ github.workspace }}/external/whisper.cpp -I${{ github.workspace }}/external/whisper.cpp/include -I${{ github.workspace }}/external/whisper.cpp/ggml/include
+          CGO_CFLAGS: -I${{ github.workspace }}/external/whisper.cpp -I${{ github.workspace }}/external/whisper.cpp/include -I${{ github.workspace }}/external/whisper.cpp/ggml/include
+          CGO_LDFLAGS: -L${{ github.workspace }}/external/whisper.cpp/build_go/src -L${{ github.workspace }}/external/whisper.cpp/build_go/ggml/src -L${{ github.workspace }}/external/whisper.cpp/build_go/ggml/src/ggml-blas -L${{ github.workspace }}/external/whisper.cpp/build_go/ggml/src/ggml-metal -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate
         run: make build-agentd-whisper
 
       - name: Verify build outputs

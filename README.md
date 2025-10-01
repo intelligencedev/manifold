@@ -5,513 +5,99 @@
 
 # manifold
 
-An agent runtime (CLI and HTTP server with embedded web UI). The legacy terminal TUI has been removed.
+Manifold is a platform for creating and managing AI assistants.
 
-Contents
-- About
-- Features
-- Requirements
-- Quick Start
-- Configuration
-  - Environment variables (.env)
-  - YAML (config.yaml)
-  - Precedence
-- Running
-  - CLI
-  - HTTP server / Web UI
-  - WARPP mode
-  - embedctl
-- Tools
-- MCP client
-- Specialists \& Routing
-- Observability
-- Security
-- Development
-- Docker
-- Contributing
-- License
+## Features
 
-About
------
-manifold is a safe, observable agent runtime for driving tool-calling workflows using OpenAI API compatible endpoints. It restricts execution to a locked WORKDIR (no shell), supports streaming assistant output (TUI), logs and traces requests, and can connect to external tool providers via MCP or route requests to specialized endpoints.
+- **Two Binaries**: `agent` (CLI) and `agentd` (HTTP server with web UI)
+- **Safe Execution**: Tool calling with secure executor (no shell) in locked WORKDIR
+- **Built-in Tools**: run_cli, web_search, web_fetch, write_file, llm_transform
+- **Database Integration**: PostgreSQL with PGVector, PostGIS, and PGRouting
+- **MCP Support**: Model Context Protocol client for external tool providers
+- **Observability**: Structured logging, OpenTelemetry traces and metrics
+- **Auth/RBAC**: OIDC authentication and RBAC support
 
-Features
---------
-- OpenAI Go SDK v2 for chat completions and streaming
-- Tool calling with a secure executor (no shell) in a locked WORKDIR
-- Built-in tools: run_cli, web_search, web_fetch, write_file, llm_transform
-- Standalone embedding utility (`embedctl`) for generating text embeddings
-- Optional specialists (OpenAI-compatible endpoints) and route matching
-- Model Context Protocol (MCP) client to register external server tools
-- Structured JSON logging with redaction and optional payload logging
-- OpenTelemetry traces and metrics; instrumented HTTP client
-- Safety: blocked binaries, timeouts, output truncation
+## Requirements
 
-Requirements
-------------
-- Go 1.21+
-- An OpenAI API key (OPENAI_API_KEY)
+- Go 1.21+ (recommended: Go 1.24+)
+- OpenAI API key or compatible local or public endpoint
+- PostgreSQL with required extensions
 
-Quick Start
------------
-1) Create a working directory and a `.env` file at the repository root:
+## Quick Start
 
-```
-WORKDIR=./sandbox
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-# Optional logging
-LOG_PATH=./agent.log
-LOG_LEVEL=info
-LOG_PAYLOADS=false
-# Optional runtime safety
-BLOCK_BINARIES=rm,sudo
-MAX_COMMAND_SECONDS=30
-OUTPUT_TRUNCATE_BYTES=65536
-# Optional embedding service (for embedctl)
-EMBED_API_KEY=sk-...
-EMBED_MODEL=text-embedding-3-small
-```
+### Docker Compose
 
-2) Run the CLI:
+1. Ensure you have `.env` and `config.yaml` files at the repository root:
 
-```
-go run ./cmd/agent -q "List files and print README.md if present"
-```
-
-3) (Deprecated) The old terminal TUI has been removed; use the web UI served by agentd instead.
-
-Configuration
--------------
-Configuration is supported by environment variables (preferred), a `.env` file at repo root (which overrides OS env), and an optional `config.yaml` (or environment variable `SPECIALISTS_CONFIG` pointing to YAML). The precedence is described below.
-
-Environment variables (.env)
-
-- Place variables in a `.env` file at the repo root; values in `.env` override OS-level environment variables.
-- Common variables:
-  - OPENAI_API_KEY, OPENAI_MODEL, WORKDIR
-  - LOG_PATH, LOG_LEVEL, LOG_PAYLOADS
-  - BLOCK_BINARIES, MAX_COMMAND_SECONDS, OUTPUT_TRUNCATE_BYTES
-  - AGENT_RUN_TIMEOUT_SECONDS, STREAM_RUN_TIMEOUT_SECONDS, WORKFLOW_TIMEOUT_SECONDS
-  - SEARXNG_URL (for web search)
-  - EMBED_BASE_URL, EMBED_MODEL, EMBED_API_KEY, EMBED_API_HEADER, EMBED_PATH, EMBED_TIMEOUT (for embeddings)
-  - OTEL_SERVICE_NAME, SERVICE_VERSION, ENVIRONMENT, OTEL_EXPORTER_OTLP_ENDPOINT
-
-Example `.env` (same as Quick Start):
+**`.env` file:**
 
 ```env
-WORKDIR=./sandbox
+WORKDIR=/app/manifold
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-# Optional logging
-LOG_PATH=./agent.log
+OPENAI_MODEL=gpt-5-mini
 LOG_LEVEL=info
-LOG_PAYLOADS=false
-# Optional runtime safety
-BLOCK_BINARIES=rm,sudo
-MAX_COMMAND_SECONDS=30
-OUTPUT_TRUNCATE_BYTES=65536
 ```
 
-YAML (config.yaml)
-- Optionally configure richer settings in `config.yaml` (or set `SPECIALISTS_CONFIG` to point to an alternative file). Example:
+**`config.yaml` file:**
 
-```
-openai:
-  extraHeaders:
-    X-App-Tenant: example
-  extraParams:
-    temperature: 0.3
-  # Log redacted payloads for tools and provider extras
-  logPayloads: false
-
-workdir: ./sandbox
-outputTruncateBytes: 65536
-exec:
-  blockBinaries: ["rm", "sudo"]
-  maxCommandSeconds: 30
-obs:
-  serviceName: manifold
-  environment: dev
-web:
-  searXNGURL: http://localhost:8080
-
-embedding:
-  baseURL: https://api.openai.com
-  model: text-embedding-3-small
-  apiKey: ${EMBED_API_KEY}
-  apiHeader: Authorization
-  path: /v1/embeddings
-  timeoutSeconds: 30
-
-mcp:
-  servers:
-    - name: local-search
-      command: ./bin/mcp-server
-      args: ["--port", "0"]            # stdio via exec; args optional
-      env: { API_TOKEN: ${MY_TOKEN} }    # optional environment variables
-      keepAliveSeconds: 30               # optional client keepalive
+```yaml
+auth:
+  enabled: false
+databases:
+  defaultDSN: "postgres://intelligence_dev:intelligence_dev@pg-manifold:5432/manifold?sslmode=disable"
+  search:
+    backend: postgres
+  vector:
+    backend: postgres
+  graph:
+    backend: postgres
 ```
 
-Precedence
-- .env > OS environment > config.yaml
-- Defaults apply only when no configuration source provides values.
-
-### Runtime Timeouts
-
-The HTTP server now derives per-request deadlines from environment variables. All values are in seconds; set to 0 or a negative number to disable the server-side timeout for that category (not generally recommended without upstream proxy limits):
-
-| Variable | Applies To | Fallback / Default |
-| -------- | ---------- | ------------------ |
-| `AGENT_RUN_TIMEOUT_SECONDS` | Non‑stream agent prompts (`/agent/run` final path, `/api/prompt` non-stream, `/agent/vision`) | 120s |
-| `STREAM_RUN_TIMEOUT_SECONDS` | Streaming SSE runs (`/agent/run`, `/api/prompt` with `Accept: text/event-stream` or `?stream=1`) | 300s (5m) |
-| `WORKFLOW_TIMEOUT_SECONDS` | Workflows & specialists (`/agent/workflow`, `/agent/specialist`) | 120s |
-
-Resolution order:
-
-1. Streaming: STREAM_RUN_TIMEOUT_SECONDS → AGENT_RUN_TIMEOUT_SECONDS → 300s
-2. Non-stream agent paths: AGENT_RUN_TIMEOUT_SECONDS → 120s
-3. Workflows/specialists: WORKFLOW_TIMEOUT_SECONDS → AGENT_RUN_TIMEOUT_SECONDS → 120s
-
-Each request logs the applied timeout (or absence) at debug level. Disabling a timeout means long-running calls are bounded only by upstream LLM/provider constraints and client disconnects.
-
-Example:
+2. Start the services:
 
 ```bash
-export STREAM_RUN_TIMEOUT_SECONDS=900   # 15m streaming sessions for deep research
-export AGENT_RUN_TIMEOUT_SECONDS=180    # 3m standard prompt cap
-export WORKFLOW_TIMEOUT_SECONDS=600     # 10m workflows
+cd deploy/docker
+docker compose up -d pg-manifold manifold
 ```
 
-Restart `agentd` after changes.
+This starts:
 
-Running
--------
-CLI
-- Basic usage:
+- `pg-manifold`: PostgreSQL database with PGVector, PostGIS, and PGRouting extensions
+- `manifold`: The agent runtime HTTP server with web UI (accessible at <http://localhost:32180>)
 
-```
-go run ./cmd/agent -q "Initialize a new module and run go test" [-max-steps 8]
-```
+## Documentation
 
-- Important flags:
-  - -q: user request (required)
-  - -max-steps: limit agent steps (default 8, configurable via MAX_STEPS env var or config.yaml)
-  - -specialist: invoke a configured specialist directly (inference-only)
-  - -warpp: run WARPP workflow executor instead of the LLM loop
+- [Configuration](docs/configuration.md) - Environment variables and YAML configuration
+- [Running](docs/running.md) - Detailed usage instructions for agent and agentd
+- [Tools](docs/tools.md) - Built-in and custom tools
+- [Database](docs/database.md) - Database setup and configuration
+- [MCP Client](docs/mcp.md) - Model Context Protocol integration
+- [Specialists & Routing](docs/specialists.md) - Route requests to specialized endpoints
+- [Security](docs/security.md) - Security features and best practices
+- [Observability](docs/observability.md) - Logging, tracing, and monitoring
+- [Development](docs/development.md) - Development setup and contributing
+- [Authentication](docs/auth.md) - OIDC and session management
 
-HTTP Server / Web UI
+## Contributing
 
-## Run agentd and web UI (local)
+See [AGENTS.md](AGENTS.md) for coding conventions and [docs/development.md](docs/development.md) for detailed development instructions.
 
-Quick steps to run the HTTP agent server (`agentd`) and the embedded web UI used for manual testing.
+Contributions are welcome! Please:
 
-- Prepare a `.env` at the repository root. The project will automatically load `.env` (or `example.env`) on startup. Typical entries:
+1. Open an issue to discuss significant changes
+2. Fork the repo and create a feature branch
+3. Follow existing code style and add tests
+4. Submit a pull request with clear description
 
-```env
-WORKDIR=./sandbox
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini
-# Optional: WEB UI settings
-WEB_UI_PORT=8081
-WEB_UI_HOST=0.0.0.0
-WEB_UI_BACKEND_URL=http://localhost:32180/agent/run
-```
+## License
 
-- Quick dev mode (mock LLM): to test the UI without calling OpenAI, set `OPENAI_API_KEY=` (empty) in `.env` and restart `agentd` — the server will return a deterministic dev response to POST /agent/run.
+### ⚠️ License: To Be Determined (TBD)
 
-- Start the agent HTTP server (`agentd`) — by default it listens on port `:32180`:
+This project does not currently have a license. Until a license is chosen and published:
 
-```bash
-# run directly (reads .env)
-go run ./cmd/agentd/main.go
+- **No rights are granted** to use, copy, modify, or distribute this software
+- Only the repository owner and authorized contributors may work with this code
+- If you wish to use this software, please contact the repository owner for permission
+- Commercial or production use is not permitted without explicit written permission
 
-# or build and run the binary
-go build -o build/agentd ./cmd/agentd
-./build/agentd
-```
-
-- The web UI is now embedded in `agentd` and served from the same service. Access it at `http://localhost:32180/` after starting `agentd`.
-
-- Quick smoke tests (from your machine):
-
-```bash
-# fetch the web UI index
-curl http://localhost:32180/
-
-# submit a prompt directly to agentd
-curl -i -X POST http://localhost:32180/agent/run \
-  -H 'Content-Type: application/json' \
-  -d '{"prompt":"hello from agentd"}'
-```
-
-Notes:
-- `agentd` will return HTTP 500 if the configured LLM provider returns an error (for example, an unsupported parameter). For local UI testing, use the mock dev mode above or ensure your OpenAI-compatible provider and model accept the request parameters.
-- The web UI is served from the same port as `agentd` (32180). If port `32180` is already in use, stop the conflicting process or run `agentd` in an environment where that port is free.
-
-WARPP mode
-- WARPP is a workflow executor pattern: Intent detection  personalization  fulfillment with tool allow-listing.
-- It uses existing tools and will use minimalist defaults when workflows are absent.
-- Invoke with the CLI flag `-warpp`.
-
-Tools
------
-Built-in tools registered by default:
-- run_cli: execute a binary (no shell) in WORKDIR with sanitized args
-- web_search: query SearXNG (set SEARXNG_URL)
-- web_fetch: fetch a URL
-- write_file: write files to WORKDIR
-- llm_transform: call LLM on a specific baseURL (helper to transform text)
-
-Notes:
-- run_cli forbids shell execution; only bare binary names are accepted (no paths).
-- The executor sanitizes inputs and enforces timeouts and blocked-binary checks.
-
-Tool allow-listing
-------------------
-You can selectively expose a subset of registered tools to the main orchestrator agent
-or to an individual specialist. This is useful to restrict tool access for safety or to
-reduce the tool schema sent to models.
-
-Top-level (main agent) allow-list:
-- In `config.yaml` add `allowTools` at the top level (list of tool names):
-
-```
-allowTools:
-  - run_cli
-  - web_search
-  - web_fetch
-```
-
-Per-specialist allow-list:
-- Each `specialist` entry supports `allowTools` to limit which tools that specialist
-  can see and call. If `enableTools` is false for a specialist, no tool schema is sent
-  regardless of `allowTools`.
-
-Example specialist with allow-list:
-
-```
-specialists:
-  - name: data-extractor
-    baseURL: https://api.openai.com
-    apiKey: ${OPENAI_API_KEY}
-    model: gpt-4o
-    enableTools: true
-    allowTools:
-      - web_fetch
-      - llm_transform
-    system: |
-      You extract structured information from text.
-```
-
-Notes:
-- If an allow-list is empty or omitted, all registered tools are exposed (subject to `enableTools`).
-- The MCP client registers external tools with names like `mcp_<server>_<tool>`; include those names
-  in allow-lists if you want to grant access to MCP-provided tools.
-
-MCP client
-----------
-- Configure one or more MCP servers via `config.yaml` (see example above).
-- On startup the client connects to each server via stdio/command, lists available tools, and registers them into the agent.
-- Tools are exposed with names of the form `mcp_<server>_<tool>` to avoid collisions.
-- Input schemas are normalized for OpenAI tool-calling compatibility.
-- Optional `keepAliveSeconds` can be used to keep MCP sessions active (0 disables keepalive).
-
-Specialists \& Routing
----------------------
-Define “specialists” that target OpenAI-compatible endpoints/models and route requests to them:
-
-Example specialists and routes:
-```
-specialists:
-  - name: code-reviewer
-    baseURL: https://api.openai.com
-    apiKey: ${OPENAI_API_KEY}
-    model: gpt-4o-mini
-    enableTools: false
-    reasoningEffort: medium
-    system: |
-      You are a careful code review assistant. Provide actionable feedback.
-
-  - name: data-extractor
-    baseURL: https://api.openai.com
-    apiKey: ${OPENAI_API_KEY}
-    model: gpt-4o
-    enableTools: true
-    system: |
-      You extract structured information from text.
-
-routes:
-  - name: code-reviewer
-    contains: ["review", "code", "lint"]
-  - name: data-extractor
-    contains: ["extract", "fields", "parse"]
-```
-
-Usage:
-- Direct invocation:
-```
-go run ./cmd/agent -specialist code-reviewer -q "Review this function"
-```
-- Router pre-dispatch:
-  - The router matches input against `routes` and invokes the appropriate specialist automatically.
-
-whisper-go
---------
-```
-cd /Users/art/Documents/manifold && ./run-whisper-go.sh -model /Users/art/Documents/code/whisper.cpp/bindings/go/models/ggml-small.en.bin /Users/art/Documents/manifold/54521110-ad38-4885-b8c3-3b43bb1f4853.wav
-```
-
-Observability
--------------
-Logging
-- Structured JSON logging via zerolog.
-- LOG_PATH writes only to file (not stdout) to avoid interfering with TUI output.
-- LOG_LEVEL: trace | debug | info | warn | error | fatal | panic (default: info).
-- LOG_PAYLOADS=false by default. If true, the agent logs redacted payloads for:
-  - Tool arguments/results
-  - Provider extras sent with OpenAI requests
-- Redaction masks common sensitive keys (api keys, tokens, authorization, password, secret, etc.).
-- Setting `openai.logPayloads` in YAML also enables payload logging; environment variables override YAML.
-
-Tracing and metrics (OpenTelemetry)
-- Configure OTEL via environment variables (e.g., OTEL_EXPORTER_OTLP_ENDPOINT).
-- The HTTP client is instrumented; logs include trace_id/span_id when available.
-- Useful envs: OTEL_SERVICE_NAME, SERVICE_VERSION, ENVIRONMENT, OTEL_EXPORTER_OTLP_ENDPOINT.
-
-Security
---------
-- No shell execution — only bare binary names allowed.
-- All commands are executed under the configured WORKDIR.
-- Optional blocklist for dangerous binaries (`BLOCK_BINARIES` / `exec.blockBinaries`).
-- Max execution time per command (`MAX_COMMAND_SECONDS` / `exec.maxCommandSeconds`).
-- Output truncation to reduce token and exposure (`OUTPUT_TRUNCATE_BYTES`).
-- Sensitive payload redaction for logs. Use LOG_PAYLOADS carefully.
-
-Development
------------
-
-### Build
-
-manifold uses a build system that optionally includes Whisper.cpp for speech-to-text functionality (used by agentd endpoints).
-
-#### Quick Build (Recommended)
-
-```bash
-# Build all binaries with Whisper support
-make build
-
-# Or build individual components
-make whisper-cpp        # Build Whisper.cpp library
-make whisper-go-bindings # Build Go bindings
-```
-
-#### Manual Build
-
-If you prefer manual control:
-
-1. **Build Whisper.cpp library:**
-
-   ```bash
-   cd external/whisper.cpp
-   make build
-   ```
-
-2. **Build Go bindings:**
-
-   ```bash
-   cd external/whisper.cpp/bindings/go
-   make
-   ```
-
-3. **Build Go binary (agentd) with proper environment:**
-
-  ```bash
-  C_INCLUDE_PATH=external/whisper.cpp/include \
-  LIBRARY_PATH=external/whisper.cpp/build_go/src:external/whisper.cpp/build_go/ggml/src:external/whisper.cpp/build_go/ggml/src/ggml-blas:external/whisper.cpp/build_go/ggml/src/ggml-metal \
-  go build -o dist/agentd ./cmd/agentd
-  ```
-
-#### Available Make Targets
-
-- `make build` - Build the agentd binary with Whisper support
-- `make whisper-cpp` - Build Whisper.cpp library
-- `make whisper-go-bindings` - Build Go bindings for Whisper
-- `make cross` - Cross-compile for multiple platforms (CGO binaries skipped)
-- `make dev-frontend` - Start the Vite dev server (requires pnpm)
-- `make frontend` - Build the Vue SPA assets into `internal/webui/dist`
-- `make checksums` - Generate SHA256 checksums for artifacts in dist/
-- `make ci` - Run CI checks (fmt-check, imports-check, vet, lint, Go tests)
-- `make clean` - Clean all build artifacts
-- `make test` - Run tests
-- `make fmt` - Format code
-- `make fmt-check` - Check formatting
-- `make imports-check` - Check imports with goimports
-- `make vet` - Run go vet
-- `make lint` - Run linters
-- `make tools` - Install development tools
-
-#### Build Requirements
-
-- Go 1.21+
-- CMake (for Whisper.cpp)
-- C/C++ compiler (Xcode on macOS, GCC/Clang on Linux)
-- For speech-to-text: Whisper model file at `models/ggml-small.en.bin`
-
-#### Build Notes
-
--- Cross-compilation skips CGO-dependent binaries if present
-- Whisper models are not included in the build; download separately if needed
-
-### Frontend UI
-
-The dashboard lives in `web/agentd-ui` and is built with Vite, Vue 3, TypeScript, Pinia, Tailwind, and Vue Query.
-
-- Install [pnpm](https://pnpm.io/) and Node.js ≥ 20.
-- Run `pnpm install` from `web/agentd-ui` to set up dependencies.
-- Development: `make dev-frontend` (or `pnpm dev`) starts the Vite server on port 5173. Set `FRONTEND_DEV_PROXY=http://localhost:5173` before running `agentd` to proxy requests directly to the dev server.
-- Production build: run `make frontend` followed by `make build-agentd-whisper` (or `make build`) to embed the latest assets.
-- Tests: `pnpm test:unit` runs Vitest; Playwright smoke tests are available via `pnpm test:e2e` once the preview server is running (`pnpm preview`).
-- Clean UI artifacts: remove `web/agentd-ui/dist` and `internal/webui/dist` before rebuilding if you need a fresh slate.
-
-The Go binary embeds the contents of `internal/webui/dist`. If you see `frontend registration failed` at startup, ensure `make frontend` completed successfully before rebuilding `agentd`.
-
-### Test
-
-```bash
-go test ./...
-```
-
-### Lint/Vet
-
-```bash
-go vet ./...
-make lint  # Requires golangci-lint
-```
-
-### Go Version
-
-- Minimum: Go 1.21+
-- Recommended: Go 1.24+
-
-Docker
-------
-- Build the server image:
-  - `docker build -t agentd .`
-- Run:
-  - `docker run -it --env-file .env -p 32180:32180 agentd`
-
-Contributing
-------------
-Contributions are welcome. Suggested workflow:
-- Open an issue to discuss significant changes.
-- Fork the repo and create a branch per feature/bug.
-- Run tests locally: `go test ./...`
-- Keep changes small and focused; follow existing code style.
-- Submit a pull request with a clear description and tests where applicable.
-
-License
--------
-See the LICENSE file in the repository root for licensing details (e.g., MIT).
-
----
+We are currently evaluating licensing options. A license will be added in the future to clarify usage rights and restrictions.

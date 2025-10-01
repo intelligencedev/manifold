@@ -1,23 +1,38 @@
-version: '3.8'
-
 services:
-  postgres:
-    image: localhost/intelligence-dev-postgres:latest
-    container_name: pg-manifold
+  manifold:
+    build:
+      context: .
+      dockerfile: deploy/docker/cpu.Dockerfile
+    platform: linux/amd64
+    container_name: agentd
+    ports:
+      - "32180:32180"
+    volumes:
+      - ./.env:/app/.env
+      - ./config.yaml:/app/config.yaml
+      - ./.:/app/manifold
+    restart: unless-stopped
+
+  pg-manifold:
+    build:
+      context: .
+      dockerfile: ./deploy/docker/postgres.Dockerfile
+    container_name: postgres
     environment:
-      POSTGRES_DB: singularityio
-      POSTGRES_USER: singularityio
-      POSTGRES_PASSWORD: singularityio
+      POSTGRES_DB: manifold
+      POSTGRES_USER: intelligence_dev
+      POSTGRES_PASSWORD: intelligence_dev
     ports:
       - "5433:5432"
     volumes:
       - app_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U singularityio -d singularityio"]
+      test: ["CMD-SHELL", "pg_isready -U intelligence_dev -d manifold"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: sio_zookeeper
@@ -114,20 +129,6 @@ services:
     volumes:
       - keycloak_data:/opt/keycloak/data
       - ./configs/keycloak:/opt/keycloak/data/import:ro
-    restart: unless-stopped
-
-  manifold:
-    build:
-      context: .
-      dockerfile: macos.Dockerfile
-    platform: linux/amd64
-    container_name: agentd
-    ports:
-      - "32180:32180"
-    volumes:
-      - ./.env:/app/.env
-      - ./config.yaml:/app/config.yaml
-      - .:/app/manifold
     restart: unless-stopped
 
 volumes:

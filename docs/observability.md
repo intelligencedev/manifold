@@ -1,0 +1,76 @@
+# Observability
+
+manifold provides comprehensive observability through structured logging, OpenTelemetry tracing, and metrics.
+
+## Logging
+
+### Configuration
+
+Configure logging via environment variables:
+
+```env
+LOG_PATH=./agent.log       # File path for logs
+LOG_LEVEL=info            # Log level: debug, info, warn, error
+LOG_PAYLOADS=false        # Whether to log request/response payloads
+```
+
+### Log Format
+
+manifold uses structured JSON logging with the following fields:
+- `timestamp`: ISO 8601 timestamp
+- `level`: Log level
+- `message`: Human-readable message
+- `component`: Component generating the log
+- `request_id`: Unique request identifier (for tracing)
+
+### Redaction
+
+Sensitive information is automatically redacted from logs:
+- API keys are masked
+- Large payloads are truncated (configurable via `OUTPUT_TRUNCATE_BYTES`)
+- Personal information is filtered based on patterns
+
+## OpenTelemetry
+
+### Configuration
+
+Configure OpenTelemetry via environment variables:
+
+```env
+OTEL_SERVICE_NAME=manifold
+SERVICE_VERSION=1.0.0
+ENVIRONMENT=production
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```
+
+### Tracing
+
+manifold automatically instruments:
+- HTTP requests (client and server)
+- Database operations
+- Tool executions
+- LLM API calls
+
+### Metrics
+
+Key metrics collected:
+- Request duration and count
+- Tool execution statistics
+- Error rates
+- Token usage (if available from LLM provider)
+
+## Monitoring
+
+### Health Checks
+
+agentd provides health check endpoints:
+- `GET /health`: Basic health check
+- `GET /ready`: Readiness check (includes database connectivity)
+
+### Performance Monitoring
+
+Monitor these key areas:
+1. **Response Times**: Track P95/P99 latencies
+2. **Error Rates**: Monitor 4xx/5xx responses
+3. **Tool Performance**: Track tool execution times
+4. **Database Health**: Monitor connection pool and query performance

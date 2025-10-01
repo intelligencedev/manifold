@@ -11,9 +11,9 @@ import (
 
 	mcppkg "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/tools"
-	"intelligence.dev/internal/version"
+	"manifold/internal/config"
+	"manifold/internal/tools"
+	"manifold/internal/version"
 )
 
 // Manager holds active MCP client sessions and generated tool wrappers.
@@ -54,7 +54,7 @@ func (m *Manager) RegisterFromConfig(ctx context.Context, reg tools.Registry, mc
 		if srv.KeepAliveSeconds > 0 {
 			opts.KeepAlive = time.Duration(srv.KeepAliveSeconds) * time.Second
 		}
-		client := mcppkg.NewClient(&mcppkg.Implementation{Name: "intelligence.dev", Version: version.Version}, opts)
+		client := mcppkg.NewClient(&mcppkg.Implementation{Name: "manifold", Version: version.Version}, opts)
 		// Connect
 		session, err := client.Connect(ctx, mcppkg.NewCommandTransport(cmd))
 		if err != nil {

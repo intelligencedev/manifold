@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"runtime"
 
-	"intelligence.dev/internal/observability"
+	"manifold/internal/observability"
 )
 
 // playAudioFile plays an audio file using the system's default audio player

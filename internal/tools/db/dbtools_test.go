@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/persistence/databases"
+	"manifold/internal/config"
+	"manifold/internal/persistence/databases"
 )
 
 func TestSearchTools(t *testing.T) {

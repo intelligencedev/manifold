@@ -7,10 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"manifold/internal/playground"
+	"manifold/internal/playground/provider"
+	"manifold/internal/playground/registry"
+
 	"github.com/stretchr/testify/require"
-	"intelligence.dev/internal/playground"
-	"intelligence.dev/internal/playground/provider"
-	"intelligence.dev/internal/playground/registry"
 )
 
 func TestCreatePromptEndpoint(t *testing.T) {

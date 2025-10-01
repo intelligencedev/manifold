@@ -16,25 +16,25 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	xansi "github.com/charmbracelet/x/ansi"
 
-	"intelligence.dev/internal/agent"
-	"intelligence.dev/internal/agent/prompts"
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/llm"
-	openai "intelligence.dev/internal/llm/openai"
-	"intelligence.dev/internal/mcpclient"
-	"intelligence.dev/internal/observability"
-	"intelligence.dev/internal/persistence/databases"
-	"intelligence.dev/internal/specialists"
-	"intelligence.dev/internal/tools"
-	"intelligence.dev/internal/tools/cli"
-	"intelligence.dev/internal/tools/db"
-	"intelligence.dev/internal/tools/imagetool"
-	llmtools "intelligence.dev/internal/tools/llmtool"
-	"intelligence.dev/internal/tools/patchtool"
-	specialists_tool "intelligence.dev/internal/tools/specialists"
-	"intelligence.dev/internal/tools/tts"
-	"intelligence.dev/internal/tools/web"
-	"intelligence.dev/internal/warpp"
+	"manifold/internal/agent"
+	"manifold/internal/agent/prompts"
+	"manifold/internal/config"
+	"manifold/internal/llm"
+	openai "manifold/internal/llm/openai"
+	"manifold/internal/mcpclient"
+	"manifold/internal/observability"
+	"manifold/internal/persistence/databases"
+	"manifold/internal/specialists"
+	"manifold/internal/tools"
+	"manifold/internal/tools/cli"
+	"manifold/internal/tools/db"
+	"manifold/internal/tools/imagetool"
+	llmtools "manifold/internal/tools/llmtool"
+	"manifold/internal/tools/patchtool"
+	specialists_tool "manifold/internal/tools/specialists"
+	"manifold/internal/tools/tts"
+	"manifold/internal/tools/web"
+	"manifold/internal/warpp"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 )
@@ -261,7 +261,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	}
 
 	// Initialize Whisper model for speech-to-text
-	modelPath := "/Users/art/Documents/intelligence.dev/models/ggml-small.en.bin" // UPDATED path for project rename
+	modelPath := "/Users/art/Documents/manifold/models/ggml-small.en.bin" // UPDATED path for project rename
 	if model, err := whisper.New(modelPath); err == nil {
 		m.whisperModel = model
 		if ctx, err := model.NewContext(); err == nil {
@@ -687,7 +687,7 @@ func (m *Model) View() string {
 	top := lipgloss.JoinHorizontal(lipgloss.Top, leftBlock, rightSide)
 
 	// Render a centered banner above the panels
-	bannerText := "intelligence.dev"
+	bannerText := "manifold"
 	// Determine the visible width of the top row so we can center the banner
 	topWidth := lipgloss.Width(top)
 	if topWidth <= 0 {

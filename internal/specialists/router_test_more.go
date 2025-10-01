@@ -3,7 +3,7 @@ package specialists
 import (
 	"testing"
 
-	"intelligence.dev/internal/config"
+	"manifold/internal/config"
 )
 
 func TestRoute_EmptyAndNoMatch(t *testing.T) {

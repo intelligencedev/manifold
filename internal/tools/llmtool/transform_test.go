@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"intelligence.dev/internal/llm"
+	"manifold/internal/llm"
 )
 
 type fakeProvider struct {

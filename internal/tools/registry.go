@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"intelligence.dev/internal/llm"
+	"manifold/internal/llm"
 )
 
 // DispatchEvent captures a single tool dispatch invocation and result.

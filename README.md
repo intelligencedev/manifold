@@ -1,9 +1,9 @@
 <p align="center">
 <!-- TODO: replace logo asset file when new branding asset is available -->
-<img src="assets/singularityio-logo.svg" alt="intelligence.dev logo (update asset)" width="200" />
+<img src="assets/singularityio-logo.svg" alt="manifold logo (update asset)" width="200" />
 </p>
 
-# intelligence.dev
+# manifold
 
 An agent runtime (CLI and HTTP server with embedded web UI). The legacy terminal TUI has been removed.
 
@@ -33,7 +33,7 @@ Contents
 
 About
 -----
-intelligence.dev is a safe, observable agent runtime for driving tool-calling workflows using OpenAI API compatible endpoints. It restricts execution to a locked WORKDIR (no shell), supports streaming assistant output (TUI), logs and traces requests, and can connect to external tool providers via MCP or route requests to specialized endpoints.
+manifold is a safe, observable agent runtime for driving tool-calling workflows using OpenAI API compatible endpoints. It restricts execution to a locked WORKDIR (no shell), supports streaming assistant output (TUI), logs and traces requests, and can connect to external tool providers via MCP or route requests to specialized endpoints.
 
 Features
 --------
@@ -131,7 +131,7 @@ exec:
   blockBinaries: ["rm", "sudo"]
   maxCommandSeconds: 30
 obs:
-  serviceName: intelligence.dev
+  serviceName: manifold
   environment: dev
 web:
   searXNGURL: http://localhost:8080
@@ -359,7 +359,7 @@ go run ./cmd/agent -specialist code-reviewer -q "Review this function"
 whisper-go
 --------
 ```
-cd /Users/art/Documents/intelligence.dev && ./run-whisper-go.sh -model /Users/art/Documents/code/whisper.cpp/bindings/go/models/ggml-small.en.bin /Users/art/Documents/intelligence.dev/54521110-ad38-4885-b8c3-3b43bb1f4853.wav
+cd /Users/art/Documents/manifold && ./run-whisper-go.sh -model /Users/art/Documents/code/whisper.cpp/bindings/go/models/ggml-small.en.bin /Users/art/Documents/manifold/54521110-ad38-4885-b8c3-3b43bb1f4853.wav
 ```
 
 Observability
@@ -393,7 +393,7 @@ Development
 
 ### Build
 
-intelligence.dev uses a build system that optionally includes Whisper.cpp for speech-to-text functionality (used by agentd endpoints).
+manifold uses a build system that optionally includes Whisper.cpp for speech-to-text functionality (used by agentd endpoints).
 
 #### Quick Build (Recommended)
 

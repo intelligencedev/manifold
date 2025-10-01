@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"intelligence.dev/internal/persistence"
+	"manifold/internal/persistence"
 )
 
 func newMemoryChatStore() persistence.ChatStore {

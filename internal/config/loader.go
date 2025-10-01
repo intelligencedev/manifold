@@ -151,7 +151,7 @@ func Load() (Config, error) {
 		cfg.OpenAI.API = "completions"
 	}
 	if cfg.Obs.ServiceName == "" {
-		cfg.Obs.ServiceName = "intelligence.dev"
+		cfg.Obs.ServiceName = "manifold"
 	}
 	if cfg.Obs.Environment == "" {
 		cfg.Obs.Environment = "dev"

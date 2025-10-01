@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"intelligence.dev/internal/persistence/databases"
+	"manifold/internal/persistence/databases"
 )
 
 type searchIndexTool struct{ s databases.FullTextSearch }

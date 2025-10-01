@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
+	"manifold/internal/playground/dataset"
+
 	"github.com/stretchr/testify/require"
-	"intelligence.dev/internal/playground/dataset"
 )
 
 func TestPlannerChunking(t *testing.T) {

@@ -3,7 +3,7 @@ package playground
 import (
 	"time"
 
-	"intelligence.dev/internal/playground/experiment"
+	"manifold/internal/playground/experiment"
 )
 
 // RunStatus models the lifecycle of an experiment run.

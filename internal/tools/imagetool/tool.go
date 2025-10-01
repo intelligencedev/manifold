@@ -16,10 +16,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"intelligence.dev/internal/llm"
-	"intelligence.dev/internal/llm/openai"
-	"intelligence.dev/internal/sandbox"
-	"intelligence.dev/internal/tools"
+	"manifold/internal/llm"
+	"manifold/internal/llm/openai"
+	"manifold/internal/sandbox"
+	"manifold/internal/tools"
 )
 
 // ProviderFactory allows building a provider with an alternate base URL.

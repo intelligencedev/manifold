@@ -9,10 +9,10 @@ import (
 	"strings"
 	"sync"
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/llm"
-	openaillm "intelligence.dev/internal/llm/openai"
-	"intelligence.dev/internal/tools"
+	"manifold/internal/config"
+	"manifold/internal/llm"
+	openaillm "manifold/internal/llm/openai"
+	"manifold/internal/tools"
 )
 
 // Agent represents a configured specialist bound to a specific endpoint/model.

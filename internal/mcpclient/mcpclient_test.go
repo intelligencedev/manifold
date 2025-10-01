@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"intelligence.dev/internal/config"
+	"manifold/internal/config"
 
 	mcppkg "github.com/modelcontextprotocol/go-sdk/mcp"
 )

@@ -3,7 +3,7 @@ package provider
 import (
 	"context"
 
-	"intelligence.dev/internal/llm"
+	"manifold/internal/llm"
 )
 
 // LLMAdapter wraps the shared llm.Provider and adapts it to the playground provider interface.

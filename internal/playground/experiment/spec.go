@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"intelligence.dev/internal/playground/dataset"
-	"intelligence.dev/internal/playground/registry"
+	"manifold/internal/playground/dataset"
+	"manifold/internal/playground/registry"
 )
 
 // Variant expresses a specific prompt + model configuration.

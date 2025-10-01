@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"intelligence.dev/internal/persistence"
+	"manifold/internal/persistence"
 )
 
 // NewPostgresChatStore returns a Postgres-backed chat history store.

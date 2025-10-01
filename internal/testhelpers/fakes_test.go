@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"intelligence.dev/internal/llm"
+	"manifold/internal/llm"
 )
 
 type collectHandler struct {

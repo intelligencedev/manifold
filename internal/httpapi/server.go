@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"intelligence.dev/internal/playground"
+	"manifold/internal/playground"
 )
 
 // Server exposes HTTP endpoints for the playground API.

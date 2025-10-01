@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"intelligence.dev/internal/llm"
+	"manifold/internal/llm"
 )
 
 func TestBuildInitialLLMMessages(t *testing.T) {

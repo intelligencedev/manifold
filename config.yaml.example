@@ -22,7 +22,7 @@ openai:
     # temperature: 0.2
     # max_tokens: 2000
     parallel_tool_calls: true
-  prompt_cache_key: intelligence.dev-
+  prompt_cache_key: manifold-
 
 # Text-to-Speech (TTS) defaults. Can be overridden via environment variables:
 # TTS_BASE_URL, TTS_MODEL, TTS_VOICE
@@ -111,7 +111,7 @@ exec:
   blockBinaries: ["rm", "sudo", "chown", "chmod", "dd", "mkfs", "mount", "umount"]
   maxCommandSeconds: 30
 obs:
-  serviceName: intelligence.dev
+  serviceName: manifold
   environment: dev
   otlp: otel-collector.signoz.orb.local:4318
 web:

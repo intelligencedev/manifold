@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/uuid"
 
-	"intelligence.dev/internal/playground/artifacts"
-	"intelligence.dev/internal/playground/dataset"
-	"intelligence.dev/internal/playground/experiment"
-	"intelligence.dev/internal/playground/provider"
-	"intelligence.dev/internal/playground/registry"
+	"manifold/internal/playground/artifacts"
+	"manifold/internal/playground/dataset"
+	"manifold/internal/playground/experiment"
+	"manifold/internal/playground/provider"
+	"manifold/internal/playground/registry"
 )
 
 // Task represents a unit of work for a worker.

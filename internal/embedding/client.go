@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"intelligence.dev/internal/config"
+	"manifold/internal/config"
 )
 
 type embedReq struct {

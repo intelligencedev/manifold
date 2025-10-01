@@ -6,8 +6,9 @@ import (
 	"errors"
 	"strings"
 
+	"manifold/internal/persistence"
+
 	"github.com/jackc/pgx/v5/pgxpool"
-	"intelligence.dev/internal/persistence"
 )
 
 // NewSpecialistsStore returns a Postgres-backed store if a pool is provided, otherwise an in-memory store.

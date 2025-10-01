@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"testing"
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/specialists"
-	"intelligence.dev/internal/tools"
+	"manifold/internal/config"
+	"manifold/internal/specialists"
+	"manifold/internal/tools"
 )
 
 func TestJSONSchemaContainsEnums(t *testing.T) {

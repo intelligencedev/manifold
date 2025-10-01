@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"intelligence.dev/internal/observability"
+	"manifold/internal/observability"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"

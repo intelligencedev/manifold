@@ -1,4 +1,4 @@
-# Go/intelligence.dev
+# Go/manifold
 
 ## Coding Conventions
 

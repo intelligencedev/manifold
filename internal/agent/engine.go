@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"intelligence.dev/internal/llm"
-	"intelligence.dev/internal/observability"
-	"intelligence.dev/internal/tools"
-	"intelligence.dev/internal/tools/tts"
+	"manifold/internal/llm"
+	"manifold/internal/observability"
+	"manifold/internal/tools"
+	"manifold/internal/tools/tts"
 )
 
 type Engine struct {

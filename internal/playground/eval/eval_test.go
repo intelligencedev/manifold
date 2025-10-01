@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"manifold/internal/playground/experiment"
+	"manifold/internal/playground/provider"
+	"manifold/internal/playground/worker"
+
 	"github.com/stretchr/testify/require"
-	"intelligence.dev/internal/playground/experiment"
-	"intelligence.dev/internal/playground/provider"
-	"intelligence.dev/internal/playground/worker"
 )
 
 func TestRunnerEvaluateAggregatesMetrics(t *testing.T) {

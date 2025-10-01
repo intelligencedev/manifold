@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"intelligence.dev/internal/config"
+	"manifold/internal/config"
 )
 
 // Route returns the name of the first matching specialist for the given text,

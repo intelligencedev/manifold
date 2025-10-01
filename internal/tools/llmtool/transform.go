@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"intelligence.dev/internal/llm"
-	"intelligence.dev/internal/tools"
+	"manifold/internal/llm"
+	"manifold/internal/tools"
 )
 
 // Transform is a generic LLM tool that transforms input text according to an

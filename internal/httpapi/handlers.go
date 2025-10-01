@@ -9,10 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"intelligence.dev/internal/playground"
-	"intelligence.dev/internal/playground/dataset"
-	"intelligence.dev/internal/playground/experiment"
-	"intelligence.dev/internal/playground/registry"
+	"manifold/internal/playground"
+	"manifold/internal/playground/dataset"
+	"manifold/internal/playground/experiment"
+	"manifold/internal/playground/registry"
 )
 
 func (s *Server) handleListPrompts(w http.ResponseWriter, r *http.Request) {

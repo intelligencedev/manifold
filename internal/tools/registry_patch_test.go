@@ -3,7 +3,7 @@ package tools
 import (
 	"testing"
 
-	"intelligence.dev/internal/tools/patchtool"
+	"manifold/internal/tools/patchtool"
 )
 
 func TestPatchToolPublishedInRegistry(t *testing.T) {

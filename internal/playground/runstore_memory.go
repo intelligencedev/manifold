@@ -8,7 +8,7 @@ import (
 
 	"slices"
 
-	"intelligence.dev/internal/playground/experiment"
+	"manifold/internal/playground/experiment"
 )
 
 // InMemoryRunStore provides an in-memory implementation of RunStore for tests and the mock service.

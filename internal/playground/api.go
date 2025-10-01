@@ -6,13 +6,13 @@ import (
 	"fmt"
 	"time"
 
-	"intelligence.dev/internal/playground/artifacts"
-	"intelligence.dev/internal/playground/dataset"
-	"intelligence.dev/internal/playground/eval"
-	"intelligence.dev/internal/playground/experiment"
-	"intelligence.dev/internal/playground/provider"
-	"intelligence.dev/internal/playground/registry"
-	"intelligence.dev/internal/playground/worker"
+	"manifold/internal/playground/artifacts"
+	"manifold/internal/playground/dataset"
+	"manifold/internal/playground/eval"
+	"manifold/internal/playground/experiment"
+	"manifold/internal/playground/provider"
+	"manifold/internal/playground/registry"
+	"manifold/internal/playground/worker"
 )
 
 var (

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"intelligence.dev/internal/persistence"
+	"manifold/internal/persistence"
 )
 
 func TestMemChatStoreLifecycle(t *testing.T) {

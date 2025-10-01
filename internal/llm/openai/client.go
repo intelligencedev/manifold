@@ -14,9 +14,9 @@ import (
 	rs "github.com/openai/openai-go/v2/responses"
 	"github.com/openai/openai-go/v2/shared"
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/llm"
-	"intelligence.dev/internal/observability"
+	"manifold/internal/config"
+	"manifold/internal/llm"
+	"manifold/internal/observability"
 )
 
 type Client struct {

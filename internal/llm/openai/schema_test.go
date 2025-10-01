@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"intelligence.dev/internal/llm"
+	"manifold/internal/llm"
 )
 
 func TestAdaptSchemas(t *testing.T) {

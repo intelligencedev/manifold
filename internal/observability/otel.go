@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"intelligence.dev/internal/config"
+	"manifold/internal/config"
 
 	"go.opentelemetry.io/contrib/instrumentation/host"
 	"go.opentelemetry.io/otel"

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"sync"
 
-	"intelligence.dev/internal/llm"
+	"manifold/internal/llm"
 )
 
 // FakeProvider is a simple LLM provider for tests. It can be configured

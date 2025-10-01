@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"intelligence.dev/internal/warpp"
+	"manifold/internal/warpp"
 )
 
 // NewWarppAdapter returns an orchestrator.Runner that delegates to a warpp.Runner.

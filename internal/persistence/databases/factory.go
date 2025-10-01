@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"manifold/internal/config"
+
 	"github.com/jackc/pgx/v5/pgxpool"
-	"intelligence.dev/internal/config"
 )
 
 // NewManager constructs database backends based on configuration.

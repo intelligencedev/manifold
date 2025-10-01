@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"intelligence.dev/internal/llm"
-	"intelligence.dev/internal/observability"
+	"manifold/internal/llm"
+	"manifold/internal/observability"
 )
 
 // Tool is an executable capability the agent can call.

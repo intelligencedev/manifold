@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
-	"intelligence.dev/internal/specialists"
+	"manifold/internal/specialists"
 )
 
 // Tool exposes configured specialists as a single callable tool.

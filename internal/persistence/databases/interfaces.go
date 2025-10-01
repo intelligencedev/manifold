@@ -3,7 +3,7 @@ package databases
 import (
 	"context"
 
-	"intelligence.dev/internal/persistence"
+	"manifold/internal/persistence"
 )
 
 // SearchResult represents a single hit from the full-text search backend.

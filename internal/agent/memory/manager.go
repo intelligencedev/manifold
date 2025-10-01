@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"intelligence.dev/internal/llm"
-	"intelligence.dev/internal/observability"
-	"intelligence.dev/internal/persistence"
+	"manifold/internal/llm"
+	"manifold/internal/observability"
+	"manifold/internal/persistence"
 )
 
 const (

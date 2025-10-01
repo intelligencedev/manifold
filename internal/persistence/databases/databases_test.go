@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"intelligence.dev/internal/config"
+	"manifold/internal/config"
 )
 
 func TestMemorySearch_IndexAndSearch(t *testing.T) {

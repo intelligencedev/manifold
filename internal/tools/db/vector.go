@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/embedding"
-	"intelligence.dev/internal/persistence/databases"
+	"manifold/internal/config"
+	"manifold/internal/embedding"
+	"manifold/internal/persistence/databases"
 )
 
 type vectorUpsertTool struct {

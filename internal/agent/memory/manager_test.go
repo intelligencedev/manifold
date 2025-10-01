@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/llm"
-	"intelligence.dev/internal/persistence"
-	"intelligence.dev/internal/persistence/databases"
+	"manifold/internal/config"
+	"manifold/internal/llm"
+	"manifold/internal/persistence"
+	"manifold/internal/persistence/databases"
 )
 
 type stubLLM struct {

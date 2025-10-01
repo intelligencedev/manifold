@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strings"
 
-	"intelligence.dev/internal/observability"
-	"intelligence.dev/internal/sandbox"
+	"manifold/internal/observability"
+	"manifold/internal/sandbox"
 )
 
 type Tool struct {

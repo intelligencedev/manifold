@@ -20,8 +20,8 @@ import (
 	// a minimal dependency surface and honors the configured base URL and
 	// API key via headers.
 
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/observability"
+	"manifold/internal/config"
+	"manifold/internal/observability"
 )
 
 // Tool implements a simple TTS tool that calls the OpenAI /v1/audio/speech endpoint.

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"intelligence.dev/internal/playground/experiment"
-	"intelligence.dev/internal/playground/provider"
-	"intelligence.dev/internal/playground/worker"
+	"manifold/internal/playground/experiment"
+	"manifold/internal/playground/provider"
+	"manifold/internal/playground/worker"
 )
 
 const judgeMetric = "judge/accuracy"

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"intelligence.dev/internal/tools"
+	"manifold/internal/tools"
 )
 
 // simple tool implementing tools.Tool

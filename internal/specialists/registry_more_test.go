@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"intelligence.dev/internal/config"
+	"manifold/internal/config"
 )
 
 func TestNewRegistry_PopulatesAgentFields(t *testing.T) {

@@ -2,10 +2,10 @@ package openai
 
 import (
 	"context"
+	"manifold/internal/config"
+	"manifold/internal/llm"
 	"net/http"
 	"net/http/httptest"
-	"intelligence.dev/internal/config"
-	"intelligence.dev/internal/llm"
 	"testing"
 	"time"
 )

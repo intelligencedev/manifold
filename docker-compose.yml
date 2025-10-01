@@ -116,6 +116,20 @@ services:
       - ./configs/keycloak:/opt/keycloak/data/import:ro
     restart: unless-stopped
 
+  manifold:
+    build:
+      context: .
+      dockerfile: macos.Dockerfile
+    platform: linux/amd64
+    container_name: agentd
+    ports:
+      - "32180:32180"
+    volumes:
+      - ./.env:/app/.env
+      - ./config.yaml:/app/config.yaml
+      - .:/app/manifold
+    restart: unless-stopped
+
 volumes:
   app_pg_data:
   keycloak_db_data:

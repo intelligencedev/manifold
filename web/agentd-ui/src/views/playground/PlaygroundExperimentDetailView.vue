@@ -140,11 +140,29 @@
                 </header>
                 <div class="grid gap-3 md:grid-cols-2">
                   <div>
-                    <h4 class="text-xs font-semibold text-subtle-foreground uppercase tracking-wide">Rendered Prompt</h4>
+                    <div class="flex items-center justify-between">
+                      <h4 class="text-xs font-semibold text-subtle-foreground uppercase tracking-wide">Rendered Prompt</h4>
+                      <button
+                        class="text-xs text-accent hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                        :disabled="!result.rendered"
+                        @click="openExpandedText('Rendered Prompt', result.rendered)"
+                      >
+                        Expand
+                      </button>
+                    </div>
                     <pre class="mt-1 max-h-64 overflow-auto rounded bg-background/60 p-3 text-xs whitespace-pre-wrap">{{ result.rendered || '—' }}</pre>
                   </div>
                   <div>
-                    <h4 class="text-xs font-semibold text-subtle-foreground uppercase tracking-wide">Output</h4>
+                    <div class="flex items-center justify-between">
+                      <h4 class="text-xs font-semibold text-subtle-foreground uppercase tracking-wide">Output</h4>
+                      <button
+                        class="text-xs text-accent hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+                        :disabled="!result.output"
+                        @click="openExpandedText('Output', result.output)"
+                      >
+                        Expand
+                      </button>
+                    </div>
                     <pre class="mt-1 max-h-64 overflow-auto rounded bg-background/60 p-3 text-xs whitespace-pre-wrap">{{ result.output || '—' }}</pre>
                   </div>
                 </div>
@@ -185,6 +203,28 @@
     </div>
   </div>
   <p v-else class="text-subtle-foreground text-sm">Loading experiment…</p>
+  
+  <!-- Expanded text modal -->
+  <teleport to="body">
+    <div v-if="expandedText !== null" class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/50" @click="closeExpandedText"></div>
+      <div
+        class="relative z-10 w-[min(95vw,1100px)] max-w-5xl h-[min(90vh,900px)] max-h-[90vh] rounded-2xl border border-border/70 bg-surface shadow-xl p-4 flex flex-col gap-3"
+        role="dialog"
+        aria-modal="true"
+      >
+        <header class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold">{{ expandedTitle }}</h3>
+          <button @click="closeExpandedText" class="rounded border border-border/70 px-3 py-1 text-sm">Close</button>
+        </header>
+        <textarea
+          readonly
+          class="flex-1 w-full resize-none rounded bg-background/60 p-3 text-sm font-mono leading-relaxed whitespace-pre-wrap overflow-auto"
+          :value="expandedText ?? ''"
+        ></textarea>
+      </div>
+    </div>
+  </teleport>
 </template>
 
 <script setup lang="ts">
@@ -221,6 +261,19 @@ const sortedMetrics = computed(() => {
   if (!selectedRun.value?.metrics) return [] as Array<[string, number]>
   return Object.entries(selectedRun.value.metrics).sort(([a], [b]) => a.localeCompare(b))
 })
+
+// Expanded text modal state
+const expandedText = ref<string | null>(null)
+const expandedTitle = ref<string>('')
+
+function openExpandedText(title: string, text?: string) {
+  expandedTitle.value = title
+  expandedText.value = text ?? ''
+}
+
+function closeExpandedText() {
+  expandedText.value = null
+}
 
 async function refreshRuns(id: string) {
   loadingRuns.value = true

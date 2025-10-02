@@ -217,6 +217,9 @@ func main() {
 	summaryLLM := openaillm.New(summaryCfg, httpClient)
 
 	toolRegistry := tools.NewRegistryWithLogging(cfg.LogPayloads)
+    // Keep a handle to the full, unfiltered registry so we can toggle
+    // orchestrator tool exposure at runtime when edited via the UI.
+    baseToolRegistry := toolRegistry
 	// Databases: construct backends and register tools
 	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
 	if err != nil {
@@ -250,13 +253,12 @@ func main() {
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
 	toolRegistry.Register(specialists_tool.New(specReg))
 
-	// If tools are globally disabled, use an empty registry
+	// If tools are globally disabled, use an empty registry. Otherwise, apply a
+	// top-level allow list only to the main orchestrator by wrapping the base registry.
 	if !cfg.EnableTools {
-		toolRegistry = tools.NewRegistry() // Empty registry
+		toolRegistry = tools.NewRegistry() // Empty registry for orchestrator-only
 	} else if len(cfg.ToolAllowList) > 0 {
-		// If a top-level tool allow-list is configured, expose only those tools
-		// to the main orchestrator agent by wrapping the registry.
-		toolRegistry = tools.NewFilteredRegistry(toolRegistry, cfg.ToolAllowList)
+		toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, cfg.ToolAllowList)
 	}
 
 	// Debug: log which tools are exposed after any filtering so we can diagnose
@@ -796,7 +798,25 @@ func main() {
 		}
 		// Ensure tool registry reflects persisted store on startup
 		if list, err := specStore.List(context.Background()); err == nil {
-			specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
+			specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, baseToolRegistry)
+		}
+	}
+
+	// Helper to render the main orchestrator as a synthetic specialist for the UI only.
+	orchSpec := func() persist.Specialist {
+		return persist.Specialist{
+			ID:              0,
+			Name:            "orchestrator",
+			BaseURL:         cfg.OpenAI.BaseURL,
+			APIKey:          cfg.OpenAI.APIKey,
+			Model:           cfg.OpenAI.Model,
+			EnableTools:     cfg.EnableTools,
+			Paused:          false,
+			AllowTools:      cfg.ToolAllowList,
+			ReasoningEffort: "",
+			System:          cfg.SystemPrompt,
+			ExtraHeaders:    cfg.OpenAI.ExtraHeaders,
+			ExtraParams:     cfg.OpenAI.ExtraParams,
 		}
 	}
 
@@ -866,6 +886,18 @@ func main() {
 				http.Error(w, "error", http.StatusInternalServerError)
 				return
 			}
+			// Append or replace with a synthetic orchestrator entry for frontend editing.
+			found := false
+			for i := range list {
+				if strings.EqualFold(strings.TrimSpace(list[i].Name), "orchestrator") {
+					list[i] = orchSpec()
+					found = true
+					break
+				}
+			}
+			if !found {
+				list = append(list, orchSpec())
+			}
 			json.NewEncoder(w).Encode(list)
 		case http.MethodPost:
 			// admin-only when auth enabled
@@ -888,14 +920,19 @@ func main() {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
+			// Prevent creating a synthetic orchestrator via POST; require PUT to the named endpoint.
+			if strings.EqualFold(strings.TrimSpace(sp.Name), "orchestrator") {
+				http.Error(w, "cannot create orchestrator; use PUT /api/specialists/orchestrator", http.StatusBadRequest)
+				return
+			}
 			saved, err := specStore.Upsert(r.Context(), sp)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			// Rebuild tool registry after change
+			// Rebuild specialists registry after change (independent of orchestrator allow-list)
 			if list, err := specStore.List(r.Context()); err == nil {
-				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, baseToolRegistry)
 			}
 			json.NewEncoder(w).Encode(saved)
 		default:
@@ -943,6 +980,11 @@ func main() {
 		}
 		switch r.Method {
 		case http.MethodGet:
+			if name == "orchestrator" {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(orchSpec())
+				return
+			}
 			sp, ok, _ := specStore.GetByName(r.Context(), name)
 			if !ok {
 				http.NotFound(w, r)
@@ -962,6 +1004,54 @@ func main() {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
+			if name == "orchestrator" {
+				// Apply updates to the main orchestrator configuration at runtime only.
+				cfg.OpenAI.BaseURL = sp.BaseURL
+				cfg.OpenAI.APIKey = sp.APIKey
+				if strings.TrimSpace(sp.Model) != "" {
+					cfg.OpenAI.Model = sp.Model
+				}
+				cfg.EnableTools = sp.EnableTools
+				cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
+				cfg.SystemPrompt = sp.System
+				if sp.ExtraHeaders != nil {
+					cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
+				}
+				if sp.ExtraParams != nil {
+					cfg.OpenAI.ExtraParams = sp.ExtraParams
+				}
+				// Rebuild the LLM client for orchestrator and update tool exposure
+				llm = openaillm.New(cfg.OpenAI, httpClient)
+				eng.LLM = llm
+				eng.Model = cfg.OpenAI.Model
+				eng.System = prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt)
+				// Select the appropriate tool registry for orchestrator only
+				if !cfg.EnableTools {
+					toolRegistry = tools.NewRegistry()
+				} else if len(cfg.ToolAllowList) > 0 {
+					toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, cfg.ToolAllowList)
+				} else {
+					toolRegistry = baseToolRegistry
+				}
+				// Update engine and workflow runner to reflect the new registry
+				eng.Tools = toolRegistry
+				warppMu.Lock()
+				warppRunner.Tools = toolRegistry
+				warppMu.Unlock()
+				// Return the updated synthetic specialist
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(orchSpec())
+				// Also log the active tools for observability
+				{
+					names := make([]string, 0, len(toolRegistry.Schemas()))
+					for _, s := range toolRegistry.Schemas() {
+						names = append(names, s.Name)
+					}
+					log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents_updated")
+				}
+				return
+			}
+			// Regular specialist update path
 			sp.Name = name // enforce path name
 			saved, err := specStore.Upsert(r.Context(), sp)
 			if err != nil {
@@ -971,11 +1061,15 @@ func main() {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
 			if list, err := specStore.List(r.Context()); err == nil {
-				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, baseToolRegistry)
 			}
 		case http.MethodDelete:
 			if !isAdmin {
 				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			if name == "orchestrator" {
+				http.Error(w, "cannot delete orchestrator", http.StatusBadRequest)
 				return
 			}
 			if err := specStore.Delete(r.Context(), name); err != nil {
@@ -984,7 +1078,7 @@ func main() {
 			}
 			w.WriteHeader(http.StatusNoContent)
 			if list, err := specStore.List(r.Context()); err == nil {
-				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, toolRegistry)
+				specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, baseToolRegistry)
 			}
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

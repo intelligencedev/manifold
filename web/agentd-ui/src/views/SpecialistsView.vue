@@ -74,6 +74,32 @@
           <div class="text-subtle-foreground">System Prompt</div>
           <textarea v-model="form.system" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
         </label>
+        <!-- Apply a saved Playground Prompt Version to the System Prompt -->
+        <div class="md:col-span-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3 space-y-2">
+          <div class="text-sm font-medium">Apply saved prompt version</div>
+          <div class="grid gap-2 md:grid-cols-2">
+            <label class="text-sm">
+              <div class="text-subtle-foreground">Prompt</div>
+              <select v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                <option value="">Select prompt</option>
+                <option v-for="p in availablePrompts" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+            </label>
+            <label class="text-sm">
+              <div class="text-subtle-foreground">Version</div>
+              <select v-model="promptApply.versionId" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                <option value="">Select version</option>
+                <option v-for="v in availableVersions" :key="v.id" :value="v.id">{{ v.semver || formatDate(v.createdAt) }}</option>
+              </select>
+            </label>
+          </div>
+          <div class="flex items-center gap-2">
+            <button @click="applySelectedVersion" :disabled="!promptApply.versionId || applyingVersion" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">
+              {{ applyingVersion ? 'Applying…' : 'Apply to System Prompt' }}
+            </button>
+            <span v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</span>
+          </div>
+        </div>
       </div>
       <div class="flex gap-2">
         <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
@@ -87,6 +113,7 @@
 import { ref, computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { listSpecialists, upsertSpecialist, deleteSpecialist, type Specialist } from '@/api/client'
+import { listPrompts, listPromptVersions, type Prompt, type PromptVersion } from '@/api/playground'
 
 const qc = useQueryClient()
 const { data, isLoading: loading, isError: error } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
@@ -96,6 +123,15 @@ const editing = ref(false)
 const original = ref<Specialist | null>(null)
 const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false })
 const actionError = ref<string | null>(null)
+
+// Playground prompts integration for applying a saved prompt version
+const availablePrompts = ref<Prompt[]>([])
+const availableVersions = ref<PromptVersion[]>([])
+const promptsLoading = ref(false)
+const versionsLoading = ref(false)
+const applyingVersion = ref(false)
+const applyVersionError = ref<string | null>(null)
+const promptApply = ref<{ promptId: string; versionId: string }>({ promptId: '', versionId: '' })
 
 function setErr(e: unknown, fallback: string) {
   actionError.value = null
@@ -108,11 +144,15 @@ function startCreate() {
   original.value = null
   form.value = { name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false }
   editing.value = true
+  // lazy-load prompts for selector
+  void ensurePromptsLoaded()
 }
 function edit(s: Specialist) {
   original.value = s
   form.value = { ...s }
   editing.value = true
+  // lazy-load prompts for selector
+  void ensurePromptsLoaded()
 }
 async function save() {
   try {
@@ -146,6 +186,69 @@ async function remove(s: Specialist) {
     await qc.invalidateQueries({ queryKey: ['agent-status'] })
   } catch (e) {
     setErr(e, 'Failed to delete specialist.')
+  }
+}
+
+// Load prompts for the Apply section
+async function ensurePromptsLoaded() {
+  if (availablePrompts.value.length > 0 || promptsLoading.value) return
+  try {
+    promptsLoading.value = true
+    availablePrompts.value = await listPrompts()
+  } catch (err: any) {
+    applyVersionError.value = err?.message || 'Failed to load prompts.'
+  } finally {
+    promptsLoading.value = false
+  }
+}
+
+async function onSelectPrompt() {
+  promptApply.value.versionId = ''
+  availableVersions.value = []
+  if (!promptApply.value.promptId) return
+  try {
+    versionsLoading.value = true
+    availableVersions.value = await listPromptVersions(promptApply.value.promptId)
+  } catch (err: any) {
+    applyVersionError.value = err?.message || 'Failed to load versions.'
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+async function applySelectedVersion() {
+  applyVersionError.value = null
+  const vid = promptApply.value.versionId
+  if (!vid) return
+  const v = availableVersions.value.find(x => x.id === vid)
+  if (!v) {
+    applyVersionError.value = 'Prompt version not found.'
+    return
+  }
+  // Confirm replacement if System Prompt already has content
+  if (form.value.system && !confirm('Replace the current System Prompt with the selected version template?')) {
+    return
+  }
+  try {
+    applyingVersion.value = true
+    // Apply template to the System Prompt
+    form.value.system = v.template || ''
+    // Simple validation to ensure non-empty
+    if (!form.value.system || form.value.system.trim().length === 0) {
+      applyVersionError.value = 'Selected prompt version has an empty template.'
+    }
+  } finally {
+    applyingVersion.value = false
+  }
+}
+
+function formatDate(value?: string) {
+  if (!value) return '—'
+  try {
+    const d = new Date(value)
+    return d.toLocaleString()
+  } catch (_) {
+    return value
   }
 }
 </script>

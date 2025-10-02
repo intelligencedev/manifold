@@ -25,6 +25,12 @@ Manifold is a platform for creating and managing AI assistants.
 
 ## Quick Start
 
+### Update submodules
+
+```
+$ git submodule update --init --recursive
+```
+
 ### Docker Compose
 
 1. Ensure you have `.env` and `config.yaml` files at the repository root:

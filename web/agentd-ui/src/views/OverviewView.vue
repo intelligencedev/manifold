@@ -53,7 +53,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useQuery } from '@tanstack/vue-query'
-import { fetchAgentRuns, fetchAgentStatus } from '@/api/client'
+import { fetchAgentRuns, fetchAgentStatus, listSpecialists } from '@/api/client'
 import AgentCard from '@/components/AgentCard.vue'
 import RunTable from '@/components/RunTable.vue'
 
@@ -67,6 +67,12 @@ const {
   staleTime: 30_000,
 })
 
+const { data: specialistsData } = useQuery({
+  queryKey: ['specialists'],
+  queryFn: listSpecialists,
+  staleTime: 30_000,
+})
+
 const {
   data: runsData,
   isLoading: runsLoading,
@@ -77,7 +83,28 @@ const {
   staleTime: 15_000,
 })
 
-const agents = computed(() => agentData.value ?? [])
+const agents = computed(() => {
+  const base = (agentData.value ?? []).slice()
+  // If the orchestrator specialist is present in the specialists list, expose
+  // it as a synthetic agent in the Overview. The backend exposes a synthetic
+  // "orchestrator" specialist via /api/specialists; convert it to an
+  // AgentStatus-like object for rendering here.
+  const specs = specialistsData?.value ?? []
+  const orch = specs.find((s: any) => String(s.name).toLowerCase().trim() === 'orchestrator')
+  if (orch) {
+    const exists = base.find((a: any) => String(a.id).toLowerCase().trim() === String(orch.name).toLowerCase().trim())
+    if (!exists) {
+      base.unshift({
+        id: orch.name || 'orchestrator',
+        name: orch.name || 'orchestrator',
+        state: orch.paused ? 'offline' : 'online',
+        model: orch.model || '',
+        updatedAt: new Date().toISOString(),
+      })
+    }
+  }
+  return base
+})
 const runs = computed(() => runsData.value ?? [])
 
 const headlineStats = computed(() => [

@@ -1,109 +1,122 @@
 <template>
-  <section class="space-y-8">
-    <header class="flex items-center justify-between">
+  <section class="flex flex-col h-full min-h-0">
+    <header class="flex items-center justify-between py-4">
       <div>
         <h1 class="text-2xl font-semibold text-foreground">Specialists</h1>
         <p class="text-sm text-subtle-foreground">Manage configured specialists used by the orchestrator.</p>
       </div>
       <button @click="startCreate" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground hover:border-border">New</button>
     </header>
-
     <div v-if="actionError" class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm">
       {{ actionError }}
     </div>
 
-    <div class="rounded-2xl border border-border/70 bg-surface p-4">
-      <table class="w-full text-sm">
-        <thead class="text-subtle-foreground">
-          <tr>
-            <th class="text-left py-2">Name</th>
-            <th class="text-left py-2">Model</th>
-            <th class="text-left py-2">Tools</th>
-            <th class="text-left py-2">Paused</th>
-            <th class="text-right py-2">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="s in specialists" :key="s.name" class="border-t border-border/50">
-            <td class="py-2 font-medium">{{ s.name }}</td>
-            <td class="py-2">{{ s.model }}</td>
-            <td class="py-2">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
-            <td class="py-2">
-              <span :class="s.paused ? 'text-warning-foreground' : 'text-success-foreground'">{{ s.paused ? 'yes' : 'no' }}</span>
-            </td>
-            <td class="py-2 text-right space-x-2">
-              <button @click="edit(s)" class="rounded border border-border/70 px-2 py-1">Edit</button>
-              <button @click="togglePause(s)" class="rounded border border-border/70 px-2 py-1">{{ s.paused ? 'Resume' : 'Pause' }}</button>
-              <button @click="remove(s)" class="rounded border border-danger/60 text-danger/60 px-2 py-1">Delete</button>
-            </td>
-          </tr>
-          <tr v-if="loading"><td colspan="5" class="py-4 text-center text-faint-foreground">Loading…</td></tr>
-          <tr v-if="error"><td colspan="5" class="py-4 text-center text-danger-foreground">Failed to load.</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 space-y-3">
-      <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
-      <div class="grid gap-3 md:grid-cols-2">
-        <label class="text-sm">
-          <div class="text-subtle-foreground">Name</div>
-          <input v-model="form.name" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" :disabled="!!original?.name" />
-        </label>
-        <label class="text-sm">
-          <div class="text-subtle-foreground">Model</div>
-          <input v-model="form.model" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
-        </label>
-        <label class="text-sm md:col-span-2">
-          <div class="text-subtle-foreground">Base URL</div>
-          <input v-model="form.baseURL" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
-        </label>
-        <label class="text-sm md:col-span-2">
-          <div class="text-subtle-foreground">API Key</div>
-          <input v-model="form.apiKey" type="password" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
-        </label>
-        <label class="text-sm">
-          <div class="text-subtle-foreground">Enable Tools</div>
-          <input type="checkbox" v-model="form.enableTools" />
-        </label>
-        <label class="text-sm">
-          <div class="text-subtle-foreground">Paused</div>
-          <input type="checkbox" v-model="form.paused" />
-        </label>
-        <label class="text-sm md:col-span-2">
-          <div class="text-subtle-foreground">System Prompt</div>
-          <textarea v-model="form.system" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
-        </label>
-        <!-- Apply a saved Playground Prompt Version to the System Prompt -->
-        <div class="md:col-span-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3 space-y-2">
-          <div class="text-sm font-medium">Apply saved prompt version</div>
-          <div class="grid gap-2 md:grid-cols-2">
-            <label class="text-sm">
-              <div class="text-subtle-foreground">Prompt</div>
-              <select v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
-                <option value="">Select prompt</option>
-                <option v-for="p in availablePrompts" :key="p.id" :value="p.id">{{ p.name }}</option>
-              </select>
-            </label>
-            <label class="text-sm">
-              <div class="text-subtle-foreground">Version</div>
-              <select v-model="promptApply.versionId" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
-                <option value="">Select version</option>
-                <option v-for="v in availableVersions" :key="v.id" :value="v.id">{{ v.semver || formatDate(v.createdAt) }}</option>
-              </select>
-            </label>
-          </div>
-          <div class="flex items-center gap-2">
-            <button @click="applySelectedVersion" :disabled="!promptApply.versionId || applyingVersion" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">
-              {{ applyingVersion ? 'Applying…' : 'Apply to System Prompt' }}
-            </button>
-            <span v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</span>
-          </div>
+    <!-- Main two-column area: left = list, right = editor. Prevent page scroll; enable internal scrolling. -->
+    <div class="flex gap-6 flex-1 min-h-0">
+      <!-- Left: specialists list (scrollable) -->
+      <div class="rounded-2xl border border-border/70 bg-surface p-4 flex-1 min-h-0 overflow-auto">
+        <div class="w-full text-sm min-w-0">
+          <table class="w-full text-sm">
+            <thead class="text-subtle-foreground">
+              <tr>
+                <th class="text-left py-2">Name</th>
+                <th class="text-left py-2">Model</th>
+                <th class="text-left py-2">Tools</th>
+                <th class="text-left py-2">Paused</th>
+                <th class="text-right py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="s in specialists" :key="s.name" class="border-t border-border/50">
+                <td class="py-2 font-medium">{{ s.name }}</td>
+                <td class="py-2">{{ s.model }}</td>
+                <td class="py-2">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
+                <td class="py-2">
+                  <span :class="s.paused ? 'text-warning-foreground' : 'text-success-foreground'">{{ s.paused ? 'yes' : 'no' }}</span>
+                </td>
+                <td class="py-2 text-right space-x-2">
+                  <button @click="edit(s)" class="rounded border border-border/70 px-2 py-1">Edit</button>
+                  <button @click="togglePause(s)" class="rounded border border-border/70 px-2 py-1">{{ s.paused ? 'Resume' : 'Pause' }}</button>
+                  <button @click="remove(s)" class="rounded border border-danger/60 text-danger/60 px-2 py-1">Delete</button>
+                </td>
+              </tr>
+              <tr v-if="loading"><td colspan="5" class="py-4 text-center text-faint-foreground">Loading…</td></tr>
+              <tr v-if="error"><td colspan="5" class="py-4 text-center text-danger-foreground">Failed to load.</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
-      <div class="flex gap-2">
-        <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
-        <button @click="cancel" class="rounded-lg border border-border/70 px-3 py-2 text-sm">Cancel</button>
+
+      <!-- Right: editor panel (scrollable). When not editing show placeholder card. -->
+      <div class="w-2/5 min-w-[320px] min-h-0">
+        <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 h-full min-h-0 overflow-auto flex flex-col">
+          <div class="space-y-3">
+            <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
+            <div class="grid gap-3 md:grid-cols-2">
+              <label class="text-sm">
+                <div class="text-subtle-foreground">Name</div>
+                <input v-model="form.name" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" :disabled="!!original?.name" />
+              </label>
+              <label class="text-sm">
+                <div class="text-subtle-foreground">Model</div>
+                <input v-model="form.model" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+              </label>
+              <label class="text-sm md:col-span-2">
+                <div class="text-subtle-foreground">Base URL</div>
+                <input v-model="form.baseURL" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+              </label>
+              <label class="text-sm md:col-span-2">
+                <div class="text-subtle-foreground">API Key</div>
+                <input v-model="form.apiKey" type="password" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+              </label>
+              <label class="text-sm">
+                <div class="text-subtle-foreground">Enable Tools</div>
+                <input type="checkbox" v-model="form.enableTools" />
+              </label>
+              <label class="text-sm">
+                <div class="text-subtle-foreground">Paused</div>
+                <input type="checkbox" v-model="form.paused" />
+              </label>
+              <label class="text-sm md:col-span-2">
+                <div class="text-subtle-foreground">System Prompt</div>
+                <textarea v-model="form.system" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+              </label>
+              <!-- Apply a saved Playground Prompt Version to the System Prompt -->
+              <div class="md:col-span-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3 space-y-2">
+                <div class="text-sm font-medium">Apply saved prompt version</div>
+                <div class="grid gap-2 md:grid-cols-2">
+                  <label class="text-sm">
+                    <div class="text-subtle-foreground">Prompt</div>
+                    <select v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                      <option value="">Select prompt</option>
+                      <option v-for="p in availablePrompts" :key="p.id" :value="p.id">{{ p.name }}</option>
+                    </select>
+                  </label>
+                  <label class="text-sm">
+                    <div class="text-subtle-foreground">Version</div>
+                    <select v-model="promptApply.versionId" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                      <option value="">Select version</option>
+                      <option v-for="v in availableVersions" :key="v.id" :value="v.id">{{ v.semver || formatDate(v.createdAt) }}</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button @click="applySelectedVersion" :disabled="!promptApply.versionId || applyingVersion" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">
+                    {{ applyingVersion ? 'Applying…' : 'Apply to System Prompt' }}
+                  </button>
+                  <span v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
+              <button @click="cancel" class="rounded-lg border border-border/70 px-3 py-2 text-sm">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="rounded-2xl border border-border/70 bg-surface p-6 h-full min-h-0 flex items-center justify-center text-sm text-subtle-foreground">
+          Select a specialist or click New to create one.
+        </div>
       </div>
     </div>
   </section>

@@ -75,13 +75,26 @@
             <span class="h-2 w-2 animate-pulse rounded-full bg-accent"></span>
             Streaming response…
           </span>
-          <button
-            type="button"
-            class="rounded-4 border border-border px-3 py-1 font-medium text-foreground transition hover:border-accent hover:text-accent"
-            @click="goToDashboard"
-          >
-            Dashboard
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="rounded-4 border border-border px-3 py-1 font-medium text-foreground transition hover:border-accent hover:text-accent"
+              @click="goToDashboard"
+            >
+              Dashboard
+            </button>
+            <label class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
+              <select
+                v-model="renderMode"
+                class="rounded-4 border border-border bg-surface px-2 py-1 text-xs text-foreground outline-none"
+                title="Render mode for assistant responses"
+                aria-label="Render mode"
+              >
+                <option value="markdown">Markdown</option>
+                <option value="html">HTML</option>
+              </select>
+            </label>
+          </div>
         </div>
       </header>
 
@@ -131,7 +144,7 @@
             <div
               v-if="message.content"
               class="chat-markdown"
-              v-html="renderMarkdown(message.content)"
+              v-html="renderMarkdownOrHtml(message.content)"
             ></div>
             <div v-if="message.attachments?.length" class="space-y-2">
               <div v-if="message.attachments.some(a => a.kind === 'image')" class="flex gap-2 overflow-x-auto pb-1">
@@ -344,7 +357,7 @@
                 <div
                   v-if="tool.content"
                   class="chat-markdown mt-1 break-words"
-                  v-html="renderMarkdown(tool.content)"
+                  v-html="renderMarkdownOrHtml(tool.content)"
                 ></div>
                 <audio v-if="tool.audioUrl" :src="tool.audioUrl" controls class="mt-1 w-full"></audio>
               </div>
@@ -458,6 +471,8 @@ const pendingAttachments = ref<ChatAttachment[]>([])
 const imageAttachments = computed(() => pendingAttachments.value.filter((a) => a.kind === 'image'))
 const textAttachments = computed(() => pendingAttachments.value.filter((a) => a.kind === 'text'))
 const filesByAttachment: Map<string, File> = new Map()
+// Render mode for streamed responses: 'markdown' (default) or 'html'
+const renderMode = ref<'markdown' | 'html'>('markdown')
 
 function validateFile(f: File): 'image' | 'text' | null {
   const type = (f.type || '').toLowerCase()
@@ -529,6 +544,15 @@ function handleMarkdownClick(e: MouseEvent) {
       btn.textContent = 'Copy'
     }, 1200)
   }).catch(() => {})
+}
+
+function renderMarkdownOrHtml(content: string) {
+  if (renderMode.value === 'html') {
+    // When HTML mode is selected, render content as raw HTML
+    return content || ''
+  }
+  // Default: render as markdown
+  return renderMarkdown(content)
 }
 
 const activeSession = computed(() => sessions.value.find((session) => session.id === activeSessionId.value) || null)

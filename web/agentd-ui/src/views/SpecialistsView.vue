@@ -49,69 +49,62 @@
       <!-- right: editor -->
       <div class="w-1/2 min-w-0 min-h-0">
         <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 h-full min-h-0 overflow-auto flex flex-col">
-          <div class="space-y-3 h-full min-h-0 flex flex-col">
+          <div class="flex flex-col gap-4 h-full min-h-0">
             <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
-            <div class="grid gap-3 md:grid-cols-2 flex-1 min-h-0">
-              <label class="text-sm">
-                <div class="text-subtle-foreground">Name</div>
-                <input v-model="form.name" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" :disabled="!!original?.name" />
-              </label>
-              <label class="text-sm">
-                <div class="text-subtle-foreground">Model</div>
-                <input v-model="form.model" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
-              </label>
-              <label class="text-sm md:col-span-2">
-                <div class="text-subtle-foreground">Base URL</div>
-                <input v-model="form.baseURL" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
-              </label>
-              <label class="text-sm md:col-span-2">
-                <div class="text-subtle-foreground">API Key</div>
-                <input v-model="form.apiKey" type="password" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
-              </label>
-              <label class="text-sm">
-                <div class="text-subtle-foreground">Enable Tools</div>
-                <input type="checkbox" v-model="form.enableTools" />
-              </label>
-              <label class="text-sm">
-                <div class="text-subtle-foreground">Paused</div>
-                <input type="checkbox" v-model="form.paused" />
-              </label>
-
-              <!-- system prompt: take available vertical space -->
-              <div class="md:col-span-2 flex flex-col gap-3 row-span-1 col-span-full">
-                <div class="text-subtle-foreground text-sm">System Prompt</div>
-                <div class="flex-1 min-h-0">
-                  <textarea v-model="form.system" class="w-full h-full min-h-0 resize-none rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
-                </div>
+            <div class="grid gap-x-4 gap-y-3 md:grid-cols-2 content-start">
+              <div class="flex flex-col gap-1">
+                <label for="specialist-name" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Name</label>
+                <input id="specialist-name" v-model="form.name" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" :disabled="!!original?.name" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label for="specialist-model" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Model</label>
+                <input id="specialist-model" v-model="form.model" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+              </div>
+              <div class="flex flex-col gap-1 md:col-span-2">
+                <label for="specialist-base-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Base URL</label>
+                <input id="specialist-base-url" v-model="form.baseURL" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+              </div>
+              <div class="flex flex-col gap-1 md:col-span-2">
+                <label for="specialist-api-key" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">API Key</label>
+                <input id="specialist-api-key" v-model="form.apiKey" type="password" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+              </div>
+              <div class="flex items-center gap-2 text-sm">
+                <input id="specialist-enable-tools" type="checkbox" v-model="form.enableTools" class="h-4 w-4" />
+                <label for="specialist-enable-tools" class="text-subtle-foreground">Enable Tools</label>
+              </div>
+              <div class="flex items-center gap-2 text-sm">
+                <input id="specialist-paused" type="checkbox" v-model="form.paused" class="h-4 w-4" />
+                <label for="specialist-paused" class="text-subtle-foreground">Paused</label>
               </div>
 
-              <!-- prompt/version selectors (auto-load on version selection) -->
-              <div class="md:col-span-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3 space-y-2">
-                <div class="text-sm font-medium">Apply saved prompt version</div>
-                <div class="grid gap-2 md:grid-cols-2">
-                  <label class="text-sm">
-                    <div class="text-subtle-foreground">Prompt</div>
-                    <select v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+              <div class="md:col-span-2 flex flex-col gap-2">
+                <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
+                <textarea id="specialist-system" v-model="form.system" rows="8" class="w-full min-h-[160px] max-h-[480px] resize-y rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+              </div>
+
+              <section class="md:col-span-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3 flex flex-col gap-3">
+                <div class="text-sm font-medium text-foreground">Apply saved prompt version</div>
+                <div class="grid gap-3 md:grid-cols-2">
+                  <div class="flex flex-col gap-1">
+                    <label for="prompt-select" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Prompt</label>
+                    <select id="prompt-select" v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
                       <option value="">Select prompt</option>
                       <option v-for="p in availablePrompts" :key="p.id" :value="p.id">{{ p.name }}</option>
                     </select>
-                  </label>
-                  <label class="text-sm">
-                    <div class="text-subtle-foreground">Version</div>
-                    <select v-model="promptApply.versionId" @change="onSelectVersion" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <label for="prompt-version-select" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Version</label>
+                    <select id="prompt-version-select" v-model="promptApply.versionId" @change="onSelectVersion" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
                       <option value="">Select version</option>
                       <option v-for="v in availableVersions" :key="v.id" :value="v.id">{{ v.semver || formatDate(v.createdAt) }}</option>
                     </select>
-                  </label>
+                  </div>
                 </div>
-                <div class="flex items-center gap-2">
-                  <span v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</span>
-                </div>
-              </div>
-
+                <div v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</div>
+              </section>
             </div>
 
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2">
               <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
               <button @click="cancel" class="rounded-lg border border-border/70 px-3 py-2 text-sm">Cancel</button>
             </div>
@@ -137,7 +130,7 @@ const specialists = computed(() => data.value ?? [])
 
 const editing = ref(false)
 const original = ref<Specialist | null>(null)
-const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false })
+const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '' })
 const actionError = ref<string | null>(null)
 
 // Playground prompts integration
@@ -157,7 +150,7 @@ function setErr(e: unknown, fallback: string) {
 
 function startCreate() {
   original.value = null
-  form.value = { name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false }
+  form.value = { name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '' }
   editing.value = true
   void ensurePromptsLoaded()
 }

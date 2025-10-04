@@ -7,14 +7,15 @@
       </div>
       <button @click="startCreate" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground hover:border-border">New</button>
     </header>
+
     <div v-if="actionError" class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm">
       {{ actionError }}
     </div>
 
-    <!-- Main two-column area: left = list, right = editor. Prevent page scroll; enable internal scrolling. -->
+    <!-- two equal columns; nested areas scroll but view itself doesn't -->
     <div class="flex gap-6 flex-1 min-h-0">
-      <!-- Left: specialists list (scrollable) -->
-      <div class="rounded-2xl border border-border/70 bg-surface p-4 flex-1 min-h-0 overflow-auto">
+      <!-- left: list -->
+      <div class="w-1/2 min-w-0 rounded-2xl border border-border/70 bg-surface p-4 min-h-0 overflow-auto">
         <div class="w-full text-sm min-w-0">
           <table class="w-full text-sm">
             <thead class="text-subtle-foreground">
@@ -31,9 +32,7 @@
                 <td class="py-2 font-medium">{{ s.name }}</td>
                 <td class="py-2">{{ s.model }}</td>
                 <td class="py-2">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
-                <td class="py-2">
-                  <span :class="s.paused ? 'text-warning-foreground' : 'text-success-foreground'">{{ s.paused ? 'yes' : 'no' }}</span>
-                </td>
+                <td class="py-2"><span :class="s.paused ? 'text-warning-foreground' : 'text-success-foreground'">{{ s.paused ? 'yes' : 'no' }}</span></td>
                 <td class="py-2 text-right space-x-2">
                   <button @click="edit(s)" class="rounded border border-border/70 px-2 py-1">Edit</button>
                   <button @click="togglePause(s)" class="rounded border border-border/70 px-2 py-1">{{ s.paused ? 'Resume' : 'Pause' }}</button>
@@ -47,12 +46,12 @@
         </div>
       </div>
 
-      <!-- Right: editor panel (scrollable). When not editing show placeholder card. -->
-      <div class="w-2/5 min-w-[320px] min-h-0">
+      <!-- right: editor -->
+      <div class="w-1/2 min-w-0 min-h-0">
         <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 h-full min-h-0 overflow-auto flex flex-col">
-          <div class="space-y-3">
+          <div class="space-y-3 h-full min-h-0 flex flex-col">
             <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
-            <div class="grid gap-3 md:grid-cols-2">
+            <div class="grid gap-3 md:grid-cols-2 flex-1 min-h-0">
               <label class="text-sm">
                 <div class="text-subtle-foreground">Name</div>
                 <input v-model="form.name" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" :disabled="!!original?.name" />
@@ -77,11 +76,16 @@
                 <div class="text-subtle-foreground">Paused</div>
                 <input type="checkbox" v-model="form.paused" />
               </label>
-              <label class="text-sm md:col-span-2">
-                <div class="text-subtle-foreground">System Prompt</div>
-                <textarea v-model="form.system" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
-              </label>
-              <!-- Apply a saved Playground Prompt Version to the System Prompt -->
+
+              <!-- system prompt: take available vertical space -->
+              <div class="md:col-span-2 flex flex-col gap-3 row-span-1 col-span-full">
+                <div class="text-subtle-foreground text-sm">System Prompt</div>
+                <div class="flex-1 min-h-0">
+                  <textarea v-model="form.system" class="w-full h-full min-h-0 resize-none rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+                </div>
+              </div>
+
+              <!-- prompt/version selectors (auto-load on version selection) -->
               <div class="md:col-span-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3 space-y-2">
                 <div class="text-sm font-medium">Apply saved prompt version</div>
                 <div class="grid gap-2 md:grid-cols-2">
@@ -94,20 +98,19 @@
                   </label>
                   <label class="text-sm">
                     <div class="text-subtle-foreground">Version</div>
-                    <select v-model="promptApply.versionId" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                    <select v-model="promptApply.versionId" @change="onSelectVersion" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
                       <option value="">Select version</option>
                       <option v-for="v in availableVersions" :key="v.id" :value="v.id">{{ v.semver || formatDate(v.createdAt) }}</option>
                     </select>
                   </label>
                 </div>
                 <div class="flex items-center gap-2">
-                  <button @click="applySelectedVersion" :disabled="!promptApply.versionId || applyingVersion" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">
-                    {{ applyingVersion ? 'Applying…' : 'Apply to System Prompt' }}
-                  </button>
                   <span v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</span>
                 </div>
               </div>
+
             </div>
+
             <div class="flex gap-2">
               <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
               <button @click="cancel" class="rounded-lg border border-border/70 px-3 py-2 text-sm">Cancel</button>
@@ -137,12 +140,11 @@ const original = ref<Specialist | null>(null)
 const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false })
 const actionError = ref<string | null>(null)
 
-// Playground prompts integration for applying a saved prompt version
+// Playground prompts integration
 const availablePrompts = ref<Prompt[]>([])
 const availableVersions = ref<PromptVersion[]>([])
 const promptsLoading = ref(false)
 const versionsLoading = ref(false)
-const applyingVersion = ref(false)
 const applyVersionError = ref<string | null>(null)
 const promptApply = ref<{ promptId: string; versionId: string }>({ promptId: '', versionId: '' })
 
@@ -157,14 +159,12 @@ function startCreate() {
   original.value = null
   form.value = { name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false }
   editing.value = true
-  // lazy-load prompts for selector
   void ensurePromptsLoaded()
 }
 function edit(s: Specialist) {
   original.value = s
   form.value = { ...s }
   editing.value = true
-  // lazy-load prompts for selector
   void ensurePromptsLoaded()
 }
 async function save() {
@@ -202,7 +202,6 @@ async function remove(s: Specialist) {
   }
 }
 
-// Load prompts for the Apply section
 async function ensurePromptsLoaded() {
   if (availablePrompts.value.length > 0 || promptsLoading.value) return
   try {
@@ -229,7 +228,8 @@ async function onSelectPrompt() {
   }
 }
 
-async function applySelectedVersion() {
+// Auto-load selected version into the textarea
+async function onSelectVersion() {
   applyVersionError.value = null
   const vid = promptApply.value.versionId
   if (!vid) return
@@ -238,30 +238,16 @@ async function applySelectedVersion() {
     applyVersionError.value = 'Prompt version not found.'
     return
   }
-  // Confirm replacement if System Prompt already has content
-  if (form.value.system && !confirm('Replace the current System Prompt with the selected version template?')) {
-    return
-  }
-  try {
-    applyingVersion.value = true
-    // Apply template to the System Prompt
-    form.value.system = v.template || ''
-    // Simple validation to ensure non-empty
-    if (!form.value.system || form.value.system.trim().length === 0) {
-      applyVersionError.value = 'Selected prompt version has an empty template.'
-    }
-  } finally {
-    applyingVersion.value = false
+  // Replace the current System Prompt directly with the selected version template
+  form.value.system = v.template || ''
+  if (!form.value.system || form.value.system.trim().length === 0) {
+    applyVersionError.value = 'Selected prompt version has an empty template.'
   }
 }
 
 function formatDate(value?: string) {
   if (!value) return '—'
-  try {
-    const d = new Date(value)
-    return d.toLocaleString()
-  } catch (_) {
-    return value
-  }
+  try { return new Date(value).toLocaleString() } catch (_) { return value }
 }
 </script>
+

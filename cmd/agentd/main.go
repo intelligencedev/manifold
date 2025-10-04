@@ -217,9 +217,9 @@ func main() {
 	summaryLLM := openaillm.New(summaryCfg, httpClient)
 
 	toolRegistry := tools.NewRegistryWithLogging(cfg.LogPayloads)
-    // Keep a handle to the full, unfiltered registry so we can toggle
-    // orchestrator tool exposure at runtime when edited via the UI.
-    baseToolRegistry := toolRegistry
+	// Keep a handle to the full, unfiltered registry so we can toggle
+	// orchestrator tool exposure at runtime when edited via the UI.
+	baseToolRegistry := toolRegistry
 	// Databases: construct backends and register tools
 	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
 	if err != nil {

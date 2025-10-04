@@ -33,7 +33,7 @@ func (m *Manager) Close() {
 
 // RegisterFromConfig connects to configured MCP servers, lists their tools, and
 // registers wrappers into the provided registry. Tools are registered with names
-// in the form "mcp_<server>_<tool>" to avoid collisions.
+// in the form "<server>_<tool>" to avoid collisions.
 func (m *Manager) RegisterFromConfig(ctx context.Context, reg tools.Registry, mcpCfg config.MCPConfig) error {
 	for _, srv := range mcpCfg.Servers {
 		if strings.TrimSpace(srv.Command) == "" || strings.TrimSpace(srv.Name) == "" {
@@ -83,7 +83,7 @@ type mcpTool struct {
 }
 
 func (t *mcpTool) Name() string {
-	return sanitizeName("mcp_" + t.server + "_" + t.tool.Name)
+	return sanitizeName(t.server + "_" + t.tool.Name)
 }
 
 func (t *mcpTool) JSONSchema() map[string]any {

@@ -3,7 +3,6 @@
     <header class="flex items-center justify-between py-4">
       <div>
         <h1 class="text-2xl font-semibold text-foreground">Specialists</h1>
-        <p class="text-sm text-subtle-foreground">Manage configured specialists used by the orchestrator.</p>
       </div>
       <button @click="startCreate" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground hover:border-border">New</button>
     </header>
@@ -12,10 +11,10 @@
       {{ actionError }}
     </div>
 
-    <!-- two equal columns; nested areas scroll but view itself doesn't -->
+    <!-- list/edit layout; nested areas scroll but view itself doesn't -->
     <div class="flex gap-6 flex-1 min-h-0">
       <!-- left: list -->
-      <div class="w-1/2 min-w-0 rounded-2xl border border-border/70 bg-surface p-4 min-h-0 overflow-auto">
+      <div class="w-1/3 min-w-0 rounded-2xl border border-border/70 bg-surface p-4 min-h-0 overflow-auto">
         <div class="w-full text-sm min-w-0">
           <table class="w-full text-sm">
             <thead class="text-subtle-foreground">
@@ -23,7 +22,6 @@
                 <th class="text-left py-2">Name</th>
                 <th class="text-left py-2">Model</th>
                 <th class="text-left py-2">Tools</th>
-                <th class="text-left py-2">Paused</th>
                 <th class="text-right py-2">Actions</th>
               </tr>
             </thead>
@@ -32,22 +30,45 @@
                 <td class="py-2 font-medium">{{ s.name }}</td>
                 <td class="py-2">{{ s.model }}</td>
                 <td class="py-2">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
-                <td class="py-2"><span :class="s.paused ? 'text-warning-foreground' : 'text-success-foreground'">{{ s.paused ? 'yes' : 'no' }}</span></td>
-                <td class="py-2 text-right space-x-2">
-                  <button @click="edit(s)" class="rounded border border-border/70 px-2 py-1">Edit</button>
-                  <button @click="togglePause(s)" class="rounded border border-border/70 px-2 py-1">{{ s.paused ? 'Resume' : 'Pause' }}</button>
-                  <button @click="remove(s)" class="rounded border border-danger/60 text-danger/60 px-2 py-1">Delete</button>
+                <td class="py-2 text-right">
+                  <div class="inline-flex items-center gap-2">
+                    <button
+                      type="button"
+                      @click="edit(s)"
+                      class="rounded border border-border/70 px-2 py-1 text-xs font-medium hover:border-border"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      @click="togglePause(s)"
+                      class="rounded border border-border/70 p-1.5 text-muted-foreground hover:border-border"
+                      :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
+                      :aria-label="s.paused ? 'Resume specialist' : 'Pause specialist'"
+                    >
+                      <span class="sr-only">{{ s.paused ? 'Resume' : 'Pause' }}</span>
+                      <SolarPlay v-if="s.paused" class="h-4 w-4" />
+                      <SolarPause v-else class="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      @click="remove(s)"
+                      class="rounded border border-danger/60 text-danger/60 px-2 py-1 text-xs font-medium hover:border-danger"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
-              <tr v-if="loading"><td colspan="5" class="py-4 text-center text-faint-foreground">Loading…</td></tr>
-              <tr v-if="error"><td colspan="5" class="py-4 text-center text-danger-foreground">Failed to load.</td></tr>
+              <tr v-if="loading"><td colspan="4" class="py-4 text-center text-faint-foreground">Loading…</td></tr>
+              <tr v-if="error"><td colspan="4" class="py-4 text-center text-danger-foreground">Failed to load.</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
       <!-- right: editor -->
-      <div class="w-1/2 min-w-0 min-h-0">
+  <div class="w-2/3 min-w-0 min-h-0">
         <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 h-full min-h-0 overflow-auto flex flex-col">
           <div class="flex flex-col gap-4 h-full min-h-0">
             <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
@@ -76,13 +97,15 @@
                 <input id="specialist-paused" type="checkbox" v-model="form.paused" class="h-4 w-4" />
                 <label for="specialist-paused" class="text-subtle-foreground">Paused</label>
               </div>
+            </div>
 
-              <div class="md:col-span-2 flex flex-col gap-2">
-                <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
-                <textarea id="specialist-system" v-model="form.system" rows="8" class="w-full min-h-[160px] max-h-[480px] resize-y rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
-              </div>
+            <div class="flex-1 min-h-0 flex flex-col gap-2">
+              <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
+              <textarea id="specialist-system" v-model="form.system" class="flex-1 min-h-0 resize-none rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+            </div>
 
-              <section class="md:col-span-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3 flex flex-col gap-3">
+            <div class="mt-auto flex flex-col gap-3">
+              <section class="rounded-lg border border-border/60 bg-surface-muted/30 p-3 flex flex-col gap-3">
                 <div class="text-sm font-medium text-foreground">Apply saved prompt version</div>
                 <div class="grid gap-3 md:grid-cols-2">
                   <div class="flex flex-col gap-1">
@@ -102,11 +125,11 @@
                 </div>
                 <div v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</div>
               </section>
-            </div>
 
-            <div class="flex flex-wrap gap-2">
-              <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
-              <button @click="cancel" class="rounded-lg border border-border/70 px-3 py-2 text-sm">Cancel</button>
+              <div class="flex flex-wrap gap-2">
+                <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
+                <button @click="cancel" class="rounded-lg border border-border/70 px-3 py-2 text-sm">Cancel</button>
+              </div>
             </div>
           </div>
         </div>
@@ -123,10 +146,16 @@ import { ref, computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { listSpecialists, upsertSpecialist, deleteSpecialist, type Specialist } from '@/api/client'
 import { listPrompts, listPromptVersions, type Prompt, type PromptVersion } from '@/api/playground'
+import SolarPause from '@/components/icons/SolarPause.vue'
+import SolarPlay from '@/components/icons/SolarPlay.vue'
 
 const qc = useQueryClient()
 const { data, isLoading: loading, isError: error } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
-const specialists = computed(() => data.value ?? [])
+// Always present specialists sorted by name (case-insensitive)
+const specialists = computed(() => {
+  const list = data.value ?? []
+  return [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+})
 
 const editing = ref(false)
 const original = ref<Specialist | null>(null)

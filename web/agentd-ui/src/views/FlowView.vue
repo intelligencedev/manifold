@@ -195,9 +195,7 @@
                   aria-label="Zoom in"
                   @click="onZoomIn"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
-                    <path d="M12 5a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H6a1 1 0 110-2h5V6a1 1 0 011-1z" />
-                  </svg>
+                  <ZoomInIcon class="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -205,9 +203,7 @@
                   aria-label="Zoom out"
                   @click="onZoomOut"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
-                    <path d="M6 11a1 1 0 100 2h12a1 1 0 100-2H6z" />
-                  </svg>
+                  <ZoomOutIcon class="h-4 w-4" />
                 </button>
                 <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
                 <button
@@ -216,9 +212,7 @@
                   aria-label="Fit view"
                   @click="onFitView"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
-                    <path d="M4 7a3 3 0 013-3h2a1 1 0 110 2H7a1 1 0 00-1 1v2a1 1 0 11-2 0V7zm0 10a3 3 0 003 3h2a1 1 0 000-2H7a1 1 0 01-1-1v-2a1 1 0 10-2 0v2zm16-10a3 3 0 00-3-3h-2a1 1 0 100 2h2a1 1 0 011 1v2a1 1 0 102 0V7zm0 10v-2a1 1 0 10-2 0v2a1 1 0 01-1 1h-2a1 1 0 000 2h2a3 3 0 003-3z" />
-                  </svg>
+                  <FullScreenIcon class="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -227,12 +221,8 @@
                   :aria-label="interactive ? 'Disable interactions' : 'Enable interactions'"
                   @click="toggleInteractive"
                 >
-                  <svg v-if="interactive" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
-                    <path d="M12 2a1 1 0 011 1v5a1 1 0 11-2 0V3a1 1 0 011-1zm7 10a1 1 0 011 1v6a3 3 0 01-3 3h-6a1 1 0 110-2h6a1 1 0 001-1v-6a1 1 0 011-1zM3 9a1 1 0 011-1h6a1 1 0 110 2H5v10h10v-5a1 1 0 112 0v5a3 3 0 01-3 3H6a3 3 0 01-3-3V9z" />
-                  </svg>
-                  <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
-                    <path d="M17 8V7a5 5 0 10-10 0v1H5a1 1 0 00-1 1v10a3 3 0 003 3h10a3 3 0 003-3V9a1 1 0 00-1-1h-2zm-8-1a3 3 0 016 0v1H9V7z" />
-                  </svg>
+                  <UnlockedIcon v-if="interactive" class="h-4 w-4" />
+                  <LockedIcon v-else class="h-4 w-4" />
                 </button>
               </div>
             </Panel>
@@ -323,6 +313,11 @@ import { MiniMap } from '@vue-flow/minimap'
 
 import WarppStepNode from '@/components/flow/WarppStepNode.vue'
 import WarppUtilityNode from '@/components/flow/WarppUtilityNode.vue'
+import ZoomInIcon from '@/components/icons/ZoomIn.vue'
+import ZoomOutIcon from '@/components/icons/ZoomOut.vue'
+import FullScreenIcon from '@/components/icons/FullScreen.vue'
+import LockedIcon from '@/components/icons/LockedBold.vue'
+import UnlockedIcon from '@/components/icons/UnlockedBold.vue'
 import {
   fetchWarppTools,
   fetchWarppWorkflow,

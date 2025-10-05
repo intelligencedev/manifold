@@ -115,24 +115,6 @@
           <div
             class="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none"
           >
-            <template v-if="workflowTools.length">
-              <div class="space-y-2">
-                <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
-                  Workflow Tools
-                </h3>
-                <div
-                  v-for="tool in workflowTools"
-                  :key="tool.name"
-                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
-                  draggable="true"
-                  :title="tool.description ?? tool.name"
-                  @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
-                  @dragend="onPaletteDragEnd"
-                >
-                  {{ tool.name }}
-                </div>
-              </div>
-            </template>
             <template v-if="utilityTools.length">
               <div class="space-y-2">
                 <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
@@ -151,6 +133,24 @@
                   @dragend="onPaletteDragEnd"
                 >
                   {{ prettyUtilityLabel(tool.name) }}
+                </div>
+              </div>
+            </template>
+            <template v-if="workflowTools.length">
+              <div class="space-y-2">
+                <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
+                  Workflow Tools
+                </h3>
+                <div
+                  v-for="tool in workflowTools"
+                  :key="tool.name"
+                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
+                  draggable="true"
+                  :title="tool.description ?? tool.name"
+                  @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
+                  @dragend="onPaletteDragEnd"
+                >
+                  {{ tool.name }}
                 </div>
               </div>
             </template>

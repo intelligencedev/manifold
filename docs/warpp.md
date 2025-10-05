@@ -110,6 +110,61 @@ Examples
 
 - `configs/workflows/noop.json` demonstrates a minimal LLM step with `publish_result`.
 
+Invocation examples
+
+- Run a WARPP workflow directly with the agent CLI (WARPP mode). The `-warpp` flag tells the
+  agent to use the WARPP runner and select a workflow by intent using the built-in detector. You
+  may also pass an explicit intent after the `-warpp` flag to force a specific workflow.
+
+  Example: run the `noop` workflow by intent (explicit):
+
+  ./dist/agent -q "hi" -warpp noop
+
+  Example output:
+
+  WARPP: executing intent noop
+  - Textbox
+  - Invoke an LLM
+  - Textbox
+
+  Objective complete. (steps=3).
+
+- Run WARPP mode with automatic intent detection. The runner picks the best matching
+  workflow based on `keywords` in each workflow JSON. If no keywords match, a default
+  is chosen.
+
+  ./dist/agent -q "save latest web search to a file" -warpp
+
+- Orchestrator / Kafka-driven execution. The orchestrator loads workflows from
+  `configs/workflows` and exposes an adapter that executes a named workflow (intent). When
+  the orchestrator receives a command envelope, it looks up the `workflow` field and runs
+  that workflow via the WARPP adapter. See `cmd/orchestrator/main.go` for the wiring.
+
+Routes vs WARPP workflows
+
+- The `routes:` block in `config.yaml` maps simple substring/regex rules to a "specialist"
+  name (an inference-only endpoint). These specialist routes are evaluated by
+  `specialists.Route(...)` and, when matched, the agent will attempt to call a configured
+  specialist with that name. They do NOT automatically trigger a WARPP workflow.
+
+  For example, this `config.yaml` fragment:
+
+  routes:
+  - name: web_to_file
+    contains: ["webwrite"]
+    regex: ["(?i)webwrite"]
+
+  will cause the pre-dispatch router to return the name `web_to_file` when the user text
+  contains "webwrite". The agent then expects a specialist called `web_to_file` and will
+  dispatch to it. If no such specialist is configured, the agent logs that the specialist
+  was not found and continues with the normal agent flow — it will not run the
+  `configs/workflows/web_to_file.json` workflow automatically.
+
+  If you want routes to kick off WARPP workflows, you can either:
+  - Configure a specialist with the same name that proxies to a workflow, or
+  - Modify the pre-dispatch logic to call the WARPP runner when a route name matches a
+    workflow intent (small code change in `cmd/agent/main.go`).
+
 Troubleshooting
 
 - If a placeholder `${A.key}` is empty in the dispatched tool args, inspect the incoming command `Attrs` and the `Personalize` logic.

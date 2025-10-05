@@ -183,18 +183,52 @@ function setErr(e: unknown, fallback: string) {
 
 function startCreate() {
   original.value = null
-  form.value = { name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '' }
+  form.value = { name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} }
+  allowToolsRaw.value = ''
+  extraHeadersRaw.value = ''
+  extraParamsRaw.value = ''
   editing.value = true
   void ensurePromptsLoaded()
 }
 function edit(s: Specialist) {
   original.value = s
   form.value = { ...s }
+  / populate raw editors for structured fields
+  allowToolsRaw.value = (s.allowTools || []).join(', ')
+  extraHeadersRaw.value = s.extraHeaders ? JSON.stringify(s.extraHeaders, null, 2) : ''
+  extraParamsRaw.value = s.extraParams ? JSON.stringify(s.extraParams, null, 2) : ''
   editing.value = true
   void ensurePromptsLoaded()
 }
 async function save() {
   try {
+    / Merge raw editor values into structured fields before saving
+    if (allowToolsRaw.value && allowToolsRaw.value.trim().length > 0) {
+      form.value.allowTools = allowToolsRaw.value.split(',').map(s => s.trim()).filter(Boolean)
+    } else {
+      form.value.allowTools = []
+    }
+    if (extraHeadersRaw.value && extraHeadersRaw.value.trim().length > 0) {
+      try {
+        form.value.extraHeaders = JSON.parse(extraHeadersRaw.value)
+      } catch (err) {
+        setErr(err, 'Invalid JSON in Extra Headers')
+        return
+      }
+    } else {
+      form.value.extraHeaders = {}
+    }
+    if (extraParamsRaw.value && extraParamsRaw.value.trim().length > 0) {
+      try {
+        form.value.extraParams = JSON.parse(extraParamsRaw.value)
+      } catch (err) {
+        setErr(err, 'Invalid JSON in Extra Params')
+        return
+      }
+    } else {
+      form.value.extraParams = {}
+    }
+
     await upsertSpecialist(form.value)
     actionError.value = null
     editing.value = false

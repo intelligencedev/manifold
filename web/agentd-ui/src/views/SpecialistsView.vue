@@ -5,41 +5,41 @@
     </div>
 
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
-    <div class="flex gap-6 flex-1 min-h-0">
+    <div class="flex gap-4 flex-1 min-h-0">
       <!-- left: list -->
-      <div class="w-1/3 min-w-0 rounded-2xl border border-border/70 bg-surface p-4 min-h-0 overflow-auto">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-lg font-semibold">Specialists</h2>
-          <button @click="startCreate" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground hover:border-border">New</button>
+      <div class="w-1/3 min-w-0 rounded-md border border-border/50 bg-surface p-3 min-h-0 overflow-auto">
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="text-base font-semibold">Specialists</h2>
+          <button @click="startCreate" class="rounded-md border border-border/60 px-2 py-1 text-xs font-medium text-muted-foreground hover:border-border">New</button>
         </div>
         <div class="w-full text-sm min-w-0">
           <table class="w-full text-sm">
             <thead class="text-subtle-foreground">
               <tr>
-                <th class="text-left py-2">Name</th>
-                <th class="text-left py-2">Model</th>
-                <th class="text-left py-2">Tools</th>
-                <th class="text-right py-2">Actions</th>
+                <th class="text-left py-1">Name</th>
+                <th class="text-left py-1">Model</th>
+                <th class="text-left py-1">Tools</th>
+                <th class="text-right py-1">Actions</th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="s in specialists" :key="s.name" class="border-t border-border/50">
-                <td class="py-2 font-medium">{{ s.name }}</td>
-                <td class="py-2">{{ s.model }}</td>
-                <td class="py-2">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
-                <td class="py-2 text-right">
+                <td class="py-1 font-medium">{{ s.name }}</td>
+                <td class="py-1">{{ s.model }}</td>
+                <td class="py-1">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
+                <td class="py-1 text-right">
                   <div class="inline-flex items-center gap-2">
                     <button
                       type="button"
                       @click="edit(s)"
-                      class="rounded border border-border/70 px-2 py-1 text-xs font-medium hover:border-border"
+                      class="rounded border border-border/60 px-2 py-1 text-xs font-medium hover:border-border"
                     >
                       Edit
                     </button>
                     <button
                       type="button"
                       @click="togglePause(s)"
-                      class="rounded border border-border/70 p-1.5 text-muted-foreground hover:border-border"
+                      class="rounded border border-border/60 p-1 text-muted-foreground hover:border-border"
                       :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
                       :aria-label="s.paused ? 'Resume specialist' : 'Pause specialist'"
                     >
@@ -50,15 +50,15 @@
                     <button
                       type="button"
                       @click="remove(s)"
-                      class="rounded border border-danger/60 text-danger/60 px-2 py-1 text-xs font-medium hover:border-danger"
+                      class="rounded border border-danger/60 text-danger/70 px-2 py-1 text-xs font-medium hover:border-danger"
                     >
                       Delete
                     </button>
                   </div>
                 </td>
               </tr>
-              <tr v-if="loading"><td colspan="4" class="py-4 text-center text-faint-foreground">Loading…</td></tr>
-              <tr v-if="error"><td colspan="4" class="py-4 text-center text-danger-foreground">Failed to load.</td></tr>
+              <tr v-if="loading"><td colspan="4" class="py-2 text-center text-faint-foreground">Loading…</td></tr>
+              <tr v-if="error"><td colspan="4" class="py-2 text-center text-danger-foreground">Failed to load.</td></tr>
             </tbody>
           </table>
         </div>
@@ -66,28 +66,28 @@
 
       <!-- right: editor -->
   <div class="w-2/3 min-w-0 min-h-0">
-        <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 h-full min-h-0 overflow-auto flex flex-col">
+        <div v-if="editing" class="rounded-md border border-border/50 bg-surface p-3 h-full min-h-0 overflow-auto flex flex-col">
           <div class="flex flex-col gap-4 h-full min-h-0">
-            <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
+            <h2 class="text-base font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
             <!-- Three-column editor layout: left (settings), middle (tools), right (prompt). Implemented with explicit 12-col grid -->
-            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
               <!-- Left column: core settings -->
-              <div class="flex flex-col gap-3 min-h-0 overflow-auto p-1 lg:col-span-3">
+              <div class="flex flex-col gap-2 min-h-0 overflow-auto p-0 lg:col-span-3">
                 <div class="flex flex-col gap-1">
                   <label for="specialist-name" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Name</label>
-                  <input id="specialist-name" v-model="form.name" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" :disabled="!!original?.name" />
+                  <input id="specialist-name" v-model="form.name" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" :disabled="!!original?.name" />
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-model" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Model</label>
-                  <input id="specialist-model" v-model="form.model" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+                  <input id="specialist-model" v-model="form.model" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" />
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-base-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Base URL</label>
-                  <input id="specialist-base-url" v-model="form.baseURL" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+                  <input id="specialist-base-url" v-model="form.baseURL" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" />
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-api-key" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">API Key</label>
-                  <input id="specialist-api-key" v-model="form.apiKey" type="password" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+                  <input id="specialist-api-key" v-model="form.apiKey" type="password" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" />
                 </div>
                 <div class="flex items-center gap-2 text-sm">
                   <input id="specialist-enable-tools" type="checkbox" v-model="form.enableTools" class="h-4 w-4" />
@@ -99,7 +99,7 @@
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-reasoning" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Reasoning Effort</label>
-                  <select id="specialist-reasoning" v-model="form.reasoningEffort" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                  <select id="specialist-reasoning" v-model="form.reasoningEffort" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
                     <option value="">(default)</option>
                     <option value="low">low</option>
                     <option value="medium">medium</option>
@@ -108,26 +108,26 @@
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-extra-headers" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Extra Headers (JSON)</label>
-                  <textarea id="specialist-extra-headers" v-model="extraHeadersRaw" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+                  <textarea id="specialist-extra-headers" v-model="extraHeadersRaw" rows="2" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm"></textarea>
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-extra-params" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Extra Params (JSON)</label>
-                  <textarea id="specialist-extra-params" v-model="extraParamsRaw" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+                  <textarea id="specialist-extra-params" v-model="extraParamsRaw" rows="2" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm"></textarea>
                 </div>
               </div>
 
               <!-- Middle column: tools list -->
               <div class="flex min-h-0 flex-col lg:col-span-2">
-                <section class="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-surface-muted/30 p-3">
-                  <div class="mb-2 flex items-center justify-between">
-                    <div class="text-sm font-medium text-foreground">Allowed Tools</div>
+                <section class="flex min-h-0 flex-1 flex-col p-0">
+                  <div class="mb-1 flex items-center justify-between">
+                    <div class="text-xs font-medium text-foreground">Allowed Tools</div>
                     <div class="text-xs text-faint-foreground">{{ tools.length }} available</div>
                   </div>
-                  <div v-if="toolsLoading" class="text-sm text-subtle-foreground">Loading tools…</div>
-                  <div v-else-if="toolsError" class="text-sm text-danger-foreground">{{ toolsError }}</div>
-                  <div v-else class="min-h-0 flex-1 overflow-auto rounded border border-border/40 bg-surface p-2">
+                  <div v-if="toolsLoading" class="text-xs text-subtle-foreground">Loading tools…</div>
+                  <div v-else-if="toolsError" class="text-xs text-danger-foreground">{{ toolsError }}</div>
+                  <div v-else class="min-h-0 flex-1 overflow-auto rounded bg-surface p-1">
                     <div v-if="!tools.length" class="text-xs text-subtle-foreground">No tools available for this configuration.</div>
-                    <div v-else class="flex flex-col gap-1">
+                    <div v-else class="flex flex-col gap-0.5">
                       <label
                         v-for="t in tools"
                         :key="t.name"
@@ -150,41 +150,41 @@
 
               <!-- Right column: system prompt -->
               <div class="flex min-h-0 flex-col gap-2 lg:col-span-7">
-                <section class="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3">
+                <section class="flex min-h-0 flex-1 flex-col gap-2 p-0">
                   <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
-                  <textarea id="specialist-system" v-model="form.system" class="flex-1 min-h-0 resize-none rounded border border-border/70 bg-surface px-3 py-2"></textarea>
+                  <textarea id="specialist-system" v-model="form.system" class="flex-1 min-h-0 resize-none rounded border border-border/60 bg-surface px-2 py-2 text-sm"></textarea>
 
-                  <div class="rounded-md border border-border/50 bg-surface p-3 flex flex-col gap-3">
-                    <div class="text-sm font-medium text-foreground">Apply saved prompt version</div>
-                    <div class="grid gap-3 md:grid-cols-2">
+                  <div class="rounded bg-surface p-2 flex flex-col gap-2 border border-border/40">
+                    <div class="text-xs font-medium text-foreground">Apply saved prompt version</div>
+                    <div class="grid gap-2 md:grid-cols-2">
                       <div class="flex flex-col gap-1">
                         <label for="prompt-select" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Prompt</label>
-                        <select id="prompt-select" v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                        <select id="prompt-select" v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
                           <option value="">Select prompt</option>
                           <option v-for="p in availablePrompts" :key="p.id" :value="p.id">{{ p.name }}</option>
                         </select>
                       </div>
                       <div class="flex flex-col gap-1">
                         <label for="prompt-version-select" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Version</label>
-                        <select id="prompt-version-select" v-model="promptApply.versionId" @change="onSelectVersion" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                        <select id="prompt-version-select" v-model="promptApply.versionId" @change="onSelectVersion" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
                           <option value="">Select version</option>
                           <option v-for="v in availableVersions" :key="v.id" :value="v.id">{{ v.semver || formatDate(v.createdAt) }}</option>
                         </select>
                       </div>
                     </div>
-                    <div v-if="applyVersionError" class="text-sm text-danger-foreground">{{ applyVersionError }}</div>
+                    <div v-if="applyVersionError" class="text-xs text-danger-foreground">{{ applyVersionError }}</div>
                   </div>
                 </section>
               </div>
             </div>
 
             <div class="mt-2 flex flex-wrap gap-2">
-              <button @click="save" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold">Save</button>
-              <button @click="cancel" class="rounded-lg border border-border/70 px-3 py-2 text-sm">Cancel</button>
+              <button @click="save" class="rounded-md border border-border/60 px-2 py-1.5 text-sm font-semibold">Save</button>
+              <button @click="cancel" class="rounded-md border border-border/60 px-2 py-1.5 text-sm">Cancel</button>
             </div>
           </div>
         </div>
-        <div v-else class="rounded-2xl border border-border/70 bg-surface p-6 h-full min-h-0 flex items-center justify-center text-sm text-subtle-foreground">
+        <div v-else class="rounded-md border border-border/50 bg-surface p-4 h-full min-h-0 flex items-center justify-center text-sm text-subtle-foreground">
           Select a specialist or click New to create one.
         </div>
       </div>

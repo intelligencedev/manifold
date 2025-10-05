@@ -1,12 +1,5 @@
 <template>
   <section class="flex flex-col h-full min-h-0">
-    <header class="flex items-center justify-between py-4">
-      <div>
-        <h1 class="text-2xl font-semibold text-foreground">Specialists</h1>
-      </div>
-      <button @click="startCreate" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground hover:border-border">New</button>
-    </header>
-
     <div v-if="actionError" class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm">
       {{ actionError }}
     </div>
@@ -15,6 +8,10 @@
     <div class="flex gap-6 flex-1 min-h-0">
       <!-- left: list -->
       <div class="w-1/3 min-w-0 rounded-2xl border border-border/70 bg-surface p-4 min-h-0 overflow-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">Specialists</h2>
+          <button @click="startCreate" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground hover:border-border">New</button>
+        </div>
         <div class="w-full text-sm min-w-0">
           <table class="w-full text-sm">
             <thead class="text-subtle-foreground">
@@ -72,10 +69,10 @@
         <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 h-full min-h-0 overflow-auto flex flex-col">
           <div class="flex flex-col gap-4 h-full min-h-0">
             <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
-            <!-- Three-column editor layout: left (settings), middle (tools), right (prompt). Right takes ~2/3 width -->
-            <div class="flex-1 min-h-0 grid grid-cols-1 gap-4 lg:[grid-template-columns:1fr_1fr_2fr]">
+            <!-- Three-column editor layout: left (settings), middle (tools), right (prompt). Implemented with explicit 12-col grid -->
+            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-4">
               <!-- Left column: core settings -->
-              <div class="flex flex-col gap-3 min-h-0 overflow-auto p-1">
+              <div class="flex flex-col gap-3 min-h-0 overflow-auto p-1 lg:col-span-3">
                 <div class="flex flex-col gap-1">
                   <label for="specialist-name" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Name</label>
                   <input id="specialist-name" v-model="form.name" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" :disabled="!!original?.name" />
@@ -120,7 +117,7 @@
               </div>
 
               <!-- Middle column: tools list -->
-              <div class="flex min-h-0 flex-col">
+              <div class="flex min-h-0 flex-col lg:col-span-2">
                 <section class="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-surface-muted/30 p-3">
                   <div class="mb-2 flex items-center justify-between">
                     <div class="text-sm font-medium text-foreground">Allowed Tools</div>
@@ -152,7 +149,7 @@
               </div>
 
               <!-- Right column: system prompt -->
-              <div class="flex min-h-0 flex-col gap-2">
+              <div class="flex min-h-0 flex-col gap-2 lg:col-span-7">
                 <section class="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3">
                   <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
                   <textarea id="specialist-system" v-model="form.system" class="flex-1 min-h-0 resize-none rounded border border-border/70 bg-surface px-3 py-2"></textarea>

@@ -72,8 +72,8 @@
         <div v-if="editing" class="rounded-2xl border border-border/70 bg-surface p-4 h-full min-h-0 overflow-auto flex flex-col">
           <div class="flex flex-col gap-4 h-full min-h-0">
             <h2 class="text-lg font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
-            <!-- Two-column editor layout -->
-            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <!-- Three-column editor layout: left (settings), middle (tools), right (prompt). Right takes ~2/3 width -->
+            <div class="flex-1 min-h-0 grid grid-cols-1 gap-4 lg:[grid-template-columns:1fr_1fr_2fr]">
               <!-- Left column: core settings -->
               <div class="flex flex-col gap-3 min-h-0 overflow-auto p-1">
                 <div class="flex flex-col gap-1">
@@ -119,10 +119,9 @@
                 </div>
               </div>
 
-              <!-- Right column: tools + system prompt -->
-              <div class="flex min-h-0 flex-col gap-4">
-                <!-- Tools list -->
-                <section class="flex min-h-0 flex-col rounded-lg border border-border/60 bg-surface-muted/30 p-3">
+              <!-- Middle column: tools list -->
+              <div class="flex min-h-0 flex-col">
+                <section class="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-surface-muted/30 p-3">
                   <div class="mb-2 flex items-center justify-between">
                     <div class="text-sm font-medium text-foreground">Allowed Tools</div>
                     <div class="text-xs text-faint-foreground">{{ tools.length }} available</div>
@@ -131,7 +130,7 @@
                   <div v-else-if="toolsError" class="text-sm text-danger-foreground">{{ toolsError }}</div>
                   <div v-else class="min-h-0 flex-1 overflow-auto rounded border border-border/40 bg-surface p-2">
                     <div v-if="!tools.length" class="text-xs text-subtle-foreground">No tools available for this configuration.</div>
-                    <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                    <div v-else class="flex flex-col gap-1">
                       <label
                         v-for="t in tools"
                         :key="t.name"
@@ -150,8 +149,10 @@
                     </div>
                   </div>
                 </section>
+              </div>
 
-                <!-- System prompt + saved prompt selection -->
+              <!-- Right column: system prompt -->
+              <div class="flex min-h-0 flex-col gap-2">
                 <section class="flex min-h-0 flex-1 flex-col gap-2 rounded-lg border border-border/60 bg-surface-muted/30 p-3">
                   <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
                   <textarea id="specialist-system" v-model="form.system" class="flex-1 min-h-0 resize-none rounded border border-border/70 bg-surface px-3 py-2"></textarea>

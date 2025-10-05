@@ -1194,7 +1194,10 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		schemas := toolRegistry.Schemas()
+		// Always expose the full, unfiltered tool registry here so that
+		// the UI can configure per-specialist allow-lists independently
+		// of the orchestrator's current allow-list/filtering.
+		schemas := baseToolRegistry.Schemas()
 		out := make([]map[string]any, 0, len(schemas))
 		for _, s := range schemas {
 			out = append(out, map[string]any{

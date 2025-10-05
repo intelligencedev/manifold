@@ -159,7 +159,11 @@ const specialists = computed(() => {
 
 const editing = ref(false)
 const original = ref<Specialist | null>(null)
-const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '' })
+const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} })
+/ UI helpers for editing structured fields
+const allowToolsRaw = ref('')
+const extraHeadersRaw = ref('')
+const extraParamsRaw = ref('')
 const actionError = ref<string | null>(null)
 
 // Playground prompts integration

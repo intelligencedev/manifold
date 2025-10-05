@@ -16,6 +16,18 @@ const toolsResponse = [
       required: ['query'],
     },
   },
+  {
+    name: 'utility_textbox',
+    description: 'Utility textbox node',
+    parameters: {
+      type: 'object',
+      properties: {
+        label: { type: 'string' },
+        text: { type: 'string' },
+        output_attr: { type: 'string' },
+      },
+    },
+  },
 ]
 
 const workflowsResponse = [
@@ -30,6 +42,14 @@ const workflowsResponse = [
         tool: {
           name: 'web-search',
           args: { query: 'hello', limit: 3 },
+        },
+      },
+      {
+        id: 'utility-1',
+        text: 'Notes',
+        tool: {
+          name: 'utility_textbox',
+          args: { label: 'Notes', text: 'Initial note', output_attr: 'notes_attr' },
         },
       },
     ],
@@ -98,13 +118,19 @@ describe('FlowView', () => {
     const { findByText, findByLabelText, queryByText } = render(FlowView)
 
     expect(await findByText('Tool Palette')).toBeTruthy()
+    expect(await findByText('Workflow Tools')).toBeTruthy()
     expect(await findByText('web-search')).toBeTruthy()
+    expect(await findByText('Utility Nodes')).toBeTruthy()
+    expect(await findByText('Textbox')).toBeTruthy()
 
     const stepInput = await findByLabelText('Step Text')
     expect(stepInput).toBeTruthy()
 
     const queryField = await findByLabelText(/query/i)
     expect(queryField).toBeTruthy()
+
+    expect(await screen.findByDisplayValue('Notes')).toBeTruthy()
+    expect(await screen.findByDisplayValue('Initial note')).toBeTruthy()
 
     expect(queryByText(/Select a node to edit step details/)).toBeNull()
   })

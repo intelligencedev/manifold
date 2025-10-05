@@ -25,6 +25,7 @@ import (
 	"manifold/internal/tools/patchtool"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
+	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
 )
@@ -91,6 +92,7 @@ func main() {
 	registry.Register(web.NewFetchTool())              // provides web_fetch
 	// Patch application tool (unified diff)
 	registry.Register(patchtool.New(cfg.Workdir)) // provides apply_patch
+	registry.Register(utility.NewTextboxTool())
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))
 

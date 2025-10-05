@@ -53,6 +53,7 @@ import (
 	"manifold/internal/tools/patchtool"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
+	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
@@ -230,6 +231,7 @@ func main() {
 	toolRegistry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	toolRegistry.Register(web.NewFetchTool())
 	toolRegistry.Register(patchtool.New(cfg.Workdir))
+	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(cfg, httpClient))
 	toolRegistry.Register(db.NewSearchIndexTool(mgr.Search))
 	toolRegistry.Register(db.NewSearchQueryTool(mgr.Search))

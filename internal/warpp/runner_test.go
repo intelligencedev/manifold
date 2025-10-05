@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"manifold/internal/tools"
+	"manifold/internal/tools/utility"
 )
 
 // simple tool implementing tools.Tool
@@ -125,6 +126,31 @@ func TestRunnerDetectPersonalizeExecute(t *testing.T) {
 	}
 	if summary == "" {
 		t.Fatalf("expected non-empty summary")
+	}
+}
+
+func TestRunnerRunStepUtilityTextbox(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(utility.NewTextboxTool())
+	runner := Runner{Tools: reg}
+	step := Step{ID: "box1", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "hello", "output_attr": "greeting"}}}
+	payload, delta, err := runner.runStep(context.Background(), step, Attrs{})
+	if err != nil {
+		t.Fatalf("runStep error: %v", err)
+	}
+	if string(payload) == "" {
+		t.Fatalf("expected payload from utility_textbox")
+	}
+	if got := delta["greeting"]; got != "hello" {
+		t.Fatalf("expected greeting attribute, got %v", got)
+	}
+	step2 := Step{ID: "box2", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "world"}}}
+	_, delta2, err := runner.runStep(context.Background(), step2, Attrs{})
+	if err != nil {
+		t.Fatalf("runStep error: %v", err)
+	}
+	if got := delta2["box2_text"]; got != "world" {
+		t.Fatalf("expected default attr key box2_text, got %v", got)
 	}
 }
 

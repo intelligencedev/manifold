@@ -540,6 +540,17 @@ func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, e
 			delta["llm_output"] = resp.Output
 			delta["report_md"] = resp.Output
 		}
+	case "utility_textbox":
+		var resp struct {
+			Text       string `json:"text"`
+			OutputAttr string `json:"output_attr"`
+		}
+		_ = json.Unmarshal(payload, &resp)
+		attrKey := strings.TrimSpace(resp.OutputAttr)
+		if attrKey == "" {
+			attrKey = s.ID + "_text"
+		}
+		delta[attrKey] = resp.Text
 	case "write_file":
 		// If not already built, synthesize a report from collected sources (from snapshot A)
 		rep, _ := A["report_md"].(string)

@@ -75,19 +75,47 @@
           </p>
 
           <div
-            class="mt-3 max-h-[40vh] space-y-2 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none"
+            class="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none"
           >
-            <div
-              v-for="tool in tools"
-              :key="tool.name"
-              class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
-              draggable="true"
-              :title="tool.description ?? tool.name"
-              @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
-              @dragend="onPaletteDragEnd"
-            >
-              {{ tool.name }}
-            </div>
+            <template v-if="workflowTools.length">
+              <div class="space-y-2">
+                <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
+                  Workflow Tools
+                </h3>
+                <div
+                  v-for="tool in workflowTools"
+                  :key="tool.name"
+                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
+                  draggable="true"
+                  :title="tool.description ?? tool.name"
+                  @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
+                  @dragend="onPaletteDragEnd"
+                >
+                  {{ tool.name }}
+                </div>
+              </div>
+            </template>
+            <template v-if="utilityTools.length">
+              <div class="space-y-2">
+                <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
+                  Utility Nodes
+                </h3>
+                <p class="text-[10px] text-subtle-foreground">
+                  Utility nodes provide editor-only helpers for WARPP workflows.
+                </p>
+                <div
+                  v-for="tool in utilityTools"
+                  :key="tool.name"
+                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
+                  draggable="true"
+                  :title="tool.description ?? tool.name"
+                  @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
+                  @dragend="onPaletteDragEnd"
+                >
+                  {{ prettyUtilityLabel(tool.name) }}
+                </div>
+              </div>
+            </template>
             <div
               v-if="!tools.length && !loading"
               class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
@@ -202,6 +230,7 @@ import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
 
 import WarppStepNode from '@/components/flow/WarppStepNode.vue'
+import WarppUtilityNode from '@/components/flow/WarppUtilityNode.vue'
 import {
   fetchWarppTools,
   fetchWarppWorkflow,
@@ -220,8 +249,9 @@ const DRAG_DATA_TYPE = 'application/warpp-tool'
 const DEFAULT_LAYOUT_START_X = 140
 const DEFAULT_LAYOUT_START_Y = 160
 const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320
+const UTILITY_TOOL_PREFIX = 'utility_'
 
-const nodeTypes = { warppStep: WarppStepNode }
+const nodeTypes = { warppStep: WarppStepNode, warppUtility: WarppUtilityNode }
 
 const { project, zoomIn, zoomOut, fitView, setInteractive, nodesDraggable, nodesConnectable, elementsSelectable } = useVueFlow()
 
@@ -259,6 +289,9 @@ const toolMap = computed(() => {
   return map
 })
 
+const workflowTools = computed(() => tools.value.filter((tool) => !isUtilityToolName(tool.name)))
+const utilityTools = computed(() => tools.value.filter((tool) => isUtilityToolName(tool.name)))
+
 const canSave = computed(() => !!activeWorkflow.value && !saving.value && dirty.value)
 const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
 
@@ -279,6 +312,18 @@ function onFitView() {
 }
 function toggleInteractive() {
   interactive.value = !interactive.value
+}
+
+function isUtilityToolName(name?: string | null): boolean {
+  return typeof name === 'string' && name.startsWith(UTILITY_TOOL_PREFIX)
+}
+
+function prettyUtilityLabel(name: string): string {
+  if (!isUtilityToolName(name)) return name
+  const readable = name.slice(UTILITY_TOOL_PREFIX.length)
+  return readable
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
 // MiniMap styling helpers (use theme CSS variables)
@@ -388,13 +433,15 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
   return wf.steps.map((step, idx) => {
     const stored = layout[step.id]
     const position = resolveNodePosition(stored, idx)
+    const utility = isUtilityToolName(step.tool?.name)
     return {
       id: step.id,
-      type: 'warppStep',
+      type: utility ? 'warppUtility' : 'warppStep',
       position,
       data: {
         order: idx,
         step: JSON.parse(JSON.stringify(step)) as WarppStep,
+        kind: utility ? 'utility' : 'step',
       },
       draggable: true,
     }
@@ -533,6 +580,14 @@ function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
   if (!activeWorkflow.value) {
     return
   }
+  if (isUtilityToolName(tool.name)) {
+    appendNode(createUtilityNode(tool, position))
+    return
+  }
+  appendNode(createWorkflowNode(tool, position))
+}
+
+function createWorkflowNode(tool: WarppTool, position: { x: number; y: number }): StepNode {
   const id = generateStepId(tool.name)
   const order = nodes.value.length
   const step: WarppStep = {
@@ -541,26 +596,50 @@ function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
     publish_result: false,
     tool: { name: tool.name },
   }
-
-  const newNode: StepNode = {
+  return {
     id,
     type: 'warppStep',
     position,
     data: {
       order,
       step,
+      kind: 'step',
     },
     draggable: true,
   }
+}
 
-  const updatedNodes = [...nodes.value, newNode]
+function createUtilityNode(tool: WarppTool, position: { x: number; y: number }): StepNode {
+  const id = generateStepId(tool.name)
+  const order = nodes.value.length
+  const displayName = prettyUtilityLabel(tool.name)
+  const step: WarppStep = {
+    id,
+    text: displayName,
+    publish_result: false,
+    tool: { name: tool.name, args: { label: displayName, text: '', output_attr: '' } },
+  }
+  return {
+    id,
+    type: 'warppUtility',
+    position,
+    data: {
+      order,
+      step,
+      kind: 'utility',
+    },
+    draggable: true,
+  }
+}
+
+function appendNode(node: StepNode) {
+  const updatedNodes = [...nodes.value, node]
   nodes.value = updatedNodes
-
   if (updatedNodes.length > 1) {
     const previous = updatedNodes[updatedNodes.length - 2]
     edges.value = [
       ...edges.value,
-      { id: `e-${previous.id}-${newNode.id}`, source: previous.id, target: newNode.id },
+      { id: `e-${previous.id}-${node.id}`, source: previous.id, target: node.id },
     ]
   }
 }

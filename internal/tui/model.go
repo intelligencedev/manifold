@@ -33,6 +33,7 @@ import (
 	"manifold/internal/tools/patchtool"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
+	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
 
@@ -141,6 +142,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	registry.Register(web.NewFetchTool())
 	registry.Register(patchtool.New(cfg.Workdir))
+	registry.Register(utility.NewTextboxTool())
 
 	// Create HTTP client for TTS tool
 	httpClient := observability.NewHTTPClient(nil)

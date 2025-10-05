@@ -217,11 +217,11 @@
                 <button
                   type="button"
                   class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  :aria-pressed="!interactive"
-                  :aria-label="interactive ? 'Disable interactions' : 'Enable interactions'"
-                  @click="toggleInteractive"
+                  :aria-pressed="nodesLocked"
+                  :aria-label="nodesLocked ? 'Unlock node positions' : 'Lock node positions'"
+                  @click="toggleNodeLock"
                 >
-                  <UnlockedIcon v-if="interactive" class="h-4 w-4" />
+                  <UnlockedIcon v-if="!nodesLocked" class="h-4 w-4" />
                   <LockedIcon v-else class="h-4 w-4" />
                 </button>
               </div>
@@ -340,7 +340,7 @@ const UTILITY_TOOL_PREFIX = 'utility_'
 
 const nodeTypes = { warppStep: WarppStepNode, warppUtility: WarppUtilityNode }
 
-const { project, zoomIn, zoomOut, fitView, setInteractive, nodesDraggable, nodesConnectable, elementsSelectable } = useVueFlow()
+const { project, zoomIn, zoomOut, fitView, nodesDraggable } = useVueFlow()
 
 const flowWrapper = ref<HTMLDivElement | null>(null)
 const isDraggingFromPalette = ref(false)
@@ -425,11 +425,16 @@ const modalStatusLabel = computed(() => {
 const canSave = computed(() => !!activeWorkflow.value && !saving.value && dirty.value)
 const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
 
-// Controls state
-const interactive = computed({
-  get: () => (nodesDraggable.value || nodesDraggable.value === undefined) && (nodesConnectable.value || nodesConnectable.value === undefined) && (elementsSelectable.value || elementsSelectable.value === undefined),
-  set: (val: boolean) => setInteractive(val),
-})
+// Node lock state: when true, nodes cannot be dragged
+const nodesLocked = ref(false)
+// Keep Vue Flow's global draggable flag in sync with our lock state
+watch(
+  nodesLocked,
+  (locked) => {
+    nodesDraggable.value = !locked
+  },
+  { immediate: true },
+)
 
 function onZoomIn() {
   zoomIn()
@@ -440,8 +445,8 @@ function onZoomOut() {
 function onFitView() {
   fitView({ padding: 0.15 })
 }
-function toggleInteractive() {
-  interactive.value = !interactive.value
+function toggleNodeLock() {
+  nodesLocked.value = !nodesLocked.value
 }
 
 function isUtilityToolName(name?: string | null): boolean {
@@ -623,7 +628,6 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
         step: JSON.parse(JSON.stringify(step)) as WarppStep,
         kind: utility ? 'utility' : 'step',
       },
-      draggable: true,
     }
   })
 }
@@ -785,7 +789,6 @@ function createWorkflowNode(tool: WarppTool, position: { x: number; y: number })
       step,
       kind: 'step',
     },
-    draggable: true,
   }
 }
 
@@ -808,7 +811,6 @@ function createUtilityNode(tool: WarppTool, position: { x: number; y: number }):
       step,
       kind: 'utility',
     },
-    draggable: true,
   }
 }
 

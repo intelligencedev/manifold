@@ -1,0 +1,102 @@
+{
+  "intent": "noop",
+  "description": "Return a greeting.",
+  "keywords": [
+    "noop"
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "text": "Invoke an LLM",
+      "tool": {
+        "name": "llm_transform",
+        "args": {
+          "input": "${A.prompt}",
+          "instruction": ""
+        }
+      },
+      "publish_result": true,
+      "depends_on": [
+        "utility-textbox-1de7a52c"
+      ]
+    },
+    {
+      "id": "utility-textbox-1721c1f9",
+      "text": "Textbox",
+      "tool": {
+        "name": "utility_textbox",
+        "args": {
+          "label": "Textbox",
+          "output_attr": "llm1_result",
+          "text": "${A.last_payload}"
+        }
+      },
+      "depends_on": [
+        "s1"
+      ]
+    },
+    {
+      "id": "utility-textbox-1de7a52c",
+      "text": "Textbox",
+      "tool": {
+        "name": "utility_textbox",
+        "args": {
+          "label": "Textbox",
+          "output_attr": "prompt",
+          "text": "Write a haiku about manifolds."
+        }
+      }
+    },
+    {
+      "id": "llm-transform-306b4310",
+      "text": "Use the LLM to transform input text according to an instruction (summarize, synthesize, rewrite, extract, etc.)",
+      "tool": {
+        "name": "llm_transform",
+        "args": {
+          "input": "${A.llm1_result}"
+        }
+      },
+      "depends_on": [
+        "utility-textbox-1721c1f9"
+      ]
+    },
+    {
+      "id": "utility-textbox-409cbde3",
+      "text": "Textbox",
+      "tool": {
+        "name": "utility_textbox",
+        "args": {
+          "label": "Textbox",
+          "text": "${A.last_payload}"
+        }
+      },
+      "depends_on": [
+        "llm-transform-306b4310"
+      ]
+    }
+  ],
+  "ui": {
+    "layout": {
+      "llm-transform-306b4310": {
+        "x": 854.2003436090316,
+        "y": 159.23757346007156
+      },
+      "s1": {
+        "x": 140,
+        "y": 160
+      },
+      "utility-textbox-1721c1f9": {
+        "x": 503.92367328351884,
+        "y": 159.58482037960263
+      },
+      "utility-textbox-1de7a52c": {
+        "x": -225.67138780664388,
+        "y": 161.1166456383584
+      },
+      "utility-textbox-409cbde3": {
+        "x": 1201.0504095178921,
+        "y": 161.5194817884193
+      }
+    }
+  }
+}

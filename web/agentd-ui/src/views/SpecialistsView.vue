@@ -97,6 +97,27 @@
                 <input id="specialist-paused" type="checkbox" v-model="form.paused" class="h-4 w-4" />
                 <label for="specialist-paused" class="text-subtle-foreground">Paused</label>
               </div>
+              <div class="flex flex-col gap-1 md:col-span-2">
+                <label for="specialist-allow-tools" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Allowed Tools (comma separated)</label>
+                <input id="specialist-allow-tools" v-model="allowToolsRaw" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label for="specialist-reasoning" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Reasoning Effort</label>
+                <select id="specialist-reasoning" v-model="form.reasoningEffort" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
+                  <option value="">(default)</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+              </div>
+              <div class="flex flex-col gap-1 md:col-span-2">
+                <label for="specialist-extra-headers" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Extra Headers (JSON)</label>
+                <textarea id="specialist-extra-headers" v-model="extraHeadersRaw" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+              </div>
+              <div class="flex flex-col gap-1 md:col-span-2">
+                <label for="specialist-extra-params" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Extra Params (JSON)</label>
+                <textarea id="specialist-extra-params" v-model="extraParamsRaw" rows="3" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"></textarea>
+              </div>
             </div>
 
             <div class="flex-1 min-h-0 flex flex-col gap-2">

@@ -800,6 +800,61 @@ func main() {
 		if list, err := specStore.List(context.Background()); err == nil {
 			specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, baseToolRegistry)
 		}
+
+		// Load orchestrator configuration from the database (if present),
+		// otherwise ensure a safe default system prompt is applied.
+		if sp, ok, _ := specStore.GetByName(context.Background(), "orchestrator"); ok {
+			// Apply DB-backed orchestrator settings to runtime config
+			cfg.OpenAI.BaseURL = sp.BaseURL
+			cfg.OpenAI.APIKey = sp.APIKey
+			if strings.TrimSpace(sp.Model) != "" {
+				cfg.OpenAI.Model = sp.Model
+			}
+			cfg.EnableTools = sp.EnableTools
+			cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
+			if strings.TrimSpace(sp.System) != "" {
+				cfg.SystemPrompt = sp.System
+			} else {
+				cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
+			}
+			if sp.ExtraHeaders != nil {
+				cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
+			}
+			if sp.ExtraParams != nil {
+				cfg.OpenAI.ExtraParams = sp.ExtraParams
+			}
+			// Rebuild the LLM client for orchestrator and update tool exposure
+			llm = openaillm.New(cfg.OpenAI, httpClient)
+			eng.LLM = llm
+			eng.Model = cfg.OpenAI.Model
+			eng.System = prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt)
+			// Select the appropriate tool registry for orchestrator only
+			if !cfg.EnableTools {
+				toolRegistry = tools.NewRegistry()
+			} else if len(cfg.ToolAllowList) > 0 {
+				toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, cfg.ToolAllowList)
+			} else {
+				toolRegistry = baseToolRegistry
+			}
+			// Update engine and workflow runner to reflect the new registry
+			eng.Tools = toolRegistry
+			warppMu.Lock()
+			warppRunner.Tools = toolRegistry
+			warppMu.Unlock()
+			// Also log the active tools for observability
+			{
+				names := make([]string, 0, len(toolRegistry.Schemas()))
+				for _, s := range toolRegistry.Schemas() {
+					names = append(names, s.Name)
+				}
+				log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents_loaded_from_db")
+			}
+		} else {
+			// No DB record for orchestrator. Default to the required fallback system prompt
+			// and reflect it in the engine regardless of any YAML/env value.
+			cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
+			eng.System = prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt)
+		}
 	}
 
 	// Helper to render the main orchestrator as a synthetic specialist for the UI only.
@@ -1005,7 +1060,7 @@ func main() {
 				return
 			}
 			if name == "orchestrator" {
-				// Apply updates to the main orchestrator configuration at runtime only.
+				// Apply updates to the main orchestrator configuration and persist to DB.
 				cfg.OpenAI.BaseURL = sp.BaseURL
 				cfg.OpenAI.APIKey = sp.APIKey
 				if strings.TrimSpace(sp.Model) != "" {
@@ -1038,6 +1093,29 @@ func main() {
 				warppMu.Lock()
 				warppRunner.Tools = toolRegistry
 				warppMu.Unlock()
+				// Persist orchestrator configuration to specialists store
+				toSave := persist.Specialist{
+					Name:            "orchestrator",
+					BaseURL:         cfg.OpenAI.BaseURL,
+					APIKey:          cfg.OpenAI.APIKey,
+					Model:           cfg.OpenAI.Model,
+					EnableTools:     cfg.EnableTools,
+					Paused:          false,
+					AllowTools:      append([]string(nil), cfg.ToolAllowList...),
+					ReasoningEffort: sp.ReasoningEffort,
+					System:          cfg.SystemPrompt,
+					ExtraHeaders:    cfg.OpenAI.ExtraHeaders,
+					ExtraParams:     cfg.OpenAI.ExtraParams,
+				}
+				if _, err := specStore.Upsert(r.Context(), toSave); err != nil {
+					log.Error().Err(err).Msg("failed to persist orchestrator configuration")
+					http.Error(w, "failed to persist orchestrator configuration", http.StatusInternalServerError)
+					return
+				}
+				// Keep specialists registry in sync (orchestrator is filtered out downstream)
+				if list, err := specStore.List(r.Context()); err == nil {
+					specReg.ReplaceFromConfigs(cfg.OpenAI, specialistsFromStore(list), httpClient, baseToolRegistry)
+				}
 				// Return the updated synthetic specialist
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(orchSpec())
@@ -2119,6 +2197,10 @@ func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
 	out := make([]config.SpecialistConfig, 0, len(list))
 	for _, s := range list {
+		// Skip the orchestrator; it is the main agent, not a specialist tool
+		if strings.EqualFold(strings.TrimSpace(s.Name), "orchestrator") {
+			continue
+		}
 		out = append(out, config.SpecialistConfig{
 			Name: s.Name, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
 			EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,

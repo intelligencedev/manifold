@@ -1,7 +1,7 @@
 <template>
   <div
     class="relative rounded-lg border border-border/60 bg-surface/90 p-3 text-xs text-muted-foreground shadow-lg"
-    :class="collapsed ? 'min-w-[160px] max-w-[220px]' : 'min-w-[240px] max-w-[320px]'"
+    :class="collapsed ? 'min-w-[160px] w-[220px]' : 'min-w-[240px] w-[320px]'"
   >
     <Handle type="target" :position="Position.Left" class="!bg-accent" />
     <div class="flex items-start justify-between gap-2">

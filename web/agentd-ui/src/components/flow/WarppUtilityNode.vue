@@ -1,5 +1,5 @@
 <template>
-  <div class="relative rounded-lg border border-border/60 bg-surface/90 p-3 text-xs text-muted-foreground shadow-lg min-w-[220px] max-w-[320px]">
+  <div class="relative rounded-lg border border-border/60 bg-surface/90 p-3 text-xs text-muted-foreground shadow-lg min-w-[220px] w-[320px]">
     <Handle type="target" :position="Position.Left" class="!bg-accent" />
     <div class="flex items-start justify-between gap-2">
       <div class="flex-1">

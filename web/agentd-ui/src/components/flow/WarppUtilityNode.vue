@@ -36,7 +36,7 @@
           v-else
           class="min-h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words"
         >
-          {{ runtimeText || 'Run the workflow to see resolved text.' }}
+          <span class="block max-h-[12rem] overflow-hidden">{{ runtimePreviewText || 'Run the workflow to see resolved text.' }}</span>
         </div>
       </label>
       <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -65,8 +65,18 @@
         {{ runtimeStatusMessage }}
       </p>
       <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-        {{ runtimeError }}
+        <span class="block max-h-[6rem] overflow-hidden whitespace-pre-wrap break-words">{{ runtimeError }}</span>
       </p>
+    </div>
+
+    <div v-if="!isDesignMode && hasRuntimeDetails" class="mt-3 flex items-center justify-end">
+      <button
+        type="button"
+        class="text-[11px] font-medium text-accent underline decoration-dotted underline-offset-2 transition hover:text-accent-foreground"
+        @click="viewRuntimeDetails"
+      >
+        View details
+      </button>
     </div>
 
     <div v-if="isDesignMode" class="mt-3 flex items-center justify-end gap-2">
@@ -101,6 +111,7 @@ const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
 const modeRef = inject<Ref<'design' | 'run'>>('warppMode', ref<'design' | 'run'>('design'))
 const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>('warppRunTrace', ref<Record<string, WarppStepTrace>>({}))
 const runningRef = inject<Ref<boolean>>('warppRunning', ref(false))
+const openResultModal = inject<(stepId: string, title: string) => void>('warppOpenResultModal', () => {})
 
 const labelText = ref('')
 const contentText = ref('')
@@ -117,6 +128,11 @@ const runtimeText = computed(() => {
   const text = trace?.renderedArgs?.text
   if (typeof text === 'string') return text
   return ''
+})
+const runtimePreviewText = computed(() => {
+  const text = runtimeText.value
+  if (!text) return ''
+  return text.length > 200 ? text.slice(0, 200) + '…' : text
 })
 const runtimeOutputAttr = computed(() => {
   const trace = runtimeTrace.value
@@ -145,6 +161,7 @@ const runtimeStatusMessage = computed(() => {
       return undefined
   }
 })
+const hasRuntimeDetails = computed(() => Boolean(runtimeTrace.value))
 
 let suppressCommit = false
 
@@ -220,5 +237,10 @@ function prettifyName(name: string): string {
     .slice('utility_'.length)
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+function viewRuntimeDetails() {
+  if (!runtimeTrace.value) return
+  openResultModal(props.id, headerLabel.value)
 }
 </script>

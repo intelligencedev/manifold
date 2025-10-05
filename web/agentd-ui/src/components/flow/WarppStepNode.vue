@@ -84,7 +84,9 @@
         <template v-if="runtimeArgs.length">
           <div v-for="([key, value], index) in runtimeArgs" :key="`${key}-${index}`" class="flex items-start gap-2">
             <span class="min-w-[72px] font-semibold text-foreground">{{ key }}</span>
-            <span class="break-words text-foreground/80">{{ formatRuntimeValue(value) }}</span>
+            <span class="block max-h-[6rem] overflow-hidden whitespace-pre-wrap break-words text-foreground/80">
+              {{ formatRuntimeValue(value) }}
+            </span>
           </div>
         </template>
         <p v-else-if="runtimeStatus === 'pending'" class="italic text-faint-foreground">
@@ -96,8 +98,18 @@
         <p v-if="runtimeStatusMessage" class="italic text-faint-foreground">{{ runtimeStatusMessage }}</p>
       </div>
       <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-        {{ runtimeError }}
+        <span class="block max-h-[6rem] overflow-hidden whitespace-pre-wrap break-words">{{ runtimeError }}</span>
       </p>
+    </div>
+
+    <div v-show="!collapsed && !isDesignMode && hasRuntimeDetails" class="mt-3 flex items-center justify-end">
+      <button
+        type="button"
+        class="text-[11px] font-medium text-accent underline decoration-dotted underline-offset-2 transition hover:text-accent-foreground"
+        @click="viewRuntimeDetails"
+      >
+        View details
+      </button>
     </div>
 
     <div v-show="!collapsed && isDesignMode" class="mt-4 flex items-center justify-end gap-2">
@@ -134,6 +146,7 @@ const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
 const modeRef = inject<Ref<'design' | 'run'>>('warppMode', ref<'design' | 'run'>('design'))
 const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>('warppRunTrace', ref<Record<string, WarppStepTrace>>({}))
 const runningRef = inject<Ref<boolean>>('warppRunning', ref(false))
+const openResultModal = inject<(stepId: string, title: string) => void>('warppOpenResultModal', () => {})
 
 const toolOptions = computed(() => {
   const options = [...(toolsRef?.value ?? [])]
@@ -182,6 +195,7 @@ const runtimeStatusMessage = computed(() => {
       return undefined
   }
 })
+const hasRuntimeDetails = computed(() => Boolean(runtimeTrace.value))
 
 const currentTool = computed(
   () => toolOptions.value.find((tool) => tool.name === toolName.value) ?? null,
@@ -192,6 +206,8 @@ const headerLabel = computed(() => currentTool.value?.name ?? 'Workflow Step')
 
 let suppressCommit = false
 let suppressToolReset = false
+
+const MAX_PREVIEW_CHARS = 160
 
 watch(
   () => props.data?.step,
@@ -263,14 +279,26 @@ function toggleCollapsed() {
 
 function formatRuntimeValue(value: unknown): string {
   if (value === null || value === undefined) return ''
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') {
+    return value.length > MAX_PREVIEW_CHARS ? value.slice(0, MAX_PREVIEW_CHARS) + '…' : value
+  }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   try {
-    return JSON.stringify(value)
+    const serialized = JSON.stringify(value)
+    if (serialized.length > MAX_PREVIEW_CHARS) {
+      return serialized.slice(0, MAX_PREVIEW_CHARS) + '…'
+    }
+    return serialized
   } catch (err) {
     console.warn('Failed to stringify runtime value', err)
-    return String(value)
+    const fallback = String(value)
+    return fallback.length > MAX_PREVIEW_CHARS ? fallback.slice(0, MAX_PREVIEW_CHARS) + '…' : fallback
   }
+}
+
+function viewRuntimeDetails() {
+  if (!runtimeTrace.value) return
+  openResultModal(props.id, headerLabel.value)
 }
 
 function buildToolPayload(name: string, args: Record<string, unknown>) {

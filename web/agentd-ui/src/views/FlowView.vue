@@ -258,6 +258,60 @@
         </div>
       </div>
     </div>
+    <div
+      v-if="resultModal"
+      class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
+    >
+      <div class="absolute inset-0 bg-surface/70 backdrop-blur-sm" @click="closeResultModal"></div>
+      <div
+        class="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl"
+      >
+        <div class="flex items-start justify-between gap-4 border-b border-border/60 px-6 py-4">
+          <div class="space-y-1">
+            <h3 class="text-base font-semibold text-foreground">{{ modalStepTitle }}</h3>
+            <p v-if="modalStepId" class="text-xs text-subtle-foreground">ID: {{ modalStepId }}</p>
+            <p v-if="modalStatusLabel" class="text-xs text-subtle-foreground">Status: {{ modalStatusLabel }}</p>
+          </div>
+          <button
+            type="button"
+            class="rounded border border-border/60 bg-surface-muted px-3 py-1 text-xs font-medium text-foreground hover:bg-surface-muted/80"
+            @click="closeResultModal"
+          >
+            Close
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto px-6 py-4 text-sm text-foreground">
+          <div v-if="activeModalTrace" class="space-y-5">
+            <section v-if="activeModalTrace?.renderedArgs">
+              <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
+                Rendered Arguments
+              </h4>
+              <pre
+                class="mt-1 rounded border border-border/60 bg-surface-muted p-3 text-xs text-foreground/90 whitespace-pre-wrap break-words"
+              >{{ formatJSON(activeModalTrace?.renderedArgs) }}</pre>
+            </section>
+            <section v-if="activeModalTrace?.delta">
+              <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Delta</h4>
+              <pre
+                class="mt-1 rounded border border-border/60 bg-surface-muted p-3 text-xs text-foreground/90 whitespace-pre-wrap break-words"
+              >{{ formatJSON(activeModalTrace?.delta) }}</pre>
+            </section>
+            <section v-if="activeModalTrace?.payload">
+              <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Payload</h4>
+              <pre
+                class="mt-1 rounded border border-border/60 bg-surface-muted p-3 text-xs text-foreground/90 whitespace-pre-wrap break-words"
+              >{{ formatJSON(activeModalTrace?.payload) }}</pre>
+            </section>
+            <p v-if="activeModalTrace?.error" class="rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger-foreground">
+              {{ activeModalTrace?.error }}
+            </p>
+          </div>
+          <div v-else class="text-sm text-subtle-foreground">
+            Trace data not yet available.
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -321,6 +375,21 @@ const runOutput = ref('')
 let runAbort: AbortController | null = null
 let runTraceTimers: ReturnType<typeof setTimeout>[] = []
 const runLogs = ref<string[]>([])
+const resultModal = ref<{ stepId: string; title: string } | null>(null)
+const activeModalTrace = computed(() => {
+  if (!resultModal.value) return undefined
+  return runTrace.value[resultModal.value.stepId]
+})
+function openResultModal(stepId: string, title: string) {
+  const hasTrace = runTrace.value[stepId]
+  if (!hasTrace) return
+  resultModal.value = { stepId, title }
+}
+function closeResultModal() {
+  resultModal.value = null
+}
+provide('warppOpenResultModal', openResultModal)
+provide('warppCloseResultModal', closeResultModal)
 const dirty = ref(false)
 // Track unsaved, locally-created workflows by intent
 const localWorkflows = ref(new Map<string, WarppWorkflow>())
@@ -336,6 +405,27 @@ const toolMap = computed(() => {
 const workflowTools = computed(() => tools.value.filter((tool) => !isUtilityToolName(tool.name)))
 const utilityTools = computed(() => tools.value.filter((tool) => isUtilityToolName(tool.name)))
 const hasRunTrace = computed(() => Object.keys(runTrace.value).length > 0)
+const modalStepTitle = computed(() => {
+  if (!resultModal.value) return ''
+  return resultModal.value.title || activeModalTrace.value?.text || resultModal.value.stepId
+})
+const modalStepId = computed(() => resultModal.value?.stepId ?? '')
+const modalStatusLabel = computed(() => {
+  const status = activeModalTrace.value?.status
+  if (!status) return ''
+  switch (status) {
+    case 'completed':
+      return 'Completed'
+    case 'skipped':
+      return 'Skipped'
+    case 'noop':
+      return 'Not executed'
+    case 'error':
+      return 'Error'
+    default:
+      return status
+  }
+})
 
 const canSave = computed(() => !!activeWorkflow.value && !saving.value && dirty.value)
 const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
@@ -380,6 +470,7 @@ function resetRunView() {
   clearRunTraceTimers()
   runTrace.value = {}
   editorMode.value = 'design'
+  closeResultModal()
 }
 
 function applyRunTrace(entries: WarppStepTrace[]) {
@@ -403,6 +494,20 @@ function setEditorMode(mode: 'design' | 'run') {
     return
   }
   editorMode.value = mode
+  if (mode === 'design') {
+    closeResultModal()
+  }
+}
+
+function formatJSON(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch (err) {
+    console.warn('Failed to stringify value for modal', err)
+    return String(value)
+  }
 }
 
 // MiniMap styling helpers (use theme CSS variables)

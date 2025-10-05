@@ -185,6 +185,13 @@ describe('FlowView', () => {
 
     await waitFor(() => expect(screen.getAllByText('Initial note').length).toBeGreaterThan(0))
 
+    const viewButtons = await screen.findAllByText('View details')
+    await fireEvent.click(viewButtons[0])
+    await waitFor(() => expect(screen.getByText('Rendered Arguments')).toBeTruthy())
+    const closeBtn = await screen.findByRole('button', { name: 'Close' })
+    await fireEvent.click(closeBtn)
+    await waitFor(() => expect(screen.queryByText('Rendered Arguments')).toBeNull())
+
     const designToggle = screen.getByRole('button', { name: 'Design' })
     await fireEvent.click(designToggle)
     expect(await screen.findByLabelText('Textbox Content')).toBeTruthy()

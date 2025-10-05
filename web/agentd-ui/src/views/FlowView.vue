@@ -47,10 +47,48 @@
       >
         Cancel
       </button>
-      <span v-if="loading" class="text-sm text-subtle-foreground">Loading…</span>
-      <span v-else-if="error" class="text-sm text-danger-foreground">{{ error }}</span>
-      <span v-else class="text-sm text-faint-foreground">Tools: {{ tools.length }}</span>
-      <span v-if="runOutput" class="text-xs italic text-subtle-foreground truncate max-w-[320px]" :title="runOutput">Result: {{ runOutput }}</span>
+      <div class="flex flex-wrap items-center gap-3 ml-auto">
+        <span v-if="loading" class="text-sm text-subtle-foreground">Loading…</span>
+        <span v-else-if="error" class="text-sm text-danger-foreground">{{ error }}</span>
+        <span v-else class="text-sm text-faint-foreground">Tools: {{ tools.length }}</span>
+        <span
+          v-if="runOutput"
+          class="text-xs italic text-subtle-foreground truncate max-w-[320px]"
+          :title="runOutput"
+        >
+          Result: {{ runOutput }}
+        </span>
+        <div class="flex items-center gap-1">
+          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Mode</span>
+          <div class="inline-flex overflow-hidden rounded border border-border/60 text-xs">
+            <button
+              type="button"
+              class="px-2 py-1 transition"
+              :class="
+                editorMode === 'design'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-subtle-foreground hover:text-foreground'
+              "
+              @click="setEditorMode('design')"
+            >
+              Design
+            </button>
+            <button
+              type="button"
+              class="border-l border-border/60 px-2 py-1 transition disabled:opacity-40"
+              :class="
+                editorMode === 'run'
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-subtle-foreground hover:text-foreground'
+              "
+              :disabled="!hasRunTrace && !running"
+              @click="setEditorMode('run')"
+            >
+              Run
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div v-if="runLogs.length" class="max-h-32 overflow-y-auto rounded border border-border/50 bg-surface-muted px-3 py-2 text-xs font-mono leading-relaxed space-y-0.5">
@@ -238,7 +276,7 @@ import {
   saveWarppWorkflow,
   runWarppWorkflow,
 } from '@/api/warpp'
-import type { WarppStep, WarppTool, WarppWorkflow } from '@/types/warpp'
+import type { WarppStep, WarppTool, WarppWorkflow, WarppStepTrace } from '@/types/warpp'
 import type { StepNodeData } from '@/types/flow'
 
 type LayoutMap = Record<string, { x: number; y: number }>
@@ -269,13 +307,19 @@ const activeWorkflow = ref<WarppWorkflow | null>(null)
 const tools = ref<WarppTool[]>([])
 provide('warppTools', tools)
 provide('warppHydrating', isHydrating)
+const editorMode = ref<'design' | 'run'>('design')
+const runTrace = ref<Record<string, WarppStepTrace>>({})
+provide('warppMode', editorMode)
+provide('warppRunTrace', runTrace)
 
 const loading = ref(false)
 const error = ref('')
 const saving = ref(false)
 const running = ref(false)
+provide('warppRunning', running)
 const runOutput = ref('')
 let runAbort: AbortController | null = null
+let runTraceTimers: ReturnType<typeof setTimeout>[] = []
 const runLogs = ref<string[]>([])
 const dirty = ref(false)
 // Track unsaved, locally-created workflows by intent
@@ -291,6 +335,7 @@ const toolMap = computed(() => {
 
 const workflowTools = computed(() => tools.value.filter((tool) => !isUtilityToolName(tool.name)))
 const utilityTools = computed(() => tools.value.filter((tool) => isUtilityToolName(tool.name)))
+const hasRunTrace = computed(() => Object.keys(runTrace.value).length > 0)
 
 const canSave = computed(() => !!activeWorkflow.value && !saving.value && dirty.value)
 const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
@@ -324,6 +369,40 @@ function prettyUtilityLabel(name: string): string {
   return readable
     .replace(/[_-]+/g, ' ')
     .replace(/\b\w/g, (ch) => ch.toUpperCase())
+}
+
+function clearRunTraceTimers() {
+  runTraceTimers.forEach((id) => clearTimeout(id))
+  runTraceTimers = []
+}
+
+function resetRunView() {
+  clearRunTraceTimers()
+  runTrace.value = {}
+  editorMode.value = 'design'
+}
+
+function applyRunTrace(entries: WarppStepTrace[]) {
+  clearRunTraceTimers()
+  runTrace.value = {}
+  if (!entries.length) {
+    return
+  }
+  entries.forEach((entry, index) => {
+    const delay = Math.min(index * 150, 1500)
+    const timer = setTimeout(() => {
+      runTrace.value = { ...runTrace.value, [entry.stepId]: entry }
+    }, delay)
+    runTraceTimers.push(timer)
+  })
+}
+
+function setEditorMode(mode: 'design' | 'run') {
+  if (mode === editorMode.value) return
+  if (mode === 'run' && !hasRunTrace.value && !running.value) {
+    return
+  }
+  editorMode.value = mode
 }
 
 // MiniMap styling helpers (use theme CSS variables)
@@ -360,6 +439,7 @@ onMounted(async () => {
 })
 
 watch(selectedIntent, async (intent) => {
+  resetRunView()
   if (!intent) {
     nodes.value = []
     edges.value = []
@@ -726,6 +806,9 @@ async function onRun() {
   runLogs.value = []
   runAbort?.abort()
   runAbort = new AbortController()
+  editorMode.value = 'run'
+  clearRunTraceTimers()
+  runTrace.value = {}
   const intent = activeWorkflow.value.intent
   runLogs.value.push(`▶ Starting run for intent "${intent}"`)
   // Capture need to save at start (canSave may change mid-process)
@@ -742,6 +825,7 @@ async function onRun() {
     ;(window as any).__warppLastRunRequest = { intent, ts: Date.now() }
     const res = await runWarppWorkflow(intent, `Run workflow: ${intent}`, runAbort.signal)
     runOutput.value = res.result || ''
+    applyRunTrace(res.trace ?? [])
     runLogs.value.push('✓ Run finished')
     if (runOutput.value) {
       runLogs.value.push('Result snippet: ' + runOutput.value.slice(0, 160) + (runOutput.value.length > 160 ? '…' : ''))
@@ -751,10 +835,12 @@ async function onRun() {
     if (err?.name === 'AbortError') {
       error.value = 'Run cancelled'
       runLogs.value.push('⚠ Run cancelled by user')
+      resetRunView()
     } else {
       const msg = err?.message ?? 'Failed to run workflow'
       error.value = msg
       runLogs.value.push('✗ Error: ' + msg)
+      resetRunView()
     }
   } finally {
     running.value = false

@@ -43,6 +43,7 @@
           type="text"
           class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
           placeholder="Describe this step"
+          :disabled="!isDesignMode"
           @keydown.meta.enter.prevent="applyChanges"
           @keydown.ctrl.enter.prevent="applyChanges"
         />
@@ -54,12 +55,13 @@
           type="text"
           class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
           placeholder="Example: A.os != 'windows'"
+          :disabled="!isDesignMode"
           @keydown.meta.enter.prevent="applyChanges"
           @keydown.ctrl.enter.prevent="applyChanges"
         />
       </label>
       <label class="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <input v-model="publishResult" type="checkbox" class="accent-accent" />
+        <input v-model="publishResult" type="checkbox" class="accent-accent" :disabled="!isDesignMode" />
         Publish result
       </label>
     </div>
@@ -67,20 +69,38 @@
     <div v-show="!collapsed" class="mt-3 space-y-2">
       <div class="text-[11px] font-semibold text-muted-foreground">Parameters</div>
       <ParameterFormField
-        v-if="parameterSchema"
+        v-if="isDesignMode && parameterSchema"
         :schema="parameterSchema"
         :model-value="argsState"
         @update:model-value="onArgsUpdate"
       />
-      <p v-else-if="toolName" class="text-[11px] italic text-faint-foreground">
+      <p v-else-if="isDesignMode && toolName" class="text-[11px] italic text-faint-foreground">
         This tool has no configurable parameters.
       </p>
-      <p v-else class="text-[11px] italic text-faint-foreground">
+      <p v-else-if="isDesignMode" class="text-[11px] italic text-faint-foreground">
         Select a tool to edit parameters.
+      </p>
+      <div v-else class="space-y-1 text-[11px] text-muted-foreground">
+        <template v-if="runtimeArgs.length">
+          <div v-for="([key, value], index) in runtimeArgs" :key="`${key}-${index}`" class="flex items-start gap-2">
+            <span class="min-w-[72px] font-semibold text-foreground">{{ key }}</span>
+            <span class="break-words text-foreground/80">{{ formatRuntimeValue(value) }}</span>
+          </div>
+        </template>
+        <p v-else-if="runtimeStatus === 'pending'" class="italic text-faint-foreground">
+          Waiting for execution…
+        </p>
+        <p v-else class="italic text-faint-foreground">
+          Run the workflow to see resolved values.
+        </p>
+        <p v-if="runtimeStatusMessage" class="italic text-faint-foreground">{{ runtimeStatusMessage }}</p>
+      </div>
+      <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
+        {{ runtimeError }}
       </p>
     </div>
 
-    <div v-show="!collapsed" class="mt-4 flex items-center justify-end gap-2">
+    <div v-show="!collapsed && isDesignMode" class="mt-4 flex items-center justify-end gap-2">
       <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
       <button
         class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
@@ -102,7 +122,7 @@ import { Handle, Position, useVueFlow, type NodeProps } from '@vue-flow/core'
 
 import ParameterFormField from '@/components/flow/ParameterFormField.vue'
 import type { StepNodeData } from '@/types/flow'
-import type { WarppTool } from '@/types/warpp'
+import type { WarppTool, WarppStepTrace } from '@/types/warpp'
 import type { Ref } from 'vue'
 
 const props = defineProps<NodeProps<StepNodeData>>()
@@ -111,6 +131,9 @@ const { updateNodeData } = useVueFlow()
 
 const toolsRef = inject<Ref<WarppTool[]>>('warppTools', ref<WarppTool[]>([]))
 const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
+const modeRef = inject<Ref<'design' | 'run'>>('warppMode', ref<'design' | 'run'>('design'))
+const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>('warppRunTrace', ref<Record<string, WarppStepTrace>>({}))
+const runningRef = inject<Ref<boolean>>('warppRunning', ref(false))
 
 const toolOptions = computed(() => {
   const options = [...(toolsRef?.value ?? [])]
@@ -130,6 +153,35 @@ const isDirty = ref(false)
 const collapsed = ref(false)
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1)
+const isDesignMode = computed(() => modeRef.value === 'design')
+const runtimeTrace = computed(() => runTraceRef.value[props.id])
+const runtimeArgs = computed(() => {
+  const trace = runtimeTrace.value
+  if (!trace?.renderedArgs) {
+    return [] as Array<[string, unknown]>
+  }
+  return Object.entries(trace.renderedArgs as Record<string, unknown>)
+})
+const runtimeError = computed(() => runtimeTrace.value?.error)
+const runtimeStatus = computed(() => {
+  if (runtimeTrace.value?.status) return runtimeTrace.value.status
+  if (modeRef.value === 'run' && runningRef.value && !runtimeTrace.value) return 'pending'
+  return undefined
+})
+const runtimeStatusMessage = computed(() => {
+  const trace = runtimeTrace.value
+  if (!trace) return undefined
+  switch (trace.status) {
+    case 'skipped':
+      return 'Guard prevented execution.'
+    case 'noop':
+      return 'Step has no tool configured.'
+    case 'error':
+      return 'Step encountered an error.'
+    default:
+      return undefined
+  }
+})
 
 const currentTool = computed(
   () => toolOptions.value.find((tool) => tool.name === toolName.value) ?? null,
@@ -160,7 +212,7 @@ watch([stepText, guardText, publishResult, toolName], () => markDirty())
 watch(argsState, () => markDirty(), { deep: true })
 
 function markDirty() {
-  if (suppressCommit || hydratingRef.value) return
+  if (suppressCommit || hydratingRef.value || !isDesignMode.value) return
   isDirty.value = true
 }
 
@@ -171,7 +223,7 @@ function onArgsUpdate(value: unknown) {
 }
 
 function commit() {
-  if (hydratingRef.value) {
+  if (hydratingRef.value || !isDesignMode.value) {
     return
   }
   const toolPayload = buildToolPayload(toolName.value, argsState.value)
@@ -200,13 +252,25 @@ function commit() {
 }
 
 function applyChanges() {
-  if (!isDirty.value) return
+  if (!isDesignMode.value || !isDirty.value) return
   commit()
   isDirty.value = false
 }
 
 function toggleCollapsed() {
   collapsed.value = !collapsed.value
+}
+
+function formatRuntimeValue(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch (err) {
+    console.warn('Failed to stringify runtime value', err)
+    return String(value)
+  }
 }
 
 function buildToolPayload(name: string, args: Record<string, unknown>) {

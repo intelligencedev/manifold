@@ -1,5 +1,7 @@
 package warpp
 
+import "encoding/json"
+
 // Workflow is a typed representation of a natural-language workflow with
 // optional guards and tool references per step.
 type Workflow struct {
@@ -44,6 +46,18 @@ type Step struct {
 type ToolRef struct {
 	Name string         `json:"name"`
 	Args map[string]any `json:"args,omitempty"`
+}
+
+// StepTrace captures the rendered arguments and outputs for a step during
+// execution. It is used by the editor to surface runtime attribute values.
+type StepTrace struct {
+	StepID       string          `json:"step_id"`
+	Text         string          `json:"text,omitempty"`
+	RenderedArgs map[string]any  `json:"rendered_args,omitempty"`
+	Delta        Attrs           `json:"delta,omitempty"`
+	Payload      json.RawMessage `json:"payload,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	Error        string          `json:"error,omitempty"`
 }
 
 // Attrs are user attributes discovered during personalization.

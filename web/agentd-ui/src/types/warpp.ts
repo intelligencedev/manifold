@@ -38,3 +38,15 @@ export interface WarppWorkflow {
   steps: WarppStep[]
   ui?: WarppWorkflowUI
 }
+
+export type WarppTraceStatus = 'completed' | 'skipped' | 'noop' | 'error'
+
+export interface WarppStepTrace {
+  stepId: string
+  text?: string
+  renderedArgs?: Record<string, any>
+  delta?: Record<string, any>
+  payload?: unknown
+  status?: WarppTraceStatus
+  error?: string
+}

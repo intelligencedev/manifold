@@ -134,7 +134,7 @@ func TestRunnerRunStepUtilityTextbox(t *testing.T) {
 	reg.Register(utility.NewTextboxTool())
 	runner := Runner{Tools: reg}
 	step := Step{ID: "box1", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "hello", "output_attr": "greeting"}}}
-	payload, delta, err := runner.runStep(context.Background(), step, Attrs{})
+	payload, delta, args, err := runner.runStep(context.Background(), step, Attrs{})
 	if err != nil {
 		t.Fatalf("runStep error: %v", err)
 	}
@@ -144,13 +144,48 @@ func TestRunnerRunStepUtilityTextbox(t *testing.T) {
 	if got := delta["greeting"]; got != "hello" {
 		t.Fatalf("expected greeting attribute, got %v", got)
 	}
+	if args == nil || args["text"] != "hello" {
+		t.Fatalf("expected args to contain rendered text, got %v", args)
+	}
 	step2 := Step{ID: "box2", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "world"}}}
-	_, delta2, err := runner.runStep(context.Background(), step2, Attrs{})
+	_, delta2, args2, err := runner.runStep(context.Background(), step2, Attrs{})
 	if err != nil {
 		t.Fatalf("runStep error: %v", err)
 	}
 	if got := delta2["box2_text"]; got != "world" {
 		t.Fatalf("expected default attr key box2_text, got %v", got)
+	}
+	if args2 == nil || args2["text"] != "world" {
+		t.Fatalf("expected args2 text value, got %v", args2)
+	}
+}
+
+func TestExecuteWithTraceCapturesRenderedArgs(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(newFunctionalTool("echo_step", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return map[string]any{"ok": true}, nil
+	}))
+	w := Workflow{
+		Intent: "trace_test",
+		Steps: []Step{
+			{ID: "s1", Text: "echo", Tool: &ToolRef{Name: "echo_step", Args: map[string]any{"message": "${A.utter}"}}},
+		},
+	}
+	runner := Runner{Workflows: &Registry{byIntent: map[string]Workflow{"trace_test": w}}, Tools: reg}
+	attrs := Attrs{"utter": "hello"}
+	traceAllowed := map[string]bool{"echo_step": true}
+	_, trace, err := runner.ExecuteWithTrace(context.Background(), w, traceAllowed, attrs, nil)
+	if err != nil {
+		t.Fatalf("ExecuteWithTrace error: %v", err)
+	}
+	if len(trace) != 1 {
+		t.Fatalf("expected single trace entry, got %d", len(trace))
+	}
+	if msg, ok := trace[0].RenderedArgs["message"]; !ok || msg != "hello" {
+		t.Fatalf("expected rendered args to contain message=hello, got %v", trace[0].RenderedArgs)
+	}
+	if trace[0].Status != "completed" {
+		t.Fatalf("expected status completed, got %s", trace[0].Status)
 	}
 }
 

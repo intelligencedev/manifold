@@ -97,10 +97,29 @@ beforeEach(() => {
     }
 
     if (url.endsWith('/api/warpp/run')) {
-      return new Response(JSON.stringify({ result: 'ok' }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return new Response(
+        JSON.stringify({
+          result: 'ok',
+          trace: [
+            {
+              step_id: 'step-1',
+              text: 'Start',
+              rendered_args: { query: 'hello', limit: 3 },
+              status: 'completed',
+            },
+            {
+              step_id: 'utility-1',
+              text: 'Notes',
+              rendered_args: { text: 'Initial note', output_attr: 'notes_attr' },
+              status: 'completed',
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      )
     }
 
     return new Response('not found', { status: 404 })
@@ -122,6 +141,7 @@ describe('FlowView', () => {
     expect(await findByText('web-search')).toBeTruthy()
     expect(await findByText('Utility Nodes')).toBeTruthy()
     expect(await findByText('Textbox')).toBeTruthy()
+    expect(await findByText('Mode')).toBeTruthy()
 
     const stepInput = await findByLabelText('Step Text')
     expect(stepInput).toBeTruthy()
@@ -152,5 +172,21 @@ describe('FlowView', () => {
       const calls = (global.fetch as any).mock.calls as Array<[RequestInfo | URL, RequestInit | undefined]>
       expect(calls.some(([u, init]) => String(u).endsWith('/api/warpp/run') && (init?.method ?? 'GET') === 'POST')).toBe(true)
     })
+  })
+
+  it('shows runtime values in run mode after execution', async () => {
+    render(FlowView)
+
+    const runBtn = await screen.findByRole('button', { name: /Run/i })
+    await fireEvent.click(runBtn)
+
+    await waitFor(() => expect(screen.getByText('message')).toBeTruthy())
+    expect(screen.getByText('hello')).toBeTruthy()
+
+    await waitFor(() => expect(screen.getAllByText('Initial note').length).toBeGreaterThan(0))
+
+    const designToggle = screen.getByRole('button', { name: 'Design' })
+    await fireEvent.click(designToggle)
+    expect(await screen.findByLabelText('Textbox Content')).toBeTruthy()
   })
 })

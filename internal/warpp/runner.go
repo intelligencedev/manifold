@@ -88,6 +88,18 @@ func (r *Runner) Personalize(ctx context.Context, w Workflow, A Attrs) (Workflow
 type StepPublisher func(ctx context.Context, stepID string, payload []byte) error
 
 func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]bool, A Attrs, publish StepPublisher) (string, error) {
+	summary, _, err := r.executeInternal(ctx, w, allowed, A, publish, false)
+	return summary, err
+}
+
+// ExecuteWithTrace mirrors Execute but also returns a per-step trace capturing
+// rendered arguments and payloads. The trace slice is ordered by execution
+// (respecting DAG topology where applicable).
+func (r *Runner) ExecuteWithTrace(ctx context.Context, w Workflow, allowed map[string]bool, A Attrs, publish StepPublisher) (string, []StepTrace, error) {
+	return r.executeInternal(ctx, w, allowed, A, publish, true)
+}
+
+func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[string]bool, A Attrs, publish StepPublisher, collect bool) (string, []StepTrace, error) {
 	var summary strings.Builder
 	fmt.Fprintf(&summary, "WARPP: executing intent %s\n", w.Intent)
 	if A == nil {
@@ -95,6 +107,77 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 	}
 	if A["sources"] == nil {
 		A["sources"] = []map[string]string{}
+	}
+	var traces []StepTrace
+	if collect {
+		traces = make([]StepTrace, 0, len(w.Steps))
+	}
+	type nodeResult struct {
+		id          string
+		topo        int
+		stepIdx     int
+		payload     []byte
+		delta       Attrs
+		publishIt   bool
+		publishMode string
+		text        string
+		args        map[string]any
+		status      string
+		err         string
+	}
+	cloneArgs := func(args map[string]any) map[string]any {
+		if args == nil {
+			return nil
+		}
+		cloned := cloneAttrs(Attrs(args))
+		return map[string]any(cloned)
+	}
+	cloneDelta := func(delta Attrs) Attrs {
+		if delta == nil {
+			return nil
+		}
+		return cloneAttrs(delta)
+	}
+	clonePayload := func(payload []byte) json.RawMessage {
+		if len(payload) == 0 {
+			return nil
+		}
+		cp := make([]byte, len(payload))
+		copy(cp, payload)
+		return json.RawMessage(cp)
+	}
+	makeTrace := func(step Step, status string, args map[string]any, delta Attrs, payload []byte) StepTrace {
+		trace := StepTrace{StepID: step.ID, Text: step.Text, Status: status}
+		if v := cloneArgs(args); v != nil {
+			trace.RenderedArgs = v
+		}
+		if v := cloneDelta(delta); v != nil {
+			trace.Delta = v
+		}
+		if v := clonePayload(payload); v != nil {
+			trace.Payload = v
+		}
+		return trace
+	}
+	makeTraceFromResult := func(res nodeResult) StepTrace {
+		status := res.status
+		if status == "" {
+			status = "completed"
+		}
+		trace := StepTrace{StepID: res.id, Text: res.text, Status: status}
+		if v := cloneArgs(res.args); v != nil {
+			trace.RenderedArgs = v
+		}
+		if v := cloneDelta(res.delta); v != nil {
+			trace.Delta = v
+		}
+		if v := clonePayload(res.payload); v != nil {
+			trace.Payload = v
+		}
+		if res.err != "" {
+			trace.Error = res.err
+		}
+		return trace
 	}
 	// If no DAG edges are present, retain sequential behavior for compatibility.
 	dagPresent := false
@@ -109,22 +192,38 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 		steps := 0
 		for _, s := range w.Steps {
 			if s.Tool == nil {
+				if collect {
+					traces = append(traces, StepTrace{StepID: s.ID, Text: s.Text, Status: "noop"})
+				}
 				continue
 			}
 			if s.Guard != "" && !EvalGuard(s.Guard, A) {
+				if collect {
+					traces = append(traces, StepTrace{StepID: s.ID, Text: s.Text, Status: "skipped"})
+				}
 				continue
 			}
 			if !allowed[s.Tool.Name] {
-				return "", fmt.Errorf("tool not permitted: %s", s.Tool.Name)
+				err := fmt.Errorf("tool not permitted: %s", s.Tool.Name)
+				if collect {
+					traces = append(traces, StepTrace{StepID: s.ID, Text: s.Text, Status: "error", Error: err.Error()})
+				}
+				return "", traces, err
 			}
 			ai := cloneAttrs(A)
-			payload, delta, err := r.runStep(ctx, s, ai)
+			payload, delta, args, err := r.runStep(ctx, s, ai)
 			if err != nil {
-				return "", err
+				if collect {
+					traces = append(traces, StepTrace{StepID: s.ID, Text: s.Text, Status: "error", Error: err.Error(), RenderedArgs: cloneArgs(args)})
+				}
+				return "", traces, err
 			}
 			mergeDelta(A, delta, 0, 0, nil)
 			steps++
 			fmt.Fprintf(&summary, "- %s\n", s.Text)
+			if collect {
+				traces = append(traces, makeTrace(s, "completed", args, delta, payload))
+			}
 			if s.PublishResult && publish != nil {
 				if perr := publish(ctx, s.ID, payload); perr != nil {
 					fmt.Printf("step result publish failed (step=%s): %v\n", s.ID, perr)
@@ -132,20 +231,10 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 			}
 		}
 		fmt.Fprintf(&summary, "\nObjective complete. (steps=%d).\n", steps)
-		return summary.String(), nil
+		return summary.String(), traces, nil
 	}
 
 	// DAG scheduling path
-	type nodeResult struct {
-		id          string
-		topo        int
-		stepIdx     int
-		payload     []byte
-		delta       Attrs
-		publishIt   bool
-		publishMode string
-		text        string
-	}
 
 	// Build indices
 	idToStep := make(map[string]Step, len(w.Steps))
@@ -226,6 +315,9 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 				mergeDeltaWithProv(A, res.delta, res.topo, res.stepIdx, prov)
 				completed++
 				fmt.Fprintf(&summary, "- %s\n", res.text)
+				if collect {
+					traces = append(traces, makeTraceFromResult(res))
+				}
 				if res.publishIt && publish != nil {
 					if res.publishMode == "topo" {
 						topoBuffer = append(topoBuffer, res)
@@ -259,7 +351,7 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 				if sem != nil {
 					<-sem
 				}
-				resCh <- nodeResult{id: s.ID, topo: q.topo, stepIdx: stepIndex[s.ID], delta: Attrs{}, payload: nil, publishIt: false, text: s.Text}
+				resCh <- nodeResult{id: s.ID, topo: q.topo, stepIdx: stepIndex[s.ID], delta: Attrs{}, payload: nil, publishIt: false, text: s.Text, status: "skipped"}
 				continue
 			}
 			// Launch worker
@@ -271,7 +363,7 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 				}()
 				// Disallow missing or unauthorized tools
 				if st.Tool == nil {
-					resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: Attrs{}, payload: nil, publishIt: false, text: st.Text}
+					resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: Attrs{}, payload: nil, publishIt: false, text: st.Text, status: "noop"}
 					return
 				}
 				if !allowed[st.Tool.Name] {
@@ -287,17 +379,17 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 					cctx, cancel2 = context.WithTimeout(ctx, d)
 					defer cancel2()
 				}
-				payload, delta, err := r.runStep(cctx, st, ai)
+				payload, delta, args, err := r.runStep(cctx, st, ai)
 				if err != nil {
 					if st.ContinueOnError {
 						// Soft-fail: report as completion without merge
-						resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: Attrs{}, payload: payload, publishIt: false, text: st.Text}
+						resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: Attrs{}, payload: payload, publishIt: false, text: st.Text, status: "error", err: err.Error(), args: args}
 						return
 					}
 					errCh <- err
 					return
 				}
-				resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: delta, payload: payload, publishIt: st.PublishResult, publishMode: st.PublishMode, text: st.Text}
+				resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: delta, payload: payload, publishIt: st.PublishResult, publishMode: st.PublishMode, text: st.Text, args: args, status: "completed"}
 			}(s, q.topo)
 		}
 	}()
@@ -306,7 +398,7 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 	<-doneCh
 	select {
 	case err := <-errCh:
-		return "", err
+		return "", traces, err
 	default:
 	}
 
@@ -323,7 +415,7 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, allowed map[string]boo
 		}
 	}
 	fmt.Fprintf(&summary, "\nObjective complete. (steps=%d).\n", completed)
-	return summary.String(), nil
+	return summary.String(), traces, nil
 }
 
 // renderArgs replaces ${A.key} placeholders in string values within args.
@@ -472,16 +564,17 @@ func mergeDeltaWithProv(A Attrs, delta Attrs, topo, stepIdx int, prov map[string
 	}
 }
 
-// runStep executes a step against Tools and returns payload and attribute delta.
-func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, error) {
+// runStep executes a step against Tools and returns payload, attribute delta,
+// and the rendered argument map used for invocation.
+func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, map[string]any, error) {
 	if s.Tool == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	args := renderArgs(s.Tool.Args, A)
 	raw, _ := json.Marshal(args)
 	payload, err := r.Tools.Dispatch(ctx, s.Tool.Name, raw)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, args, err
 	}
 	delta := Attrs{}
 	ps := string(payload)
@@ -587,11 +680,11 @@ func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, e
 			args = renderArgs(s.Tool.Args, mergePreview(A, delta))
 			raw, _ = json.Marshal(args)
 			if _, err := r.Tools.Dispatch(ctx, s.Tool.Name, raw); err != nil {
-				return nil, nil, err
+				return nil, nil, args, err
 			}
 		}
 	}
-	return payload, delta, nil
+	return payload, delta, args, nil
 }
 
 func mergePreview(A Attrs, delta Attrs) Attrs {

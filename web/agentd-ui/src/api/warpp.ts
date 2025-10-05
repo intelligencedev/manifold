@@ -1,4 +1,4 @@
-import type { WarppTool, WarppWorkflow } from '@/types/warpp'
+import type { WarppStepTrace, WarppTool, WarppWorkflow } from '@/types/warpp'
 
 const baseURL = (import.meta.env.VITE_AGENTD_BASE_URL || '').replace(/\/$/, '')
 const apiBase = `${baseURL}/api/warpp`
@@ -35,16 +35,45 @@ export async function saveWarppWorkflow(workflow: WarppWorkflow): Promise<WarppW
   return handleResponse<WarppWorkflow>(resp)
 }
 
+export interface WarppRunResponse {
+  result: string
+  trace: WarppStepTrace[]
+}
+
 export async function runWarppWorkflow(
   intent: string,
   prompt?: string,
   signal?: AbortSignal,
-): Promise<{ result: string }> {
+): Promise<WarppRunResponse> {
   const resp = await fetch(`${apiBase}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ intent, prompt }),
     signal,
   })
-  return handleResponse<{ result: string }>(resp)
+  const raw = await handleResponse<{ result: string; trace?: any[] }>(resp)
+  const trace = Array.isArray(raw.trace) ? raw.trace.map(deserializeTrace) : []
+  return { result: raw.result ?? '', trace }
+}
+
+function deserializeTrace(entry: any): WarppStepTrace {
+  if (!entry || typeof entry !== 'object') {
+    return { stepId: '', renderedArgs: {} }
+  }
+  const stepId = String(entry.step_id ?? entry.stepId ?? '')
+  const status = typeof entry.status === 'string' ? (entry.status as WarppStepTrace['status']) : undefined
+  const mapped: WarppStepTrace = {
+    stepId,
+    text: typeof entry.text === 'string' ? entry.text : undefined,
+    renderedArgs: isPlainObject(entry.rendered_args) ? { ...entry.rendered_args } : undefined,
+    delta: isPlainObject(entry.delta) ? { ...entry.delta } : undefined,
+    payload: entry.payload,
+    status,
+    error: typeof entry.error === 'string' ? entry.error : undefined,
+  }
+  return mapped
+}
+
+function isPlainObject(value: unknown): value is Record<string, any> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
 }

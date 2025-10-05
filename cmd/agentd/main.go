@@ -1407,14 +1407,14 @@ func main() {
 				allow[s.Tool.Name] = true
 			}
 		}
-		result, err := warppRunner.Execute(ctx, wfStar, allow, attrs2, nil)
+		result, trace, err := warppRunner.ExecuteWithTrace(ctx, wfStar, allow, attrs2, nil)
 		if err != nil {
 			log.Error().Err(err).Msg("warpp_execute")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"result": result})
+		_ = json.NewEncoder(w).Encode(map[string]any{"result": result, "trace": trace})
 	})
 
 	mux.HandleFunc("/agent/run", func(w http.ResponseWriter, r *http.Request) {

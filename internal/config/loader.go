@@ -118,6 +118,8 @@ func Load() (Config, error) {
 	cfg.Databases.Vector.Metric = strings.TrimSpace(os.Getenv("VECTOR_METRIC"))
 	cfg.Databases.Graph.Backend = strings.TrimSpace(os.Getenv("GRAPH_BACKEND"))
 	cfg.Databases.Graph.DSN = strings.TrimSpace(os.Getenv("GRAPH_DSN"))
+	cfg.Databases.Chat.Backend = strings.TrimSpace(os.Getenv("CHAT_BACKEND"))
+	cfg.Databases.Chat.DSN = strings.TrimSpace(os.Getenv("CHAT_DSN"))
 
 	// Embedding service configuration via environment variables
 	cfg.Embedding.BaseURL = strings.TrimSpace(os.Getenv("EMBED_BASE_URL"))
@@ -217,6 +219,13 @@ func Load() (Config, error) {
 			cfg.Databases.Graph.Backend = "auto"
 		} else {
 			cfg.Databases.Graph.Backend = "memory"
+		}
+	}
+	if cfg.Databases.Chat.Backend == "" {
+		if cfg.Databases.DefaultDSN != "" {
+			cfg.Databases.Chat.Backend = "auto"
+		} else {
+			cfg.Databases.Chat.Backend = "memory"
 		}
 	}
 
@@ -335,11 +344,16 @@ func loadSpecialists(cfg *Config) error {
 		Backend string `yaml:"backend"`
 		DSN     string `yaml:"dsn"`
 	}
+	type dbChatYAML struct {
+		Backend string `yaml:"backend"`
+		DSN     string `yaml:"dsn"`
+	}
 	type databasesYAML struct {
 		DefaultDSN string       `yaml:"defaultDSN"`
 		Search     dbSearchYAML `yaml:"search"`
 		Vector     dbVectorYAML `yaml:"vector"`
 		Graph      dbGraphYAML  `yaml:"graph"`
+		Chat       dbChatYAML   `yaml:"chat"`
 	}
 	type mcpServerYAML struct {
 		Name             string            `yaml:"name"`
@@ -522,6 +536,12 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Databases.Graph.DSN == "" && strings.TrimSpace(w.Databases.Graph.DSN) != "" {
 			cfg.Databases.Graph.DSN = strings.TrimSpace(w.Databases.Graph.DSN)
+		}
+		if cfg.Databases.Chat.Backend == "" && strings.TrimSpace(w.Databases.Chat.Backend) != "" {
+			cfg.Databases.Chat.Backend = strings.TrimSpace(w.Databases.Chat.Backend)
+		}
+		if cfg.Databases.Chat.DSN == "" && strings.TrimSpace(w.Databases.Chat.DSN) != "" {
+			cfg.Databases.Chat.DSN = strings.TrimSpace(w.Databases.Chat.DSN)
 		}
 		// Embedding: only assign fields which are empty to allow env to override
 		if cfg.Embedding.BaseURL == "" && strings.TrimSpace(w.Embedding.BaseURL) != "" {

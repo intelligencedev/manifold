@@ -24,7 +24,7 @@
             </thead>
             <tbody>
               <tr v-for="s in specialists" :key="s.name" class="border-t border-border/50">
-                <td class="py-1 font-medium">{{ s.name }}</td>
+                <td class="py-1 font-medium" :title="s.name">{{ truncateName(s.name) }}</td>
                 <td class="py-1">{{ s.model }}</td>
                 <td class="py-1">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
                 <td class="py-1 text-right">

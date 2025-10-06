@@ -38,6 +38,9 @@ databases:
   graph:
     backend: memory   # auto | memory | none | postgres
     dsn: ""
+  chat:
+    backend: memory   # auto | memory | postgres
+    dsn: ""           # optional; uses defaultDSN when empty
 
 Environment variables override YAML and can be used without a config file:
 
@@ -45,6 +48,7 @@ Environment variables override YAML and can be used without a config file:
 - SEARCH_BACKEND, SEARCH_DSN, SEARCH_INDEX
 - VECTOR_BACKEND, VECTOR_DSN, VECTOR_INDEX, VECTOR_DIMENSIONS, VECTOR_METRIC
 - GRAPH_BACKEND, GRAPH_DSN
+- CHAT_BACKEND, CHAT_DSN
 
 Defaults and auto selection
 

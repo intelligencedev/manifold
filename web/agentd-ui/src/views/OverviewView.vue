@@ -15,7 +15,7 @@
     <div class="grid gap-6 lg:grid-cols-3">
       <div class="lg:col-span-2 space-y-6">
         <div class="flex items-center justify-between">
-          <h2 class="text-lg font-semibold text-foreground">Agents</h2>
+          <h2 class="text-lg font-semibold text-foreground">Specialist Assistants</h2>
           <RouterLink to="/specialists" class="text-sm font-semibold text-accent hover:text-accent/80">Manage</RouterLink>
         </div>
         <div class="grid gap-4 md:grid-cols-2">

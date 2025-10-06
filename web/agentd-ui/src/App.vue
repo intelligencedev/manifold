@@ -63,6 +63,7 @@ function handleRefresh() {
 
 const navigation = [
   { label: 'Overview', to: '/' },
+  { label: 'Specialists', to: '/specialists' },
   { label: 'Chat', to: '/chat' },
   { label: 'Playground', to: '/playground' },
   { label: 'Flow', to: '/flow' },

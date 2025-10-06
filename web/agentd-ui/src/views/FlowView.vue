@@ -229,12 +229,13 @@
 
             <!-- Themed MiniMap -->
             <MiniMap
+              v-if="showMiniMap"
               class="rounded-md border border-border/70 bg-surface/90 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/75"
               :position="'bottom-right'"
               :pannable="true"
               :zoomable="true"
-              :width="180"
-              :height="120"
+              :width="MINI_MAP_WIDTH"
+              :height="MINI_MAP_HEIGHT"
               :mask-color="'rgb(var(--color-surface) / 0.85)'"
               :mask-stroke-color="'rgb(var(--color-border) / 0.7)'"
               :mask-stroke-width="1"
@@ -244,6 +245,38 @@
               :node-border-radius="6"
               :node-stroke-width="1"
             />
+
+            <!-- Close button overlay for MiniMap (top-left of the MiniMap) -->
+            <Panel
+              v-if="showMiniMap"
+              position="bottom-right"
+              :style="{
+                transform: `translate(calc(-${MINI_MAP_WIDTH}px + ${MINI_MAP_INSET}px), calc(-${MINI_MAP_HEIGHT}px + ${MINI_MAP_INSET}px))`,
+              }"
+            >
+              <button
+                type="button"
+                class="inline-flex h-6 w-6 items-center justify-center rounded bg-surface text-subtle-foreground hover:text-foreground border border-border/60 shadow-sm"
+                aria-label="Hide minimap"
+                title="Hide minimap"
+                @click="showMiniMap = false"
+              >
+                ×
+              </button>
+            </Panel>
+
+            <!-- Collapsed show button when MiniMap hidden -->
+            <Panel v-if="!showMiniMap" position="bottom-right">
+              <button
+                type="button"
+                class="inline-flex items-center justify-center rounded-md border border-border/70 bg-surface/90 p-1.5 text-subtle-foreground shadow-sm backdrop-blur hover:text-foreground supports-[backdrop-filter]:bg-surface/75"
+                aria-label="Show minimap"
+                title="Show minimap"
+                @click="showMiniMap = true"
+              >
+                <MapShowIcon class="h-5 w-5" />
+              </button>
+            </Panel>
           </VueFlow>
         </div>
       </div>
@@ -318,6 +351,7 @@ import ZoomOutIcon from '@/components/icons/ZoomOut.vue'
 import FullScreenIcon from '@/components/icons/FullScreen.vue'
 import LockedIcon from '@/components/icons/LockedBold.vue'
 import UnlockedIcon from '@/components/icons/UnlockedBold.vue'
+import MapShowIcon from '@/components/icons/MapShow.vue'
 import {
   fetchWarppTools,
   fetchWarppWorkflow,
@@ -344,6 +378,11 @@ const { project, zoomIn, zoomOut, fitView, nodesDraggable } = useVueFlow()
 
 const flowWrapper = ref<HTMLDivElement | null>(null)
 const isDraggingFromPalette = ref(false)
+// MiniMap visibility and sizing
+const showMiniMap = ref(true)
+const MINI_MAP_WIDTH = 180
+const MINI_MAP_HEIGHT = 120
+const MINI_MAP_INSET = 8
 
 const nodes = ref<StepNode[]>([])
 const edges = ref<Edge[]>([])

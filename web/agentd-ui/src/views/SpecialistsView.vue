@@ -9,7 +9,7 @@
       <!-- left: list -->
       <div class="w-1/3 min-w-0 rounded-md border border-border/50 bg-surface p-3 min-h-0 overflow-auto">
         <div class="flex items-center justify-between mb-2">
-          <h2 class="text-base font-semibold">Specialists</h2>
+          <h2 class="text-base font-semibold">Specialist Assistants</h2>
           <button @click="startCreate" class="rounded-md border border-border/60 px-2 py-1 text-xs font-medium text-muted-foreground hover:border-border">New</button>
         </div>
         <div class="w-full text-sm min-w-0">

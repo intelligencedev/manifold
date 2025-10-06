@@ -126,7 +126,7 @@
                 <div
                   v-for="tool in utilityTools"
                   :key="tool.name"
-                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
+                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
                   draggable="true"
                   :title="tool.description ?? tool.name"
                   @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
@@ -144,7 +144,7 @@
                 <div
                   v-for="tool in workflowTools"
                   :key="tool.name"
-                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface"
+                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
                   draggable="true"
                   :title="tool.description ?? tool.name"
                   @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
@@ -274,7 +274,7 @@
                 title="Show minimap"
                 @click="showMiniMap = true"
               >
-                <MapShowIcon class="h-5 w-5" />
+                <MapShowIcon class="h-5 w-5 -scale-x-100" />
               </button>
             </Panel>
           </VueFlow>
@@ -484,6 +484,18 @@ function onZoomOut() {
 function onFitView() {
   fitView({ padding: 0.15 })
 }
+// schedule a fitView on next tick to ensure nodes/edges are rendered
+async function scheduleFitView() {
+  await nextTick()
+  // small delay to let VueFlow compute bounds
+  requestAnimationFrame(() => {
+    try {
+      fitView({ padding: 0.15 })
+    } catch (e) {
+      // ignore
+    }
+  })
+}
 function toggleNodeLock() {
   nodesLocked.value = !nodesLocked.value
 }
@@ -579,6 +591,8 @@ onMounted(async () => {
     error.value = err?.message ?? 'Failed to load workflows'
   } finally {
     loading.value = false
+    // initial fit once the initial load settles
+    scheduleFitView()
   }
 })
 
@@ -716,6 +730,8 @@ async function loadWorkflow(intent: string) {
   } finally {
     await nextTick()
     isHydrating.value = false
+    // Fit view after nodes are rendered
+    scheduleFitView()
   }
 }
 
@@ -928,6 +944,8 @@ async function onSave(): Promise<WarppWorkflow | null> {
       await nextTick()
       isHydrating.value = false
     }
+    // Fit after successful save rehydrate
+    scheduleFitView()
     return saved
   } catch (err: any) {
     const msg = err?.message ?? 'Failed to save workflow'

@@ -202,6 +202,12 @@ import type { WarppTool } from '@/types/warpp'
 import SolarPause from '@/components/icons/SolarPause.vue'
 import SolarPlay from '@/components/icons/SolarPlay.vue'
 
+// Helper to truncate long specialist names for the list view
+function truncateName(name: string) {
+  if (!name) return ''
+  return name.length > 15 ? `${name.slice(0, 15)}…` : name
+}
+
 const qc = useQueryClient()
 const { data, isLoading: loading, isError: error } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
 // Always present specialists sorted by name (case-insensitive)

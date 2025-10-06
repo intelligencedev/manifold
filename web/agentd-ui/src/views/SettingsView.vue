@@ -8,7 +8,7 @@
     </header>
 
     <div class="grid gap-6 lg:grid-cols-2">
-      <!-- Application (client-side) settings -->
+      <!-- Application (client-side) settings — moved to top -->
       <form class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6 lg:col-span-1">
         <header class="space-y-1">
           <h2 class="text-lg font-semibold text-foreground">Application</h2>
@@ -54,6 +54,7 @@
         </div>
       </form>
 
+      <!-- Appearance — moved to top -->
       <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6 lg:col-span-1">
         <header class="space-y-1">
           <h2 class="text-lg font-semibold text-foreground">Appearance</h2>
@@ -82,6 +83,291 @@
           </button>
         </div>
       </section>
+
+      <!-- Agentd settings broken into focused panels -->
+      <form class="space-y-6 lg:col-span-2" @submit.prevent="saveAgentdSettings">
+        <header class="space-y-1">
+          <h2 class="text-lg font-semibold text-foreground">Agentd Configuration</h2>
+          <p class="text-sm text-subtle-foreground">Manage summarization, embeddings, timeouts, logging, and database integrations for the agent runtime.</p>
+        </header>
+
+        <div v-if="agentdLoadError" class="flex items-center justify-between gap-3 rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground">
+          <span>{{ agentdLoadError }}</span>
+          <button type="button" class="rounded border border-danger/40 px-2 py-1 text-xs font-semibold text-danger-foreground transition hover:border-danger" @click="loadAgentdSettings">
+            Retry
+          </button>
+        </div>
+        <div v-if="agentdLoading" class="text-sm text-subtle-foreground">Loading configuration…</div>
+
+        <template v-else>
+          <!-- Summary & Truncation -->
+          <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+            <div>
+              <h3 class="text-sm font-semibold text-foreground">Summary &amp; Truncation</h3>
+              <p class="text-xs text-subtle-foreground">Control conversation summarization and transcript retention.</p>
+            </div>
+            <label class="inline-flex items-center gap-2 text-sm text-foreground" for="summary-enabled">
+              <input id="summary-enabled" type="checkbox" class="h-4 w-4" v-model="agentdSettings.summaryEnabled" />
+              <span>Enable rolling summaries</span>
+            </label>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="space-y-1">
+                <label for="summary-model" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Summary Model</label>
+                <input id="summary-model" type="text" v-model="agentdSettings.openaiSummaryModel" placeholder="gpt-4o-mini" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+              <div class="space-y-1">
+                <label for="summary-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Summary Endpoint</label>
+                <input id="summary-url" type="url" v-model="agentdSettings.openaiSummaryUrl" placeholder="https://api.openai.com" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+              <div class="space-y-1">
+                <label for="summary-threshold" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Summarize After (turns)</label>
+                <input id="summary-threshold" type="number" min="0" v-model.number="agentdSettings.summaryThreshold" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+              <div class="space-y-1">
+                <label for="summary-keep" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Keep Last Turns</label>
+                <input id="summary-keep" type="number" min="0" v-model.number="agentdSettings.summaryKeepLast" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+            </div>
+          </section>
+
+          <!-- Embedding Service -->
+          <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+            <div>
+              <h3 class="text-sm font-semibold text-foreground">Embedding Service</h3>
+              <p class="text-xs text-subtle-foreground">Configure the embedding provider for vector operations.</p>
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="space-y-1 sm:col-span-2">
+                <label for="embed-base" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Base URL</label>
+                <input id="embed-base" type="url" v-model="agentdSettings.embedBaseUrl" placeholder="https://api.openai.com" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+              <div class="space-y-1">
+                <label for="embed-model" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Model</label>
+                <input id="embed-model" type="text" v-model="agentdSettings.embedModel" placeholder="text-embedding-3-small" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+              <div class="space-y-1">
+                <label for="embed-path" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Path</label>
+                <input id="embed-path" type="text" v-model="agentdSettings.embedPath" placeholder="/v1/embeddings" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+              <div class="space-y-1">
+                <label for="embed-header" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">API Header</label>
+                <input id="embed-header" type="text" v-model="agentdSettings.embedApiHeader" placeholder="Authorization" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+              <div class="space-y-1 sm:col-span-2">
+                <label for="embed-key" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">API Key</label>
+                <input id="embed-key" type="password" autocomplete="off" v-model="agentdSettings.embedApiKey" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+              </div>
+            </div>
+          </section>
+
+          <!-- Timeouts and Execution & Safety in two columns -->
+          <div class="grid gap-6 xl:grid-cols-2">
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <div>
+                <h3 class="text-sm font-semibold text-foreground">Agent Global Timeouts (seconds)</h3>
+                <p class="text-xs text-subtle-foreground">Use 0 to disable a timeout.</p>
+              </div>
+              <div class="grid gap-3 sm:grid-cols-3">
+                <div class="space-y-1">
+                  <label for="timeout-agent" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Agent Run</label>
+                  <input id="timeout-agent" type="number" min="0" v-model.number="agentdSettings.agentRunTimeoutSeconds" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="timeout-stream" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Stream</label>
+                  <input id="timeout-stream" type="number" min="0" v-model.number="agentdSettings.streamRunTimeoutSeconds" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="timeout-workflow" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Workflow</label>
+                  <input id="timeout-workflow" type="number" min="0" v-model.number="agentdSettings.workflowTimeoutSeconds" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+              </div>
+            </section>
+
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <div>
+                <h3 class="text-sm font-semibold text-foreground">Execution &amp; Safety</h3>
+                <p class="text-xs text-subtle-foreground">Restrict shell execution and output size.</p>
+              </div>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="space-y-1 sm:col-span-2">
+                  <label for="block-binaries" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Block Binaries</label>
+                  <input id="block-binaries" type="text" v-model="agentdSettings.blockBinaries" placeholder="rm,sudo,chown,chmod,dd,mkfs,mount,umount" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="max-command" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Max Command Seconds</label>
+                  <input id="max-command" type="number" min="0" v-model.number="agentdSettings.maxCommandSeconds" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="truncate-bytes" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Output Truncate Bytes</label>
+                  <input id="truncate-bytes" type="number" min="0" v-model.number="agentdSettings.outputTruncateBytes" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Observability, Logging, Web Integrations -->
+          <div class="grid gap-6 xl:grid-cols-3">
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <div>
+                <h3 class="text-sm font-semibold text-foreground">Observability</h3>
+                <p class="text-xs text-subtle-foreground">Export telemetry with descriptive metadata.</p>
+              </div>
+              <div class="grid gap-3">
+                <div class="space-y-1">
+                  <label for="otel-service" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Service Name</label>
+                  <input id="otel-service" type="text" v-model="agentdSettings.otelServiceName" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="service-version" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Version</label>
+                  <input id="service-version" type="text" v-model="agentdSettings.serviceVersion" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="environment" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Environment</label>
+                  <input id="environment" type="text" v-model="agentdSettings.environment" placeholder="dev" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="otel-endpoint" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">OTLP Endpoint</label>
+                  <input id="otel-endpoint" type="url" v-model="agentdSettings.otelExporterOtlpEndpoint" placeholder="http://localhost:4318" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+              </div>
+            </section>
+
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <div>
+                <h3 class="text-sm font-semibold text-foreground">Logging</h3>
+                <p class="text-xs text-subtle-foreground">Tune log verbosity and payload collection.</p>
+              </div>
+              <div class="grid gap-3">
+                <div class="space-y-1">
+                  <label for="log-path" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Log Path</label>
+                  <input id="log-path" type="text" v-model="agentdSettings.logPath" placeholder="/var/log/agentd.log" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="log-level" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Log Level</label>
+                  <select id="log-level" v-model="agentdSettings.logLevel" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40">
+                    <option v-for="level in logLevelOptions" :key="level" :value="level">{{ level }}</option>
+                  </select>
+                </div>
+                <label class="inline-flex items-center gap-2 text-sm text-foreground" for="log-payloads">
+                  <input id="log-payloads" type="checkbox" class="h-4 w-4" v-model="agentdSettings.logPayloads" />
+                  <span>Log LLM payloads</span>
+                </label>
+              </div>
+            </section>
+
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <div>
+                <h3 class="text-sm font-semibold text-foreground">Web Integrations</h3>
+                <p class="text-xs text-subtle-foreground">Expose search services to the UI and tools.</p>
+              </div>
+              <div class="grid gap-3">
+                <div class="space-y-1">
+                  <label for="searxng-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">SearXNG URL</label>
+                  <input id="searxng-url" type="url" v-model="agentdSettings.searxngUrl" placeholder="http://localhost:8080" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="web-searxng-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">UI Override</label>
+                  <input id="web-searxng-url" type="url" v-model="agentdSettings.webSearxngUrl" placeholder="http://localhost:8080" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Databases split into four panels -->
+          <div class="grid gap-6 xl:grid-cols-2">
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <h4 class="text-sm font-semibold text-foreground">Primary Connections</h4>
+              <div class="space-y-3">
+                <div class="space-y-1">
+                  <label for="database-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">DATABASE_URL</label>
+                  <input id="database-url" type="text" v-model="agentdSettings.databaseUrl" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="db-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">DB_URL</label>
+                  <input id="db-url" type="text" v-model="agentdSettings.dbUrl" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="postgres-dsn" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">POSTGRES_DSN</label>
+                  <input id="postgres-dsn" type="text" v-model="agentdSettings.postgresDsn" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+              </div>
+            </section>
+
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <h4 class="text-sm font-semibold text-foreground">Search Database</h4>
+              <div class="space-y-3">
+                <div class="space-y-1">
+                  <label for="search-backend" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Backend</label>
+                  <input id="search-backend" type="text" v-model="agentdSettings.searchBackend" placeholder="postgres" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="search-dsn" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">DSN</label>
+                  <input id="search-dsn" type="text" v-model="agentdSettings.searchDsn" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="search-index" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Index</label>
+                  <input id="search-index" type="text" v-model="agentdSettings.searchIndex" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="grid gap-6 xl:grid-cols-2">
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <h4 class="text-sm font-semibold text-foreground">Vector Database</h4>
+              <div class="space-y-3">
+                <div class="space-y-1">
+                  <label for="vector-backend" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Backend</label>
+                  <input id="vector-backend" type="text" v-model="agentdSettings.vectorBackend" placeholder="postgres" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="vector-dsn" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">DSN</label>
+                  <input id="vector-dsn" type="text" v-model="agentdSettings.vectorDsn" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="vector-index" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Index</label>
+                  <input id="vector-index" type="text" v-model="agentdSettings.vectorIndex" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="vector-dimensions" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Dimensions</label>
+                  <input id="vector-dimensions" type="number" min="0" v-model.number="agentdSettings.vectorDimensions" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="vector-metric" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Metric</label>
+                  <select id="vector-metric" v-model="agentdSettings.vectorMetric" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40">
+                    <option v-for="metric in vectorMetricOptions" :key="metric" :value="metric">{{ metric }}</option>
+                  </select>
+                </div>
+              </div>
+            </section>
+
+            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+              <h4 class="text-sm font-semibold text-foreground">Graph Database</h4>
+              <div class="space-y-3">
+                <div class="space-y-1">
+                  <label for="graph-backend" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Backend</label>
+                  <input id="graph-backend" type="text" v-model="agentdSettings.graphBackend" placeholder="postgres" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+                <div class="space-y-1">
+                  <label for="graph-dsn" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">DSN</label>
+                  <input id="graph-dsn" type="text" v-model="agentdSettings.graphDsn" class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground transition focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+                </div>
+              </div>
+            </section>
+          </div>
+        </template>
+
+        <!-- Actions card -->
+        <div class="rounded-2xl border border-border/70 bg-surface p-4 flex flex-wrap items-center justify-between">
+          <p class="text-xs text-subtle-foreground">Saved values apply to new requests. Some changes may require restarting background workers.</p>
+          <div class="flex flex-wrap items-center gap-3">
+            <span v-if="agentdSaveError" class="text-xs text-danger-foreground">{{ agentdSaveError }}</span>
+            <span v-else-if="agentdSuccess" class="text-xs text-accent-foreground">{{ agentdSuccess }}</span>
+            <button type="button" class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border disabled:opacity-60" @click="loadAgentdSettings" :disabled="agentdLoading || agentdSaving">Reload</button>
+            <button type="submit" class="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-accent-foreground transition hover:bg-accent/90 disabled:opacity-70" :disabled="agentdSaving">{{ agentdSaving ? 'Saving…' : 'Save Changes' }}</button>
+          </div>
+        </div>
+      </form>
 
       <section v-if="isAdmin" class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6 lg:col-span-2">
         <header class="space-y-1">
@@ -159,7 +445,15 @@
 import { computed, onMounted, ref } from 'vue'
 import { useThemeStore } from '@/stores/theme'
 import type { ThemeChoice } from '@/theme/themes'
-import { listUsers, createUser, updateUser, deleteUser } from '@/api/client'
+import {
+  listUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  fetchAgentdSettings,
+  updateAgentdSettings,
+  type AgentdSettings,
+} from '@/api/client'
 
 const apiUrl = ref('')
 
@@ -167,6 +461,154 @@ const STORAGE_KEY = 'agentd.ui.settings'
 
 type Settings = {
   apiUrl: string
+}
+
+const defaultAgentdSettings: AgentdSettings = {
+  openaiSummaryModel: '',
+  openaiSummaryUrl: '',
+  summaryEnabled: false,
+  summaryThreshold: 40,
+  summaryKeepLast: 12,
+  embedBaseUrl: 'https://api.openai.com',
+  embedModel: 'text-embedding-3-small',
+  embedApiKey: '',
+  embedApiHeader: 'Authorization',
+  embedPath: '/v1/embeddings',
+  agentRunTimeoutSeconds: 0,
+  streamRunTimeoutSeconds: 0,
+  workflowTimeoutSeconds: 0,
+  blockBinaries: 'rm,sudo,chown,chmod,dd,mkfs,mount,umount',
+  maxCommandSeconds: 30,
+  outputTruncateBytes: 65536,
+  otelServiceName: 'manifold',
+  serviceVersion: '0.1.0',
+  environment: 'dev',
+  otelExporterOtlpEndpoint: 'http://localhost:4318',
+  logPath: '',
+  logLevel: 'info',
+  logPayloads: true,
+  searxngUrl: 'http://localhost:8080',
+  webSearxngUrl: 'http://localhost:8080',
+  databaseUrl: '',
+  dbUrl: '',
+  postgresDsn: '',
+  searchBackend: 'postgres',
+  searchDsn: '',
+  searchIndex: '',
+  vectorBackend: 'postgres',
+  vectorDsn: '',
+  vectorIndex: '',
+  vectorDimensions: 1536,
+  vectorMetric: 'cosine',
+  graphBackend: 'postgres',
+  graphDsn: '',
+}
+
+const agentdSettings = ref<AgentdSettings>({ ...defaultAgentdSettings })
+const agentdLoading = ref(false)
+const agentdSaving = ref(false)
+const agentdLoadError = ref('')
+const agentdSaveError = ref('')
+const agentdSuccess = ref('')
+
+const logLevelOptions = ['trace', 'debug', 'info', 'warn', 'error']
+const vectorMetricOptions = ['cosine', 'dot', 'euclidean']
+
+type NumericSettingKey =
+  | 'summaryThreshold'
+  | 'summaryKeepLast'
+  | 'agentRunTimeoutSeconds'
+  | 'streamRunTimeoutSeconds'
+  | 'workflowTimeoutSeconds'
+  | 'maxCommandSeconds'
+  | 'outputTruncateBytes'
+  | 'vectorDimensions'
+
+type BooleanSettingKey = 'summaryEnabled' | 'logPayloads'
+
+const numericSettingKeys: NumericSettingKey[] = [
+  'summaryThreshold',
+  'summaryKeepLast',
+  'agentRunTimeoutSeconds',
+  'streamRunTimeoutSeconds',
+  'workflowTimeoutSeconds',
+  'maxCommandSeconds',
+  'outputTruncateBytes',
+  'vectorDimensions',
+]
+const booleanSettingKeys: BooleanSettingKey[] = ['summaryEnabled', 'logPayloads']
+
+function toNumber(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function toBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase()
+    if (trimmed === 'true' || trimmed === '1' || trimmed === 'yes') {
+      return true
+    }
+    if (trimmed === 'false' || trimmed === '0' || trimmed === 'no') {
+      return false
+    }
+  }
+  return fallback
+}
+
+function normalizeAgentdSettings(input?: Partial<AgentdSettings>): AgentdSettings {
+  const merged: AgentdSettings = { ...defaultAgentdSettings, ...(input ?? {}) }
+  for (const key of numericSettingKeys) {
+    merged[key] = toNumber(input?.[key], defaultAgentdSettings[key])
+  }
+  for (const key of booleanSettingKeys) {
+    merged[key] = toBoolean(input?.[key], defaultAgentdSettings[key])
+  }
+  return merged
+}
+
+async function loadAgentdSettings() {
+  agentdLoading.value = true
+  agentdLoadError.value = ''
+  try {
+    const data = await fetchAgentdSettings()
+    agentdSettings.value = normalizeAgentdSettings(data)
+  } catch (error: any) {
+    console.warn('Failed to load agentd settings', error)
+    agentdLoadError.value = error?.response?.data ?? 'Unable to load agent configuration'
+    agentdSettings.value = normalizeAgentdSettings(agentdSettings.value)
+  } finally {
+    agentdLoading.value = false
+  }
+}
+
+async function saveAgentdSettings() {
+  if (agentdSaving.value) {
+    return
+  }
+  agentdSaving.value = true
+  agentdSaveError.value = ''
+  agentdSuccess.value = ''
+  try {
+    const payload: AgentdSettings = { ...agentdSettings.value }
+    const saved = await updateAgentdSettings(payload)
+    agentdSettings.value = normalizeAgentdSettings(saved)
+    agentdSuccess.value = 'Saved'
+    window.setTimeout(() => {
+      agentdSuccess.value = ''
+    }, 3000)
+  } catch (error: any) {
+    console.error('Failed to save agentd settings', error)
+    agentdSaveError.value = error?.response?.data ?? 'Save failed'
+  } finally {
+    agentdSaving.value = false
+  }
 }
 
 const themeStore = useThemeStore()
@@ -199,6 +641,7 @@ onMounted(() => {
   } catch (error) {
     console.warn('Unable to parse stored settings', error)
   }
+  loadAgentdSettings()
   // Determine admin by probing a protected admin endpoint indirectly: list users.
   // If it succeeds, current user is authenticated and has access (auth middleware already enforces auth).
   refreshUsers()

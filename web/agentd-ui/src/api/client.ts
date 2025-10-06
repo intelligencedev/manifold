@@ -103,3 +103,66 @@ export async function updateUser(id: number, u: Partial<User>): Promise<User> {
 export async function deleteUser(id: number): Promise<void> {
   await apiClient.delete(`/users/${id}`)
 }
+
+// Agentd configuration ------------------------------------------------------
+
+export interface AgentdSettings {
+  openaiSummaryModel: string
+  openaiSummaryUrl: string
+  summaryEnabled: boolean
+  summaryThreshold: number
+  summaryKeepLast: number
+
+  embedBaseUrl: string
+  embedModel: string
+  embedApiKey: string
+  embedApiHeader: string
+  embedPath: string
+
+  agentRunTimeoutSeconds: number
+  streamRunTimeoutSeconds: number
+  workflowTimeoutSeconds: number
+
+  blockBinaries: string
+  maxCommandSeconds: number
+  outputTruncateBytes: number
+
+  otelServiceName: string
+  serviceVersion: string
+  environment: string
+  otelExporterOtlpEndpoint: string
+
+  logPath: string
+  logLevel: string
+  logPayloads: boolean
+
+  searxngUrl: string
+  webSearxngUrl: string
+
+  databaseUrl: string
+  dbUrl: string
+  postgresDsn: string
+
+  searchBackend: string
+  searchDsn: string
+  searchIndex: string
+
+  vectorBackend: string
+  vectorDsn: string
+  vectorIndex: string
+  vectorDimensions: number
+  vectorMetric: string
+
+  graphBackend: string
+  graphDsn: string
+}
+
+export async function fetchAgentdSettings(): Promise<AgentdSettings> {
+  const { data } = await apiClient.get<AgentdSettings>('/config/agentd')
+  return data
+}
+
+export async function updateAgentdSettings(payload: AgentdSettings): Promise<AgentdSettings> {
+  const { data } = await apiClient.put<AgentdSettings>('/config/agentd', payload)
+  return data
+}

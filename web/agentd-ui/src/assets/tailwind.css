@@ -34,6 +34,38 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+
+  /* Global scrollbar styling (thin, accent-colored, no visible rail) */
+  /* Firefox */
+  * {
+    scrollbar-width: thin; /* thin | auto | none */
+    scrollbar-color: rgb(var(--color-accent) / 0.8) transparent; /* thumb | track */
+  }
+
+  /* WebKit/Blink (Chrome, Edge, Safari) */
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+    background: transparent; /* remove rail */
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent; /* remove rail */
+  }
+  *::-webkit-scrollbar-track-piece {
+    background: transparent; /* remove rail */
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: rgb(var(--color-accent) / 0.75);
+    border-radius: 9999px; /* pill */
+    border: 2px solid transparent; /* creates a thinner visual thumb and separates from content */
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(var(--color-accent) / 0.95);
+  }
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
 }
 
 /* Aperture utilities */

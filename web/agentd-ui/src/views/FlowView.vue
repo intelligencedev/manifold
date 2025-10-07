@@ -225,7 +225,7 @@
                   title="Auto layout (vertical)"
                   @click="onAutoLayout('TB')"
                 >
-                  <LayoutIcon class="h-4 w-4" />
+                  <LayoutIcon class="h-4 w-4 rotate-90" />
                 </button>
                 <button
                   type="button"
@@ -234,7 +234,7 @@
                   title="Auto layout (horizontal)"
                   @click="onAutoLayout('LR')"
                 >
-                  <LayoutIcon class="h-4 w-4 rotate-90" />
+                  <LayoutIcon class="h-4 w-4" />
                 </button>
                 <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
                 <button
@@ -400,7 +400,7 @@ import FullScreenIcon from '@/components/icons/FullScreen.vue'
 import LockedIcon from '@/components/icons/LockedBold.vue'
 import UnlockedIcon from '@/components/icons/UnlockedBold.vue'
 import MapShowIcon from '@/components/icons/MapShow.vue'
-import LayoutIcon from '@/components/icons/LayoutPlaceholder.vue'
+import LayoutIcon from '@/components/icons/FlowLayout.vue'
 import dagre from 'dagre'
 import {
   fetchWarppTools,

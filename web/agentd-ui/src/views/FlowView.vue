@@ -14,35 +14,49 @@
         </select>
       </label>
       <button
-        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80"
+        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
+        title="Create new workflow"
+        aria-label="New workflow"
         @click="onNew"
       >
         New
       </button>
+
       <button
-        class="rounded bg-accent px-3 py-1 text-sm font-medium text-accent-foreground transition disabled:opacity-40"
+        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-accent text-accent-foreground hover:bg-accent/90 plain-link"
         :disabled="!canSave"
+        title="Save workflow"
+        aria-label="Save workflow"
         @click="onSave"
       >
         Save
       </button>
+
       <button
-        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80 disabled:opacity-40"
-        :disabled="!canExport"
-        @click="exportWorkflow"
-      >
-        Export
-      </button>
-      <button
-        class="rounded bg-danger px-3 py-1 text-sm font-medium text-danger-foreground transition hover:bg-danger/90 disabled:opacity-40"
+        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-danger text-danger-foreground hover:bg-danger/90 plain-link"
         :disabled="!canDelete"
+        title="Delete workflow"
+        aria-label="Delete workflow"
         @click="onDelete"
       >
         Delete
       </button>
+
       <button
-        class="rounded bg-primary px-3 py-1 text-sm font-medium text-primary-foreground transition disabled:opacity-40"
+        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
+        :disabled="!canExport"
+        title="Export workflow as JSON"
+        aria-label="Export workflow"
+        @click="exportWorkflow"
+      >
+        Export
+      </button>
+
+      <button
+        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-primary text-primary-foreground hover:bg-primary/90 plain-link"
         :disabled="!canRun"
+        title="Run workflow"
+        aria-label="Run workflow"
         @click="onRun"
       >
         <span v-if="!running">Run</span>
@@ -56,7 +70,7 @@
       </button>
       <button
         v-if="running"
-        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80"
+        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80 plain-link"
         @click="onCancelRun"
       >
         Cancel
@@ -1094,7 +1108,8 @@ function exportWorkflow() {
   )
 
   const ts = new Date().toISOString().replace(/[:]/g, '-')
-  const base = (payload.intent || payload['name'] || 'workflow')
+  // payload may come from older formats that used `name`; assert to any to access safely
+  const base = (payload.intent || (payload as any).name || 'workflow')
   const filename = `${base}-${ts}.json`
 
   const blob = new Blob([json], { type: 'application/json' })
@@ -1147,6 +1162,23 @@ async function onNew() {
   }
 }
 </script>
+
+<style scoped>
+/* Make workflow header buttons appear as plain text links with underline on hover */
+.plain-link {
+  background: none !important;
+  border: none !important;
+  padding: 0 !important;
+  color: inherit !important;
+  font: inherit !important;
+  text-decoration: none !important;
+  cursor: pointer !important;
+}
+.plain-link:hover {
+  text-decoration: underline !important;
+  background: none !important;
+}
+</style>
 
 <style>
 /* ensure flow canvas fills area */

@@ -217,6 +217,26 @@
               <div
                 class="flex items-center gap-1 rounded-md border border-border/70 bg-surface/90 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/75"
               >
+                <!-- Auto layout buttons -->
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  aria-label="Auto layout (vertical)"
+                  title="Auto layout (vertical)"
+                  @click="onAutoLayout('TB')"
+                >
+                  <LayoutIcon class="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  aria-label="Auto layout (horizontal)"
+                  title="Auto layout (horizontal)"
+                  @click="onAutoLayout('LR')"
+                >
+                  <LayoutIcon class="h-4 w-4 rotate-90" />
+                </button>
+                <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
                 <button
                   type="button"
                   class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -368,7 +388,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
-import { VueFlow, type Edge, type Node, useVueFlow, type Connection, Panel } from '@vue-flow/core'
+import { VueFlow, type Edge, type Node, useVueFlow, type Connection, Panel, type GraphNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
 
@@ -380,6 +400,8 @@ import FullScreenIcon from '@/components/icons/FullScreen.vue'
 import LockedIcon from '@/components/icons/LockedBold.vue'
 import UnlockedIcon from '@/components/icons/UnlockedBold.vue'
 import MapShowIcon from '@/components/icons/MapShow.vue'
+import LayoutIcon from '@/components/icons/LayoutPlaceholder.vue'
+import dagre from 'dagre'
 import {
   fetchWarppTools,
   fetchWarppWorkflow,
@@ -400,6 +422,11 @@ const DEFAULT_LAYOUT_START_X = 140
 const DEFAULT_LAYOUT_START_Y = 160
 const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320
 const UTILITY_TOOL_PREFIX = 'utility_'
+
+// Dagre layout sizing
+// Use measured node sizes when available; these are fallbacks when not yet measured
+const DAGRE_NODE_BASE_WIDTH = 280
+const DAGRE_NODE_BASE_HEIGHT = 120
 
 const nodeTypes = { warppStep: WarppStepNode, warppUtility: WarppUtilityNode }
 
@@ -529,6 +556,51 @@ async function scheduleFitView() {
 }
 function toggleNodeLock() {
   nodesLocked.value = !nodesLocked.value
+}
+
+type DagreDirection = 'TB' | 'LR'
+
+function onAutoLayout(direction: DagreDirection) {
+  // Build dagre graph
+  const g = new dagre.graphlib.Graph()
+  // Slightly increase separations to account for handles/margins
+  g.setGraph({ rankdir: direction, nodesep: 60, ranksep: 80, marginx: 24, marginy: 24 })
+  g.setDefaultEdgeLabel(() => ({}))
+
+  // Add nodes with measured sizes (fallback to base) to avoid overlaps
+  for (const n of nodes.value) {
+    const dims = (n as unknown as GraphNode).dimensions
+    const w = (dims && Number(dims.width)) || DAGRE_NODE_BASE_WIDTH
+    const h = (dims && Number(dims.height)) || DAGRE_NODE_BASE_HEIGHT
+    g.setNode(n.id, { width: w, height: h })
+  }
+  // Add edges for dependencies
+  for (const e of edges.value) {
+    g.setEdge(e.source, e.target)
+  }
+
+  try {
+    dagre.layout(g)
+  } catch (e) {
+    console.warn('dagre layout failed', e)
+    return
+  }
+
+  // Map node positions back to VueFlow (dagre gives centers)
+  const positioned = nodes.value.map((n) => {
+    const pos = g.node(n.id) as { x: number; y: number } | undefined
+    if (!pos) return n
+    const dims = (n as unknown as GraphNode).dimensions
+    const w = (dims && Number(dims.width)) || DAGRE_NODE_BASE_WIDTH
+    const h = (dims && Number(dims.height)) || DAGRE_NODE_BASE_HEIGHT
+    const x = pos.x - w / 2
+    const y = pos.y - h / 2
+    return { ...n, position: { x, y } }
+  })
+
+  nodes.value = positioned
+  // Fit view after positioning
+  scheduleFitView()
 }
 
 function isUtilityToolName(name?: string | null): boolean {

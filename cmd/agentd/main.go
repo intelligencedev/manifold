@@ -893,20 +893,24 @@ func main() {
 
 	// Helper to render the main orchestrator as a synthetic specialist for the UI only.
 	orchSpec := func() persist.Specialist {
-		return persist.Specialist{
-			ID:              0,
-			Name:            "orchestrator",
-			BaseURL:         cfg.OpenAI.BaseURL,
-			APIKey:          cfg.OpenAI.APIKey,
-			Model:           cfg.OpenAI.Model,
-			EnableTools:     cfg.EnableTools,
-			Paused:          false,
-			AllowTools:      cfg.ToolAllowList,
-			ReasoningEffort: "",
-			System:          cfg.SystemPrompt,
-			ExtraHeaders:    cfg.OpenAI.ExtraHeaders,
-			ExtraParams:     cfg.OpenAI.ExtraParams,
+		// Populate from live cfg and overlay persisted ReasoningEffort if present
+		out := persist.Specialist{
+			ID:           0,
+			Name:         "orchestrator",
+			BaseURL:      cfg.OpenAI.BaseURL,
+			APIKey:       cfg.OpenAI.APIKey,
+			Model:        cfg.OpenAI.Model,
+			EnableTools:  cfg.EnableTools,
+			Paused:       false,
+			AllowTools:   cfg.ToolAllowList,
+			System:       cfg.SystemPrompt,
+			ExtraHeaders: cfg.OpenAI.ExtraHeaders,
+			ExtraParams:  cfg.OpenAI.ExtraParams,
 		}
+		if sp, ok, _ := specStore.GetByName(context.Background(), "orchestrator"); ok {
+			out.ReasoningEffort = sp.ReasoningEffort
+		}
+		return out
 	}
 
 	// Status endpoint: reflect specialists as agents for UI

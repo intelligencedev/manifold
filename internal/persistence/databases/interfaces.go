@@ -57,6 +57,7 @@ type Manager struct {
 	Graph      GraphDB
 	Chat       persistence.ChatStore
 	Playground *PlaygroundStore
+	Warpp      persistence.WarppWorkflowStore
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.

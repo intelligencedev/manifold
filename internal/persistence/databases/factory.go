@@ -137,6 +137,14 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 		m.Chat = newMemoryChatStore()
 	}
 
+	// WARPP workflow persistence: prefer Postgres when a default DSN is configured.
+	if cfg.DefaultDSN != "" {
+		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
+			m.Warpp = NewPostgresWarppStore(p)
+			_ = m.Warpp.Init(ctx)
+		}
+	}
+
 	playgroundDSN := firstNonEmpty(chatDSN, cfg.DefaultDSN)
 	if playgroundDSN != "" {
 		store, err := NewPlaygroundStoreFromDSN(ctx, playgroundDSN)

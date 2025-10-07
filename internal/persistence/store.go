@@ -67,3 +67,26 @@ type ChatStore interface {
 	AppendMessages(ctx context.Context, sessionID string, messages []ChatMessage, preview string, model string) error
 	UpdateSummary(ctx context.Context, sessionID string, summary string, summarizedCount int) error
 }
+
+// WarppWorkflow is a minimal persistence representation of a WARPP workflow.
+// It mirrors internal/warpp.Workflow but uses flexible types for nested fields
+// to avoid import cycles.
+type WarppWorkflow struct {
+	Intent         string           `json:"intent"`
+	Description    string           `json:"description"`
+	Keywords       []string         `json:"keywords"`
+	Steps          []map[string]any `json:"steps"`
+	UI             map[string]any   `json:"ui,omitempty"`
+	MaxConcurrency int              `json:"max_concurrency,omitempty"`
+	FailFast       bool             `json:"fail_fast,omitempty"`
+}
+
+// WarppWorkflowStore persists WARPP workflows by intent.
+type WarppWorkflowStore interface {
+	Init(ctx context.Context) error
+	List(ctx context.Context) ([]any, error) // deprecated; use ListWorkflows
+	ListWorkflows(ctx context.Context) ([]WarppWorkflow, error)
+	Get(ctx context.Context, intent string) (WarppWorkflow, bool, error)
+	Upsert(ctx context.Context, wf WarppWorkflow) (WarppWorkflow, error)
+	Delete(ctx context.Context, intent string) error
+}

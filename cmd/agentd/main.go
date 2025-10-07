@@ -36,6 +36,7 @@ import (
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
+	persistdb "manifold/internal/persistence/databases"
 	"manifold/internal/playground"
 	"manifold/internal/playground/artifacts"
 	"manifold/internal/playground/dataset"
@@ -279,13 +280,44 @@ func main() {
 	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
 	cancelInit()
 
-	// WARPP runner for workflow execution
-	workflowDir := "configs/workflows"
-	wfreg, err := warpp.LoadFromDir(workflowDir)
-	if err != nil {
-		log.Warn().Err(err).Str("dir", workflowDir).Msg("failed to load workflows, using defaults")
-	}
+	// WARPP runner with Postgres-backed persistence (no filesystem writes)
+	workflowDir := "configs/workflows" // read-only seed directory
 	var warppMu sync.RWMutex
+	var wfreg *warpp.Registry
+	var wfStore persist.WarppWorkflowStore
+	{
+		// Initialize store: Postgres if configured, else in-memory fallback.
+		if cfg.Databases.DefaultDSN != "" {
+			if p, errPool := databasesTestPool(context.Background(), cfg.Databases.DefaultDSN); errPool == nil {
+				wfStore = persistdb.NewPostgresWarppStore(p)
+			}
+		}
+		if wfStore == nil {
+			wfStore = persistdb.NewPostgresWarppStore(nil)
+		}
+		_ = wfStore.Init(context.Background())
+
+		// Load from store; seed from defaults if empty
+		if list, err := wfStore.ListWorkflows(context.Background()); err == nil && len(list) > 0 {
+			wfreg = &warpp.Registry{}
+			for _, pw := range list {
+				b, _ := json.Marshal(pw)
+				var w warpp.Workflow
+				if err := json.Unmarshal(b, &w); err == nil {
+					wfreg.Upsert(w, "")
+				}
+			}
+		} else {
+			wfreg, _ = warpp.LoadFromDir(workflowDir)
+			for _, w := range wfreg.All() {
+				b, _ := json.Marshal(w)
+				var pw persist.WarppWorkflow
+				if err := json.Unmarshal(b, &pw); err == nil {
+					_, _ = wfStore.Upsert(context.Background(), pw)
+				}
+			}
+		}
+	}
 	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: toolRegistry}
 
 	eng := &agent.Engine{
@@ -1303,38 +1335,56 @@ func main() {
 					return
 				}
 			}
-			warppMu.Lock()
-			existingPath := ""
-			if wfreg != nil {
-				existingPath = wfreg.Path(intent)
+			// Persist to DB-backed store (no filesystem writes)
+			_, existed, _ := wfStore.Get(r.Context(), intent)
+			var pw persist.WarppWorkflow
+			if b, err := json.Marshal(wf); err == nil {
+				_ = json.Unmarshal(b, &pw)
 			}
-			var saveErr error
-			var path string
-			if existingPath != "" {
-				saveErr = warpp.SaveWorkflowToPath(existingPath, wf)
-				path = existingPath
-			}
-			if saveErr != nil || existingPath == "" {
-				path, saveErr = warpp.SaveWorkflow(workflowDir, wf)
-			}
-			if saveErr != nil {
-				warppMu.Unlock()
+			if _, err := wfStore.Upsert(r.Context(), pw); err != nil {
 				http.Error(w, "failed to save workflow", http.StatusInternalServerError)
 				return
 			}
+			// Update in-memory registry
+			warppMu.Lock()
 			if wfreg == nil {
 				wfreg = &warpp.Registry{}
 			}
-			wfreg.Upsert(wf, path)
+			wfreg.Upsert(wf, "")
 			warppRunner.Workflows = wfreg
 			warppMu.Unlock()
 			status := http.StatusOK
-			if existingPath == "" {
+			if !existed {
 				status = http.StatusCreated
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(status)
 			json.NewEncoder(w).Encode(wf)
+		case http.MethodDelete:
+			// Admin-only when auth enabled
+			if cfg.Auth.Enabled {
+				if u, ok := auth.CurrentUser(r.Context()); ok {
+					okRole, err := authStore.HasRole(r.Context(), u.ID, "admin")
+					if err != nil || !okRole {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+				} else {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+			if err := wfStore.Delete(r.Context(), intent); err != nil {
+				http.Error(w, "failed to delete", http.StatusInternalServerError)
+				return
+			}
+			warppMu.Lock()
+			if wfreg != nil {
+				wfreg.Remove(intent)
+				warppRunner.Workflows = wfreg
+			}
+			warppMu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}

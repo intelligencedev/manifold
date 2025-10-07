@@ -35,6 +35,16 @@ export async function saveWarppWorkflow(workflow: WarppWorkflow): Promise<WarppW
   return handleResponse<WarppWorkflow>(resp)
 }
 
+export async function deleteWarppWorkflow(intent: string): Promise<void> {
+  const resp = await fetch(`${apiBase}/workflows/${encodeURIComponent(intent)}`, {
+    method: 'DELETE',
+  })
+  if (!resp.ok) {
+    const text = await resp.text()
+    throw new Error(text || `request failed (${resp.status})`)
+  }
+}
+
 export interface WarppRunResponse {
   result: string
   trace: WarppStepTrace[]

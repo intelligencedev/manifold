@@ -27,6 +27,20 @@
         Save
       </button>
       <button
+        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80 disabled:opacity-40"
+        :disabled="!canExport"
+        @click="exportWorkflow"
+      >
+        Export
+      </button>
+      <button
+        class="rounded bg-danger px-3 py-1 text-sm font-medium text-danger-foreground transition hover:bg-danger/90 disabled:opacity-40"
+        :disabled="!canDelete"
+        @click="onDelete"
+      >
+        Delete
+      </button>
+      <button
         class="rounded bg-primary px-3 py-1 text-sm font-medium text-primary-foreground transition disabled:opacity-40"
         :disabled="!canRun"
         @click="onRun"
@@ -357,6 +371,7 @@ import {
   fetchWarppWorkflow,
   fetchWarppWorkflows,
   saveWarppWorkflow,
+  deleteWarppWorkflow,
   runWarppWorkflow,
 } from '@/api/warpp'
 import type { WarppStep, WarppTool, WarppWorkflow, WarppStepTrace } from '@/types/warpp'
@@ -463,6 +478,8 @@ const modalStatusLabel = computed(() => {
 
 const canSave = computed(() => !!activeWorkflow.value && !saving.value && dirty.value)
 const canRun = computed(() => !!activeWorkflow.value && !saving.value && !running.value && nodes.value.length > 0)
+const canExport = computed(() => !!activeWorkflow.value)
+const canDelete = computed(() => !!activeWorkflow.value && !saving.value && !running.value)
 
 // Node lock state: when true, nodes cannot be dragged
 const nodesLocked = ref(false)
@@ -1010,6 +1027,85 @@ function onCancelRun() {
   if (running.value && runAbort) {
     runAbort.abort()
   }
+}
+
+async function onDelete() {
+  if (!activeWorkflow.value) return
+  const intent = activeWorkflow.value.intent
+  const confirmed = window.confirm(`Delete workflow "${intent}"? This cannot be undone.`)
+  if (!confirmed) return
+  try {
+    await deleteWarppWorkflow(intent)
+    // Remove from local list/maps and reset selection
+    localWorkflows.value.delete(intent)
+    const idx = workflowList.value.findIndex(w => w.intent === intent)
+    if (idx !== -1) workflowList.value.splice(idx, 1)
+    if (selectedIntent.value === intent) {
+      selectedIntent.value = workflowList.value[0]?.intent ?? ''
+    }
+    activeWorkflow.value = null
+    nodes.value = []
+    edges.value = []
+    dirty.value = false
+  } catch (err: any) {
+    alert(err?.message ?? 'Failed to delete workflow')
+  }
+}
+
+function exportWorkflow() {
+  if (!activeWorkflow.value) return
+  // Build latest payload mirroring save logic (without network)
+  const orderedNodes = [...nodes.value].sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
+  const incoming: Record<string, string[]> = {}
+  for (const e of edges.value) {
+    if (!incoming[e.target]) incoming[e.target] = []
+    incoming[e.target].push(e.source)
+  }
+  const steps = orderedNodes.map((node) => {
+    const step = { ...(node.data?.step ?? ({} as WarppStep)) }
+    step.id = node.id
+    step.depends_on = (incoming[node.id] ?? []).slice()
+    return step as WarppStep
+  })
+  const layout: LayoutMap = {}
+  orderedNodes.forEach((node) => {
+    const pos = node.position ?? { x: 0, y: 0 }
+    layout[node.id] = { x: pos.x, y: pos.y }
+  })
+  const payload: WarppWorkflow = {
+    ...activeWorkflow.value,
+    steps,
+    ui: { ...(activeWorkflow.value.ui ?? {}), layout },
+  }
+
+  // Safe stringify with cycle protection and function stripping
+  const seen = new WeakSet()
+  const json = JSON.stringify(
+    payload,
+    (_k, val) => {
+      if (typeof val === 'function' || typeof val === 'symbol') return undefined
+      if (val && typeof val === 'object') {
+        if (seen.has(val)) return undefined
+        seen.add(val)
+      }
+      return val
+    },
+    2,
+  )
+
+  const ts = new Date().toISOString().replace(/[:]/g, '-')
+  const base = (payload.intent || payload['name'] || 'workflow')
+  const filename = `${base}-${ts}.json`
+
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 function normalizeIntent(input: string): string {

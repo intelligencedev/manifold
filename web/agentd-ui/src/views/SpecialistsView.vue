@@ -25,7 +25,7 @@
             <tbody>
               <tr v-for="s in specialists" :key="s.name" class="border-t border-border/50">
                 <td class="py-1 font-medium" :title="s.name">{{ truncateName(s.name) }}</td>
-                <td class="py-1">{{ s.model }}</td>
+                <td class="py-1" :title="s.model">{{ truncateModel(s.model) }}</td>
                 <td class="py-1">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
                 <td class="py-1 text-right">
                   <div class="inline-flex items-center gap-2">
@@ -204,6 +204,12 @@ import SolarPlay from '@/components/icons/SolarPlay.vue'
 
 // Helper to truncate long specialist names for the list view
 function truncateName(name: string) {
+  if (!name) return ''
+  return name.length > 15 ? `${name.slice(0, 15)}…` : name
+}
+
+// Truncate model names longer than 15 characters for display in the list
+function truncateModel(name: string) {
   if (!name) return ''
   return name.length > 15 ? `${name.slice(0, 15)}…` : name
 }

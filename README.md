@@ -94,16 +94,3 @@ Contributions are welcome! Please:
 2. Fork the repo and create a feature branch
 3. Follow existing code style and add tests
 4. Submit a pull request with clear description
-
-## License
-
-### ⚠️ License: To Be Determined (TBD)
-
-This project does not currently have a license. Until a license is chosen and published:
-
-- **No rights are granted** to use, copy, modify, or distribute this software
-- Only the repository owner and authorized contributors may work with this code
-- If you wish to use this software, please contact the repository owner for permission
-- Commercial or production use is not permitted without explicit written permission
-
-We are currently evaluating licensing options. A license will be added in the future to clarify usage rights and restrictions.

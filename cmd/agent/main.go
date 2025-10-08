@@ -145,7 +145,7 @@ func main() {
 
 	// WARPP mode: run the WARPP workflow executor instead of the LLM loop
 	if *warppFlag {
-		wfreg, _ := warpp.LoadFromDir("configs/workflows")
+		wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp)
 		runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()

@@ -1,12 +1,15 @@
 package warpp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	persist "manifold/internal/persistence"
 )
 
 // Registry provides access to workflows by intent.
@@ -256,4 +259,46 @@ func ValidateWorkflow(w Workflow) error {
 		return errors.New("workflow has a cycle or unreachable dependency")
 	}
 	return nil
+}
+
+// LoadFromStore loads workflows from a persistence.WarppWorkflowStore. If the
+// provided store is nil or an error occurs, the registry will fall back to the
+// built-in defaults.
+func LoadFromStore(ctx context.Context, store persist.WarppWorkflowStore) (*Registry, error) {
+	r := &Registry{byIntent: map[string]Workflow{}, pathByIntent: map[string]string{}}
+	if store == nil {
+		// seed defaults
+		for _, w := range defaultWorkflows() {
+			r.byIntent[w.Intent] = w
+		}
+		return r, nil
+	}
+	// best-effort init
+	_ = store.Init(ctx)
+	wfs, err := store.ListWorkflows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, pw := range wfs {
+		b, err := json.Marshal(pw)
+		if err != nil {
+			continue
+		}
+		var w Workflow
+		if err := json.Unmarshal(b, &w); err != nil {
+			continue
+		}
+		if err := ValidateWorkflow(w); err != nil {
+			continue
+		}
+		if w.Intent != "" {
+			r.byIntent[w.Intent] = w
+		}
+	}
+	if len(r.byIntent) == 0 {
+		for _, w := range defaultWorkflows() {
+			r.byIntent[w.Intent] = w
+		}
+	}
+	return r, nil
 }

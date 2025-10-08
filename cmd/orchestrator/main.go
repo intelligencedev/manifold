@@ -189,7 +189,7 @@ func main() {
 	_ = mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP)
 	cancelInit()
 
-	wfreg, _ := warpp.LoadFromDir("configs/workflows")
+	wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp)
 	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 	// adapter to satisfy orchestrator.Runner
 	runner := orchestrator.NewWarppAdapter(warppRunner)

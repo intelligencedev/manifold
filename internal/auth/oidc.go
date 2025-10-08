@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"net/url"
+	"sort"
 	"strings"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
@@ -33,6 +34,13 @@ type Claims struct {
 	Name    string `json:"name"`
 	Picture string `json:"picture"`
 	// 'sub' provided by oidc.Verifier extraction
+	RealmAccess struct {
+		Roles []string `json:"roles"`
+	} `json:"realm_access"`
+	ResourceAccess map[string]struct {
+		Roles []string `json:"roles"`
+	} `json:"resource_access"`
+	Groups []string `json:"groups"`
 }
 
 func NewOIDC(ctx context.Context, issuer, clientID, clientSecret, redirectURL string, store *Store, cookieName string, allowedDomains []string, stateTTLSeconds int, tempCookieSecure bool) (*OIDC, error) {
@@ -133,8 +141,14 @@ func (o *OIDC) CallbackHandler(cookieSecure bool, cookieDomain string) http.Hand
 			http.Error(w, "user upsert", http.StatusInternalServerError)
 			return
 		}
-		// Assign default role 'user'
-		_ = o.Store.AddRole(ctx, u.ID, "user")
+		roles := rolesFromClaims(c)
+		if len(roles) == 0 {
+			roles = []string{"user"}
+		}
+		if err := o.Store.SetUserRoles(ctx, u.ID, roles); err != nil {
+			http.Error(w, "role sync", http.StatusInternalServerError)
+			return
+		}
 		sess, err := o.Store.CreateSession(ctx, u.ID)
 		if err != nil {
 			http.Error(w, "session create", http.StatusInternalServerError)
@@ -215,6 +229,47 @@ func (o *OIDC) LogoutHandler(cookieSecure bool, cookieDomain string) http.Handle
 		kcLogout := logoutBase + "?" + q.Encode()
 		http.Redirect(w, r, kcLogout, http.StatusFound)
 	}
+}
+
+func rolesFromClaims(c Claims) []string {
+	roles := map[string]struct{}{"user": {}}
+	if claimsContain(c, "admin") {
+		roles["admin"] = struct{}{}
+	}
+	out := make([]string, 0, len(roles))
+	for role := range roles {
+		out = append(out, role)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeRoleName(raw string) string {
+	name := strings.TrimSpace(raw)
+	name = strings.TrimPrefix(name, "/")
+	return strings.ToLower(name)
+}
+
+func claimsContain(c Claims, want string) bool {
+	w := normalizeRoleName(want)
+	for _, role := range c.RealmAccess.Roles {
+		if normalizeRoleName(role) == w {
+			return true
+		}
+	}
+	for _, entry := range c.ResourceAccess {
+		for _, role := range entry.Roles {
+			if normalizeRoleName(role) == w {
+				return true
+			}
+		}
+	}
+	for _, g := range c.Groups {
+		if normalizeRoleName(g) == w {
+			return true
+		}
+	}
+	return false
 }
 
 // MeHandler returns basic info about the current user.

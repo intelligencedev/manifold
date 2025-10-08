@@ -23,9 +23,6 @@ auth:
   clientSecret: dev-agentd-secret
   redirectURL: "http://localhost:32180/auth/callback"
   cookieSecure: false # dev over HTTP
-
-databases:
-  defaultDSN: "postgres://singularityio:singularityio@localhost:5433/singularityio?sslmode=disable"
 ```
 
 Then run the app and visit <http://localhost:32180/> — you should be redirected to Keycloak and returned after login.

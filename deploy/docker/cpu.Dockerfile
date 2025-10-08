@@ -35,7 +35,7 @@ COPY . .
 
 # Ensure whisper.cpp submodule is present (fallback clone if missing)
 RUN set -e; \
-    git config --global url."https:/github.com/".insteadOf "git@github.com:"; \
+    git config --global url."https://github.com/".insteadOf "git@github.com:"; \
     if [ ! -f external/whisper.cpp/CMakeLists.txt ]; then \
         echo "Initializing whisper.cpp submodule..."; \
         (git submodule update --init --recursive || true); \
@@ -43,7 +43,7 @@ RUN set -e; \
     if [ ! -f external/whisper.cpp/CMakeLists.txt ]; then \
         echo "Submodule missing; shallow clone whisper.cpp"; \
         rm -rf external/whisper.cpp; \
-        git clone --depth 1 https:/github.com/ggerganov/whisper.cpp.git external/whisper.cpp; \
+        git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git external/whisper.cpp; \
     fi
 
 # Build frontend assets and embed

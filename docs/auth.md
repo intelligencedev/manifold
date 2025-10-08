@@ -83,7 +83,7 @@ All API routes are protected when Auth is enabled. The UI assets redirect unauth
 
 ## RBAC
 
-Seed roles `admin` and `user` are created automatically. The callback assigns `user` by default. You can elevate users **after the user has logged in at least once** (so a row exists in `users`). Use:
+Seed roles `admin` and `user` are created automatically. The OIDC callback always grants `user` and promotes to `admin` when the identity provider asserts that role (either as a realm role or a group named `admin`). For other roles you can still elevate users **after the user has logged in at least once** (so a row exists in `users`). Use:
 
 ```sql
 INSERT INTO user_roles(user_id, role_id)
@@ -108,3 +108,4 @@ Then wrap sensitive routes with `auth.RequireRoles(store, "admin")` (or explicit
 - Logout: always a top-level navigation so browser follows IdP redirect chain; avoids stale SSO sessions.
 - Allowed domains (optional): restrict initial login population by email domain.
 - Chat history endpoints (`/api/chat/sessions*`) now scope results to the authenticated user. Admins continue to see all conversations, while standard users are limited to their own session IDs.
+- OIDC logins synchronise the `admin` role automatically; users must log out and back in for role changes at the identity provider to take effect. Ensure your IdP includes realm roles or groups in the ID token (e.g. in Keycloak add a group/role mapper to the `agentd` client) so the callback can observe them.

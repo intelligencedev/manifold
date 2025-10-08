@@ -1,220 +1,59 @@
-openai:
-  # Which API to use for inference against an OpenAI-compatible service.
-  # Valid options: "completions" (default) or "responses".
-  # You can also set via environment variable OPENAI_API.
-  api: completions
-  # Optional: override the API base URL; leave unset for api.openai.com
-  # baseURL: "https://api.openai.com/v1"
-  # Optional: use a different endpoint for summarisation requests
-  # summaryBaseURL: "https://api.openai.com/v1"
-  # Default model for the main agent
-  # model: gpt-4o-mini
-  # Optional: choose a lighter model for summarisation
-  # summaryModel: gpt-4o-mini
-  # Optional: request-wide headers for the main agent. These headers will be
-  # sent on every request to the LLM provider when the agent invokes it.
-  # Example: { X-App-Tenant: example }
-  extraHeaders:
-    # X-App-Tenant: example
-  # Optional: extra parameters merged into main agent chat completions. Use
-  # vendor-specific fields here when needed (temperature, max_tokens, etc.).
-  extraParams:
-    # temperature: 0.2
-    # max_tokens: 2000
-    parallel_tool_calls: true
-  prompt_cache_key: manifold-
-
-# Text-to-Speech (TTS) defaults. Can be overridden via environment variables:
-# TTS_BASE_URL, TTS_MODEL, TTS_VOICE
-tts:
-  # Optional base URL for TTS endpoint. Requests will be sent to
-  # ${baseURL}/v1/audio/speech
-  baseURL: "https://api.openai.com"
-  # Default TTS model
-  model: gpt-4o-mini-tts
-  # Default voice name (gateway-specific; optional)
-  voice: alloy
-
-# Enable or disable tool usage at the top level. When true, registered tools
-# will be exposed to the main orchestrator.
-enableTools: true
-
-# Optional: top-level allow list of tool names to expose to the main
-# orchestrator agent. If omitted or empty, all registered tools will be
-# exposed.
-# allowTools:
-#   - run_cli
-#   - web_search
-#   - web_fetch
-#   - write_file
-#   - llm_transform
-
-# Optional rolling summarization settings. Enable to keep prompt size bounded
-# by summarizing older conversation turns into a short summary message.
-summaryEnabled: false
-summaryThreshold: 40
-summaryKeepLast: 12
-
-# Maximum number of reasoning steps the agent can take (default: 8)
-# Can be overridden via MAX_STEPS environment variable
-maxSteps: 8
-
-databases:
-  search:
-    backend: postgres   # memory | postgres
-    dsn: ""           # optional connection string/URL
-  vector:
-    backend: postgres   # memory | postgres
-    dsn: ""
-    dimensions: 1536  # optional; for validation in some backends
-    metric: cosine    # optional; cosine | dot | l2 (backend‑specific)
-  graph:
-    backend: postgres   # memory | postgres
-    dsn: ""
-  chat:
-    backend: postgres   # memory | postgres
-    dsn: ""          # uses databases.defaultDSN when empty
-
-systemPrompt: |
-  You are a state of the art intelligence capable of solving all objectives. You work carefully, step by step, ensuring to adapt as
-  necessary to accomplish tasks. You have a team of capable specialists available that can assist you.
-
-  You never require confirmation. Always proceed with the next step until succesful objective completion.
-
-  Rules:
-  - If specialists are available, use them.
-  - You are allowed to adapt as the situation changes, always choose the path that increases the probability of success.
-  - Don't give up too easily. You have a CLI available. Think of how you can solve a problem using CLI commands.
-  - Never assume you have a shell; you cannot use pipelines or redirects. Use command + args only.
-  - Treat any path-like argument as relative to the locked working directory.
-  - Never use absolute paths or attempt to escape the working directory.
-  - Prefer short, deterministic commands (avoid interactive prompts).
-
-  Coding:
-  - NEVER make git commits, clone, push or pull without explicitly being asked by the user.
-
-# Global settings (can be overridden via env)
-workdir: "." #"/Users/art/Documents/code/recordedfuture-mcp-server" #/Users/art/Documents/code/projects/world
-workdirs:
-  - /Users/art/Documents/code/projects/world
-  - /Users/art/Documents/code/recordedfuture-mcp-server
-# Enable verbose logging of request/response payloads (redacted). When true,
-# the agent will log prompts and LLM responses (sensitive fields redacted).
-# This can be noisy; prefer enabling only for debugging.
-logPayloads: false
-
-# Maximum number of bytes to keep when logging large outputs/payloads. If a
-# redacted prompt or response exceeds this size it will be truncated to a
-# small preview. Set to 0 to disable truncation (not recommended).
-outputTruncateByte: 65536
-exec:
-  blockBinaries: ["rm", "sudo", "chown", "chmod", "dd", "mkfs", "mount", "umount"]
-  maxCommandSeconds: 30
-obs:
-  serviceName: manifold
-  environment: dev
-  otlp: otel-collector.signoz.orb.local:4318
-web:
-  searXNGURL: http://searxng.searxng-docker.orb.local
-
-specialists:
-  - name: software_engineer
-    baseURL: "https://api.openai.com/v1"
-    # Per-specialist override. Valid values: completions | responses
-    api: responses
-    apiKey: ${OPENAI_API_KEY}
-    model: gpt-5
-    enableTools: true
-    reasoningEffort: high
-    # OPTIONAL: per-specialist allow list — recommend adding this field if not present
-    allowTools:
-      - run_cli
-      - web_search
-      - write_file
-    system: |
-      You are a skilled software engineer. Write clean, efficient, and maintainable code using the best practices for the 
-      language you are using. You have access to tools and should use them.
-
-      Rules:
-      - NEVER make git commits, clone, push or pull without explicitly being asked by the user.
-
-routes:
-  # Example routes map natural language to a named specialist. `contains` is a
-  # list of substrings and `regex` is a list of regex patterns (strings).
-  - name: swe
-    contains: ["refactor", "code", "lint"]
-    regex: ["(?i)write a program"]
-  - name: web-designer
-    contains: ["frontend"]
-  - name: planner
-    contains: ["plan", "roadmap", "brainstorm"]
-    regex: ["(?i)how do i achieve", "(?i)create a plan", "(?i)step by step"]
-
-  # Trigger route for listing files using the filesystem MCP specialist
-  - name: filesystem_command_executor
-    contains: ["list files", "ls", "dir", "list directory", "show files"]
-    regex: ["(?i)list\\s+files", "(?i)show\\s+files", "(?i)list\\s+directory"]
-
-# MCP servers provide additional tools via the Model Context Protocol (MCP).
-# Each server runs as a subprocess (or container) and exposes tools that will
-# be appended to the agent's tool registry on startup.
-mcp:
-  servers:
-  # Example of a playwright MCP server (commented out by default):
-  # - name: playwright
-  #   command: npx
-  #   args:
-  #     - '@playwright/mcp@latest'
-  #   keepAliveSeconds: 30
-
-  # Database-expert example (showing how to pass a DSN to the server):
-  # - name: database_expert
-  #   command: docker
-  #   args:
-  #     - run
-  #     - -i
-  #     - --rm
-  #     - mcp/postgres
-  #     - "postgres://intelligence_dev:intelligence_dev@intelligence-dev-postgres.orb.local:5432/intelligence_dev?sslmode=disable"
-  #   keepAliveSeconds: 30
-
-routes:
-  # Additional route examples can be appended here. See above `routes` block for
-  # a primary mapping used by the orchestrator.
-
-# Additional notes:
-# - Use environment-variable interpolation (e.g., ${OPENAI_API_KEY}) for
-#   secrets and keys. The loader will typically look in both env and the YAML.
-# - Complex nested structures (specialists, mcp.servers) are easier to author
-#   in YAML than via environment variables. Use `example.env` for quick overrides.
-
-
-
-# Web UI configuration for the embedded web server
-webui:
-  # Host and port the web UI binds to (overridable via WEB_UI_HOST / WEB_UI_PORT env vars)
-  host: "0.0.0.0"
-  port: 8081
-  # Backend endpoint to forward prompt submissions to. Should accept POST with JSON {"prompt":"..."}
-  backendURL: "http:/localhost:32180/agent/run"
-
-# Runtime timeout controls (seconds)
-# Set to 0 to disable global deadline (recommended for long-running agents with per-tool limits):
-agentRunTimeoutSeconds: 0
-streamRunTimeoutSeconds: 0
-workflowTimeoutSeconds: 0
-
 # Authentication (OIDC) — optional
 auth:
   enabled: false
   provider: oidc
-  issuerURL: "https://accounts.google.com"
-  clientID: ${OIDC_CLIENT_ID}
-  clientSecret: ${OIDC_CLIENT_SECRET}
+  issuerURL: "http://localhost:8083/realms/manifold"
+  clientID: agentd
+  clientSecret: ...
   redirectURL: "http://localhost:32180/auth/callback"
-  allowedDomains: ["example.com"]
-  cookieName: "sio_session"
+  allowedDomains: []
+  cookieName: "manifold_session"
   cookieSecure: false # set true in production (HTTPS)
   cookieDomain: ""
   stateTTLSeconds: 600
   sessionTTLHours: 72
+
+openai:
+  api: completions
+  # Optional: request-wide headers for the main agent
+  # extraHeaders:
+  #   X-App-Tenant: example
+  extraParams:
+    parallel_tool_calls: true
+    prompt_cache_key: manifold-
+    reasoning_effort: medium
+
+databases:
+  defaultDSN: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+  chat:
+    backend: postgres  # memory | auto | postgres
+    dsn: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+  search:
+    backend: postgres   # memory | postgres
+    dsn: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+  vector:
+    backend: postgres   # memory | postgres
+    dsn: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+    #dimensions: 1536  # optional; for validation in some backends
+    metric: cosine    # optional; cosine | dot | l2 (backend‑specific)
+  graph:
+    backend: postgres   # memory | postgres
+    dsn: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+
+mcp:
+  servers:
+  - name: sequentialthinking
+    command: docker
+    args:
+    - run
+    - -i
+    - --rm
+    - mcp/sequentialthinking
+
+  - name: duckduckgo
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - mcp/duckduckgo

@@ -12,6 +12,7 @@ store records only the user prompt and the final assistant response for each
 turn. Per session we persist:
 
 - `chat_sessions` table
+  - `user_id`: owner of the session; `NULL` indicates a system-owned/admin conversation
   - `summary`: running synopsis used as prior context
   - `summarized_count`: number of messages covered by the summary
 - `chat_messages` table: individual user/assistant messages (no tool chatter,
@@ -68,6 +69,10 @@ messages verbatim.
 - The `/api/chat/sessions` endpoints expose the `summary` and
   `summarizedCount` fields for debugging; the web UI can decide whether to show
   them.
+- Multi-tenant access control is enforced end-to-end. Every persistence call
+  carries the authenticated user ID (or `nil` for administrators), ensuring
+  that non-admin users can only read and mutate their own sessions while
+  privileged roles may enumerate all conversations.
 
 With this pipeline the agent keeps memory across restarts while staying inside
 model context limits and avoiding redundant tool chatter in long conversations.

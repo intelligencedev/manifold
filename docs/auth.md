@@ -107,3 +107,4 @@ Then wrap sensitive routes with `auth.RequireRoles(store, "admin")` (or explicit
 - ID token: persisted server-side only (`sessions.id_token`) to support RP-initiated logout; never exposed via API.
 - Logout: always a top-level navigation so browser follows IdP redirect chain; avoids stale SSO sessions.
 - Allowed domains (optional): restrict initial login population by email domain.
+- Chat history endpoints (`/api/chat/sessions*`) now scope results to the authenticated user. Admins continue to see all conversations, while standard users are limited to their own session IDs.

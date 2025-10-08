@@ -35,7 +35,7 @@ services:
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
-    container_name: sio_zookeeper
+    container_name: manifold_zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
@@ -45,7 +45,7 @@ services:
 
   kafka:
     image: confluentinc/cp-kafka:7.4.0
-    container_name: sio_kafka
+    container_name: manifold_kafka
     depends_on:
       - zookeeper
     ports:
@@ -65,7 +65,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: sio_redis
+    container_name: manifold_redis
     ports:
       - "6379:6379"
     command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
@@ -73,7 +73,7 @@ services:
 
   kafdrop:
     image: obsidiandynamics/kafdrop:latest
-    container_name: sio_kafdrop
+    container_name: manifold_kafdrop
     depends_on:
       - kafka
     environment:
@@ -87,7 +87,7 @@ services:
 
   keycloak-db:
     image: postgres:15-alpine
-    container_name: sio_keycloak_db
+    container_name: keycloak_manifold_db
     environment:
       POSTGRES_DB: keycloak
       POSTGRES_USER: keycloak
@@ -103,7 +103,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0.2
-    container_name: sio_keycloak
+    container_name: keycloak_manifold
     depends_on:
       keycloak-db:
         condition: service_healthy

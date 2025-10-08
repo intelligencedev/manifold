@@ -2,7 +2,15 @@ package persistence
 
 import (
 	"context"
+	"errors"
 	"time"
+)
+
+var (
+	// ErrNotFound indicates the requested record does not exist.
+	ErrNotFound = errors.New("persistence: not found")
+	// ErrForbidden indicates the caller is not authorized to access the record.
+	ErrForbidden = errors.New("persistence: forbidden")
 )
 
 // Store is a placeholder for transcripts/state persistence.
@@ -37,6 +45,7 @@ type SpecialistsStore interface {
 type ChatSession struct {
 	ID                 string    `json:"id"`
 	Name               string    `json:"name"`
+	UserID             *int64    `json:"userId,omitempty"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
 	LastMessagePreview string    `json:"lastMessagePreview"`
@@ -57,15 +66,15 @@ type ChatMessage struct {
 // ChatStore persists chat sessions and messages.
 type ChatStore interface {
 	Init(ctx context.Context) error
-	EnsureSession(ctx context.Context, id string, name string) (ChatSession, error)
-	ListSessions(ctx context.Context) ([]ChatSession, error)
-	GetSession(ctx context.Context, id string) (ChatSession, bool, error)
-	CreateSession(ctx context.Context, name string) (ChatSession, error)
-	RenameSession(ctx context.Context, id, name string) (ChatSession, error)
-	DeleteSession(ctx context.Context, id string) error
-	ListMessages(ctx context.Context, sessionID string, limit int) ([]ChatMessage, error)
-	AppendMessages(ctx context.Context, sessionID string, messages []ChatMessage, preview string, model string) error
-	UpdateSummary(ctx context.Context, sessionID string, summary string, summarizedCount int) error
+	EnsureSession(ctx context.Context, userID *int64, id string, name string) (ChatSession, error)
+	ListSessions(ctx context.Context, userID *int64) ([]ChatSession, error)
+	GetSession(ctx context.Context, userID *int64, id string) (ChatSession, error)
+	CreateSession(ctx context.Context, userID *int64, name string) (ChatSession, error)
+	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
+	DeleteSession(ctx context.Context, userID *int64, id string) error
+	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)
+	AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []ChatMessage, preview string, model string) error
+	UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error
 }
 
 // WarppWorkflow is a minimal persistence representation of a WARPP workflow.

@@ -158,5 +158,21 @@ See [AGENTS.md](../AGENTS.md) for detailed Go coding conventions and best practi
 
 - Use conventional commits for commit messages
 - Keep commits small and focused
+
+## Database Migration Notes
+
+Upgrading from a pre-multi-tenant release requires adding ownership metadata to
+existing chat transcripts. For Postgres deployments run:
+
+```sql
+ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_id BIGINT;
+CREATE INDEX IF NOT EXISTS chat_sessions_user_updated_idx ON chat_sessions(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS chat_sessions_user_created_idx ON chat_sessions(user_id, created_at DESC);
+```
+
+Existing sessions will have `user_id = NULL` and are only visible to admins.
+As users sign in, new sessions are created with their user ID. Optionally backfill
+legacy sessions by updating `chat_sessions.user_id` with the appropriate `users.id`
+if ownership is known.
 - Rebase feature branches before merging
 - Use descriptive branch names

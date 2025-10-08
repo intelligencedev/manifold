@@ -44,3 +44,13 @@ The output is emitted under `web/agentd-ui/dist` and embedded via `//go:embed` a
 - If `agentd` logs `frontend registration failed`, ensure `internal/webui/dist/index.html` exists. Run `make frontend` to rebuild assets.
 - To use on-disk assets without embedding, compile with `-tags dev` and set `AGENTD_WEB_DIST=/absolute/path/to/web/agentd-ui/dist`.
 - Clear cached assets by removing `web/agentd-ui/dist` and `internal/webui/dist` before a clean rebuild.
+
+## Chat Sessions & Authentication
+
+The chat UI now loads conversations and message history from the backend APIs
+(`/api/chat/sessions` and `/api/chat/sessions/{id}/messages`) instead of relying
+on `localStorage`. When Auth is enabled the browser must send the session cookie
+(`withCredentials` is already configured in `apiClient`). Users without the
+`admin` role only see their own conversations; admins receive the full list.
+If the backend responds with `401/403`, the sidebar surfaces the access message
+and no local fallback data is used.

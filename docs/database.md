@@ -71,6 +71,9 @@ Postgres implementations
   - tables: nodes, edges; basic neighbors and get node
 - Best-effort CREATE EXTENSION IF NOT EXISTS for vector, postgis, pgrouting, pg_trgm.
   For production, prefer migrations and proper roles.
+- Chat history (internal/persistence/databases/chat_store_postgres.go)
+  - tables: chat_sessions (id, user_id, summary, summarized_count, ...), chat_messages (id, session_id, role, content, created_at)
+  - Every query applies a `user_id` predicate so non-admin callers only see their own sessions; administrators pass a nil user ID to list all rows.
 
 Factory and dependency injection
 

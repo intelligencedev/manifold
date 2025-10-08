@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -57,30 +58,35 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 
 // BuildContext assembles the conversation history that should be sent to the orchestrator
 // by combining a persisted summary (if any) with the most recent chat turns.
-func (m *Manager) BuildContext(ctx context.Context, sessionID string) ([]llm.Message, error) {
+func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID string) ([]llm.Message, error) {
 	if sessionID == "" {
 		return nil, nil
 	}
 
-	messages, err := m.store.ListMessages(ctx, sessionID, 0)
+	messages, err := m.store.ListMessages(ctx, userID, sessionID, 0)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, persistence.ErrNotFound) {
+			messages = nil
+		} else {
+			return nil, err
+		}
 	}
 
-	session, ok, err := m.store.GetSession(ctx, sessionID)
+	session, err := m.store.GetSession(ctx, userID, sessionID)
 	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		// Session is guaranteed to exist via ensureChatSession but guard anyway.
-		session = persistence.ChatSession{ID: sessionID}
+		if errors.Is(err, persistence.ErrNotFound) {
+			// Session is guaranteed to exist via ensureChatSession but guard anyway.
+			session = persistence.ChatSession{ID: sessionID}
+		} else {
+			return nil, err
+		}
 	}
 
 	summary := session.Summary
 	summarizedCount := session.SummarizedCount
 
 	if m.enabled {
-		updatedSummary, updatedCount := m.ensureSummary(ctx, session, messages)
+		updatedSummary, updatedCount := m.ensureSummary(ctx, userID, session, messages)
 		if updatedSummary != "" || updatedCount != summarizedCount {
 			summary = updatedSummary
 			summarizedCount = updatedCount
@@ -124,7 +130,7 @@ func (m *Manager) BuildContext(ctx context.Context, sessionID string) ([]llm.Mes
 	return history, nil
 }
 
-func (m *Manager) ensureSummary(ctx context.Context, session persistence.ChatSession, messages []persistence.ChatMessage) (string, int) {
+func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session persistence.ChatSession, messages []persistence.ChatMessage) (string, int) {
 	if !m.enabled || m.summary == nil {
 		return session.Summary, session.SummarizedCount
 	}
@@ -164,7 +170,7 @@ func (m *Manager) ensureSummary(ctx context.Context, session persistence.ChatSes
 		return session.Summary, summarizedCount
 	}
 
-	if err := m.store.UpdateSummary(ctx, session.ID, summary, target); err != nil {
+	if err := m.store.UpdateSummary(ctx, userID, session.ID, summary, target); err != nil {
 		observability.LoggerWithTrace(ctx).Error().Err(err).Str("session", session.ID).Msg("chat_summary_persist_failed")
 		return session.Summary, summarizedCount
 	}

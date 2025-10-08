@@ -31,7 +31,7 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 	}
 	store := mgr.Chat
 
-	if _, err := store.EnsureSession(ctx, "sess", "Chat"); err != nil {
+	if _, err := store.EnsureSession(ctx, nil, "sess", "Chat"); err != nil {
 		t.Fatalf("EnsureSession: %v", err)
 	}
 
@@ -49,13 +49,13 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 			{Role: "user", Content: turn.user, CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
 			{Role: "assistant", Content: turn.assistant, CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
 		}
-		if err := store.AppendMessages(ctx, "sess", messages, turn.assistant, "model"); err != nil {
+		if err := store.AppendMessages(ctx, nil, "sess", messages, turn.assistant, "model"); err != nil {
 			t.Fatalf("AppendMessages: %v", err)
 		}
 	}
 
 	manager := NewManager(store, &stubLLM{response: "summary"}, Config{Enabled: true, Threshold: 4, KeepLast: 2, SummaryModel: "stub"})
-	history, err := manager.BuildContext(ctx, "sess")
+	history, err := manager.BuildContext(ctx, nil, "sess")
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
@@ -69,9 +69,9 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 		t.Fatalf("unexpected tail messages: %#v", history[1:])
 	}
 
-	session, ok, err := store.GetSession(ctx, "sess")
-	if err != nil || !ok {
-		t.Fatalf("GetSession: %v ok=%v", err, ok)
+	session, err := store.GetSession(ctx, nil, "sess")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
 	}
 	if session.Summary == "" {
 		t.Fatalf("expected summary to be stored")

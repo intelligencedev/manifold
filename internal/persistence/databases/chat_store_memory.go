@@ -28,7 +28,15 @@ type memChatStore struct {
 
 func (s *memChatStore) Init(ctx context.Context) error { return nil }
 
-func (s *memChatStore) EnsureSession(ctx context.Context, id, name string) (persistence.ChatSession, error) {
+func copyUserID(id *int64) *int64 {
+	if id == nil {
+		return nil
+	}
+	v := *id
+	return &v
+}
+
+func (s *memChatStore) EnsureSession(ctx context.Context, userID *int64, id, name string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(id) == "" {
 		return persistence.ChatSession{}, errors.New("id required")
 	}
@@ -38,20 +46,26 @@ func (s *memChatStore) EnsureSession(ctx context.Context, id, name string) (pers
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
+		if !hasAccess(userID, sess.UserID) {
+			return persistence.ChatSession{}, persistence.ErrForbidden
+		}
 		return sess, nil
 	}
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, CreatedAt: now, UpdatedAt: now}
+	sess := persistence.ChatSession{ID: id, Name: name, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
 }
 
-func (s *memChatStore) ListSessions(ctx context.Context) ([]persistence.ChatSession, error) {
+func (s *memChatStore) ListSessions(ctx context.Context, userID *int64) ([]persistence.ChatSession, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]persistence.ChatSession, 0, len(s.sessions))
 	for _, sess := range s.sessions {
+		if !hasAccess(userID, sess.UserID) {
+			continue
+		}
 		out = append(out, sess)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -63,14 +77,20 @@ func (s *memChatStore) ListSessions(ctx context.Context) ([]persistence.ChatSess
 	return out, nil
 }
 
-func (s *memChatStore) GetSession(ctx context.Context, id string) (persistence.ChatSession, bool, error) {
+func (s *memChatStore) GetSession(ctx context.Context, userID *int64, id string) (persistence.ChatSession, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	sess, ok := s.sessions[id]
-	return sess, ok, nil
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	return sess, nil
 }
 
-func (s *memChatStore) CreateSession(ctx context.Context, name string) (persistence.ChatSession, error) {
+func (s *memChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(name) == "" {
 		name = "New Chat"
 	}
@@ -78,13 +98,13 @@ func (s *memChatStore) CreateSession(ctx context.Context, name string) (persiste
 	defer s.mu.Unlock()
 	id := uuid.NewString()
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, CreatedAt: now, UpdatedAt: now}
+	sess := persistence.ChatSession{ID: id, Name: name, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
 }
 
-func (s *memChatStore) RenameSession(ctx context.Context, id, name string) (persistence.ChatSession, error) {
+func (s *memChatStore) RenameSession(ctx context.Context, userID *int64, id, name string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(name) == "" {
 		return persistence.ChatSession{}, errors.New("name required")
 	}
@@ -92,7 +112,10 @@ func (s *memChatStore) RenameSession(ctx context.Context, id, name string) (pers
 	defer s.mu.Unlock()
 	sess, ok := s.sessions[id]
 	if !ok {
-		return persistence.ChatSession{}, errors.New("session not found")
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
 	}
 	sess.Name = name
 	sess.UpdatedAt = time.Now().UTC()
@@ -100,20 +123,31 @@ func (s *memChatStore) RenameSession(ctx context.Context, id, name string) (pers
 	return sess, nil
 }
 
-func (s *memChatStore) DeleteSession(ctx context.Context, id string) error {
+func (s *memChatStore) DeleteSession(ctx context.Context, userID *int64, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.sessions[id]; !ok {
-		return errors.New("session not found")
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ErrForbidden
 	}
 	delete(s.sessions, id)
 	delete(s.messages, id)
 	return nil
 }
 
-func (s *memChatStore) ListMessages(ctx context.Context, sessionID string, limit int) ([]persistence.ChatMessage, error) {
+func (s *memChatStore) ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return nil, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return nil, persistence.ErrForbidden
+	}
 	msgs := s.messages[sessionID]
 	if limit > 0 && len(msgs) > limit {
 		msgs = msgs[len(msgs)-limit:]
@@ -123,7 +157,7 @@ func (s *memChatStore) ListMessages(ctx context.Context, sessionID string, limit
 	return out, nil
 }
 
-func (s *memChatStore) AppendMessages(ctx context.Context, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
+func (s *memChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -131,7 +165,10 @@ func (s *memChatStore) AppendMessages(ctx context.Context, sessionID string, mes
 	defer s.mu.Unlock()
 	sess, ok := s.sessions[sessionID]
 	if !ok {
-		return errors.New("session not found")
+		return persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ErrForbidden
 	}
 	for i := range messages {
 		if messages[i].ID == "" {
@@ -154,12 +191,15 @@ func (s *memChatStore) AppendMessages(ctx context.Context, sessionID string, mes
 	return nil
 }
 
-func (s *memChatStore) UpdateSummary(ctx context.Context, sessionID string, summary string, summarizedCount int) error {
+func (s *memChatStore) UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess, ok := s.sessions[sessionID]
 	if !ok {
-		return errors.New("session not found")
+		return persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ErrForbidden
 	}
 	sess.Summary = summary
 	sess.SummarizedCount = summarizedCount

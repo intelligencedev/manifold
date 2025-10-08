@@ -131,8 +131,8 @@ func withMaybeTimeout(parent context.Context, seconds int) (context.Context, con
 	return ctx, cancel, 0
 }
 
-func ensureChatSession(ctx context.Context, store persist.ChatStore, sessionID string) (persist.ChatSession, error) {
-	return store.EnsureSession(ctx, sessionID, "Conversation")
+func ensureChatSession(ctx context.Context, store persist.ChatStore, userID *int64, sessionID string) (persist.ChatSession, error) {
+	return store.EnsureSession(ctx, userID, sessionID, "Conversation")
 }
 
 func previewSnippet(content string) string {
@@ -151,7 +151,7 @@ func previewSnippet(content string) string {
 	return string(runes[:limit]) + "..."
 }
 
-func storeChatTurn(ctx context.Context, store persist.ChatStore, sessionID, userContent, assistantContent, model string) error {
+func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent, assistantContent, model string) error {
 	messages := make([]persist.ChatMessage, 0, 2)
 	now := time.Now().UTC()
 	if strings.TrimSpace(userContent) != "" {
@@ -177,7 +177,36 @@ func storeChatTurn(ctx context.Context, store persist.ChatStore, sessionID, user
 	if preview == "" {
 		preview = previewSnippet(userContent)
 	}
-	return store.AppendMessages(ctx, sessionID, messages, preview, model)
+	return store.AppendMessages(ctx, userID, sessionID, messages, preview, model)
+}
+
+func resolveChatAccess(ctx context.Context, authStore *auth.Store, user *auth.User) (*int64, bool, error) {
+	if authStore == nil || user == nil {
+		return nil, true, nil
+	}
+	isAdmin, err := authStore.HasRole(ctx, user.ID, "admin")
+	if err != nil {
+		return nil, false, err
+	}
+	if isAdmin {
+		return nil, true, nil
+	}
+	id := user.ID
+	return &id, false, nil
+}
+
+func setChatCORSHeaders(w http.ResponseWriter, r *http.Request, methods string) {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+	if methods != "" {
+		w.Header().Set("Access-Control-Allow-Methods", methods)
+	}
 }
 
 func main() {
@@ -452,23 +481,36 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/chat/sessions", func(w http.ResponseWriter, r *http.Request) {
+		var (
+			userID  *int64
+			isAdmin bool
+		)
 		if cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			id, admin, err := resolveChatAccess(r.Context(), authStore, u)
+			if err != nil {
+				log.Error().Err(err).Msg("resolve_chat_access")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			userID, isAdmin = id, admin
+		} else {
+			isAdmin = true
 		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		_ = isAdmin
+		setChatCORSHeaders(w, r, "GET, POST, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		switch r.Method {
 		case http.MethodGet:
-			sessions, err := chatStore.ListSessions(r.Context())
+			sessions, err := chatStore.ListSessions(r.Context(), userID)
 			if err != nil {
 				log.Error().Err(err).Msg("list_chat_sessions")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -487,8 +529,12 @@ func main() {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			sess, err := chatStore.CreateSession(r.Context(), body.Name)
+			sess, err := chatStore.CreateSession(r.Context(), userID, body.Name)
 			if err != nil {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
 				log.Error().Err(err).Msg("create_chat_session")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -504,13 +550,28 @@ func main() {
 	})
 
 	mux.HandleFunc("/api/chat/sessions/", func(w http.ResponseWriter, r *http.Request) {
+		var (
+			userID  *int64
+			isAdmin bool
+		)
 		if cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			id, admin, err := resolveChatAccess(r.Context(), authStore, u)
+			if err != nil {
+				log.Error().Err(err).Msg("resolve_chat_access")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			userID, isAdmin = id, admin
+		} else {
+			isAdmin = true
 		}
+		_ = isAdmin
 		rest := strings.TrimPrefix(r.URL.Path, "/api/chat/sessions/")
 		rest = strings.Trim(rest, "/")
 		if rest == "" {
@@ -519,11 +580,9 @@ func main() {
 		}
 		parts := strings.Split(rest, "/")
 		id := parts[0]
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, PATCH, DELETE, OPTIONS")
+		setChatCORSHeaders(w, r, "GET, PATCH, DELETE, OPTIONS")
 		if len(parts) == 2 && parts[1] == "messages" {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			setChatCORSHeaders(w, r, "GET, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -540,8 +599,16 @@ func main() {
 					limit = v
 				}
 			}
-			msgs, err := chatStore.ListMessages(r.Context(), id, limit)
+			msgs, err := chatStore.ListMessages(r.Context(), userID, id, limit)
 			if err != nil {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				if errors.Is(err, persist.ErrNotFound) {
+					http.NotFound(w, r)
+					return
+				}
 				log.Error().Err(err).Str("session", id).Msg("list_chat_messages")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -554,14 +621,18 @@ func main() {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			sess, ok, err := chatStore.GetSession(r.Context(), id)
+			sess, err := chatStore.GetSession(r.Context(), userID, id)
 			if err != nil {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				if errors.Is(err, persist.ErrNotFound) {
+					http.NotFound(w, r)
+					return
+				}
 				log.Error().Err(err).Str("session", id).Msg("get_chat_session")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if !ok {
-				http.NotFound(w, r)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -577,9 +648,13 @@ func main() {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			sess, err := chatStore.RenameSession(r.Context(), id, body.Name)
+			sess, err := chatStore.RenameSession(r.Context(), userID, id, body.Name)
 			if err != nil {
-				if strings.Contains(strings.ToLower(err.Error()), "not found") {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				if errors.Is(err, persist.ErrNotFound) {
 					http.NotFound(w, r)
 					return
 				}
@@ -592,8 +667,12 @@ func main() {
 				log.Error().Err(err).Msg("encode_chat_session")
 			}
 		case http.MethodDelete:
-			if err := chatStore.DeleteSession(r.Context(), id); err != nil {
-				if strings.Contains(strings.ToLower(err.Error()), "not found") {
+			if err := chatStore.DeleteSession(r.Context(), userID, id); err != nil {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				if errors.Is(err, persist.ErrNotFound) {
 					http.NotFound(w, r)
 					return
 				}
@@ -1472,12 +1551,21 @@ func main() {
 	})
 
 	mux.HandleFunc("/agent/run", func(w http.ResponseWriter, r *http.Request) {
+		var userID *int64
 		if cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			id, _, err := resolveChatAccess(r.Context(), authStore, u)
+			if err != nil {
+				log.Error().Err(err).Msg("resolve_chat_access")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			userID = id
 		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1501,13 +1589,21 @@ func main() {
 		}
 
 		// Ensure persistent session exists and load prior history
-		if _, err := ensureChatSession(r.Context(), chatStore, req.SessionID); err != nil {
+		if _, err := ensureChatSession(r.Context(), chatStore, userID, req.SessionID); err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := chatMemory.BuildContext(r.Context(), req.SessionID)
+		history, err := chatMemory.BuildContext(r.Context(), userID, req.SessionID)
 		if err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -1692,7 +1788,7 @@ func main() {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			runs.updateStatus(currentRun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+			if err := storeChatTurn(r.Context(), chatStore, userID, req.SessionID, req.Prompt, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			return
@@ -1718,7 +1814,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		runs.updateStatus(currentRun.ID, "completed", 0)
 
-		if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+		if err := storeChatTurn(r.Context(), chatStore, userID, req.SessionID, req.Prompt, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 	})
@@ -1729,12 +1825,21 @@ func main() {
 	// - session_id: optional string
 	// Returns JSON {result: "..."} or streams SSE deltas/final like /agent/run when Accept: text/event-stream
 	mux.HandleFunc("/agent/vision", func(w http.ResponseWriter, r *http.Request) {
+		var userID *int64
 		if cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			id, _, err := resolveChatAccess(r.Context(), authStore, u)
+			if err != nil {
+				log.Error().Err(err).Msg("resolve_chat_access")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			userID = id
 		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1750,13 +1855,21 @@ func main() {
 		if sessionID == "" {
 			sessionID = "default"
 		}
-		if _, err := ensureChatSession(r.Context(), chatStore, sessionID); err != nil {
+		if _, err := ensureChatSession(r.Context(), chatStore, userID, sessionID); err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			log.Error().Err(err).Str("session", sessionID).Msg("ensure_chat_session")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := chatMemory.BuildContext(r.Context(), sessionID)
+		history, err := chatMemory.BuildContext(r.Context(), userID, sessionID)
 		if err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			log.Error().Err(err).Str("session", sessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -1877,7 +1990,7 @@ func main() {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			runs.updateStatus(vrun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), chatStore, sessionID, prompt, out.Content, cfg.OpenAI.Model); err != nil {
+			if err := storeChatTurn(r.Context(), chatStore, userID, sessionID, prompt, out.Content, cfg.OpenAI.Model); err != nil {
 				log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision_stream")
 			}
 			return
@@ -1885,19 +1998,28 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": out.Content})
 		runs.updateStatus(vrun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), chatStore, sessionID, prompt, out.Content, cfg.OpenAI.Model); err != nil {
+		if err := storeChatTurn(r.Context(), chatStore, userID, sessionID, prompt, out.Content, cfg.OpenAI.Model); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision")
 		}
 	})
 
 	// POST /api/prompt accepts {"prompt":"..."} and runs the agent (for web UI compatibility)
 	mux.HandleFunc("/api/prompt", func(w http.ResponseWriter, r *http.Request) {
+		var userID *int64
 		if cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			id, _, err := resolveChatAccess(r.Context(), authStore, u)
+			if err != nil {
+				log.Error().Err(err).Msg("resolve_chat_access")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			userID = id
 		}
 		// Basic CORS support
 		w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -1931,13 +2053,21 @@ func main() {
 			req.SessionID = "default"
 		}
 
-		if _, err := ensureChatSession(r.Context(), chatStore, req.SessionID); err != nil {
+		if _, err := ensureChatSession(r.Context(), chatStore, userID, req.SessionID); err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := chatMemory.BuildContext(r.Context(), req.SessionID)
+		history, err := chatMemory.BuildContext(r.Context(), userID, req.SessionID)
 		if err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -2052,7 +2182,7 @@ func main() {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			runs.updateStatus(prun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+			if err := storeChatTurn(r.Context(), chatStore, userID, req.SessionID, req.Prompt, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			return
@@ -2078,7 +2208,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), chatStore, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+		if err := storeChatTurn(r.Context(), chatStore, userID, req.SessionID, req.Prompt, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 	})

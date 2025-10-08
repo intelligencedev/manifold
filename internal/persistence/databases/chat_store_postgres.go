@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -34,22 +35,23 @@ func (s *pgChatStore) Init(ctx context.Context) error {
 	}
 	_, err := s.pool.Exec(ctx, `
 CREATE TABLE IF NOT EXISTS chat_sessions (
-	id UUID PRIMARY KEY,
-	name TEXT NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	last_message_preview TEXT NOT NULL DEFAULT '',
-	model TEXT NOT NULL DEFAULT '',
-	summary TEXT NOT NULL DEFAULT '',
-	summarized_count INTEGER NOT NULL DEFAULT 0
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    user_id BIGINT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_message_preview TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    summary TEXT NOT NULL DEFAULT '',
+    summarized_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
-	id UUID PRIMARY KEY,
-	session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
-	role TEXT NOT NULL,
-	content TEXT NOT NULL,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id UUID PRIMARY KEY,
+    session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS chat_messages_session_created_idx ON chat_messages(session_id, created_at);
@@ -59,40 +61,101 @@ ALTER TABLE chat_sessions
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS summarized_count INTEGER NOT NULL DEFAULT 0;
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS user_id BIGINT;
+
+CREATE INDEX IF NOT EXISTS chat_sessions_user_updated_idx ON chat_sessions(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS chat_sessions_user_created_idx ON chat_sessions(user_id, created_at DESC);
 `)
 	return err
 }
 
-func (s *pgChatStore) EnsureSession(ctx context.Context, id, name string) (persistence.ChatSession, error) {
+func hasAccess(userID *int64, owner *int64) bool {
+	if userID == nil {
+		return true
+	}
+	if owner == nil {
+		return false
+	}
+	return *userID == *owner
+}
+
+func (s *pgChatStore) scanSession(row pgx.Row) (persistence.ChatSession, error) {
+	var cs persistence.ChatSession
+	var owner sql.NullInt64
+	if err := row.Scan(&cs.ID, &cs.Name, &owner, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
+		return persistence.ChatSession{}, err
+	}
+	if owner.Valid {
+		v := owner.Int64
+		cs.UserID = &v
+	}
+	return cs, nil
+}
+
+func (s *pgChatStore) lookupSessionOwner(ctx context.Context, id string) (*int64, error) {
+	row := s.pool.QueryRow(ctx, `SELECT user_id FROM chat_sessions WHERE id = $1`, id)
+	var owner sql.NullInt64
+	if err := row.Scan(&owner); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, persistence.ErrNotFound
+		}
+		return nil, err
+	}
+	if !owner.Valid {
+		return nil, nil
+	}
+	v := owner.Int64
+	return &v, nil
+}
+
+func (s *pgChatStore) EnsureSession(ctx context.Context, userID *int64, id, name string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(id) == "" {
 		return persistence.ChatSession{}, errors.New("id required")
 	}
 	if strings.TrimSpace(name) == "" {
 		name = "New Chat"
 	}
+	var uid any
+	if userID != nil {
+		uid = *userID
+	}
 	row := s.pool.QueryRow(ctx, `
 WITH ins AS (
-  INSERT INTO chat_sessions (id, name)
-  VALUES ($1, $2)
+  INSERT INTO chat_sessions (id, user_id, name)
+  VALUES ($1, $2, $3)
   ON CONFLICT (id) DO NOTHING
-  RETURNING id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count
+  RETURNING id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count
 )
-SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count FROM ins
+SELECT id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count FROM ins
 UNION ALL
-SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count FROM chat_sessions WHERE id = $1
-LIMIT 1`, id, name)
-	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
+SELECT id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count FROM chat_sessions WHERE id = $1
+LIMIT 1`, id, uid, name)
+	cs, err := s.scanSession(row)
+	if err != nil {
 		return persistence.ChatSession{}, err
+	}
+	if !hasAccess(userID, cs.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
 	}
 	return cs, nil
 }
 
-func (s *pgChatStore) ListSessions(ctx context.Context) ([]persistence.ChatSession, error) {
-	rows, err := s.pool.Query(ctx, `
-SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count
-FROM chat_sessions
-ORDER BY updated_at DESC, created_at DESC`)
+func (s *pgChatStore) ListSessions(ctx context.Context, userID *int64) ([]persistence.ChatSession, error) {
+	query := `
+SELECT id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count
+FROM chat_sessions`
+	args := []any{}
+	if userID != nil {
+		query += `
+WHERE user_id = $1`
+		args = append(args, *userID)
+	}
+	query += `
+ORDER BY updated_at DESC, created_at DESC`
+
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,77 +163,135 @@ ORDER BY updated_at DESC, created_at DESC`)
 
 	var out []persistence.ChatSession
 	for rows.Next() {
-		var cs persistence.ChatSession
-		if err := rows.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
+		cs, err := s.scanSession(rows)
+		if err != nil {
 			return nil, err
 		}
+		if !hasAccess(userID, cs.UserID) {
+			continue
+		}
 		out = append(out, cs)
+	}
+	if out == nil {
+		out = make([]persistence.ChatSession, 0)
 	}
 	return out, rows.Err()
 }
 
-func (s *pgChatStore) GetSession(ctx context.Context, id string) (persistence.ChatSession, bool, error) {
-	row := s.pool.QueryRow(ctx, `
-SELECT id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count
+func (s *pgChatStore) GetSession(ctx context.Context, userID *int64, id string) (persistence.ChatSession, error) {
+	query := `
+SELECT id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count
 FROM chat_sessions
-WHERE id = $1`, id)
-	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return persistence.ChatSession{}, false, nil
-		}
-		return persistence.ChatSession{}, false, err
+WHERE id = $1`
+	args := []any{id}
+	if userID != nil {
+		query += ` AND user_id = $2`
+		args = append(args, *userID)
 	}
-	return cs, true, nil
+	row := s.pool.QueryRow(ctx, query, args...)
+	cs, err := s.scanSession(row)
+	if err == nil {
+		return cs, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return persistence.ChatSession{}, err
+	}
+	if userID == nil {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	owner, ownerErr := s.lookupSessionOwner(ctx, id)
+	if ownerErr != nil {
+		return persistence.ChatSession{}, ownerErr
+	}
+	if !hasAccess(userID, owner) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	return persistence.ChatSession{}, persistence.ErrNotFound
 }
 
-func (s *pgChatStore) CreateSession(ctx context.Context, name string) (persistence.ChatSession, error) {
+func (s *pgChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(name) == "" {
 		name = "New Chat"
 	}
 	id := uuid.New()
-	row := s.pool.QueryRow(ctx, `
-INSERT INTO chat_sessions (id, name)
-VALUES ($1, $2)
-RETURNING id, name, created_at, updated_at, last_message_preview, model, summary, summarized_count`, id, name)
-	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
-		return persistence.ChatSession{}, err
+	var uid any
+	if userID != nil {
+		uid = *userID
 	}
-	return cs, nil
+	row := s.pool.QueryRow(ctx, `
+INSERT INTO chat_sessions (id, user_id, name)
+VALUES ($1, $2, $3)
+RETURNING id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count`, id, uid, name)
+	return s.scanSession(row)
 }
 
-func (s *pgChatStore) RenameSession(ctx context.Context, id, name string) (persistence.ChatSession, error) {
+func (s *pgChatStore) RenameSession(ctx context.Context, userID *int64, id, name string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(name) == "" {
 		return persistence.ChatSession{}, errors.New("name required")
 	}
-	row := s.pool.QueryRow(ctx, `
+	query := `
 UPDATE chat_sessions
 SET name = $2, updated_at = NOW()
-WHERE id = $1
-RETURNING id, name, created_at, updated_at, last_message_preview, model`, id, name)
-	var cs persistence.ChatSession
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return persistence.ChatSession{}, errors.New("session not found")
-		}
+WHERE id = $1`
+	args := []any{id, name}
+	if userID != nil {
+		query += ` AND user_id = $3`
+		args = append(args, *userID)
+	}
+	query += `
+RETURNING id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count`
+	row := s.pool.QueryRow(ctx, query, args...)
+	cs, err := s.scanSession(row)
+	if err == nil {
+		return cs, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
 		return persistence.ChatSession{}, err
 	}
-	return cs, nil
+	if userID == nil {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	owner, ownerErr := s.lookupSessionOwner(ctx, id)
+	if ownerErr != nil {
+		return persistence.ChatSession{}, ownerErr
+	}
+	if !hasAccess(userID, owner) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	return persistence.ChatSession{}, persistence.ErrNotFound
 }
 
-func (s *pgChatStore) DeleteSession(ctx context.Context, id string) error {
-	cmd, err := s.pool.Exec(ctx, `DELETE FROM chat_sessions WHERE id = $1`, id)
+func (s *pgChatStore) DeleteSession(ctx context.Context, userID *int64, id string) error {
+	query := `DELETE FROM chat_sessions WHERE id = $1`
+	args := []any{id}
+	if userID != nil {
+		query += ` AND user_id = $2`
+		args = append(args, *userID)
+	}
+	cmd, err := s.pool.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
-	if cmd.RowsAffected() == 0 {
-		return errors.New("session not found")
+	if cmd.RowsAffected() > 0 {
+		return nil
 	}
-	return nil
+	if userID == nil {
+		return persistence.ErrNotFound
+	}
+	owner, ownerErr := s.lookupSessionOwner(ctx, id)
+	if ownerErr != nil {
+		return ownerErr
+	}
+	if !hasAccess(userID, owner) {
+		return persistence.ErrForbidden
+	}
+	return persistence.ErrNotFound
 }
 
-func (s *pgChatStore) ListMessages(ctx context.Context, sessionID string, limit int) ([]persistence.ChatMessage, error) {
+func (s *pgChatStore) ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		return nil, err
+	}
 	query := `
 SELECT id, session_id, role, content, created_at
 FROM chat_messages
@@ -180,11 +301,11 @@ ORDER BY created_at ASC, id ASC`
 	if limit > 0 {
 		query = `
 SELECT id, session_id, role, content, created_at FROM (
-	SELECT id, session_id, role, content, created_at
-	FROM chat_messages
-	WHERE session_id = $1
-	ORDER BY created_at DESC, id DESC
-	LIMIT $2
+    SELECT id, session_id, role, content, created_at
+    FROM chat_messages
+    WHERE session_id = $1
+    ORDER BY created_at DESC, id DESC
+    LIMIT $2
 ) sub
 ORDER BY created_at ASC, id ASC`
 		args = append(args, limit)
@@ -202,12 +323,18 @@ ORDER BY created_at ASC, id ASC`
 		}
 		out = append(out, msg)
 	}
+	if out == nil {
+		out = make([]persistence.ChatMessage, 0)
+	}
 	return out, rows.Err()
 }
 
-func (s *pgChatStore) AppendMessages(ctx context.Context, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
+func (s *pgChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
 	if len(messages) == 0 {
 		return nil
+	}
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -234,26 +361,55 @@ VALUES ($1, $2, $3, $4, $5)`, id, sessionID, message.Role, message.Content, crea
 		}
 	}
 
-	modelUpdate := model
-	if strings.TrimSpace(modelUpdate) == "" {
-		modelUpdate = ""
-	}
-	if _, err := tx.Exec(ctx, `
+	modelUpdate := strings.TrimSpace(model)
+	query := `
 UPDATE chat_sessions
-SET updated_at = NOW(), last_message_preview = $2, model = CASE WHEN $3 = '' THEN model ELSE $3 END
-WHERE id = $1`, sessionID, preview, modelUpdate); err != nil {
+SET updated_at = NOW(),
+    last_message_preview = $2,
+    model = CASE WHEN $3 = '' THEN model ELSE $3 END
+WHERE id = $1`
+	args := []any{sessionID, preview, modelUpdate}
+	if userID != nil {
+		query += ` AND user_id = $4`
+		args = append(args, *userID)
+	}
+	cmd, err := tx.Exec(ctx, query, args...)
+	if err != nil {
 		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.ErrForbidden
 	}
 
 	return tx.Commit(ctx)
 }
 
-func (s *pgChatStore) UpdateSummary(ctx context.Context, sessionID string, summary string, summarizedCount int) error {
-	if _, err := s.pool.Exec(ctx, `
+func (s *pgChatStore) UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error {
+	query := `
 UPDATE chat_sessions
 SET summary = $2, summarized_count = $3, updated_at = NOW()
-WHERE id = $1`, sessionID, summary, summarizedCount); err != nil {
+WHERE id = $1`
+	args := []any{sessionID, summary, summarizedCount}
+	if userID != nil {
+		query += ` AND user_id = $4`
+		args = append(args, *userID)
+	}
+	cmd, err := s.pool.Exec(ctx, query, args...)
+	if err != nil {
 		return err
 	}
-	return nil
+	if cmd.RowsAffected() > 0 {
+		return nil
+	}
+	if userID == nil {
+		return persistence.ErrNotFound
+	}
+	owner, ownerErr := s.lookupSessionOwner(ctx, sessionID)
+	if ownerErr != nil {
+		return ownerErr
+	}
+	if !hasAccess(userID, owner) {
+		return persistence.ErrForbidden
+	}
+	return persistence.ErrNotFound
 }

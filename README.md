@@ -94,3 +94,7 @@ Contributions are welcome! Please:
 2. Fork the repo and create a feature branch
 3. Follow existing code style and add tests
 4. Submit a pull request with clear description
+- Hybrid and indexing tools
+  - hybrid_query: Run full-text + vector in one call; returns fused, deduped results with scores and metadata.
+  - index_document: Index text into both search and vector stores (auto-embeds when needed).
+

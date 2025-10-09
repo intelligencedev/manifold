@@ -42,6 +42,23 @@
         Delete
       </button>
 
+      <!-- Import button placed to the left of Export -->
+      <input
+        ref="importInput"
+        type="file"
+        accept="application/json,.json"
+        class="hidden"
+        @change="onImportSelected"
+      />
+      <button
+        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
+        title="Import workflow from JSON"
+        aria-label="Import workflow"
+        @click="triggerImport"
+      >
+        Import
+      </button>
+
       <button
         class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
         :disabled="!canExport"
@@ -483,6 +500,9 @@ provide('warppCloseResultModal', closeResultModal)
 const dirty = ref(false)
 // Track unsaved, locally-created workflows by intent
 const localWorkflows = ref(new Map<string, WarppWorkflow>())
+
+// File import element
+const importInput = ref<HTMLInputElement | null>(null)
 
 const toolMap = computed(() => {
   const map = new Map<string, WarppTool>()
@@ -1231,6 +1251,110 @@ async function onNew() {
   } finally {
     await nextTick()
     isHydrating.value = false
+  }
+}
+
+function triggerImport() {
+  if (importInput.value) {
+    // reset value so selecting the same file twice still triggers change
+    importInput.value.value = ''
+    importInput.value.click()
+  }
+}
+
+async function onImportSelected(event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0]
+  if (input) input.value = ''
+  if (!file) return
+
+  let data: any
+  try {
+    const text = await file.text()
+    data = JSON.parse(text)
+  } catch (e: any) {
+    alert('Invalid JSON file')
+    return
+  }
+
+  // Accept legacy shape { name } or current { intent }
+  let intent: string = normalizeIntent(String(data?.intent || data?.name || ''))
+  if (!intent) {
+    const provided = window.prompt('Enter an intent for this imported workflow:', file.name.replace(/\.json$/i, ''))
+    if (provided === null) return
+    intent = normalizeIntent(provided)
+    if (!intent) {
+      alert('Invalid intent')
+      return
+    }
+  }
+
+  // Ensure uniqueness; suggest a suffix if needed
+  const exists = (i: string) => workflowList.value.some(w => w.intent === i) || localWorkflows.value.has(i)
+  if (exists(intent)) {
+    let base = intent.replace(/-import(-\d+)?$/, '')
+    let candidate = `${base}-import`
+    let n = 2
+    while (exists(candidate)) {
+      candidate = `${base}-import-${n++}`
+    }
+    const rename = window.prompt('A workflow with this intent already exists. Enter a new name:', candidate)
+    if (rename === null) return
+    const newIntent = normalizeIntent(rename)
+    if (!newIntent) {
+      alert('Invalid intent')
+      return
+    }
+    intent = newIntent
+    if (exists(intent)) {
+      alert('A workflow with that name already exists')
+      return
+    }
+  }
+
+  const steps = Array.isArray(data?.steps) ? data.steps : []
+  const wf: WarppWorkflow = {
+    intent,
+    description: typeof data?.description === 'string' ? data.description : '',
+    keywords: Array.isArray(data?.keywords) ? data.keywords : undefined,
+    max_concurrency: typeof data?.max_concurrency === 'number' ? data.max_concurrency : undefined,
+    fail_fast: typeof data?.fail_fast === 'boolean' ? data.fail_fast : undefined,
+    steps: steps.map((s: any) => ({
+      id: String(s?.id ?? ''),
+      text: String(s?.text ?? String(s?.id ?? '')),
+      guard: typeof s?.guard === 'string' ? s.guard : undefined,
+      publish_result: typeof s?.publish_result === 'boolean' ? s.publish_result : undefined,
+      publish_mode: s?.publish_mode === 'immediate' || s?.publish_mode === 'topo' ? s.publish_mode : undefined,
+      continue_on_error: typeof s?.continue_on_error === 'boolean' ? s.continue_on_error : undefined,
+      tool: s?.tool && typeof s.tool?.name === 'string' ? { name: s.tool.name, args: s.tool.args } : undefined,
+      depends_on: Array.isArray(s?.depends_on) ? s.depends_on.filter((x: any) => typeof x === 'string') : undefined,
+    })),
+    ui: data?.ui && typeof data.ui === 'object' ? { layout: data.ui.layout } : undefined,
+  }
+
+  // Basic validation
+  if (!wf.steps.every(s => s.id)) {
+    alert('Invalid workflow: each step must have an id')
+    return
+  }
+
+  // Track locally and show in dropdown
+  localWorkflows.value.set(intent, wf)
+  workflowList.value.push({ ...wf })
+
+  // Switch selection to the imported workflow
+  isHydrating.value = true
+  try {
+    selectedIntent.value = intent
+    await nextTick()
+    activeWorkflow.value = wf
+    nodes.value = workflowToNodes(wf)
+    edges.value = workflowToEdges(wf)
+    dirty.value = false
+  } finally {
+    await nextTick()
+    isHydrating.value = false
+    scheduleFitView()
   }
 }
 </script>

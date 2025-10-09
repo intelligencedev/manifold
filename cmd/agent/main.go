@@ -103,6 +103,9 @@ func main() {
 	registry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
 	registry.Register(db.NewVectorQueryTool(mgr.Vector))
 	registry.Register(db.NewVectorDeleteTool(mgr.Vector))
+	// Orchestration DB tools
+	registry.Register(db.NewHybridQueryTool(mgr.Search, mgr.Vector, cfg.Embedding))
+	registry.Register(db.NewIndexDocumentTool(mgr.Search, mgr.Vector, cfg.Embedding))
 	registry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
 	registry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
 	registry.Register(db.NewGraphNeighborsTool(mgr.Graph))

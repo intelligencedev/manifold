@@ -269,6 +269,9 @@ func main() {
 	toolRegistry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
 	toolRegistry.Register(db.NewVectorQueryTool(mgr.Vector))
 	toolRegistry.Register(db.NewVectorDeleteTool(mgr.Vector))
+	// Orchestration DB tools
+	toolRegistry.Register(db.NewHybridQueryTool(mgr.Search, mgr.Vector, cfg.Embedding))
+	toolRegistry.Register(db.NewIndexDocumentTool(mgr.Search, mgr.Vector, cfg.Embedding))
 	toolRegistry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
 	toolRegistry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
 	toolRegistry.Register(db.NewGraphNeighborsTool(mgr.Graph))

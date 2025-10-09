@@ -41,6 +41,21 @@ func TestVectorTools(t *testing.T) {
 	_, _ = del.Call(ctx, json.RawMessage(`{"id":"a"}`))
 }
 
+func TestHybridQueryTool(t *testing.T) {
+    s := databases.NewMemorySearch()
+    v := databases.NewMemoryVector()
+    // Seed
+    _, _ = NewSearchIndexTool(s).Call(context.Background(), json.RawMessage(`{"id":"doc:1","text":"Acme quarterly revenue Q3","metadata":{"source":"acme"}}`))
+    _, _ = NewVectorUpsertTool(v, config.EmbeddingConfig{}).Call(context.Background(), json.RawMessage(`{"id":"doc:1","vector":[0.1,0.2,0.3],"metadata":{"source":"acme"}}`))
+
+    h := NewHybridQueryTool(s, v, config.EmbeddingConfig{})
+    out, _ := h.Call(context.Background(), json.RawMessage(`{"query":"Acme revenue","vector":[0.1,0.2,0.3],"k":5}`))
+    m := out.(map[string]any)
+    if ok, _ := m["ok"].(bool); !ok {
+        t.Fatalf("expected ok true")
+    }
+}
+
 func TestGraphTools(t *testing.T) {
 	g := databases.NewMemoryGraph()
 	upn := NewGraphUpsertNodeTool(g)

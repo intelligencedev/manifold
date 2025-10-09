@@ -29,10 +29,11 @@ func (t *vectorUpsertTool) JSONSchema() map[string]any {
 		"description": "Upsert a vector embedding with optional metadata.",
 		"parameters": map[string]any{
 			"type":     "object",
-			"required": []string{"id", "vector"},
+			"required": []string{"id"},
 			"properties": map[string]any{
 				"id":       map[string]any{"type": "string"},
 				"vector":   map[string]any{"type": "array", "items": map[string]any{"type": "number"}},
+				"text":     map[string]any{"type": "string"},
 				"metadata": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 			},
 		},

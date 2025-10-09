@@ -122,7 +122,11 @@ const toolName = computed(() => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBA
 const defaultAttributeHint = computed(() => `${props.id}_text`)
 const headerLabel = computed(() => labelText.value.trim() || prettifyName(toolName.value))
 const isDesignMode = computed(() => modeRef.value === 'design')
-const runtimeTrace = computed(() => runTraceRef.value[props.id])
+const runtimeTrace = computed(() => {
+  const rec = runTraceRef.value
+  if (!rec || typeof rec !== 'object') return undefined
+  return rec[props.id]
+})
 const runtimeText = computed(() => {
   const trace = runtimeTrace.value
   const text = trace?.renderedArgs?.text

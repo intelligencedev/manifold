@@ -547,19 +547,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { useQueryClient } from "@tanstack/vue-query";
 import { useRouter } from "vue-router";
 import axios from "axios";
-import {
-  streamAgentRun,
-  streamAgentVisionRun,
-  listChatSessions,
-  createChatSession as apiCreateChatSession,
-  renameChatSession as apiRenameChatSession,
-  deleteChatSession as apiDeleteChatSession,
-  fetchChatMessages,
-  type ChatStreamEvent,
-} from "@/api/chat";
 import type {
   ChatAttachment,
   ChatMessage,
@@ -572,24 +561,24 @@ import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
 import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.vue";
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
+import { useChatStore } from "@/stores/chat";
 
 const router = useRouter();
-const queryClient = useQueryClient();
 const isBrowser = typeof window !== "undefined";
 const SCROLL_LOCK_THRESHOLD = 80;
 
-const sessions = ref<ChatSessionMeta[]>([]);
-const messagesBySession = ref<Record<string, ChatMessage[]>>({});
-const sessionsLoading = ref(false);
-const sessionsError = ref<string | null>(null);
-const fetchedMessageSessions = new Set<string>();
+const chat = useChatStore();
+const sessions = computed(() => chat.sessions);
+const messagesBySession = computed(() => chat.messagesBySession);
+const sessionsLoading = computed(() => chat.sessionsLoading);
+const sessionsError = computed(() => chat.sessionsError);
 
-const activeSessionId = ref<string>("");
+const activeSessionId = computed({
+  get: () => chat.activeSessionId,
+  set: (v: string) => (chat.activeSessionId = v),
+});
 const draft = ref("");
-const isStreaming = ref(false);
-const abortController = ref<AbortController | null>(null);
-const streamingAssistantId = ref<string | null>(null);
-const toolMessageIndex = new Map<string, string>();
+const isStreaming = computed(() => chat.isStreaming);
 const renamingSessionId = ref<string | null>(null);
 const renamingName = ref("");
 const renameInput = ref<HTMLInputElement | null>(null);
@@ -620,79 +609,8 @@ function httpStatus(error: unknown): number | null {
   return null;
 }
 
-async function refreshSessionsFromServer(initial = false) {
-  sessionsLoading.value = true;
-  if (!initial) {
-    sessionsError.value = null;
-  }
-  try {
-    let remote = await listChatSessions();
-    if (!remote) {
-      remote = [];
-    }
-    if (initial && remote.length === 0) {
-      const created = await apiCreateChatSession("New Chat");
-      if (created) {
-        remote = [created];
-      }
-    }
-    sessionsError.value = null;
-    sessions.value = remote;
-    const nextMessages: Record<string, ChatMessage[]> = {};
-    for (const session of remote) {
-      nextMessages[session.id] = messagesBySession.value[session.id] || [];
-    }
-    messagesBySession.value = nextMessages;
-    fetchedMessageSessions.clear();
-    if (!remote.length) {
-      activeSessionId.value = "";
-      return;
-    }
-    if (!remote.some((session) => session.id === activeSessionId.value)) {
-      activeSessionId.value = remote[0].id;
-    }
-    if (activeSessionId.value) {
-      await loadMessagesFromServer(activeSessionId.value, { force: true });
-    }
-  } catch (error) {
-    const status = httpStatus(error);
-    if (status === 401) {
-      sessionsError.value = "Authentication required.";
-    } else if (status === 403) {
-      sessionsError.value =
-        "Access denied. You do not have permission to view conversations.";
-    } else {
-      sessionsError.value = "Failed to load conversations.";
-    }
-    console.error("Failed to load chat sessions", error);
-  } finally {
-    sessionsLoading.value = false;
-  }
-}
-
-async function loadMessagesFromServer(
-  sessionId: string,
-  options: { force?: boolean } = {},
-) {
-  if (!sessionId) return;
-  if (!options.force && fetchedMessageSessions.has(sessionId)) {
-    return;
-  }
-  try {
-    const data = (await fetchChatMessages(sessionId)) ?? [];
-    fetchedMessageSessions.add(sessionId);
-    messagesBySession.value = { ...messagesBySession.value, [sessionId]: data };
-  } catch (error) {
-    const status = httpStatus(error);
-    if (status === 403) {
-      sessionsError.value = "Access denied for this conversation.";
-    } else if (status === 404) {
-      // Session may have been removed; refresh list
-      await refreshSessionsFromServer();
-    }
-    console.error("Failed to load chat messages", error);
-  }
-}
+const refreshSessionsFromServer = chat.refreshSessionsFromServer;
+const loadMessagesFromServer = chat.loadMessagesFromServer;
 
 function validateFile(f: File): "image" | "text" | null {
   const type = (f.type || "").toLowerCase();
@@ -795,20 +713,10 @@ function renderMarkdownOrHtml(content: string) {
   return renderMarkdown(content);
 }
 
-const activeSession = computed(
-  () =>
-    sessions.value.find((session) => session.id === activeSessionId.value) ||
-    null,
-);
-const activeMessages = computed(
-  () => messagesBySession.value[activeSessionId.value] || [],
-);
-const chatMessages = computed(() =>
-  activeMessages.value.filter((m) => m.role !== "tool"),
-);
-const toolMessages = computed(() =>
-  activeMessages.value.filter((m) => m.role === "tool"),
-);
+const activeSession = computed(() => chat.activeSession);
+const activeMessages = computed(() => chat.activeMessages);
+const chatMessages = computed(() => chat.chatMessages);
+const toolMessages = computed(() => chat.toolMessages);
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
 );
@@ -860,7 +768,7 @@ watch(renamingSessionId, (value) => {
 });
 
 onMounted(() => {
-  void refreshSessionsFromServer(true);
+  void chat.init();
   nextTick(() => {
     autoSizeComposer();
     scrollMessagesToBottom({ force: true, behavior: "auto" });
@@ -874,77 +782,8 @@ function setRenameInput(el: HTMLInputElement | null) {
   renameInput.value = el;
 }
 
-function ensureSession(): string {
-  if (!activeSessionId.value) {
-    throw new Error("No active conversation");
-  }
-  if (!(activeSessionId.value in messagesBySession.value)) {
-    messagesBySession.value = {
-      ...messagesBySession.value,
-      [activeSessionId.value]: [],
-    };
-  }
-  return activeSessionId.value;
-}
-
-function setMessages(sessionId: string, messages: ChatMessage[]) {
-  messagesBySession.value = {
-    ...messagesBySession.value,
-    [sessionId]: messages,
-  };
-}
-
-function appendMessage(
-  sessionId: string,
-  message: ChatMessage,
-  updatePreview = true,
-) {
-  const existing = messagesBySession.value[sessionId] || [];
-  setMessages(sessionId, [...existing, message]);
-  if (
-    updatePreview &&
-    (message.role === "assistant" || message.role === "user")
-  ) {
-    touchSession(sessionId, snippet(message.content));
-  }
-}
-
-function updateMessage(
-  sessionId: string,
-  messageId: string,
-  updater: (message: ChatMessage) => ChatMessage,
-) {
-  const existing = messagesBySession.value[sessionId] || [];
-  let updated = false;
-  const next = existing.map((message) => {
-    if (message.id === messageId) {
-      updated = true;
-      return updater(message);
-    }
-    return message;
-  });
-  if (updated) {
-    setMessages(sessionId, next);
-  }
-}
-
-function touchSession(sessionId: string, preview?: string) {
-  const index = sessions.value.findIndex((session) => session.id === sessionId);
-  if (index === -1) return;
-  const session = sessions.value[index];
-  const updated: ChatSessionMeta = {
-    ...session,
-    updatedAt: new Date().toISOString(),
-    lastMessagePreview: preview ?? session.lastMessagePreview,
-  };
-  const clone = [...sessions.value];
-  clone.splice(index, 1, updated);
-  sessions.value = clone;
-}
-
 function selectSession(sessionId: string) {
-  activeSessionId.value = sessionId;
-  void loadMessagesFromServer(sessionId);
+  chat.selectSession(sessionId);
   autoScrollEnabled.value = true;
   toolAutoScrollEnabled.value = true;
   nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
@@ -953,85 +792,33 @@ function selectSession(sessionId: string) {
 
 async function createSession(name = "New Chat") {
   try {
-    const session = await apiCreateChatSession(name);
-    sessionsError.value = null;
-    if (!session) {
-      return;
+    await chat.createSession(name);
+    const session = chat.activeSession;
+    if (session) {
+      renamingSessionId.value = session.id;
+      renamingName.value = session.name;
     }
-    sessions.value = [session, ...sessions.value];
-    messagesBySession.value = { ...messagesBySession.value, [session.id]: [] };
-    fetchedMessageSessions.delete(session.id);
-    activeSessionId.value = session.id;
-    renamingSessionId.value = session.id;
-    renamingName.value = session.name;
     autoScrollEnabled.value = true;
     toolAutoScrollEnabled.value = true;
-    await loadMessagesFromServer(session.id, { force: true });
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
     nextTick(() => scrollToolsToBottom({ force: true, behavior: "auto" }));
   } catch (error) {
     const status = httpStatus(error);
     if (status === 403) {
-      sessionsError.value =
-        "You do not have permission to create conversations.";
+      // readonly
     }
-    console.error("Failed to create session", error);
   }
 }
 
 async function deleteSession(sessionId: string) {
   try {
-    await apiDeleteChatSession(sessionId);
-    sessionsError.value = null;
-  } catch (error) {
-    const status = httpStatus(error);
-    if (status === 403) {
-      sessionsError.value =
-        "You do not have permission to delete this conversation.";
-    }
-    console.error("Failed to delete session", error);
-    return;
-  }
-
-  const nextSessions = sessions.value.filter(
-    (session) => session.id !== sessionId,
-  );
-  const { [sessionId]: _removed, ...rest } = messagesBySession.value;
-  messagesBySession.value = rest;
-  fetchedMessageSessions.delete(sessionId);
-
-  if (!nextSessions.length) {
-    try {
-      const fresh = await apiCreateChatSession("New Chat");
-      sessions.value = [fresh];
-      messagesBySession.value = { [fresh.id]: [] };
-      fetchedMessageSessions.delete(fresh.id);
-      activeSessionId.value = fresh.id;
-      autoScrollEnabled.value = true;
-      toolAutoScrollEnabled.value = true;
-      await loadMessagesFromServer(fresh.id, { force: true });
-      nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
-      nextTick(() => scrollToolsToBottom({ force: true, behavior: "auto" }));
-      return;
-    } catch (error) {
-      sessions.value = [];
-      activeSessionId.value = "";
-      sessionsError.value = "No conversations available.";
-      console.error("Failed to create replacement session", error);
-      return;
-    }
-  }
-
-  sessions.value = nextSessions;
-  if (activeSessionId.value === sessionId) {
-    activeSessionId.value = nextSessions[0]?.id || "";
-    if (activeSessionId.value) {
-      void loadMessagesFromServer(activeSessionId.value, { force: true });
-    }
+    await chat.deleteSession(sessionId);
     autoScrollEnabled.value = true;
     toolAutoScrollEnabled.value = true;
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
     nextTick(() => scrollToolsToBottom({ force: true, behavior: "auto" }));
+  } catch (error) {
+    // ignore
   }
 }
 
@@ -1047,21 +834,10 @@ async function commitRename(sessionId: string) {
     cancelRename();
     return;
   }
-  const index = sessions.value.findIndex((session) => session.id === sessionId);
-  if (index === -1) return;
   try {
-    const updated = await apiRenameChatSession(sessionId, name);
-    sessionsError.value = null;
-    const clone = [...sessions.value];
-    clone.splice(index, 1, { ...clone[index], name: updated.name });
-    sessions.value = clone;
+    await chat.renameSession(sessionId, name);
   } catch (error) {
-    const status = httpStatus(error);
-    if (status === 403) {
-      sessionsError.value =
-        "You do not have permission to rename this conversation.";
-    }
-    console.error("Failed to rename session", error);
+    // ignore
   }
   cancelRename();
 }
@@ -1079,245 +855,25 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   const content = text.trim();
   if ((!content && !pendingAttachments.value.length) || isStreaming.value)
     return;
-
-  const sessionId = ensureSession();
-  const now = new Date().toISOString();
   autoScrollEnabled.value = true;
-
-  if (options.echoUser !== false) {
-    const attachmentsCopy = pendingAttachments.value.map((a) => ({ ...a }));
-    appendMessage(sessionId, {
-      id: crypto.randomUUID(),
-      role: "user",
-      content,
-      createdAt: now,
-      attachments: attachmentsCopy,
-    });
-  }
-
-  const assistantId = crypto.randomUUID();
-  appendMessage(sessionId, {
-    id: assistantId,
-    role: "assistant",
-    content: "",
-    createdAt: now,
-    streaming: true,
-  });
-
-  streamingAssistantId.value = assistantId;
-  isStreaming.value = true;
   draft.value = options.echoUser === false ? draft.value : "";
-  toolMessageIndex.clear();
-  abortController.value = new AbortController();
-
   try {
-    // Append text attachments into the prompt with delimiters
-    let promptToSend = content;
-    for (const att of textAttachments.value) {
-      const f = filesByAttachment.get(att.id);
-      if (!f) continue;
-      const textContent = await f.text();
-      const header = `\n\n--- Attached Document: ${att.name} (${att.mime || "text"}) ---\n`;
-      const footer = `\n--- End Document ---\n`;
-      promptToSend += header + textContent + footer;
-    }
-
-    // Gather image files if any
-    const imageFiles: File[] = [];
-    for (const att of imageAttachments.value) {
-      const f = filesByAttachment.get(att.id);
-      if (f) imageFiles.push(f);
-    }
-
-    if (imageFiles.length) {
-      await streamAgentVisionRun({
-        prompt: promptToSend,
-        sessionId,
-        files: imageFiles,
-        signal: abortController.value!.signal,
-        onEvent: (event) => handleStreamEvent(event, sessionId, assistantId),
-      });
-    } else {
-      await streamAgentRun({
-        prompt: promptToSend,
-        sessionId,
-        signal: abortController.value!.signal,
-        onEvent: (event) => handleStreamEvent(event, sessionId, assistantId),
-      });
-    }
+    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, options);
   } catch (error) {
-    const assistantUpdater = (message: ChatMessage) => ({
-      ...message,
-      streaming: false,
-      error:
-        error instanceof DOMException && error.name === "AbortError"
-          ? "Generation stopped"
-          : error instanceof Error
-            ? error.message
-            : "Unexpected error",
-    });
-    updateMessage(sessionId, assistantId, assistantUpdater);
+    // handled in store
   } finally {
-    isStreaming.value = false;
-    streamingAssistantId.value = null;
-    abortController.value = null;
     pendingAttachments.value = [];
     filesByAttachment.clear();
   }
 }
 
-function handleStreamEvent(
-  event: ChatStreamEvent,
-  sessionId: string,
-  assistantId: string,
-) {
-  switch (event.type) {
-    case "delta": {
-      if (typeof event.data === "string" && event.data) {
-        updateMessage(sessionId, assistantId, (message) => ({
-          ...message,
-          content: message.content + event.data,
-        }));
-      }
-      break;
-    }
-    case "final": {
-      const text = typeof event.data === "string" ? event.data : "";
-      updateMessage(sessionId, assistantId, (message) => ({
-        ...message,
-        content: text || message.content,
-        streaming: false,
-      }));
-      if (text) {
-        touchSession(sessionId, snippet(text));
-      }
-      // Refresh runs list so Runs view reflects completed runs
-      try {
-        queryClient.invalidateQueries({ queryKey: ["agent-runs"] });
-      } catch (e) {
-        // ignore if queryClient unavailable in some contexts
-      }
-      break;
-    }
-    case "tool_start": {
-      const now = new Date().toISOString();
-      const key =
-        typeof event.tool_id === "string" ? event.tool_id : crypto.randomUUID();
-      const messageId = crypto.randomUUID();
-      toolMessageIndex.set(key, messageId);
-      appendMessage(
-        sessionId,
-        {
-          id: messageId,
-          role: "tool",
-          title: event.title || "Tool call",
-          content: "",
-          toolArgs: typeof event.args === "string" ? event.args : undefined,
-          createdAt: now,
-          streaming: true,
-        },
-        false,
-      );
-      break;
-    }
-    case "tool_result": {
-      const now = new Date().toISOString();
-      const result = typeof event.data === "string" ? event.data : "";
-      const key = typeof event.tool_id === "string" ? event.tool_id : null;
-      if (key && toolMessageIndex.has(key)) {
-        const messageId = toolMessageIndex.get(key) as string;
-        updateMessage(sessionId, messageId, (message) => ({
-          ...message,
-          content: result,
-          streaming: false,
-        }));
-        toolMessageIndex.delete(key);
-      } else {
-        const pending = findLastIndex(
-          messagesBySession.value[sessionId] || [],
-          (msg) => msg.role === "tool" && !!msg.streaming,
-        );
-        if (pending !== -1) {
-          const messageId = (messagesBySession.value[sessionId] || [])[pending]
-            .id;
-          updateMessage(sessionId, messageId, (message) => ({
-            ...message,
-            title: message.title || event.title || "Tool result",
-            content: result,
-            streaming: false,
-          }));
-        } else {
-          appendMessage(
-            sessionId,
-            {
-              id: crypto.randomUUID(),
-              role: "tool",
-              title: event.title || "Tool result",
-              content: result,
-              createdAt: now,
-            },
-            false,
-          );
-        }
-      }
-      break;
-    }
-    case "tts_chunk":
-      // Ignore incremental binary metadata for now.
-      break;
-    case "tts_audio": {
-      const now = new Date().toISOString();
-      if (typeof event.url === "string") {
-        appendMessage(
-          sessionId,
-          {
-            id: crypto.randomUUID(),
-            role: "tool",
-            title: event.title || "Audio response",
-            content: "The agent produced an audio reply.",
-            createdAt: now,
-            audioUrl: event.url,
-            audioFilePath:
-              typeof event.file_path === "string" ? event.file_path : undefined,
-          },
-          false,
-        );
-      }
-      break;
-    }
-    case "error": {
-      const message =
-        typeof event.data === "string" ? event.data : "Agent error";
-      updateMessage(sessionId, assistantId, (existing) => ({
-        ...existing,
-        streaming: false,
-        error: message,
-      }));
-      break;
-    }
-    default:
-      break;
-  }
-}
-
 function stopStreaming() {
-  abortController.value?.abort();
+  chat.stopStreaming();
 }
 
 async function regenerateAssistant() {
   if (!canRegenerate.value || !lastUser.value) return;
-  const sessionId = ensureSession();
-  const messages = messagesBySession.value[sessionId] || [];
-  const targetIndex = findLastIndex(
-    messages,
-    (message) => message.role === "assistant",
-  );
-  if (targetIndex !== -1) {
-    const next = [...messages];
-    next.splice(targetIndex, 1);
-    setMessages(sessionId, next);
-  }
-  await sendPrompt(lastUser.value.content, { echoUser: false });
+  await chat.regenerateAssistant();
 }
 
 function copyMessage(message: ChatMessage) {
@@ -1466,15 +1022,6 @@ function findLast<T>(items: T[], predicate: (item: T) => boolean): T | null {
     }
   }
   return null;
-}
-
-function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
-  for (let i = items.length - 1; i >= 0; i -= 1) {
-    if (predicate(items[i])) {
-      return i;
-    }
-  }
-  return -1;
 }
 
 function goToDashboard() {

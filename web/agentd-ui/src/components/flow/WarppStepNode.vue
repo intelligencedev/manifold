@@ -167,7 +167,11 @@ const collapsed = ref(false)
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1)
 const isDesignMode = computed(() => modeRef.value === 'design')
-const runtimeTrace = computed(() => runTraceRef.value[props.id])
+const runtimeTrace = computed(() => {
+  const rec = runTraceRef.value
+  if (!rec || typeof rec !== 'object') return undefined
+  return rec[props.id]
+})
 const runtimeArgs = computed(() => {
   const trace = runtimeTrace.value
   if (!trace?.renderedArgs) {

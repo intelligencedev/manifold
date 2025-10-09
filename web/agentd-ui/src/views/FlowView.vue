@@ -404,7 +404,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, provide, ref, watch, markRaw } from 'vue'
 import { VueFlow, type Edge, type Node, useVueFlow, type Connection, Panel, type GraphNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
@@ -419,16 +419,10 @@ import UnlockedIcon from '@/components/icons/UnlockedBold.vue'
 import MapShowIcon from '@/components/icons/MapShow.vue'
 import LayoutIcon from '@/components/icons/FlowLayout.vue'
 import dagre from 'dagre'
-import {
-  fetchWarppTools,
-  fetchWarppWorkflow,
-  fetchWarppWorkflows,
-  saveWarppWorkflow,
-  deleteWarppWorkflow,
-  runWarppWorkflow,
-} from '@/api/warpp'
+import { fetchWarppTools, fetchWarppWorkflow, fetchWarppWorkflows, saveWarppWorkflow, deleteWarppWorkflow } from '@/api/warpp'
 import type { WarppStep, WarppTool, WarppWorkflow, WarppStepTrace } from '@/types/warpp'
 import type { StepNodeData } from '@/types/flow'
+import { useWarppRunStore } from '@/stores/warpp'
 
 type LayoutMap = Record<string, { x: number; y: number }>
 
@@ -445,7 +439,12 @@ const UTILITY_TOOL_PREFIX = 'utility_'
 const DAGRE_NODE_BASE_WIDTH = 280
 const DAGRE_NODE_BASE_HEIGHT = 120
 
-const nodeTypes = { warppStep: WarppStepNode, warppUtility: WarppUtilityNode }
+// markRaw prevents Vue from proxying the nodeTypes object/components which can
+// interfere with Vue Flow's dynamic component resolution in some cases
+const nodeTypes = markRaw({
+  warppStep: markRaw(WarppStepNode),
+  warppUtility: markRaw(WarppUtilityNode),
+})
 
 const { project, zoomIn, zoomOut, fitView, nodesDraggable } = useVueFlow()
 
@@ -469,26 +468,32 @@ const tools = ref<WarppTool[]>([])
 provide('warppTools', tools)
 provide('warppHydrating', isHydrating)
 const editorMode = ref<'design' | 'run'>('design')
-const runTrace = ref<Record<string, WarppStepTrace>>({})
+// Pinia store for run state (persists across navigation)
+const warppRunStore = useWarppRunStore()
 provide('warppMode', editorMode)
-provide('warppRunTrace', runTrace)
+// Wrap store values in computed to maintain reactivity when providing to children
+const runTraceComputed = computed(() => warppRunStore.runTrace)
+provide('warppRunTrace', runTraceComputed)
 
 const loading = ref(false)
 const error = ref('')
 const saving = ref(false)
-const running = ref(false)
+// Pinia unwraps refs by default, so we need to access the underlying $state
+// or re-wrap in computed to maintain reactivity across navigation
+const running = computed(() => warppRunStore.running)
+const runOutput = computed(() => warppRunStore.runOutput)
+const runLogs = computed(() => warppRunStore.runLogs)
 provide('warppRunning', running)
-const runOutput = ref('')
-let runAbort: AbortController | null = null
+provide('warppRunOutput', runOutput)
+provide('warppRunLogs', runLogs)
 let runTraceTimers: ReturnType<typeof setTimeout>[] = []
-const runLogs = ref<string[]>([])
 const resultModal = ref<{ stepId: string; title: string } | null>(null)
 const activeModalTrace = computed(() => {
   if (!resultModal.value) return undefined
-  return runTrace.value[resultModal.value.stepId]
+  return warppRunStore.runTrace[resultModal.value.stepId]
 })
 function openResultModal(stepId: string, title: string) {
-  const hasTrace = runTrace.value[stepId]
+  const hasTrace = warppRunStore.runTrace[stepId]
   if (!hasTrace) return
   resultModal.value = { stepId, title }
 }
@@ -514,7 +519,15 @@ const toolMap = computed(() => {
 
 const workflowTools = computed(() => tools.value.filter((tool) => !isUtilityToolName(tool.name)))
 const utilityTools = computed(() => tools.value.filter((tool) => isUtilityToolName(tool.name)))
-const hasRunTrace = computed(() => Object.keys(runTrace.value).length > 0)
+const hasRunTrace = computed(() => {
+  const rec = warppRunStore.runTrace
+  if (!rec || typeof rec !== 'object') return false
+  try {
+    return Object.keys(rec).length > 0
+  } catch {
+    return false
+  }
+})
 const modalStepTitle = computed(() => {
   if (!resultModal.value) return ''
   return resultModal.value.title || activeModalTrace.value?.text || resultModal.value.stepId
@@ -624,15 +637,14 @@ function onAutoLayout(direction: DagreDirection) {
 }
 
 function isUtilityToolName(name?: string | null): boolean {
-  return typeof name === 'string' && name.startsWith(UTILITY_TOOL_PREFIX)
+  if (typeof name !== 'string') return false
+  return /^utility[_-]/.test(name)
 }
 
 function prettyUtilityLabel(name: string): string {
   if (!isUtilityToolName(name)) return name
-  const readable = name.slice(UTILITY_TOOL_PREFIX.length)
-  return readable
-    .replace(/[_-]+/g, ' ')
-    .replace(/\b\w/g, (ch) => ch.toUpperCase())
+  const readable = name.replace(/^utility[_-]/, '')
+  return readable.replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
 function clearRunTraceTimers() {
@@ -642,21 +654,20 @@ function clearRunTraceTimers() {
 
 function resetRunView() {
   clearRunTraceTimers()
-  runTrace.value = {}
   editorMode.value = 'design'
   closeResultModal()
 }
 
 function applyRunTrace(entries: WarppStepTrace[]) {
   clearRunTraceTimers()
-  runTrace.value = {}
+  warppRunStore.runTrace = {}
   if (!entries.length) {
     return
   }
   entries.forEach((entry, index) => {
     const delay = Math.min(index * 150, 1500)
     const timer = setTimeout(() => {
-      runTrace.value = { ...runTrace.value, [entry.stepId]: entry }
+      warppRunStore.runTrace = { ...warppRunStore.runTrace, [entry.stepId]: entry }
     }, delay)
     runTraceTimers.push(timer)
   })
@@ -709,6 +720,9 @@ onMounted(async () => {
       await loadWorkflow(selectedIntent.value)
     } else if (workflows.length > 0) {
       selectedIntent.value = workflows[0].intent
+      // ensure initial selection loads immediately instead of waiting for watcher timing
+      await nextTick()
+      await loadWorkflow(selectedIntent.value)
     }
   } catch (err: any) {
     error.value = err?.message ?? 'Failed to load workflows'
@@ -1082,57 +1096,32 @@ async function onSave(): Promise<WarppWorkflow | null> {
 
 async function onRun() {
   if (!activeWorkflow.value) return
-  running.value = true
-  error.value = ''
-  runOutput.value = ''
-  runLogs.value = []
-  runAbort?.abort()
-  runAbort = new AbortController()
+  warppRunStore.error = ''
+  warppRunStore.runOutput = ''
+  warppRunStore.runLogs = []
   editorMode.value = 'run'
   clearRunTraceTimers()
-  runTrace.value = {}
+  warppRunStore.runTrace = {}
   const intent = activeWorkflow.value.intent
-  runLogs.value.push(`▶ Starting run for intent "${intent}"`)
+  warppRunStore.runLogs.push(`▶ Starting run for intent "${intent}"`)
   // Capture need to save at start (canSave may change mid-process)
   const needSave = canSave.value
   if (needSave) {
-    runLogs.value.push('… Saving workflow before run')
+    warppRunStore.runLogs.push('… Saving workflow before run')
     const saved = await onSave()
-    if (saved) runLogs.value.push('✓ Save complete')
-    else runLogs.value.push('✗ Save failed – proceeding with current in-memory workflow')
+    if (saved) warppRunStore.runLogs.push('✓ Save complete')
+    else warppRunStore.runLogs.push('✗ Save failed – proceeding with current in-memory workflow')
   }
   try {
-    runLogs.value.push('→ POST /api/warpp/run')
-    console.debug('[warpp] POST /api/warpp/run intent=%s', intent)
-    ;(window as any).__warppLastRunRequest = { intent, ts: Date.now() }
-    const res = await runWarppWorkflow(intent, `Run workflow: ${intent}`, runAbort.signal)
-    runOutput.value = res.result || ''
+    const res = await warppRunStore.startRun(intent, `Run workflow: ${intent}`)
     applyRunTrace(res.trace ?? [])
-    runLogs.value.push('✓ Run finished')
-    if (runOutput.value) {
-      runLogs.value.push('Result snippet: ' + runOutput.value.slice(0, 160) + (runOutput.value.length > 160 ? '…' : ''))
-    }
-    console.info('WARPP run summary:', runOutput.value)
   } catch (err: any) {
-    if (err?.name === 'AbortError') {
-      error.value = 'Run cancelled'
-      runLogs.value.push('⚠ Run cancelled by user')
-      resetRunView()
-    } else {
-      const msg = err?.message ?? 'Failed to run workflow'
-      error.value = msg
-      runLogs.value.push('✗ Error: ' + msg)
-      resetRunView()
-    }
-  } finally {
-    running.value = false
+    resetRunView()
   }
 }
 
 function onCancelRun() {
-  if (running.value && runAbort) {
-    runAbort.abort()
-  }
+  warppRunStore.cancelRun()
 }
 
 async function onDelete() {

@@ -28,7 +28,7 @@
           v-if="isDesignMode"
           v-model="contentText"
           rows="4"
-          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto"
           placeholder="Enter static text or use ${A.key} placeholders"
           @input="markDirty"
         ></textarea>
@@ -36,7 +36,7 @@
           v-else
           class="min-h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words"
         >
-          <span class="block max-h-[12rem] overflow-hidden">{{ runtimePreviewText || 'Run the workflow to see resolved text.' }}</span>
+          <span class="block max-h-[12rem] overflow-auto">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
         </div>
       </label>
       <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -65,7 +65,7 @@
         {{ runtimeStatusMessage }}
       </p>
       <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-        <span class="block max-h-[6rem] overflow-hidden whitespace-pre-wrap break-words">{{ runtimeError }}</span>
+        <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
       </p>
     </div>
 
@@ -133,11 +133,7 @@ const runtimeText = computed(() => {
   if (typeof text === 'string') return text
   return ''
 })
-const runtimePreviewText = computed(() => {
-  const text = runtimeText.value
-  if (!text) return ''
-  return text.length > 200 ? text.slice(0, 200) + '…' : text
-})
+// show full text in run mode; container is scrollable
 const runtimeOutputAttr = computed(() => {
   const trace = runtimeTrace.value
   if (trace?.renderedArgs && typeof trace.renderedArgs.output_attr === 'string') {

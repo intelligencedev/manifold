@@ -84,7 +84,7 @@
         <template v-if="runtimeArgs.length">
           <div v-for="([key, value], index) in runtimeArgs" :key="`${key}-${index}`" class="flex items-start gap-2">
             <span class="min-w-[72px] font-semibold text-foreground">{{ key }}</span>
-            <span class="block max-h-[6rem] overflow-hidden whitespace-pre-wrap break-words text-foreground/80">
+            <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words text-foreground/80">
               {{ formatRuntimeValue(value) }}
             </span>
           </div>
@@ -98,7 +98,7 @@
         <p v-if="runtimeStatusMessage" class="italic text-faint-foreground">{{ runtimeStatusMessage }}</p>
       </div>
       <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-        <span class="block max-h-[6rem] overflow-hidden whitespace-pre-wrap break-words">{{ runtimeError }}</span>
+        <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
       </p>
     </div>
 
@@ -211,7 +211,7 @@ const headerLabel = computed(() => currentTool.value?.name ?? 'Workflow Step')
 let suppressCommit = false
 let suppressToolReset = false
 
-const MAX_PREVIEW_CHARS = 160
+// In run mode we want full scrollable values, no truncation
 
 watch(
   () => props.data?.step,
@@ -283,20 +283,13 @@ function toggleCollapsed() {
 
 function formatRuntimeValue(value: unknown): string {
   if (value === null || value === undefined) return ''
-  if (typeof value === 'string') {
-    return value.length > MAX_PREVIEW_CHARS ? value.slice(0, MAX_PREVIEW_CHARS) + '…' : value
-  }
+  if (typeof value === 'string') return value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   try {
-    const serialized = JSON.stringify(value)
-    if (serialized.length > MAX_PREVIEW_CHARS) {
-      return serialized.slice(0, MAX_PREVIEW_CHARS) + '…'
-    }
-    return serialized
+    return JSON.stringify(value)
   } catch (err) {
     console.warn('Failed to stringify runtime value', err)
-    const fallback = String(value)
-    return fallback.length > MAX_PREVIEW_CHARS ? fallback.slice(0, MAX_PREVIEW_CHARS) + '…' : fallback
+    return String(value)
   }
 }
 

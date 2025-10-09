@@ -136,7 +136,7 @@
       </div>
     </div>
 
-    <div v-if="runLogs.length" class="max-h-32 overflow-y-auto rounded border border-border/50 bg-surface-muted px-3 py-2 text-xs font-mono leading-relaxed space-y-0.5">
+    <div v-if="runLogs.length" class="max-h-[3.6rem] overflow-y-auto rounded border border-border/50 bg-surface-muted px-3 py-2 text-xs font-mono leading-relaxed space-y-0.5">
       <div v-for="(l,i) in runLogs" :key="i" class="whitespace-pre-wrap break-words">{{ l }}</div>
     </div>
 

@@ -1,5 +1,5 @@
 {
-  "realm": "sio-local",
+  "realm": "manifold",
   "enabled": true,
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
@@ -14,10 +14,10 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "http://localhost:32180/*"
+        "https://manifold.intelligence.dev/*"
       ],
       "webOrigins": [
-        "http://localhost:32180"
+        "https://manifold.intelligence.dev"
       ],
       "attributes": {
         "post.logout.redirect.uris": "+"

@@ -31,6 +31,7 @@ import (
 	"manifold/internal/tools/imagetool"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
+	"manifold/internal/tools/textsplitter"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
@@ -142,6 +143,7 @@ func NewModel(ctx context.Context, provider llm.Provider, cfg config.Config, exe
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	registry.Register(web.NewFetchTool())
 	registry.Register(patchtool.New(cfg.Workdir))
+	registry.Register(textsplitter.New())
 	registry.Register(utility.NewTextboxTool())
 
 	// Create HTTP client for TTS tool

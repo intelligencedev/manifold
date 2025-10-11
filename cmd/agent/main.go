@@ -23,6 +23,7 @@ import (
 	"manifold/internal/tools/db"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
+	"manifold/internal/tools/textsplitter"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
@@ -92,6 +93,8 @@ func main() {
 	registry.Register(web.NewFetchTool())              // provides web_fetch
 	// Patch application tool (unified diff)
 	registry.Register(patchtool.New(cfg.Workdir)) // provides apply_patch
+	// Text splitting tool (RAG ingestion helpers)
+	registry.Register(textsplitter.New()) // provides split_text
 	registry.Register(utility.NewTextboxTool())
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))

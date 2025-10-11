@@ -52,6 +52,7 @@ import (
 	"manifold/internal/tools/imagetool"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
+	"manifold/internal/tools/textsplitter"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
@@ -261,6 +262,8 @@ func main() {
 	toolRegistry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	toolRegistry.Register(web.NewFetchTool())
 	toolRegistry.Register(patchtool.New(cfg.Workdir))
+	// Text splitting tool (RAG ingestion helpers)
+	toolRegistry.Register(textsplitter.New()) // provides split_text
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(cfg, httpClient))
 	toolRegistry.Register(db.NewSearchIndexTool(mgr.Search))

@@ -11,6 +11,8 @@ type SearchResult struct {
 	ID       string
 	Score    float64
 	Snippet  string
+	// Text may contain the full document text when available.
+	Text     string `json:"text,omitempty"`
 	Metadata map[string]string
 }
 

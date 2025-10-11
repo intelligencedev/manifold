@@ -68,6 +68,7 @@ func (m *memorySearch) Search(_ context.Context, query string, limit int) ([]Sea
 				ID:       id,
 				Score:    score,
 				Snippet:  snippet,
+				Text:     d.text,
 				Metadata: copyMap(d.metadata),
 			})
 		}

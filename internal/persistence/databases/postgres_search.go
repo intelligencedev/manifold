@@ -54,6 +54,7 @@ func (p *pgSearch) Search(ctx context.Context, query string, limit int) ([]Searc
 	rows, err := p.pool.Query(ctx, `
 SELECT id, ts_rank(ts, plainto_tsquery('simple',$1)) AS score,
        left(text, 120) AS snippet,
+       text,
        metadata
 FROM documents
 WHERE ts @@ plainto_tsquery('simple',$1)
@@ -68,7 +69,7 @@ LIMIT $2
 	for rows.Next() {
 		var r SearchResult
 		var md map[string]string
-		if err := rows.Scan(&r.ID, &r.Score, &r.Snippet, &md); err != nil {
+		if err := rows.Scan(&r.ID, &r.Score, &r.Snippet, &r.Text, &md); err != nil {
 			return nil, err
 		}
 		r.Metadata = md

@@ -684,6 +684,41 @@ func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, m
 			}
 		}
 	}
+
+	// Generic output attribute support for all nodes
+	// If args specify an "output_attr", set that key in delta from either
+	// args["output_value"], a selector in args["output_from"], or default no-op.
+	if oa, ok := args["output_attr"].(string); ok {
+		oa = strings.TrimSpace(oa)
+		if oa != "" {
+			var outVal any
+			if v, ok := args["output_value"]; ok {
+				// Already rendered by renderArgs
+				outVal = v
+			} else if sel, ok := args["output_from"].(string); ok {
+				sel = strings.TrimSpace(sel)
+				switch {
+				case sel == "payload":
+					outVal = ps
+				case strings.HasPrefix(sel, "json."):
+					var top map[string]any
+					if err := json.Unmarshal(payload, &top); err == nil {
+						outVal = top[strings.TrimPrefix(sel, "json.")]
+					}
+				case strings.HasPrefix(sel, "args."):
+					outVal = args[strings.TrimPrefix(sel, "args.")]
+				case strings.HasPrefix(sel, "delta."):
+					outVal = delta[strings.TrimPrefix(sel, "delta.")]
+				default:
+					// unknown selector -> leave nil
+				}
+			}
+			if outVal != nil {
+				// Explicit output_attr should win for this step's delta
+				delta[oa] = outVal
+			}
+		}
+	}
 	return payload, delta, args, nil
 }
 

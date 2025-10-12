@@ -138,7 +138,7 @@ func main() {
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
-	registry.Register(web.NewFetchTool())              // provides web_fetch
+	registry.Register(web.NewFetchTool(mgr.Search))    // provides web_fetch
 	registry.Register(patchtool.New(cfg.Workdir))      // provides apply_patch
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))

@@ -260,7 +260,7 @@ func main() {
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	toolRegistry.Register(cli.NewTool(exec))
 	toolRegistry.Register(web.NewTool(cfg.Web.SearXNGURL))
-	toolRegistry.Register(web.NewFetchTool())
+	toolRegistry.Register(web.NewFetchTool(mgr.Search))
 	toolRegistry.Register(patchtool.New(cfg.Workdir))
 	// Text splitting tool (RAG ingestion helpers)
 	toolRegistry.Register(textsplitter.New()) // provides split_text

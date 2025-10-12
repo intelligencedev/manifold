@@ -571,6 +571,35 @@ func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, m
 		return nil, nil, nil, nil
 	}
 	args := renderArgs(s.Tool.Args, A)
+	// Auto-wire: if a web_search node precedes a web_fetch node, propagate URLs
+	// from A["urls"] into the web_fetch call when neither url nor urls is set.
+	if s.Tool.Name == "web_fetch" {
+		if _, ok := args["url"]; !ok {
+			if _, ok2 := args["urls"]; !ok2 {
+				if v, ok3 := A["urls"]; ok3 {
+					switch u := v.(type) {
+					case []string:
+						if len(u) > 0 {
+							args["urls"] = u
+						}
+					case []any:
+						out := make([]string, 0, len(u))
+						for _, it := range u {
+							if str, ok := it.(string); ok && str != "" {
+								out = append(out, str)
+							}
+						}
+						if len(out) > 0 {
+							args["urls"] = out
+						}
+					}
+				} else if fu, ok4 := A["first_url"].(string); ok4 && fu != "" {
+					// Fallback for legacy flows
+					args["url"] = fu
+				}
+			}
+		}
+	}
 	raw, _ := json.Marshal(args)
 	payload, err := r.Tools.Dispatch(ctx, s.Tool.Name, raw)
 	if err != nil {

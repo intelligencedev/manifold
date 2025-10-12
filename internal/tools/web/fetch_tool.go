@@ -95,6 +95,31 @@ func (t *fetchTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 
 	// Single URL legacy path
 	if args.URL != "" && len(args.URLs) == 0 {
+		// Cache lookup by exact ID (URL)
+		if t.search != nil {
+			if cached, ok, _ := t.search.GetByID(ctx, args.URL); ok {
+				// Best-effort decode metadata
+				usedReadable := cached.Metadata["used_readable"] == "true"
+				var fetchedAt time.Time
+				if ts := cached.Metadata["fetched_at"]; ts != "" {
+					if t0, err := time.Parse(time.RFC3339, ts); err == nil {
+						fetchedAt = t0
+					}
+				}
+				return map[string]any{
+					"ok":            true,
+					"input_url":     args.URL,
+					"final_url":     cached.ID,
+					"status":        200,
+					"content_type":  cached.Metadata["content_type"],
+					"charset":       cached.Metadata["charset"],
+					"title":         cached.Metadata["title"],
+					"markdown":      cached.Text,
+					"used_readable": usedReadable,
+					"fetched_at":    fetchedAt,
+				}, nil
+			}
+		}
 		res, err := f.FetchMarkdown(ctx, args.URL)
 		if err != nil {
 			return map[string]any{"ok": false, "error": err.Error()}, nil
@@ -165,6 +190,31 @@ func (t *fetchTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	for i, u := range urls {
 		i, u := i, u
 		g.Go(func() error {
+			// Try cache first when search backend is available
+			if t.search != nil {
+				if cached, ok, _ := t.search.GetByID(ctx, u); ok {
+					// populate from cache and short-circuit
+					var fetchedAt time.Time
+					if ts := cached.Metadata["fetched_at"]; ts != "" {
+						if t0, err := time.Parse(time.RFC3339, ts); err == nil {
+							fetchedAt = t0
+						}
+					}
+					results[i] = out{
+						OK:           true,
+						InputURL:     u,
+						FinalURL:     cached.ID,
+						Status:       200,
+						ContentType:  cached.Metadata["content_type"],
+						Charset:      cached.Metadata["charset"],
+						Title:        cached.Metadata["title"],
+						Markdown:     cached.Text,
+						UsedReadable: cached.Metadata["used_readable"] == "true",
+						FetchedAt:    fetchedAt,
+					}
+					return nil
+				}
+			}
 			r, err := f.FetchMarkdown(ctx, u)
 			if err != nil {
 				results[i] = out{OK: false, Error: err.Error()}

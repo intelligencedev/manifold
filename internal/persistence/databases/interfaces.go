@@ -21,6 +21,8 @@ type FullTextSearch interface {
 	Index(ctx context.Context, id string, text string, metadata map[string]string) error
 	Remove(ctx context.Context, id string) error
 	Search(ctx context.Context, query string, limit int) ([]SearchResult, error)
+	// GetByID returns a document by its exact ID if present.
+	GetByID(ctx context.Context, id string) (SearchResult, bool, error)
 }
 
 // VectorResult represents a single nearest neighbor lookup result.

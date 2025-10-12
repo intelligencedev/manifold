@@ -80,6 +80,16 @@ func (m *memorySearch) Search(_ context.Context, query string, limit int) ([]Sea
 	return results, nil
 }
 
+func (m *memorySearch) GetByID(_ context.Context, id string) (SearchResult, bool, error) {
+    m.mu.RLock()
+    defer m.mu.RUnlock()
+    d, ok := m.docs[id]
+    if !ok {
+        return SearchResult{}, false, nil
+    }
+    return SearchResult{ID: id, Text: d.text, Metadata: copyMap(d.metadata)}, true, nil
+}
+
 func copyMap(m map[string]string) map[string]string {
 	if m == nil {
 		return nil

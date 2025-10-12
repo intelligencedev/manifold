@@ -78,6 +78,20 @@ LIMIT $2
 	return out, rows.Err()
 }
 
+func (p *pgSearch) GetByID(ctx context.Context, id string) (SearchResult, bool, error) {
+    row := p.pool.QueryRow(ctx, `SELECT id, text, metadata FROM documents WHERE id=$1`, id)
+    var r SearchResult
+    var md map[string]string
+    if err := row.Scan(&r.ID, &r.Text, &md); err != nil {
+        if strings.Contains(err.Error(), "no rows") {
+            return SearchResult{}, false, nil
+        }
+        return SearchResult{}, false, err
+    }
+    r.Metadata = md
+    return r, true, nil
+}
+
 // mapToJSON ensures we never return nil to the database layer; return an empty
 // map when callers provide nil so INSERT/UPDATE won't try to write a SQL NULL
 // into a NOT NULL JSONB column.

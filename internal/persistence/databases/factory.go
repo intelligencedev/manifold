@@ -171,6 +171,9 @@ type noopSearch struct{}
 func (noopSearch) Index(context.Context, string, string, map[string]string) error { return nil }
 func (noopSearch) Remove(context.Context, string) error                           { return nil }
 func (noopSearch) Search(context.Context, string, int) ([]SearchResult, error)    { return nil, nil }
+func (noopSearch) GetByID(context.Context, string) (SearchResult, bool, error) {
+	return SearchResult{}, false, nil
+}
 
 type noopVector struct{}
 

@@ -29,6 +29,9 @@ export interface StreamAgentRunOptions {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   onEvent: (event: ChatStreamEvent) => void;
+  // Optional specialist override: when set (and not 'orchestrator'),
+  // the backend will run that specialist for this request.
+  specialist?: string;
 }
 
 export async function listChatSessions(): Promise<ChatSessionMeta[]> {
@@ -82,15 +85,22 @@ const visionEndpoint = `${baseURL}/agent/vision`;
 export async function streamAgentRun(
   options: StreamAgentRunOptions,
 ): Promise<void> {
-  const { prompt, sessionId, fetchImpl, signal, onEvent } = options;
+  const { prompt, sessionId, fetchImpl, signal, onEvent, specialist } = options;
   const fetchFn = fetchImpl ?? fetch;
   const payload = { prompt, session_id: sessionId };
   const decoder = new TextDecoder();
 
   let response: Response;
 
+  // Build endpoint with optional specialist override as a query param.
+  let url = runEndpoint;
+  if (specialist && specialist.trim() && specialist.trim().toLowerCase() !== 'orchestrator') {
+    const qp = `specialist=${encodeURIComponent(specialist.trim())}`;
+    url = `${url}?${qp}`;
+  }
+
   try {
-    response = await fetchFn(runEndpoint, {
+    response = await fetchFn(url, {
       method: "POST",
       headers: {
         Accept: "text/event-stream",
@@ -208,7 +218,7 @@ export async function streamAgentVisionRun(
     files: File[];
   },
 ): Promise<void> {
-  const { prompt, sessionId, files, fetchImpl, signal, onEvent } = options;
+  const { prompt, sessionId, files, fetchImpl, signal, onEvent, specialist } = options;
   const fetchFn = fetchImpl ?? fetch;
   const form = new FormData();
   form.set("prompt", prompt);
@@ -219,8 +229,14 @@ export async function streamAgentVisionRun(
 
   let response: Response;
   const decoder = new TextDecoder();
+  // Build endpoint with optional specialist override as a query param.
+  let url = visionEndpoint;
+  if (specialist && specialist.trim() && specialist.trim().toLowerCase() !== 'orchestrator') {
+    const qp = `specialist=${encodeURIComponent(specialist.trim())}`;
+    url = `${url}?${qp}`;
+  }
   try {
-    response = await fetchFn(visionEndpoint, {
+    response = await fetchFn(url, {
       method: "POST",
       headers: { Accept: "text/event-stream" },
       body: form,

@@ -102,9 +102,6 @@
             <h1 class="text-base font-semibold text-foreground">
               {{ activeSession?.name || "Conversation" }}
             </h1>
-            <p class="text-xs text-subtle-foreground">
-              {{ activeSession?.model || "Model: agent default" }}
-            </p>
           </div>
           <div class="flex items-center gap-2 text-xs text-subtle-foreground">
             <span
@@ -122,6 +119,17 @@
               >
                 Dashboard
               </button>
+              <label class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
+                <select
+                  v-model="selectedSpecialist"
+                  class="rounded-4 border border-border bg-surface px-2 py-1 text-xs text-foreground outline-none"
+                  title="Choose specialist for this chat"
+                  aria-label="Specialist override"
+                >
+                  <option value="orchestrator">orchestrator</option>
+                  <option v-for="sp in specialistNames" :key="sp" :value="sp">{{ sp }}</option>
+                </select>
+              </label>
               <label
                 class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground"
               >
@@ -555,6 +563,8 @@ import type {
   ChatSessionMeta,
   ChatRole,
 } from "@/types/chat";
+import { useQuery } from '@tanstack/vue-query'
+import { listSpecialists, type Specialist } from '@/api/client'
 import { renderMarkdown } from "@/utils/markdown";
 import "highlight.js/styles/github-dark-dimmed.css";
 import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
@@ -601,6 +611,16 @@ const textAttachments = computed(() =>
 const filesByAttachment: Map<string, File> = new Map();
 // Render mode for streamed responses: 'markdown' (default) or 'html'
 const renderMode = ref<"markdown" | "html">("markdown");
+
+// Specialists dropdown state
+const { data: specialistsData } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
+const specialistNames = computed(() =>
+  (specialistsData?.value || [])
+    .map((s: Specialist) => s.name)
+    .filter((n: string) => n && n.trim().toLowerCase() !== 'orchestrator')
+    .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+)
+const selectedSpecialist = ref<string>('orchestrator')
 
 function httpStatus(error: unknown): number | null {
   if (axios.isAxiosError(error)) {
@@ -858,7 +878,8 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   autoScrollEnabled.value = true;
   draft.value = options.echoUser === false ? draft.value : "";
   try {
-    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, options);
+    const specialist = selectedSpecialist.value && selectedSpecialist.value !== 'orchestrator' ? selectedSpecialist.value : undefined
+    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, { ...options, specialist });
   } catch (error) {
     // handled in store
   } finally {
@@ -873,7 +894,8 @@ function stopStreaming() {
 
 async function regenerateAssistant() {
   if (!canRegenerate.value || !lastUser.value) return;
-  await chat.regenerateAssistant();
+  const specialist = selectedSpecialist.value && selectedSpecialist.value !== 'orchestrator' ? selectedSpecialist.value : undefined
+  await chat.regenerateAssistant({ specialist });
 }
 
 function copyMessage(message: ChatMessage) {

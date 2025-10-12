@@ -217,7 +217,7 @@ export const useChatStore = defineStore('chat', () => {
     text: string,
     attachments: ChatAttachment[] = [],
     filesByAttachment?: FilesByAttachment,
-    options: { echoUser?: boolean } = {},
+    options: { echoUser?: boolean; specialist?: string } = {},
   ) {
     const content = (text || '').trim()
     if ((!content && !attachments.length) || isStreaming.value) return
@@ -275,6 +275,7 @@ export const useChatStore = defineStore('chat', () => {
           files: imageFiles,
           signal: abortController.value!.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
+          specialist: options.specialist,
         })
       } else {
         await streamAgentRun({
@@ -282,6 +283,7 @@ export const useChatStore = defineStore('chat', () => {
           sessionId,
           signal: abortController.value!.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
+          specialist: options.specialist,
         })
       }
     } catch (error: any) {
@@ -410,7 +412,7 @@ export const useChatStore = defineStore('chat', () => {
     abortController.value?.abort()
   }
 
-  async function regenerateAssistant() {
+  async function regenerateAssistant(options: { specialist?: string } = {}) {
     if (isStreaming.value) return
     const sessionId = ensureSession()
     const messages = messagesBySession.value[sessionId] || []
@@ -422,7 +424,7 @@ export const useChatStore = defineStore('chat', () => {
     const next = [...messages]
     if (targetIndex !== -1) next.splice(targetIndex, 1)
     setMessages(sessionId, next)
-    await sendPrompt(lastUser.content, [], undefined, { echoUser: false })
+    await sendPrompt(lastUser.content, [], undefined, { echoUser: false, specialist: options.specialist })
   }
 
   return {

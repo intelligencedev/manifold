@@ -1615,6 +1615,66 @@ func main() {
 			return
 		}
 
+		// Explicit specialist override via query parameter takes precedence over routes.
+		if spName := strings.TrimSpace(r.URL.Query().Get("specialist")); spName != "" && strings.ToLower(spName) != "orchestrator" {
+			if a, ok := specReg.Get(spName); ok {
+				seconds := cfg.AgentRunTimeoutSeconds
+				ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+				defer cancel()
+				if dur > 0 {
+					log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "specialist_override").Msg("using configured agent timeout")
+				} else {
+					log.Debug().Str("endpoint", "/agent/run").Str("mode", "specialist_override").Msg("no timeout configured; running until completion")
+				}
+				// Support SSE: emit only a final event after inference completes.
+				if r.Header.Get("Accept") == "text/event-stream" {
+					w.Header().Set("Content-Type", "text/event-stream")
+					w.Header().Set("Cache-Control", "no-cache")
+					fl, ok := w.(http.Flusher)
+					if !ok {
+						http.Error(w, "streaming not supported", http.StatusInternalServerError)
+						return
+					}
+					out, err := a.Inference(ctx, req.Prompt, history)
+					if err != nil {
+						log.Error().Err(err).Msg("specialist override error")
+						if b, err2 := json.Marshal("(error) "+err.Error()); err2 == nil {
+							fmt.Fprintf(w, "data: %s\n\n", b)
+						} else {
+							fmt.Fprintf(w, "data: %q\n\n", "(error)")
+						}
+						fl.Flush()
+						runs.updateStatus(currentRun.ID, "failed", 0)
+						return
+					}
+					payload := map[string]string{"type": "final", "data": out}
+					b, _ := json.Marshal(payload)
+					fmt.Fprintf(w, "data: %s\n\n", b)
+					fl.Flush()
+					runs.updateStatus(currentRun.ID, "completed", 0)
+					if err := storeChatTurn(r.Context(), chatStore, userID, req.SessionID, req.Prompt, out, a.Model); err != nil {
+						log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_specialist_stream")
+					}
+					return
+				}
+				// Non-stream JSON response
+				out, err := a.Inference(ctx, req.Prompt, history)
+				if err != nil {
+					log.Error().Err(err).Msg("specialist override error")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					runs.updateStatus(currentRun.ID, "failed", 0)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"result": out})
+				runs.updateStatus(currentRun.ID, "completed", 0)
+				if err := storeChatTurn(r.Context(), chatStore, userID, req.SessionID, req.Prompt, out, a.Model); err != nil {
+					log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_specialist")
+				}
+				return
+			}
+		}
+
 		// Pre-dispatch routing: call a specialist directly if there's a match.
 		if name := specialists.Route(cfg.SpecialistRoutes, req.Prompt); name != "" {
 			log.Info().Str("route", name).Msg("pre-dispatch specialist route matched")

@@ -234,6 +234,18 @@
               <div
                 class="flex items-center gap-1 rounded-md border border-border/70 bg-surface/90 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/75"
               >
+                <!-- Expand/Collapse all -->
+                <button
+                  type="button"
+                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  :aria-pressed="nodesCollapsed"
+                  :aria-label="nodesCollapsed ? 'Expand all nodes' : 'Collapse all nodes'"
+                  :title="nodesCollapsed ? 'Expand all' : 'Collapse all'"
+                  @click="toggleCollapseAll"
+                >
+                  <CollapseIcon v-if="!nodesCollapsed" class="h-4 w-4" />
+                  <ExpandIcon v-else class="h-4 w-4" />
+                </button>
                 <!-- Auto layout buttons -->
                 <button
                   type="button"
@@ -418,6 +430,8 @@ import LockedIcon from '@/components/icons/LockedBold.vue'
 import UnlockedIcon from '@/components/icons/UnlockedBold.vue'
 import MapShowIcon from '@/components/icons/MapShow.vue'
 import LayoutIcon from '@/components/icons/FlowLayout.vue'
+import CollapseIcon from '@/components/icons/Collapse.vue'
+import ExpandIcon from '@/components/icons/Expand.vue'
 import dagre from 'dagre'
 import { fetchWarppTools, fetchWarppWorkflow, fetchWarppWorkflows, saveWarppWorkflow, deleteWarppWorkflow } from '@/api/warpp'
 import type { WarppStep, WarppTool, WarppWorkflow, WarppStepTrace } from '@/types/warpp'
@@ -487,6 +501,13 @@ provide('warppRunning', running)
 provide('warppRunOutput', runOutput)
 provide('warppRunLogs', runLogs)
 let runTraceTimers: ReturnType<typeof setTimeout>[] = []
+// Provide collapse/expand-all signals for nodes to react to
+const collapseAllSeq = ref(0)
+const expandAllSeq = ref(0)
+provide('warppCollapseAllSeq', collapseAllSeq)
+provide('warppExpandAllSeq', expandAllSeq)
+// Track global collapsed state for control icon
+const nodesCollapsed = ref(false)
 const resultModal = ref<{ stepId: string; title: string } | null>(null)
 const activeModalTrace = computed(() => {
   if (!resultModal.value) return undefined
@@ -589,6 +610,20 @@ async function scheduleFitView() {
 }
 function toggleNodeLock() {
   nodesLocked.value = !nodesLocked.value
+}
+
+// Expand/Collapse all nodes via provided signals
+function collapseAll() {
+  collapseAllSeq.value += 1
+  nodesCollapsed.value = true
+}
+function expandAll() {
+  expandAllSeq.value += 1
+  nodesCollapsed.value = false
+}
+function toggleCollapseAll() {
+  if (nodesCollapsed.value) expandAll()
+  else collapseAll()
 }
 
 type DagreDirection = 'TB' | 'LR'

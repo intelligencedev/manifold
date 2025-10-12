@@ -1,127 +1,216 @@
 <template>
   <div
-    class="relative rounded-lg border border-border/60 bg-surface/90 p-3 text-xs text-muted-foreground shadow-lg"
+    class="relative flip-root text-xs text-muted-foreground"
     :class="collapsed ? 'min-w-[160px] w-[220px]' : 'min-w-[240px] w-[320px]'"
   >
     <Handle type="target" :position="Position.Left" class="!bg-accent" />
-    <div class="flex items-start justify-between gap-2">
-      <div class="flex-1">
-        <div class="flex items-center gap-2">
-          <button
-            class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
-            :aria-expanded="!collapsed"
-            :title="collapsed ? 'Expand' : 'Collapse'"
-            @click.prevent.stop="toggleCollapsed"
-          >
-            <!-- chevron icon -->
-            <svg
-              class="h-3.5 w-3.5 transition-transform"
-              :class="collapsed ? '-rotate-90' : 'rotate-0'"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
+
+    <!-- Entire card flips -->
+    <div class="flip-card" :class="showBack ? 'is-flipped' : ''">
+      <!-- FRONT FACE (full card) -->
+      <div class="flip-face flip-front relative rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
+        <!-- Header -->
+        <div class="flex items-start justify-between gap-2">
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <button
+                class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
+                :aria-expanded="!collapsed"
+                :title="collapsed ? 'Expand' : 'Collapse'"
+                @click.prevent.stop="toggleCollapsed"
+              >
+                <!-- chevron icon -->
+                <svg
+                  class="h-3.5 w-3.5 transition-transform"
+                  :class="collapsed ? '-rotate-90' : 'rotate-0'"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div class="text-sm font-semibold text-foreground select-none">
+                {{ headerLabel }}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1">
+            <span v-show="!collapsed" class="text-[10px] uppercase tracking-wide text-faint-foreground">#{{ orderLabel }}</span>
+            <button
+              class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
+              title="Configure output"
+              aria-label="Configure output"
+              @click.prevent.stop="toggleBack(true)"
             >
-              <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-          </button>
-          <div class="text-sm font-semibold text-foreground select-none">
-            {{ headerLabel }}
+              <GearIcon class="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        <!-- Content -->
+        <div class="mt-3" :class="collapsed ? 'hidden' : ''">
+          <div class="space-y-2">
+            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              Step Text
+              <input
+                v-model="stepText"
+                type="text"
+                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+                placeholder="Describe this step"
+                :disabled="!isDesignMode"
+                @keydown.meta.enter.prevent="applyChanges"
+                @keydown.ctrl.enter.prevent="applyChanges"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              Guard
+              <input
+                v-model="guardText"
+                type="text"
+                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+                placeholder="Example: A.os != 'windows'"
+                :disabled="!isDesignMode"
+                @keydown.meta.enter.prevent="applyChanges"
+                @keydown.ctrl.enter.prevent="applyChanges"
+              />
+            </label>
+            <label class="flex items-center gap-2 text-[11px] text-muted-foreground">
+              <input v-model="publishResult" type="checkbox" class="accent-accent" :disabled="!isDesignMode" />
+              Publish result
+            </label>
+          </div>
+
+          <div v-if="showParamsSection" class="mt-3 space-y-2">
+            <div class="text-[11px] font-semibold text-muted-foreground">Parameters</div>
+            <ParameterFormField
+              v-if="isDesignMode && parameterSchemaFiltered"
+              :schema="parameterSchemaFiltered"
+              :model-value="argsState"
+              @update:model-value="onArgsUpdate"
+            />
+            <p v-else-if="isDesignMode && toolName" class="text-[11px] italic text-faint-foreground">
+              This tool has no configurable parameters.
+            </p>
+            <p v-else-if="isDesignMode" class="text-[11px] italic text-faint-foreground">
+              Select a tool to edit parameters.
+            </p>
+            <div v-else class="space-y-1 text-[11px] text-muted-foreground">
+              <template v-if="runtimeArgs.length">
+                <div v-for="([key, value], index) in runtimeArgs" :key="`${key}-${index}`" class="flex items-start gap-2">
+                  <span class="min-w-[72px] font-semibold text-foreground">{{ key }}</span>
+                  <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words text-foreground/80">
+                    {{ formatRuntimeValue(value) }}
+                  </span>
+                </div>
+              </template>
+              <p v-else-if="runtimeStatus === 'pending'" class="italic text-faint-foreground">
+                Waiting for execution…
+              </p>
+              <p v-else class="italic text-faint-foreground">
+                Run the workflow to see resolved values.
+              </p>
+              <p v-if="runtimeStatusMessage" class="italic text-faint-foreground">{{ runtimeStatusMessage }}</p>
+            </div>
+            <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
+              <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
+            </p>
+          </div>
+
+          <div v-show="isDesignMode" class="mt-4 flex items-center justify-end gap-2">
+            <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
+            <button
+              class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
+              :disabled="!isDirty"
+              @click="applyChanges"
+              title="Apply changes (Cmd/Ctrl+Enter)"
+            >
+              Apply
+            </button>
+          </div>
+
+          <div v-show="!isDesignMode && hasRuntimeDetails" class="mt-3 flex items-center justify-end">
+            <button
+              type="button"
+              class="text-[11px] font-medium text-accent underline decoration-dotted underline-offset-2 transition hover:text-accent-foreground"
+              @click="viewRuntimeDetails"
+            >
+              View details
+            </button>
           </div>
         </div>
       </div>
-      <span v-show="!collapsed" class="text-[10px] uppercase tracking-wide text-faint-foreground">#{{ orderLabel }}</span>
-    </div>
 
-    <div v-show="!collapsed" class="mt-3 space-y-2">
-      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-        Step Text
-        <input
-          v-model="stepText"
-          type="text"
-          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-          placeholder="Describe this step"
-          :disabled="!isDesignMode"
-          @keydown.meta.enter.prevent="applyChanges"
-          @keydown.ctrl.enter.prevent="applyChanges"
-        />
-      </label>
-      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-        Guard
-        <input
-          v-model="guardText"
-          type="text"
-          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-          placeholder="Example: A.os != 'windows'"
-          :disabled="!isDesignMode"
-          @keydown.meta.enter.prevent="applyChanges"
-          @keydown.ctrl.enter.prevent="applyChanges"
-        />
-      </label>
-      <label class="flex items-center gap-2 text-[11px] text-muted-foreground">
-        <input v-model="publishResult" type="checkbox" class="accent-accent" :disabled="!isDesignMode" />
-        Publish result
-      </label>
-    </div>
+      <!-- BACK FACE (full card) -->
+      <div
+        class="flip-face flip-back absolute inset-0 rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
+        :class="showBack ? 'pointer-events-auto' : 'pointer-events-none'"
+      >
+        <!-- Back header -->
+        <div class="flex items-start justify-between gap-2">
+          <button
+            class="inline-flex items-center rounded px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+            title="Back"
+            @click.prevent.stop="toggleBack(false)"
+          >
+            Back
+          </button>
+          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Output</span>
+        </div>
 
-    <div v-show="!collapsed" class="mt-3 space-y-2">
-      <div class="text-[11px] font-semibold text-muted-foreground">Parameters</div>
-      <ParameterFormField
-        v-if="isDesignMode && parameterSchema"
-        :schema="parameterSchema"
-        :model-value="argsState"
-        @update:model-value="onArgsUpdate"
-      />
-      <p v-else-if="isDesignMode && toolName" class="text-[11px] italic text-faint-foreground">
-        This tool has no configurable parameters.
-      </p>
-      <p v-else-if="isDesignMode" class="text-[11px] italic text-faint-foreground">
-        Select a tool to edit parameters.
-      </p>
-      <div v-else class="space-y-1 text-[11px] text-muted-foreground">
-        <template v-if="runtimeArgs.length">
-          <div v-for="([key, value], index) in runtimeArgs" :key="`${key}-${index}`" class="flex items-start gap-2">
-            <span class="min-w-[72px] font-semibold text-foreground">{{ key }}</span>
-            <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words text-foreground/80">
-              {{ formatRuntimeValue(value) }}
-            </span>
+        <!-- Back content -->
+        <div class="mt-3" :class="collapsed ? 'hidden' : ''">
+          <div class="space-y-2">
+            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              Output Attribute
+              <input
+                v-model="outputAttr"
+                type="text"
+                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+                placeholder="e.g. result"
+                :disabled="!isDesignMode"
+                @input="markDirty"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              Output From
+              <input
+                v-model="outputFrom"
+                type="text"
+                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+                placeholder="payload | json.key | args.key"
+                :disabled="!isDesignMode"
+                @input="markDirty"
+              />
+            </label>
+            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+              Output Value
+              <input
+                v-model="outputValue"
+                type="text"
+                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+                placeholder="Literal override"
+                :disabled="!isDesignMode"
+                @input="markDirty"
+              />
+            </label>
+
+            <div v-show="isDesignMode" class="pt-1 flex items-center justify-end gap-2">
+              <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
+              <button
+                class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
+                :disabled="!isDirty"
+                @click="applyChanges"
+              >
+                Apply
+              </button>
+            </div>
           </div>
-        </template>
-        <p v-else-if="runtimeStatus === 'pending'" class="italic text-faint-foreground">
-          Waiting for execution…
-        </p>
-        <p v-else class="italic text-faint-foreground">
-          Run the workflow to see resolved values.
-        </p>
-        <p v-if="runtimeStatusMessage" class="italic text-faint-foreground">{{ runtimeStatusMessage }}</p>
+        </div>
       </div>
-      <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-        <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
-      </p>
-    </div>
-
-    <div v-show="!collapsed && !isDesignMode && hasRuntimeDetails" class="mt-3 flex items-center justify-end">
-      <button
-        type="button"
-        class="text-[11px] font-medium text-accent underline decoration-dotted underline-offset-2 transition hover:text-accent-foreground"
-        @click="viewRuntimeDetails"
-      >
-        View details
-      </button>
-    </div>
-
-    <div v-show="!collapsed && isDesignMode" class="mt-4 flex items-center justify-end gap-2">
-      <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
-      <button
-        class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-        :disabled="!isDirty"
-        @click="applyChanges"
-        title="Apply changes (Cmd/Ctrl+Enter)"
-      >
-        Apply
-      </button>
     </div>
 
     <Handle type="source" :position="Position.Right" class="!bg-accent" />
@@ -136,6 +225,7 @@ import ParameterFormField from '@/components/flow/ParameterFormField.vue'
 import type { StepNodeData } from '@/types/flow'
 import type { WarppTool, WarppStepTrace } from '@/types/warpp'
 import type { Ref } from 'vue'
+import GearIcon from '@/components/icons/Gear.vue'
 
 const props = defineProps<NodeProps<StepNodeData>>()
 
@@ -164,6 +254,10 @@ const toolName = ref('')
 const argsState = ref<Record<string, unknown>>({})
 const isDirty = ref(false)
 const collapsed = ref(false)
+const showBack = ref(false)
+const outputAttr = ref('')
+const outputFrom = ref('')
+const outputValue = ref('')
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1)
 const isDesignMode = computed(() => modeRef.value === 'design')
@@ -177,7 +271,9 @@ const runtimeArgs = computed(() => {
   if (!trace?.renderedArgs) {
     return [] as Array<[string, unknown]>
   }
-  return Object.entries(trace.renderedArgs as Record<string, unknown>)
+  return Object.entries(trace.renderedArgs as Record<string, unknown>).filter(
+    ([key]) => !OUTPUT_KEYS.has(key),
+  )
 })
 const runtimeError = computed(() => runtimeTrace.value?.error)
 const runtimeStatus = computed(() => {
@@ -205,6 +301,33 @@ const currentTool = computed(
   () => toolOptions.value.find((tool) => tool.name === toolName.value) ?? null,
 )
 const parameterSchema = computed(() => currentTool.value?.parameters ?? null)
+const OUTPUT_KEYS = new Set(['output_attr', 'output_from', 'output_value'])
+
+const parameterSchemaFiltered = computed(() => {
+  const schema = parameterSchema.value as any
+  if (!schema || typeof schema !== 'object') return schema
+  const cloned: any = { ...schema }
+  if (schema.properties && typeof schema.properties === 'object') {
+    cloned.properties = { ...schema.properties }
+    for (const k of Object.keys(cloned.properties)) {
+      if (OUTPUT_KEYS.has(k)) delete cloned.properties[k]
+    }
+    if (Object.keys(cloned.properties).length === 0) {
+      // No visible fields left; hide the parameters form entirely.
+      return null
+    }
+  }
+  if (Array.isArray(schema.required)) {
+    cloned.required = schema.required.filter((k: string) => !OUTPUT_KEYS.has(k))
+  }
+  return cloned
+})
+
+const showParamsSection = computed(() => {
+  if (isDesignMode.value) return Boolean(parameterSchemaFiltered.value)
+  // In run mode we show runtime args if there are any non-output keys
+  return runtimeArgs.value.length > 0 || Boolean(runtimeStatusMessage.value) || Boolean(runtimeError.value)
+})
 
 const headerLabel = computed(() => currentTool.value?.name ?? 'Workflow Step')
 
@@ -223,12 +346,24 @@ watch(
     publishResult.value = Boolean(nextStep?.publish_result)
     toolName.value = nextStep?.tool?.name ?? ''
     argsState.value = cloneArgs(nextStep?.tool?.args)
+    // Strip output config keys from the front-side args editor state
+    if (argsState.value && typeof argsState.value === 'object') {
+      for (const k of OUTPUT_KEYS) {
+        if (k in (argsState.value as Record<string, unknown>)) {
+          delete (argsState.value as Record<string, unknown>)[k]
+        }
+      }
+    }
+    const a = (nextStep?.tool?.args ?? {}) as Record<string, unknown>
+    outputAttr.value = typeof a.output_attr === 'string' ? (a.output_attr as string) : ''
+    outputFrom.value = typeof a.output_from === 'string' ? (a.output_from as string) : ''
+    outputValue.value = typeof a.output_value === 'string' ? (a.output_value as string) : ''
     suppressCommit = false
   },
   { immediate: true, deep: true },
 )
 
-watch([stepText, guardText, publishResult, toolName], () => markDirty())
+watch([stepText, guardText, publishResult, toolName, outputAttr, outputFrom, outputValue], () => markDirty())
 watch(argsState, () => markDirty(), { deep: true })
 
 function markDirty() {
@@ -247,6 +382,17 @@ function commit() {
     return
   }
   const toolPayload = buildToolPayload(toolName.value, argsState.value)
+  // Merge output config into args
+  if (toolPayload) {
+    const merged: Record<string, unknown> = { ...(toolPayload.args ?? {}) }
+    const oa = outputAttr.value.trim()
+    const of = outputFrom.value.trim()
+    const ov = outputValue.value.trim()
+    if (oa) merged.output_attr = oa
+    if (of) merged.output_from = of
+    if (ov) merged.output_value = ov
+    if (Object.keys(merged).length) toolPayload.args = merged
+  }
   const nextStep = {
     ...(props.data?.step ?? {}),
     id: props.id,
@@ -281,6 +427,10 @@ function toggleCollapsed() {
   collapsed.value = !collapsed.value
 }
 
+function toggleBack(v?: boolean) {
+  showBack.value = typeof v === 'boolean' ? v : !showBack.value
+}
+
 function formatRuntimeValue(value: unknown): string {
   if (value === null || value === undefined) return ''
   if (typeof value === 'string') return value
@@ -297,6 +447,24 @@ function viewRuntimeDetails() {
   if (!runtimeTrace.value) return
   openResultModal(props.id, headerLabel.value)
 }
+
+// Global expand/collapse signals injected from FlowView
+const collapseAllSeq = inject<Ref<number>>('warppCollapseAllSeq', ref(0))
+const expandAllSeq = inject<Ref<number>>('warppExpandAllSeq', ref(0))
+const lastCollapseSeen = ref(0)
+const lastExpandSeen = ref(0)
+watch(collapseAllSeq, (v) => {
+  if (typeof v === 'number' && v !== lastCollapseSeen.value) {
+    lastCollapseSeen.value = v
+    collapsed.value = true
+  }
+})
+watch(expandAllSeq, (v) => {
+  if (typeof v === 'number' && v !== lastExpandSeen.value) {
+    lastExpandSeen.value = v
+    collapsed.value = false
+  }
+})
 
 function buildToolPayload(name: string, args: Record<string, unknown>) {
   if (!name) {
@@ -351,3 +519,12 @@ function cloneStep(step: Record<string, unknown>) {
   }
 }
 </script>
+
+<style scoped>
+.flip-root { perspective: 800px; }
+.flip-card { position: relative; transform-style: preserve-3d; transition: transform 200ms ease; }
+.flip-card.is-flipped { transform: rotateX(180deg); }
+.flip-face { backface-visibility: hidden; transform-style: preserve-3d; }
+.flip-front { transform: rotateX(0deg); }
+.flip-back { transform: rotateX(180deg); }
+</style>

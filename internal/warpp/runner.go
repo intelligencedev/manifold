@@ -64,7 +64,7 @@ func (r *Runner) Personalize(ctx context.Context, w Workflow, A Attrs) (Workflow
 	keepTools := map[string]bool{}
 	out := Workflow{Intent: w.Intent, Description: w.Description, Keywords: w.Keywords}
 	for _, s := range w.Steps {
-		if s.Guard != "" && !EvalGuard(s.Guard, A) {
+		if s.Guard != "" && !safeEvalGuard(s.Guard, A) {
 			continue
 		}
 		step := s
@@ -73,7 +73,6 @@ func (r *Runner) Personalize(ctx context.Context, w Workflow, A Attrs) (Workflow
 		}
 		out.Steps = append(out.Steps, step)
 	}
-
 	// Filter tools registry to only referenced tools
 	// We return the original Tools; enforcement is done at Execute with the
 	// keepTools allowlist.
@@ -107,6 +106,14 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 	}
 	if A["sources"] == nil {
 		A["sources"] = []map[string]string{}
+	} else {
+		A["sources"] = toSourceSlice(A["sources"]) // normalize shape
+	}
+	if A["urls"] != nil {
+		A["urls"] = toStringSlice(A["urls"]) // normalize shape
+	}
+	if A["payloads"] != nil {
+		A["payloads"] = toStringSlice(A["payloads"]) // normalize shape
 	}
 	var traces []StepTrace
 	if collect {
@@ -197,7 +204,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 				}
 				continue
 			}
-			if s.Guard != "" && !EvalGuard(s.Guard, A) {
+			if s.Guard != "" && !safeEvalGuard(s.Guard, A) {
 				if collect {
 					traces = append(traces, StepTrace{StepID: s.ID, Text: s.Text, Status: "skipped"})
 				}
@@ -225,7 +232,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 				traces = append(traces, makeTrace(s, "completed", args, delta, payload))
 			}
 			if s.PublishResult && publish != nil {
-				if perr := publish(ctx, s.ID, payload); perr != nil {
+				if perr := safePublish(ctx, s.ID, payload, publish); perr != nil {
 					fmt.Printf("step result publish failed (step=%s): %v\n", s.ID, perr)
 				}
 			}
@@ -322,7 +329,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 					if res.publishMode == "topo" {
 						topoBuffer = append(topoBuffer, res)
 					} else {
-						_ = publish(ctx, res.id, res.payload) // best-effort
+						_ = safePublish(ctx, res.id, res.payload, publish) // best-effort
 					}
 				}
 				// Update dependents
@@ -347,7 +354,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 		for q := range queueCh {
 			s := idToStep[q.id]
 			// Skip nodes with false guards: treat as no-op success
-			if s.Guard != "" && !EvalGuard(s.Guard, A) {
+			if s.Guard != "" && !safeEvalGuard(s.Guard, A) {
 				if sem != nil {
 					<-sem
 				}
@@ -356,6 +363,15 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 			}
 			// Launch worker
 			go func(st Step, topo int) {
+				defer func() {
+					if rec := recover(); rec != nil {
+						if st.ContinueOnError {
+							resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: Attrs{}, payload: nil, publishIt: false, text: st.Text, status: "error", err: fmt.Sprintf("panic: %v", rec)}
+						} else {
+							errCh <- fmt.Errorf("panic in step %s: %v", st.ID, rec)
+						}
+					}
+				}()
 				defer func() {
 					if sem != nil {
 						<-sem
@@ -411,7 +427,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 			return topoBuffer[i].topo < topoBuffer[j].topo
 		})
 		for _, res := range topoBuffer {
-			_ = publish(ctx, res.id, res.payload)
+			_ = safePublish(ctx, res.id, res.payload, publish)
 		}
 	}
 	fmt.Fprintf(&summary, "\nObjective complete. (steps=%d).\n", completed)
@@ -516,38 +532,11 @@ func mergeDeltaWithProv(A Attrs, delta Attrs, topo, stepIdx int, prov map[string
 	for k, v := range delta {
 		switch k {
 		case "payloads":
-			// append
-			var exist []string
-			if xs, ok := A[k].([]string); ok {
-				exist = xs
-			}
-			exist = append(exist, v.([]string)...)
-			A[k] = exist
+			A[k] = append(toStringSlice(A[k]), toStringSlice(v)...)
 		case "sources":
-			// append slice of maps
-			var exist []map[string]string
-			if xs, ok := A[k].([]map[string]string); ok {
-				exist = xs
-			}
-			exist = append(exist, v.([]map[string]string)...)
-			A[k] = exist
+			A[k] = append(toSourceSlice(A[k]), toSourceSlice(v)...)
 		case "urls":
-			// union
-			seen := map[string]bool{}
-			var exist []string
-			if xs, ok := A[k].([]string); ok {
-				for _, u := range xs {
-					seen[u] = true
-				}
-				exist = append(exist, xs...)
-			}
-			for _, u := range v.([]string) {
-				if !seen[u] {
-					seen[u] = true
-					exist = append(exist, u)
-				}
-			}
-			A[k] = exist
+			A[k] = unionStrings(toStringSlice(A[k]), toStringSlice(v))
 		default:
 			// scalar or map fallback with precedence
 			if prov != nil {
@@ -566,32 +555,28 @@ func mergeDeltaWithProv(A Attrs, delta Attrs, topo, stepIdx int, prov map[string
 
 // runStep executes a step against Tools and returns payload, attribute delta,
 // and the rendered argument map used for invocation.
-func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, map[string]any, error) {
+func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) (payload []byte, delta Attrs, args map[string]any, err error) {
+	// Panic guard so a bad tool or arg shape never crashes the process
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("panic in runStep step=%s: %v", s.ID, rec)
+		}
+	}()
 	if s.Tool == nil {
 		return nil, nil, nil, nil
 	}
-	args := renderArgs(s.Tool.Args, A)
+	args = renderArgs(s.Tool.Args, A)
+	if args == nil {
+		args = map[string]any{}
+	}
 	// Auto-wire: if a web_search node precedes a web_fetch node, propagate URLs
 	// from A["urls"] into the web_fetch call when neither url nor urls is set.
 	if s.Tool.Name == "web_fetch" {
 		if _, ok := args["url"]; !ok {
 			if _, ok2 := args["urls"]; !ok2 {
 				if v, ok3 := A["urls"]; ok3 {
-					switch u := v.(type) {
-					case []string:
-						if len(u) > 0 {
-							args["urls"] = u
-						}
-					case []any:
-						out := make([]string, 0, len(u))
-						for _, it := range u {
-							if str, ok := it.(string); ok && str != "" {
-								out = append(out, str)
-							}
-						}
-						if len(out) > 0 {
-							args["urls"] = out
-						}
+					if us := toStringSlice(v); len(us) > 0 {
+						args["urls"] = us
 					}
 				} else if fu, ok4 := A["first_url"].(string); ok4 && fu != "" {
 					// Fallback for legacy flows
@@ -601,11 +586,11 @@ func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, m
 		}
 	}
 	raw, _ := json.Marshal(args)
-	payload, err := r.Tools.Dispatch(ctx, s.Tool.Name, raw)
+	payload, err = r.Tools.Dispatch(ctx, s.Tool.Name, raw)
 	if err != nil {
 		return nil, nil, args, err
 	}
-	delta := Attrs{}
+	delta = Attrs{}
 	ps := string(payload)
 	// Common payload recording
 	delta["last_payload"] = ps
@@ -708,7 +693,8 @@ func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) ([]byte, Attrs, m
 			// re-render args with updated content
 			args = renderArgs(s.Tool.Args, mergePreview(A, delta))
 			raw, _ = json.Marshal(args)
-			if _, err := r.Tools.Dispatch(ctx, s.Tool.Name, raw); err != nil {
+			_, err = r.Tools.Dispatch(ctx, s.Tool.Name, raw)
+			if err != nil {
 				return nil, nil, args, err
 			}
 		}
@@ -757,4 +743,142 @@ func mergePreview(A Attrs, delta Attrs) Attrs {
 		out[k] = v
 	}
 	return out
+}
+
+// --- tolerant coercion helpers and safety wrappers ---
+
+// toStringSlice attempts to coerce various inputs into a []string.
+// Accepts: []string, []any, comma/space-separated string, scalar string; otherwise returns empty slice.
+func toStringSlice(v any) []string {
+	if v == nil {
+		return []string{}
+	}
+	switch t := v.(type) {
+	case []string:
+		return append([]string(nil), t...)
+	case []any:
+		out := make([]string, 0, len(t))
+		for _, it := range t {
+			if s, ok := it.(string); ok {
+				if s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	case string:
+		s := strings.TrimSpace(t)
+		if s == "" {
+			return []string{}
+		}
+		if strings.Contains(s, ",") {
+			parts := strings.Split(s, ",")
+			out := make([]string, 0, len(parts))
+			for _, p := range parts {
+				ps := strings.TrimSpace(p)
+				if ps != "" {
+					out = append(out, ps)
+				}
+			}
+			return out
+		}
+		return strings.Fields(s)
+	default:
+		return []string{}
+	}
+}
+
+// toSourceSlice coerces v into []map[string]string if possible.
+func toSourceSlice(v any) []map[string]string {
+	if v == nil {
+		return []map[string]string{}
+	}
+	switch t := v.(type) {
+	case []map[string]string:
+		out := make([]map[string]string, 0, len(t))
+		for _, m := range t {
+			c := make(map[string]string, len(m))
+			for k, val := range m {
+				c[k] = val
+			}
+			out = append(out, c)
+		}
+		return out
+	case []map[string]any:
+		out := make([]map[string]string, 0, len(t))
+		for _, m := range t {
+			c := map[string]string{}
+			for k, val := range m {
+				c[k] = fmt.Sprintf("%v", val)
+			}
+			out = append(out, c)
+		}
+		return out
+	case []any:
+		out := make([]map[string]string, 0, len(t))
+		for _, it := range t {
+			switch mm := it.(type) {
+			case map[string]string:
+				c := make(map[string]string, len(mm))
+				for k, val := range mm {
+					c[k] = val
+				}
+				out = append(out, c)
+			case map[string]any:
+				c := map[string]string{}
+				for k, val := range mm {
+					c[k] = fmt.Sprintf("%v", val)
+				}
+				out = append(out, c)
+			}
+		}
+		return out
+	default:
+		return []map[string]string{}
+	}
+}
+
+// unionStrings returns a union of a and b preserving order and uniqueness.
+func unionStrings(a, b []string) []string {
+	if len(a) == 0 && len(b) == 0 {
+		return []string{}
+	}
+	seen := make(map[string]bool, len(a)+len(b))
+	out := make([]string, 0, len(a)+len(b))
+	for _, s := range a {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	for _, s := range b {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// safeEvalGuard evaluates a guard and returns false if it panics.
+func safeEvalGuard(guard string, A Attrs) (ok bool) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			ok = false
+		}
+	}()
+	return EvalGuard(guard, A)
+}
+
+// safePublish calls the publisher and converts panics to errors.
+func safePublish(ctx context.Context, stepID string, payload []byte, publish StepPublisher) (err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			err = fmt.Errorf("panic in publish step=%s: %v", stepID, rec)
+		}
+	}()
+	if publish == nil {
+		return nil
+	}
+	return publish(ctx, stepID, payload)
 }

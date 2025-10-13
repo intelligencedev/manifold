@@ -5,9 +5,30 @@ import (
 	"encoding/json"
 	"testing"
 
+	persist "manifold/internal/persistence"
 	"manifold/internal/tools"
 	"manifold/internal/tools/utility"
 )
+
+// fakeWFStore is a minimal in-memory WarppWorkflowStore for tests.
+type fakeWFStore struct{ wfs []persist.WarppWorkflow }
+
+func (f *fakeWFStore) Init(context.Context) error { return nil }
+func (f *fakeWFStore) List(context.Context) ([]any, error) {
+	out := make([]any, len(f.wfs))
+	for i, w := range f.wfs {
+		out[i] = w
+	}
+	return out, nil
+}
+func (f *fakeWFStore) ListWorkflows(context.Context) ([]persist.WarppWorkflow, error) { return f.wfs, nil }
+func (f *fakeWFStore) Get(context.Context, string) (persist.WarppWorkflow, bool, error) {
+	return persist.WarppWorkflow{}, false, nil
+}
+func (f *fakeWFStore) Upsert(context.Context, persist.WarppWorkflow) (persist.WarppWorkflow, error) {
+	return persist.WarppWorkflow{}, nil
+}
+func (f *fakeWFStore) Delete(context.Context, string) error { return nil }
 
 // simple tool implementing tools.Tool
 type echoTool struct{ name string }
@@ -42,6 +63,10 @@ func TestRenderAndSubstitute(t *testing.T) {
 }
 
 func TestRegistryDefaultsAndGet(t *testing.T) {
+	// Configure DB-backed defaults via a fake in-memory store.
+	SetDefaultStore(&fakeWFStore{wfs: []persist.WarppWorkflow{
+		{Intent: "cli_echo", Description: "d", Keywords: []string{"k"}, Steps: []map[string]any{{"id": "s1", "text": "x"}}},
+	}})
 	r, err := LoadFromDir("")
 	if err != nil {
 		t.Fatalf("LoadFromDir: %v", err)

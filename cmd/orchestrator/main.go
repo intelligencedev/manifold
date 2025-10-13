@@ -189,6 +189,8 @@ func main() {
 	_ = mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP)
 	cancelInit()
 
+	// Configure WARPP to source defaults from the database, not hard-coded values.
+	warpp.SetDefaultStore(mgr.Warpp)
 	wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp)
 	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 	// adapter to satisfy orchestrator.Runner

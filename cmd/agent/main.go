@@ -151,6 +151,8 @@ func main() {
 
 	// WARPP mode: run the WARPP workflow executor instead of the LLM loop
 	if *warppFlag {
+		// Configure WARPP to source defaults from the database, not hard-coded values.
+		warpp.SetDefaultStore(mgr.Warpp)
 		wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp)
 		runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

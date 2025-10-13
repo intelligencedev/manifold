@@ -332,6 +332,9 @@ func main() {
 		}
 		_ = wfStore.Init(context.Background())
 
+		// Configure WARPP to source defaults from the database, not hard-coded values.
+		warpp.SetDefaultStore(wfStore)
+
 		// Load from store; seed from defaults if empty
 		if list, err := wfStore.ListWorkflows(context.Background()); err == nil && len(list) > 0 {
 			wfreg = &warpp.Registry{}

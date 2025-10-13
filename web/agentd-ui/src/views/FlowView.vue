@@ -136,6 +136,12 @@
       </div>
     </div>
 
+    <!-- Workflow metadata summary -->
+    <div v-if="activeWorkflow" class="text-xs text-subtle-foreground -mt-2">
+      <span v-if="activeWorkflow?.description">Description: {{ activeWorkflow?.description }}</span>
+      <span v-if="activeWorkflow?.keywords?.length" class="ml-3">Keywords: {{ activeWorkflow?.keywords?.join(', ') }}</span>
+    </div>
+
     <div v-if="runLogs.length" class="max-h-[3.6rem] overflow-y-auto rounded border border-border/50 bg-surface-muted px-3 py-2 text-xs font-mono leading-relaxed space-y-0.5">
       <div v-for="(l,i) in runLogs" :key="i" class="whitespace-pre-wrap break-words">{{ l }}</div>
     </div>
@@ -409,6 +415,33 @@
           <div v-else class="text-sm text-subtle-foreground">
             Trace data not yet available.
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metadata modal -->
+    <div v-if="showMetaModal" class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
+      <div class="absolute inset-0 bg-surface/70 backdrop-blur-sm" @click="closeMetaModal"></div>
+      <div class="relative z-10 w-full max-w-xl overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl">
+        <div class="flex items-center justify-between border-b border-border/60 px-5 py-3">
+          <h3 class="text-base font-semibold text-foreground">Workflow Metadata</h3>
+          <button type="button" class="rounded border border-border/60 bg-surface-muted px-3 py-1 text-xs font-medium text-foreground hover:bg-surface-muted/80" @click="closeMetaModal">Cancel</button>
+        </div>
+        <div class="px-5 py-4 space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-foreground mb-1" for="wf-desc">Description</label>
+            <textarea id="wf-desc" v-model="metaDescription" rows="4" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground" placeholder="Describe this workflow and its purpose"></textarea>
+            <p class="mt-1 text-[10px] text-faint-foreground">Provide a concise, multi-line description.</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-foreground mb-1" for="wf-keywords">Keywords</label>
+            <input id="wf-keywords" v-model="metaKeywords" type="text" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground" placeholder="comma, separated, keywords" />
+            <p class="mt-1 text-[10px] text-faint-foreground">Enter a comma-separated list. Both description and keywords are required.</p>
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3">
+          <button type="button" class="rounded px-3 py-1 text-sm font-medium bg-muted text-foreground hover:bg-muted/80" @click="closeMetaModal">Cancel</button>
+          <button type="button" class="rounded px-3 py-1 text-sm font-medium bg-accent text-accent-foreground hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed" :disabled="metaSaveDisabled" @click="onSubmitMetadata">Save</button>
         </div>
       </div>
     </div>
@@ -727,6 +760,41 @@ function formatJSON(value: unknown): string {
   } catch (err) {
     console.warn('Failed to stringify value for modal', err)
     return String(value)
+  }
+}
+
+// Metadata modal state
+const showMetaModal = ref(false)
+const metaDescription = ref('')
+const metaKeywords = ref('')
+const metaSaveDisabled = computed(() => metaDescription.value.trim().length === 0 || parseKeywords(metaKeywords.value).length === 0)
+
+function openMetaModal() {
+  if (!activeWorkflow.value) return
+  // Pre-fill from current workflow
+  metaDescription.value = activeWorkflow.value.description ?? ''
+  metaKeywords.value = (activeWorkflow.value.keywords ?? []).join(', ')
+  showMetaModal.value = true
+}
+function closeMetaModal() {
+  showMetaModal.value = false
+}
+
+function parseKeywords(input: string): string[] {
+  return input
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+}
+
+async function onSubmitMetadata() {
+  if (!activeWorkflow.value) return
+  if (metaSaveDisabled.value) return
+  const desc = metaDescription.value.trim()
+  const kws = parseKeywords(metaKeywords.value)
+  const saved = await performSave(desc, kws)
+  if (saved) {
+    closeMetaModal()
   }
 }
 
@@ -1072,7 +1140,15 @@ function generateStepId(toolName: string): string {
 
 async function onSave(): Promise<WarppWorkflow | null> {
   if (!activeWorkflow.value) return null
-  if (!dirty.value) return activeWorkflow.value
+  // Open metadata modal for user to confirm/edit description and keywords
+  openMetaModal()
+  return null
+}
+
+// Core save logic (optionally overriding description/keywords)
+async function performSave(description?: string, keywords?: string[]): Promise<WarppWorkflow | null> {
+  if (!activeWorkflow.value) return null
+  if (!dirty.value && description === undefined && keywords === undefined) return activeWorkflow.value
   saving.value = true
   error.value = ''
   try {
@@ -1095,6 +1171,8 @@ async function onSave(): Promise<WarppWorkflow | null> {
     })
     const payload: WarppWorkflow = {
       ...activeWorkflow.value,
+      description: description ?? activeWorkflow.value.description,
+      keywords: keywords ?? activeWorkflow.value.keywords,
       steps,
       ui: { ...(activeWorkflow.value.ui ?? {}), layout },
     }
@@ -1143,7 +1221,7 @@ async function onRun() {
   const needSave = canSave.value
   if (needSave) {
     warppRunStore.runLogs.push('… Saving workflow before run')
-    const saved = await onSave()
+    const saved = await performSave()
     if (saved) warppRunStore.runLogs.push('✓ Save complete')
     else warppRunStore.runLogs.push('✗ Save failed – proceeding with current in-memory workflow')
   }

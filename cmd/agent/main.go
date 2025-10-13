@@ -16,6 +16,7 @@ import (
 	openaillm "manifold/internal/llm/openai"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
+	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
@@ -29,6 +30,9 @@ import (
 	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"strings"
 )
 
 func main() {
@@ -60,11 +64,80 @@ func main() {
 	}
 	// Configure global llm payload logging/truncation before creating providers
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
+
+	// Initialize specialists store and apply DB-backed overrides so the CLI
+	// mirrors agentd behavior (specialists and orchestrator loaded from DB).
+	var specStore persist.SpecialistsStore
+	{
+		var pg *pgxpool.Pool
+		if cfg.Databases.DefaultDSN != "" {
+			if p, err := databasesTestPool(context.Background(), cfg.Databases.DefaultDSN); err == nil {
+				pg = p
+			}
+		}
+		specStore = databases.NewSpecialistsStore(pg)
+		_ = specStore.Init(context.Background())
+		// Seed from YAML only if the store is empty or missing entries
+		if list, err := specStore.List(context.Background()); err == nil {
+			existing := map[string]bool{}
+			for _, s := range list {
+				existing[s.Name] = true
+			}
+			for _, sc := range cfg.Specialists {
+				if sc.Name == "" {
+					continue
+				}
+				if existing[sc.Name] {
+					continue
+				}
+				_, _ = specStore.Upsert(context.Background(), persist.Specialist{
+					Name: sc.Name, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
+					EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
+					ReasoningEffort: sc.ReasoningEffort, System: sc.System,
+					ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
+				})
+			}
+		}
+		// Load orchestrator configuration from the database (if present)
+		if sp, ok, _ := specStore.GetByName(context.Background(), "orchestrator"); ok {
+			cfg.OpenAI.BaseURL = sp.BaseURL
+			cfg.OpenAI.APIKey = sp.APIKey
+			if strings.TrimSpace(sp.Model) != "" {
+				cfg.OpenAI.Model = sp.Model
+			}
+			cfg.EnableTools = sp.EnableTools
+			cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
+			if strings.TrimSpace(sp.System) != "" {
+				cfg.SystemPrompt = sp.System
+			} else {
+				cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
+			}
+			if sp.ExtraHeaders != nil {
+				cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
+			}
+			if sp.ExtraParams != nil {
+				cfg.OpenAI.ExtraParams = sp.ExtraParams
+			}
+		} else {
+			// Ensure a safe default system prompt when no DB record exists
+			cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
+		}
+	}
+
+	// Create LLM provider after potential DB overrides
 	llm := openaillm.New(cfg.OpenAI, httpClient)
+
+	// Build specialists registry from DB (fallback to YAML) so CLI resolves
+	// the same set as agentd.
+	var specReg *specialists.Registry
+	if list, err := specStore.List(context.Background()); err == nil {
+		specReg = specialists.NewRegistry(cfg.OpenAI, specialistsFromStore(list), httpClient, nil)
+	} else {
+		specReg = specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, nil)
+	}
 
 	// If a specialist was requested, route the query directly and exit.
 	if *specialist != "" {
-		specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, nil)
 		a, ok := specReg.Get(*specialist)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
@@ -82,7 +155,6 @@ func main() {
 	}
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
-	// Databases: construct backends and register tools
 	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
 	if err != nil {
 		log.Fatal().Err(err).Msg("databases")
@@ -121,7 +193,12 @@ func main() {
 	}
 	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
 	// Specialists tool for LLM-driven routing
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
+	// Prefer DB-backed registry so CLI and agentd match.
+	if list, err := specStore.List(context.Background()); err == nil {
+		specReg = specialists.NewRegistry(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+	} else {
+		specReg = specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
+	}
 	registry.Register(specialists_tool.New(specReg))
 
 	// If tools are globally disabled, use an empty registry
@@ -221,4 +298,42 @@ func main() {
 		log.Fatal().Err(err).Msg("agent")
 	}
 	fmt.Println(final)
+}
+
+// databasesTestPool mirrors the lightweight helper in agentd to open a pgx pool
+// for feature stores (e.g., specialists). It pings with a short timeout.
+func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+    cfg, err := pgxpool.ParseConfig(dsn)
+    if err != nil {
+        return nil, err
+    }
+    pool, err := pgxpool.NewWithConfig(ctx, cfg)
+    if err != nil {
+        return nil, err
+    }
+    cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+    defer cancel()
+    if err := pool.Ping(cctx); err != nil {
+        pool.Close()
+        return nil, err
+    }
+    return pool, nil
+}
+
+// specialistsFromStore converts persisted specialists to config structs
+func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
+    out := make([]config.SpecialistConfig, 0, len(list))
+    for _, s := range list {
+        // Skip the orchestrator; it is the main agent, not a specialist tool
+        if strings.EqualFold(strings.TrimSpace(s.Name), "orchestrator") {
+            continue
+        }
+        out = append(out, config.SpecialistConfig{
+            Name: s.Name, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
+            EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,
+            ReasoningEffort: s.ReasoningEffort, System: s.System,
+            ExtraHeaders: s.ExtraHeaders, ExtraParams: s.ExtraParams,
+        })
+    }
+    return out
 }

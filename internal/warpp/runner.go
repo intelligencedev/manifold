@@ -104,6 +104,13 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 	if A == nil {
 		A = Attrs{}
 	}
+
+	// Preprocess workflow to emulate UI convenience wiring:
+	// - Rewrite short aliases like ${A.first_url} to explicit producer-scoped
+	//   placeholders ${A.<stepID>.first_url} when a prior step is known to
+	//   produce that alias.
+	// - Normalize write-file paths that are absolute into a safe relative tmp/ path.
+	w = preprocessWorkflow(w, A)
 	if A["sources"] == nil {
 		A["sources"] = []map[string]string{}
 	} else {
@@ -432,6 +439,108 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 	}
 	fmt.Fprintf(&summary, "\nObjective complete. (steps=%d).\n", completed)
 	return summary.String(), traces, nil
+}
+
+// preprocessWorkflow applies UI-like convenience wiring so headless runs
+// behave like the Flow editor. It currently implements two features:
+//  - auto-aliasing of per-step produced keys (e.g., first_url) to
+//    fully-qualified attributes when a producing step exists in the plan;
+//  - normalizing write-file targets to a safe relative path under tmp/.
+func preprocessWorkflow(w Workflow, A Attrs) Workflow {
+    // Build a map of produced short aliases -> producer step id by scanning
+    // known tool types and their conventional outputs.
+    producers := map[string]string{}
+    for _, s := range w.Steps {
+        if s.Tool == nil {
+            continue
+        }
+        switch s.Tool.Name {
+        case "web_search":
+            // web_search produces first_url, second_url, urls
+            producers["first_url"] = s.ID
+            producers["second_url"] = s.ID
+            producers["urls"] = s.ID
+        case "web_fetch":
+            // web_fetch adds sources (with url/title/markdown) and final_url
+            producers["first_source"] = s.ID
+            producers["final_url"] = s.ID
+        case "llm_transform":
+            producers["report_md"] = s.ID
+            producers["llm_output"] = s.ID
+        case "utility_textbox":
+            // arbitrary output_attr may be specified; handled at render time
+        }
+    }
+
+    // Walk steps and rewrite literal string args containing ${A.key} where
+    // key is a known short alias into ${A.<step>.<key>}.
+    for si := range w.Steps {
+        s := &w.Steps[si]
+        if s.Tool == nil || s.Tool.Args == nil {
+            continue
+        }
+        // mutate args in-place
+        for ak, av := range s.Tool.Args {
+            switch tv := av.(type) {
+            case string:
+                newv := tv
+                for short := range producers {
+                    placeholder := "${A." + short + "}"
+                    if strings.Contains(newv, placeholder) {
+                        newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
+                    }
+                }
+                s.Tool.Args[ak] = newv
+            case []any:
+                // simple slice walk
+                for i, it := range tv {
+                    if str, ok := it.(string); ok {
+                        newv := str
+                        for short := range producers {
+                            placeholder := "${A." + short + "}"
+                            if strings.Contains(newv, placeholder) {
+                                newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
+                            }
+                        }
+                        tv[i] = newv
+                    }
+                }
+                s.Tool.Args[ak] = tv
+            case map[string]any:
+                // recurse shallow
+                for k2, v2 := range tv {
+                    if str, ok := v2.(string); ok {
+                        newv := str
+                        for short := range producers {
+                            placeholder := "${A." + short + "}"
+                            if strings.Contains(newv, placeholder) {
+                                newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
+                            }
+                        }
+                        tv[k2] = newv
+                    }
+                }
+                s.Tool.Args[ak] = tv
+            }
+        }
+
+        // Normalize write_file targets: rewrite absolute paths to tmp/
+        if s.Tool.Name == "write_file" {
+            if p, ok := s.Tool.Args["path"].(string); ok {
+                if strings.HasPrefix(p, "/") || strings.Contains(p, ":\\") {
+                    // rewrite to tmp/<stepID>_<basename>
+                    base := p
+                    if idx := strings.LastIndexAny(p, "/\\"); idx != -1 {
+                        base = p[idx+1:]
+                    }
+                    safe := "tmp/" + s.ID + "_" + base
+                    s.Tool.Args["path"] = safe
+                }
+            }
+        }
+    }
+
+    return w
 }
 
 // renderArgs replaces ${A.key} placeholders in string values within args.

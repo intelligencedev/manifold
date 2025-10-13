@@ -2,6 +2,7 @@
 import { onMounted, ref, computed, watch } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
 import { projectFileUrl } from '@/api/client'
+import FileTree from '@/components/FileTree.vue'
 
 const store = useProjectsStore()
 const newProjectName = ref('')
@@ -147,25 +148,13 @@ watch(
           </div>
         </div>
 
-        <div class="rounded-4 border border-border/70 overflow-hidden">
-          <ul>
-            <li
-              v-for="e in entries"
-              :key="e.path"
-              class="group flex items-center gap-3 h-10 px-4 border-b border-border/70 last:border-b-0 hover:bg-surface-muted cursor-pointer"
-              :class="{ 'bg-surface-muted': selectedFile===e.path }"
-              @click.prevent="e.isDir ? openDir(e.path) : openFile(e.path)"
-            >
-              <span class="w-5 text-subtle-foreground">{{ e.isDir ? '📁' : '📄' }}</span>
-              <span class="text-foreground">{{ e.name }}</span>
-              <span class="ml-auto text-xs text-faint-foreground">{{ e.isDir ? '' : (e.sizeBytes + ' B') }}</span>
-              <button
-                class="ml-2 h-8 px-2 rounded-4 border border-danger/40 text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline"
-                @click.stop="delPath(e.path)"
-              >Delete</button>
-            </li>
-          </ul>
-        </div>
+        <FileTree
+          :selected="selectedFile"
+          :root-path="cwd"
+          @select="openFile"
+          @open-dir="openDir"
+          @delete="delPath"
+        />
       </div>
 
       <!-- Right: Preview Panel -->

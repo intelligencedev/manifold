@@ -130,6 +130,17 @@
                   <option v-for="sp in specialistNames" :key="sp" :value="sp">{{ sp }}</option>
                 </select>
               </label>
+              <label class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
+                <select
+                  v-model="selectedProjectId"
+                  class="rounded-4 border border-border bg-surface px-2 py-1 text-xs text-foreground outline-none"
+                  title="Project context"
+                  aria-label="Project context"
+                >
+                  <option value="">no project</option>
+                  <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+                </select>
+              </label>
               <label
                 class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground"
               >
@@ -572,12 +583,17 @@ import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
 import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.vue";
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
 import { useChatStore } from "@/stores/chat";
+import { useProjectsStore } from "@/stores/projects";
 
 const router = useRouter();
 const isBrowser = typeof window !== "undefined";
 const SCROLL_LOCK_THRESHOLD = 80;
 
 const chat = useChatStore();
+const proj = useProjectsStore();
+onMounted(() => { void proj.refresh(); });
+const projects = computed(() => proj.projects);
+const selectedProjectId = computed({ get: () => proj.currentProjectId || '', set: (v: string) => (proj.currentProjectId = v) });
 const sessions = computed(() => chat.sessions);
 const messagesBySession = computed(() => chat.messagesBySession);
 const sessionsLoading = computed(() => chat.sessionsLoading);
@@ -879,7 +895,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   draft.value = options.echoUser === false ? draft.value : "";
   try {
     const specialist = selectedSpecialist.value && selectedSpecialist.value !== 'orchestrator' ? selectedSpecialist.value : undefined
-    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, { ...options, specialist });
+    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, { ...options, specialist, projectId: selectedProjectId.value || undefined });
   } catch (error) {
     // handled in store
   } finally {

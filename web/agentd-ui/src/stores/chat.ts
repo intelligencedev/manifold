@@ -217,7 +217,7 @@ export const useChatStore = defineStore('chat', () => {
     text: string,
     attachments: ChatAttachment[] = [],
     filesByAttachment?: FilesByAttachment,
-    options: { echoUser?: boolean; specialist?: string } = {},
+    options: { echoUser?: boolean; specialist?: string; projectId?: string } = {},
   ) {
     const content = (text || '').trim()
     if ((!content && !attachments.length) || isStreaming.value) return
@@ -276,6 +276,7 @@ export const useChatStore = defineStore('chat', () => {
           signal: abortController.value!.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
           specialist: options.specialist,
+          projectId: options.projectId,
         })
       } else {
         await streamAgentRun({
@@ -284,6 +285,7 @@ export const useChatStore = defineStore('chat', () => {
           signal: abortController.value!.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
           specialist: options.specialist,
+          projectId: options.projectId,
         })
       }
     } catch (error: any) {

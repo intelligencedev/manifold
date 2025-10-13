@@ -55,6 +55,15 @@ type Config struct {
 	StreamRunTimeoutSeconds int `yaml:"streamRunTimeoutSeconds" json:"streamRunTimeoutSeconds"`
 	// WorkflowTimeoutSeconds bounds orchestrator workflow execution; 0 disables.
 	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
+	// Projects controls per-user projects service behavior.
+	Projects ProjectsConfig `yaml:"projects" json:"projects"`
+}
+
+// ProjectsConfig controls filesystem-backed projects behavior.
+type ProjectsConfig struct {
+    // Encrypt enables at-rest encryption for project files using an envelope
+    // scheme with a locally stored master key (under ${WORKDIR}/.keystore).
+    Encrypt bool `yaml:"encrypt" json:"encrypt"`
 }
 
 // TTSConfig holds text-to-speech specific configuration.

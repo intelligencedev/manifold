@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -45,6 +46,7 @@ import (
 	"manifold/internal/playground/provider"
 	playgroundregistry "manifold/internal/playground/registry"
 	"manifold/internal/playground/worker"
+	"manifold/internal/projects"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
@@ -57,6 +59,7 @@ import (
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
+	"manifold/internal/sandbox"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
 
@@ -396,6 +399,14 @@ func main() {
 	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
 	playgroundAPI := httpapi.NewServer(playgroundService)
 
+	// Filesystem-backed Projects service rooted at WORKDIR
+	projSvc := projects.NewService(cfg.Workdir)
+	if cfg.Projects.Encrypt {
+		if err := projSvc.EnableEncryption(true); err != nil {
+			log.Fatal().Err(err).Msg("enable project encryption failed")
+		}
+	}
+
 	// Initialize in-memory run store for Runs view
 	runs := newRunStore()
 
@@ -467,6 +478,267 @@ func main() {
 	})
 	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ready")
+	})
+
+	// Helper: resolve acting user ID for Projects API with admin override (?userId=)
+	resolveProjectsUser := func(r *http.Request) (int64, bool, error) {
+		if !cfg.Auth.Enabled {
+			return 0, true, nil // single-tenant/dev mode: user 0
+		}
+		u, ok := auth.CurrentUser(r.Context())
+		if !ok || u == nil {
+			return 0, false, errors.New("unauthorized")
+		}
+		userID := u.ID
+		// Admin can act on behalf of another user via ?userId=
+		if q := strings.TrimSpace(r.URL.Query().Get("userId")); q != "" {
+			okRole, err := authStore.HasRole(r.Context(), u.ID, "admin")
+			if err != nil {
+				return 0, false, err
+			}
+			if !okRole {
+				return 0, false, persist.ErrForbidden
+			}
+			var id int64
+			if _, err := fmt.Sscan(q, &id); err != nil {
+				return 0, false, fmt.Errorf("bad userId")
+			}
+			userID = id
+		}
+		return userID, true, nil
+	}
+
+	// Projects API
+	projectsCORS := func(w http.ResponseWriter, r *http.Request, methods string) {
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept")
+		if methods != "" {
+			w.Header().Set("Access-Control-Allow-Methods", methods)
+		}
+	}
+
+	// List/Create projects
+	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
+		projectsCORS(w, r, "GET, POST, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		userID, ok, err := resolveProjectsUser(r)
+		if !ok || err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			list, err := projSvc.ListProjects(r.Context(), userID)
+			if err != nil {
+				log.Error().Err(err).Msg("list_projects")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"projects": list})
+		case http.MethodPost:
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			defer r.Body.Close()
+			var in struct{ Name string `json:"name"` }
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil && !errors.Is(err, io.EOF) {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			p, err := projSvc.CreateProject(r.Context(), userID, in.Name)
+			if err != nil {
+				log.Error().Err(err).Msg("create_project")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(p)
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	// Project-specific routes: delete, tree, files, dirs
+	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
+		projectsCORS(w, r, "GET, POST, DELETE, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		userID, ok, err := resolveProjectsUser(r)
+		if !ok || err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		path := strings.TrimPrefix(r.URL.Path, "/api/projects/")
+		path = strings.Trim(path, "/")
+		if path == "" {
+			http.NotFound(w, r)
+			return
+		}
+		parts := strings.Split(path, "/")
+		projectID := parts[0]
+		// Top-level delete: /api/projects/{id}
+		if len(parts) == 1 {
+			switch r.Method {
+			case http.MethodDelete:
+				if err := projSvc.DeleteProject(r.Context(), userID, projectID); err != nil {
+					log.Error().Err(err).Str("project", projectID).Msg("delete_project")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			case http.MethodGet:
+				// convenience: GET project root tree
+				entries, err := projSvc.ListTree(r.Context(), userID, projectID, ".")
+				if err != nil {
+					log.Error().Err(err).Str("project", projectID).Msg("list_tree_root")
+					http.Error(w, "not found", http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
+				return
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+		}
+		if len(parts) >= 2 {
+			switch parts[1] {
+			case "tree":
+				if r.Method != http.MethodGet {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				p := r.URL.Query().Get("path")
+				entries, err := projSvc.ListTree(r.Context(), userID, projectID, p)
+				if err != nil {
+					log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("list_tree")
+					http.Error(w, "not found", http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
+				return
+			case "files":
+				switch r.Method {
+				case http.MethodGet:
+					p := r.URL.Query().Get("path")
+					if p == "" {
+						http.Error(w, "missing path", http.StatusBadRequest)
+						return
+					}
+					rc, err := projSvc.ReadFile(r.Context(), userID, projectID, p)
+					if err != nil {
+						log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("read_file")
+						http.Error(w, "not found", http.StatusNotFound)
+						return
+					}
+					defer rc.Close()
+					var sniff [512]byte
+					n, _ := io.ReadFull(rc, sniff[:])
+					ct := "application/octet-stream"
+					if ext := filepath.Ext(p); ext != "" {
+						if mt := mime.TypeByExtension(ext); mt != "" {
+							ct = mt
+						}
+					}
+					if ct == "application/octet-stream" && n > 0 {
+						ct = http.DetectContentType(sniff[:n])
+					}
+					w.Header().Set("Content-Type", ct)
+					if n > 0 {
+						_, _ = w.Write(sniff[:n])
+					}
+					if _, err := io.Copy(w, rc); err != nil {
+						log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("stream_file")
+					}
+				case http.MethodPost:
+					p := r.URL.Query().Get("path")
+					name := r.URL.Query().Get("name")
+					// Allow multipart or raw body
+					ct := r.Header.Get("Content-Type")
+					if strings.HasPrefix(strings.ToLower(ct), "multipart/") {
+						if err := r.ParseMultipartForm(64 << 20); err != nil {
+							http.Error(w, "bad request", http.StatusBadRequest)
+							return
+						}
+						file, _, err := r.FormFile("file")
+						if err != nil {
+							http.Error(w, "bad request", http.StatusBadRequest)
+							return
+						}
+						defer file.Close()
+						if name == "" {
+							// try filename field
+							name = r.FormValue("name")
+						}
+						if err := projSvc.UploadFile(r.Context(), userID, projectID, p, name, file); err != nil {
+							log.Error().Err(err).Str("project", projectID).Str("path", p).Str("name", name).Msg("upload_file")
+							http.Error(w, "error", http.StatusBadRequest)
+							return
+						}
+						w.WriteHeader(http.StatusCreated)
+						return
+					}
+					// Raw body
+					if name == "" {
+						http.Error(w, "missing name", http.StatusBadRequest)
+						return
+					}
+					if err := projSvc.UploadFile(r.Context(), userID, projectID, p, name, r.Body); err != nil {
+						log.Error().Err(err).Str("project", projectID).Str("path", p).Str("name", name).Msg("upload_file_raw")
+						http.Error(w, "error", http.StatusBadRequest)
+						return
+					}
+					w.WriteHeader(http.StatusCreated)
+				case http.MethodDelete:
+					p := r.URL.Query().Get("path")
+					if err := projSvc.DeleteFile(r.Context(), userID, projectID, p); err != nil {
+						log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("delete_file")
+						http.Error(w, "error", http.StatusBadRequest)
+						return
+					}
+					w.WriteHeader(http.StatusNoContent)
+				default:
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				}
+				return
+			case "dirs":
+				if r.Method != http.MethodPost {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				p := r.URL.Query().Get("path")
+				if err := projSvc.CreateDir(r.Context(), userID, projectID, p); err != nil {
+					log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("create_dir")
+					http.Error(w, "error", http.StatusBadRequest)
+					return
+				}
+				w.WriteHeader(http.StatusCreated)
+				return
+			}
+		}
+		http.NotFound(w, r)
 	})
 
 	// Runs list endpoint for the web UI
@@ -1583,6 +1855,7 @@ func main() {
 		var req struct {
 			Prompt    string `json:"prompt"`
 			SessionID string `json:"session_id,omitempty"`
+			ProjectID string `json:"project_id,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -1597,7 +1870,27 @@ func main() {
 			req.SessionID = "default"
 		}
 
+		// Attach per-project sandbox base dir if provided
+		if strings.TrimSpace(req.ProjectID) != "" {
+			var uid int64
+			if userID != nil {
+				uid = *userID
+			}
+			base := filepath.Join(cfg.Workdir, "users", fmt.Sprint(uid), "projects", req.ProjectID)
+			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+		}
+
 		// Ensure persistent session exists and load prior history
+		// Attach per-project sandbox base dir if provided
+		if strings.TrimSpace(req.ProjectID) != "" {
+			var uid int64
+			if userID != nil {
+				uid = *userID
+			}
+			base := filepath.Join(cfg.Workdir, "users", fmt.Sprint(uid), "projects", req.ProjectID)
+			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+		}
+
 		if _, err := ensureChatSession(r.Context(), chatStore, userID, req.SessionID); err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -2110,6 +2403,7 @@ func main() {
 		var req struct {
 			Prompt    string `json:"prompt"`
 			SessionID string `json:"session_id,omitempty"`
+			ProjectID string `json:"project_id,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("decode prompt: %v", err)

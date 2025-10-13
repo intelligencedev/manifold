@@ -75,9 +75,12 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 		return ExecResult{}, fmt.Errorf("binary is blocked or invalid: %q", req.Command)
 	}
 
+	// Resolve dynamic base directory from context, defaulting to configured workdir
+	base := sandbox.ResolveBaseDir(ctx, e.workdir)
+
 	safeArgs := make([]string, 0, len(req.Args))
 	for _, a := range req.Args {
-		s, err := sandbox.SanitizeArg(e.workdir, a)
+		s, err := sandbox.SanitizeArg(base, a)
 		if err != nil {
 			return ExecResult{}, err
 		}
@@ -92,7 +95,7 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	defer cancel()
 
 	c := exec.CommandContext(ctx, req.Command, safeArgs...)
-	c.Dir = e.workdir
+	c.Dir = base
 	c.Env = os.Environ()
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout

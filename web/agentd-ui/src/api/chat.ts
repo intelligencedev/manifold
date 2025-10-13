@@ -32,6 +32,9 @@ export interface StreamAgentRunOptions {
   // Optional specialist override: when set (and not 'orchestrator'),
   // the backend will run that specialist for this request.
   specialist?: string;
+  // Optional project context: when provided, backend will sandbox tools under
+  // the user's project root and attach { project_id } in the JSON body.
+  projectId?: string;
 }
 
 export async function listChatSessions(): Promise<ChatSessionMeta[]> {
@@ -85,9 +88,10 @@ const visionEndpoint = `${baseURL}/agent/vision`;
 export async function streamAgentRun(
   options: StreamAgentRunOptions,
 ): Promise<void> {
-  const { prompt, sessionId, fetchImpl, signal, onEvent, specialist } = options;
+  const { prompt, sessionId, fetchImpl, signal, onEvent, specialist, projectId } = options;
   const fetchFn = fetchImpl ?? fetch;
-  const payload = { prompt, session_id: sessionId };
+  const payload: Record<string, any> = { prompt, session_id: sessionId };
+  if (projectId && projectId.trim()) payload.project_id = projectId.trim();
   const decoder = new TextDecoder();
 
   let response: Response;
@@ -218,11 +222,12 @@ export async function streamAgentVisionRun(
     files: File[];
   },
 ): Promise<void> {
-  const { prompt, sessionId, files, fetchImpl, signal, onEvent, specialist } = options;
+  const { prompt, sessionId, files, fetchImpl, signal, onEvent, specialist, projectId } = options;
   const fetchFn = fetchImpl ?? fetch;
   const form = new FormData();
   form.set("prompt", prompt);
   if (sessionId) form.set("session_id", sessionId);
+  if (projectId && projectId.trim()) form.set("project_id", projectId.trim());
   for (const f of files) {
     form.append("images", f, f.name);
   }

@@ -87,7 +87,9 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 	}
 
-	state := newApplyState(t.Workdir)
+	// Resolve per-request base directory from context, defaulting to configured workdir
+	base := sandbox.ResolveBaseDir(ctx, t.Workdir)
+	state := newApplyState(base)
 	touched := make(map[string]struct{})
 
 	for idx, body := range patches {

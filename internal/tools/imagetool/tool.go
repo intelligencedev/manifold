@@ -66,11 +66,13 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		return nil, err
 	}
 
-	rel, err := sandbox.SanitizeArg(t.Workdir, args.Path)
+	// Resolve dynamic base dir from context when present
+	base := sandbox.ResolveBaseDir(ctx, t.Workdir)
+	rel, err := sandbox.SanitizeArg(base, args.Path)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
-	full := filepath.Join(t.Workdir, rel)
+	full := filepath.Join(base, rel)
 	f, err := os.Open(full)
 	if err != nil {
 		return map[string]any{"ok": false, "error": fmt.Sprintf("open: %v", err)}, nil

@@ -67,71 +67,139 @@ async function createProject() {
 function openFile(path: string) {
   selectedFile.value = path
 }
+
+function onProjectChange() {
+  cwd.value = '.'
+  selectedFile.value = ''
+  void store.ensureTree('.')
+}
+
+watch(
+  () => store.currentProjectId,
+  () => {
+    cwd.value = '.'
+    selectedFile.value = ''
+    void store.ensureTree('.')
+  },
+)
 </script>
 
 <template>
-  <div class="p-4 space-y-6">
-    <h1 class="text-xl font-semibold">Projects</h1>
-
-    <div class="flex items-center gap-2">
-      <input v-model="newProjectName" placeholder="New project name" class="input input-bordered input-sm" />
-      <button class="btn btn-sm btn-primary" @click="createProject">Create</button>
-      <select class="select select-sm select-bordered ml-4" v-model="store.currentProjectId" @change="() => { cwd='.'; store.ensureTree('.') }">
-        <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
-      </select>
-      <button v-if="store.currentProjectId" class="btn btn-sm btn-error ml-2" @click="() => store.remove(store.currentProjectId)">Delete</button>
-      <span class="ml-auto text-sm text-gray-500" v-if="current">Created {{ new Date(current.createdAt).toLocaleString() }} · {{ current.files }} files · {{ (current.sizeBytes/1024).toFixed(1) }} KB</span>
-    </div>
-
-    <div v-if="store.currentProjectId" class="grid grid-cols-2 gap-4">
-      <div class="border rounded p-3">
-        <div class="flex items-center gap-2 mb-2">
-          <button class="btn btn-xs" @click="() => openDir('.')">Root</button>
-          <div class="text-sm text-gray-500">{{ cwd }}</div>
-          <button class="btn btn-xs ml-auto" @click="mkdir">New Folder</button>
-          <button class="btn btn-xs" @click="pickUpload">Upload</button>
-          <input ref="uploadInput" type="file" multiple class="hidden" @change="onFiles" />
+  <section class="space-y-6">
+    <header class="flex items-center gap-4">
+      <h1 class="text-xl font-semibold text-foreground">Projects</h1>
+      <div class="ml-auto flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <label class="sr-only" for="new-project">New project name</label>
+          <input
+            id="new-project"
+            v-model="newProjectName"
+            placeholder="New project name"
+            class="h-10 w-64 px-4 rounded-4 border border-border bg-surface text-foreground placeholder:text-subtle-foreground focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom duration-150"
+          />
+          <button
+            class="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-4 border border-transparent bg-accent text-accent-foreground shadow-2 hover:bg-accent/90 active:shadow-1 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom duration-150"
+            @click="createProject"
+          >Create</button>
         </div>
-        <ul class="menu bg-base-100 w-full rounded-box">
-          <li v-for="e in entries" :key="e.path">
-            <a @click.prevent="e.isDir ? openDir(e.path) : openFile(e.path)" :class="{'bg-base-200': selectedFile===e.path}">
-              <span v-if="e.isDir">📁</span>
-              <span v-else>📄</span>
-              <span class="ml-2">{{ e.name }}</span>
-              <span class="ml-auto text-xs text-gray-500">{{ e.isDir ? '' : (e.sizeBytes + ' B') }}</span>
-              <button class="btn btn-ghost btn-xs" @click.stop="delPath(e.path)">Delete</button>
-            </a>
-          </li>
-        </ul>
+        <div class="flex items-center gap-2">
+          <label class="sr-only" for="project-select">Select project</label>
+          <select
+            id="project-select"
+            class="h-10 px-4 rounded-4 border border-border bg-surface text-foreground focus-visible:outline-none focus-visible:shadow-outline"
+            v-model="store.currentProjectId"
+            @change="onProjectChange"
+          >
+            <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
+          </select>
+          <button
+            v-if="store.currentProjectId"
+            class="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-4 border border-danger/60 text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom duration-150"
+            @click="() => store.remove(store.currentProjectId)"
+          >Delete</button>
+        </div>
       </div>
-      <div class="border rounded p-3 min-h-[300px]">
-        <div class="flex items-center justify-between text-sm text-gray-500 mb-2">
-          <div>Preview</div>
-          <div class="truncate max-w-[70%]" v-if="selectedFile">{{ selectedFile }}</div>
+    </header>
+
+    <p v-if="current" class="text-sm text-faint-foreground">
+      Created {{ new Date(current.createdAt).toLocaleString() }} · {{ current.files }} files · {{ (current.sizeBytes/1024).toFixed(1) }} KB
+    </p>
+
+    <div v-if="store.currentProjectId" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Left: Tree Panel -->
+      <div class="rounded-5 border border-border bg-surface shadow-2 p-4 lg:p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <button
+            class="h-9 px-3 rounded-4 border border-transparent text-subtle-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+            @click="() => openDir('.')"
+          >Root</button>
+          <div class="text-sm text-faint-foreground truncate">{{ cwd }}</div>
+          <div class="ml-auto flex items-center gap-2">
+            <button
+              class="h-9 px-3 rounded-4 border border-border text-foreground bg-surface hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              @click="mkdir"
+            >New Folder</button>
+            <button
+              class="h-9 px-3 rounded-4 border border-border text-foreground bg-surface hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              @click="pickUpload"
+            >Upload</button>
+            <input ref="uploadInput" type="file" multiple class="sr-only" @change="onFiles" />
+          </div>
         </div>
-        <div v-if="!selectedFile" class="p-2 text-gray-400">Select a file to preview</div>
+
+        <div class="rounded-4 border border-border/70 overflow-hidden">
+          <ul>
+            <li
+              v-for="e in entries"
+              :key="e.path"
+              class="group flex items-center gap-3 h-10 px-4 border-b border-border/70 last:border-b-0 hover:bg-surface-muted cursor-pointer"
+              :class="{ 'bg-surface-muted': selectedFile===e.path }"
+              @click.prevent="e.isDir ? openDir(e.path) : openFile(e.path)"
+            >
+              <span class="w-5 text-subtle-foreground">{{ e.isDir ? '📁' : '📄' }}</span>
+              <span class="text-foreground">{{ e.name }}</span>
+              <span class="ml-auto text-xs text-faint-foreground">{{ e.isDir ? '' : (e.sizeBytes + ' B') }}</span>
+              <button
+                class="ml-2 h-8 px-2 rounded-4 border border-danger/40 text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline"
+                @click.stop="delPath(e.path)"
+              >Delete</button>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Right: Preview Panel -->
+      <div class="rounded-5 border border-border bg-surface shadow-2 p-4 lg:p-6 min-h-[320px]">
+        <div class="flex items-center justify-between text-sm text-faint-foreground mb-3">
+          <div class="uppercase tracking-wide">Preview</div>
+          <div class="truncate max-w-[70%] text-subtle-foreground" v-if="selectedFile">{{ selectedFile }}</div>
+        </div>
+        <div v-if="!selectedFile" class="p-2 text-subtle-foreground">Select a file to preview</div>
         <template v-else>
           <div v-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)" class="max-h-[480px] overflow-auto">
-            <img :src="previewUrl" alt="preview" class="max-w-full rounded border border-border" />
+            <img :src="previewUrl" alt="preview" class="max-w-full rounded-4 border border-border" />
           </div>
-          <iframe v-else-if="/\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(selectedFile)"
-                  :src="previewUrl"
-                  class="w-full h-[480px] rounded border"/>
-          <div v-else class="text-sm text-gray-500">Preview not available. <a :href="previewUrl" target="_blank" class="link">Open</a></div>
+          <iframe
+            v-else-if="/\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(selectedFile)"
+            :src="previewUrl"
+            class="w-full h-[480px] rounded-4 border border-border"
+          />
+          <div v-else class="text-sm text-subtle-foreground">
+            Preview not available.
+            <a :href="previewUrl" target="_blank" class="text-accent hover:underline">Open</a>
+          </div>
         </template>
       </div>
     </div>
 
-    <div v-else class="text-gray-500">No project selected.</div>
-  </div>
+    <div v-else class="rounded-5 border border-border bg-surface p-6 text-subtle-foreground">
+      No project selected. Create one to get started.
+    </div>
+  </section>
   
 </template>
 
 <style scoped>
-.input { @apply px-2 py-1 rounded border; }
-.btn { @apply px-2 py-1 rounded border; }
-.btn-primary { @apply bg-blue-600 text-white border-blue-600; }
-.btn-error { @apply bg-red-600 text-white border-red-600; }
-.select { @apply px-2 py-1 rounded border; }
+/* Use Tailwind utilities with theme tokens; no local component theming */
 </style>
 

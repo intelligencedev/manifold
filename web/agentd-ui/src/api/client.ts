@@ -99,7 +99,6 @@ export async function uploadFile(
   if (name) form.append('name', name)
   await apiClient.post(`/projects/${encodeURIComponent(id)}/files`, form, {
     params: { path: dirPath, name },
-    headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
 

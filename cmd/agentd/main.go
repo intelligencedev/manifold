@@ -682,15 +682,19 @@ func main() {
 							http.Error(w, "bad request", http.StatusBadRequest)
 							return
 						}
-						file, _, err := r.FormFile("file")
+						file, fh, err := r.FormFile("file")
 						if err != nil {
 							http.Error(w, "bad request", http.StatusBadRequest)
 							return
 						}
 						defer file.Close()
 						if name == "" {
-							// try filename field
+							// try provided name form field first
 							name = r.FormValue("name")
+							// fallback to uploaded file's original filename
+							if name == "" && fh != nil {
+								name = fh.Filename
+							}
 						}
 						if err := projSvc.UploadFile(r.Context(), userID, projectID, p, name, file); err != nil {
 							log.Error().Err(err).Str("project", projectID).Str("path", p).Str("name", name).Msg("upload_file")

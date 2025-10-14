@@ -53,7 +53,7 @@ function del(path: string) {
         <span class="w-5 text-subtle-foreground">{{ e.isDir ? '📁' : '📄' }}</span>
       </div>
       <span
-        class="text-foreground truncate"
+        class="text-foreground truncate flex-1 min-w-0"
         @click.stop="e.isDir ? openDir(e.path) : select(e.path)"
       >
         {{ e.name }}

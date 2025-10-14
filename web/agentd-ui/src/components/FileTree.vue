@@ -67,26 +67,24 @@ watch(
 </script>
 
 <template>
-  <div class="rounded-4 border border-border/70 overflow-hidden">
-    <ul class="divide-y divide-border/70">
-      <li class="flex items-center gap-2 h-9 px-2 bg-surface-muted text-subtle-foreground">
-        <span class="w-5" />
-        <span class="w-5">🗂️</span>
-        <span class="text-xs uppercase tracking-wide">Root</span>
-      </li>
-      <li class="p-0 m-0">
-        <FileTreeNode
-          :path="rootPath"
-          :depth="0"
-          :selected="selected"
-          :is-expanded="isExpanded"
-          :toggle="toggle"
-          @select="selectFile"
-          @open-dir="openDir"
-          @delete="del"
-        />
-      </li>
-    </ul>
+  <div class="rounded-4 border border-border/70 overflow-hidden flex min-h-0 flex-col">
+    <div class="flex items-center gap-2 h-9 px-2 bg-surface-muted text-subtle-foreground shrink-0">
+      <span class="w-5" />
+      <span class="w-5">🗂️</span>
+      <span class="text-xs uppercase tracking-wide">Root</span>
+    </div>
+    <div class="min-h-0 flex-1 overflow-auto">
+      <FileTreeNode
+        :path="rootPath"
+        :depth="0"
+        :selected="selected"
+        :is-expanded="isExpanded"
+        :toggle="toggle"
+        @select="selectFile"
+        @open-dir="openDir"
+        @delete="del"
+      />
+    </div>
   </div>
 </template>
 

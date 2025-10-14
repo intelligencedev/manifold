@@ -86,7 +86,7 @@ watch(
 </script>
 
 <template>
-  <section class="space-y-6">
+  <section class="flex min-h-0 flex-1 flex-col space-y-6">
     <header class="flex items-center gap-4">
       <h1 class="text-xl font-semibold text-foreground">Projects</h1>
       <div class="ml-auto flex items-center gap-3">
@@ -126,10 +126,10 @@ watch(
       Created {{ new Date(current.createdAt).toLocaleString() }} · {{ current.files }} files · {{ (current.sizeBytes/1024).toFixed(1) }} KB
     </p>
 
-    <div v-if="store.currentProjectId" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div v-if="store.currentProjectId" class="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0 flex-1">
       <!-- Left: Tree Panel -->
-      <div class="rounded-5 border border-border bg-surface shadow-2 p-4 lg:p-6">
-        <div class="flex items-center gap-3 mb-4">
+      <div class="rounded-5 border border-border bg-surface shadow-2 p-4 lg:p-6 flex min-h-0 flex-col">
+        <div class="flex items-center gap-3 mb-4 shrink-0">
           <button
             class="h-9 px-3 rounded-4 border border-transparent text-subtle-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
             @click="() => openDir('.')"
@@ -147,37 +147,40 @@ watch(
             <input ref="uploadInput" type="file" multiple class="sr-only" @change="onFiles" />
           </div>
         </div>
-
-        <FileTree
-          :selected="selectedFile"
-          :root-path="cwd"
-          @select="openFile"
-          @open-dir="openDir"
-          @delete="delPath"
-        />
+        <div class="min-h-0 flex-1 overflow-auto">
+          <FileTree
+            :selected="selectedFile"
+            :root-path="cwd"
+            @select="openFile"
+            @open-dir="openDir"
+            @delete="delPath"
+          />
+        </div>
       </div>
 
       <!-- Right: Preview Panel -->
-      <div class="rounded-5 border border-border bg-surface shadow-2 p-4 lg:p-6 min-h-[320px]">
-        <div class="flex items-center justify-between text-sm text-faint-foreground mb-3">
+      <div class="rounded-5 border border-border bg-surface shadow-2 p-4 lg:p-6 flex min-h-0 flex-col">
+        <div class="flex items-center justify-between text-sm text-faint-foreground mb-3 shrink-0">
           <div class="uppercase tracking-wide">Preview</div>
           <div class="truncate max-w-[70%] text-subtle-foreground" v-if="selectedFile">{{ selectedFile }}</div>
         </div>
-        <div v-if="!selectedFile" class="p-2 text-subtle-foreground">Select a file to preview</div>
-        <template v-else>
-          <div v-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)" class="max-h-[480px] overflow-auto">
-            <img :src="previewUrl" alt="preview" class="max-w-full rounded-4 border border-border" />
-          </div>
-          <iframe
-            v-else-if="/\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(selectedFile)"
-            :src="previewUrl"
-            class="w-full h-[480px] rounded-4 border border-border"
-          />
-          <div v-else class="text-sm text-subtle-foreground">
-            Preview not available.
-            <a :href="previewUrl" target="_blank" class="text-accent hover:underline">Open</a>
-          </div>
-        </template>
+        <div class="min-h-0 flex-1 overflow-auto">
+          <div v-if="!selectedFile" class="p-2 text-subtle-foreground">Select a file to preview</div>
+          <template v-else>
+            <div v-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)">
+              <img :src="previewUrl" alt="preview" class="max-w-full rounded-4 border border-border" />
+            </div>
+            <iframe
+              v-else-if="/\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(selectedFile)"
+              :src="previewUrl"
+              class="w-full h-full rounded-4 border border-border"
+            />
+            <div v-else class="text-sm text-subtle-foreground">
+              Preview not available.
+              <a :href="previewUrl" target="_blank" class="text-accent hover:underline">Open</a>
+            </div>
+          </template>
+        </div>
       </div>
     </div>
 

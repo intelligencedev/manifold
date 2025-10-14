@@ -112,60 +112,27 @@
               Streaming response…
             </span>
             <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="rounded-4 border border-border px-3 py-1 font-medium text-foreground transition hover:border-accent hover:text-accent"
-                @click="goToDashboard"
-              >
-                Dashboard
-              </button>
-              <label class="relative inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
-                <select
-                  v-model="selectedSpecialist"
-                  class="appearance-none rounded-4 border border-border bg-surface pl-2 pr-10 py-1 text-xs text-foreground outline-none"
-                  title="Choose specialist for this chat"
-                  aria-label="Specialist override"
-                >
-                  <option value="orchestrator">orchestrator</option>
-                  <option v-for="sp in specialistNames" :key="sp" :value="sp">{{ sp }}</option>
-                </select>
-                <span
-                  class="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[10px] text-subtle-foreground"
-                  >▼</span
-                >
-              </label>
-              <label class="relative inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
-                <select
-                  v-model="selectedProjectId"
-                  class="appearance-none rounded-4 border border-border bg-surface pl-2 pr-10 py-1 text-xs text-foreground outline-none"
-                  title="Project context"
-                  aria-label="Project context"
-                >
-                  <option value="">no project</option>
-                  <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
-                </select>
-                <span
-                  class="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[10px] text-subtle-foreground"
-                  >▼</span
-                >
-              </label>
-              <label
-                class="relative inline-flex items-center gap-2 text-[11px] text-subtle-foreground"
-              >
-                <select
-                  v-model="renderMode"
-                  class="appearance-none rounded-4 border border-border bg-surface pl-2 pr-10 py-1 text-xs text-foreground outline-none"
-                  title="Render mode for assistant responses"
-                  aria-label="Render mode"
-                >
-                  <option value="markdown">Markdown</option>
-                  <option value="html">HTML</option>
-                </select>
-                <span
-                  class="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[10px] text-subtle-foreground"
-                  >▼</span
-                >
-              </label>
+              <DropdownSelect
+                v-model="selectedSpecialist"
+                :options="specialistOptions"
+                size="xs"
+                title="Choose specialist for this chat"
+                aria-label="Specialist override"
+              />
+              <DropdownSelect
+                v-model="selectedProjectId"
+                :options="projectOptions"
+                size="xs"
+                title="Project context"
+                aria-label="Project context"
+              />
+              <DropdownSelect
+                v-model="renderMode"
+                :options="renderModeOptions"
+                size="xs"
+                title="Render mode for assistant responses"
+                aria-label="Render mode"
+              />
             </div>
           </div>
         </header>
@@ -594,8 +561,10 @@ import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
 import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.vue";
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
+import DropdownSelect from "@/components/DropdownSelect.vue";
 import { useChatStore } from "@/stores/chat";
 import { useProjectsStore } from "@/stores/projects";
+import type { DropdownOption } from "@/types/dropdown";
 
 const router = useRouter();
 const isBrowser = typeof window !== "undefined";
@@ -648,6 +617,33 @@ const specialistNames = computed(() =>
     .filter((n: string) => n && n.trim().toLowerCase() !== 'orchestrator')
     .sort((a: string, b: string) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 )
+
+// Transform specialists data for dropdown
+const specialistOptions = computed<DropdownOption[]>(() => [
+  { id: 'orchestrator', label: 'orchestrator', value: 'orchestrator' },
+  ...specialistNames.value.map((name: string) => ({
+    id: name,
+    label: name,
+    value: name,
+  }))
+])
+
+// Transform projects data for dropdown
+const projectOptions = computed<DropdownOption[]>(() => [
+  { id: '', label: 'no project', value: '' },
+  ...projects.value.map((project) => ({
+    id: project.id,
+    label: project.name,
+    value: project.id,
+  }))
+])
+
+// Transform render mode options for dropdown
+const renderModeOptions = computed<DropdownOption[]>(() => [
+  { id: 'markdown', label: 'markdown', value: 'markdown' },
+  { id: 'html', label: 'html', value: 'html' },
+])
+
 const selectedSpecialist = ref<string>('orchestrator')
 
 function httpStatus(error: unknown): number | null {
@@ -1072,10 +1068,6 @@ function findLast<T>(items: T[], predicate: (item: T) => boolean): T | null {
     }
   }
   return null;
-}
-
-function goToDashboard() {
-  router.push({ name: "overview" });
 }
 
 // --- Voice recording (microphone → WAV → /stt) ---

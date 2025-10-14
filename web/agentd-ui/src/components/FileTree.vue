@@ -85,7 +85,7 @@ watch(
 
 <template>
   <div class="rounded-4 border border-border/70 overflow-hidden flex min-h-0 flex-col">
-    <div class="flex items-center gap-2 h-9 px-2 bg-surface-muted text-subtle-foreground shrink-0">
+    <div class="flex items-center gap-2 h-9 pl-3 pr-2 bg-surface-muted text-subtle-foreground shrink-0">
       <span class="w-5" />
       <span class="w-5">🗂️</span>
       <span class="text-xs uppercase tracking-wide">Root</span>

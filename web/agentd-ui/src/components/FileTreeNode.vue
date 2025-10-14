@@ -36,10 +36,13 @@ function openDir(path: string) {
         class="group flex items-center gap-2 h-9 pr-2 border-b border-border/70 last:border-b-0 hover:bg-surface-muted cursor-pointer"
         :class="{ 'bg-surface-muted': selected === e.path }"
       >
-        <div class="flex items-center shrink-0" :style="{ paddingLeft: `${depth * 16}px` }">
+        <div
+          class="flex items-center shrink-0"
+          :style="{ paddingLeft: `${12 + depth * 16}px` }"
+        >
           <input
             type="checkbox"
-            class="w-5 h-5 mr-1 rounded-3 border-border text-danger focus-visible:outline-none focus-visible:shadow-outline"
+            class="w-5 h-5 mr-2 rounded-3 border-border text-danger focus-visible:outline-none focus-visible:shadow-outline"
             :checked="isChecked(e.path)"
             @click.stop
             @change.stop="() => toggleCheck(e.path)"

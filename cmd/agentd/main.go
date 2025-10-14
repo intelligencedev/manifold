@@ -547,8 +547,20 @@ func main() {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
+			// Adapt to UI: rename fields to sizeBytes/files
+			out := make([]map[string]any, 0, len(list))
+			for _, p := range list {
+				out = append(out, map[string]any{
+					"id":        p.ID,
+					"name":      p.Name,
+					"createdAt": p.CreatedAt,
+					"updatedAt": p.UpdatedAt,
+					"sizeBytes": p.Bytes,
+					"files":     p.FileCount,
+				})
+			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"projects": list})
+			_ = json.NewEncoder(w).Encode(map[string]any{"projects": out})
 		case http.MethodPost:
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
@@ -614,8 +626,19 @@ func main() {
 					http.Error(w, "not found", http.StatusNotFound)
 					return
 				}
+				// adapt to UI FileEntry shape
+				rows := make([]map[string]any, 0, len(entries))
+				for _, e := range entries {
+					rows = append(rows, map[string]any{
+						"name":      e.Name,
+						"path":      e.Path,
+						"isDir":     e.Type == "dir",
+						"sizeBytes": e.Size,
+						"modTime":   e.ModTime,
+					})
+				}
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
+				_ = json.NewEncoder(w).Encode(map[string]any{"entries": rows})
 				return
 			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -636,8 +659,18 @@ func main() {
 					http.Error(w, "not found", http.StatusNotFound)
 					return
 				}
+				rows := make([]map[string]any, 0, len(entries))
+				for _, e := range entries {
+					rows = append(rows, map[string]any{
+						"name":      e.Name,
+						"path":      e.Path,
+						"isDir":     e.Type == "dir",
+						"sizeBytes": e.Size,
+						"modTime":   e.ModTime,
+					})
+				}
 				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
+				_ = json.NewEncoder(w).Encode(map[string]any{"entries": rows})
 				return
 			case "files":
 				switch r.Method {

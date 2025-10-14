@@ -8,12 +8,13 @@ const props = defineProps<{
   selected?: string
   isExpanded: (p: string) => boolean
   toggle: (p: string) => void | Promise<void>
+  isChecked: (p: string) => boolean
+  toggleCheck: (p: string) => void
 }>()
 
 const emit = defineEmits<{
   (e: 'select', path: string): void
   (e: 'open-dir', path: string): void
-  (e: 'delete', path: string): void
 }>()
 
 const store = useProjectsStore()
@@ -26,9 +27,6 @@ function select(path: string) {
 function openDir(path: string) {
   emit('open-dir', path)
 }
-function del(path: string) {
-  emit('delete', path)
-}
 </script>
 
 <template>
@@ -39,6 +37,14 @@ function del(path: string) {
         :class="{ 'bg-surface-muted': selected === e.path }"
       >
         <div class="flex items-center shrink-0" :style="{ paddingLeft: `${depth * 16}px` }">
+          <input
+            type="checkbox"
+            class="w-5 h-5 mr-1 rounded-3 border-border text-danger focus-visible:outline-none focus-visible:shadow-outline"
+            :checked="isChecked(e.path)"
+            @click.stop
+            @change.stop="() => toggleCheck(e.path)"
+            :aria-label="`Select ${e.name}`"
+          />
           <button
             v-if="e.isDir"
             class="w-5 h-5 mr-1 rounded-3 text-subtle-foreground hover:bg-surface-muted/70 focus-visible:outline-none focus-visible:shadow-outline"
@@ -57,13 +63,6 @@ function del(path: string) {
           {{ e.name }}
         </span>
         <span class="ml-auto text-xs text-faint-foreground">{{ e.isDir ? '' : `${e.sizeBytes} B` }}</span>
-        <button
-          class="ml-2 h-8 px-2 rounded-4 border border-danger/40 text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline"
-          title="Delete"
-          @click.stop="del(e.path)"
-        >
-          Delete
-        </button>
       </li>
       <li v-if="e.isDir && isExpanded(e.path)" :key="e.path + '__children'" class="border-0 p-0 m-0">
         <FileTreeNode
@@ -72,9 +71,10 @@ function del(path: string) {
           :selected="selected"
           :is-expanded="isExpanded"
           :toggle="toggle"
+          :is-checked="isChecked"
+          :toggle-check="toggleCheck"
           @select="emit('select', $event)"
           @open-dir="emit('open-dir', $event)"
-          @delete="emit('delete', $event)"
         />
       </li>
     </template>

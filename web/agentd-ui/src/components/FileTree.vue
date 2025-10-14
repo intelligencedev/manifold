@@ -12,7 +12,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', path: string): void
   (e: 'open-dir', path: string): void
-  (e: 'delete', path: string): void
 }>()
 
 const store = useProjectsStore()
@@ -20,6 +19,8 @@ const rootPath = computed(() => props.rootPath ?? '.')
 
 // Track expanded folders
 const expanded = ref<Set<string>>(new Set([rootPath.value]))
+// Track checked items
+const checked = ref<Set<string>>(new Set())
 
 async function ensure(path: string) {
   await store.ensureTree(path || '.')
@@ -47,9 +48,22 @@ function openDir(path: string) {
   emit('open-dir', path || '.')
 }
 
-function del(path: string) {
-  emit('delete', path)
+function isChecked(path: string) {
+  return checked.value.has(path)
 }
+function toggleCheck(path: string) {
+  if (checked.value.has(path)) checked.value.delete(path)
+  else checked.value.add(path)
+}
+function clearChecks() {
+  checked.value.clear()
+}
+defineExpose({
+  isChecked,
+  toggleCheck,
+  clearChecks,
+  checked,
+})
 
 onMounted(async () => {
   if (store.currentProjectId) {
@@ -61,6 +75,7 @@ watch(
   () => store.currentProjectId,
   async () => {
     expanded.value = new Set([rootPath.value])
+    checked.value.clear()
     if (store.currentProjectId) await ensure(rootPath.value)
   },
 )
@@ -80,9 +95,10 @@ watch(
         :selected="selected"
         :is-expanded="isExpanded"
         :toggle="toggle"
+        :is-checked="isChecked"
+        :toggle-check="toggleCheck"
         @select="selectFile"
         @open-dir="openDir"
-        @delete="del"
       />
     </div>
   </div>

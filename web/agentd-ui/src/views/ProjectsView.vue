@@ -7,6 +7,7 @@ import FileTree from '@/components/FileTree.vue'
 const store = useProjectsStore()
 const newProjectName = ref('')
 const uploadInput = ref<HTMLInputElement | null>(null)
+const treeRef = ref<InstanceType<typeof FileTree> | null>(null)
 const cwd = ref('.')
 const selectedFile = ref<string>('')
 const previewUrl = computed(() => {
@@ -43,11 +44,16 @@ async function mkdir() {
   await store.ensureTree(cwd.value)
 }
 
-async function delPath(p: string) {
-  if (!confirm(`Delete ${p}?`)) return
-  await store.removePath(p)
+async function bulkDelete() {
+  const ids = Array.from(treeRef.value?.checked ?? new Set<string>())
+  if (!ids.length) return
+  if (!confirm(`Delete ${ids.length} item(s)? This cannot be undone.`)) return
+  for (const p of ids) {
+    await store.removePath(p)
+    if (selectedFile.value === p) selectedFile.value = ''
+  }
+  treeRef.value?.clearChecks()
   await store.ensureTree(cwd.value)
-  if (selectedFile.value === p) selectedFile.value = ''
 }
 
 async function openDir(path: string) {
@@ -144,16 +150,21 @@ watch(
               class="h-9 px-3 rounded-4 border border-border text-foreground bg-surface hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
               @click="pickUpload"
             >Upload</button>
+            <button
+              class="h-9 px-3 rounded-4 border border-danger/60 text-danger disabled:opacity-50 disabled:cursor-not-allowed hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              :disabled="!(treeRef?.checked && treeRef.checked.size > 0)"
+              @click="bulkDelete"
+            >Delete</button>
             <input ref="uploadInput" type="file" multiple class="sr-only" @change="onFiles" />
           </div>
         </div>
         <div class="min-h-0 flex-1 overflow-auto">
           <FileTree
+            ref="treeRef"
             :selected="selectedFile"
             :root-path="cwd"
             @select="openFile"
             @open-dir="openDir"
-            @delete="delPath"
           />
         </div>
       </div>

@@ -344,7 +344,11 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
     return nil
 }
 
-// DeleteFile removes a single file within a project.
+// DeleteFile removes a single filesystem entry within a project.
+//
+// If the path points to a file, it is deleted. If it points to a directory,
+// the directory is removed recursively (like rm -r). Symlinks are never
+// followed and will not be deleted.
 func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path string) error {
     base := s.projectRoot(userID, projectID)
     rel, err := sanitizeUnder(base, path)
@@ -362,15 +366,19 @@ func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path st
         }
         return err
     }
-    if info.IsDir() {
-        return fmt.Errorf("path is a directory")
-    }
     if info.Mode()&fs.ModeSymlink != 0 {
         // refuse to delete symlinks
         return fmt.Errorf("refusing to delete symlink")
     }
-    if err := os.Remove(target); err != nil {
-        return err
+    // Delete files directly; delete directories recursively.
+    if info.IsDir() {
+        if err := os.RemoveAll(target); err != nil {
+            return err
+        }
+    } else {
+        if err := os.Remove(target); err != nil {
+            return err
+        }
     }
     s.writeUpdatedAt(userID, projectID, time.Now().UTC())
     return nil

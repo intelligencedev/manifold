@@ -52,11 +52,13 @@ function isChecked(path: string) {
   return checked.value.has(path)
 }
 function toggleCheck(path: string) {
-  if (checked.value.has(path)) checked.value.delete(path)
-  else checked.value.add(path)
+  const next = new Set(checked.value)
+  if (next.has(path)) next.delete(path)
+  else next.add(path)
+  checked.value = next
 }
 function clearChecks() {
-  checked.value.clear()
+  checked.value = new Set()
 }
 defineExpose({
   isChecked,

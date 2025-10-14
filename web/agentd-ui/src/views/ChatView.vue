@@ -119,40 +119,52 @@
               >
                 Dashboard
               </button>
-              <label class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
+              <label class="relative inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
                 <select
                   v-model="selectedSpecialist"
-                  class="rounded-4 border border-border bg-surface px-2 py-1 text-xs text-foreground outline-none"
+                  class="appearance-none rounded-4 border border-border bg-surface pl-2 pr-10 py-1 text-xs text-foreground outline-none"
                   title="Choose specialist for this chat"
                   aria-label="Specialist override"
                 >
                   <option value="orchestrator">orchestrator</option>
                   <option v-for="sp in specialistNames" :key="sp" :value="sp">{{ sp }}</option>
                 </select>
+                <span
+                  class="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[10px] text-subtle-foreground"
+                  >▼</span
+                >
               </label>
-              <label class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
+              <label class="relative inline-flex items-center gap-2 text-[11px] text-subtle-foreground">
                 <select
                   v-model="selectedProjectId"
-                  class="rounded-4 border border-border bg-surface px-2 py-1 text-xs text-foreground outline-none"
+                  class="appearance-none rounded-4 border border-border bg-surface pl-2 pr-10 py-1 text-xs text-foreground outline-none"
                   title="Project context"
                   aria-label="Project context"
                 >
                   <option value="">no project</option>
                   <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
                 </select>
+                <span
+                  class="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[10px] text-subtle-foreground"
+                  >▼</span
+                >
               </label>
               <label
-                class="inline-flex items-center gap-2 text-[11px] text-subtle-foreground"
+                class="relative inline-flex items-center gap-2 text-[11px] text-subtle-foreground"
               >
                 <select
                   v-model="renderMode"
-                  class="rounded-4 border border-border bg-surface px-2 py-1 text-xs text-foreground outline-none"
+                  class="appearance-none rounded-4 border border-border bg-surface pl-2 pr-10 py-1 text-xs text-foreground outline-none"
                   title="Render mode for assistant responses"
                   aria-label="Render mode"
                 >
                   <option value="markdown">Markdown</option>
                   <option value="html">HTML</option>
                 </select>
+                <span
+                  class="pointer-events-none absolute right-5 top-1/2 -translate-y-1/2 text-[10px] text-subtle-foreground"
+                  >▼</span
+                >
               </label>
             </div>
           </div>

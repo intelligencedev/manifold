@@ -1,0 +1,208 @@
+package agentd
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+	"unsafe"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"manifold/internal/auth"
+	"manifold/internal/config"
+	persist "manifold/internal/persistence"
+)
+
+// AgentRun represents a single agent invocation for the Runs view (in-memory only).
+type AgentRun struct {
+	ID        string `json:"id"`
+	Prompt    string `json:"prompt"`
+	CreatedAt string `json:"createdAt"`
+	Status    string `json:"status"` // running | failed | completed
+	Tokens    int    `json:"tokens,omitempty"`
+}
+
+type runStore struct {
+	mu   sync.RWMutex
+	runs []AgentRun
+}
+
+func newRunStore() *runStore {
+	return &runStore{runs: make([]AgentRun, 0, 64)}
+}
+
+func (s *runStore) create(prompt string) AgentRun {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := AgentRun{
+		ID:        fmt.Sprintf("run_%d", time.Now().UnixNano()),
+		Prompt:    prompt,
+		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Status:    "running",
+	}
+	s.runs = append(s.runs, run)
+	return run
+}
+
+func (s *runStore) updateStatus(id string, status string, tokens int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.runs {
+		if s.runs[i].ID == id {
+			s.runs[i].Status = status
+			if tokens > 0 {
+				s.runs[i].Tokens = tokens
+			}
+			break
+		}
+	}
+}
+
+func (s *runStore) list() []AgentRun {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]AgentRun, len(s.runs))
+	copy(out, s.runs)
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
+}
+
+// withMaybeTimeout returns a context derived from parent with an optional timeout.
+func withMaybeTimeout(parent context.Context, seconds int) (context.Context, context.CancelFunc, time.Duration) {
+	if seconds > 0 {
+		d := time.Duration(seconds) * time.Second
+		ctx, cancel := context.WithTimeout(parent, d)
+		return ctx, cancel, d
+	}
+	ctx, cancel := context.WithCancel(parent)
+	return ctx, cancel, 0
+}
+
+func ensureChatSession(ctx context.Context, store persist.ChatStore, userID *int64, sessionID string) (persist.ChatSession, error) {
+	return store.EnsureSession(ctx, userID, sessionID, "Conversation")
+}
+
+func previewSnippet(content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	collapsed := strings.Join(strings.Fields(content), " ")
+	runes := []rune(collapsed)
+	if len(runes) <= 80 {
+		return collapsed
+	}
+	limit := 77
+	if limit > len(runes) {
+		limit = len(runes)
+	}
+	return string(runes[:limit]) + "..."
+}
+
+func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent, assistantContent, model string) error {
+	messages := make([]persist.ChatMessage, 0, 2)
+	now := time.Now().UTC()
+	if strings.TrimSpace(userContent) != "" {
+		messages = append(messages, persist.ChatMessage{
+			SessionID: sessionID,
+			Role:      "user",
+			Content:   userContent,
+			CreatedAt: now,
+		})
+	}
+	if strings.TrimSpace(assistantContent) != "" {
+		messages = append(messages, persist.ChatMessage{
+			SessionID: sessionID,
+			Role:      "assistant",
+			Content:   assistantContent,
+			CreatedAt: now.Add(2 * time.Millisecond),
+		})
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	preview := previewSnippet(assistantContent)
+	if preview == "" {
+		preview = previewSnippet(userContent)
+	}
+	return store.AppendMessages(ctx, userID, sessionID, messages, preview, model)
+}
+
+func resolveChatAccess(ctx context.Context, authStore *auth.Store, user *auth.User) (*int64, bool, error) {
+	if authStore == nil || user == nil {
+		return nil, true, nil
+	}
+	isAdmin, err := authStore.HasRole(ctx, user.ID, "admin")
+	if err != nil {
+		return nil, false, err
+	}
+	if isAdmin {
+		return nil, true, nil
+	}
+	id := user.ID
+	return &id, false, nil
+}
+
+func setChatCORSHeaders(w http.ResponseWriter, r *http.Request, methods string) {
+	if origin := r.Header.Get("Origin"); origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Vary", "Origin")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+	}
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
+	if methods != "" {
+		w.Header().Set("Access-Control-Allow-Methods", methods)
+	}
+}
+
+func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := pool.Ping(cctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
+}
+
+func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
+	out := make([]config.SpecialistConfig, 0, len(list))
+	for _, s := range list {
+		if strings.EqualFold(strings.TrimSpace(s.Name), "orchestrator") {
+			continue
+		}
+		out = append(out, config.SpecialistConfig{
+			Name:            s.Name,
+			BaseURL:         s.BaseURL,
+			APIKey:          s.APIKey,
+			Model:           s.Model,
+			EnableTools:     s.EnableTools,
+			Paused:          s.Paused,
+			AllowTools:      s.AllowTools,
+			ReasoningEffort: s.ReasoningEffort,
+			System:          s.System,
+			ExtraHeaders:    s.ExtraHeaders,
+			ExtraParams:     s.ExtraParams,
+		})
+	}
+	return out
+}
+
+// wavFloat32 converts a little-endian uint32 representation to float32 without allocations.
+func wavFloat32(bits uint32) float32 {
+	return *(*float32)(unsafe.Pointer(&bits))
+}

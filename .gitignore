@@ -57,18 +57,8 @@ coverage.out
 
 # Ignore specific files or folders
 dist/
-examples
-gptagent
-PLAN.md
 config.yaml
-docs/multi-agent-rag.md
-CONTEXT.md
-kafka_plan.md
-ggml-small.en.bin
-alice.png
-bride_final.jpg
 models/
-agentd
 web/agentd-ui/node_modules/
 web/agentd-ui/dist/
 web/agentd-ui/.vite/
@@ -78,4 +68,3 @@ internal/webui/dist/
 !internal/webui/dist/index.html
 playground-artifacts
 .github/chatmodes/ManifoldAgent.chatmode.md
-users

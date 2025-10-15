@@ -13,36 +13,51 @@
     </div>
 
     <div class="grid gap-6 lg:grid-cols-3">
-      <div class="lg:col-span-2 space-y-6">
-        <div class="flex items-center justify-between">
-          <h2 class="text-lg font-semibold text-foreground">Specialist Assistants</h2>
-          <RouterLink to="/specialists" class="text-sm font-semibold text-accent hover:text-accent/80">Manage</RouterLink>
-        </div>
-        <div class="grid gap-4 md:grid-cols-2">
-          <AgentCard v-for="agent in agents" :key="agent.id" :agent="agent" />
-        </div>
-        <div v-if="agentsLoading" class="rounded-2xl border border-border/70 bg-surface p-6">
-          <p class="text-sm text-faint-foreground">Loading agent status…</p>
-        </div>
-        <div v-if="agentsError" class="rounded-2xl border border-danger/60 bg-danger/10 p-6">
-          <p class="text-sm text-danger-foreground">Failed to load agents. Check connectivity.</p>
+      <div class="lg:col-span-2">
+        <!-- Card container that scrolls when the agent list grows. Keep header
+             outside the scroll area so controls remain accessible. -->
+        <div class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex flex-col">
+          <div class="flex items-center justify-between">
+            <h2 class="text-lg font-semibold text-foreground">Specialist Assistants</h2>
+            <RouterLink to="/specialists" class="text-sm font-semibold text-accent hover:text-accent/80">Manage</RouterLink>
+          </div>
+
+          <!-- Scrollable list area. Respect theme scrollbars (global styles). -->
+          <div class="mt-4 overflow-auto max-h-[60vh] space-y-4">
+            <div class="grid gap-4 md:grid-cols-2">
+              <AgentCard v-for="agent in agents" :key="agent.id" :agent="agent" />
+            </div>
+
+            <div v-if="agentsLoading" class="rounded-2xl border border-border/70 bg-surface p-6">
+              <p class="text-sm text-faint-foreground">Loading agent status…</p>
+            </div>
+            <div v-if="agentsError" class="rounded-2xl border border-danger/60 bg-danger/10 p-6">
+              <p class="text-sm text-danger-foreground">Failed to load agents. Check connectivity.</p>
+            </div>
+          </div>
         </div>
       </div>
 
       <aside class="space-y-6">
         <h2 class="text-lg font-semibold text-foreground">Recent Runs</h2>
-        <RunTable :runs="runs" />
-        <div
-          v-if="runsLoading"
-          class="rounded-2xl border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
-        >
-          Loading runs…
-        </div>
-        <div
-          v-if="runsError"
-          class="rounded-2xl border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
-        >
-          Failed to load recent runs.
+
+        <!-- Scrollable runs card. Keep run table and feedback inside the
+             scrolling region so it doesn't overflow the page. -->
+        <div class="rounded-2xl border border-border/70 bg-surface p-4 shadow-lg overflow-auto max-h-[60vh]">
+          <RunTable :runs="runs" />
+
+          <div
+            v-if="runsLoading"
+            class="mt-4 rounded-2xl border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
+          >
+            Loading runs…
+          </div>
+          <div
+            v-if="runsError"
+            class="mt-4 rounded-2xl border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
+          >
+            Failed to load recent runs.
+          </div>
         </div>
       </aside>
     </div>

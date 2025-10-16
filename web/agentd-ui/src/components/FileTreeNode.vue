@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import type { FileEntry } from '@/api/client'
 import { useProjectsStore } from '@/stores/projects'
 
@@ -23,14 +23,16 @@ const store = useProjectsStore()
 const key = computed(() => `${store.currentProjectId}:${props.path || '.'}`)
 const list = computed(() => store.treeByPath[key.value] || [])
 
+// Shared drag state from FileTree
+type DragKind = 'file' | 'dir'
+const dragging = inject<import('vue').Ref<{ path: string; kind: DragKind } | null>>('filetreeDrag')
+
 function select(path: string) {
   emit('select', path)
 }
 function openDir(path: string) {
   emit('open-dir', path)
 }
-
-type DragKind = 'file' | 'dir'
 
 function getDragData(event: DragEvent) {
   const dt = event.dataTransfer
@@ -83,13 +85,22 @@ function onDragStart(event: DragEvent, entry: FileEntry) {
   event.dataTransfer.setData('application/x-project-path', entry.path)
   event.dataTransfer.setData('text/plain', entry.path)
   event.dataTransfer.setData('application/x-project-kind', entry.isDir ? 'dir' : 'file')
+  if (dragging) dragging.value = { path: entry.path, kind: entry.isDir ? 'dir' : 'file' }
+}
+
+function onDragEnd() {
+  if (dragging) dragging.value = null
 }
 
 function onDragOver(event: DragEvent, entry: FileEntry) {
-  const { path, kind } = getDragData(event)
+  const d = dragging?.value || getDragData(event)
+  if (!d || !d.path) {
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    return
+  }
   const targetDir = entry.isDir ? entry.path || '.' : parentPath(entry.path)
-  const dest = destinationFor(targetDir, baseName(path))
-  if (!canAcceptMove(path, dest, kind)) {
+  const dest = destinationFor(targetDir, baseName(d.path))
+  if (!canAcceptMove(d.path, dest, d.kind)) {
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
     return
   }
@@ -97,15 +108,18 @@ function onDragOver(event: DragEvent, entry: FileEntry) {
 }
 
 async function onDrop(event: DragEvent, entry: FileEntry) {
-  const { path, kind } = getDragData(event)
+  const d = dragging?.value || getDragData(event)
+  if (!d || !d.path) return
   const targetDir = entry.isDir ? entry.path || '.' : parentPath(entry.path)
-  const dest = destinationFor(targetDir, baseName(path))
-  if (!canAcceptMove(path, dest, kind)) return
+  const dest = destinationFor(targetDir, baseName(d.path))
+  if (!canAcceptMove(d.path, dest, d.kind)) return
   try {
-    await store.movePath(path, dest)
-    emit('moved', { from: path, to: dest })
+    await store.movePath(d.path, dest)
+    emit('moved', { from: d.path, to: dest })
   } catch (err) {
     console.error('move failed', err)
+  } finally {
+    if (dragging) dragging.value = null
   }
 }
 </script>
@@ -118,6 +132,7 @@ async function onDrop(event: DragEvent, entry: FileEntry) {
         :class="{ 'bg-surface-muted': selected === e.path }"
         :draggable="true"
         @dragstart="onDragStart($event, e)"
+        @dragend="onDragEnd"
         @dragover.prevent="onDragOver($event, e)"
         @drop.stop.prevent="onDrop($event, e)"
       >

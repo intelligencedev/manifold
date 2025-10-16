@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, provide, ref, watch } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
 import FileTreeNode from './FileTreeNode.vue'
 
@@ -22,6 +22,11 @@ const rootPath = computed(() => props.rootPath ?? '.')
 const expanded = ref<Set<string>>(new Set([rootPath.value]))
 // Track checked items
 const checked = ref<Set<string>>(new Set())
+
+// Track current drag item globally for the tree so dragover can read it reliably
+type DragKind = 'file' | 'dir'
+const dragging = ref<{ path: string; kind: DragKind } | null>(null)
+provide('filetreeDrag', dragging)
 
 async function ensure(path: string) {
   await store.ensureTree(path || '.')
@@ -68,14 +73,9 @@ defineExpose({
   checked,
 })
 
-type DragKind = 'file' | 'dir'
-
-function dragData(event: DragEvent) {
-  const dt = event.dataTransfer
-  const path = (dt?.getData('application/x-project-path') || dt?.getData('text/plain') || '').trim()
-  const kindRaw = (dt?.getData('application/x-project-kind') || '').trim()
-  const kind: DragKind = kindRaw === 'dir' ? 'dir' : 'file'
-  return { path, kind }
+// dragData via dataTransfer isn't reliable during dragover in some browsers; prefer shared state
+function currentDrag() {
+  return dragging.value
 }
 
 function baseName(path: string) {
@@ -108,9 +108,13 @@ function canAcceptMove(src: string, dest: string, kind: DragKind) {
 }
 
 function onRootDragOver(event: DragEvent) {
-  const { path, kind } = dragData(event)
-  const dest = buildDestination(rootPath.value, baseName(path))
-  if (!canAcceptMove(path, dest, kind)) {
+  const d = currentDrag()
+  if (!d) {
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    return
+  }
+  const dest = buildDestination(rootPath.value, baseName(d.path))
+  if (!canAcceptMove(d.path, dest, d.kind)) {
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
     return
   }
@@ -118,15 +122,18 @@ function onRootDragOver(event: DragEvent) {
 }
 
 async function onRootDrop(event: DragEvent) {
-  const { path, kind } = dragData(event)
-  const base = baseName(path)
+  const d = currentDrag()
+  if (!d) return
+  const base = baseName(d.path)
   const dest = buildDestination(rootPath.value, base)
-  if (!canAcceptMove(path, dest, kind)) return
+  if (!canAcceptMove(d.path, dest, d.kind)) return
   try {
-    await store.movePath(path, dest)
-    emit('moved', { from: path, to: dest })
+    await store.movePath(d.path, dest)
+    emit('moved', { from: d.path, to: dest })
   } catch (err) {
     console.error('move failed', err)
+  } finally {
+    dragging.value = null
   }
 }
 

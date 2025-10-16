@@ -1,8 +1,16 @@
 <template>
   <!-- Responsive layout: stack on small screens with a sized upload card; split columns on large screens -->
-  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+  <div
+    :class="[
+      'flex h-full min-h-0 flex-col gap-6 overflow-hidden',
+      selectedDatasetId ? '' : 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]',
+    ]"
+  >
     <!-- Upload card: cap height on small screens so it never pushes past the viewport; full height on large screens -->
-    <section class="flex min-h-0 max-h-[50vh] flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full lg:max-h-none">
+    <section
+      v-if="!selectedDatasetId"
+      class="flex min-h-0 max-h-[50vh] flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full lg:max-h-none"
+    >
       <header class="mb-4">
         <h2 class="text-lg font-semibold">Upload Dataset</h2>
         <p class="text-sm text-subtle-foreground">Provide metadata and JSON rows for quick experiments.</p>
@@ -42,7 +50,7 @@
     </section>
 
     <!-- Right column (list/detail): consumes remaining height in stacked layout -->
-    <div class="flex min-h-0 flex-1 flex-col lg:h-full">
+  <div class="flex min-h-0 flex-1 flex-col lg:h-full">
       <section
         v-if="!selectedDatasetId"
         class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full"
@@ -145,11 +153,11 @@
         <div v-if="detailLoading" class="flex min-h-0 items-center justify-center text-sm text-subtle-foreground">
           Loading dataset…
         </div>
-        <div v-else class="min-h-0">
-          <div v-if="selectedDataset" class="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-12">
+        <div v-else class="min-h-0 flex-1 overflow-hidden">
+          <div v-if="selectedDataset" class="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-12">
             <!-- Properties card (left) -->
-            <div class="col-span-12 min-h-0 lg:col-span-4">
-              <div class="flex min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30">
+            <div class="col-span-12 flex min-h-0 flex-col lg:col-span-4">
+              <div class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30">
                 <div class="border-b border-border/60 px-4 py-3 text-sm font-medium">
                   Properties
                 </div>
@@ -195,8 +203,8 @@
             </div>
 
             <!-- Rows card (right) -->
-            <div class="col-span-12 min-h-0 lg:col-span-8">
-              <div class="flex min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30">
+            <div class="col-span-12 flex min-h-0 flex-col lg:col-span-8">
+              <div class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30">
                 <!-- Toolbar -->
                 <div class="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
                   <span class="text-sm font-medium">Rows</span>

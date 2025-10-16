@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -30,25 +31,35 @@ func (a *app) statusHandler() http.HandlerFunc {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		type agentStatus struct {
-			Name   string `json:"name"`
-			Status string `json:"status"`
+			ID        string `json:"id"`
+			Name      string `json:"name"`
+			State     string `json:"state"`
+			Model     string `json:"model"`
+			UpdatedAt string `json:"updatedAt"`
 		}
 		list, err := a.specStore.List(r.Context())
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		out := make([]agentStatus, 0, len(list)+1)
-		out = append(out, agentStatus{Name: "orchestrator", Status: "ok"})
+		now := time.Now().UTC().Format(time.RFC3339)
+		out := make([]agentStatus, 0, len(list))
 		for _, s := range list {
-			status := "ok"
 			if s.Paused {
-				status = "paused"
+				// Maintain previous behaviour: paused specialists are hidden
+				// from the Overview cards so they read as "offline".
+				continue
 			}
-			out = append(out, agentStatus{Name: s.Name, Status: status})
+			out = append(out, agentStatus{
+				ID:        s.Name,
+				Name:      s.Name,
+				State:     "online",
+				Model:     s.Model,
+				UpdatedAt: now,
+			})
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"agents": out})
+		json.NewEncoder(w).Encode(out)
 	}
 }
 

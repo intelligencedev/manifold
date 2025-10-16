@@ -23,6 +23,21 @@ openai:
     prompt_cache_key: manifold-
     reasoning_effort: medium
 
+obs:
+  serviceName: manifold
+  environment: local
+  otlp: "http://otel-collector:4318"
+  clickhouse:
+    dsn: "tcp://clickhouse:9000?database=otel"
+    metricsTable: metrics_sum
+    timestampColumn: TimeUnix
+    valueColumn: Value
+    modelAttributeKey: llm.model
+    promptMetricName: llm.prompt_tokens
+    completionMetricName: llm.completion_tokens
+    lookbackHours: 24
+    timeoutSeconds: 5
+
 databases:
   defaultDSN: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
   chat:

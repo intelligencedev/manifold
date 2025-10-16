@@ -76,6 +76,12 @@ type app struct {
 	authStore         *auth.Store
 	oidcAuth          *auth.OIDC
 	specStore         persist.SpecialistsStore
+	tokenMetrics      tokenMetricsProvider
+}
+
+type tokenMetricsProvider interface {
+	TokenTotals(ctx context.Context) ([]llmpkg.TokenTotal, time.Duration, error)
+	Source() string
 }
 
 // Run initialises the agentd server and starts the HTTP listener.
@@ -266,6 +272,12 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	if err := app.initSpecialists(ctx, llm); err != nil {
 		return nil, err
+	}
+
+	if tm, err := newClickHouseTokenMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
+		log.Warn().Err(err).Msg("clickhouse metrics disabled")
+	} else if tm != nil {
+		app.tokenMetrics = tm
 	}
 
 	_ = mcpMgr // ensure lifetime; manager currently long-lived

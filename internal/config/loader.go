@@ -74,6 +74,24 @@ func Load() (Config, error) {
 	cfg.Obs.ServiceVersion = strings.TrimSpace(os.Getenv("SERVICE_VERSION"))
 	cfg.Obs.Environment = strings.TrimSpace(os.Getenv("ENVIRONMENT"))
 	cfg.Obs.OTLP = strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
+	cfg.Obs.ClickHouse.DSN = strings.TrimSpace(os.Getenv("CLICKHOUSE_DSN"))
+	cfg.Obs.ClickHouse.Database = strings.TrimSpace(os.Getenv("CLICKHOUSE_DATABASE"))
+	cfg.Obs.ClickHouse.MetricsTable = strings.TrimSpace(os.Getenv("CLICKHOUSE_METRICS_TABLE"))
+	cfg.Obs.ClickHouse.TimestampColumn = strings.TrimSpace(os.Getenv("CLICKHOUSE_TIMESTAMP_COLUMN"))
+	cfg.Obs.ClickHouse.ValueColumn = strings.TrimSpace(os.Getenv("CLICKHOUSE_VALUE_COLUMN"))
+	cfg.Obs.ClickHouse.ModelAttributeKey = strings.TrimSpace(os.Getenv("CLICKHOUSE_MODEL_ATTRIBUTE_KEY"))
+	cfg.Obs.ClickHouse.PromptMetricName = strings.TrimSpace(os.Getenv("CLICKHOUSE_PROMPT_METRIC_NAME"))
+	cfg.Obs.ClickHouse.CompletionMetricName = strings.TrimSpace(os.Getenv("CLICKHOUSE_COMPLETION_METRIC_NAME"))
+	if v := strings.TrimSpace(os.Getenv("CLICKHOUSE_LOOKBACK_HOURS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Obs.ClickHouse.LookbackHours = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("CLICKHOUSE_TIMEOUT_SECONDS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Obs.ClickHouse.TimeoutSeconds = n
+		}
+	}
 
 	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
 	// TTS defaults (optional)
@@ -157,6 +175,30 @@ func Load() (Config, error) {
 	}
 	if cfg.Obs.Environment == "" {
 		cfg.Obs.Environment = "dev"
+	}
+	if cfg.Obs.ClickHouse.MetricsTable == "" {
+		cfg.Obs.ClickHouse.MetricsTable = "metrics_sum"
+	}
+	if cfg.Obs.ClickHouse.TimestampColumn == "" {
+		cfg.Obs.ClickHouse.TimestampColumn = "TimeUnix"
+	}
+	if cfg.Obs.ClickHouse.ValueColumn == "" {
+		cfg.Obs.ClickHouse.ValueColumn = "Value"
+	}
+	if cfg.Obs.ClickHouse.ModelAttributeKey == "" {
+		cfg.Obs.ClickHouse.ModelAttributeKey = "llm.model"
+	}
+	if cfg.Obs.ClickHouse.PromptMetricName == "" {
+		cfg.Obs.ClickHouse.PromptMetricName = "llm.prompt_tokens"
+	}
+	if cfg.Obs.ClickHouse.CompletionMetricName == "" {
+		cfg.Obs.ClickHouse.CompletionMetricName = "llm.completion_tokens"
+	}
+	if cfg.Obs.ClickHouse.LookbackHours <= 0 {
+		cfg.Obs.ClickHouse.LookbackHours = 24
+	}
+	if cfg.Obs.ClickHouse.TimeoutSeconds <= 0 {
+		cfg.Obs.ClickHouse.TimeoutSeconds = 5
 	}
 	if cfg.Web.SearXNGURL == "" {
 		cfg.Web.SearXNGURL = "http://localhost:8080"
@@ -319,11 +361,24 @@ func loadSpecialists(cfg *Config) error {
 		BlockBinaries     []string `yaml:"blockBinaries"`
 		MaxCommandSeconds int      `yaml:"maxCommandSeconds"`
 	}
+	type obsClickhouseYAML struct {
+		DSN                  string `yaml:"dsn"`
+		Database             string `yaml:"database"`
+		MetricsTable         string `yaml:"metricsTable"`
+		TimestampColumn      string `yaml:"timestampColumn"`
+		ValueColumn          string `yaml:"valueColumn"`
+		ModelAttributeKey    string `yaml:"modelAttributeKey"`
+		PromptMetricName     string `yaml:"promptMetricName"`
+		CompletionMetricName string `yaml:"completionMetricName"`
+		LookbackHours        int    `yaml:"lookbackHours"`
+		TimeoutSeconds       int    `yaml:"timeoutSeconds"`
+	}
 	type obsYAML struct {
-		ServiceName    string `yaml:"serviceName"`
-		ServiceVersion string `yaml:"serviceVersion"`
-		Environment    string `yaml:"environment"`
-		OTLP           string `yaml:"otlp"`
+		ServiceName    string            `yaml:"serviceName"`
+		ServiceVersion string            `yaml:"serviceVersion"`
+		Environment    string            `yaml:"environment"`
+		OTLP           string            `yaml:"otlp"`
+		ClickHouse     obsClickhouseYAML `yaml:"clickhouse"`
 	}
 	type webYAML struct {
 		SearXNGURL string `yaml:"searXNGURL"`
@@ -499,6 +554,36 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Obs.OTLP == "" && w.Obs.OTLP != "" {
 			cfg.Obs.OTLP = w.Obs.OTLP
+		}
+		if cfg.Obs.ClickHouse.DSN == "" && strings.TrimSpace(w.Obs.ClickHouse.DSN) != "" {
+			cfg.Obs.ClickHouse.DSN = strings.TrimSpace(w.Obs.ClickHouse.DSN)
+		}
+		if cfg.Obs.ClickHouse.Database == "" && strings.TrimSpace(w.Obs.ClickHouse.Database) != "" {
+			cfg.Obs.ClickHouse.Database = strings.TrimSpace(w.Obs.ClickHouse.Database)
+		}
+		if cfg.Obs.ClickHouse.MetricsTable == "" && strings.TrimSpace(w.Obs.ClickHouse.MetricsTable) != "" {
+			cfg.Obs.ClickHouse.MetricsTable = strings.TrimSpace(w.Obs.ClickHouse.MetricsTable)
+		}
+		if cfg.Obs.ClickHouse.TimestampColumn == "" && strings.TrimSpace(w.Obs.ClickHouse.TimestampColumn) != "" {
+			cfg.Obs.ClickHouse.TimestampColumn = strings.TrimSpace(w.Obs.ClickHouse.TimestampColumn)
+		}
+		if cfg.Obs.ClickHouse.ValueColumn == "" && strings.TrimSpace(w.Obs.ClickHouse.ValueColumn) != "" {
+			cfg.Obs.ClickHouse.ValueColumn = strings.TrimSpace(w.Obs.ClickHouse.ValueColumn)
+		}
+		if cfg.Obs.ClickHouse.ModelAttributeKey == "" && strings.TrimSpace(w.Obs.ClickHouse.ModelAttributeKey) != "" {
+			cfg.Obs.ClickHouse.ModelAttributeKey = strings.TrimSpace(w.Obs.ClickHouse.ModelAttributeKey)
+		}
+		if cfg.Obs.ClickHouse.PromptMetricName == "" && strings.TrimSpace(w.Obs.ClickHouse.PromptMetricName) != "" {
+			cfg.Obs.ClickHouse.PromptMetricName = strings.TrimSpace(w.Obs.ClickHouse.PromptMetricName)
+		}
+		if cfg.Obs.ClickHouse.CompletionMetricName == "" && strings.TrimSpace(w.Obs.ClickHouse.CompletionMetricName) != "" {
+			cfg.Obs.ClickHouse.CompletionMetricName = strings.TrimSpace(w.Obs.ClickHouse.CompletionMetricName)
+		}
+		if cfg.Obs.ClickHouse.LookbackHours == 0 && w.Obs.ClickHouse.LookbackHours > 0 {
+			cfg.Obs.ClickHouse.LookbackHours = w.Obs.ClickHouse.LookbackHours
+		}
+		if cfg.Obs.ClickHouse.TimeoutSeconds == 0 && w.Obs.ClickHouse.TimeoutSeconds > 0 {
+			cfg.Obs.ClickHouse.TimeoutSeconds = w.Obs.ClickHouse.TimeoutSeconds
 		}
 		if cfg.Web.SearXNGURL == "" && strings.TrimSpace(w.Web.SearXNGURL) != "" {
 			cfg.Web.SearXNGURL = strings.TrimSpace(w.Web.SearXNGURL)

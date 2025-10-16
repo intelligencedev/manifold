@@ -34,6 +34,25 @@ export async function fetchAgentRuns(): Promise<AgentRun[]> {
   return response.data
 }
 
+export interface TokenMetricsRow {
+  model: string
+  prompt: number
+  completion: number
+  total: number
+}
+
+export interface TokenMetricsResponse {
+  timestamp: number
+  windowSeconds?: number
+  source?: string
+  models: TokenMetricsRow[]
+}
+
+export async function fetchTokenMetrics(): Promise<TokenMetricsResponse> {
+  const response = await apiClient.get<TokenMetricsResponse>('/metrics/tokens')
+  return response.data
+}
+
 // Projects API --------------------------------------------------------------
 
 export interface ProjectSummary {

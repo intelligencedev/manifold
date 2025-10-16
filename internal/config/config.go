@@ -61,9 +61,9 @@ type Config struct {
 
 // ProjectsConfig controls filesystem-backed projects behavior.
 type ProjectsConfig struct {
-    // Encrypt enables at-rest encryption for project files using an envelope
-    // scheme with a locally stored master key (under ${WORKDIR}/.keystore).
-    Encrypt bool `yaml:"encrypt" json:"encrypt"`
+	// Encrypt enables at-rest encryption for project files using an envelope
+	// scheme with a locally stored master key (under ${WORKDIR}/.keystore).
+	Encrypt bool `yaml:"encrypt" json:"encrypt"`
 }
 
 // TTSConfig holds text-to-speech specific configuration.
@@ -131,11 +131,25 @@ type SpecialistRoute struct {
 	Regex    []string `yaml:"regex" json:"regex"`
 }
 
+type ClickHouseConfig struct {
+	DSN                  string `yaml:"dsn" json:"dsn"`
+	Database             string `yaml:"database" json:"database"`
+	MetricsTable         string `yaml:"metricsTable" json:"metricsTable"`
+	TimestampColumn      string `yaml:"timestampColumn" json:"timestampColumn"`
+	ValueColumn          string `yaml:"valueColumn" json:"valueColumn"`
+	ModelAttributeKey    string `yaml:"modelAttributeKey" json:"modelAttributeKey"`
+	PromptMetricName     string `yaml:"promptMetricName" json:"promptMetricName"`
+	CompletionMetricName string `yaml:"completionMetricName" json:"completionMetricName"`
+	LookbackHours        int    `yaml:"lookbackHours" json:"lookbackHours"`
+	TimeoutSeconds       int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+}
+
 type ObsConfig struct {
 	ServiceName    string
 	ServiceVersion string
 	Environment    string
 	OTLP           string
+	ClickHouse     ClickHouseConfig
 }
 
 type WebConfig struct {

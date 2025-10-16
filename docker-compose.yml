@@ -33,6 +33,47 @@ services:
       retries: 5
     restart: unless-stopped
 
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: manifold_clickhouse
+    environment:
+      CLICKHOUSE_DB: otel
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.102.1
+    container_name: manifold_otel_collector
+    depends_on:
+      - clickhouse
+    volumes:
+      - ./configs/otel/collector.yaml:/etc/otelcol/config.yaml:ro
+    command:
+      - "--config=/etc/otelcol/config.yaml"
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "55679:55679"
+    healthcheck:
+      test: ["CMD", "otelcol-contrib", "--config=/etc/otelcol/config.yaml", "--dry-run"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: manifold_zookeeper
@@ -135,3 +176,5 @@ volumes:
   app_pg_data:
   keycloak_db_data:
   keycloak_data:
+  clickhouse_data:
+  clickhouse_logs:

@@ -1,0 +1,55 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 8192
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+    check_interval: 5s
+  resource:
+    attributes:
+      - key: service.instance.id
+        value: manifold
+        action: upsert
+
+exporters:
+  clickhouse:
+    endpoint: "tcp://clickhouse:9000"
+    username: default
+    password: ""
+    database: otel
+    logs_table_name: logs
+    traces_table_name: traces
+    metrics_table_name: metrics
+    timeout: 5s
+
+  logging:
+    verbosity: normal
+
+extensions:
+  health_check:
+  pprof:
+
+service:
+  extensions: [health_check, pprof]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [clickhouse, logging]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [clickhouse, logging]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [clickhouse, logging]

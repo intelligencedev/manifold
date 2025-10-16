@@ -5,9 +5,18 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"manifold/internal/auth"
 	llmpkg "manifold/internal/llm"
 )
+
+type tokenMetricsResponse struct {
+	Timestamp     int64               `json:"timestamp"`
+	WindowSeconds int64               `json:"windowSeconds,omitempty"`
+	Source        string              `json:"source"`
+	Models        []llmpkg.TokenTotal `json:"models"`
+}
 
 func (a *app) metricsTokensHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -24,10 +33,25 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"timestamp": time.Now().Unix(),
-			"models":    llmpkg.TokenTotalsSnapshot(),
-		})
+		resp := tokenMetricsResponse{
+			Timestamp: time.Now().Unix(),
+			Source:    "process",
+			Models:    llmpkg.TokenTotalsSnapshot(),
+		}
+		if a.tokenMetrics != nil {
+			if totals, window, err := a.tokenMetrics.TokenTotals(r.Context()); err != nil {
+				log.Warn().Err(err).Msg("token metrics query failed")
+			} else if len(totals) > 0 {
+				resp.Models = totals
+				resp.Source = a.tokenMetrics.Source()
+				if window > 0 {
+					resp.WindowSeconds = int64(window.Seconds())
+				}
+			}
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Warn().Err(err).Msg("failed to encode token metrics response")
+		}
 	}
 }
 

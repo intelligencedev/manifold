@@ -1,4 +1,9 @@
 services:
+
+##########################
+# Core services - Required
+##########################
+
   manifold:
     build:
       context: .
@@ -32,6 +37,10 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+##############################
+# Observability - Not required
+##############################
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
@@ -74,6 +83,10 @@ services:
       retries: 3
     restart: unless-stopped
 
+#####################################################################
+# Message Queue and Cache - Not Required, only for distributed setups
+#####################################################################
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: manifold_zookeeper
@@ -112,19 +125,9 @@ services:
     command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
     restart: unless-stopped
 
-  kafdrop:
-    image: obsidiandynamics/kafdrop:latest
-    container_name: manifold_kafdrop
-    depends_on:
-      - kafka
-    environment:
-      # Connect to the kafka broker using the internal listener
-      KAFKA_BROKERCONNECT: "kafka:29092"
-      # Keep the JVM small for local dev
-      JVM_OPTS: "-Xms32M -Xmx64M"
-    ports:
-      - "9000:9000"
-    restart: unless-stopped
+###############################################################################
+# Authentication - Not required, disable auth in config.yaml to run without it
+###############################################################################
 
   keycloak-db:
     image: postgres:15-alpine

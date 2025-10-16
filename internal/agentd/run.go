@@ -389,7 +389,7 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 				continue
 			}
 			_, _ = specStore.Upsert(ctx, persist.Specialist{
-				Name: sc.Name, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
+				Name: sc.Name, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
 				EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
 				ReasoningEffort: sc.ReasoningEffort, System: sc.System,
 				ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,

@@ -107,6 +107,17 @@ export async function deletePath(id: string, path: string): Promise<void> {
   })
 }
 
+export async function moveProjectPath(
+  id: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  await apiClient.post(`/projects/${encodeURIComponent(id)}/move`, {
+    from,
+    to,
+  })
+}
+
 export async function uploadFile(
   id: string,
   dirPath: string,
@@ -132,6 +143,7 @@ export function projectFileUrl(id: string, path: string): string {
 export interface Specialist {
   id?: number
   name: string
+  description?: string
   baseURL: string
   apiKey?: string
   model: string

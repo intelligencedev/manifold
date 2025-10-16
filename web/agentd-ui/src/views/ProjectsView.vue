@@ -89,6 +89,29 @@ watch(
     void store.ensureTree('.')
   },
 )
+
+function rebasePath(current: string, from: string, to: string) {
+  if (!current || current === '.') return current
+  if (current === from) return to
+  if (current.startsWith(`${from}/`)) {
+    const suffix = current.slice(from.length + 1)
+    return suffix ? `${to}/${suffix}` : to
+  }
+  return current
+}
+
+function onMoved(payload: { from: string; to: string }) {
+  const nextSelected = rebasePath(selectedFile.value, payload.from, payload.to)
+  if (nextSelected !== selectedFile.value) {
+    selectedFile.value = nextSelected
+  }
+  const nextCwd = rebasePath(cwd.value, payload.from, payload.to)
+  if (nextCwd !== cwd.value) {
+    cwd.value = nextCwd
+  }
+  // Ensure current directory reflects latest tree after a move.
+  void store.ensureTree(cwd.value)
+}
 </script>
 
 <template>
@@ -165,6 +188,7 @@ watch(
             :root-path="cwd"
             @select="openFile"
             @open-dir="openDir"
+            @moved="onMoved"
           />
         </div>
       </div>
@@ -205,4 +229,3 @@ watch(
 <style scoped>
 /* Use Tailwind utilities with theme tokens; no local component theming */
 </style>
-

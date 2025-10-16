@@ -3,7 +3,7 @@
     <button ref="btnRef" @click="onToggle" class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-surface-muted/60">
       <img v-if="avatar" :src="avatar" alt="avatar" class="h-6 w-6 rounded-full" />
       <span v-else class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-accent">U</span>
-      <span class="hidden sm:inline">Account</span>
+      <span class="hidden sm:inline">{{ username || 'Account' }}</span>
       <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 9l6 6 6-6"/></svg>
     </button>
     <Teleport to="body">
@@ -18,6 +18,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+
+defineProps<{
+  username?: string
+}>()
 
 const open = ref(false)
 const avatar = ''

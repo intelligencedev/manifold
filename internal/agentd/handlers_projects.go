@@ -265,6 +265,27 @@ func (a *app) projectDetailHandler() http.HandlerFunc {
 			}
 			w.WriteHeader(http.StatusCreated)
 			return
+		case "move":
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			defer r.Body.Close()
+			var in struct {
+				From string `json:"from"`
+				To   string `json:"to"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			if err := a.projectsService.MovePath(r.Context(), userID, projectID, in.From, in.To); err != nil {
+				log.Error().Err(err).Str("project", projectID).Str("from", in.From).Str("to", in.To).Msg("move_path")
+				http.Error(w, "error", http.StatusBadRequest)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		http.NotFound(w, r)
 	}

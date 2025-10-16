@@ -20,6 +20,7 @@ type Store interface{}
 type Specialist struct {
 	ID              int64             `json:"id"`
 	Name            string            `json:"name"`
+	Description     string            `json:"description"`
 	BaseURL         string            `json:"baseURL"`
 	APIKey          string            `json:"apiKey"`
 	Model           string            `json:"model"`

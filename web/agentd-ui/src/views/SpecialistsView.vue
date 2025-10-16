@@ -5,67 +5,85 @@
     </div>
 
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
-    <div class="flex gap-4 flex-1 min-h-0">
-      <!-- left: list -->
-      <div class="w-1/3 min-w-0 rounded-md border border-border/50 bg-surface p-3 min-h-0 overflow-auto">
-        <div class="flex items-center justify-between mb-2">
+    <div class="flex flex-col xl:flex-row gap-4 flex-1 min-h-0">
+      <!-- left: card grid -->
+      <div class="xl:w-1/2 min-w-0 rounded-md border border-border/50 bg-surface p-4 min-h-0 overflow-auto">
+        <div class="flex items-center justify-between mb-4">
           <h2 class="text-base font-semibold">Specialist Assistants</h2>
-          <button @click="startCreate" class="rounded-md border border-border/60 px-2 py-1 text-xs font-medium text-muted-foreground hover:border-border">New</button>
+          <button @click="startCreate" class="rounded-md border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-border">
+            New
+          </button>
         </div>
-        <div class="w-full text-sm min-w-0">
-          <table class="w-full text-sm">
-            <thead class="text-subtle-foreground">
-              <tr>
-                <th class="text-left py-1">Name</th>
-                <th class="text-left py-1">Model</th>
-                <th class="text-left py-1">Tools</th>
-                <th class="text-right py-1">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="s in specialists" :key="s.name" class="border-t border-border/50">
-                <td class="py-1 font-medium" :title="s.name">{{ truncateName(s.name) }}</td>
-                <td class="py-1" :title="s.model">{{ truncateModel(s.model) }}</td>
-                <td class="py-1">{{ s.enableTools ? 'enabled' : 'disabled' }}</td>
-                <td class="py-1 text-right">
-                  <div class="inline-flex items-center gap-2">
-                    <button
-                      type="button"
-                      @click="edit(s)"
-                      class="rounded border border-border/60 px-2 py-1 text-xs font-medium hover:border-border"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      @click="togglePause(s)"
-                      class="rounded border border-border/60 p-1 text-muted-foreground hover:border-border"
-                      :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
-                      :aria-label="s.paused ? 'Resume specialist' : 'Pause specialist'"
-                    >
-                      <span class="sr-only">{{ s.paused ? 'Resume' : 'Pause' }}</span>
-                      <SolarPlay v-if="s.paused" class="h-4 w-4" />
-                      <SolarPause v-else class="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      @click="remove(s)"
-                      class="rounded border border-danger/60 text-danger/70 px-2 py-1 text-xs font-medium hover:border-danger"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="loading"><td colspan="4" class="py-2 text-center text-faint-foreground">Loading…</td></tr>
-              <tr v-if="error"><td colspan="4" class="py-2 text-center text-danger-foreground">Failed to load.</td></tr>
-            </tbody>
-          </table>
+
+        <div v-if="loading" class="rounded-md border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading…</div>
+        <div v-else-if="error" class="rounded-md border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load specialists.</div>
+        <div v-else-if="!specialists.length" class="rounded-md border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No specialists configured yet.</div>
+        <div v-else class="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
+          <article
+            v-for="s in specialists"
+            :key="s.name"
+            class="flex flex-col rounded-2xl border border-border/70 bg-surface p-5 shadow-lg"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h3 class="text-base font-semibold text-foreground">{{ s.name }}</h3>
+                <p class="mt-1 text-xs uppercase tracking-wide text-subtle-foreground">Model</p>
+                <p class="text-sm text-muted-foreground">{{ s.model || '—' }}</p>
+              </div>
+              <span :class="statusBadgeClass(s.paused)">{{ s.paused ? 'Paused' : 'Active' }}</span>
+            </div>
+
+            <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
+              <span :class="toolsBadgeClass(s.enableTools)">{{ s.enableTools ? 'Tools enabled' : 'Tools disabled' }}</span>
+              <span
+                v-if="Array.isArray(s.allowTools) && s.allowTools.length > 0"
+                class="inline-flex items-center rounded-full border border-border/50 bg-surface-muted/30 px-2 py-1 font-medium text-subtle-foreground"
+              >
+                Allow list · {{ s.allowTools.length }}
+              </span>
+              <span
+                v-if="s.reasoningEffort"
+                class="inline-flex items-center rounded-full border border-info/40 bg-info/10 px-2 py-1 font-medium text-info"
+              >
+                Reasoning: {{ s.reasoningEffort }}
+              </span>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                @click="edit(s)"
+                class="rounded border border-border/60 px-3 py-1.5 text-xs font-semibold text-subtle-foreground hover:border-border"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                @click="togglePause(s)"
+                class="inline-flex items-center gap-1 rounded border border-border/60 px-3 py-1.5 text-xs font-semibold text-subtle-foreground hover:border-border"
+                :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
+                :aria-label="s.paused ? 'Resume specialist' : 'Pause specialist'"
+              >
+                <SolarPlay v-if="s.paused" class="h-4 w-4" />
+                <SolarPause v-else class="h-4 w-4" />
+                <span>{{ s.paused ? 'Resume' : 'Pause' }}</span>
+              </button>
+              <button
+                type="button"
+                @click="remove(s)"
+                class="rounded border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 hover:border-danger"
+              >
+                Delete
+              </button>
+            </div>
+          </article>
         </div>
       </div>
 
       <!-- right: editor -->
-  <div class="w-2/3 min-w-0 min-h-0">
+      <div class="xl:w-1/2 min-w-0 min-h-0">
         <div v-if="editing" class="rounded-md border border-border/50 bg-surface p-3 h-full min-h-0 overflow-auto flex flex-col">
           <div class="flex flex-col gap-4 h-full min-h-0">
             <h2 class="text-base font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
@@ -76,6 +94,10 @@
                 <div class="flex flex-col gap-1">
                   <label for="specialist-name" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Name</label>
                   <input id="specialist-name" v-model="form.name" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" :disabled="!!original?.name" />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label for="specialist-description" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Description</label>
+                  <textarea id="specialist-description" v-model="form.description" rows="3" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm"></textarea>
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-model" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Model</label>
@@ -202,29 +224,29 @@ import type { WarppTool } from '@/types/warpp'
 import SolarPause from '@/components/icons/SolarPause.vue'
 import SolarPlay from '@/components/icons/SolarPlay.vue'
 
-// Helper to truncate long specialist names for the list view
-function truncateName(name: string) {
-  if (!name) return ''
-  return name.length > 15 ? `${name.slice(0, 15)}…` : name
-}
-
-// Truncate model names longer than 15 characters for display in the list
-function truncateModel(name: string) {
-  if (!name) return ''
-  return name.length > 15 ? `${name.slice(0, 15)}…` : name
-}
-
 const qc = useQueryClient()
 const { data, isLoading: loading, isError: error } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
 // Always present specialists sorted by name (case-insensitive)
-const specialists = computed(() => {
+const specialists = computed<Specialist[]>(() => {
   const list = data.value ?? []
-  return [...list].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  const unique: Specialist[] = []
+  // Deduplicate by name so orchestrator-only config overlays don't render twice.
+  for (const sp of list) {
+    if (!sp?.name) {
+      unique.push(sp)
+      continue
+    }
+    if (!unique.some(existing => existing.name === sp.name)) {
+      unique.push(sp)
+    }
+  }
+  // Keep stable ordering from API but present alphabetically for UX.
+  return [...unique].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 })
 
 const editing = ref(false)
 const original = ref<Specialist | null>(null)
-const form = ref<Specialist>({ name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} })
+const form = ref<Specialist>({ name: '', description: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} })
   // UI helpers for editing structured fields
 const extraHeadersRaw = ref('')
 const extraParamsRaw = ref('')
@@ -264,6 +286,31 @@ function toggleAllowedTool(name: string) {
   form.value.allowTools = Array.from(set)
 }
 
+function statusBadgeClass(paused: boolean): string {
+  return paused
+    ? 'inline-flex items-center rounded-full border border-border/60 bg-border/20 px-2 py-1 text-xs font-semibold text-subtle-foreground'
+    : 'inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-1 text-xs font-semibold text-success'
+}
+
+function toolsBadgeClass(enabled: boolean): string {
+  return enabled
+    ? 'inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-1 font-medium text-success'
+    : 'inline-flex items-center rounded-full border border-border/50 bg-surface-muted/30 px-2 py-1 font-medium text-subtle-foreground'
+}
+
+function specialistDescription(s: Specialist): string {
+  const primary = (s.description ?? '').trim()
+  if (primary) {
+    return primary
+  }
+  const systemSnippet = (s.system || '').trim()
+  if (!systemSnippet) {
+    return 'No description provided yet.'
+  }
+  const condensed = systemSnippet.replace(/\s+/g, ' ')
+  return condensed.length > 180 ? `${condensed.slice(0, 177)}…` : condensed
+}
+
 function setErr(e: unknown, fallback: string) {
   actionError.value = null
   const anyErr = e as any
@@ -273,7 +320,7 @@ function setErr(e: unknown, fallback: string) {
 
 function startCreate() {
   original.value = null
-  form.value = { name: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} }
+  form.value = { name: '', description: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} }
   extraHeadersRaw.value = ''
   extraParamsRaw.value = ''
   editing.value = true
@@ -282,7 +329,7 @@ function startCreate() {
 }
 function edit(s: Specialist) {
   original.value = s
-  form.value = { ...s }
+  form.value = { ...s, description: s.description ?? '' }
 	// populate raw editors for structured fields
   extraHeadersRaw.value = s.extraHeaders ? JSON.stringify(s.extraHeaders, null, 2) : ''
   extraParamsRaw.value = s.extraParams ? JSON.stringify(s.extraParams, null, 2) : ''

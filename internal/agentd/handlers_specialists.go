@@ -190,6 +190,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context) persist.Specialist {
 	out := persist.Specialist{
 		ID:           0,
 		Name:         "orchestrator",
+		Description:  "",
 		BaseURL:      a.cfg.OpenAI.BaseURL,
 		APIKey:       a.cfg.OpenAI.APIKey,
 		Model:        a.cfg.OpenAI.Model,
@@ -202,6 +203,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context) persist.Specialist {
 	}
 	if sp, ok, _ := a.specStore.GetByName(ctx, "orchestrator"); ok {
 		out.ReasoningEffort = sp.ReasoningEffort
+		out.Description = sp.Description
 	}
 	return out
 }
@@ -242,6 +244,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 
 	toSave := persist.Specialist{
 		Name:            "orchestrator",
+		Description:     sp.Description,
 		BaseURL:         a.cfg.OpenAI.BaseURL,
 		APIKey:          a.cfg.OpenAI.APIKey,
 		Model:           a.cfg.OpenAI.Model,

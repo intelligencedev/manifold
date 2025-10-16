@@ -24,15 +24,16 @@ import (
 	"manifold/internal/tools/db"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
-	"manifold/internal/tools/textsplitter"
 	specialists_tool "manifold/internal/tools/specialists"
+	"manifold/internal/tools/textsplitter"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
@@ -91,7 +92,7 @@ func main() {
 					continue
 				}
 				_, _ = specStore.Upsert(context.Background(), persist.Specialist{
-					Name: sc.Name, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
+					Name: sc.Name, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
 					EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
 					ReasoningEffort: sc.ReasoningEffort, System: sc.System,
 					ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
@@ -303,37 +304,37 @@ func main() {
 // databasesTestPool mirrors the lightweight helper in agentd to open a pgx pool
 // for feature stores (e.g., specialists). It pings with a short timeout.
 func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-    cfg, err := pgxpool.ParseConfig(dsn)
-    if err != nil {
-        return nil, err
-    }
-    pool, err := pgxpool.NewWithConfig(ctx, cfg)
-    if err != nil {
-        return nil, err
-    }
-    cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-    defer cancel()
-    if err := pool.Ping(cctx); err != nil {
-        pool.Close()
-        return nil, err
-    }
-    return pool, nil
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	if err := pool.Ping(cctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return pool, nil
 }
 
 // specialistsFromStore converts persisted specialists to config structs
 func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
-    out := make([]config.SpecialistConfig, 0, len(list))
-    for _, s := range list {
-        // Skip the orchestrator; it is the main agent, not a specialist tool
-        if strings.EqualFold(strings.TrimSpace(s.Name), "orchestrator") {
-            continue
-        }
-        out = append(out, config.SpecialistConfig{
-            Name: s.Name, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
-            EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,
-            ReasoningEffort: s.ReasoningEffort, System: s.System,
-            ExtraHeaders: s.ExtraHeaders, ExtraParams: s.ExtraParams,
-        })
-    }
-    return out
+	out := make([]config.SpecialistConfig, 0, len(list))
+	for _, s := range list {
+		// Skip the orchestrator; it is the main agent, not a specialist tool
+		if strings.EqualFold(strings.TrimSpace(s.Name), "orchestrator") {
+			continue
+		}
+		out = append(out, config.SpecialistConfig{
+			Name: s.Name, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
+			EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,
+			ReasoningEffort: s.ReasoningEffort, System: s.System,
+			ExtraHeaders: s.ExtraHeaders, ExtraParams: s.ExtraParams,
+		})
+	}
+	return out
 }

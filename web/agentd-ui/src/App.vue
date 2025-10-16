@@ -28,7 +28,7 @@
       <div class="flex items-center gap-3 justify-self-end">
         <span class="hidden sm:block h-6 w-px bg-border/60" aria-hidden="true"></span>
         <div class="ml-1">
-        <AccountButton :size="24" />
+        <AccountButton :username="user?.name || user?.email" />
         </div>
       </div>
       </div>
@@ -46,9 +46,25 @@ import ThemeToggle from '@/components/ThemeToggle.vue'
 import AccountButton from '@/components/AccountButton.vue'
 import manifoldLogo from '@/assets/images/manifold_logo.png'
 
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 
 const isDark = ref(false)
+
+// Load current user; fall back to global if present
+const user = ref<{ name?: string; email?: string; picture?: string } | null>(null)
+onMounted(async () => {
+  try {
+    const res = await fetch('/api/me', { credentials: 'include' })
+    if (res.ok) user.value = await res.json()
+    else {
+      const g = (window as any).__MANIFOLD_USER__
+      if (g) user.value = g
+    }
+  } catch (_) {
+    const g = (window as any).__MANIFOLD_USER__
+    if (g) user.value = g
+  }
+})
 
 function toggleTheme() {
   isDark.value = !isDark.value

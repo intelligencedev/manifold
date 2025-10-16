@@ -67,6 +67,7 @@ func (s *pgSpecStore) Init(ctx context.Context) error {
 CREATE TABLE IF NOT EXISTS specialists (
 	id SERIAL PRIMARY KEY,
 	name TEXT UNIQUE NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
 	base_url TEXT NOT NULL DEFAULT '',
 	api_key TEXT NOT NULL DEFAULT '',
 	model TEXT NOT NULL DEFAULT '',
@@ -78,12 +79,15 @@ CREATE TABLE IF NOT EXISTS specialists (
 	extra_headers JSONB NOT NULL DEFAULT '{}',
 	extra_params JSONB NOT NULL DEFAULT '{}'
 );
+
+ALTER TABLE specialists
+	ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 `)
 	return err
 }
 
 func (s *pgSpecStore) List(ctx context.Context) ([]persistence.Specialist, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,name,base_url,api_key,model,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params FROM specialists`)
+	rows, err := s.pool.Query(ctx, `SELECT id,name,description,base_url,api_key,model,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params FROM specialists`)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +96,7 @@ func (s *pgSpecStore) List(ctx context.Context) ([]persistence.Specialist, error
 	for rows.Next() {
 		var sp persistence.Specialist
 		var allow, headers, params []byte
-		if err := rows.Scan(&sp.ID, &sp.Name, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.EnableTools, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params); err != nil {
+		if err := rows.Scan(&sp.ID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.EnableTools, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(allow, &sp.AllowTools)
@@ -104,10 +108,10 @@ func (s *pgSpecStore) List(ctx context.Context) ([]persistence.Specialist, error
 }
 
 func (s *pgSpecStore) GetByName(ctx context.Context, name string) (persistence.Specialist, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT id,name,base_url,api_key,model,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params FROM specialists WHERE name=$1`, name)
+	row := s.pool.QueryRow(ctx, `SELECT id,name,description,base_url,api_key,model,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params FROM specialists WHERE name=$1`, name)
 	var sp persistence.Specialist
 	var allow, headers, params []byte
-	if err := row.Scan(&sp.ID, &sp.Name, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.EnableTools, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params); err != nil {
+	if err := row.Scan(&sp.ID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.EnableTools, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params); err != nil {
 		return persistence.Specialist{}, false, nil
 	}
 	_ = json.Unmarshal(allow, &sp.AllowTools)
@@ -124,12 +128,12 @@ func (s *pgSpecStore) Upsert(ctx context.Context, sp persistence.Specialist) (pe
 	headers, _ := json.Marshal(sp.ExtraHeaders)
 	params, _ := json.Marshal(sp.ExtraParams)
 	row := s.pool.QueryRow(ctx, `
-INSERT INTO specialists(name,base_url,api_key,model,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-ON CONFLICT (name) DO UPDATE SET base_url=EXCLUDED.base_url, api_key=EXCLUDED.api_key, model=EXCLUDED.model,
-  enable_tools=EXCLUDED.enable_tools, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
-  reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params
-RETURNING id;`, sp.Name, sp.BaseURL, sp.APIKey, sp.Model, sp.EnableTools, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params)
+INSERT INTO specialists(name,description,base_url,api_key,model,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+ON CONFLICT (name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url, api_key=EXCLUDED.api_key, model=EXCLUDED.model,
+	enable_tools=EXCLUDED.enable_tools, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
+	reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params
+RETURNING id;`, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.EnableTools, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params)
 	if err := row.Scan(&sp.ID); err != nil {
 		return persistence.Specialist{}, err
 	}

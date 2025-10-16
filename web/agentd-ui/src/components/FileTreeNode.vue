@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { FileEntry } from '@/api/client'
 import { useProjectsStore } from '@/stores/projects'
 
 const props = defineProps<{
@@ -15,6 +16,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'select', path: string): void
   (e: 'open-dir', path: string): void
+  (e: 'moved', payload: { from: string; to: string }): void
 }>()
 
 const store = useProjectsStore()
@@ -27,6 +29,85 @@ function select(path: string) {
 function openDir(path: string) {
   emit('open-dir', path)
 }
+
+type DragKind = 'file' | 'dir'
+
+function getDragData(event: DragEvent) {
+  const dt = event.dataTransfer
+  const path = (dt?.getData('application/x-project-path') || dt?.getData('text/plain') || '').trim()
+  const kindRaw = (dt?.getData('application/x-project-kind') || '').trim()
+  const kind: DragKind = kindRaw === 'dir' ? 'dir' : 'file'
+  return { path, kind }
+}
+
+function baseName(path: string) {
+  const clean = path.replace(/^\.\/+/, '').replace(/\/+$/, '')
+  const parts = clean.split('/').filter(Boolean)
+  return parts.pop() || clean
+}
+
+function parentPath(path: string) {
+  const clean = path.replace(/^\.\/+/, '').replace(/\/+$/, '')
+  const idx = clean.lastIndexOf('/')
+  if (idx === -1) return '.'
+  const parent = clean.slice(0, idx)
+  return parent || '.'
+}
+
+function normalizeDir(dir: string) {
+  if (!dir || dir === '.') return '.'
+  const noLeading = dir.replace(/^\.\/+/, '')
+  const noTrailing = noLeading.replace(/\/+$/, '')
+  return noTrailing || '.'
+}
+
+function destinationFor(dir: string, name: string) {
+  const normalized = normalizeDir(dir)
+  if (!name) return normalized === '.' ? '' : normalized
+  if (!normalized || normalized === '.') return name
+  return `${normalized}/${name}`
+}
+
+function canAcceptMove(src: string, dest: string, kind: DragKind) {
+  if (!src || !dest) return false
+  if (src === dest) return false
+  if (kind === 'dir' && (dest === src || dest.startsWith(`${src}/`))) {
+    return false
+  }
+  return true
+}
+
+function onDragStart(event: DragEvent, entry: FileEntry) {
+  if (!event.dataTransfer) return
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('application/x-project-path', entry.path)
+  event.dataTransfer.setData('text/plain', entry.path)
+  event.dataTransfer.setData('application/x-project-kind', entry.isDir ? 'dir' : 'file')
+}
+
+function onDragOver(event: DragEvent, entry: FileEntry) {
+  const { path, kind } = getDragData(event)
+  const targetDir = entry.isDir ? entry.path || '.' : parentPath(entry.path)
+  const dest = destinationFor(targetDir, baseName(path))
+  if (!canAcceptMove(path, dest, kind)) {
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    return
+  }
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+}
+
+async function onDrop(event: DragEvent, entry: FileEntry) {
+  const { path, kind } = getDragData(event)
+  const targetDir = entry.isDir ? entry.path || '.' : parentPath(entry.path)
+  const dest = destinationFor(targetDir, baseName(path))
+  if (!canAcceptMove(path, dest, kind)) return
+  try {
+    await store.movePath(path, dest)
+    emit('moved', { from: path, to: dest })
+  } catch (err) {
+    console.error('move failed', err)
+  }
+}
 </script>
 
 <template>
@@ -35,6 +116,10 @@ function openDir(path: string) {
       <li
         class="group flex items-center gap-2 h-9 pr-2 border-b border-border/70 last:border-b-0 hover:bg-surface-muted cursor-pointer"
         :class="{ 'bg-surface-muted': selected === e.path }"
+        :draggable="true"
+        @dragstart="onDragStart($event, e)"
+        @dragover.prevent="onDragOver($event, e)"
+        @drop.stop.prevent="onDrop($event, e)"
       >
         <div
           class="flex items-center shrink-0"
@@ -78,9 +163,9 @@ function openDir(path: string) {
           :toggle-check="toggleCheck"
           @select="emit('select', $event)"
           @open-dir="emit('open-dir', $event)"
+          @moved="emit('moved', $event)"
         />
       </li>
     </template>
   </ul>
 </template>
-

@@ -101,27 +101,28 @@
 
       <section
         v-else
-        class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full"
+        class="grid min-h-0 flex-1 grid-rows-[auto,1fr] gap-4 overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full"
       >
-        <header class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div class="flex flex-wrap items-center gap-3">
+        <!-- Sticky header row -->
+        <header class="sticky top-0 z-10 grid grid-cols-1 items-start gap-3 bg-surface/95 pb-2 backdrop-blur lg:grid-cols-[1fr_auto]">
+          <div class="flex items-start gap-3">
             <button
-              class="inline-flex items-center gap-2 rounded border border-border/70 px-3 py-2 text-sm"
+              class="inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm"
               type="button"
               @click="clearSelection"
             >
               ← Back to datasets
             </button>
-            <div>
-              <h2 class="text-lg font-semibold">{{ selectedDataset?.name || 'Dataset Details' }}</h2>
+            <div class="min-w-0">
+              <h2 class="truncate text-lg font-semibold">{{ selectedDataset?.name || 'Dataset Details' }}</h2>
               <p class="text-sm text-subtle-foreground" v-if="selectedDataset">
                 {{ formatDate(selectedDataset.createdAt) }} • {{ selectedRowCount }} row{{ selectedRowCount === 1 ? '' : 's' }}
               </p>
             </div>
           </div>
-          <div class="flex gap-2">
+          <div class="flex items-center gap-2 justify-end">
             <button
-              class="rounded border border-border/70 px-3 py-2 text-sm"
+              class="rounded-lg border border-border/70 px-3 py-2 text-sm"
               type="button"
               @click="refreshSelected"
               :disabled="detailLoading"
@@ -130,7 +131,7 @@
             </button>
             <button
               v-if="selectedDatasetId"
-              class="rounded border border-danger/60 text-danger/60 px-3 py-2 text-sm"
+              class="rounded-lg border border-danger/60 px-3 py-2 text-sm text-danger/70 hover:text-danger/90"
               type="button"
               @click="deleteDataset(selectedDatasetId!)"
               :disabled="detailLoading"
@@ -139,127 +140,136 @@
             </button>
           </div>
         </header>
-        <div v-if="detailLoading" class="flex-1 py-6 text-center text-sm text-subtle-foreground">
+
+        <!-- Body row -->
+        <div v-if="detailLoading" class="flex min-h-0 items-center justify-center text-sm text-subtle-foreground">
           Loading dataset…
         </div>
-        <div v-else class="flex-1 overflow-auto overscroll-contain pr-1">
-          <div
-            v-if="selectedDataset"
-            class="grid min-h-full gap-6 lg:grid-cols-[minmax(0,360px),minmax(0,1fr)]"
-          >
-            <div class="space-y-3">
-              <label class="text-sm">
-                <span class="text-subtle-foreground mb-1">Name</span>
-                <input
-                  v-model="editForm.name"
-                  required
-                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
-                />
-              </label>
-              <label class="text-sm">
-                <span class="text-subtle-foreground mb-1">Tags (comma separated)</span>
-                <input
-                  v-model="editForm.tags"
-                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
-                />
-              </label>
-              <label class="text-sm">
-                <span class="text-subtle-foreground mb-1">Description</span>
-                <textarea
-                  v-model="editForm.description"
-                  rows="3"
-                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
-                ></textarea>
-              </label>
-              <div class="flex gap-3 items-center pt-1">
-                <button
-                  type="button"
-                  class="rounded border border-border/70 px-3 py-2 text-sm font-semibold"
-                  @click="handleUpdate"
-                  :disabled="detailLoading || !!jsonEditorError"
-                >
-                  Save changes
-                </button>
-                <span v-if="detailStatus" class="text-sm text-subtle-foreground">{{ detailStatus }}</span>
-                <span v-if="detailError" class="text-sm text-danger-foreground">{{ detailError }}</span>
+        <div v-else class="min-h-0">
+          <div v-if="selectedDataset" class="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-12">
+            <!-- Properties card (left) -->
+            <div class="col-span-12 min-h-0 lg:col-span-4">
+              <div class="flex min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30">
+                <div class="border-b border-border/60 px-4 py-3 text-sm font-medium">
+                  Properties
+                </div>
+                <div class="min-h-0 space-y-3 overflow-auto overscroll-contain p-4 pr-3">
+                  <label class="text-sm">
+                    <span class="text-subtle-foreground mb-1">Name</span>
+                    <input
+                      v-model="editForm.name"
+                      required
+                      class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
+                    />
+                  </label>
+                  <label class="text-sm">
+                    <span class="text-subtle-foreground mb-1">Tags (comma separated)</span>
+                    <input
+                      v-model="editForm.tags"
+                      class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
+                    />
+                  </label>
+                  <label class="text-sm">
+                    <span class="text-subtle-foreground mb-1">Description</span>
+                    <textarea
+                      v-model="editForm.description"
+                      rows="3"
+                      class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
+                    ></textarea>
+                  </label>
+                </div>
+                <!-- Sticky save bar for symmetry -->
+                <div class="sticky bottom-0 flex items-center gap-3 border-t border-border/60 bg-surface/90 p-3 backdrop-blur">
+                  <button
+                    type="button"
+                    class="rounded border border-border/70 px-3 py-2 text-sm font-semibold"
+                    @click="handleUpdate"
+                    :disabled="detailLoading || !!jsonEditorError"
+                  >
+                    Save changes
+                  </button>
+                  <span v-if="detailStatus" class="text-sm text-subtle-foreground">{{ detailStatus }}</span>
+                  <span v-if="detailError" class="text-sm text-danger-foreground">{{ detailError }}</span>
+                </div>
               </div>
             </div>
-            <div class="flex h-full min-h-0 flex-col space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="text-sm font-medium">Rows preview</span>
-                <div class="flex gap-2 text-xs">
-                  <button
-                    type="button"
-                    class="rounded border px-2 py-1 transition-colors"
-                    :class="rowViewMode === 'table' ? 'border-accent text-accent bg-accent/10' : 'border-border/60 text-subtle-foreground'"
-                    @click="rowViewMode = 'table'"
-                  >
-                    Table
-                  </button>
-                  <button
-                    type="button"
-                    class="rounded border px-2 py-1 transition-colors"
-                    :class="rowViewMode === 'json' ? 'border-accent text-accent bg-accent/10' : 'border-border/60 text-subtle-foreground'"
-                    @click="rowViewMode = 'json'"
-                  >
-                    JSON
-                  </button>
+
+            <!-- Rows card (right) -->
+            <div class="col-span-12 min-h-0 lg:col-span-8">
+              <div class="flex min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30">
+                <!-- Toolbar -->
+                <div class="flex items-center justify-between gap-3 border-b border-border/60 px-4 py-3">
+                  <span class="text-sm font-medium">Rows</span>
+                  <nav class="flex items-center gap-1 rounded-md border border-border/60" role="tablist" aria-label="Rows view">
+                    <button
+                      type="button"
+                      role="tab"
+                      :aria-selected="rowViewMode === 'table'"
+                      class="px-2 py-1 text-xs"
+                      :class="rowViewMode === 'table' ? 'bg-accent/10 text-accent' : 'text-subtle-foreground'"
+                      @click="rowViewMode = 'table'"
+                    >Table</button>
+                    <button
+                      type="button"
+                      role="tab"
+                      :aria-selected="rowViewMode === 'json'"
+                      class="px-2 py-1 text-xs"
+                      :class="rowViewMode === 'json' ? 'bg-accent/10 text-accent' : 'text-subtle-foreground'"
+                      @click="rowViewMode = 'json'"
+                    >JSON</button>
+                  </nav>
                 </div>
-              </div>
-              <div v-if="!previewRows.length" class="text-xs text-subtle-foreground border border-border/60 rounded p-4">
-                No rows available.
-              </div>
-              <template v-else>
-                <div
-                  v-if="rowViewMode === 'table'"
-                  class="flex-1 border border-border/60 rounded overflow-hidden"
-                >
-                  <div class="h-full overflow-auto overscroll-contain">
-                    <table class="min-w-full text-xs">
-                      <thead class="bg-surface-muted/60 text-subtle-foreground sticky top-0">
-                        <tr>
-                          <th class="text-left px-3 py-2">ID</th>
-                          <th class="text-left px-3 py-2">Split</th>
-                          <th class="text-left px-3 py-2">Inputs</th>
-                          <th class="text-left px-3 py-2">Expected</th>
-                          <th class="text-left px-3 py-2">Meta</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="row in previewRows" :key="row.id" class="border-t border-border/60">
-                          <td class="align-top px-3 py-2 font-mono">{{ row.id }}</td>
-                          <td class="align-top px-3 py-2 text-subtle-foreground">{{ row.split || 'train' }}</td>
-                          <td class="align-top px-3 py-2">
-                            <pre class="whitespace-pre-wrap text-[11px] leading-tight">{{ formatForPreview(row.inputs) }}</pre>
-                          </td>
-                          <td class="align-top px-3 py-2">
-                            <pre class="whitespace-pre-wrap text-[11px] leading-tight">{{ formatForPreview(row.expected) }}</pre>
-                          </td>
-                          <td class="align-top px-3 py-2">
-                            <pre class="whitespace-pre-wrap text-[11px] leading-tight">{{ formatForPreview(row.meta) }}</pre>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+
+                <!-- Body -->
+                <div class="min-h-0 flex-1 overflow-auto overscroll-contain">
+                  <div v-if="!previewRows.length" class="m-4 rounded border border-border/60 p-4 text-xs text-subtle-foreground">
+                    No rows available.
                   </div>
+                  <template v-else>
+                    <div v-if="rowViewMode === 'table'" class="min-h-0">
+                      <table class="min-w-full text-xs">
+                        <thead class="bg-surface-muted/60 text-subtle-foreground sticky top-0">
+                          <tr>
+                            <th class="text-left px-3 py-2">ID</th>
+                            <th class="text-left px-3 py-2">Split</th>
+                            <th class="text-left px-3 py-2">Inputs</th>
+                            <th class="text-left px-3 py-2">Expected</th>
+                            <th class="text-left px-3 py-2">Meta</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="row in previewRows" :key="row.id" class="border-t border-border/60">
+                            <td class="align-top px-3 py-2 font-mono">{{ row.id }}</td>
+                            <td class="align-top px-3 py-2 text-subtle-foreground">{{ row.split || 'train' }}</td>
+                            <td class="align-top px-3 py-2">
+                              <pre class="whitespace-pre-wrap text-[11px] leading-tight">{{ formatForPreview(row.inputs) }}</pre>
+                            </td>
+                            <td class="align-top px-3 py-2">
+                              <pre class="whitespace-pre-wrap text-[11px] leading-tight">{{ formatForPreview(row.expected) }}</pre>
+                            </td>
+                            <td class="align-top px-3 py-2">
+                              <pre class="whitespace-pre-wrap text-[11px] leading-tight">{{ formatForPreview(row.meta) }}</pre>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div v-else class="min-h-0">
+                      <textarea
+                        v-model="editRowsJson"
+                        class="h-[min(60vh,32rem)] w-full resize-none bg-transparent px-4 py-3 font-mono text-[11px] leading-tight outline-none"
+                        spellcheck="false"
+                      ></textarea>
+                    </div>
+                    <div class="border-t border-border/60 px-4 py-2 text-xs">
+                      <p v-if="jsonEditorError" class="text-danger-foreground">{{ jsonEditorError }}</p>
+                      <p v-else-if="hasMorePreview" class="text-subtle-foreground">
+                        Showing first {{ rowPreviewLimit }} rows of {{ selectedRowCount }}.
+                      </p>
+                    </div>
+                  </template>
                 </div>
-                <div
-                  v-else
-                  class="flex-1 border border-border/60 rounded bg-surface-muted/40 overflow-hidden"
-                >
-                  <textarea
-                    v-model="editRowsJson"
-                    class="h-full min-h-[16rem] w-full resize-none bg-transparent px-3 py-3 font-mono text-[11px] leading-tight outline-none"
-                    spellcheck="false"
-                  ></textarea>
-                </div>
-                <p v-if="jsonEditorError" class="text-xs text-danger-foreground">
-                  {{ jsonEditorError }}
-                </p>
-                <p v-if="hasMorePreview" class="text-xs text-subtle-foreground">
-                  Showing first {{ rowPreviewLimit }} rows of {{ selectedRowCount }}.
-                </p>
-              </template>
+              </div>
             </div>
           </div>
           <div v-else class="py-6 text-center text-sm text-danger-foreground">

@@ -1,6 +1,6 @@
 <template>
   <!-- Responsive layout: stack on small screens with a sized upload card; split columns on large screens -->
-  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
     <!-- Upload card: cap height on small screens so it never pushes past the viewport; full height on large screens -->
     <section class="flex min-h-0 max-h-[50vh] flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full lg:max-h-none">
       <header class="mb-4">
@@ -171,21 +171,12 @@
                   class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
                 ></textarea>
               </label>
-              <label class="text-sm block">
-                <div class="flex items-center justify-between text-subtle-foreground mb-1">
-                  <span>Rows (JSON array)</span>
-                  <span class="text-xs">{{ selectedRowCount }} row{{ selectedRowCount === 1 ? '' : 's' }}</span>
-                </div>
-                <textarea
-                  v-model="editForm.rows"
-                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-sm h-64 min-h-[16rem] resize-none overflow-auto"
-                ></textarea>
-              </label>
               <div class="flex gap-3 items-center pt-1">
                 <button
                   type="button"
                   class="rounded border border-border/70 px-3 py-2 text-sm font-semibold"
                   @click="handleUpdate"
+                  :disabled="detailLoading || !!jsonEditorError"
                 >
                   Save changes
                 </button>
@@ -254,10 +245,17 @@
                 </div>
                 <div
                   v-else
-                  class="flex-1 border border-border/60 rounded bg-surface-muted/40 overflow-auto"
+                  class="flex-1 border border-border/60 rounded bg-surface-muted/40 overflow-hidden"
                 >
-                  <pre class="text-[11px] leading-tight whitespace-pre px-3 py-3">{{ formatRowsForEditor(previewRows) }}</pre>
+                  <textarea
+                    v-model="editRowsJson"
+                    class="h-full min-h-[16rem] w-full resize-none bg-transparent px-3 py-3 font-mono text-[11px] leading-tight outline-none"
+                    spellcheck="false"
+                  ></textarea>
                 </div>
+                <p v-if="jsonEditorError" class="text-xs text-danger-foreground">
+                  {{ jsonEditorError }}
+                </p>
                 <p v-if="hasMorePreview" class="text-xs text-subtle-foreground">
                   Showing first {{ rowPreviewLimit }} rows of {{ selectedRowCount }}.
                 </p>
@@ -283,7 +281,9 @@ const form = reactive({ name: '', description: '', tags: '', rows: '' })
 const createStatus = ref('')
 const createError = ref('')
 
-const editForm = reactive({ name: '', description: '', tags: '', rows: '' })
+const editForm = reactive({ name: '', description: '', tags: '' })
+const editRowsJson = ref('')
+
 const selectedDatasetId = ref<string | null>(null)
 const selectedDataset = ref<Dataset | null>(null)
 const detailLoading = ref(false)
@@ -293,10 +293,22 @@ const rowViewMode = ref<'table' | 'json'>('table')
 let detailRequestSeq = 0
 
 const rowPreviewLimit = 50
-const selectedRows = computed(() => selectedDataset.value?.rows ?? [])
-const selectedRowCount = computed(() => selectedRows.value.length)
-const previewRows = computed(() => selectedRows.value.slice(0, rowPreviewLimit))
-const hasMorePreview = computed(() => selectedRows.value.length > rowPreviewLimit)
+const baseRows = computed(() => selectedDataset.value?.rows ?? [])
+const jsonEditorState = computed(() => {
+  try {
+    return { rows: prepareRows(editRowsJson.value), error: '' as string }
+  } catch (err) {
+    if (!editRowsJson.value.trim()) {
+      return { rows: [] as DatasetRow[], error: '' as string }
+    }
+    return { rows: baseRows.value, error: extractErr(err, 'Rows JSON is invalid.') }
+  }
+})
+const jsonEditorError = computed(() => jsonEditorState.value.error)
+const effectiveRows = computed(() => (jsonEditorError.value ? baseRows.value : jsonEditorState.value.rows))
+const selectedRowCount = computed(() => effectiveRows.value.length)
+const previewRows = computed(() => effectiveRows.value.slice(0, rowPreviewLimit))
+const hasMorePreview = computed(() => effectiveRows.value.length > rowPreviewLimit)
 
 onMounted(async () => {
   if (!store.datasets.length) {
@@ -338,7 +350,7 @@ async function loadSelectedDataset(id: string | null, options: { force?: boolean
       ...dataset,
       rows: dataset.rows ?? [],
     }
-    populateEditForm(dataset)
+    populateEditForm(selectedDataset.value)
   } catch (err) {
     if (selectedDatasetId.value === id && requestId === detailRequestSeq) {
       detailError.value = extractErr(err, 'Failed to load dataset.')
@@ -411,7 +423,7 @@ async function handleUpdate() {
   detailError.value = ''
   detailStatus.value = ''
   try {
-    const normalized = prepareRows(editForm.rows)
+    const normalized = prepareRows(editRowsJson.value)
     const tags = parseTags(editForm.tags)
     const dataset = await store.saveDataset(selectedDatasetId.value, {
       name: editForm.name,
@@ -421,8 +433,11 @@ async function handleUpdate() {
     if (selectedDatasetId.value !== dataset.id) {
       return
     }
-    selectedDataset.value = dataset
-    populateEditForm(dataset)
+    selectedDataset.value = {
+      ...dataset,
+      rows: dataset.rows ?? [],
+    }
+    populateEditForm(selectedDataset.value)
     detailStatus.value = 'Dataset updated.'
     setTimeout(() => {
       detailStatus.value = ''
@@ -436,14 +451,14 @@ function populateEditForm(dataset: Dataset) {
   editForm.name = dataset.name
   editForm.description = dataset.description ?? ''
   editForm.tags = dataset.tags?.join(', ') ?? ''
-  editForm.rows = formatRowsForEditor(dataset.rows ?? [])
+  editRowsJson.value = formatRowsForEditor(dataset.rows ?? [])
 }
 
 function resetEditForm() {
   editForm.name = ''
   editForm.description = ''
   editForm.tags = ''
-  editForm.rows = ''
+  editRowsJson.value = ''
 }
 
 function prepareRows(input: string): DatasetRow[] {

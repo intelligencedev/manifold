@@ -28,6 +28,10 @@ type DragKind = 'file' | 'dir'
 const dragging = ref<{ path: string; kind: DragKind } | null>(null)
 provide('filetreeDrag', dragging)
 
+// Track which destination directory will receive the drop; used for highlight cues
+const dropTargetDir = ref<string | null>(null)
+provide('filetreeDropTargetDir', dropTargetDir)
+
 async function ensure(path: string) {
   await store.ensureTree(path || '.')
 }
@@ -111,14 +115,17 @@ function onRootDragOver(event: DragEvent) {
   const d = currentDrag()
   if (!d) {
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    dropTargetDir.value = null
     return
   }
   const dest = buildDestination(rootPath.value, baseName(d.path))
   if (!canAcceptMove(d.path, dest, d.kind)) {
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    dropTargetDir.value = null
     return
   }
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  dropTargetDir.value = normalizeDir(rootPath.value)
 }
 
 async function onRootDrop(event: DragEvent) {
@@ -134,7 +141,12 @@ async function onRootDrop(event: DragEvent) {
     console.error('move failed', err)
   } finally {
     dragging.value = null
+    dropTargetDir.value = null
   }
+}
+
+function onRootDragLeave() {
+  dropTargetDir.value = null
 }
 
 onMounted(async () => {
@@ -157,8 +169,10 @@ watch(
   <div class="rounded-4 border border-border/70 overflow-hidden flex min-h-0 flex-col">
     <div
       class="flex items-center gap-2 h-9 pl-3 pr-2 bg-surface-muted text-subtle-foreground shrink-0"
+      :class="{ 'ring-2 ring-accent/50 ring-offset-0 bg-accent/10': dropTargetDir === normalizeDir(rootPath) }"
       @dragover.prevent="onRootDragOver"
       @drop.prevent="onRootDrop"
+      @dragleave.prevent="onRootDragLeave"
     >
       <span class="w-5" />
       <span class="w-5">🗂️</span>
@@ -168,6 +182,7 @@ watch(
       class="min-h-0 flex-1 overflow-auto"
       @dragover.prevent.self="onRootDragOver"
       @drop.prevent.self="onRootDrop"
+      @dragleave.prevent="onRootDragLeave"
     >
       <FileTreeNode
         :path="rootPath"

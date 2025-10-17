@@ -72,20 +72,70 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				return
 			}
 		}
-		if r.Method != http.MethodGet {
+
+		switch r.Method {
+		case http.MethodGet:
+			list, err := a.specStore.List(r.Context())
+			if err != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			out := make([]persist.Specialist, 0, len(list)+1)
+			out = append(out, a.orchestratorSpecialist(r.Context()))
+			out = append(out, list...)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(out)
+
+		case http.MethodPost:
+			// Create a new specialist (admin only)
+			isAdmin := false
+			if u, ok := auth.CurrentUser(r.Context()); ok {
+				okRole, _ := a.authStore.HasRole(r.Context(), u.ID, "admin")
+				if okRole {
+					isAdmin = true
+				}
+			}
+			if !isAdmin {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+			defer r.Body.Close()
+			var sp persist.Specialist
+			if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			name := strings.TrimSpace(sp.Name)
+			if name == "" {
+				http.Error(w, "name required", http.StatusBadRequest)
+				return
+			}
+			if name == "orchestrator" {
+				if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context()))
+				return
+			}
+			sp.Name = name
+			saved, err := a.specStore.Upsert(r.Context(), sp)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(saved)
+			if list, err := a.specStore.List(r.Context()); err == nil {
+				a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
+			}
+
+		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
 		}
-		list, err := a.specStore.List(r.Context())
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		out := make([]persist.Specialist, 0, len(list)+1)
-		out = append(out, a.orchestratorSpecialist(r.Context()))
-		out = append(out, list...)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(out)
 	}
 }
 

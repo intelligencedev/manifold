@@ -26,6 +26,7 @@ const list = computed(() => store.treeByPath[key.value] || [])
 // Shared drag state from FileTree
 type DragKind = 'file' | 'dir'
 const dragging = inject<import('vue').Ref<{ path: string; kind: DragKind } | null>>('filetreeDrag')
+const dropTargetDir = inject<import('vue').Ref<string | null>>('filetreeDropTargetDir')
 
 function select(path: string) {
   emit('select', path)
@@ -96,15 +97,18 @@ function onDragOver(event: DragEvent, entry: FileEntry) {
   const d = dragging?.value || getDragData(event)
   if (!d || !d.path) {
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    if (dropTargetDir) dropTargetDir.value = null
     return
   }
   const targetDir = entry.isDir ? entry.path || '.' : parentPath(entry.path)
   const dest = destinationFor(targetDir, baseName(d.path))
   if (!canAcceptMove(d.path, dest, d.kind)) {
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
+    if (dropTargetDir) dropTargetDir.value = null
     return
   }
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  if (dropTargetDir) dropTargetDir.value = normalizeDir(targetDir)
 }
 
 async function onDrop(event: DragEvent, entry: FileEntry) {
@@ -120,7 +124,12 @@ async function onDrop(event: DragEvent, entry: FileEntry) {
     console.error('move failed', err)
   } finally {
     if (dragging) dragging.value = null
+    if (dropTargetDir) dropTargetDir.value = null
   }
+}
+
+function onDragLeave() {
+  if (dropTargetDir) dropTargetDir.value = null
 }
 </script>
 
@@ -129,12 +138,17 @@ async function onDrop(event: DragEvent, entry: FileEntry) {
     <template v-for="e in list" :key="e.path">
       <li
         class="group flex items-center gap-2 h-9 pr-2 border-b border-border/70 last:border-b-0 hover:bg-surface-muted cursor-pointer"
-        :class="{ 'bg-surface-muted': selected === e.path }"
+        :class="{
+          'bg-surface-muted': selected === e.path,
+          'ring-2 ring-accent/50 ring-offset-0 bg-accent/10': e.isDir && dropTargetDir === normalizeDir(e.path),
+          'outline outline-1 outline-accent/50': !e.isDir && dropTargetDir === normalizeDir(parentPath(e.path))
+        }"
         :draggable="true"
         @dragstart="onDragStart($event, e)"
         @dragend="onDragEnd"
         @dragover.prevent="onDragOver($event, e)"
         @drop.stop.prevent="onDrop($event, e)"
+        @dragleave.prevent="onDragLeave"
       >
         <div
           class="flex items-center shrink-0"

@@ -3,7 +3,6 @@ package agentd
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -313,20 +312,7 @@ func (a *app) resolveProjectsUser(r *http.Request) (int64, bool, error) {
 	if !ok || u == nil {
 		return 0, false, errors.New("unauthorized")
 	}
-	userID := u.ID
-	if q := strings.TrimSpace(r.URL.Query().Get("userId")); q != "" {
-		okRole, err := a.authStore.HasRole(r.Context(), u.ID, "admin")
-		if err != nil {
-			return 0, false, err
-		}
-		if !okRole {
-			return 0, false, persist.ErrForbidden
-		}
-		var id int64
-		if _, err := fmt.Sscan(q, &id); err != nil {
-			return 0, false, fmt.Errorf("bad userId")
-		}
-		userID = id
-	}
-	return userID, true, nil
+	// RBAC: Admins are treated like regular users for projects; no cross-user access.
+	// Always scope to the current user's own projects, ignoring any userId overrides.
+	return u.ID, true, nil
 }

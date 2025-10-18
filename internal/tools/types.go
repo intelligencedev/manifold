@@ -64,7 +64,7 @@ func (r *defaultRegistry) Register(t Tool) {
 }
 
 func (r *defaultRegistry) Schemas() []llm.ToolSchema {
-	const maxToolSchemas = 128
+	const maxToolSchemas = 1000
 	total := len(r.order)
 	n := total
 	if n > maxToolSchemas {
@@ -142,41 +142,41 @@ func mapFrom(v any) map[string]any { m, _ := v.(map[string]any); return m }
 // addCommonWarppIO augments a tool schema so every node can define a WARPP output attribute.
 // It injects optional properties: output_attr, output_from, output_value.
 func addCommonWarppIO(schema map[string]any) map[string]any {
-    if schema == nil {
-        return schema
-    }
-    params, ok := schema["parameters"].(map[string]any)
-    if !ok || params == nil {
-        return schema
-    }
-    props, ok := params["properties"].(map[string]any)
-    if !ok || props == nil {
-        props = map[string]any{}
-        params["properties"] = props
-    }
-    if _, exists := props["output_attr"]; !exists {
-        props["output_attr"] = map[string]any{
-            "type":        "string",
-            "title":       "Output Attribute",
-            "description": "Optional attribute key this node will set for downstream steps.",
-        }
-    }
-    if _, exists := props["output_from"]; !exists {
-        props["output_from"] = map[string]any{
-            "type":        "string",
-            "title":       "Output From",
-            "description": "Source selector: 'payload', 'json.<key>', 'args.<key>', or 'delta.<key>'. Ignored if output_value is set.",
-        }
-    }
-    if _, exists := props["output_value"]; !exists {
-        props["output_value"] = map[string]any{
-            "type":        "string",
-            "title":       "Output Value",
-            "description": "Explicit value to assign to output_attr (supports ${A.key}). Overrides output_from.",
-        }
-    }
-    schema["parameters"] = params
-    return schema
+	if schema == nil {
+		return schema
+	}
+	params, ok := schema["parameters"].(map[string]any)
+	if !ok || params == nil {
+		return schema
+	}
+	props, ok := params["properties"].(map[string]any)
+	if !ok || props == nil {
+		props = map[string]any{}
+		params["properties"] = props
+	}
+	if _, exists := props["output_attr"]; !exists {
+		props["output_attr"] = map[string]any{
+			"type":        "string",
+			"title":       "Output Attribute",
+			"description": "Optional attribute key this node will set for downstream steps.",
+		}
+	}
+	if _, exists := props["output_from"]; !exists {
+		props["output_from"] = map[string]any{
+			"type":        "string",
+			"title":       "Output From",
+			"description": "Source selector: 'payload', 'json.<key>', 'args.<key>', or 'delta.<key>'. Ignored if output_value is set.",
+		}
+	}
+	if _, exists := props["output_value"]; !exists {
+		props["output_value"] = map[string]any{
+			"type":        "string",
+			"title":       "Output Value",
+			"description": "Explicit value to assign to output_attr (supports ${A.key}). Overrides output_from.",
+		}
+	}
+	schema["parameters"] = params
+	return schema
 }
 
 // Context helpers for propagating an llm.Provider to tools dispatched from

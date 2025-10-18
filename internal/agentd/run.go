@@ -44,6 +44,7 @@ import (
 	"manifold/internal/tools/db"
 	"manifold/internal/tools/imagetool"
 	llmtools "manifold/internal/tools/llmtool"
+	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
 	specialiststool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/textsplitter"
@@ -186,11 +187,23 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
 	toolRegistry.Register(specialiststool.New(specReg))
 
+	parallelTool := multitool.NewParallel(toolRegistry)
+	toolRegistry.Register(parallelTool)
+
 	if !cfg.EnableTools {
 		toolRegistry = tools.NewRegistry()
 	} else if len(cfg.ToolAllowList) > 0 {
-		toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, cfg.ToolAllowList)
+		allowList := make([]string, 0, len(cfg.ToolAllowList))
+		for _, name := range cfg.ToolAllowList {
+			if name == "multi_tool_use.parallel" {
+				name = multitool.ToolName
+			}
+			allowList = append(allowList, name)
+		}
+		toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, allowList)
 	}
+
+	parallelTool.SetRegistry(toolRegistry)
 
 	{
 		names := make([]string, 0, len(toolRegistry.Schemas()))

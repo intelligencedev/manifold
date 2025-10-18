@@ -22,7 +22,7 @@ This document lists the tools available to the assistant (namespace: `functions`
 - llm_transform
 - describe_image
 - specialists_infer
-- multi_tool_use.parallel
+- multi_tool_use_parallel
 
 ---
 
@@ -31,7 +31,7 @@ This document lists the tools available to the assistant (namespace: `functions`
 - Working directory: The assistant may only read/write under `/Users/art/Documents/manifold` (after you rename locally) and its subpaths when operating on repository files.
 - CLI execution: `run_cli` executes commands without a shell. Do not pass shell metacharacters, pipelines, or redirects. Provide a bare binary name and an args array.
 - Web research: `web_search` and `web_fetch` are available. When citing web results, only cite pages successfully fetched via `web_fetch`.
-- Parallel execution: `multi_tool_use.parallel` can run multiple `functions` tools concurrently when tasks are independent.
+- Parallel execution: `multi_tool_use_parallel` can run multiple `functions` tools concurrently when tasks are independent.
 - Specialists: `specialists_infer` exposes configured specialists (e.g., `software_engineer`) for domain-specific inference tasks.
 
 ---
@@ -204,10 +204,10 @@ This document lists the tools available to the assistant (namespace: `functions`
   - `override_reasoning_effort` (string, optional) — one of `low`, `medium`, `high`.
 
 
-### 17) multi_tool_use.parallel
+### 17) multi_tool_use_parallel
 - Purpose: Run multiple functions tools in parallel. Useful for independent tasks that can run concurrently (indexing, fetches, searches).
 - Parameters: `tool_uses` — an array of objects with `recipient_name` (e.g., `functions.web_search`) and `parameters` (object) for each tool.
-- Important: Only tools in the `functions` namespace are permitted here. Use when tasks do not depend on each other's outputs.
+- Important: Only tools in the `functions` namespace are permitted here. Use when tasks do not depend on each other's outputs. Older payloads that reference `multi_tool_use.parallel` continue to work as an alias.
 
 Example:
 
@@ -238,7 +238,7 @@ Example:
     - llm_transform
     - describe_image
     - specialists_infer
-    - multi_tool_use.parallel
+    - multi_tool_use_parallel
 
     ---
 
@@ -247,7 +247,7 @@ Example:
   - Working directory: The assistant may only read/write under `/Users/art/Documents/manifold` (after you rename locally) and its subpaths when operating on repository files.
     - CLI execution: `run_cli` executes commands without a shell. Do not pass shell metacharacters, pipelines, or redirects. Provide a bare binary name and an args array.
     - Web research: `web_search` and `web_fetch` are available. When citing web results, only cite pages successfully fetched via `web_fetch`.
-    - Parallel execution: `multi_tool_use.parallel` can run multiple `functions` tools concurrently when tasks are independent.
+    - Parallel execution: `multi_tool_use_parallel` can run multiple `functions` tools concurrently when tasks are independent.
     - Specialists: `specialists_infer` exposes configured specialists (e.g., `software_engineer`) for domain-specific inference tasks.
 
     ---
@@ -418,7 +418,7 @@ Example:
       - `prompt` (string, required) — input for the specialist.
       - `override_reasoning_effort` (string, optional) — one of `low`, `medium`, `high`.
 
-    ### 17) multi_tool_use.parallel
+    ### 17) multi_tool_use_parallel
 
     - Purpose: Run multiple functions tools in parallel. Useful for independent tasks that can run concurrently (indexing, fetches, searches).
 
@@ -450,7 +450,7 @@ Example:
        - Use `run_cli` to run local CLI tools (e.g., `go test`, `gofmt`) with safe args. Remember binary blocking and timeouts.
 
     3) Parallel indexing
-       - Use `multi_tool_use.parallel` to run multiple `search_index` or `vector_upsert` calls concurrently.
+       - Use `multi_tool_use_parallel` to run multiple `search_index` or `vector_upsert` calls concurrently.
 
     ---
 

@@ -65,7 +65,7 @@ func HandleCommandMessage(
 		corr := corrIDForLog
 		env := ResponseEnvelope{CorrelationID: corr, Status: "error", Error: fmt.Sprintf("malformed command JSON: %v", err)}
 		payload, _ := json.Marshal(env)
-		dlqTopic := replyTopic + ".dlq"
+		dlqTopic := dlqTopicFor(replyTopic)
 		if werr := producer.WriteMessages(ctx, kafka.Message{Topic: dlqTopic, Key: []byte(corr), Value: payload}); werr != nil {
 			log.Printf("failed to publish DLQ for malformed JSON (corr_id=%s): %v", corr, werr)
 		} else {
@@ -80,7 +80,7 @@ func HandleCommandMessage(
 		replyTopic := pickReplyTopic(cmd.ReplyTopic, defaultReplyTopic)
 		env := ResponseEnvelope{CorrelationID: corrIDForLog, Status: "error", Error: "missing correlation_id"}
 		payload, _ := json.Marshal(env)
-		dlqTopic := replyTopic + ".dlq"
+		dlqTopic := dlqTopicFor(replyTopic)
 		if werr := producer.WriteMessages(ctx, kafka.Message{Topic: dlqTopic, Key: []byte(corrIDForLog), Value: payload}); werr != nil {
 			log.Printf("failed to publish DLQ for missing correlation_id: %v", werr)
 		} else {
@@ -105,7 +105,7 @@ func HandleCommandMessage(
 		replyTopic := pickReplyTopic(cmd.ReplyTopic, defaultReplyTopic)
 		env := ResponseEnvelope{CorrelationID: corrID, Status: "error", Error: "missing workflow"}
 		payload, _ := json.Marshal(env)
-		dlqTopic := replyTopic + ".dlq"
+		dlqTopic := dlqTopicFor(replyTopic)
 		if werr := producer.WriteMessages(ctx, kafka.Message{Topic: dlqTopic, Key: []byte(corrID), Value: payload}); werr != nil {
 			log.Printf("failed to publish DLQ for missing workflow (corr_id=%s): %v", corrID, werr)
 		} else {
@@ -161,7 +161,7 @@ func HandleCommandMessage(
 		// Non-transient: publish to DLQ and return nil so offset can be committed.
 		env := ResponseEnvelope{CorrelationID: corrID, Status: "error", Error: err.Error()}
 		payload, _ := json.Marshal(env)
-		dlqTopic := replyTopic + ".dlq"
+		dlqTopic := dlqTopicFor(replyTopic)
 		if werr := producer.WriteMessages(ctx, kafka.Message{Topic: dlqTopic, Key: []byte(corrID), Value: payload}); werr != nil {
 			log.Printf("failed to publish DLQ for non-transient error (corr_id=%s): %v", corrID, werr)
 		} else {
@@ -197,6 +197,21 @@ func pickReplyTopic(cmdTopic, defaultTopic string) string {
 		return t
 	}
 	return defaultTopic
+}
+
+// dlqTopicFor returns a DLQ topic name for a given reply topic. If the
+// provided topic already ends with ".dlq", it is returned unchanged. This
+// avoids creating topics like "responses.dlq.dlq" when callers provide a
+// reply topic that already targets the DLQ.
+func dlqTopicFor(replyTopic string) string {
+	rt := strings.TrimSpace(replyTopic)
+	if rt == "" {
+		return ""
+	}
+	if strings.HasSuffix(rt, ".dlq") {
+		return rt
+	}
+	return rt + ".dlq"
 }
 
 // isTransientError performs a simple heuristic on error text for transient cases.

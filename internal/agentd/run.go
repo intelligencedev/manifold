@@ -168,6 +168,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// Kafka tool for publishing messages
 	if cfg.Kafka.Brokers != "" {
 		if producer, err := kafkatools.NewProducerFromBrokers(cfg.Kafka.Brokers); err == nil {
+			// NewSendMessageTool will auto-detect orchestrator commands topics by pattern matching
 			toolRegistry.Register(kafkatools.NewSendMessageTool(producer))
 		} else {
 			log.Warn().Err(err).Msg("kafka tool registration failed, continuing without kafka support")

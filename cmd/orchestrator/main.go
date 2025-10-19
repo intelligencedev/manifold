@@ -149,7 +149,8 @@ func main() {
 	// Kafka tool (if brokers configured)
 	if cfg.Kafka.Brokers != "" {
 		if producer, err := kafkatools.NewProducerFromBrokers(cfg.Kafka.Brokers); err == nil {
-			registry.Register(kafkatools.NewSendMessageTool(producer)) // provides kafka_send_message
+			// Pass commandsTopic so kafka_send_message can intelligently format messages for orchestrator
+			registry.Register(kafkatools.NewSendMessageToolWithOrchestratorTopic(producer, commandsTopic)) // provides kafka_send_message
 		} else {
 			observability.LoggerWithTrace(context.Background()).Warn().Err(err).Msg("kafka_tool_init_failed")
 		}
@@ -219,10 +220,11 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to reach Kafka brokers")
 	}
 
-	// Ensure commands and responses topics exist (create if missing).
+	// Ensure commands, responses, and DLQ topics exist (create if missing).
 	cmdCfg := kafka.TopicConfig{Topic: commandsTopic, NumPartitions: 1, ReplicationFactor: 1}
 	respCfg := kafka.TopicConfig{Topic: responsesTopic, NumPartitions: 1, ReplicationFactor: 1}
-	if err := orchestrator.EnsureTopics(ctxAdmin, brokers, []kafka.TopicConfig{cmdCfg, respCfg}); err != nil {
+	dlqCfg := kafka.TopicConfig{Topic: responsesTopic + ".dlq", NumPartitions: 1, ReplicationFactor: 1}
+	if err := orchestrator.EnsureTopics(ctxAdmin, brokers, []kafka.TopicConfig{cmdCfg, respCfg, dlqCfg}); err != nil {
 		log.Fatal().Err(err).Msg("failed to ensure Kafka topics")
 	}
 

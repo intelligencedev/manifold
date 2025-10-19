@@ -79,7 +79,7 @@ func main() {
 		log.Fatal().Msg("no Kafka brokers configured")
 	}
 
-	groupID := getenv("KAFKA_GROUP_ID", "sio-orchestrator")
+	groupID := getenv("KAFKA_GROUP_ID", "manifold-orchestrator")
 	commandsTopic := getenv("KAFKA_COMMANDS_TOPIC", cfg.Kafka.CommandsTopic)
 	responsesTopic := getenv("KAFKA_RESPONSES_TOPIC", cfg.Kafka.ResponsesTopic)
 	redisAddr := getenv("DEDUPE_REDIS_ADDR", "localhost:6379")

@@ -23,6 +23,9 @@ openai:
     prompt_cache_key: manifold-
     reasoning_effort: medium
 
+# No specialists configured for first launch
+specialists: []
+
 obs:
   serviceName: manifold
   environment: local

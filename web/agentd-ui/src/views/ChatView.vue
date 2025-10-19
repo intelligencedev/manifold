@@ -124,6 +124,7 @@
                 :options="projectOptions"
                 size="xs"
                 title="Project context"
+                placeholder="Select a project"
                 aria-label="Project context"
               />
               <DropdownSelect
@@ -306,6 +307,12 @@
             @dragover.prevent
             @drop.prevent="handleDrop"
           >
+            <p
+              v-if="requiresProjectSelection"
+              class="rounded-4 border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
+            >
+              Select a project to run the agent. If you don't see any projects, contact an administrator.
+            </p>
             <div
               class="relative rounded-4 border border-border bg-surface-muted/70 p-3 etched-dark"
             >
@@ -314,7 +321,12 @@
                 v-model="draft"
                 rows="1"
                 class="w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-faint-foreground pr-28"
-                placeholder="Message the agent..."
+                :placeholder="
+                  projectSelected
+                    ? 'Message the agent...'
+                    : 'Select a project to enable the chat.'
+                "
+                :disabled="!projectSelected"
                 @keydown="handleComposerKeydown"
                 @input="autoSizeComposer"
               ></textarea>
@@ -334,10 +346,16 @@
                 <!-- Attach -->
                 <button
                   type="button"
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-3 text-foreground/80 hover:text-accent focus-visible:shadow-outline"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
                   title="Attach files"
                   aria-label="Attach files"
-                  @click="fileInput?.click()"
+                  :disabled="!projectSelected"
+                  :class="
+                    !projectSelected
+                      ? 'opacity-50 cursor-not-allowed text-foreground/40'
+                      : 'text-foreground/80 hover:text-accent'
+                  "
+                  @click="projectSelected ? fileInput?.click() : undefined"
                 >
                   <SolarPaperclip2Bold class="h-5 w-5" />
                 </button>
@@ -350,11 +368,11 @@
                     isRecording
                       ? 'text-danger hover:text-danger/90'
                       : 'text-foreground/80 hover:text-accent',
-                    isStreaming || !canUseMic
+                    isStreaming || !canUseMic || !projectSelected
                       ? 'opacity-50 cursor-not-allowed'
                       : '',
                   ]"
-                  :disabled="isStreaming || !canUseMic"
+                  :disabled="isStreaming || !canUseMic || !projectSelected"
                   :title="
                     isRecording ? 'Stop recording' : 'Record voice prompt'
                   "
@@ -379,7 +397,9 @@
                   :aria-label="isStreaming ? 'Stop generating' : 'Send message'"
                   @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
                   :disabled="
-                    !isStreaming && !draft.trim() && !pendingAttachments.length
+                    !isStreaming &&
+                    (!projectSelected ||
+                      (!draft.trim() && !pendingAttachments.length))
                   "
                 >
                   <SolarStopBold v-if="isStreaming" class="h-4 w-4" />
@@ -629,14 +649,25 @@ const specialistOptions = computed<DropdownOption[]>(() => [
 ])
 
 // Transform projects data for dropdown
-const projectOptions = computed<DropdownOption[]>(() => [
-  { id: '', label: 'no project', value: '' },
-  ...projects.value.map((project) => ({
+const projectOptions = computed<DropdownOption[]>(() => {
+  const projectEntries = projects.value.map((project) => ({
     id: project.id,
     label: project.name,
     value: project.id,
   }))
-])
+  if (!projectEntries.length) {
+    return [{ id: '', label: 'no project available', value: '' }]
+  }
+  return [
+    {
+      id: '',
+      label: 'Select a project',
+      value: '',
+      disabled: true,
+    },
+    ...projectEntries,
+  ]
+})
 
 // Transform render mode options for dropdown
 const renderModeOptions = computed<DropdownOption[]>(() => [
@@ -645,6 +676,8 @@ const renderModeOptions = computed<DropdownOption[]>(() => [
 ])
 
 const selectedSpecialist = ref<string>('orchestrator')
+const projectSelected = computed(() => Boolean(selectedProjectId.value))
+const requiresProjectSelection = computed(() => !projectSelected.value)
 
 function httpStatus(error: unknown): number | null {
   if (axios.isAxiosError(error)) {
@@ -897,6 +930,7 @@ async function sendCurrentPrompt() {
 
 async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   const content = text.trim();
+  if (!projectSelected.value) return;
   if ((!content && !pendingAttachments.value.length) || isStreaming.value)
     return;
   autoScrollEnabled.value = true;
@@ -917,9 +951,13 @@ function stopStreaming() {
 }
 
 async function regenerateAssistant() {
-  if (!canRegenerate.value || !lastUser.value) return;
+  if (!projectSelected.value || !canRegenerate.value || !lastUser.value)
+    return;
   const specialist = selectedSpecialist.value && selectedSpecialist.value !== 'orchestrator' ? selectedSpecialist.value : undefined
-  await chat.regenerateAssistant({ specialist });
+  await chat.regenerateAssistant({
+    specialist,
+    projectId: selectedProjectId.value,
+  });
 }
 
 function copyMessage(message: ChatMessage) {

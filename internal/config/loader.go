@@ -94,6 +94,10 @@ func Load() (Config, error) {
 	}
 
 	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
+	// Kafka defaults for orchestrator integration
+	cfg.Kafka.Brokers = strings.TrimSpace(firstNonEmpty(os.Getenv("KAFKA_BROKERS"), os.Getenv("KAFKA_BOOTSTRAP_SERVERS")))
+	cfg.Kafka.CommandsTopic = strings.TrimSpace(firstNonEmpty(os.Getenv("KAFKA_COMMANDS_TOPIC"), os.Getenv("KAFKA_COMMAND_TOPIC")))
+	cfg.Kafka.ResponsesTopic = strings.TrimSpace(firstNonEmpty(os.Getenv("KAFKA_RESPONSES_TOPIC"), os.Getenv("KAFKA_RESPONSE_TOPIC")))
 	// TTS defaults (optional)
 	cfg.TTS.BaseURL = strings.TrimSpace(os.Getenv("TTS_BASE_URL"))
 	cfg.TTS.Model = strings.TrimSpace(os.Getenv("TTS_MODEL"))
@@ -202,6 +206,15 @@ func Load() (Config, error) {
 	}
 	if cfg.Web.SearXNGURL == "" {
 		cfg.Web.SearXNGURL = "http://localhost:8080"
+	}
+	if cfg.Kafka.Brokers == "" {
+		cfg.Kafka.Brokers = "localhost:9092"
+	}
+	if cfg.Kafka.CommandsTopic == "" {
+		cfg.Kafka.CommandsTopic = "dev.sio.orchestrator.commands"
+	}
+	if cfg.Kafka.ResponsesTopic == "" {
+		cfg.Kafka.ResponsesTopic = "dev.sio.orchestrator.responses"
 	}
 	if cfg.Exec.MaxCommandSeconds == 0 {
 		cfg.Exec.MaxCommandSeconds = 30

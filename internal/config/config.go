@@ -3,6 +3,8 @@ package config
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	Workdir string
+	// Kafka configuration for orchestrator integration
+	Kafka KafkaConfig
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt string
 	// Rolling summarization config: enable and tuning knobs
@@ -57,6 +59,13 @@ type Config struct {
 	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
 	// Projects controls per-user projects service behavior.
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
+}
+
+// KafkaConfig holds Kafka connectivity and topic defaults for orchestrator
+type KafkaConfig struct {
+	Brokers        string `yaml:"brokers" json:"brokers"`
+	CommandsTopic  string `yaml:"commandsTopic" json:"commandsTopic"`
+	ResponsesTopic string `yaml:"responsesTopic" json:"responsesTopic"`
 }
 
 // ProjectsConfig controls filesystem-backed projects behavior.

@@ -23,6 +23,7 @@ import (
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
 	"manifold/internal/tools/db"
+	kafkatools "manifold/internal/tools/kafka"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
 	specialists_tool "manifold/internal/tools/specialists"
@@ -59,8 +60,14 @@ func getenvDuration(key string, def time.Duration) time.Duration {
 }
 
 func main() {
-	// Configuration from environment with sensible defaults.
-	brokersCSV := getenv("KAFKA_BROKERS", "localhost:9092")
+	// Load application config early so Kafka topics/brokers can come from config.yaml/.env
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to load config")
+	}
+
+	// Parse brokers from config (comma-separated)
+	brokersCSV := strings.TrimSpace(cfg.Kafka.Brokers)
 	brokers := make([]string, 0)
 	for _, b := range strings.Split(brokersCSV, ",") {
 		b = strings.TrimSpace(b)
@@ -73,8 +80,8 @@ func main() {
 	}
 
 	groupID := getenv("KAFKA_GROUP_ID", "sio-orchestrator")
-	commandsTopic := getenv("KAFKA_COMMANDS_TOPIC", "dev.sio.orchestrator.commands")
-	responsesTopic := getenv("KAFKA_RESPONSES_TOPIC", "dev.sio.orchestrator.responses")
+	commandsTopic := getenv("KAFKA_COMMANDS_TOPIC", cfg.Kafka.CommandsTopic)
+	responsesTopic := getenv("KAFKA_RESPONSES_TOPIC", cfg.Kafka.ResponsesTopic)
 	redisAddr := getenv("DEDUPE_REDIS_ADDR", "localhost:6379")
 	workerCount := getenvInt("WORKER_COUNT", 4)
 	workflowTimeout := getenvDuration("DEFAULT_WORKFLOW_TIMEOUT", 10*time.Minute)
@@ -110,11 +117,7 @@ func main() {
 	}()
 
 	// Build WARPP runner backed by the in-process tool registry.
-	// Load application config to construct tools similar to the agent binary.
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load config")
-	}
+	// Use previously loaded cfg to construct tools and logging.
 	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
 	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
 	defer func() { _ = shutdown(context.Background()) }()
@@ -142,6 +145,15 @@ func main() {
 	registry.Register(patchtool.New(cfg.Workdir))      // provides apply_patch
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))
+
+	// Kafka tool (if brokers configured)
+	if cfg.Kafka.Brokers != "" {
+		if producer, err := kafkatools.NewProducerFromBrokers(cfg.Kafka.Brokers); err == nil {
+			registry.Register(kafkatools.NewSendMessageTool(producer)) // provides kafka_send_message
+		} else {
+			observability.LoggerWithTrace(context.Background()).Warn().Err(err).Msg("kafka_tool_init_failed")
+		}
+	}
 
 	// DB tools
 	registry.Register(db.NewSearchIndexTool(mgr.Search))
@@ -199,6 +211,20 @@ func main() {
 	// Handle SIGINT/SIGTERM for graceful shutdown.
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+	// Verify Kafka connectivity and ensure topics exist before starting consumers.
+	ctxAdmin, cancelAdmin := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelAdmin()
+	if err := orchestrator.CheckBrokers(ctxAdmin, brokers, 3*time.Second); err != nil {
+		log.Fatal().Err(err).Msg("failed to reach Kafka brokers")
+	}
+
+	// Ensure commands and responses topics exist (create if missing).
+	cmdCfg := kafka.TopicConfig{Topic: commandsTopic, NumPartitions: 1, ReplicationFactor: 1}
+	respCfg := kafka.TopicConfig{Topic: responsesTopic, NumPartitions: 1, ReplicationFactor: 1}
+	if err := orchestrator.EnsureTopics(ctxAdmin, brokers, []kafka.TopicConfig{cmdCfg, respCfg}); err != nil {
+		log.Fatal().Err(err).Msg("failed to ensure Kafka topics")
+	}
 
 	// Start the consumer with a default reader config.
 	if err := orchestrator.StartKafkaConsumer(

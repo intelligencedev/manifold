@@ -414,7 +414,7 @@ export const useChatStore = defineStore('chat', () => {
     abortController.value?.abort()
   }
 
-  async function regenerateAssistant(options: { specialist?: string } = {}) {
+  async function regenerateAssistant(options: { specialist?: string; projectId?: string } = {}) {
     if (isStreaming.value) return
     const sessionId = ensureSession()
     const messages = messagesBySession.value[sessionId] || []
@@ -422,11 +422,11 @@ export const useChatStore = defineStore('chat', () => {
     const lastAssistantIdx = [...messages].reverse().findIndex((m) => m.role === 'assistant')
     if (!lastUser || lastAssistantIdx === -1) return
     // Remove last assistant message
-    const targetIndex = messages.findLastIndex ? (messages as any).findLastIndex((m: ChatMessage) => m.role === 'assistant') : messages.length - 1 - lastAssistantIdx
+    const targetIndex = messages.findLastIndex((m: ChatMessage) => m.role === 'assistant')
     const next = [...messages]
     if (targetIndex !== -1) next.splice(targetIndex, 1)
     setMessages(sessionId, next)
-    await sendPrompt(lastUser.content, [], undefined, { echoUser: false, specialist: options.specialist })
+    await sendPrompt(lastUser.content, [], undefined, { echoUser: false, specialist: options.specialist, projectId: options.projectId })
   }
 
   return {
@@ -454,4 +454,3 @@ export const useChatStore = defineStore('chat', () => {
     regenerateAssistant,
   }
 })
-

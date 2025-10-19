@@ -43,6 +43,7 @@ import (
 	"manifold/internal/tools/cli"
 	"manifold/internal/tools/db"
 	"manifold/internal/tools/imagetool"
+	kafkatools "manifold/internal/tools/kafka"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
@@ -163,6 +164,16 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(*cfg, httpClient))
+
+	// Kafka tool for publishing messages
+	if cfg.Kafka.Brokers != "" {
+		if producer, err := kafkatools.NewProducerFromBrokers(cfg.Kafka.Brokers); err == nil {
+			toolRegistry.Register(kafkatools.NewSendMessageTool(producer))
+		} else {
+			log.Warn().Err(err).Msg("kafka tool registration failed, continuing without kafka support")
+		}
+	}
+
 	toolRegistry.Register(db.NewSearchIndexTool(mgr.Search))
 	toolRegistry.Register(db.NewSearchQueryTool(mgr.Search))
 	toolRegistry.Register(db.NewSearchRemoveTool(mgr.Search))

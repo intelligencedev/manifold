@@ -42,8 +42,8 @@ func genID(n int) string {
 func main() {
 	// Allow override of brokers via flag/env for flexibility.
 	brokers := flag.String("brokers", "localhost:9092", "comma-separated Kafka brokers")
-	commandsTopic := flag.String("commands-topic", "dev.sio.orchestrator.commands", "commands topic")
-	responsesTopic := flag.String("responses-topic", "dev.sio.orchestrator.responses", "responses topic")
+	commandsTopic := flag.String("commands-topic", "dev.manifold.orchestrator.commands", "commands topic")
+	responsesTopic := flag.String("responses-topic", "dev.manifold.orchestrator.responses", "responses topic")
 	timeout := flag.Duration("timeout", 15*time.Second, "wait timeout for response")
 	flag.Parse()
 
@@ -53,10 +53,10 @@ func main() {
 	corr := genID(8)
 	cmd := CommandEnvelope{
 		CorrelationID: corr,
-		Workflow:      "noop",
+		Workflow:      "kafka_op",
 		ReplyTopic:    *responsesTopic,
 		// noop.json expects ${A.query}
-		Attrs: map[string]any{"query": "hello"},
+		Attrs: map[string]any{"query": "go 1.24"},
 	}
 	payload, err := json.Marshal(cmd)
 	if err != nil {

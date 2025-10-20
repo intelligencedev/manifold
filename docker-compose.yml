@@ -104,19 +104,14 @@ services:
       - zookeeper
     ports:
       - "9092:9092"
+      - "9093:9093"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Listeners:
-      #  - INTERNAL: used by containers on the docker network (broker <-> broker / services)
-      #  - EXTERNAL: used by clients outside docker (your laptop or remote machines)
-      # IMPORTANT: Set KAFKA_EXTERNAL_HOST in the project .env (no quotes) to an IP or DNS that remote clients can resolve.
-      # Example (LAN): KAFKA_EXTERNAL_HOST=192.168.1.6
-      # Example (DNS): KAFKA_EXTERNAL_HOST=broker.example.com
-      # Falls back to 127.0.0.1 for local-only use if not set.
-      KAFKA_LISTENERS: EXTERNAL://0.0.0.0:9092,INTERNAL://0.0.0.0:29092
-      KAFKA_ADVERTISED_LISTENERS: EXTERNAL://${KAFKA_EXTERNAL_HOST:-127.0.0.1}:9092,INTERNAL://kafka:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT
+      # Expose two listeners: PLAINTEXT for host access (localhost:9092) and INTERNAL for container network (kafka:29092)
+      KAFKA_LISTENERS: LOCAL://0.0.0.0:9092,INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: LOCAL://localhost:9092,INTERNAL://kafka:29092,EXTERNAL://192.168.1.203:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LOCAL:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1

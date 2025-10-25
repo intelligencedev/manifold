@@ -2,6 +2,8 @@
 
 NOTES: 
 - Ensure docker is running.
+- Ensure Node version 20 is installed and enabled. We recommend using Node Version Manager.
+- Ensure pnpm is installed. Required for frontend build.
 - OTEL Collector is not required despite the default config.
 
 ```
@@ -18,6 +20,11 @@ $ sed -i '' 's/^OPENAI_API_KEY="[^"]*"/OPENAI_API_KEY="test123"/' .env
 
 # Update submodules
 $ git submodule update --init --recursive
+
+# Install frontend dependencies
+$ cd cd web/agentd-ui/
+$ pnpm install
+$ cd ../..
 
 # Create log file
 $ touch manifold.log

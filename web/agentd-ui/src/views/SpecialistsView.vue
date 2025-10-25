@@ -87,10 +87,10 @@
         <div v-if="editing" class="rounded-md border border-border/50 bg-surface p-3 h-full min-h-0 overflow-auto flex flex-col">
           <div class="flex flex-col gap-4 h-full min-h-0">
             <h2 class="text-base font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
-            <!-- Three-column editor layout: left (settings), middle (tools), right (prompt). Implemented with explicit 12-col grid -->
-            <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-3">
+            <!-- Two-column layout: left (params), right (system prompt + tools). Implemented with explicit grid -->
+            <div class="flex-1 min-h-0 grid items-stretch grid-cols-1 md:grid-cols-6 lg:grid-cols-10 xl:grid-cols-12 gap-3">
               <!-- Left column: core settings -->
-              <div class="flex flex-col gap-2 min-h-0 overflow-auto p-0 lg:col-span-3">
+              <div class="flex flex-col gap-2 min-h-0 h-full p-0 md:col-span-2 lg:col-span-3 xl:col-span-3 lg:sticky lg:top-3 lg:self-start">
                 <div class="flex flex-col gap-1">
                   <label for="specialist-name" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Name</label>
                   <input id="specialist-name" v-model="form.name" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" :disabled="!!original?.name" />
@@ -132,14 +132,14 @@
                   <label for="specialist-extra-headers" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Extra Headers (JSON)</label>
                   <textarea id="specialist-extra-headers" v-model="extraHeadersRaw" rows="2" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm"></textarea>
                 </div>
-                <div class="flex flex-col gap-1">
+                <div class="flex flex-col gap-1 min-h-0 flex-1">
                   <label for="specialist-extra-params" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Extra Params (JSON)</label>
-                  <textarea id="specialist-extra-params" v-model="extraParamsRaw" rows="2" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm"></textarea>
+                  <textarea id="specialist-extra-params" v-model="extraParamsRaw" class="flex-1 min-h-0 w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm resize-none"></textarea>
                 </div>
               </div>
               
               <!-- Right column: system prompt -->
-              <div class="flex min-h-0 flex-col gap-2 lg:col-span-7">
+              <div class="flex min-h-0 flex-col gap-2 md:col-span-4 lg:col-span-7 xl:col-span-9 overflow-auto">
                 <section class="flex min-h-0 flex-1 flex-col gap-2 p-0">
                   <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
                   <textarea id="specialist-system" v-model="form.system" class="flex-1 min-h-0 resize-none rounded border border-border/60 bg-surface px-2 py-2 text-sm"></textarea>
@@ -165,126 +165,120 @@
                     <div v-if="applyVersionError" class="text-xs text-danger-foreground">{{ applyVersionError }}</div>
                   </div>
                 </section>
+
+                <!-- Tool Access: now part of the right column, below system prompt -->
+                <section class="mt-3 rounded-md border border-border/50 bg-surface p-3 shrink-0">
+                  <div class="flex items-start justify-between gap-3">
+                    <div>
+                      <p class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Tool Access</p>
+                      <p class="text-sm text-muted-foreground">{{ toolAccessDescription }}</p>
+                    </div>
+                    <button
+                      type="button"
+                      class="inline-flex items-center rounded border border-border/60 bg-surface-muted px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
+                      @click="openToolsModal"
+                      :disabled="toolsLoading && !tools.length"
+                    >
+                      Manage tools
+                    </button>
+                  </div>
+
+                  <!-- Horizontal card layout for tool modes -->
+                  <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-2 text-sm items-stretch">
+                    <label
+                      class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors h-full"
+                      :class="toolAccessMode === 'disabled' ? 'border-border/80 bg-surface-muted/60' : 'border-border/50 hover:border-border'"
+                    >
+                      <input
+                        class="mt-1 h-4 w-4 shrink-0"
+                        type="radio"
+                        name="tools-mode"
+                        value="disabled"
+                        v-model="toolAccessMode"
+                      />
+                      <div class="min-w-0">
+                        <p class="font-medium text-foreground">Disable tools</p>
+                        <p class="text-xs text-subtle-foreground">Specialist will never call tools.</p>
+                      </div>
+                    </label>
+                    <label
+                      class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors h-full"
+                      :class="toolAccessMode === 'all' ? 'border-border/80 bg-surface-muted/60' : 'border-border/50 hover:border-border'"
+                    >
+                      <input
+                        class="mt-1 h-4 w-4 shrink-0"
+                        type="radio"
+                        name="tools-mode"
+                        value="all"
+                        v-model="toolAccessMode"
+                      />
+                      <div class="min-w-0">
+                        <p class="font-medium text-foreground">Allow any tool</p>
+                        <p class="text-xs text-subtle-foreground">Every available tool can be invoked.</p>
+                      </div>
+                    </label>
+                    <label
+                      class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors h-full"
+                      :class="toolAccessMode === 'custom' ? 'border-border/80 bg-surface-muted/60' : 'border-border/50 hover:border-border'"
+                    >
+                      <input
+                        class="mt-1 h-4 w-4 shrink-0"
+                        type="radio"
+                        name="tools-mode"
+                        value="custom"
+                        v-model="toolAccessMode"
+                      />
+                      <div class="min-w-0">
+                        <p class="font-medium text-foreground">Use an allow list</p>
+                        <p class="text-xs text-subtle-foreground">Only selected tools will be enabled.</p>
+                      </div>
+                    </label>
+                  </div>
+
+                  <div v-if="toolAccessMode === 'custom'" class="mt-3 rounded-md border border-dashed border-border/60 bg-surface-muted/40 p-3">
+                    <div class="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
+                      <span>Selected tools</span>
+                      <span>{{ selectedToolNames.length }} total</span>
+                    </div>
+                    <div v-if="selectedToolNames.length" class="mt-2 flex flex-wrap gap-1.5">
+                      <button
+                        v-for="name in selectedToolPreview"
+                        :key="name"
+                        type="button"
+                        class="group inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface px-2 py-0.5 text-xs text-foreground hover:border-border"
+                        @click="removeAllowedTool(name)"
+                        :title="`Remove ${name}`"
+                      >
+                        <span>{{ name }}</span>
+                        <svg viewBox="0 0 12 12" class="h-3 w-3 text-subtle-foreground group-hover:text-foreground" aria-hidden="true">
+                          <path d="M3 3l6 6m0-6-6 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                        </svg>
+                      </button>
+                      <span
+                        v-if="toolChipOverflow"
+                        class="inline-flex items-center rounded-full border border-border/40 bg-surface px-2 py-0.5 text-xs text-subtle-foreground"
+                      >
+                        +{{ toolChipOverflow }} more
+                      </span>
+                    </div>
+                    <p v-else class="mt-2 text-xs text-subtle-foreground">No tools selected yet.</p>
+                    <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                      <button
+                        type="button"
+                        class="rounded border border-border/60 px-2 py-1 text-subtle-foreground hover:border-border disabled:cursor-not-allowed disabled:opacity-40"
+                        @click="clearToolSelection"
+                        :disabled="!selectedToolNames.length"
+                      >
+                        Clear selection
+                      </button>
+                    </div>
+                  </div>
+
+                  <p v-if="toolsLoading" class="mt-3 text-xs text-subtle-foreground">Loading tools…</p>
+                  <p v-else-if="toolsError" class="mt-3 text-xs text-danger-foreground">{{ toolsError }}</p>
+                </section>
               </div>
             </div>
-
-            <!-- Tools: moved below settings and prompt, full width -->
-            <section class="mt-3 rounded-md border border-border/50 bg-surface p-3">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <p class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Tool Access</p>
-                  <p class="text-sm text-muted-foreground">{{ toolAccessDescription }}</p>
-                </div>
-                <button
-                  type="button"
-                  class="inline-flex items-center rounded border border-border/60 bg-surface-muted px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
-                  @click="openToolsModal"
-                  :disabled="toolsLoading && !tools.length"
-                >
-                  Manage tools
-                </button>
-              </div>
-
-              <div class="mt-3 space-y-2 text-sm">
-                <label
-                  class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 transition-colors"
-                  :class="toolAccessMode === 'disabled' ? 'border-border/80 bg-surface-muted/60' : 'border-border/50 hover:border-border'"
-                >
-                  <input
-                    class="mt-1 h-4 w-4"
-                    type="radio"
-                    name="tools-mode"
-                    value="disabled"
-                    v-model="toolAccessMode"
-                  />
-                  <div>
-                    <p class="font-medium text-foreground">Disable tools</p>
-                    <p class="text-xs text-subtle-foreground">Specialist will never call tools.</p>
-                  </div>
-                </label>
-                <label
-                  class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 transition-colors"
-                  :class="toolAccessMode === 'all' ? 'border-border/80 bg-surface-muted/60' : 'border-border/50 hover:border-border'"
-                >
-                  <input
-                    class="mt-1 h-4 w-4"
-                    type="radio"
-                    name="tools-mode"
-                    value="all"
-                    v-model="toolAccessMode"
-                  />
-                  <div>
-                    <p class="font-medium text-foreground">Allow any tool</p>
-                    <p class="text-xs text-subtle-foreground">Every available tool can be invoked.</p>
-                  </div>
-                </label>
-                <label
-                  class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 transition-colors"
-                  :class="toolAccessMode === 'custom' ? 'border-border/80 bg-surface-muted/60' : 'border-border/50 hover:border-border'"
-                >
-                  <input
-                    class="mt-1 h-4 w-4"
-                    type="radio"
-                    name="tools-mode"
-                    value="custom"
-                    v-model="toolAccessMode"
-                  />
-                  <div>
-                    <p class="font-medium text-foreground">Use an allow list</p>
-                    <p class="text-xs text-subtle-foreground">Only selected tools will be enabled.</p>
-                  </div>
-                </label>
-              </div>
-
-              <div v-if="toolAccessMode === 'custom'" class="mt-3 rounded-md border border-dashed border-border/60 bg-surface-muted/40 p-3">
-                <div class="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
-                  <span>Selected tools</span>
-                  <span>{{ selectedToolNames.length }} total</span>
-                </div>
-                <div v-if="selectedToolNames.length" class="mt-2 flex flex-wrap gap-1.5">
-                  <button
-                    v-for="name in selectedToolPreview"
-                    :key="name"
-                    type="button"
-                    class="group inline-flex items-center gap-1 rounded-full border border-border/60 bg-surface px-2 py-0.5 text-xs text-foreground hover:border-border"
-                    @click="removeAllowedTool(name)"
-                    :title="`Remove ${name}`"
-                  >
-                    <span>{{ name }}</span>
-                    <svg viewBox="0 0 12 12" class="h-3 w-3 text-subtle-foreground group-hover:text-foreground" aria-hidden="true">
-                      <path d="M3 3l6 6m0-6-6 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-                    </svg>
-                  </button>
-                  <span
-                    v-if="toolChipOverflow"
-                    class="inline-flex items-center rounded-full border border-border/40 bg-surface px-2 py-0.5 text-xs text-subtle-foreground"
-                  >
-                    +{{ toolChipOverflow }} more
-                  </span>
-                </div>
-                <p v-else class="mt-2 text-xs text-subtle-foreground">No tools selected yet.</p>
-                <div class="mt-3 flex flex-wrap gap-2 text-xs">
-                  <button
-                    type="button"
-                    class="rounded border border-border/60 px-2 py-1 font-semibold text-subtle-foreground hover:border-border"
-                    @click="openToolsModal"
-                  >
-                    Choose tools
-                  </button>
-                  <button
-                    type="button"
-                    class="rounded border border-border/60 px-2 py-1 text-subtle-foreground hover:border-border disabled:cursor-not-allowed disabled:opacity-40"
-                    @click="clearToolSelection"
-                    :disabled="!selectedToolNames.length"
-                  >
-                    Clear selection
-                  </button>
-                </div>
-              </div>
-
-              <p v-if="toolsLoading" class="mt-3 text-xs text-subtle-foreground">Loading tools…</p>
-              <p v-else-if="toolsError" class="mt-3 text-xs text-danger-foreground">{{ toolsError }}</p>
-            </section>
 
             <div class="mt-2 flex flex-wrap gap-2">
               <button @click="save" class="rounded-md border border-border/60 px-2 py-1.5 text-sm font-semibold">Save</button>
@@ -346,12 +340,12 @@
               </button>
             </div>
           </div>
-          <div class="min-h-[280px] max-h-[60vh] overflow-hidden rounded border border-border/60 bg-surface-muted/40">
+          <div class="min-h-[280px] max-h-[60vh] overflow-y-auto rounded border border-border/60 bg-surface-muted/40">
             <div v-if="toolsLoading" class="flex h-full items-center justify-center text-sm text-subtle-foreground">Loading tools…</div>
             <div v-else-if="toolsError" class="flex h-full items-center justify-center px-4 text-center text-sm text-danger-foreground">{{ toolsError }}</div>
             <div v-else-if="!tools.length" class="flex h-full items-center justify-center px-4 text-center text-sm text-subtle-foreground">No tools available.</div>
             <div v-else-if="!filteredTools.length" class="flex h-full items-center justify-center px-4 text-center text-sm text-subtle-foreground">No tools match "{{ toolsSearch }}".</div>
-            <ul v-else class="divide-y divide-border/40 overflow-y-auto">
+            <ul v-else class="divide-y divide-border/40">
               <li v-for="t in filteredTools" :key="t.name">
                 <label class="flex cursor-pointer items-start gap-3 px-4 py-3 hover:bg-surface">
                   <input

@@ -41,17 +41,22 @@ OUTPUT_TRUNCATE_BYTES=65536      # Truncate outputs larger than 64KB
 
 ## Authentication and Authorization
 
-### OIDC Integration
-manifold supports OpenID Connect for authentication:
+### OIDC / OAuth2 Integration
+manifold supports OpenID Connect (default) and configurable OAuth2 providers for authentication:
 
 ```yaml
 auth:
   enabled: true
-  provider: oidc
+  provider: oidc # or oauth2
   issuerURL: "https://your-oidc-provider.com"
   clientID: "your-client-id"
   clientSecret: "your-client-secret"
   redirectURL: "http://localhost:32180/auth/callback"
+  oauth2:
+    authURL: ""
+    tokenURL: ""
+    userInfoURL: ""
+    scopes: []
 ```
 
 ### Session Management

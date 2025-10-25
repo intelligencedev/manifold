@@ -160,6 +160,8 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	// Auth provider default is applied after YAML merge to allow config.yaml to override.
+
 	// Apply defaults after merging YAML
 	if cfg.OpenAI.Model == "" {
 		cfg.OpenAI.Model = "gpt-4o-mini"
@@ -282,6 +284,10 @@ func Load() (Config, error) {
 		} else {
 			cfg.Databases.Chat.Backend = "memory"
 		}
+	}
+
+	if strings.TrimSpace(cfg.Auth.Provider) == "" {
+		cfg.Auth.Provider = "oidc"
 	}
 
 	if cfg.OpenAI.APIKey == "" {
@@ -447,19 +453,35 @@ func loadSpecialists(cfg *Config) error {
 		Voice   string `yaml:"voice"`
 		Format  string `yaml:"format"`
 	}
+	type oauth2YAML struct {
+		AuthURL             string   `yaml:"authURL"`
+		TokenURL            string   `yaml:"tokenURL"`
+		UserInfoURL         string   `yaml:"userInfoURL"`
+		LogoutURL           string   `yaml:"logoutURL"`
+		LogoutRedirectParam string   `yaml:"logoutRedirectParam"`
+		Scopes              []string `yaml:"scopes"`
+		ProviderName        string   `yaml:"providerName"`
+		DefaultRoles        []string `yaml:"defaultRoles"`
+		EmailField          string   `yaml:"emailField"`
+		NameField           string   `yaml:"nameField"`
+		PictureField        string   `yaml:"pictureField"`
+		SubjectField        string   `yaml:"subjectField"`
+		RolesField          string   `yaml:"rolesField"`
+	}
 	type authYAML struct {
-		Enabled         bool     `yaml:"enabled"`
-		Provider        string   `yaml:"provider"`
-		IssuerURL       string   `yaml:"issuerURL"`
-		ClientID        string   `yaml:"clientID"`
-		ClientSecret    string   `yaml:"clientSecret"`
-		RedirectURL     string   `yaml:"redirectURL"`
-		AllowedDomains  []string `yaml:"allowedDomains"`
-		CookieName      string   `yaml:"cookieName"`
-		CookieSecure    bool     `yaml:"cookieSecure"`
-		CookieDomain    string   `yaml:"cookieDomain"`
-		StateTTLSeconds int      `yaml:"stateTTLSeconds"`
-		SessionTTLHours int      `yaml:"sessionTTLHours"`
+		Enabled         bool       `yaml:"enabled"`
+		Provider        string     `yaml:"provider"`
+		IssuerURL       string     `yaml:"issuerURL"`
+		ClientID        string     `yaml:"clientID"`
+		ClientSecret    string     `yaml:"clientSecret"`
+		RedirectURL     string     `yaml:"redirectURL"`
+		AllowedDomains  []string   `yaml:"allowedDomains"`
+		CookieName      string     `yaml:"cookieName"`
+		CookieSecure    bool       `yaml:"cookieSecure"`
+		CookieDomain    string     `yaml:"cookieDomain"`
+		StateTTLSeconds int        `yaml:"stateTTLSeconds"`
+		SessionTTLHours int        `yaml:"sessionTTLHours"`
+		OAuth2          oauth2YAML `yaml:"oauth2"`
 	}
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
@@ -695,7 +717,8 @@ func loadSpecialists(cfg *Config) error {
 		if w.Auth.Enabled {
 			cfg.Auth.Enabled = true
 		}
-		if cfg.Auth.Provider == "" && strings.TrimSpace(w.Auth.Provider) != "" {
+		// Always let YAML override provider (env override not implemented yet)
+		if strings.TrimSpace(w.Auth.Provider) != "" {
 			cfg.Auth.Provider = strings.TrimSpace(w.Auth.Provider)
 		}
 		if cfg.Auth.IssuerURL == "" && strings.TrimSpace(w.Auth.IssuerURL) != "" {
@@ -727,6 +750,45 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Auth.SessionTTLHours == 0 && w.Auth.SessionTTLHours > 0 {
 			cfg.Auth.SessionTTLHours = w.Auth.SessionTTLHours
+		}
+		if cfg.Auth.OAuth2.AuthURL == "" && strings.TrimSpace(w.Auth.OAuth2.AuthURL) != "" {
+			cfg.Auth.OAuth2.AuthURL = strings.TrimSpace(w.Auth.OAuth2.AuthURL)
+		}
+		if cfg.Auth.OAuth2.TokenURL == "" && strings.TrimSpace(w.Auth.OAuth2.TokenURL) != "" {
+			cfg.Auth.OAuth2.TokenURL = strings.TrimSpace(w.Auth.OAuth2.TokenURL)
+		}
+		if cfg.Auth.OAuth2.UserInfoURL == "" && strings.TrimSpace(w.Auth.OAuth2.UserInfoURL) != "" {
+			cfg.Auth.OAuth2.UserInfoURL = strings.TrimSpace(w.Auth.OAuth2.UserInfoURL)
+		}
+		if cfg.Auth.OAuth2.LogoutURL == "" && strings.TrimSpace(w.Auth.OAuth2.LogoutURL) != "" {
+			cfg.Auth.OAuth2.LogoutURL = strings.TrimSpace(w.Auth.OAuth2.LogoutURL)
+		}
+		if cfg.Auth.OAuth2.LogoutRedirectParam == "" && strings.TrimSpace(w.Auth.OAuth2.LogoutRedirectParam) != "" {
+			cfg.Auth.OAuth2.LogoutRedirectParam = strings.TrimSpace(w.Auth.OAuth2.LogoutRedirectParam)
+		}
+		if len(cfg.Auth.OAuth2.Scopes) == 0 && len(w.Auth.OAuth2.Scopes) > 0 {
+			cfg.Auth.OAuth2.Scopes = append([]string{}, w.Auth.OAuth2.Scopes...)
+		}
+		if cfg.Auth.OAuth2.ProviderName == "" && strings.TrimSpace(w.Auth.OAuth2.ProviderName) != "" {
+			cfg.Auth.OAuth2.ProviderName = strings.TrimSpace(w.Auth.OAuth2.ProviderName)
+		}
+		if len(cfg.Auth.OAuth2.DefaultRoles) == 0 && len(w.Auth.OAuth2.DefaultRoles) > 0 {
+			cfg.Auth.OAuth2.DefaultRoles = append([]string{}, w.Auth.OAuth2.DefaultRoles...)
+		}
+		if cfg.Auth.OAuth2.EmailField == "" && strings.TrimSpace(w.Auth.OAuth2.EmailField) != "" {
+			cfg.Auth.OAuth2.EmailField = strings.TrimSpace(w.Auth.OAuth2.EmailField)
+		}
+		if cfg.Auth.OAuth2.NameField == "" && strings.TrimSpace(w.Auth.OAuth2.NameField) != "" {
+			cfg.Auth.OAuth2.NameField = strings.TrimSpace(w.Auth.OAuth2.NameField)
+		}
+		if cfg.Auth.OAuth2.PictureField == "" && strings.TrimSpace(w.Auth.OAuth2.PictureField) != "" {
+			cfg.Auth.OAuth2.PictureField = strings.TrimSpace(w.Auth.OAuth2.PictureField)
+		}
+		if cfg.Auth.OAuth2.SubjectField == "" && strings.TrimSpace(w.Auth.OAuth2.SubjectField) != "" {
+			cfg.Auth.OAuth2.SubjectField = strings.TrimSpace(w.Auth.OAuth2.SubjectField)
+		}
+		if cfg.Auth.OAuth2.RolesField == "" && strings.TrimSpace(w.Auth.OAuth2.RolesField) != "" {
+			cfg.Auth.OAuth2.RolesField = strings.TrimSpace(w.Auth.OAuth2.RolesField)
 		}
 		return nil
 	}

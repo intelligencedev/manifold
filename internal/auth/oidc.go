@@ -2,15 +2,11 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"net/http"
-	"time"
-
 	"net/url"
 	"sort"
 	"strings"
+	"time"
 
 	oidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
@@ -202,20 +198,7 @@ func (o *OIDC) LogoutHandler(cookieSecure bool, cookieDomain string) http.Handle
 		// No id_token cookie used anymore
 		// Determine where the app should land after IdP logout
 		next := r.URL.Query().Get("next")
-		if next == "" {
-			next = "/auth/login"
-		}
-		// Build absolute post-logout redirect URI
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
-		origin := scheme + "://" + r.Host
-		// If next is relative, prefix with origin
-		absNext := next
-		if !(len(next) > 7 && (next[:7] == "http://" || (len(next) > 8 && next[:8] == "https://"))) {
-			absNext = origin + next
-		}
+		absNext := absoluteRedirectURL(r, next, "/auth/login")
 		// For Keycloak (and many OIDC providers), perform RP-initiated logout to end SSO session
 		// Keycloak end-session endpoint: {issuer}/protocol/openid-connect/logout
 		// Use client_id and post_logout_redirect_uri. id_token_hint is optional for browser-initiated logout.
@@ -283,25 +266,4 @@ func (o *OIDC) MeHandler() http.HandlerFunc {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 	}
-}
-
-func randToken(n int) (string, error) {
-	b := make([]byte, n)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
-}
-
-func pkceChallenge(verifier string) string {
-	h := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(h[:])
-}
-
-func setTempCookie(w http.ResponseWriter, name, value string, ttl time.Duration, secure bool) {
-	http.SetCookie(w, &http.Cookie{
-		Name: name, Value: value, Path: "/",
-		HttpOnly: true, Secure: secure, SameSite: http.SameSiteLaxMode,
-		Expires: time.Now().Add(ttl),
-	})
 }

@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"net/http"
 	"time"
 )
 
@@ -24,6 +25,14 @@ type Session struct {
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
 	IDToken   string    `json:"-"` // stored for RP-initiated logout; not exposed via JSON
+}
+
+// Provider exposes the HTTP handlers required to participate in the login lifecycle.
+type Provider interface {
+	LoginHandler() http.HandlerFunc
+	CallbackHandler(cookieSecure bool, cookieDomain string) http.HandlerFunc
+	LogoutHandler(cookieSecure bool, cookieDomain string) http.HandlerFunc
+	MeHandler() http.HandlerFunc
 }
 
 // contextKey prevents collisions for context values.

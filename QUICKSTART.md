@@ -21,6 +21,9 @@ $ sed -i '' 's/^OPENAI_API_KEY="[^"]*"/OPENAI_API_KEY="test123"/' .env
 # Update submodules
 $ git submodule update --init --recursive
 
+# Ensure Node version 20 is enabled
+$ nvm use 20
+
 # Install frontend dependencies
 $ cd cd web/agentd-ui/
 $ pnpm install

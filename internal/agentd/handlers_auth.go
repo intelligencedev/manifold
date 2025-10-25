@@ -11,30 +11,30 @@ import (
 )
 
 func (a *app) authLoginHandler() http.HandlerFunc {
-	if a.oidcAuth == nil {
+	if a.authProvider == nil {
 		return func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		}
 	}
-	return a.oidcAuth.LoginHandler()
+	return a.authProvider.LoginHandler()
 }
 
 func (a *app) authCallbackHandler() http.HandlerFunc {
-	if a.oidcAuth == nil {
+	if a.authProvider == nil {
 		return func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		}
 	}
-	return a.oidcAuth.CallbackHandler(a.cfg.Auth.CookieSecure, a.cfg.Auth.CookieDomain)
+	return a.authProvider.CallbackHandler(a.cfg.Auth.CookieSecure, a.cfg.Auth.CookieDomain)
 }
 
 func (a *app) authLogoutHandler() http.HandlerFunc {
-	if a.oidcAuth == nil {
+	if a.authProvider == nil {
 		return func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		}
 	}
-	logout := a.oidcAuth.LogoutHandler(a.cfg.Auth.CookieSecure, a.cfg.Auth.CookieDomain)
+	logout := a.authProvider.LogoutHandler(a.cfg.Auth.CookieSecure, a.cfg.Auth.CookieDomain)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -52,12 +52,12 @@ func (a *app) authLogoutHandler() http.HandlerFunc {
 }
 
 func (a *app) meHandler() http.HandlerFunc {
-	if a.oidcAuth == nil {
+	if a.authProvider == nil {
 		return func(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		}
 	}
-	return a.oidcAuth.MeHandler()
+	return a.authProvider.MeHandler()
 }
 
 func (a *app) usersHandler() http.HandlerFunc {

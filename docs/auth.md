@@ -1,6 +1,6 @@
 # Authentication and RBAC
 
-This project supports multi-user sign-in via OAuth2/OpenID Connect (OIDC) with simple RBAC backed by Postgres.
+This project supports multi-user sign-in via OpenID Connect (OIDC) or plain OAuth2 with simple RBAC backed by Postgres.
 
 > Provisioning prerequisite: A user must first exist (or successfully authenticate) in the upstream Identity Provider (IdP) — e.g. Keycloak / Google / Okta — before you can grant elevated roles (like `admin`) inside this application. The first successful OIDC login creates (or upserts) the local user record; only then can an operator assign additional roles in Postgres.
 
@@ -13,10 +13,10 @@ This project supports multi-user sign-in via OAuth2/OpenID Connect (OIDC) with s
 
 ## Configuration
 
-In `config.yaml` (or env), add an `Auth` section:
+In `config.yaml` (or env), add an `auth` section:
 
 ```yaml
-Auth:
+auth:
   enabled: true
   provider: oidc
   issuerURL: "https://accounts.google.com" # or your provider
@@ -44,7 +44,7 @@ This repo includes a Keycloak service in `docker-compose.yml`.
 Set the following in `config.yaml` to use Keycloak:
 
 ```yaml
-Auth:
+auth:
   enabled: true
   provider: oidc
   issuerURL: "http://localhost:8080/realms/sio-local"
@@ -56,6 +56,33 @@ Auth:
   stateTTLSeconds: 600
   sessionTTLHours: 72
 ```
+
+### Using a plain OAuth2 provider
+
+Set `provider: oauth2` and describe the authorization/token/user info endpoints manually:
+
+```yaml
+Auth:
+  enabled: true
+  provider: oauth2
+  clientID: "${GITHUB_CLIENT_ID}"
+  clientSecret: "${GITHUB_CLIENT_SECRET}"
+  redirectURL: "http://localhost:32180/auth/callback"
+  oauth2:
+    authURL: "https://github.com/login/oauth/authorize"
+    tokenURL: "https://github.com/login/oauth/access_token"
+    userInfoURL: "https://api.github.com/user"
+    scopes: ["read:user", "user:email"]
+    providerName: "github"
+    emailField: "email"
+    nameField: "name"
+    pictureField: "avatar_url"
+    subjectField: "id"
+    rolesField: ""          # optional JSON array of extra roles
+    defaultRoles: ["user"]  # automatically applied when the IdP does not send roles
+```
+
+The OAuth2 block tells agentd how to exchange codes and which JSON fields to read from the user info response. `subjectField` must resolve to a stable identifier (falling back to `email` if left blank). `rolesField`, when present, should point at an array of strings; the values are synchronized into the RBAC table in addition to `defaultRoles`. Logout simply clears the local session unless `logoutURL` is provided (paired with `logoutRedirectParam`), in which case the browser is redirected to the upstream IdP after the local cookie is deleted.
 
 ## Endpoints & Auth Flow
 

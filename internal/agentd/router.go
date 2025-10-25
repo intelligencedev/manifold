@@ -13,7 +13,7 @@ func newRouter(a *app) *http.ServeMux {
 		mux.Handle("/api/v1/playground/", a.playgroundHandler)
 	}
 
-	if a.cfg.Auth.Enabled && a.oidcAuth != nil {
+	if a.cfg.Auth.Enabled && a.authProvider != nil {
 		mux.HandleFunc("/auth/login", a.authLoginHandler())
 		mux.HandleFunc("/auth/callback", a.authCallbackHandler())
 		mux.HandleFunc("/auth/logout", a.authLogoutHandler())

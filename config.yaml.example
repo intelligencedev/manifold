@@ -1,10 +1,11 @@
-# Authentication (OIDC) — optional
+# Authentication (OIDC or OAuth2) — optional
+# Default false
 auth:
   enabled: false
-  provider: oidc
-  issuerURL: "http://localhost:8083/realms/manifold"
-  clientID: agentd
-  clientSecret: ...
+  provider: oauth2
+  #issuerURL: "http://localhost:8083/realms/manifold"
+  clientID: "github client id"
+  clientSecret: "github client secret"
   redirectURL: "http://localhost:32180/auth/callback"
   allowedDomains: []
   cookieName: "manifold_session"
@@ -12,6 +13,21 @@ auth:
   cookieDomain: ""
   stateTTLSeconds: 600
   sessionTTLHours: 72
+  # Optional OAuth2-only settings when provider: oauth2
+  oauth2:
+    authURL: "https://github.com/login/oauth/authorize"
+    tokenURL: "https://github.com/login/oauth/access_token"
+    userInfoURL: "https://api.github.com/user"
+    logoutURL: ""
+    logoutRedirectParam: "redirect_uri"
+    scopes: [read:user, user:email]
+    providerName: "github"
+    defaultRoles: [user]
+    emailField: "email"
+    nameField: "name"
+    pictureField: "avatar_url"
+    subjectField: "id"
+    rolesField: ""
 
 openai:
   api: completions

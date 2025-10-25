@@ -170,8 +170,7 @@ type WebConfig struct {
 // the HTTP server will require authentication for protected endpoints.
 type AuthConfig struct {
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// Provider currently supports "oidc" (recommended). When empty and Enabled,
-	// defaults to OIDC.
+	// Provider supports "oidc" (default) and "oauth2".
 	Provider string `yaml:"provider" json:"provider"`
 	// IssuerURL is the OIDC issuer discovery URL, e.g. https://accounts.google.com
 	IssuerURL    string `yaml:"issuerURL" json:"issuerURL"`
@@ -190,6 +189,25 @@ type AuthConfig struct {
 	StateTTLSeconds int `yaml:"stateTTLSeconds" json:"stateTTLSeconds"`
 	// SessionTTLHours controls how long a server-side session remains valid.
 	SessionTTLHours int `yaml:"sessionTTLHours" json:"sessionTTLHours"`
+	// OAuth2 provides additional configuration when Provider=="oauth2".
+	OAuth2 OAuth2Config `yaml:"oauth2" json:"oauth2"`
+}
+
+// OAuth2Config contains the endpoints and mapping hints required for plain OAuth2 providers.
+type OAuth2Config struct {
+	AuthURL             string   `yaml:"authURL" json:"authURL"`
+	TokenURL            string   `yaml:"tokenURL" json:"tokenURL"`
+	UserInfoURL         string   `yaml:"userInfoURL" json:"userInfoURL"`
+	LogoutURL           string   `yaml:"logoutURL" json:"logoutURL"`
+	LogoutRedirectParam string   `yaml:"logoutRedirectParam" json:"logoutRedirectParam"`
+	Scopes              []string `yaml:"scopes" json:"scopes"`
+	ProviderName        string   `yaml:"providerName" json:"providerName"`
+	DefaultRoles        []string `yaml:"defaultRoles" json:"defaultRoles"`
+	EmailField          string   `yaml:"emailField" json:"emailField"`
+	NameField           string   `yaml:"nameField" json:"nameField"`
+	PictureField        string   `yaml:"pictureField" json:"pictureField"`
+	SubjectField        string   `yaml:"subjectField" json:"subjectField"`
+	RolesField          string   `yaml:"rolesField" json:"rolesField"`
 }
 
 // DBConfig contains sub-config for each pluggable database backend.

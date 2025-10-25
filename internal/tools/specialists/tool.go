@@ -37,16 +37,26 @@ func New(reg *specialists.Registry) *Tool { return &Tool{reg: reg} }
 func (t *Tool) Name() string { return "specialists_infer" }
 
 func (t *Tool) JSONSchema() map[string]any {
+	// Build schema and, if a registry is available, include an enum of known
+	// specialist names to aid tool-using models and validators.
+	specialist := map[string]any{
+		"type":        "string",
+		"description": "Name of the specialist to invoke (use /api/specialists to discover available names).",
+	}
+	if t.reg != nil {
+		if names := t.reg.Names(); len(names) > 0 {
+			// []string is a valid JSON array and commonly handled by encoders.
+			specialist["enum"] = names
+		}
+	}
+
 	return map[string]any{
 		"name":        t.Name(),
 		"description": "Invoke a configured specialist (inference-only). Use this for domain-specific expertise like code review or structured extraction.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"specialist": map[string]any{
-					"type":        "string",
-					"description": "Name of the specialist to invoke (use /api/specialists to discover available names).",
-				},
+				"specialist": specialist,
 				"prompt": map[string]any{
 					"type":        "string",
 					"description": "The input for the specialist",

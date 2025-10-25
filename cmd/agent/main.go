@@ -36,6 +36,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+const systemUserID int64 = 0
+
 func main() {
 	// Load config first to get defaults
 	cfg, err := config.Load()
@@ -79,7 +81,7 @@ func main() {
 		specStore = databases.NewSpecialistsStore(pg)
 		_ = specStore.Init(context.Background())
 		// Seed from YAML only if the store is empty or missing entries
-		if list, err := specStore.List(context.Background()); err == nil {
+		if list, err := specStore.List(context.Background(), systemUserID); err == nil {
 			existing := map[string]bool{}
 			for _, s := range list {
 				existing[s.Name] = true
@@ -91,7 +93,7 @@ func main() {
 				if existing[sc.Name] {
 					continue
 				}
-				_, _ = specStore.Upsert(context.Background(), persist.Specialist{
+				_, _ = specStore.Upsert(context.Background(), systemUserID, persist.Specialist{
 					Name: sc.Name, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
 					EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
 					ReasoningEffort: sc.ReasoningEffort, System: sc.System,
@@ -100,7 +102,7 @@ func main() {
 			}
 		}
 		// Load orchestrator configuration from the database (if present)
-		if sp, ok, _ := specStore.GetByName(context.Background(), "orchestrator"); ok {
+		if sp, ok, _ := specStore.GetByName(context.Background(), systemUserID, "orchestrator"); ok {
 			cfg.OpenAI.BaseURL = sp.BaseURL
 			cfg.OpenAI.APIKey = sp.APIKey
 			if strings.TrimSpace(sp.Model) != "" {
@@ -131,7 +133,7 @@ func main() {
 	// Build specialists registry from DB (fallback to YAML) so CLI resolves
 	// the same set as agentd.
 	var specReg *specialists.Registry
-	if list, err := specStore.List(context.Background()); err == nil {
+	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
 		specReg = specialists.NewRegistry(cfg.OpenAI, specialistsFromStore(list), httpClient, nil)
 	} else {
 		specReg = specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, nil)
@@ -195,7 +197,7 @@ func main() {
 	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
 	// Specialists tool for LLM-driven routing
 	// Prefer DB-backed registry so CLI and agentd match.
-	if list, err := specStore.List(context.Background()); err == nil {
+	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
 		specReg = specialists.NewRegistry(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
 	} else {
 		specReg = specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
@@ -231,7 +233,7 @@ func main() {
 	if *warppFlag {
 		// Configure WARPP to source defaults from the database, not hard-coded values.
 		warpp.SetDefaultStore(mgr.Warpp)
-		wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp)
+		wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp, systemUserID)
 		runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()

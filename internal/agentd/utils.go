@@ -2,6 +2,7 @@ package agentd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -136,13 +137,6 @@ func resolveChatAccess(ctx context.Context, authStore *auth.Store, user *auth.Us
 	if authStore == nil || user == nil {
 		return nil, true, nil
 	}
-	isAdmin, err := authStore.HasRole(ctx, user.ID, "admin")
-	if err != nil {
-		return nil, false, err
-	}
-	if isAdmin {
-		return nil, true, nil
-	}
 	id := user.ID
 	return &id, false, nil
 }
@@ -159,6 +153,17 @@ func setChatCORSHeaders(w http.ResponseWriter, r *http.Request, methods string) 
 	if methods != "" {
 		w.Header().Set("Access-Control-Allow-Methods", methods)
 	}
+}
+
+func (a *app) requireUserID(r *http.Request) (int64, error) {
+	if !a.cfg.Auth.Enabled {
+		return systemUserID, nil
+	}
+	user, ok := auth.CurrentUser(r.Context())
+	if !ok || user == nil {
+		return 0, errors.New("unauthorized")
+	}
+	return user.ID, nil
 }
 
 func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {

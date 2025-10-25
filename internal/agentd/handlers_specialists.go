@@ -10,7 +10,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent/prompts"
-	"manifold/internal/auth"
 	openaillm "manifold/internal/llm/openai"
 	persist "manifold/internal/persistence"
 	"manifold/internal/tools"
@@ -18,12 +17,13 @@ import (
 
 func (a *app) statusHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+		userID, err := a.requireUserID(r)
+		if err != nil {
+			if a.cfg.Auth.Enabled {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
 			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -37,7 +37,7 @@ func (a *app) statusHandler() http.HandlerFunc {
 			Model     string `json:"model"`
 			UpdatedAt string `json:"updatedAt"`
 		}
-		list, err := a.specStore.List(r.Context())
+		list, err := a.specStore.List(r.Context(), userID)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -65,17 +65,17 @@ func (a *app) statusHandler() http.HandlerFunc {
 
 func (a *app) specialistsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+		userID, err := a.requireUserID(r)
+		if err != nil {
+			if a.cfg.Auth.Enabled {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
 			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
-
 		switch r.Method {
 		case http.MethodGet:
-			list, err := a.specStore.List(r.Context())
+			list, err := a.specStore.List(r.Context(), userID)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -87,18 +87,6 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 			json.NewEncoder(w).Encode(out)
 
 		case http.MethodPost:
-			// Create a new specialist (admin only)
-			isAdmin := false
-			if u, ok := auth.CurrentUser(r.Context()); ok {
-				okRole, _ := a.authStore.HasRole(r.Context(), u.ID, "admin")
-				if okRole {
-					isAdmin = true
-				}
-			}
-			if !isAdmin {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
 			var sp persist.Specialist
@@ -112,6 +100,10 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				return
 			}
 			if name == "orchestrator" {
+				if userID != systemUserID {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
 				if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
@@ -121,7 +113,8 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				return
 			}
 			sp.Name = name
-			saved, err := a.specStore.Upsert(r.Context(), sp)
+			sp.UserID = userID
+			saved, err := a.specStore.Upsert(r.Context(), userID, sp)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -129,9 +122,7 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(saved)
-			if list, err := a.specStore.List(r.Context()); err == nil {
-				a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
-			}
+			a.invalidateSpecialistsCache(r.Context(), userID)
 
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -141,26 +132,19 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 
 func (a *app) specialistDetailHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+		userID, err := a.requireUserID(r)
+		if err != nil {
+			if a.cfg.Auth.Enabled {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
 			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		name := strings.TrimPrefix(r.URL.Path, "/api/specialists/")
 		name = strings.TrimSpace(name)
 		if name == "" {
 			http.NotFound(w, r)
 			return
-		}
-
-		isAdmin := false
-		if u, ok := auth.CurrentUser(r.Context()); ok {
-			okRole, _ := a.authStore.HasRole(r.Context(), u.ID, "admin")
-			if okRole {
-				isAdmin = true
-			}
 		}
 
 		switch r.Method {
@@ -170,7 +154,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context()))
 				return
 			}
-			sp, ok, err := a.specStore.GetByName(r.Context(), name)
+			sp, ok, err := a.specStore.GetByName(r.Context(), userID, name)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -182,10 +166,6 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(sp)
 		case http.MethodPut:
-			if !isAdmin {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
 			var sp persist.Specialist
@@ -194,6 +174,10 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				return
 			}
 			if name == "orchestrator" {
+				if userID != systemUserID {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
 				if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
@@ -203,33 +187,26 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				return
 			}
 			sp.Name = name
-			saved, err := a.specStore.Upsert(r.Context(), sp)
+			sp.UserID = userID
+			saved, err := a.specStore.Upsert(r.Context(), userID, sp)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
-			if list, err := a.specStore.List(r.Context()); err == nil {
-				a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
-			}
+			a.invalidateSpecialistsCache(r.Context(), userID)
 		case http.MethodDelete:
-			if !isAdmin {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
 			if name == "orchestrator" {
 				http.Error(w, "cannot delete orchestrator", http.StatusBadRequest)
 				return
 			}
-			if err := a.specStore.Delete(r.Context(), name); err != nil {
+			if err := a.specStore.Delete(r.Context(), userID, name); err != nil {
 				http.Error(w, "error", http.StatusInternalServerError)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
-			if list, err := a.specStore.List(r.Context()); err == nil {
-				a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
-			}
+			a.invalidateSpecialistsCache(r.Context(), userID)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -251,7 +228,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context) persist.Specialist {
 		ExtraHeaders: a.cfg.OpenAI.ExtraHeaders,
 		ExtraParams:  a.cfg.OpenAI.ExtraParams,
 	}
-	if sp, ok, _ := a.specStore.GetByName(ctx, "orchestrator"); ok {
+	if sp, ok, _ := a.specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
 		out.ReasoningEffort = sp.ReasoningEffort
 		out.Description = sp.Description
 	}
@@ -306,11 +283,12 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		ExtraHeaders:    a.cfg.OpenAI.ExtraHeaders,
 		ExtraParams:     a.cfg.OpenAI.ExtraParams,
 	}
-	if _, err := a.specStore.Upsert(ctx, toSave); err != nil {
+	toSave.UserID = systemUserID
+	if _, err := a.specStore.Upsert(ctx, systemUserID, toSave); err != nil {
 		log.Error().Err(err).Msg("failed to persist orchestrator configuration")
 		return err
 	}
-	if list, err := a.specStore.List(ctx); err == nil {
+	if list, err := a.specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
 	names := make([]string, 0, len(a.toolRegistry.Schemas()))

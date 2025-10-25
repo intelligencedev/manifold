@@ -8,31 +8,35 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"manifold/internal/auth"
 	persist "manifold/internal/persistence"
 	"manifold/internal/warpp"
 )
 
 func (a *app) warppWorkflowsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+		userID, err := a.requireUserID(r)
+		if err != nil {
+			if a.cfg.Auth.Enabled {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
 			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		a.warppMu.RLock()
-		var list []warpp.Workflow
-		if a.warppRegistry != nil {
-			list = append(list, a.warppRegistry.All()...)
+		reg, err := a.warppRegistryForUser(r.Context(), userID)
+		if err != nil {
+			log.Error().Err(err).Msg("warpp_registry_for_user")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
 		}
-		a.warppMu.RUnlock()
+		list := []warpp.Workflow{}
+		if reg != nil {
+			list = append(list, reg.All()...)
+		}
 		sort.Slice(list, func(i, j int) bool { return list[i].Intent < list[j].Intent })
 		json.NewEncoder(w).Encode(list)
 	}
@@ -40,12 +44,13 @@ func (a *app) warppWorkflowsHandler() http.HandlerFunc {
 
 func (a *app) warppWorkflowDetailHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+		userID, err := a.requireUserID(r)
+		if err != nil {
+			if a.cfg.Auth.Enabled {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
 			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		intent := strings.TrimPrefix(r.URL.Path, "/api/warpp/workflows/")
 		intent = strings.TrimSpace(intent)
@@ -55,9 +60,13 @@ func (a *app) warppWorkflowDetailHandler() http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			a.warppMu.RLock()
-			wf, err := a.warppRegistry.Get(intent)
-			a.warppMu.RUnlock()
+			reg, err := a.warppRegistryForUser(r.Context(), userID)
+			if err != nil {
+				log.Error().Err(err).Msg("warpp_registry_for_user")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			wf, err := reg.Get(intent)
 			if err != nil {
 				http.Error(w, "workflow not found", http.StatusNotFound)
 				return
@@ -65,18 +74,6 @@ func (a *app) warppWorkflowDetailHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(wf)
 		case http.MethodPut:
-			if a.cfg.Auth.Enabled {
-				if u, ok := auth.CurrentUser(r.Context()); ok {
-					okRole, err := a.authStore.HasRole(r.Context(), u.ID, "admin")
-					if err != nil || !okRole {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-				} else {
-					http.Error(w, "unauthorized", http.StatusUnauthorized)
-					return
-				}
-			}
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
 			var wf warpp.Workflow
@@ -111,22 +108,17 @@ func (a *app) warppWorkflowDetailHandler() http.HandlerFunc {
 					return
 				}
 			}
-			_, existed, _ := a.warppStore.Get(r.Context(), intent)
+			_, existed, _ := a.warppStore.Get(r.Context(), userID, intent)
 			var pw persist.WarppWorkflow
 			if b, err := json.Marshal(wf); err == nil {
 				_ = json.Unmarshal(b, &pw)
 			}
-			if _, err := a.warppStore.Upsert(r.Context(), pw); err != nil {
+			pw.UserID = userID
+			if _, err := a.warppStore.Upsert(r.Context(), userID, pw); err != nil {
 				http.Error(w, "failed to save workflow", http.StatusInternalServerError)
 				return
 			}
-			a.warppMu.Lock()
-			if a.warppRegistry == nil {
-				a.warppRegistry = &warpp.Registry{}
-			}
-			a.warppRegistry.Upsert(wf, "")
-			a.warppRunner.Workflows = a.warppRegistry
-			a.warppMu.Unlock()
+			a.invalidateWarppCache(r.Context(), userID)
 			status := http.StatusOK
 			if !existed {
 				status = http.StatusCreated
@@ -135,28 +127,11 @@ func (a *app) warppWorkflowDetailHandler() http.HandlerFunc {
 			w.WriteHeader(status)
 			json.NewEncoder(w).Encode(wf)
 		case http.MethodDelete:
-			if a.cfg.Auth.Enabled {
-				if u, ok := auth.CurrentUser(r.Context()); ok {
-					okRole, err := a.authStore.HasRole(r.Context(), u.ID, "admin")
-					if err != nil || !okRole {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-				} else {
-					http.Error(w, "unauthorized", http.StatusUnauthorized)
-					return
-				}
-			}
-			if err := a.warppStore.Delete(r.Context(), intent); err != nil {
+			if err := a.warppStore.Delete(r.Context(), userID, intent); err != nil {
 				http.Error(w, "failed to delete", http.StatusInternalServerError)
 				return
 			}
-			a.warppMu.Lock()
-			if a.warppRegistry != nil {
-				a.warppRegistry.Remove(intent)
-				a.warppRunner.Workflows = a.warppRegistry
-			}
-			a.warppMu.Unlock()
+			a.invalidateWarppCache(r.Context(), userID)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -166,12 +141,13 @@ func (a *app) warppWorkflowDetailHandler() http.HandlerFunc {
 
 func (a *app) warppRunHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+		userID, err := a.requireUserID(r)
+		if err != nil {
+			if a.cfg.Auth.Enabled {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
 			}
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
 		}
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -192,9 +168,13 @@ func (a *app) warppRunHandler() http.HandlerFunc {
 			http.Error(w, "intent required", http.StatusBadRequest)
 			return
 		}
-		a.warppMu.RLock()
-		wf, err := a.warppRegistry.Get(intent)
-		a.warppMu.RUnlock()
+		reg, err := a.warppRegistryForUser(r.Context(), userID)
+		if err != nil {
+			log.Error().Err(err).Msg("warpp_registry_for_user")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		wf, err := reg.Get(intent)
 		if err != nil {
 			http.Error(w, "workflow not found", http.StatusNotFound)
 			return
@@ -215,7 +195,13 @@ func (a *app) warppRunHandler() http.HandlerFunc {
 		} else {
 			log.Debug().Str("endpoint", "/api/warpp/run").Msg("no timeout configured; running until completion")
 		}
-		wfStar, _, attrs2, err := a.warppRunner.Personalize(ctx, wf, attrs)
+		runner, err := a.warppRunnerForUser(ctx, userID)
+		if err != nil {
+			log.Error().Err(err).Msg("warpp_runner_for_user")
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		wfStar, _, attrs2, err := runner.Personalize(ctx, wf, attrs)
 		if err != nil {
 			log.Error().Err(err).Msg("warpp_personalize")
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -227,7 +213,7 @@ func (a *app) warppRunHandler() http.HandlerFunc {
 				allow[s.Tool.Name] = true
 			}
 		}
-		result, trace, err := a.warppRunner.ExecuteWithTrace(ctx, wfStar, allow, attrs2, nil)
+		result, trace, err := runner.ExecuteWithTrace(ctx, wfStar, allow, attrs2, nil)
 		if err != nil {
 			log.Error().Err(err).Msg("warpp_execute")
 			http.Error(w, "internal server error", http.StatusInternalServerError)

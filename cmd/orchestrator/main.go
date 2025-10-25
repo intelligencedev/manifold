@@ -34,6 +34,8 @@ import (
 	"manifold/internal/orchestrator"
 )
 
+const systemUserID int64 = 0
+
 func getenv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -204,7 +206,7 @@ func main() {
 
 	// Configure WARPP to source defaults from the database, not hard-coded values.
 	warpp.SetDefaultStore(mgr.Warpp)
-	wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp)
+	wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp, systemUserID)
 	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 	// adapter to satisfy orchestrator.Runner
 	runner := orchestrator.NewWarppAdapter(warppRunner)

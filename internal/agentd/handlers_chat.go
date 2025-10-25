@@ -16,6 +16,7 @@ import (
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
+	specialiststool "manifold/internal/tools/specialists"
 	"manifold/internal/warpp"
 )
 
@@ -250,7 +251,10 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 
 func (a *app) agentRunHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var userID *int64
+		var (
+			userID      *int64
+			currentUser *auth.User
+		)
 		if a.cfg.Auth.Enabled {
 			u, ok := auth.CurrentUser(r.Context())
 			if !ok {
@@ -258,6 +262,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			currentUser = u
 			id, _, err := resolveChatAccess(r.Context(), a.authStore, u)
 			if err != nil {
 				log.Error().Err(err).Msg("resolve_chat_access")
@@ -314,11 +319,25 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
+		specOwner := systemUserID
+		if currentUser != nil {
+			specOwner = currentUser.ID
+		} else if userID != nil {
+			specOwner = *userID
+		}
+		userSpecReg, err := a.specialistsRegistryForUser(r.Context(), specOwner)
+		if err != nil {
+			log.Error().Err(err).Msg("load_specialists_registry")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
 		if spName := strings.TrimSpace(r.URL.Query().Get("specialist")); spName != "" && strings.ToLower(spName) != "orchestrator" {
-			if aSpec, ok := a.specRegistry.Get(spName); ok {
+			if aSpec, ok := userSpecReg.Get(spName); ok {
 				seconds := a.cfg.AgentRunTimeoutSeconds
 				ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 				defer cancel()
+				ctx = specialiststool.WithRegistry(ctx, userSpecReg)
 				if dur > 0 {
 					log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "specialist_override").Msg("using configured agent timeout")
 				} else {
@@ -404,20 +423,26 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			ctx = specialiststool.WithRegistry(ctx, userSpecReg)
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("using configured workflow timeout")
 			} else {
 				log.Debug().Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("no timeout configured; running until completion")
 			}
-			a.warppMu.RLock()
-			wf, err := a.warppRegistry.Get(a.warppRunner.DetectIntent(ctx, req.Prompt))
-			a.warppMu.RUnlock()
+			runner, err := a.warppRunnerForUser(ctx, specOwner)
+			if err != nil {
+				log.Error().Err(err).Msg("warpp_runner_for_user")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			intent := runner.DetectIntent(ctx, req.Prompt)
+			wf, err := runner.Workflows.Get(intent)
 			if err != nil {
 				http.Error(w, "workflow not found", http.StatusNotFound)
 				return
 			}
 			attrs := warpp.Attrs{"utter": req.Prompt}
-			wfStar, _, attrs, err := a.warppRunner.Personalize(ctx, wf, attrs)
+			wfStar, _, attrs, err := runner.Personalize(ctx, wf, attrs)
 			if err != nil {
 				log.Error().Err(err).Msg("personalize")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -429,7 +454,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					allow[s.Tool.Name] = true
 				}
 			}
-			final, err := a.warppRunner.Execute(ctx, wfStar, allow, attrs, nil)
+			final, err := runner.Execute(ctx, wfStar, allow, attrs, nil)
 			if err != nil {
 				log.Error().Err(err).Msg("warpp")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -476,6 +501,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			ctx = specialiststool.WithRegistry(ctx, userSpecReg)
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", true).Msg("using configured stream timeout")
 			} else {

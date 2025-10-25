@@ -14,21 +14,23 @@ import (
 type fakeWFStore struct{ wfs []persist.WarppWorkflow }
 
 func (f *fakeWFStore) Init(context.Context) error { return nil }
-func (f *fakeWFStore) List(context.Context) ([]any, error) {
+func (f *fakeWFStore) List(context.Context, int64) ([]any, error) {
 	out := make([]any, len(f.wfs))
 	for i, w := range f.wfs {
 		out[i] = w
 	}
 	return out, nil
 }
-func (f *fakeWFStore) ListWorkflows(context.Context) ([]persist.WarppWorkflow, error) { return f.wfs, nil }
-func (f *fakeWFStore) Get(context.Context, string) (persist.WarppWorkflow, bool, error) {
+func (f *fakeWFStore) ListWorkflows(context.Context, int64) ([]persist.WarppWorkflow, error) {
+	return f.wfs, nil
+}
+func (f *fakeWFStore) Get(context.Context, int64, string) (persist.WarppWorkflow, bool, error) {
 	return persist.WarppWorkflow{}, false, nil
 }
-func (f *fakeWFStore) Upsert(context.Context, persist.WarppWorkflow) (persist.WarppWorkflow, error) {
+func (f *fakeWFStore) Upsert(context.Context, int64, persist.WarppWorkflow) (persist.WarppWorkflow, error) {
 	return persist.WarppWorkflow{}, nil
 }
-func (f *fakeWFStore) Delete(context.Context, string) error { return nil }
+func (f *fakeWFStore) Delete(context.Context, int64, string) error { return nil }
 
 // simple tool implementing tools.Tool
 type echoTool struct{ name string }

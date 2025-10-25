@@ -7,6 +7,26 @@ import (
 	"manifold/internal/specialists"
 )
 
+type registryContextKey struct{}
+
+// WithRegistry attaches a per-request specialists registry to the context so
+// tool invocations can resolve user-specific specialists.
+func WithRegistry(ctx context.Context, reg *specialists.Registry) context.Context {
+	if reg == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, registryContextKey{}, reg)
+}
+
+func registryFromContext(ctx context.Context) *specialists.Registry {
+	if v := ctx.Value(registryContextKey{}); v != nil {
+		if reg, ok := v.(*specialists.Registry); ok {
+			return reg
+		}
+	}
+	return nil
+}
+
 // Tool exposes configured specialists as a single callable tool.
 type Tool struct {
 	reg *specialists.Registry
@@ -17,7 +37,6 @@ func New(reg *specialists.Registry) *Tool { return &Tool{reg: reg} }
 func (t *Tool) Name() string { return "specialists_infer" }
 
 func (t *Tool) JSONSchema() map[string]any {
-	names := t.reg.Names()
 	return map[string]any{
 		"name":        t.Name(),
 		"description": "Invoke a configured specialist (inference-only). Use this for domain-specific expertise like code review or structured extraction.",
@@ -26,8 +45,7 @@ func (t *Tool) JSONSchema() map[string]any {
 			"properties": map[string]any{
 				"specialist": map[string]any{
 					"type":        "string",
-					"description": "Name of the specialist to invoke",
-					"enum":        names,
+					"description": "Name of the specialist to invoke (use /api/specialists to discover available names).",
 				},
 				"prompt": map[string]any{
 					"type":        "string",
@@ -53,7 +71,14 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
-	a, ok := t.reg.Get(args.Specialist)
+	reg := registryFromContext(ctx)
+	if reg == nil {
+		reg = t.reg
+	}
+	if reg == nil {
+		return map[string]any{"ok": false, "error": "no specialists configured"}, nil
+	}
+	a, ok := reg.Get(args.Specialist)
 	if !ok {
 		return map[string]any{"ok": false, "error": "unknown specialist"}, nil
 	}

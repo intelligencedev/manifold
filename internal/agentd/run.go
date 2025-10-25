@@ -56,6 +56,8 @@ import (
 	"manifold/internal/webui"
 )
 
+const systemUserID int64 = 0
+
 type app struct {
 	cfg               *config.Config
 	httpClient        *http.Client
@@ -64,9 +66,11 @@ type app struct {
 	baseToolRegistry  tools.Registry
 	toolRegistry      tools.Registry
 	specRegistry      *specialists.Registry
+	specRegMu         sync.RWMutex
+	userSpecRegs      map[int64]*specialists.Registry
 	warppMu           sync.RWMutex
 	warppRunner       *warpp.Runner
-	warppRegistry     *warpp.Registry
+	warppRegistries   map[int64]*warpp.Registry
 	warppStore        persist.WarppWorkflowStore
 	engine            *agent.Engine
 	chatStore         persist.ChatStore
@@ -238,6 +242,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		baseToolRegistry: baseToolRegistry,
 		toolRegistry:     toolRegistry,
 		specRegistry:     specReg,
+		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:             newRunStore(),
 	}
 
@@ -327,7 +332,7 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 
 	warpp.SetDefaultStore(wfStore)
 
-	if list, err := wfStore.ListWorkflows(ctx); err == nil && len(list) > 0 {
+	if list, err := wfStore.ListWorkflows(ctx, systemUserID); err == nil && len(list) > 0 {
 		wfreg = &warpp.Registry{}
 		for _, pw := range list {
 			b, _ := json.Marshal(pw)
@@ -342,12 +347,12 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 			b, _ := json.Marshal(w)
 			var pw persist.WarppWorkflow
 			if err := json.Unmarshal(b, &pw); err == nil {
-				_, _ = wfStore.Upsert(ctx, pw)
+				_, _ = wfStore.Upsert(ctx, systemUserID, pw)
 			}
 		}
 	}
 
-	a.warppRegistry = wfreg
+	a.warppRegistries = map[int64]*warpp.Registry{systemUserID: wfreg}
 	a.warppRunner = &warpp.Runner{Workflows: wfreg, Tools: toolRegistry}
 	a.warppStore = wfStore
 	return nil
@@ -404,7 +409,7 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 	specStore := databases.NewSpecialistsStore(pg)
 	_ = specStore.Init(ctx)
 
-	if list, err := specStore.List(ctx); err == nil {
+	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		existing := map[string]bool{}
 		for _, s := range list {
 			existing[s.Name] = true
@@ -413,7 +418,7 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 			if sc.Name == "" || existing[sc.Name] {
 				continue
 			}
-			_, _ = specStore.Upsert(ctx, persist.Specialist{
+			_, _ = specStore.Upsert(ctx, systemUserID, persist.Specialist{
 				Name: sc.Name, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
 				EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
 				ReasoningEffort: sc.ReasoningEffort, System: sc.System,
@@ -422,11 +427,11 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 		}
 	}
 
-	if list, err := specStore.List(ctx); err == nil {
+	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
 
-	if sp, ok, _ := specStore.GetByName(ctx, "orchestrator"); ok {
+	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
 		a.cfg.OpenAI.BaseURL = sp.BaseURL
 		a.cfg.OpenAI.APIKey = sp.APIKey
 		if strings.TrimSpace(sp.Model) != "" {

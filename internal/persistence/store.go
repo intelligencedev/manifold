@@ -19,6 +19,7 @@ type Store interface{}
 // Specialist represents a stored specialist configuration for CRUD.
 type Specialist struct {
 	ID              int64             `json:"id"`
+	UserID          int64             `json:"userId"`
 	Name            string            `json:"name"`
 	Description     string            `json:"description"`
 	BaseURL         string            `json:"baseURL"`
@@ -36,10 +37,10 @@ type Specialist struct {
 // SpecialistsStore defines CRUD over specialists.
 type SpecialistsStore interface {
 	Init(ctx context.Context) error
-	List(ctx context.Context) ([]Specialist, error)
-	GetByName(ctx context.Context, name string) (Specialist, bool, error)
-	Upsert(ctx context.Context, s Specialist) (Specialist, error)
-	Delete(ctx context.Context, name string) error
+	List(ctx context.Context, userID int64) ([]Specialist, error)
+	GetByName(ctx context.Context, userID int64, name string) (Specialist, bool, error)
+	Upsert(ctx context.Context, userID int64, s Specialist) (Specialist, error)
+	Delete(ctx context.Context, userID int64, name string) error
 }
 
 // ChatSession represents a persisted conversation with metadata for display.
@@ -82,6 +83,7 @@ type ChatStore interface {
 // It mirrors internal/warpp.Workflow but uses flexible types for nested fields
 // to avoid import cycles.
 type WarppWorkflow struct {
+	UserID         int64            `json:"userId"`
 	Intent         string           `json:"intent"`
 	Description    string           `json:"description"`
 	Keywords       []string         `json:"keywords"`
@@ -94,9 +96,9 @@ type WarppWorkflow struct {
 // WarppWorkflowStore persists WARPP workflows by intent.
 type WarppWorkflowStore interface {
 	Init(ctx context.Context) error
-	List(ctx context.Context) ([]any, error) // deprecated; use ListWorkflows
-	ListWorkflows(ctx context.Context) ([]WarppWorkflow, error)
-	Get(ctx context.Context, intent string) (WarppWorkflow, bool, error)
-	Upsert(ctx context.Context, wf WarppWorkflow) (WarppWorkflow, error)
-	Delete(ctx context.Context, intent string) error
+	List(ctx context.Context, userID int64) ([]any, error) // deprecated; use ListWorkflows
+	ListWorkflows(ctx context.Context, userID int64) ([]WarppWorkflow, error)
+	Get(ctx context.Context, userID int64, intent string) (WarppWorkflow, bool, error)
+	Upsert(ctx context.Context, userID int64, wf WarppWorkflow) (WarppWorkflow, error)
+	Delete(ctx context.Context, userID int64, intent string) error
 }

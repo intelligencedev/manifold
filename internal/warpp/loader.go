@@ -18,6 +18,8 @@ type Registry struct {
 	pathByIntent map[string]string
 }
 
+const defaultWorkflowUserID int64 = 0
+
 // defaultStore is an optional, package-level WarppWorkflowStore used by
 // defaultWorkflows() to source seed workflows from a database instead of
 // hard-coded values.
@@ -186,7 +188,7 @@ func defaultWorkflows() []Workflow {
 		return nil
 	}
 	_ = defaultStore.Init(context.Background())
-	list, err := defaultStore.ListWorkflows(context.Background())
+	list, err := defaultStore.ListWorkflows(context.Background(), defaultWorkflowUserID)
 	if err != nil || len(list) == 0 {
 		return nil
 	}
@@ -263,10 +265,11 @@ func ValidateWorkflow(w Workflow) error {
 	return nil
 }
 
-// LoadFromStore loads workflows from a persistence.WarppWorkflowStore. If the
+// LoadFromStore loads workflows from a persistence.WarppWorkflowStore for the
+// provided user ID. If the
 // provided store is nil or an error occurs, the registry will fall back to the
 // built-in defaults.
-func LoadFromStore(ctx context.Context, store persist.WarppWorkflowStore) (*Registry, error) {
+func LoadFromStore(ctx context.Context, store persist.WarppWorkflowStore, userID int64) (*Registry, error) {
 	r := &Registry{byIntent: map[string]Workflow{}, pathByIntent: map[string]string{}}
 	if store == nil {
 		// seed defaults
@@ -277,7 +280,7 @@ func LoadFromStore(ctx context.Context, store persist.WarppWorkflowStore) (*Regi
 	}
 	// best-effort init
 	_ = store.Init(ctx)
-	wfs, err := store.ListWorkflows(ctx)
+	wfs, err := store.ListWorkflows(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

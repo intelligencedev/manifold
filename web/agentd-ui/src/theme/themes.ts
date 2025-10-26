@@ -53,17 +53,17 @@ export const themes: ThemeDefinition[] = [
     appearance: 'dark',
     tokens: {
       // Neutrals (dark)
-      background: '12 14 16', // neutral-1 #0C0E10
-      surface: '17 20 23', // neutral-2 #111417
-      'surface-muted': '22 26 30', // neutral-3 #161A1E
-      border: '22 26 30', // stroke-soft = neutral-3
-      input: '28 33 38', // neutral-4 #1C2126
-      ring: '112 109 230', // iris-8 #706DE6
-      foreground: '231 235 239', // neutral-12 #E7EBEF
-      'muted-foreground': '138 151 163', // neutral-10 #8A97A3
-      'subtle-foreground': '104 119 132', // neutral-9 #687784
-      'faint-foreground': '77 90 102', // neutral-8 #4D5A66
-      muted: '17 20 23', // surface-2 equivalent
+      background: '7 9 12', // deepened base for stronger figure-ground contrast
+      surface: '20 24 30', // lifted cards for clearer separation
+      'surface-muted': '30 36 44', // elevated muted surface tone
+      border: '48 56 66', // brighter stroke for visible delineation
+      input: '40 48 60', // etched controls stand out against surface
+      ring: '138 134 255', // higher energy iris ring
+      foreground: '242 245 248', // brighter foreground copy
+      'muted-foreground': '176 187 200', // clearer secondary text
+      'subtle-foreground': '140 152 167', // more legible tertiary text
+      'faint-foreground': '108 120 134', // improved icon/meta contrast
+      muted: '20 24 30', // aligns with raised surfaces
       // Primary/semantics
       accent: '90 89 211', // iris-9 #5A59D3
       'accent-foreground': '255 255 255',

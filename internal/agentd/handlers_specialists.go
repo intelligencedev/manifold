@@ -81,7 +81,7 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				return
 			}
 			out := make([]persist.Specialist, 0, len(list)+1)
-			out = append(out, a.orchestratorSpecialist(r.Context()))
+			out = append(out, a.orchestratorSpecialist(r.Context(), userID))
 			out = append(out, list...)
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(out)
@@ -100,16 +100,27 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				return
 			}
 			if name == "orchestrator" {
-				if userID != systemUserID {
-					http.Error(w, "forbidden", http.StatusForbidden)
+				// Allow non-system users to persist a per-user orchestrator overlay
+				// without mutating the global engine/config.
+				if userID == systemUserID {
+					if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
 					return
 				}
-				if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
+				sp.Name = "orchestrator"
+				sp.UserID = userID
+				if _, err := a.specStore.Upsert(r.Context(), userID, sp); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context()))
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
+				a.invalidateSpecialistsCache(r.Context(), userID)
 				return
 			}
 			sp.Name = name
@@ -151,7 +162,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 		case http.MethodGet:
 			if name == "orchestrator" {
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context()))
+				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
 				return
 			}
 			sp, ok, err := a.specStore.GetByName(r.Context(), userID, name)
@@ -174,16 +185,25 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				return
 			}
 			if name == "orchestrator" {
-				if userID != systemUserID {
-					http.Error(w, "forbidden", http.StatusForbidden)
+				// Allow non-system users to update their per-user orchestrator overlay
+				if userID == systemUserID {
+					if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
+						http.Error(w, err.Error(), http.StatusInternalServerError)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
 					return
 				}
-				if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
+				sp.Name = "orchestrator"
+				sp.UserID = userID
+				if _, err := a.specStore.Upsert(r.Context(), userID, sp); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context()))
+				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
+				a.invalidateSpecialistsCache(r.Context(), userID)
 				return
 			}
 			sp.Name = name
@@ -213,9 +233,11 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 	}
 }
 
-func (a *app) orchestratorSpecialist(ctx context.Context) persist.Specialist {
+func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.Specialist {
+	// Start from global defaults
 	out := persist.Specialist{
 		ID:           0,
+		UserID:       userID,
 		Name:         "orchestrator",
 		Description:  "",
 		BaseURL:      a.cfg.OpenAI.BaseURL,
@@ -228,9 +250,33 @@ func (a *app) orchestratorSpecialist(ctx context.Context) persist.Specialist {
 		ExtraHeaders: a.cfg.OpenAI.ExtraHeaders,
 		ExtraParams:  a.cfg.OpenAI.ExtraParams,
 	}
-	if sp, ok, _ := a.specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
-		out.ReasoningEffort = sp.ReasoningEffort
+	// Apply per-user overlay if present
+	if sp, ok, _ := a.specStore.GetByName(ctx, userID, "orchestrator"); ok {
+		out.ID = sp.ID
 		out.Description = sp.Description
+		if strings.TrimSpace(sp.BaseURL) != "" {
+			out.BaseURL = sp.BaseURL
+		}
+		if strings.TrimSpace(sp.APIKey) != "" {
+			out.APIKey = sp.APIKey
+		}
+		if strings.TrimSpace(sp.Model) != "" {
+			out.Model = sp.Model
+		}
+		out.EnableTools = sp.EnableTools
+		if sp.AllowTools != nil {
+			out.AllowTools = append([]string(nil), sp.AllowTools...)
+		}
+		out.ReasoningEffort = sp.ReasoningEffort
+		if strings.TrimSpace(sp.System) != "" {
+			out.System = sp.System
+		}
+		if sp.ExtraHeaders != nil {
+			out.ExtraHeaders = sp.ExtraHeaders
+		}
+		if sp.ExtraParams != nil {
+			out.ExtraParams = sp.ExtraParams
+		}
 	}
 	return out
 }

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"manifold/internal/auth"
 )
 
 // Prompt represents a named prompt definition.
@@ -14,6 +16,7 @@ type Prompt struct {
 	Description string            `json:"description"`
 	Tags        []string          `json:"tags"`
 	Metadata    map[string]string `json:"metadata"`
+	OwnerID     int64             `json:"ownerId"`
 	CreatedAt   time.Time         `json:"createdAt"`
 }
 
@@ -41,6 +44,7 @@ type PromptVersion struct {
 	Guardrails  Guardrails                `json:"guardrails"`
 	ContentHash string                    `json:"contentHash"`
 	CreatedBy   string                    `json:"createdBy"`
+	OwnerID     int64                     `json:"ownerId"`
 	CreatedAt   time.Time                 `json:"createdAt"`
 }
 
@@ -109,6 +113,9 @@ var (
 
 // CreatePrompt persists a new prompt definition.
 func (r *Registry) CreatePrompt(ctx context.Context, prompt Prompt) (Prompt, error) {
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		prompt.OwnerID = u.ID
+	}
 	prompt.CreatedAt = r.clock.Now()
 	return r.store.CreatePrompt(ctx, prompt)
 }
@@ -122,6 +129,9 @@ func (r *Registry) CreatePromptVersion(ctx context.Context, promptID string, ver
 		return PromptVersion{}, fmt.Errorf("template must be provided")
 	}
 	version.PromptID = promptID
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		version.OwnerID = u.ID
+	}
 	hash, err := ComputeContentHash(version.Template, version.Variables)
 	if err != nil {
 		return PromptVersion{}, err

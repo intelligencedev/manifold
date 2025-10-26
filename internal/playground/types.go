@@ -20,6 +20,7 @@ const (
 type Run struct {
 	ID           string             `json:"id"`
 	ExperimentID string             `json:"experimentId"`
+	OwnerID      int64              `json:"ownerId"`
 	Plan         experiment.RunPlan `json:"plan"`
 	Status       RunStatus          `json:"status"`
 	CreatedAt    time.Time          `json:"createdAt"`

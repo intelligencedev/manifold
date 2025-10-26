@@ -6,6 +6,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.17.1
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.3.3
 	github.com/coreos/go-oidc/v3 v3.15.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20250824095233-c09b0e0c4c20
 	github.com/go-shiori/go-readability v0.0.0-20250217085726-9f5bf5ca7612
 	github.com/google/uuid v1.6.0

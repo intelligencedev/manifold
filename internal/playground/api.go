@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"manifold/internal/auth"
 	"manifold/internal/playground/artifacts"
 	"manifold/internal/playground/dataset"
 	"manifold/internal/playground/eval"
@@ -135,6 +136,12 @@ func (s *Service) ListDatasetRows(ctx context.Context, id string) ([]dataset.Row
 
 // CreateExperiment registers an experiment specification and persists it.
 func (s *Service) CreateExperiment(ctx context.Context, spec experiment.ExperimentSpec) (experiment.ExperimentSpec, error) {
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		spec.OwnerID = u.ID
+		if spec.CreatedBy == "" {
+			spec.CreatedBy = u.Email
+		}
+	}
 	saved, err := s.store.CreateExperiment(ctx, spec)
 	if err != nil {
 		return experiment.ExperimentSpec{}, err
@@ -198,9 +205,14 @@ func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error
 	}
 	spec = enrichedSpec
 
+	var ownerID int64
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		ownerID = u.ID
+	}
 	run := Run{
 		ID:           runID,
 		ExperimentID: experimentID,
+		OwnerID:      ownerID,
 		Plan:         plan,
 		Status:       RunStatusPending,
 		CreatedAt:    time.Now().UTC(),

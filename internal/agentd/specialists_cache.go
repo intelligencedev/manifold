@@ -21,7 +21,20 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 	if err != nil {
 		return nil, err
 	}
-	reg := specialists.NewRegistry(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
+	// Derive a per-user base OpenAI config from user's orchestrator overlay if present
+	base := a.cfg.OpenAI
+	if sp, ok, _ := a.specStore.GetByName(ctx, userID, "orchestrator"); ok {
+		if sp.BaseURL != "" {
+			base.BaseURL = sp.BaseURL
+		}
+		if sp.APIKey != "" {
+			base.APIKey = sp.APIKey
+		}
+		if sp.Model != "" {
+			base.Model = sp.Model
+		}
+	}
+	reg := specialists.NewRegistry(base, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
 
 	a.specRegMu.Lock()
 	if a.userSpecRegs == nil {

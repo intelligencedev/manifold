@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"manifold/internal/auth"
 )
 
 // Dataset groups rows under a named collection.
@@ -15,6 +17,7 @@ type Dataset struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	Tags        []string          `json:"tags"`
+	OwnerID     int64             `json:"ownerId"`
 	CreatedAt   time.Time         `json:"createdAt"`
 	Metadata    map[string]string `json:"metadata"`
 }
@@ -89,6 +92,9 @@ var (
 
 // CreateDataset registers a dataset with optional initial rows via snapshot.
 func (s *Service) CreateDataset(ctx context.Context, ds Dataset, rows []Row) (Dataset, error) {
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		ds.OwnerID = u.ID
+	}
 	ds.CreatedAt = s.clock.Now()
 	created, err := s.store.CreateDataset(ctx, ds)
 	if err != nil {
@@ -226,15 +232,28 @@ func (s *InMemoryStore) UpdateDataset(_ context.Context, ds Dataset) (Dataset, e
 }
 
 // GetDataset retrieves a dataset.
-func (s *InMemoryStore) GetDataset(_ context.Context, id string) (Dataset, bool, error) {
+func (s *InMemoryStore) GetDataset(ctx context.Context, id string) (Dataset, bool, error) {
 	ds, ok := s.datasets[id]
-	return ds, ok, nil
+	if !ok {
+		return Dataset{}, false, nil
+	}
+	if u, okU := auth.CurrentUser(ctx); okU && u != nil {
+		if ds.OwnerID != u.ID {
+			return Dataset{}, false, nil
+		}
+	}
+	return ds, true, nil
 }
 
 // ListDatasets returns all dataset metadata sorted by creation time descending.
-func (s *InMemoryStore) ListDatasets(_ context.Context) ([]Dataset, error) {
+func (s *InMemoryStore) ListDatasets(ctx context.Context) ([]Dataset, error) {
 	items := make([]Dataset, 0, len(s.datasets))
 	for _, ds := range s.datasets {
+		if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+			if ds.OwnerID != u.ID {
+				continue
+			}
+		}
 		items = append(items, ds)
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].CreatedAt.After(items[j].CreatedAt) })
@@ -250,7 +269,14 @@ func (s *InMemoryStore) CreateSnapshot(_ context.Context, snapshot Snapshot, row
 }
 
 // ListSnapshotRows returns rows sorted by ID.
-func (s *InMemoryStore) ListSnapshotRows(_ context.Context, datasetID, snapshotID string) ([]Row, error) {
+func (s *InMemoryStore) ListSnapshotRows(ctx context.Context, datasetID, snapshotID string) ([]Row, error) {
+	if ds, ok := s.datasets[datasetID]; ok {
+		if u, okU := auth.CurrentUser(ctx); okU && u != nil {
+			if ds.OwnerID != u.ID {
+				return nil, nil
+			}
+		}
+	}
 	key := snapshotKey(datasetID, snapshotID)
 	rows := append([]Row(nil), s.rows[key]...)
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
@@ -258,8 +284,15 @@ func (s *InMemoryStore) ListSnapshotRows(_ context.Context, datasetID, snapshotI
 }
 
 // DeleteDataset removes dataset and its rows.
-func (s *InMemoryStore) DeleteDataset(_ context.Context, id string) error {
-	delete(s.datasets, id)
+func (s *InMemoryStore) DeleteDataset(ctx context.Context, id string) error {
+	if ds, ok := s.datasets[id]; ok {
+		if u, okU := auth.CurrentUser(ctx); okU && u != nil {
+			if ds.OwnerID != u.ID {
+				return nil
+			}
+		}
+		delete(s.datasets, id)
+	}
 	// remove snapshots/rows for initial snapshot key if present
 	for k := range s.rows {
 		if strings.HasPrefix(k, id+":") {

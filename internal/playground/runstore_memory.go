@@ -8,6 +8,7 @@ import (
 
 	"slices"
 
+	"manifold/internal/auth"
 	"manifold/internal/playground/experiment"
 )
 
@@ -37,19 +38,32 @@ func (s *InMemoryRunStore) CreateExperiment(_ context.Context, spec experiment.E
 }
 
 // GetExperiment returns the spec if found.
-func (s *InMemoryRunStore) GetExperiment(_ context.Context, id string) (experiment.ExperimentSpec, bool, error) {
+func (s *InMemoryRunStore) GetExperiment(ctx context.Context, id string) (experiment.ExperimentSpec, bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	spec, ok := s.experiments[id]
-	return spec, ok, nil
+	if !ok {
+		return experiment.ExperimentSpec{}, false, nil
+	}
+	if u, okU := auth.CurrentUser(ctx); okU && u != nil {
+		if spec.OwnerID != u.ID {
+			return experiment.ExperimentSpec{}, false, nil
+		}
+	}
+	return spec, true, nil
 }
 
 // ListExperiments returns all experiments sorted by creation time descending.
-func (s *InMemoryRunStore) ListExperiments(_ context.Context) ([]experiment.ExperimentSpec, error) {
+func (s *InMemoryRunStore) ListExperiments(ctx context.Context) ([]experiment.ExperimentSpec, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	items := make([]experiment.ExperimentSpec, 0, len(s.experiments))
 	for _, spec := range s.experiments {
+		if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+			if spec.OwnerID != u.ID {
+				continue
+			}
+		}
 		items = append(items, spec)
 	}
 	slices.SortFunc(items, func(a, b experiment.ExperimentSpec) int {
@@ -101,12 +115,19 @@ func (s *InMemoryRunStore) AppendResults(_ context.Context, runID string, result
 }
 
 // ListRuns returns runs for an experiment ordered by creation time desc.
-func (s *InMemoryRunStore) ListRuns(_ context.Context, experimentID string) ([]Run, error) {
+func (s *InMemoryRunStore) ListRuns(ctx context.Context, experimentID string) ([]Run, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	var out []Run
+	var uid int64
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		uid = u.ID
+	}
 	for _, run := range s.runs {
 		if run.ExperimentID == experimentID {
+			if uid != 0 && run.OwnerID != uid {
+				continue
+			}
 			out = append(out, run)
 		}
 	}
@@ -123,9 +144,17 @@ func (s *InMemoryRunStore) ListRuns(_ context.Context, experimentID string) ([]R
 }
 
 // ListRunResults returns the stored results for a run.
-func (s *InMemoryRunStore) ListRunResults(_ context.Context, runID string) ([]RunResult, error) {
+func (s *InMemoryRunStore) ListRunResults(ctx context.Context, runID string) ([]RunResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	// Enforce ownership via the run
+	if run, ok := s.runs[runID]; ok {
+		if u, okU := auth.CurrentUser(ctx); okU && u != nil {
+			if run.OwnerID != u.ID {
+				return nil, nil
+			}
+		}
+	}
 	items := s.runResults[runID]
 	if len(items) == 0 {
 		return nil, nil

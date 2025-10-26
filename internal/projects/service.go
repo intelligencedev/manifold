@@ -138,7 +138,6 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 		}
 	}
 	// Seed helper files (best-effort)
-	_ = os.WriteFile(filepath.Join(root, ".gitignore"), []byte("*\n!.gitignore\n!.meta/\n!.meta/project.json\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("# Project\n\nThis directory is managed by the platform.\n"), 0o644)
 	return Project{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Bytes: 0, FileCount: 0}, nil
 }

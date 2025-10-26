@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"manifold/internal/auth"
 	"manifold/internal/playground"
 	"manifold/internal/playground/dataset"
 	"manifold/internal/playground/experiment"
@@ -49,47 +50,72 @@ func NewPlaygroundStoreFromDSN(ctx context.Context, dsn string) (*PlaygroundStor
 func (s *PlaygroundStore) initSchema(ctx context.Context) error {
 	stmts := []string{
 		`CREATE TABLE IF NOT EXISTS playground_prompts (
-            id TEXT PRIMARY KEY,
-            payload JSONB NOT NULL
-        );`,
+			id TEXT PRIMARY KEY,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS playground_prompt_versions (
-            id TEXT PRIMARY KEY,
-            prompt_id TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL,
-            payload JSONB NOT NULL
-        );`,
+			id TEXT PRIMARY KEY,
+			prompt_id TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS playground_datasets (
-            id TEXT PRIMARY KEY,
-            payload JSONB NOT NULL
-        );`,
+			id TEXT PRIMARY KEY,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS playground_snapshots (
-            id TEXT NOT NULL,
-            dataset_id TEXT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL,
-            payload JSONB NOT NULL,
-            PRIMARY KEY (dataset_id, id)
-        );`,
+			id TEXT NOT NULL,
+			dataset_id TEXT NOT NULL,
+			created_at TIMESTAMPTZ NOT NULL,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL,
+			PRIMARY KEY (dataset_id, id)
+		);`,
 		`CREATE TABLE IF NOT EXISTS playground_rows (
-            dataset_id TEXT NOT NULL,
-            snapshot_id TEXT NOT NULL,
-            row_id TEXT NOT NULL,
-            payload JSONB NOT NULL,
-            PRIMARY KEY (dataset_id, snapshot_id, row_id)
-        );`,
+			dataset_id TEXT NOT NULL,
+			snapshot_id TEXT NOT NULL,
+			row_id TEXT NOT NULL,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL,
+			PRIMARY KEY (dataset_id, snapshot_id, row_id)
+		);`,
 		`CREATE TABLE IF NOT EXISTS playground_experiments (
-            id TEXT PRIMARY KEY,
-            payload JSONB NOT NULL
-        );`,
+			id TEXT PRIMARY KEY,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS playground_runs (
-            id TEXT PRIMARY KEY,
-            experiment_id TEXT NOT NULL,
-            payload JSONB NOT NULL
-        );`,
+			id TEXT PRIMARY KEY,
+			experiment_id TEXT NOT NULL,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL
+		);`,
 		`CREATE TABLE IF NOT EXISTS playground_run_results (
-            id TEXT PRIMARY KEY,
-            run_id TEXT NOT NULL,
-            payload JSONB NOT NULL
-        );`,
+			id TEXT PRIMARY KEY,
+			run_id TEXT NOT NULL,
+			user_id BIGINT NOT NULL DEFAULT 0,
+			payload JSONB NOT NULL
+		);`,
+		// Backfill for existing deployments: ensure user_id columns and indexes exist.
+		`ALTER TABLE playground_prompts ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE playground_prompt_versions ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE playground_datasets ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE playground_snapshots ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE playground_rows ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE playground_experiments ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE playground_runs ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE playground_run_results ADD COLUMN IF NOT EXISTS user_id BIGINT NOT NULL DEFAULT 0;`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_prompts_user ON playground_prompts(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_prompt_versions_user ON playground_prompt_versions(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_datasets_user ON playground_datasets(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_snapshots_user ON playground_snapshots(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_rows_user ON playground_rows(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_experiments_user ON playground_experiments(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_runs_user ON playground_runs(user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_pg_run_results_user ON playground_run_results(user_id);`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.pool.Exec(ctx, stmt); err != nil {
@@ -105,7 +131,8 @@ func (s *PlaygroundStore) CreatePrompt(ctx context.Context, prompt registry.Prom
 	if err != nil {
 		return registry.Prompt{}, err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO playground_prompts (id, payload) VALUES ($1, $2)`, prompt.ID, data)
+	uid := userIDFromContext(ctx)
+	_, err = s.pool.Exec(ctx, `INSERT INTO playground_prompts (id, user_id, payload) VALUES ($1, $2, $3)`, prompt.ID, uid, data)
 	if err != nil {
 		if isPGConstraint(err) {
 			return registry.Prompt{}, registry.ErrPromptExists
@@ -117,7 +144,8 @@ func (s *PlaygroundStore) CreatePrompt(ctx context.Context, prompt registry.Prom
 
 // GetPrompt loads a prompt by ID.
 func (s *PlaygroundStore) GetPrompt(ctx context.Context, id string) (registry.Prompt, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_prompts WHERE id=$1`, id)
+	uid := userIDFromContext(ctx)
+	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_prompts WHERE id=$1 AND user_id=$2`, id, uid)
 	var payload []byte
 	if err := row.Scan(&payload); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -134,7 +162,8 @@ func (s *PlaygroundStore) GetPrompt(ctx context.Context, id string) (registry.Pr
 
 // ListPrompts fetches all prompts and filters in memory.
 func (s *PlaygroundStore) ListPrompts(ctx context.Context, filter registry.ListFilter) ([]registry.Prompt, error) {
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_prompts`)
+	uid := userIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_prompts WHERE user_id=$1`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +232,8 @@ func (s *PlaygroundStore) CreatePromptVersion(ctx context.Context, version regis
 	if err != nil {
 		return registry.PromptVersion{}, err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO playground_prompt_versions (id, prompt_id, created_at, payload) VALUES ($1,$2,$3,$4)`, version.ID, version.PromptID, version.CreatedAt.UTC(), data)
+	uid := userIDFromContext(ctx)
+	_, err = s.pool.Exec(ctx, `INSERT INTO playground_prompt_versions (id, prompt_id, created_at, user_id, payload) VALUES ($1,$2,$3,$4,$5)`, version.ID, version.PromptID, version.CreatedAt.UTC(), uid, data)
 	if err != nil {
 		return registry.PromptVersion{}, err
 	}
@@ -212,7 +242,8 @@ func (s *PlaygroundStore) CreatePromptVersion(ctx context.Context, version regis
 
 // ListPromptVersions returns all versions for a prompt newest first.
 func (s *PlaygroundStore) ListPromptVersions(ctx context.Context, promptID string) ([]registry.PromptVersion, error) {
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_prompt_versions WHERE prompt_id=$1 ORDER BY created_at DESC`, promptID)
+	uid := userIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_prompt_versions WHERE prompt_id=$1 AND user_id=$2 ORDER BY created_at DESC`, promptID, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +266,8 @@ func (s *PlaygroundStore) ListPromptVersions(ctx context.Context, promptID strin
 
 // GetPromptVersion fetches a prompt version by ID.
 func (s *PlaygroundStore) GetPromptVersion(ctx context.Context, id string) (registry.PromptVersion, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_prompt_versions WHERE id=$1`, id)
+	uid := userIDFromContext(ctx)
+	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_prompt_versions WHERE id=$1 AND user_id=$2`, id, uid)
 	var payload []byte
 	if err := row.Scan(&payload); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -256,7 +288,8 @@ func (s *PlaygroundStore) CreateDataset(ctx context.Context, ds dataset.Dataset)
 	if err != nil {
 		return dataset.Dataset{}, err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO playground_datasets (id, payload) VALUES ($1,$2)`, ds.ID, data)
+	uid := userIDFromContext(ctx)
+	_, err = s.pool.Exec(ctx, `INSERT INTO playground_datasets (id, user_id, payload) VALUES ($1,$2,$3)`, ds.ID, uid, data)
 	if err != nil {
 		return dataset.Dataset{}, err
 	}
@@ -269,7 +302,8 @@ func (s *PlaygroundStore) UpdateDataset(ctx context.Context, ds dataset.Dataset)
 	if err != nil {
 		return dataset.Dataset{}, err
 	}
-	cmd, err := s.pool.Exec(ctx, `UPDATE playground_datasets SET payload=$2 WHERE id=$1`, ds.ID, data)
+	uid := userIDFromContext(ctx)
+	cmd, err := s.pool.Exec(ctx, `UPDATE playground_datasets SET payload=$3 WHERE id=$1 AND user_id=$2`, ds.ID, uid, data)
 	if err != nil {
 		return dataset.Dataset{}, err
 	}
@@ -281,7 +315,8 @@ func (s *PlaygroundStore) UpdateDataset(ctx context.Context, ds dataset.Dataset)
 
 // GetDataset fetches dataset metadata.
 func (s *PlaygroundStore) GetDataset(ctx context.Context, id string) (dataset.Dataset, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_datasets WHERE id=$1`, id)
+	uid := userIDFromContext(ctx)
+	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_datasets WHERE id=$1 AND user_id=$2`, id, uid)
 	var payload []byte
 	if err := row.Scan(&payload); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -298,7 +333,8 @@ func (s *PlaygroundStore) GetDataset(ctx context.Context, id string) (dataset.Da
 
 // ListDatasets returns all dataset metadata sorted by creation time descending.
 func (s *PlaygroundStore) ListDatasets(ctx context.Context) ([]dataset.Dataset, error) {
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_datasets`)
+	uid := userIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_datasets WHERE user_id=$1`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -335,11 +371,12 @@ func (s *PlaygroundStore) CreateSnapshot(ctx context.Context, snapshot dataset.S
 	if err != nil {
 		return dataset.Snapshot{}, err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO playground_snapshots (dataset_id,id,created_at,payload) VALUES ($1,$2,$3,$4)
-        ON CONFLICT (dataset_id, id) DO UPDATE SET created_at=EXCLUDED.created_at, payload=EXCLUDED.payload`, snapshot.DatasetID, snapshot.ID, snapshot.CreatedAt.UTC(), meta); err != nil {
+	uid := userIDFromContext(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO playground_snapshots (dataset_id,id,created_at,user_id,payload) VALUES ($1,$2,$3,$4,$5)
+		ON CONFLICT (dataset_id, id) DO UPDATE SET created_at=EXCLUDED.created_at, payload=EXCLUDED.payload`, snapshot.DatasetID, snapshot.ID, snapshot.CreatedAt.UTC(), uid, meta); err != nil {
 		return dataset.Snapshot{}, err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM playground_rows WHERE dataset_id=$1 AND snapshot_id=$2`, snapshot.DatasetID, snapshot.ID); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM playground_rows WHERE dataset_id=$1 AND snapshot_id=$2 AND user_id=$3`, snapshot.DatasetID, snapshot.ID, uid); err != nil {
 		return dataset.Snapshot{}, err
 	}
 	for _, row := range rows {
@@ -348,7 +385,7 @@ func (s *PlaygroundStore) CreateSnapshot(ctx context.Context, snapshot dataset.S
 			err = mErr
 			return dataset.Snapshot{}, err
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO playground_rows (dataset_id,snapshot_id,row_id,payload) VALUES ($1,$2,$3,$4)`, snapshot.DatasetID, snapshot.ID, row.ID, payload); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO playground_rows (dataset_id,snapshot_id,row_id,user_id,payload) VALUES ($1,$2,$3,$4,$5)`, snapshot.DatasetID, snapshot.ID, row.ID, uid, payload); err != nil {
 			return dataset.Snapshot{}, err
 		}
 	}
@@ -360,7 +397,8 @@ func (s *PlaygroundStore) CreateSnapshot(ctx context.Context, snapshot dataset.S
 
 // ListSnapshotRows returns rows for a snapshot ordered by row_id.
 func (s *PlaygroundStore) ListSnapshotRows(ctx context.Context, datasetID, snapshotID string) ([]dataset.Row, error) {
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_rows WHERE dataset_id=$1 AND snapshot_id=$2 ORDER BY row_id ASC`, datasetID, snapshotID)
+	uid := userIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_rows WHERE dataset_id=$1 AND snapshot_id=$2 AND user_id=$3 ORDER BY row_id ASC`, datasetID, snapshotID, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -387,8 +425,9 @@ func (s *PlaygroundStore) CreateExperiment(ctx context.Context, spec experiment.
 	if err != nil {
 		return experiment.ExperimentSpec{}, err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO playground_experiments (id, payload) VALUES ($1,$2)
-        ON CONFLICT (id) DO UPDATE SET payload=EXCLUDED.payload`, spec.ID, payload)
+	uid := userIDFromContext(ctx)
+	_, err = s.pool.Exec(ctx, `INSERT INTO playground_experiments (id, user_id, payload) VALUES ($1,$2,$3)
+		ON CONFLICT (id) DO UPDATE SET payload=EXCLUDED.payload`, spec.ID, uid, payload)
 	if err != nil {
 		return experiment.ExperimentSpec{}, err
 	}
@@ -397,7 +436,8 @@ func (s *PlaygroundStore) CreateExperiment(ctx context.Context, spec experiment.
 
 // GetExperiment retrieves the experiment spec by ID.
 func (s *PlaygroundStore) GetExperiment(ctx context.Context, id string) (experiment.ExperimentSpec, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_experiments WHERE id=$1`, id)
+	uid := userIDFromContext(ctx)
+	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_experiments WHERE id=$1 AND user_id=$2`, id, uid)
 	var payload []byte
 	if err := row.Scan(&payload); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -414,7 +454,8 @@ func (s *PlaygroundStore) GetExperiment(ctx context.Context, id string) (experim
 
 // ListExperiments returns all experiments sorted by creation time descending.
 func (s *PlaygroundStore) ListExperiments(ctx context.Context) ([]experiment.ExperimentSpec, error) {
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_experiments`)
+	uid := userIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_experiments WHERE user_id=$1`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -441,8 +482,9 @@ func (s *PlaygroundStore) CreateRun(ctx context.Context, run playground.Run) (pl
 	if err != nil {
 		return playground.Run{}, err
 	}
-	_, err = s.pool.Exec(ctx, `INSERT INTO playground_runs (id, experiment_id, payload) VALUES ($1,$2,$3)
-        ON CONFLICT (id) DO UPDATE SET experiment_id=EXCLUDED.experiment_id, payload=EXCLUDED.payload`, run.ID, run.ExperimentID, payload)
+	uid := userIDFromContext(ctx)
+	_, err = s.pool.Exec(ctx, `INSERT INTO playground_runs (id, experiment_id, user_id, payload) VALUES ($1,$2,$3,$4)
+		ON CONFLICT (id) DO UPDATE SET experiment_id=EXCLUDED.experiment_id, payload=EXCLUDED.payload`, run.ID, run.ExperimentID, uid, payload)
 	if err != nil {
 		return playground.Run{}, err
 	}
@@ -451,7 +493,7 @@ func (s *PlaygroundStore) CreateRun(ctx context.Context, run playground.Run) (pl
 
 // UpdateRunStatus updates the stored run with new status values.
 func (s *PlaygroundStore) UpdateRunStatus(ctx context.Context, id string, status playground.RunStatus, endedAt time.Time, errMsg string, metrics map[string]float64) error {
-	run, ok, err := s.getRun(ctx, id)
+	run, ok, err := s.getRun(ctx, id, userIDFromContext(ctx))
 	if err != nil {
 		return err
 	}
@@ -468,20 +510,21 @@ func (s *PlaygroundStore) UpdateRunStatus(ctx context.Context, id string, status
 	if err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `UPDATE playground_runs SET payload=$1 WHERE id=$2`, payload, id)
+	_, err = s.pool.Exec(ctx, `UPDATE playground_runs SET payload=$1 WHERE id=$2 AND user_id=$3`, payload, id, userIDFromContext(ctx))
 	return err
 }
 
 // AppendResults persists run results.
 func (s *PlaygroundStore) AppendResults(ctx context.Context, runID string, results []playground.RunResult) error {
 	batch := &pgx.Batch{}
+	uid := userIDFromContext(ctx)
 	for _, res := range results {
 		payload, err := json.Marshal(res)
 		if err != nil {
 			return err
 		}
-		batch.Queue(`INSERT INTO playground_run_results (id, run_id, payload) VALUES ($1,$2,$3)
-            ON CONFLICT (id) DO UPDATE SET run_id=EXCLUDED.run_id, payload=EXCLUDED.payload`, res.ID, runID, payload)
+		batch.Queue(`INSERT INTO playground_run_results (id, run_id, user_id, payload) VALUES ($1,$2,$3,$4)
+			ON CONFLICT (id) DO UPDATE SET run_id=EXCLUDED.run_id, payload=EXCLUDED.payload`, res.ID, runID, uid, payload)
 	}
 	br := s.pool.SendBatch(ctx, batch)
 	for range results {
@@ -495,7 +538,8 @@ func (s *PlaygroundStore) AppendResults(ctx context.Context, runID string, resul
 
 // ListRuns returns runs for an experiment ordered by creation time.
 func (s *PlaygroundStore) ListRuns(ctx context.Context, experimentID string) ([]playground.Run, error) {
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_runs WHERE experiment_id=$1`, experimentID)
+	uid := userIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_runs WHERE experiment_id=$1 AND user_id=$2`, experimentID, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -519,7 +563,8 @@ func (s *PlaygroundStore) ListRuns(ctx context.Context, experimentID string) ([]
 
 // ListRunResults returns persisted results for a run ordered by row and variant.
 func (s *PlaygroundStore) ListRunResults(ctx context.Context, runID string) ([]playground.RunResult, error) {
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_run_results WHERE run_id=$1`, runID)
+	uid := userIDFromContext(ctx)
+	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_run_results WHERE run_id=$1 AND user_id=$2`, runID, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -556,8 +601,9 @@ func (s *PlaygroundStore) ListRunResults(ctx context.Context, runID string) ([]p
 // DeletePrompt removes a prompt and its versions.
 func (s *PlaygroundStore) DeletePrompt(ctx context.Context, id string) error {
 	batch := &pgx.Batch{}
-	batch.Queue(`DELETE FROM playground_prompt_versions WHERE prompt_id=$1`, id)
-	batch.Queue(`DELETE FROM playground_prompts WHERE id=$1`, id)
+	uid := userIDFromContext(ctx)
+	batch.Queue(`DELETE FROM playground_prompt_versions WHERE prompt_id=$1 AND user_id=$2`, id, uid)
+	batch.Queue(`DELETE FROM playground_prompts WHERE id=$1 AND user_id=$2`, id, uid)
 	br := s.pool.SendBatch(ctx, batch)
 	for i := 0; i < 2; i++ {
 		if _, err := br.Exec(); err != nil {
@@ -580,13 +626,14 @@ func (s *PlaygroundStore) DeleteDataset(ctx context.Context, id string) error {
 		}
 	}()
 	// delete rows for all snapshots of this dataset
-	if _, err = tx.Exec(ctx, `DELETE FROM playground_rows WHERE dataset_id=$1`, id); err != nil {
+	uid := userIDFromContext(ctx)
+	if _, err = tx.Exec(ctx, `DELETE FROM playground_rows WHERE dataset_id=$1 AND user_id=$2`, id, uid); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM playground_snapshots WHERE dataset_id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM playground_snapshots WHERE dataset_id=$1 AND user_id=$2`, id, uid); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM playground_datasets WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM playground_datasets WHERE id=$1 AND user_id=$2`, id, uid); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -604,7 +651,8 @@ func (s *PlaygroundStore) DeleteExperiment(ctx context.Context, id string) error
 		}
 	}()
 	// find runs
-	rows, err := tx.Query(ctx, `SELECT id FROM playground_runs WHERE experiment_id=$1`, id)
+	uid := userIDFromContext(ctx)
+	rows, err := tx.Query(ctx, `SELECT id FROM playground_runs WHERE experiment_id=$1 AND user_id=$2`, id, uid)
 	if err != nil {
 		return err
 	}
@@ -621,14 +669,14 @@ func (s *PlaygroundStore) DeleteExperiment(ctx context.Context, id string) error
 	rows.Close()
 	// delete results for runs
 	for _, rid := range runIDs {
-		if _, err = tx.Exec(ctx, `DELETE FROM playground_run_results WHERE run_id=$1`, rid); err != nil {
+		if _, err = tx.Exec(ctx, `DELETE FROM playground_run_results WHERE run_id=$1 AND user_id=$2`, rid, uid); err != nil {
 			return err
 		}
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM playground_runs WHERE experiment_id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM playground_runs WHERE experiment_id=$1 AND user_id=$2`, id, uid); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `DELETE FROM playground_experiments WHERE id=$1`, id); err != nil {
+	if _, err = tx.Exec(ctx, `DELETE FROM playground_experiments WHERE id=$1 AND user_id=$2`, id, uid); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -645,8 +693,8 @@ func cloneMetrics(in map[string]float64) map[string]float64 {
 	return out
 }
 
-func (s *PlaygroundStore) getRun(ctx context.Context, id string) (playground.Run, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_runs WHERE id=$1`, id)
+func (s *PlaygroundStore) getRun(ctx context.Context, id string, uid int64) (playground.Run, bool, error) {
+	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_runs WHERE id=$1 AND user_id=$2`, id, uid)
 	var payload []byte
 	if err := row.Scan(&payload); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -679,4 +727,12 @@ func (s *PlaygroundStore) Close() {
 		return
 	}
 	s.pool.Close()
+}
+
+// userIDFromContext returns the authenticated user ID or 0 when not present.
+func userIDFromContext(ctx context.Context) int64 {
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		return u.ID
+	}
+	return 0
 }

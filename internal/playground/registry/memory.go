@@ -4,6 +4,8 @@ import (
 	"context"
 	"sort"
 	"strings"
+
+	"manifold/internal/auth"
 )
 
 // InMemoryStore offers a simple store for unit tests and prototypes.
@@ -23,7 +25,10 @@ func NewInMemoryStore() *InMemoryStore {
 }
 
 // CreatePrompt inserts the prompt if the ID was not used yet.
-func (s *InMemoryStore) CreatePrompt(_ context.Context, prompt Prompt) (Prompt, error) {
+func (s *InMemoryStore) CreatePrompt(ctx context.Context, prompt Prompt) (Prompt, error) {
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		prompt.OwnerID = u.ID
+	}
 	if _, ok := s.prompts[prompt.ID]; ok {
 		return Prompt{}, ErrPromptExists
 	}
@@ -32,15 +37,30 @@ func (s *InMemoryStore) CreatePrompt(_ context.Context, prompt Prompt) (Prompt, 
 }
 
 // GetPrompt fetches a prompt by ID.
-func (s *InMemoryStore) GetPrompt(_ context.Context, id string) (Prompt, bool, error) {
+func (s *InMemoryStore) GetPrompt(ctx context.Context, id string) (Prompt, bool, error) {
 	prompt, ok := s.prompts[id]
-	return prompt, ok, nil
+	if !ok {
+		return Prompt{}, false, nil
+	}
+	if u, okU := auth.CurrentUser(ctx); okU && u != nil {
+		if prompt.OwnerID != u.ID {
+			return Prompt{}, false, nil
+		}
+	}
+	return prompt, true, nil
 }
 
 // ListPrompts returns prompts sorted by creation time descending.
-func (s *InMemoryStore) ListPrompts(_ context.Context, filter ListFilter) ([]Prompt, error) {
+func (s *InMemoryStore) ListPrompts(ctx context.Context, filter ListFilter) ([]Prompt, error) {
+	var uid int64
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		uid = u.ID
+	}
 	var out []Prompt
 	for _, p := range s.prompts {
+		if uid != 0 && p.OwnerID != uid {
+			continue
+		}
 		if filter.Query != "" && !matchesQuery(p, filter.Query) {
 			continue
 		}
@@ -54,9 +74,12 @@ func (s *InMemoryStore) ListPrompts(_ context.Context, filter ListFilter) ([]Pro
 }
 
 // CreatePromptVersion appends a new version to the list.
-func (s *InMemoryStore) CreatePromptVersion(_ context.Context, version PromptVersion) (PromptVersion, error) {
+func (s *InMemoryStore) CreatePromptVersion(ctx context.Context, version PromptVersion) (PromptVersion, error) {
 	if _, ok := s.prompts[version.PromptID]; !ok {
 		return PromptVersion{}, ErrPromptNotFound
+	}
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		version.OwnerID = u.ID
 	}
 	s.versions[version.PromptID] = append(s.versions[version.PromptID], version)
 	s.versionByID[version.ID] = version
@@ -64,25 +87,50 @@ func (s *InMemoryStore) CreatePromptVersion(_ context.Context, version PromptVer
 }
 
 // ListPromptVersions returns all versions sorted newest first.
-func (s *InMemoryStore) ListPromptVersions(_ context.Context, promptID string) ([]PromptVersion, error) {
+func (s *InMemoryStore) ListPromptVersions(ctx context.Context, promptID string) ([]PromptVersion, error) {
 	versions := append([]PromptVersion(nil), s.versions[promptID]...)
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		filtered := versions[:0]
+		for _, v := range versions {
+			if v.OwnerID == u.ID {
+				filtered = append(filtered, v)
+			}
+		}
+		versions = filtered
+	}
 	sort.Slice(versions, func(i, j int) bool { return versions[i].CreatedAt.After(versions[j].CreatedAt) })
 	return versions, nil
 }
 
 // GetPromptVersion fetches a prompt version by ID.
-func (s *InMemoryStore) GetPromptVersion(_ context.Context, id string) (PromptVersion, bool, error) {
+func (s *InMemoryStore) GetPromptVersion(ctx context.Context, id string) (PromptVersion, bool, error) {
 	version, ok := s.versionByID[id]
-	return version, ok, nil
+	if !ok {
+		return PromptVersion{}, false, nil
+	}
+	if u, okU := auth.CurrentUser(ctx); okU && u != nil {
+		if version.OwnerID != u.ID {
+			return PromptVersion{}, false, nil
+		}
+	}
+	return version, true, nil
 }
 
 // DeletePrompt removes a prompt and all of its versions.
-func (s *InMemoryStore) DeletePrompt(_ context.Context, id string) error {
-	delete(s.prompts, id)
-	delete(s.versions, id)
+func (s *InMemoryStore) DeletePrompt(ctx context.Context, id string) error {
+	uid := int64(0)
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		uid = u.ID
+	}
+	if p, ok := s.prompts[id]; ok {
+		if uid == 0 || p.OwnerID == uid {
+			delete(s.prompts, id)
+			delete(s.versions, id)
+		}
+	}
 	// remove versionByID entries for this prompt
 	for vid, v := range s.versionByID {
-		if v.PromptID == id {
+		if v.PromptID == id && (uid == 0 || v.OwnerID == uid) {
 			delete(s.versionByID, vid)
 		}
 	}

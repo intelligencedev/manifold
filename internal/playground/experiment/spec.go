@@ -52,6 +52,7 @@ type ExperimentSpec struct {
 	Evaluators  []EvaluatorConfig `json:"evaluators"`
 	Budgets     BudgetConfig      `json:"budgets"`
 	Concurrency ConcurrencyConfig `json:"concurrency"`
+	OwnerID     int64             `json:"ownerId"`
 	CreatedAt   time.Time         `json:"createdAt"`
 	CreatedBy   string            `json:"createdBy"`
 }

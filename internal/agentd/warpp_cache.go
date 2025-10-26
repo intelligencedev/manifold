@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/warpp"
 )
 
@@ -80,6 +81,12 @@ func (a *app) invalidateWarppCache(ctx context.Context, userID int64) {
 				a.warppRunner.Workflows = reg
 			}
 			a.warppMu.Unlock()
+
+			// Auto-refresh registration of WARPP workflow tools for system user.
+			// This ensures newly added/updated workflows are exposed as tools.
+			if a.warppRunner != nil && a.toolRegistry != nil {
+				warpptool.RegisterAll(a.toolRegistry, a.warppRunner)
+			}
 		}
 		return
 	}

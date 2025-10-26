@@ -87,17 +87,17 @@ export const themes: ThemeDefinition[] = [
     appearance: 'light',
     tokens: {
       // Neutrals (light)
-      background: '252 252 250', // neutral-1 #FCFCFA
-      surface: '247 247 244', // neutral-2 #F7F7F4
-      'surface-muted': '242 242 239', // neutral-3 #F2F2EF
-      border: '234 236 231', // stroke-soft = neutral-4 #EAECE7
-      input: '242 242 239', // neutral-3
-      ring: '112 109 230', // iris-8 #706DE6
-      foreground: '22 26 26', // neutral-12 #161A1A
-      'muted-foreground': '91 101 96', // neutral-10 #5B6560
-      'subtle-foreground': '125 136 129', // neutral-9 #7D8881
-      'faint-foreground': '157 167 160', // neutral-8 #9DA7A0
-      muted: '247 247 244', // neutral-2
+      background: '254 254 252', // brighter canvas for sharper figure-ground contrast
+      surface: '244 244 240', // darker raised surfaces to create separation
+      'surface-muted': '234 235 228', // stronger muted panel tone
+      border: '208 212 204', // deeper stroke for clear edges
+      input: '238 238 233', // etched control bed
+      ring: '128 124 250', // slightly brighter iris ring
+      foreground: '15 19 22', // inkier body text
+      'muted-foreground': '56 65 62', // bolder secondary copy
+      'subtle-foreground': '90 100 97', // improved tertiary contrast
+      'faint-foreground': '126 136 132', // clearer metadata/icons
+      muted: '244 244 240', // aligns with revised surface tone
       // Primary/semantics
       accent: '90 89 211', // iris-9 #5A59D3
       'accent-foreground': '255 255 255',

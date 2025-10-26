@@ -29,6 +29,7 @@ import (
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/web"
+	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/warpp"
 
 	"manifold/internal/orchestrator"
@@ -208,6 +209,8 @@ func main() {
 	warpp.SetDefaultStore(mgr.Warpp)
 	wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp, systemUserID)
 	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: registry}
+	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly
+	warpptool.RegisterAll(registry, warppRunner)
 	// adapter to satisfy orchestrator.Runner
 	runner := orchestrator.NewWarppAdapter(warppRunner)
 

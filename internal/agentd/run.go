@@ -52,6 +52,7 @@ import (
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
+	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
 )
@@ -206,6 +207,13 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	parallelTool := multitool.NewParallel(toolRegistry)
 	toolRegistry.Register(parallelTool)
 
+	// WARPP workflows as tools (warpp_<intent>) for the agentd runtime, too
+	if err := a.initWarpp(ctx, toolRegistry); err == nil && a.warppRunner != nil {
+		warpptool.RegisterAll(toolRegistry, a.warppRunner)
+	} else if err != nil {
+		log.Warn().Err(err).Msg("warpp tool registration failed")
+	}
+
 	if !cfg.EnableTools {
 		toolRegistry = tools.NewRegistry()
 	} else if len(cfg.ToolAllowList) > 0 {
@@ -355,6 +363,8 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 	a.warppRegistries = map[int64]*warpp.Registry{systemUserID: wfreg}
 	a.warppRunner = &warpp.Runner{Workflows: wfreg, Tools: toolRegistry}
 	a.warppStore = wfStore
+	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly
+	warpptool.RegisterAll(toolRegistry, a.warppRunner)
 	return nil
 }
 

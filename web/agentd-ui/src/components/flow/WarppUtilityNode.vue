@@ -123,7 +123,7 @@
                 v-model="outputFrom"
                 type="text"
                 class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="payload | json.key | args.key"
+                placeholder="payload | delta.key | args.key"
                 :disabled="!isDesignMode"
                 @input="markDirty"
               />

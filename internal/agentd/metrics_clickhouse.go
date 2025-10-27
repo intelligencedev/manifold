@@ -105,12 +105,16 @@ func newClickHouseTokenMetrics(ctx context.Context, cfg config.ClickHouseConfig)
 	}, nil
 }
 
-func (c *clickhouseTokenMetrics) TokenTotals(ctx context.Context) ([]llmpkg.TokenTotal, time.Duration, error) {
+func (c *clickhouseTokenMetrics) TokenTotals(ctx context.Context, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error) {
 	if c.conn == nil {
 		return nil, 0, errors.New("clickhouse connection is nil")
 	}
 
-	start := time.Now().Add(-c.lookback)
+	if window <= 0 {
+		window = c.lookback
+	}
+
+	start := time.Now().Add(-window)
 	query := fmt.Sprintf(`
 SELECT
     %s AS model,
@@ -170,7 +174,7 @@ FROM %s
 		return out[i].Total > out[j].Total
 	})
 
-	return out, c.lookback, nil
+	return out, window, nil
 }
 
 func (c *clickhouseTokenMetrics) Source() string {

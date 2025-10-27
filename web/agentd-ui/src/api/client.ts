@@ -48,8 +48,15 @@ export interface TokenMetricsResponse {
   models: TokenMetricsRow[]
 }
 
-export async function fetchTokenMetrics(): Promise<TokenMetricsResponse> {
-  const response = await apiClient.get<TokenMetricsResponse>('/metrics/tokens')
+export interface TokenMetricsParams {
+  window?: string
+  windowSeconds?: number
+}
+
+export async function fetchTokenMetrics(params?: TokenMetricsParams): Promise<TokenMetricsResponse> {
+  const response = await apiClient.get<TokenMetricsResponse>('/metrics/tokens', {
+    params,
+  })
   return response.data
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -443,104 +444,104 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 
 // preprocessWorkflow applies UI-like convenience wiring so headless runs
 // behave like the Flow editor. It currently implements two features:
-//  - auto-aliasing of per-step produced keys (e.g., first_url) to
-//    fully-qualified attributes when a producing step exists in the plan;
-//  - normalizing write-file targets to a safe relative path under tmp/.
+//   - auto-aliasing of per-step produced keys (e.g., first_url) to
+//     fully-qualified attributes when a producing step exists in the plan;
+//   - normalizing write-file targets to a safe relative path under tmp/.
 func preprocessWorkflow(w Workflow, A Attrs) Workflow {
-    // Build a map of produced short aliases -> producer step id by scanning
-    // known tool types and their conventional outputs.
-    producers := map[string]string{}
-    for _, s := range w.Steps {
-        if s.Tool == nil {
-            continue
-        }
-        switch s.Tool.Name {
-        case "web_search":
-            // web_search produces first_url, second_url, urls
-            producers["first_url"] = s.ID
-            producers["second_url"] = s.ID
-            producers["urls"] = s.ID
-        case "web_fetch":
-            // web_fetch adds sources (with url/title/markdown) and final_url
-            producers["first_source"] = s.ID
-            producers["final_url"] = s.ID
-        case "llm_transform":
-            producers["report_md"] = s.ID
-            producers["llm_output"] = s.ID
-        case "utility_textbox":
-            // arbitrary output_attr may be specified; handled at render time
-        }
-    }
+	// Build a map of produced short aliases -> producer step id by scanning
+	// known tool types and their conventional outputs.
+	producers := map[string]string{}
+	for _, s := range w.Steps {
+		if s.Tool == nil {
+			continue
+		}
+		switch s.Tool.Name {
+		case "web_search":
+			// web_search produces first_url, second_url, urls
+			producers["first_url"] = s.ID
+			producers["second_url"] = s.ID
+			producers["urls"] = s.ID
+		case "web_fetch":
+			// web_fetch adds sources (with url/title/markdown) and final_url
+			producers["first_source"] = s.ID
+			producers["final_url"] = s.ID
+		case "llm_transform":
+			producers["report_md"] = s.ID
+			producers["llm_output"] = s.ID
+		case "utility_textbox":
+			// arbitrary output_attr may be specified; handled at render time
+		}
+	}
 
-    // Walk steps and rewrite literal string args containing ${A.key} where
-    // key is a known short alias into ${A.<step>.<key>}.
-    for si := range w.Steps {
-        s := &w.Steps[si]
-        if s.Tool == nil || s.Tool.Args == nil {
-            continue
-        }
-        // mutate args in-place
-        for ak, av := range s.Tool.Args {
-            switch tv := av.(type) {
-            case string:
-                newv := tv
-                for short := range producers {
-                    placeholder := "${A." + short + "}"
-                    if strings.Contains(newv, placeholder) {
-                        newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
-                    }
-                }
-                s.Tool.Args[ak] = newv
-            case []any:
-                // simple slice walk
-                for i, it := range tv {
-                    if str, ok := it.(string); ok {
-                        newv := str
-                        for short := range producers {
-                            placeholder := "${A." + short + "}"
-                            if strings.Contains(newv, placeholder) {
-                                newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
-                            }
-                        }
-                        tv[i] = newv
-                    }
-                }
-                s.Tool.Args[ak] = tv
-            case map[string]any:
-                // recurse shallow
-                for k2, v2 := range tv {
-                    if str, ok := v2.(string); ok {
-                        newv := str
-                        for short := range producers {
-                            placeholder := "${A." + short + "}"
-                            if strings.Contains(newv, placeholder) {
-                                newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
-                            }
-                        }
-                        tv[k2] = newv
-                    }
-                }
-                s.Tool.Args[ak] = tv
-            }
-        }
+	// Walk steps and rewrite literal string args containing ${A.key} where
+	// key is a known short alias into ${A.<step>.<key>}.
+	for si := range w.Steps {
+		s := &w.Steps[si]
+		if s.Tool == nil || s.Tool.Args == nil {
+			continue
+		}
+		// mutate args in-place
+		for ak, av := range s.Tool.Args {
+			switch tv := av.(type) {
+			case string:
+				newv := tv
+				for short := range producers {
+					placeholder := "${A." + short + "}"
+					if strings.Contains(newv, placeholder) {
+						newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
+					}
+				}
+				s.Tool.Args[ak] = newv
+			case []any:
+				// simple slice walk
+				for i, it := range tv {
+					if str, ok := it.(string); ok {
+						newv := str
+						for short := range producers {
+							placeholder := "${A." + short + "}"
+							if strings.Contains(newv, placeholder) {
+								newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
+							}
+						}
+						tv[i] = newv
+					}
+				}
+				s.Tool.Args[ak] = tv
+			case map[string]any:
+				// recurse shallow
+				for k2, v2 := range tv {
+					if str, ok := v2.(string); ok {
+						newv := str
+						for short := range producers {
+							placeholder := "${A." + short + "}"
+							if strings.Contains(newv, placeholder) {
+								newv = strings.ReplaceAll(newv, placeholder, "${A."+producers[short]+"."+short+"}")
+							}
+						}
+						tv[k2] = newv
+					}
+				}
+				s.Tool.Args[ak] = tv
+			}
+		}
 
-        // Normalize write_file targets: rewrite absolute paths to tmp/
-        if s.Tool.Name == "write_file" {
-            if p, ok := s.Tool.Args["path"].(string); ok {
-                if strings.HasPrefix(p, "/") || strings.Contains(p, ":\\") {
-                    // rewrite to tmp/<stepID>_<basename>
-                    base := p
-                    if idx := strings.LastIndexAny(p, "/\\"); idx != -1 {
-                        base = p[idx+1:]
-                    }
-                    safe := "tmp/" + s.ID + "_" + base
-                    s.Tool.Args["path"] = safe
-                }
-            }
-        }
-    }
+		// Normalize write_file targets: rewrite absolute paths to tmp/
+		if s.Tool.Name == "write_file" {
+			if p, ok := s.Tool.Args["path"].(string); ok {
+				if strings.HasPrefix(p, "/") || strings.Contains(p, ":\\") {
+					// rewrite to tmp/<stepID>_<basename>
+					base := p
+					if idx := strings.LastIndexAny(p, "/\\"); idx != -1 {
+						base = p[idx+1:]
+					}
+					safe := "tmp/" + s.ID + "_" + base
+					s.Tool.Args["path"] = safe
+				}
+			}
+		}
+	}
 
-    return w
+	return w
 }
 
 // renderArgs replaces ${A.key} placeholders in string values within args.
@@ -825,14 +826,17 @@ func (r *Runner) runStep(ctx context.Context, s Step, A Attrs) (payload []byte, 
 				case sel == "payload":
 					outVal = ps
 				case strings.HasPrefix(sel, "json."):
-					var top map[string]any
-					if err := json.Unmarshal(payload, &top); err == nil {
-						outVal = top[strings.TrimPrefix(sel, "json.")]
+					if v, ok := selectFromJSON(payload, strings.TrimPrefix(sel, "json.")); ok {
+						outVal = v
 					}
 				case strings.HasPrefix(sel, "args."):
-					outVal = args[strings.TrimPrefix(sel, "args.")]
+					if v, ok := selectFromData(args, strings.TrimPrefix(sel, "args.")); ok {
+						outVal = v
+					}
 				case strings.HasPrefix(sel, "delta."):
-					outVal = delta[strings.TrimPrefix(sel, "delta.")]
+					if v, ok := selectFromData(delta, strings.TrimPrefix(sel, "delta.")); ok {
+						outVal = v
+					}
 				default:
 					// unknown selector -> leave nil
 				}
@@ -852,6 +856,85 @@ func mergePreview(A Attrs, delta Attrs) Attrs {
 		out[k] = v
 	}
 	return out
+}
+
+func selectFromJSON(payload []byte, path string) (any, bool) {
+	if len(payload) == 0 || path == "" {
+		return nil, false
+	}
+	var data any
+	if err := json.Unmarshal(payload, &data); err != nil {
+		return nil, false
+	}
+	return navigatePath(data, strings.Split(path, "."))
+}
+
+func selectFromData(root any, path string) (any, bool) {
+	if path == "" {
+		if root == nil {
+			return nil, false
+		}
+		return root, true
+	}
+	return navigatePath(root, strings.Split(path, "."))
+}
+
+func navigatePath(cur any, parts []string) (any, bool) {
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		switch node := cur.(type) {
+		case map[string]any:
+			var ok bool
+			cur, ok = node[part]
+			if !ok {
+				return nil, false
+			}
+		case Attrs:
+			var ok bool
+			cur, ok = node[part]
+			if !ok {
+				return nil, false
+			}
+		case map[string]string:
+			val, ok := node[part]
+			if !ok {
+				return nil, false
+			}
+			cur = val
+		case []any:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil, false
+			}
+			cur = node[idx]
+		case []string:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil, false
+			}
+			cur = node[idx]
+		case []map[string]any:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil, false
+			}
+			cur = node[idx]
+		case []map[string]string:
+			idx, err := strconv.Atoi(part)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil, false
+			}
+			cur = node[idx]
+		default:
+			return nil, false
+		}
+	}
+	if cur == nil {
+		return nil, false
+	}
+	return cur, true
 }
 
 // --- tolerant coercion helpers and safety wrappers ---

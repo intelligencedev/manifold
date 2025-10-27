@@ -87,7 +87,7 @@ type app struct {
 }
 
 type tokenMetricsProvider interface {
-	TokenTotals(ctx context.Context) ([]llmpkg.TokenTotal, time.Duration, error)
+	TokenTotals(ctx context.Context, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
 	Source() string
 }
 

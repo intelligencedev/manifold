@@ -1,9 +1,12 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -37,17 +40,80 @@ type ImageAttachment struct {
 	Base64Data string
 }
 
+// sseTransportWrapper wraps an HTTP transport to inject the Accept: text/event-stream
+// header for streaming requests to self-hosted servers like mlx_lm. This fixes
+// compatibility issues where mlx_lm.server expects the SSE accept header for proper
+// chunked transfer encoding of streaming responses.
+type sseTransportWrapper struct {
+	inner      http.RoundTripper
+	baseURL    string
+	isSelfHost bool
+}
+
+func (t *sseTransportWrapper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Only inject header for self-hosted streaming requests
+	if t.isSelfHost && strings.HasPrefix(req.URL.String(), t.baseURL) {
+		// Check if this is a streaming request by looking for stream=true in params or body
+		isStreaming := false
+		if req.URL.Query().Get("stream") == "true" {
+			isStreaming = true
+		} else if req.Body != nil {
+			// For POST requests, we need to peek at the body to check for stream=true
+			bodyBytes, err := io.ReadAll(req.Body)
+			if err == nil {
+				req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				var payload map[string]any
+				if err := json.Unmarshal(bodyBytes, &payload); err == nil {
+					if stream, ok := payload["stream"].(bool); ok && stream {
+						isStreaming = true
+					}
+				}
+			}
+		}
+
+		// Inject the header only for streaming requests (detected via stream:true).
+		// mlx_lm.server handles streaming without the Accept header in many cases,
+		// but adding it for explicit streaming improves interoperability and is benign.
+		if isStreaming {
+			req.Header.Set("Accept", "text/event-stream")
+		}
+	}
+
+	return t.inner.RoundTrip(req)
+}
+
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	// For self-hosted mlx_lm.server, wrap the transport to inject Accept: text/event-stream header
+	if c.BaseURL != "" && c.BaseURL != "https://api.openai.com/v1" {
+		baseURL := strings.TrimSuffix(strings.TrimSpace(c.BaseURL), "/")
+		if baseURL == "" {
+			baseURL = "http://localhost:8000"
+		}
+
+		innerTransport := httpClient.Transport
+		if innerTransport == nil {
+			innerTransport = http.DefaultTransport
+		}
+
+		wrappedTransport := &sseTransportWrapper{
+			inner:      innerTransport,
+			baseURL:    baseURL,
+			isSelfHost: true,
+		}
+
+		httpClient.Transport = wrappedTransport
+	}
+
 	opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}
 	if c.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(c.BaseURL))
 	}
-	if httpClient != nil {
-		opts = append(opts, option.WithHTTPClient(httpClient))
-	}
-	if httpClient == nil {
-		httpClient = http.DefaultClient
-	}
+	opts = append(opts, option.WithHTTPClient(httpClient))
+
 	api := strings.ToLower(strings.TrimSpace(c.API))
 	if api == "" {
 		api = "completions"
@@ -466,6 +532,13 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatStreamResponses(ctx, msgs, tools, model, h)
 	}
+	// For self-hosted backends (llama.cpp, mlx_lm.server, etc.), prefer a generic SSE reader
+	// to maximize compatibility. Some servers diverge slightly from OpenAI's
+	// streaming chunk schema which can cause the SDK parser to abort and close
+	// the connection early (observed with mlx_lm.server BrokenPipeError).
+	if c.isSelfHosted() {
+		return c.chatStreamSSEFallback(ctx, msgs, tools, model, h)
+	}
 	log := observability.LoggerWithTrace(ctx)
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
@@ -498,8 +571,12 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 			params.SetExtraFields(c.extra)
 		}
 	}
-	// Ask the API to include a final usage chunk so we can log token counts
-	params.StreamOptions.IncludeUsage = sdk.Bool(true)
+	// Ask the API to include a final usage chunk so we can log token counts.
+	// Some self-hosted backends (e.g., mlx_lm.server) may not support this flag
+	// or may behave inconsistently, so only enable it for OpenAI cloud.
+	if !c.isSelfHosted() {
+		params.StreamOptions.IncludeUsage = sdk.Bool(true)
+	}
 
 	start := time.Now()
 	stream := c.sdk.Chat.Completions.NewStreaming(ctx, params)
@@ -637,6 +714,208 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		base.Debug().Msg("chat_stream_ok")
 	}
 	return err
+}
+
+// chatStreamSSEFallback implements a tolerant SSE reader for self-hosted servers
+// (mlx_lm.server, llama.cpp, etc.). It posts to /v1/chat/completions with
+// stream=true, sets Accept: text/event-stream, then parses lines prefixed with
+// "data: ", attempting to extract deltas from a variety of chunk shapes.
+func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	log := observability.LoggerWithTrace(ctx)
+	// Start tracing and log prompt
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatStream (SSE Fallback)", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	// Build URL (ensure single /v1 prefix)
+	base := strings.TrimSuffix(strings.TrimSpace(c.baseURL), "/")
+	if base == "" {
+		base = "https://api.openai.com/v1"
+	}
+	url := base + "/chat/completions"
+
+	// Build body
+	body := map[string]any{
+		"model":    firstNonEmpty(model, c.model),
+		"messages": AdaptMessages(msgs),
+		"stream":   true,
+	}
+	if len(tools) > 0 {
+		if c.isSelfHosted() {
+			body["tools"] = AdaptSchemas(sanitizeToolSchemas(tools))
+		} else {
+			body["tools"] = AdaptSchemas(tools)
+		}
+	}
+	// Merge extra params, but drop tool flags if no tools
+	if len(c.extra) > 0 {
+		tmp := make(map[string]any, len(c.extra))
+		for k, v := range c.extra {
+			tmp[k] = v
+		}
+		if len(tools) == 0 {
+			delete(tmp, "parallel_tool_calls")
+		}
+		for k, v := range tmp {
+			// do not overwrite required fields above unless explicitly provided
+			if k == "model" || k == "messages" || k == "stream" {
+				continue
+			}
+			body[k] = v
+		}
+	}
+
+	payload, _ := json.Marshal(body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	// Note: API key header handling is configured at higher layers or via server settings.
+
+	// Allow custom headers via ExtraParams["extra_headers"] if provided by config
+	// But we already support config.OpenAI.ExtraHeaders at handlers layer; keeping minimal here
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		b, _ := io.ReadAll(resp.Body)
+		log.Error().Int("status", resp.StatusCode).RawJSON("body", observability.RedactJSON(b)).Msg("sse_fallback_bad_status")
+		return fmt.Errorf("chatStream SSE fallback: status %d", resp.StatusCode)
+	}
+
+	start := time.Now()
+
+	// Accumulate for token metrics fallback
+	var assistantContentBuilder strings.Builder
+	// Tool calls accumulation
+	toolCalls := make(map[int]*llm.ToolCall)
+	toolCallsFlushed := false
+
+	scanner := bufio.NewScanner(resp.Body)
+	// Increase buffer in case of large JSON chunks
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+		// Parse JSON payload liberally
+		var m map[string]any
+		if err := json.Unmarshal([]byte(data), &m); err != nil {
+			// Skip invalid JSON chunks rather than aborting the stream
+			continue
+		}
+
+		// Try OpenAI-style: choices[0].delta.content
+		if choices, ok := m["choices"].([]any); ok && len(choices) > 0 {
+			if ch, ok := choices[0].(map[string]any); ok {
+				// delta.content
+				if delta, ok := ch["delta"].(map[string]any); ok {
+					if s, ok := delta["content"].(string); ok && s != "" {
+						h.OnDelta(s)
+						assistantContentBuilder.WriteString(s)
+					}
+					// tool calls accumulation (function.name, function.arguments)
+					if tcs, ok := delta["tool_calls"].([]any); ok {
+						for i, tcv := range tcs {
+							if tcv == nil {
+								continue
+							}
+							if toolCalls[i] == nil {
+								toolCalls[i] = &llm.ToolCall{}
+							}
+							if tcm, ok := tcv.(map[string]any); ok {
+								if id, ok := tcm["id"].(string); ok && id != "" {
+									toolCalls[i].ID = id
+								}
+								if fn, ok := tcm["function"].(map[string]any); ok {
+									if name, ok := fn["name"].(string); ok && name != "" {
+										toolCalls[i].Name = name
+									}
+									if args, ok := fn["arguments"].(string); ok && args != "" {
+										if toolCalls[i].Args == nil {
+											toolCalls[i].Args = json.RawMessage(args)
+										} else {
+											existing := string(toolCalls[i].Args)
+											toolCalls[i].Args = json.RawMessage(existing + args)
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				// finish_reason -> flush tool calls once
+				if fr, ok := ch["finish_reason"].(string); ok && fr != "" && !toolCallsFlushed {
+					for _, tc := range toolCalls {
+						if tc != nil && tc.Name != "" && len(tc.Args) > 0 {
+							h.OnToolCall(*tc)
+						}
+					}
+					toolCallsFlushed = true
+				}
+				// Some servers send message at end; capture for completeness
+				if msg, ok := ch["message"].(map[string]any); ok {
+					if s, ok := msg["content"].(string); ok && s != "" {
+						h.OnDelta(s)
+						assistantContentBuilder.WriteString(s)
+					}
+				}
+			}
+			continue
+		}
+
+		// mlx_lm compatibility: sometimes payload may contain {"response":"..."}
+		if s, ok := m["response"].(string); ok && s != "" {
+			h.OnDelta(s)
+			assistantContentBuilder.WriteString(s)
+			continue
+		}
+		// Another possible token key
+		if s, ok := m["token"].(string); ok && s != "" {
+			h.OnDelta(s)
+			assistantContentBuilder.WriteString(s)
+			continue
+		}
+	}
+	// Any scanner error is non-fatal if we received some content
+	scanErr := scanner.Err()
+
+	// Token metrics fallback using /tokenize if available
+	if c.isSelfHosted() {
+		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
+		completionTokens := c.tokenizeCount(ctx, assistantContentBuilder.String())
+		totalTokens := promptTokens + completionTokens
+		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+		if promptTokens > 0 || completionTokens > 0 {
+			llm.RecordTokenMetrics(firstNonEmpty(model, c.model), promptTokens, completionTokens)
+		}
+		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
+	}
+
+	dur := time.Since(start)
+	if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
+		observability.LoggerWithTrace(ctx).Error().Err(scanErr).Dur("duration", dur).Msg("chat_stream_sse_fallback_error")
+		span.RecordError(scanErr)
+		return scanErr
+	}
+	observability.LoggerWithTrace(ctx).Debug().Dur("duration", dur).Msg("chat_stream_sse_fallback_ok")
+	return nil
 }
 
 // ChatWithImageAttachment sends a chat completion with an image attachment.

@@ -164,6 +164,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	toolRegistry.Register(cli.NewTool(exec))
 	toolRegistry.Register(web.NewTool(cfg.Web.SearXNGURL))
+	toolRegistry.Register(web.NewScreenshotTool())
 	toolRegistry.Register(web.NewFetchTool(mgr.Search))
 	toolRegistry.Register(patchtool.New(cfg.Workdir))
 	toolRegistry.Register(textsplitter.New())

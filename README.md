@@ -21,55 +21,12 @@ Manifold is a platform for creating and managing AI assistants.
 
 - Go 1.21+ (recommended: Go 1.24+)
 - OpenAI API key or compatible local or public endpoint
-- PostgreSQL with required extensions
+- PostgreSQL with required extensions. We recommend deploying a Postgres instance using the Dockerfile at `deploy/docker/postgres.Dockerfile`.
+- Google Chrome (or a Chromium-compatible browser) installed — required for the web tools to work.
 
 ## Quick Start
 
-### Update submodules
-
-```
-$ git submodule update --init --recursive
-```
-
-### Docker Compose
-
-1. Ensure you have `.env` and `config.yaml` files at the repository root:
-
-**`.env` file:**
-
-```env
-WORKDIR=/app/manifold
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-5-mini
-LOG_LEVEL=info
-```
-
-**`config.yaml` file:**
-
-```yaml
-auth:
-  enabled: false
-databases:
-  defaultDSN: "postgres://intelligence_dev:intelligence_dev@pg-manifold:5432/manifold?sslmode=disable"
-  search:
-    backend: postgres
-  vector:
-    backend: postgres
-  graph:
-    backend: postgres
-```
-
-2. Start the services:
-
-```bash
-cd deploy/docker
-docker compose up -d pg-manifold manifold
-```
-
-This starts:
-
-- `pg-manifold`: PostgreSQL database with PGVector, PostGIS, and PGRouting extensions
-- `manifold`: The agent runtime HTTP server with web UI (accessible at <http://localhost:32180>)
+For step-by-step quick start instructions, see the repository Quick Start guide: [QUICKSTART.md](./QUICKSTART.md)
 
 ## Documentation
 

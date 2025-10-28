@@ -6,6 +6,8 @@ NOTES:
 - Ensure pnpm is installed. Required for frontend build.
 - OTEL Collector is not required despite the default config.
 
+- Google Chrome or a Chromium-compatible browser must be installed — required for the web tools to work.
+
 ```
 # To enable web search and fetch without SearXNG
 # Ref: https://hub.docker.com/r/mcp/duckduckgo

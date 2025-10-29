@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { WarppStepTrace } from '@/types/warpp'
 import { runWarppWorkflow, type WarppRunResponse } from '@/api/warpp'
+import { useProjectsStore } from '@/stores/projects'
 
 export const useWarppRunStore = defineStore('warpp-run', () => {
   const running = ref(false)
@@ -27,7 +28,9 @@ export const useWarppRunStore = defineStore('warpp-run', () => {
     runAbort = new AbortController()
     try {
       runLogs.value.push('→ POST /api/warpp/run')
-      const res = await runWarppWorkflow(intent, prompt ?? `Run workflow: ${intent}`, runAbort.signal)
+      const projStore = useProjectsStore()
+      const projectId = projStore.currentProjectId || undefined
+      const res = await runWarppWorkflow(intent, prompt ?? `Run workflow: ${intent}`, runAbort.signal, projectId)
       runOutput.value = res.result || ''
       // materialize trace into record for UI access
       const rec: Record<string, WarppStepTrace> = {}

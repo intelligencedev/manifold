@@ -27,8 +27,18 @@
       <!-- Right: utilities cluster (divider, avatar) -->
       <div class="flex items-center gap-3 justify-self-end">
         <span class="hidden sm:block h-6 w-px bg-border/60" aria-hidden="true"></span>
+        <div class="hidden sm:flex items-center gap-2">
+          <DropdownSelect
+            v-model="selectedProjectId"
+            :options="projectOptions"
+            size="sm"
+            placeholder="Project"
+            title="Current project"
+            aria-label="Project select"
+          />
+        </div>
         <div class="ml-1">
-        <AccountButton :username="user?.name || user?.email" />
+          <AccountButton :username="user?.name || user?.email" />
         </div>
       </div>
       </div>
@@ -44,9 +54,11 @@
 import { RouterLink, RouterView } from 'vue-router'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import AccountButton from '@/components/AccountButton.vue'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 import manifoldLogo from '@/assets/images/manifold_logo.png'
 
 import { ref, computed, onMounted } from 'vue'
+import { useProjectsStore } from '@/stores/projects'
 
 const isDark = ref(false)
 
@@ -87,4 +99,17 @@ const navigation = [
   { label: 'Runs', to: '/runs' },
   { label: 'Settings', to: '/settings' },
 ]
+
+// Projects dropdown (global project selection for all tools/views)
+const projectsStore = useProjectsStore()
+onMounted(() => { void projectsStore.refresh() })
+
+const projectOptions = computed(() => {
+  return projectsStore.projects.map(p => ({ id: p.id, label: p.name, value: p.id }))
+})
+
+const selectedProjectId = computed({
+  get: () => projectsStore.currentProjectId || '',
+  set: (v: string) => { void projectsStore.setCurrent(v) },
+})
 </script>

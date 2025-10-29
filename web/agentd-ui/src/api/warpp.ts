@@ -54,11 +54,12 @@ export async function runWarppWorkflow(
   intent: string,
   prompt?: string,
   signal?: AbortSignal,
+  projectId?: string,
 ): Promise<WarppRunResponse> {
   const resp = await fetch(`${apiBase}/run`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ intent, prompt }),
+    body: JSON.stringify(projectId && projectId.trim() ? { intent, prompt, project_id: projectId.trim() } : { intent, prompt }),
     signal,
   })
   const raw = await handleResponse<{ result: string; trace?: any[] }>(resp)

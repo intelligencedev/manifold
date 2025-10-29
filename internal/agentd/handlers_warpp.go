@@ -2,13 +2,16 @@ package agentd
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strings"
+	"path/filepath"
 
 	"github.com/rs/zerolog/log"
 
 	persist "manifold/internal/persistence"
+	"manifold/internal/sandbox"
 	"manifold/internal/warpp"
 )
 
@@ -158,10 +161,15 @@ func (a *app) warppRunHandler() http.HandlerFunc {
 		var req struct {
 			Intent string `json:"intent"`
 			Prompt string `json:"prompt"`
+			ProjectID string `json:"project_id,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
+		}
+		if p := strings.TrimSpace(req.ProjectID); p != "" {
+			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(userID), "projects", p)
+			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
 		}
 		intent := strings.TrimSpace(req.Intent)
 		if intent == "" {

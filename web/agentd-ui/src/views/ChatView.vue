@@ -119,14 +119,7 @@
                 title="Choose specialist for this chat"
                 aria-label="Specialist override"
               />
-              <DropdownSelect
-                v-model="selectedProjectId"
-                :options="projectOptions"
-                size="xs"
-                title="Project context"
-                placeholder="Select a project"
-                aria-label="Project context"
-              />
+              <!-- Project selection is global in the header; moved to App.vue -->
               <DropdownSelect
                 v-model="renderMode"
                 :options="renderModeOptions"

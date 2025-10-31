@@ -47,6 +47,21 @@
             </div>
           </div>
           <div class="flex items-center gap-1">
+            <!-- Step ID chip with copy -->
+            <button
+              class="hidden sm:inline-flex max-w-[160px] items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground/80 hover:bg-muted/60"
+              :title="copied ? 'Copied!' : `Copy step id: ${props.id}`"
+              @click.prevent.stop="copyStepId"
+            >
+              <svg v-if="!copied" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="truncate">{{ props.id }}</span>
+            </button>
             <span v-show="!collapsed" class="text-[10px] uppercase tracking-wide text-faint-foreground">#{{ orderLabel }}</span>
             <button
               class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
@@ -282,6 +297,7 @@ const showBack = ref(false)
 const outputAttr = ref('')
 const outputFrom = ref('')
 const outputValue = ref('')
+const copied = ref(false)
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1)
 const isDesignMode = computed(() => modeRef.value === 'design')
@@ -488,6 +504,17 @@ function formatRuntimeValue(value: unknown): string {
 function viewRuntimeDetails() {
   if (!runtimeTrace.value) return
   openResultModal(props.id, headerLabel.value)
+}
+
+async function copyStepId() {
+  try {
+    await navigator.clipboard.writeText(props.id)
+    copied.value = true
+    setTimeout(() => (copied.value = false), 1200)
+  } catch (err) {
+    // best-effort: fall back to prompt
+    window.prompt('Copy step id', props.id)
+  }
 }
 
 // Global expand/collapse signals injected from FlowView

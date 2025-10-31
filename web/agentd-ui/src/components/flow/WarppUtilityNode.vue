@@ -27,6 +27,21 @@
             </div>
           </div>
           <div class="flex items-center gap-1">
+            <!-- Step ID chip with copy -->
+            <button
+              class="hidden sm:inline-flex max-w-[180px] items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground/80 hover:bg-muted/60"
+              :title="copied ? 'Copied!' : `Copy step id: ${props.id}`"
+              @click.prevent.stop="copyStepId"
+            >
+              <svg v-if="!copied" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+              <span class="truncate">{{ props.id }}</span>
+            </button>
             <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Utility</span>
             <button
               class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
@@ -225,6 +240,7 @@ const outputValue = ref('')
 const showBack = ref(false)
 const isDirty = ref(false)
 const collapsed = ref(false)
+const copied = ref(false)
 
 const toolName = computed(() => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBACK)
 const defaultAttributeHint = computed(() => `${props.id}_text`)
@@ -359,6 +375,16 @@ function viewRuntimeDetails() {
 
 function toggleBack(v?: boolean) {
   showBack.value = typeof v === 'boolean' ? v : !showBack.value
+}
+
+async function copyStepId() {
+  try {
+    await navigator.clipboard.writeText(props.id)
+    copied.value = true
+    setTimeout(() => (copied.value = false), 1200)
+  } catch (err) {
+    window.prompt('Copy step id', props.id)
+  }
 }
 
 // Global expand/collapse signals injected from FlowView

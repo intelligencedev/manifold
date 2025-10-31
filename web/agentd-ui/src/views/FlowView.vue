@@ -389,22 +389,53 @@
         <div class="flex-1 overflow-y-auto px-6 py-4 text-sm text-foreground">
           <div v-if="activeModalTrace" class="space-y-5">
             <section v-if="activeModalTrace?.renderedArgs">
-              <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
-                Rendered Arguments
-              </h4>
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-2 text-left"
+                @click="collapsedArgs = !collapsedArgs"
+                :aria-expanded="!collapsedArgs"
+                aria-controls="modal-args"
+              >
+                <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Rendered Arguments</h4>
+                <svg class="h-3.5 w-3.5 text-subtle-foreground transition-transform" :class="collapsedArgs ? '-rotate-90' : 'rotate-0'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
               <pre
+                v-show="!collapsedArgs"
+                id="modal-args"
                 class="mt-1 rounded border border-border/60 bg-surface-muted p-3 text-xs text-foreground/90 whitespace-pre-wrap break-words"
               >{{ formatJSON(activeModalTrace?.renderedArgs) }}</pre>
             </section>
             <section v-if="activeModalTrace?.delta">
-              <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Delta</h4>
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-2 text-left"
+                @click="collapsedDelta = !collapsedDelta"
+                :aria-expanded="!collapsedDelta"
+                aria-controls="modal-delta"
+              >
+                <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Delta</h4>
+                <svg class="h-3.5 w-3.5 text-subtle-foreground transition-transform" :class="collapsedDelta ? '-rotate-90' : 'rotate-0'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
               <pre
+                v-show="!collapsedDelta"
+                id="modal-delta"
                 class="mt-1 rounded border border-border/60 bg-surface-muted p-3 text-xs text-foreground/90 whitespace-pre-wrap break-words"
               >{{ formatJSON(activeModalTrace?.delta) }}</pre>
             </section>
             <section v-if="activeModalTrace?.payload">
-              <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Payload</h4>
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-2 text-left"
+                @click="collapsedPayload = !collapsedPayload"
+                :aria-expanded="!collapsedPayload"
+                aria-controls="modal-payload"
+              >
+                <h4 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Payload</h4>
+                <svg class="h-3.5 w-3.5 text-subtle-foreground transition-transform" :class="collapsedPayload ? '-rotate-90' : 'rotate-0'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
               <pre
+                v-show="!collapsedPayload"
+                id="modal-payload"
                 class="mt-1 rounded border border-border/60 bg-surface-muted p-3 text-xs text-foreground/90 whitespace-pre-wrap break-words"
               >{{ formatJSON(activeModalTrace?.payload) }}</pre>
             </section>
@@ -598,6 +629,10 @@ provide('warppExpandAllSeq', expandAllSeq)
 // Track global collapsed state for control icon
 const nodesCollapsed = ref(false)
 const resultModal = ref<{ stepId: string; title: string } | null>(null)
+// Collapsible state for sections inside the result modal
+const collapsedArgs = ref(false)
+const collapsedDelta = ref(false)
+const collapsedPayload = ref(false)
 const activeModalTrace = computed(() => {
   if (!resultModal.value) return undefined
   return warppRunStore.runTrace[resultModal.value.stepId]
@@ -606,9 +641,17 @@ function openResultModal(stepId: string, title: string) {
   const hasTrace = warppRunStore.runTrace[stepId]
   if (!hasTrace) return
   resultModal.value = { stepId, title }
+  // Reset collapsible sections when opening
+  collapsedArgs.value = false
+  collapsedDelta.value = false
+  collapsedPayload.value = false
 }
 function closeResultModal() {
   resultModal.value = null
+  // Reset collapsed state when closing
+  collapsedArgs.value = false
+  collapsedDelta.value = false
+  collapsedPayload.value = false
 }
 provide('warppOpenResultModal', openResultModal)
 provide('warppCloseResultModal', closeResultModal)

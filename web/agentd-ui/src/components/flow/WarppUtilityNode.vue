@@ -45,8 +45,8 @@
             <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Utility</span>
             <button
               class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
-              title="Configure output"
-              aria-label="Configure output"
+              title="Advanced (promote to attribute)"
+              aria-label="Advanced (promote to attribute)"
               @click.prevent.stop="toggleBack(true)"
             >
               <GearIcon class="h-3.5 w-3.5" />
@@ -132,10 +132,15 @@
           >
             Back
           </button>
-          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Output</span>
+          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Advanced • Promote to attribute (optional)</span>
         </div>
         <div class="mt-3" :class="collapsed ? 'hidden' : ''">
           <div class="space-y-2">
+            <p class="text-[10px] text-faint-foreground">
+              Prefer referencing prior step data with
+              <code>{{ `\${A.${props.id}.json...}` }}</code>.
+              Promote to an attribute when you want a short, stable name (useful for guards and reuse).
+            </p>
             <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
               Output Attribute
               <input
@@ -153,7 +158,7 @@
                 v-model="outputFrom"
                 type="text"
                 class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="payload | delta.key | args.key"
+                placeholder="payload | json.<path> | delta.<key> | args.<key>"
                 :disabled="!isDesignMode"
                 @input="markDirty"
               />

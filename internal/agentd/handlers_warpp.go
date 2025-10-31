@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
-	"path/filepath"
 
 	"github.com/rs/zerolog/log"
 
@@ -159,8 +159,8 @@ func (a *app) warppRunHandler() http.HandlerFunc {
 		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
 		defer r.Body.Close()
 		var req struct {
-			Intent string `json:"intent"`
-			Prompt string `json:"prompt"`
+			Intent    string `json:"intent"`
+			Prompt    string `json:"prompt"`
 			ProjectID string `json:"project_id,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

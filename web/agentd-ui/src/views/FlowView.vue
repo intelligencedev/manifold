@@ -470,8 +470,16 @@ import { fetchWarppTools, fetchWarppWorkflow, fetchWarppWorkflows, saveWarppWork
 import type { WarppStep, WarppTool, WarppWorkflow, WarppStepTrace } from '@/types/warpp'
 import type { StepNodeData } from '@/types/flow'
 import { useWarppRunStore } from '@/stores/warpp'
+import { WARPP_STEP_NODE_DIMENSIONS, WARPP_UTILITY_NODE_DIMENSIONS } from '@/constants/warppNodes'
 
-type LayoutMap = Record<string, { x: number; y: number }>
+type LayoutEntry = {
+  x: number
+  y: number
+  width?: number
+  height?: number
+}
+
+type LayoutMap = Record<string, LayoutEntry>
 
 type StepNode = Node<StepNodeData> & { data: StepNodeData }
 
@@ -483,8 +491,55 @@ const UTILITY_TOOL_PREFIX = 'utility_'
 
 // Dagre layout sizing
 // Use measured node sizes when available; these are fallbacks when not yet measured
-const DAGRE_NODE_BASE_WIDTH = 280
-const DAGRE_NODE_BASE_HEIGHT = 120
+const DAGRE_NODE_BASE_WIDTH = WARPP_STEP_NODE_DIMENSIONS.defaultWidth
+const DAGRE_NODE_BASE_HEIGHT = WARPP_STEP_NODE_DIMENSIONS.defaultHeight
+
+type NodeKind = 'step' | 'utility'
+
+function getDefaultDimensions(kind: NodeKind) {
+  return kind === 'utility' ? WARPP_UTILITY_NODE_DIMENSIONS : WARPP_STEP_NODE_DIMENSIONS
+}
+
+function toPx(value: number) {
+  return `${Math.round(value)}px`
+}
+
+function parseDimension(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+function readNodeSize(node: StepNode) {
+  const kind: NodeKind = node.data?.kind === 'utility' ? 'utility' : 'step'
+  const defaults = getDefaultDimensions(kind)
+  const graphNode = node as unknown as GraphNode
+  const style = typeof node.style === 'function' ? node.style(graphNode) : node.style
+  const styledWidth = parseDimension((style as any)?.width)
+  const styledHeight = parseDimension((style as any)?.height)
+  const dimsWidth = graphNode?.dimensions?.width
+  const dimsHeight = graphNode?.dimensions?.height
+  const width = styledWidth ?? dimsWidth ?? defaults.defaultWidth
+  const height = styledHeight ?? dimsHeight ?? defaults.defaultHeight
+  return { width, height }
+}
+
+function buildNodeStyle(kind: NodeKind, stored?: LayoutEntry) {
+  const defaults = getDefaultDimensions(kind)
+  const storedWidth = typeof stored?.width === 'number' ? stored.width : undefined
+  const storedHeight = typeof stored?.height === 'number' ? stored.height : undefined
+  const width = storedWidth && storedWidth >= defaults.minWidth ? storedWidth : defaults.defaultWidth
+  const style: Record<string, string> = {
+    width: toPx(width),
+  }
+  if (storedHeight && storedHeight >= defaults.minHeight) {
+    style.height = toPx(storedHeight)
+  }
+  return style
+}
 
 // markRaw prevents Vue from proxying the nodeTypes object/components which can
 // interfere with Vue Flow's dynamic component resolution in some cases
@@ -498,7 +553,8 @@ const { project, zoomIn, zoomOut, fitView, nodesDraggable } = useVueFlow()
 const flowWrapper = ref<HTMLDivElement | null>(null)
 const isDraggingFromPalette = ref(false)
 // MiniMap visibility and sizing
-const showMiniMap = ref(true)
+// Start minimap collapsed by default; press the show button to view it
+const showMiniMap = ref(false)
 const MINI_MAP_WIDTH = 180
 const MINI_MAP_HEIGHT = 120
 const MINI_MAP_INSET = 8
@@ -670,10 +726,8 @@ function onAutoLayout(direction: DagreDirection) {
 
   // Add nodes with measured sizes (fallback to base) to avoid overlaps
   for (const n of nodes.value) {
-    const dims = (n as unknown as GraphNode).dimensions
-    const w = (dims && Number(dims.width)) || DAGRE_NODE_BASE_WIDTH
-    const h = (dims && Number(dims.height)) || DAGRE_NODE_BASE_HEIGHT
-    g.setNode(n.id, { width: w, height: h })
+    const size = readNodeSize(n)
+    g.setNode(n.id, { width: size.width || DAGRE_NODE_BASE_WIDTH, height: size.height || DAGRE_NODE_BASE_HEIGHT })
   }
   // Add edges for dependencies
   for (const e of edges.value) {
@@ -691,11 +745,11 @@ function onAutoLayout(direction: DagreDirection) {
   const positioned = nodes.value.map((n) => {
     const pos = g.node(n.id) as { x: number; y: number } | undefined
     if (!pos) return n
-    const dims = (n as unknown as GraphNode).dimensions
-    const w = (dims && Number(dims.width)) || DAGRE_NODE_BASE_WIDTH
-    const h = (dims && Number(dims.height)) || DAGRE_NODE_BASE_HEIGHT
-    const x = pos.x - w / 2
-    const y = pos.y - h / 2
+    const size = readNodeSize(n)
+    const width = size.width || DAGRE_NODE_BASE_WIDTH
+    const height = size.height || DAGRE_NODE_BASE_HEIGHT
+    const x = pos.x - width / 2
+    const y = pos.y - height / 2
     return { ...n, position: { x, y } }
   })
 
@@ -912,10 +966,12 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
     const stored = layout[step.id]
     const position = resolveNodePosition(stored, idx)
     const utility = isUtilityToolName(step.tool?.name)
+    const style = buildNodeStyle(utility ? 'utility' : 'step', stored)
     return {
       id: step.id,
       type: utility ? 'warppUtility' : 'warppStep',
       position,
+      style,
       data: {
         order: idx,
         step: JSON.parse(JSON.stringify(step)) as WarppStep,
@@ -925,7 +981,7 @@ function workflowToNodes(wf: WarppWorkflow): StepNode[] {
   })
 }
 
-function resolveNodePosition(stored: { x: number; y: number } | undefined, index: number) {
+function resolveNodePosition(stored: LayoutEntry | undefined, index: number) {
   if (stored && Number.isFinite(stored.x) && Number.isFinite(stored.y)) {
     return { x: stored.x, y: stored.y }
   }
@@ -1075,10 +1131,12 @@ function createWorkflowNode(tool: WarppTool, position: { x: number; y: number })
     publish_result: false,
     tool: { name: tool.name },
   }
+  const style = buildNodeStyle('step')
   return {
     id,
     type: 'warppStep',
     position,
+    style,
     data: {
       order,
       step,
@@ -1097,10 +1155,12 @@ function createUtilityNode(tool: WarppTool, position: { x: number; y: number }):
     publish_result: false,
     tool: { name: tool.name, args: { label: displayName, text: '', output_attr: '' } },
   }
+  const style = buildNodeStyle('utility')
   return {
     id,
     type: 'warppUtility',
     position,
+    style,
     data: {
       order,
       step,
@@ -1167,7 +1227,14 @@ async function performSave(description?: string, keywords?: string[]): Promise<W
     const layout: LayoutMap = {}
     orderedNodes.forEach((node) => {
       const pos = node.position ?? { x: 0, y: 0 }
-      layout[node.id] = { x: pos.x, y: pos.y }
+      const graphNode = node as unknown as GraphNode
+      const style = typeof node.style === 'function' ? node.style(graphNode) : node.style
+      const width = parseDimension((style as any)?.width)
+      const height = parseDimension((style as any)?.height)
+      const entry: LayoutEntry = { x: pos.x, y: pos.y }
+      if (typeof width === 'number') entry.width = width
+      if (typeof height === 'number') entry.height = height
+      layout[node.id] = entry
     })
     const payload: WarppWorkflow = {
       ...activeWorkflow.value,
@@ -1278,7 +1345,14 @@ function exportWorkflow() {
   const layout: LayoutMap = {}
   orderedNodes.forEach((node) => {
     const pos = node.position ?? { x: 0, y: 0 }
-    layout[node.id] = { x: pos.x, y: pos.y }
+    const graphNode = node as unknown as GraphNode
+    const style = typeof node.style === 'function' ? node.style(graphNode) : node.style
+    const width = parseDimension((style as any)?.width)
+    const height = parseDimension((style as any)?.height)
+    const entry: LayoutEntry = { x: pos.x, y: pos.y }
+    if (typeof width === 'number') entry.width = width
+    if (typeof height === 'number') entry.height = height
+    layout[node.id] = entry
   })
   const payload: WarppWorkflow = {
     ...activeWorkflow.value,

@@ -1,14 +1,23 @@
 <template>
   <div
-    class="relative flip-root text-xs text-muted-foreground"
-    :class="collapsed ? 'min-w-[160px] w-[220px]' : 'min-w-[240px] w-[320px]'"
+    class="relative w-full flip-root text-xs text-muted-foreground"
+    :class="collapsed ? 'min-w-[160px] min-h-[72px]' : 'min-w-[320px] min-h-[260px] h-full'"
   >
     <Handle type="target" :position="Position.Left" class="!bg-accent" />
 
+    <NodeResizer
+      v-if="isDesignMode"
+      :min-width="STEP_MIN_WIDTH"
+      :min-height="STEP_MIN_HEIGHT"
+      :handle-style="RESIZER_HANDLE_STYLE"
+      :line-style="RESIZER_LINE_STYLE"
+      @resize-end="onResizeEnd"
+    />
+
     <!-- Entire card flips -->
-    <div class="flip-card" :class="showBack ? 'is-flipped' : ''">
+    <div class="flip-card h-full w-full" :class="showBack ? 'is-flipped' : ''">
       <!-- FRONT FACE (full card) -->
-      <div class="flip-face flip-front relative rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
+      <div class="flip-face flip-front relative h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
         <!-- Header -->
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1">
@@ -19,7 +28,6 @@
                 :title="collapsed ? 'Expand' : 'Collapse'"
                 @click.prevent.stop="toggleCollapsed"
               >
-                <!-- chevron icon -->
                 <svg
                   class="h-3.5 w-3.5 transition-transform"
                   :class="collapsed ? '-rotate-90' : 'rotate-0'"
@@ -146,7 +154,7 @@
 
       <!-- BACK FACE (full card) -->
       <div
-        class="flip-face flip-back absolute inset-0 rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
+        class="flip-face flip-back absolute inset-0 h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
         :class="showBack ? 'pointer-events-auto' : 'pointer-events-none'"
       >
         <!-- Back header -->
@@ -218,18 +226,34 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, watch } from 'vue'
+import { computed, inject, ref, watch, type CSSProperties } from 'vue'
 import { Handle, Position, useVueFlow, type NodeProps } from '@vue-flow/core'
+import { NodeResizer } from '@vue-flow/node-resizer'
+import type { OnResizeEnd } from '@vue-flow/node-resizer'
 
 import ParameterFormField from '@/components/flow/ParameterFormField.vue'
 import type { StepNodeData } from '@/types/flow'
 import type { WarppTool, WarppStepTrace } from '@/types/warpp'
 import type { Ref } from 'vue'
 import GearIcon from '@/components/icons/Gear.vue'
+import { WARPP_STEP_NODE_DIMENSIONS } from '@/constants/warppNodes'
 
 const props = defineProps<NodeProps<StepNodeData>>()
 
-const { updateNodeData } = useVueFlow()
+const { updateNodeData, updateNode } = useVueFlow()
+
+const STEP_MIN_WIDTH = WARPP_STEP_NODE_DIMENSIONS.minWidth
+const STEP_MIN_HEIGHT = WARPP_STEP_NODE_DIMENSIONS.minHeight
+const STEP_MIN_WIDTH_PX = `${STEP_MIN_WIDTH}px`
+const STEP_MIN_HEIGHT_PX = `${STEP_MIN_HEIGHT}px`
+const RESIZER_HANDLE_STYLE = Object.freeze({
+  width: '14px',
+  height: '14px',
+  opacity: '0',
+  border: 'none',
+  background: 'transparent',
+})
+const RESIZER_LINE_STYLE = Object.freeze({ opacity: '0' })
 
 const toolsRef = inject<Ref<WarppTool[]>>('warppTools', ref<WarppTool[]>([]))
 const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
@@ -429,6 +453,24 @@ function toggleCollapsed() {
 
 function toggleBack(v?: boolean) {
   showBack.value = typeof v === 'boolean' ? v : !showBack.value
+}
+
+function onResizeEnd(event: OnResizeEnd) {
+  if (!isDesignMode.value) return
+  const widthPx = `${Math.round(event.params.width)}px`
+  const heightPx = `${Math.round(event.params.height)}px`
+  updateNode(props.id, (node) => {
+    const baseStyle: CSSProperties =
+      typeof node.style === 'function' ? (node.style(node) as CSSProperties) ?? {} : { ...(node.style ?? {}) }
+    return {
+      style: {
+        ...baseStyle,
+        width: widthPx,
+        height: heightPx,
+      },
+    }
+  })
+  isDirty.value = true
 }
 
 function formatRuntimeValue(value: unknown): string {

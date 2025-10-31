@@ -1,11 +1,24 @@
 <template>
-  <div class="relative flip-root text-xs text-muted-foreground min-w-[220px] w-[320px]">
+  <div
+    class="relative w-full flip-root text-xs text-muted-foreground"
+    :class="collapsed ? 'min-w-[220px] min-h-[72px]' : 'min-w-[320px] min-h-[200px] h-full'"
+    :style="{ minWidth: UTILITY_MIN_WIDTH_PX, minHeight: UTILITY_MIN_HEIGHT_PX }"
+  >
     <Handle type="target" :position="Position.Left" class="!bg-accent" />
 
+    <NodeResizer
+      v-if="isDesignMode"
+      :min-width="UTILITY_MIN_WIDTH"
+      :min-height="UTILITY_MIN_HEIGHT"
+      :handle-style="RESIZER_HANDLE_STYLE"
+      :line-style="RESIZER_LINE_STYLE"
+      @resize-end="onResizeEnd"
+    />
+
     <!-- Entire card flips -->
-    <div class="flip-card" :class="showBack ? 'is-flipped' : ''">
+    <div class="flip-card h-full w-full" :class="showBack ? 'is-flipped' : ''">
       <!-- FRONT FACE -->
-      <div class="flip-face flip-front relative rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
+      <div class="flip-face flip-front relative h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
         <!-- Header with gear -->
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1">
@@ -91,9 +104,11 @@
           </div>
         </div>
       </div>
-
       <!-- BACK FACE -->
-      <div class="flip-face flip-back absolute inset-0 rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg" :class="showBack ? 'pointer-events-auto' : 'pointer-events-none'">
+      <div
+        class="flip-face flip-back absolute inset-0 h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
+        :class="showBack ? 'pointer-events-auto' : 'pointer-events-none'"
+      >
         <div class="flex items-start justify-between gap-2">
           <button
             class="inline-flex items-center rounded px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
@@ -167,19 +182,35 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, watch } from 'vue'
+import { computed, inject, ref, watch, type CSSProperties } from 'vue'
 import { Handle, Position, useVueFlow, type NodeProps } from '@vue-flow/core'
+import { NodeResizer } from '@vue-flow/node-resizer'
+import type { OnResizeEnd } from '@vue-flow/node-resizer'
 
 import type { StepNodeData } from '@/types/flow'
 import type { WarppStep, WarppStepTrace } from '@/types/warpp'
 import type { Ref } from 'vue'
 import GearIcon from '@/components/icons/Gear.vue'
+import { WARPP_UTILITY_NODE_DIMENSIONS } from '@/constants/warppNodes'
 
 const TOOL_NAME_FALLBACK = 'utility_textbox'
 
 const props = defineProps<NodeProps<StepNodeData>>()
 
-const { updateNodeData } = useVueFlow()
+const { updateNodeData, updateNode } = useVueFlow()
+
+const UTILITY_MIN_WIDTH = WARPP_UTILITY_NODE_DIMENSIONS.minWidth
+const UTILITY_MIN_HEIGHT = WARPP_UTILITY_NODE_DIMENSIONS.minHeight
+const UTILITY_MIN_WIDTH_PX = `${UTILITY_MIN_WIDTH}px`
+const UTILITY_MIN_HEIGHT_PX = `${UTILITY_MIN_HEIGHT}px`
+const RESIZER_HANDLE_STYLE = Object.freeze({
+  width: '14px',
+  height: '14px',
+  opacity: '0',
+  border: 'none',
+  background: 'transparent',
+})
+const RESIZER_LINE_STYLE = Object.freeze({ opacity: '0' })
 const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
 const modeRef = inject<Ref<'design' | 'run'>>('warppMode', ref<'design' | 'run'>('design'))
 const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>('warppRunTrace', ref<Record<string, WarppStepTrace>>({}))
@@ -341,6 +372,26 @@ watch(collapseAllSeq, (v) => {
     collapsed.value = true
   }
 })
+
+function onResizeEnd(event: OnResizeEnd) {
+  if (!isDesignMode.value) return
+  const widthPx = `${Math.round(event.params.width)}px`
+  const heightPx = `${Math.round(event.params.height)}px`
+  updateNode(props.id, (node) => {
+    const baseStyle: CSSProperties =
+      typeof node.style === 'function' ? (node.style(node) as CSSProperties) ?? {} : { ...(node.style ?? {}) }
+    return {
+      style: {
+        ...baseStyle,
+        width: widthPx,
+        height: heightPx,
+        minWidth: UTILITY_MIN_WIDTH_PX,
+        minHeight: UTILITY_MIN_HEIGHT_PX,
+      },
+    }
+  })
+  isDirty.value = true
+}
 watch(expandAllSeq, (v) => {
   if (typeof v === 'number' && v !== lastExpandSeen.value) {
     lastExpandSeen.value = v

@@ -12,6 +12,8 @@ export interface WarppToolRef {
 export interface WarppNodeLayout {
   x: number
   y: number
+  width?: number
+  height?: number
 }
 
 export interface WarppWorkflowUI {

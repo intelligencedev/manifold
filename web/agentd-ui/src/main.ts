@@ -5,6 +5,7 @@ import App from './App.vue'
 import router from './router'
 import './assets/tailwind.css'
 import './assets/vueflow.css'
+import '@vue-flow/node-resizer/dist/style.css'
 import { useThemeStore } from '@/stores/theme'
 
 const app = createApp(App)

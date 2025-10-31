@@ -19,10 +19,10 @@ func EvalGuard(guard string, A Attrs) bool {
 	if strings.HasPrefix(g, "not ") {
 		return !EvalGuard(strings.TrimSpace(strings.TrimPrefix(g, "not ")), A)
 	}
-	// presence check: A.key
+	// presence check: A.key (supports nested paths like A.step.field.0)
 	if strings.HasPrefix(g, "A.") && !strings.Contains(g, "==") && !strings.Contains(g, "!=") {
 		key := strings.TrimPrefix(g, "A.")
-		v, ok := A[key]
+		v, ok := selectFromData(A, key)
 		if !ok {
 			return false
 		}
@@ -49,7 +49,12 @@ func EvalGuard(guard string, A Attrs) bool {
 			right := strings.TrimSpace(parts[1])
 			if strings.HasPrefix(left, "A.") {
 				key := strings.TrimPrefix(left, "A.")
-				val := fmt.Sprintf("%v", A[key])
+				var val string
+				if v, ok := selectFromData(A, key); ok {
+					val = fmt.Sprintf("%v", v)
+				} else {
+					val = ""
+				}
 				right = strings.Trim(right, "'\"")
 				if op == "==" {
 					return val == right

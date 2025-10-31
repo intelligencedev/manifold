@@ -234,6 +234,8 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 				return "", traces, err
 			}
 			mergeDelta(A, delta, 0, 0, nil)
+			// Record step-scoped outputs for cross-step addressing (A.<stepID>.*)
+			recordStepResult(A, s.ID, payload, delta, args)
 			steps++
 			fmt.Fprintf(&summary, "- %s\n", s.Text)
 			if collect {
@@ -328,6 +330,8 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 			case res := <-resCh:
 				// Merge delta deterministically using provenance
 				mergeDeltaWithProv(A, res.delta, res.topo, res.stepIdx, prov)
+				// Also record step-scoped outputs for cross-step addressing
+				recordStepResult(A, res.id, res.payload, res.delta, res.args)
 				completed++
 				fmt.Fprintf(&summary, "- %s\n", res.text)
 				if collect {
@@ -583,7 +587,8 @@ func renderSlice(xs []any, A Attrs) []any {
 }
 
 func substitute(s string, A Attrs) string {
-	// ${A.key}
+	// Supports nested paths and array indices, e.g. ${A.step1.result.0.title}
+	// Unknown paths are replaced with empty string.
 	for {
 		start := strings.Index(s, "${A.")
 		if start == -1 {
@@ -594,10 +599,28 @@ func substitute(s string, A Attrs) string {
 			break
 		}
 		end += start
-		inner := s[start+2 : end]
-		key := strings.TrimPrefix(inner, "A.")
-		val := fmt.Sprintf("%v", A[key])
-		s = s[:start] + val + s[end+1:]
+		inner := s[start+2 : end] // like "A.foo.bar"
+		path := strings.TrimPrefix(inner, "A.")
+		// Resolve against the full attribute map
+		if v, ok := selectFromData(A, path); ok {
+			// marshal complex values to JSON; scalars to string
+			switch vv := v.(type) {
+			case string:
+				s = s[:start] + vv + s[end+1:]
+			case fmt.Stringer:
+				s = s[:start] + vv.String() + s[end+1:]
+			default:
+				// Try JSON first for maps/slices
+				if b, err := json.Marshal(v); err == nil {
+					s = s[:start] + string(b) + s[end+1:]
+				} else {
+					s = s[:start] + fmt.Sprintf("%v", v) + s[end+1:]
+				}
+			}
+		} else {
+			// replace with empty string if not found
+			s = s[:start] + "" + s[end+1:]
+		}
 	}
 	return s
 }
@@ -903,6 +926,45 @@ func navigatePath(cur any, parts []string) (any, bool) {
 				return nil, false
 			}
 			cur = val
+		case string:
+			// If current node is a JSON-encoded string, attempt to parse it
+			// and apply the same navigation step on the parsed value.
+			var pj any
+			if json.Unmarshal([]byte(node), &pj) == nil {
+				// Re-run this part against the parsed JSON by emulating the
+				// current step logic inline.
+				switch inner := pj.(type) {
+				case map[string]any:
+					v, ok := inner[part]
+					if !ok {
+						return nil, false
+					}
+					cur = v
+				case []any:
+					idx, err := strconv.Atoi(part)
+					if err != nil || idx < 0 || idx >= len(inner) {
+						return nil, false
+					}
+					cur = inner[idx]
+				case []map[string]any:
+					idx, err := strconv.Atoi(part)
+					if err != nil || idx < 0 || idx >= len(inner) {
+						return nil, false
+					}
+					cur = inner[idx]
+				case []string:
+					idx, err := strconv.Atoi(part)
+					if err != nil || idx < 0 || idx >= len(inner) {
+						return nil, false
+					}
+					cur = inner[idx]
+				default:
+					return nil, false
+				}
+				// continue to next part
+				continue
+			}
+			return nil, false
 		case []any:
 			idx, err := strconv.Atoi(part)
 			if err != nil || idx < 0 || idx >= len(node) {
@@ -1073,4 +1135,48 @@ func safePublish(ctx context.Context, stepID string, payload []byte, publish Ste
 		return nil
 	}
 	return publish(ctx, stepID, payload)
+}
+
+// recordStepResult stores per-step outputs under A[stepID] for cross-step access.
+// Layout:
+//
+//	A[stepID] = {
+//	  <delta keys...>,
+//	  "delta": <map[string]any>,
+//	  "args": <map[string]any>,
+//	  "payload": <string>,
+//	  "json": <any parsed from payload, if JSON>
+//	}
+func recordStepResult(A Attrs, stepID string, payload []byte, delta Attrs, args map[string]any) {
+	if stepID == "" {
+		return
+	}
+	m := map[string]any{}
+	// copy delta flat keys for convenience
+	for k, v := range delta {
+		m[k] = v
+	}
+	if delta != nil {
+		// store a clone to avoid accidental external mutation
+		dd := make(map[string]any, len(delta))
+		for k, v := range delta {
+			dd[k] = v
+		}
+		m["delta"] = dd
+	}
+	if args != nil {
+		aa := make(map[string]any, len(args))
+		for k, v := range args {
+			aa[k] = v
+		}
+		m["args"] = aa
+	}
+	if len(payload) > 0 {
+		m["payload"] = string(payload)
+		var pj any
+		if err := json.Unmarshal(payload, &pj); err == nil {
+			m["json"] = pj
+		}
+	}
+	A[stepID] = m
 }

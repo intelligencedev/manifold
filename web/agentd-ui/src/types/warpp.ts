@@ -23,10 +23,19 @@ export interface WarppGroupUIEntry {
   color?: string
 }
 
+export interface WarppNoteUIEntry {
+  id: string
+  label?: string
+  color?: string
+  note?: string
+}
+
 export interface WarppWorkflowUI {
   layout?: Record<string, WarppNodeLayout>
   parents?: Record<string, string>
   groups?: WarppGroupUIEntry[]
+  // editor-only notes; persisted client-side, optionally echoed to server ui
+  notes?: WarppNoteUIEntry[]
 }
 
 export interface WarppStep {

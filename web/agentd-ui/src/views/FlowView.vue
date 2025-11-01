@@ -184,6 +184,21 @@
                 Group Container
               </div>
             </div>
+            <div class="space-y-2">
+              <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
+                Notes
+              </h3>
+              <p class="text-[10px] text-subtle-foreground">Add sticky notes for annotations. They don't execute.</p>
+              <div
+                class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
+                draggable="true"
+                title="Sticky note (editor-only)"
+                @dragstart="onStickyDragStart"
+                @dragend="onPaletteDragEnd"
+              >
+                Sticky Note
+              </div>
+            </div>
             <template v-if="utilityTools.length">
               <div class="space-y-2">
                 <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
@@ -569,6 +584,7 @@ import { MiniMap } from '@vue-flow/minimap'
 
 import WarppStepNode from '@/components/flow/WarppStepNode.vue'
 import WarppUtilityNode from '@/components/flow/WarppUtilityNode.vue'
+import WarppStickyNoteNode from '@/components/flow/WarppStickyNoteNode.vue'
 import WarppGroupNode from '@/components/flow/WarppGroupNode.vue'
 import ZoomInIcon from '@/components/icons/ZoomIn.vue'
 import ZoomOutIcon from '@/components/icons/ZoomOut.vue'
@@ -582,7 +598,7 @@ import CollapseIcon from '@/components/icons/Collapse.vue'
 import ExpandIcon from '@/components/icons/Expand.vue'
 import dagre from 'dagre'
 import { fetchWarppTools, fetchWarppWorkflow, fetchWarppWorkflows, saveWarppWorkflow, deleteWarppWorkflow } from '@/api/warpp'
-import type { WarppStep, WarppTool, WarppWorkflow, WarppStepTrace, WarppGroupUIEntry, WarppWorkflowUI } from '@/types/warpp'
+import type { WarppStep, WarppTool, WarppWorkflow, WarppStepTrace, WarppGroupUIEntry, WarppWorkflowUI, WarppNoteUIEntry } from '@/types/warpp'
 import type { StepNodeData, GroupNodeData } from '@/types/flow'
 import { useWarppRunStore } from '@/stores/warpp'
 import {
@@ -607,6 +623,7 @@ type GroupNode = Node<GroupNodeData>
 
 const DRAG_DATA_TYPE = 'application/warpp-tool'
 const GROUP_DRAG_TOKEN = '__warpp-group__'
+const STICKY_DRAG_TOKEN = '__warpp-sticky__'
 const DEFAULT_LAYOUT_START_X = 140
 const DEFAULT_LAYOUT_START_Y = 160
 const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320
@@ -682,12 +699,14 @@ type UiSnapshot = {
   parents: Record<string, string>
   groups: WarppGroupUIEntry[]
   memberships: Record<string, string | undefined>
+  notes: WarppNoteUIEntry[]
 }
 
 function collectUiState(allNodes: WarppNode[]): UiSnapshot {
   const layout: LayoutMap = {}
   const parents: Record<string, string> = {}
   const groups: WarppGroupUIEntry[] = []
+  const notes: WarppNoteUIEntry[] = []
   const memberships: Record<string, string | undefined> = {}
   const groupRects = new Map<string, { left: number; top: number; right: number; bottom: number }>()
 
@@ -710,6 +729,9 @@ function collectUiState(allNodes: WarppNode[]): UiSnapshot {
         right: position.x + width,
         bottom: position.y + height,
       })
+    } else if ((node.type === 'warppSticky') || (node.data as any)?.note !== undefined) {
+      const data = (node.data as any) as { label?: string; color?: string; note?: string }
+      notes.push({ id: node.id, label: data.label, color: data.color, note: data.note })
     }
   })
 
@@ -729,7 +751,7 @@ function collectUiState(allNodes: WarppNode[]): UiSnapshot {
     }
   })
 
-  return { layout, parents, groups, memberships }
+  return { layout, parents, groups, memberships, notes }
 }
 
 // markRaw prevents Vue from proxying the nodeTypes object/components which can
@@ -738,6 +760,7 @@ const nodeTypes = markRaw({
   warppStep: markRaw(WarppStepNode),
   warppUtility: markRaw(WarppUtilityNode),
   warppGroup: markRaw(WarppGroupNode),
+  warppSticky: markRaw(WarppStickyNoteNode),
 })
 
 const { project, zoomIn, zoomOut, fitView, nodesDraggable } = useVueFlow()
@@ -824,8 +847,8 @@ const localWorkflows = ref(new Map<string, WarppWorkflow>())
 // Persist UI metadata (layout, parents, groups) client-side per intent so groups survive
 // backend omissions. This is a temporary resilience layer and can be removed when the
 // server persists full UI state.
-const UI_CACHE_KEY = 'warpp.ui.cache.v1'
-type UiCacheRecord = Record<string, { layout?: LayoutMap; parents?: Record<string, string>; groups?: WarppGroupUIEntry[] }>
+const UI_CACHE_KEY = 'warpp.ui.cache.v2'
+type UiCacheRecord = Record<string, { layout?: LayoutMap; parents?: Record<string, string>; groups?: WarppGroupUIEntry[]; notes?: WarppNoteUIEntry[] }>
 function readUiCache(): UiCacheRecord {
   try {
     const raw = localStorage.getItem(UI_CACHE_KEY)
@@ -843,11 +866,11 @@ function writeUiCache(cache: UiCacheRecord) {
     // ignore storage failures
   }
 }
-function getCachedUi(intent: string): { layout?: LayoutMap; parents?: Record<string, string>; groups?: WarppGroupUIEntry[] } {
+function getCachedUi(intent: string): { layout?: LayoutMap; parents?: Record<string, string>; groups?: WarppGroupUIEntry[]; notes?: WarppNoteUIEntry[] } {
   const cache = readUiCache()
   return cache[intent] ?? {}
 }
-function setCachedUi(intent: string, ui: { layout?: LayoutMap; parents?: Record<string, string>; groups?: WarppGroupUIEntry[] }) {
+function setCachedUi(intent: string, ui: { layout?: LayoutMap; parents?: Record<string, string>; groups?: WarppGroupUIEntry[]; notes?: WarppNoteUIEntry[] }) {
   const cache = readUiCache()
   cache[intent] = {
     ...(cache[intent] ?? {}),
@@ -1347,6 +1370,7 @@ function workflowToNodes(wf: WarppWorkflow): WarppNode[] {
   const layout = wf.ui?.layout ?? {}
   const parents = wf.ui?.parents ?? {}
   const groupsMeta = wf.ui?.groups ?? []
+  const notesMeta = (wf.ui as any)?.notes ?? latestUiSnapshot.value.notes ?? []
 
   const groupNodes: WarppNode[] = groupsMeta.map((group, idx) => {
     // Prefer saved layout; if missing or partial, merge with last client snapshot to
@@ -1395,7 +1419,29 @@ function workflowToNodes(wf: WarppWorkflow): WarppNode[] {
     }
   })
 
-  return [...groupNodes, ...stepNodes]
+  const noteNodes: WarppNode[] = (notesMeta as any[]).map((note: any, idx: number) => {
+    const stored = layout[note.id]
+    const position = resolveNodePosition(stored, idx + wf.steps.length)
+    const style = buildNodeStyle('utility', stored)
+    return {
+      id: note.id,
+      type: 'warppSticky',
+      position,
+      style,
+      draggable: true,
+      selectable: true,
+      connectable: false,
+      data: {
+        kind: 'utility',
+        label: note.label ?? 'Sticky Note',
+        note: note.note ?? '',
+        color: note.color,
+        groupId: parents[note.id],
+      } as any,
+    }
+  })
+
+  return [...groupNodes, ...stepNodes, ...noteNodes]
 }
 
 function resolveNodePosition(stored: LayoutEntry | undefined, index: number) {
@@ -1444,7 +1490,7 @@ async function loadWorkflow(intent: string) {
     }
     const mergedWf: WarppWorkflow = { ...wf, ui: mergedUi }
     // Seed latest snapshot so hydration can preserve sizes
-    latestUiSnapshot.value = { layout: mergedUi.layout ?? {}, parents: mergedUi.parents ?? {}, groups: mergedUi.groups ?? [], memberships: {} }
+  latestUiSnapshot.value = { layout: mergedUi.layout ?? {}, parents: mergedUi.parents ?? {}, groups: mergedUi.groups ?? [], memberships: {}, notes: mergedUi.notes ?? [] }
     const nextNodes = workflowToNodes(mergedWf)
     const nextEdges = workflowToEdges(mergedWf)
 
@@ -1461,13 +1507,13 @@ async function loadWorkflow(intent: string) {
 
 function getOrderedStepNodes(): StepNode[] {
   return nodes.value
-    .filter((node) => isStepLikeNode(node))
+    .filter((node) => isStepLikeNode(node) && Boolean((node.data as any)?.step))
     .map((node) => node as StepNode)
     .sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
 }
 
 function nextStepOrder(): number {
-  return nodes.value.filter((node) => isStepLikeNode(node)).length
+  return nodes.value.filter((node) => isStepLikeNode(node) && Boolean((node.data as any)?.step)).length
 }
 
 function translateGroupChildren(groupId: string, dx: number, dy: number): boolean {
@@ -1510,7 +1556,7 @@ function applyMembership(snapshot: UiSnapshot) {
   }
 }
 
-const latestUiSnapshot = ref<UiSnapshot>({ layout: {}, parents: {}, groups: [], memberships: {} })
+const latestUiSnapshot = ref<UiSnapshot>({ layout: {}, parents: {}, groups: [], memberships: {}, notes: [] })
 const previousGroupPositions = new Map<string, { x: number; y: number }>()
 // Guard to avoid double-moving children while auto-layout commits positions
 const isApplyingLayout = ref(false)
@@ -1601,6 +1647,7 @@ function syncWorkflowFromNodes() {
   const uiLayout = snapshot.layout
   const uiParents = snapshot.parents
   const uiGroups = snapshot.groups
+  const uiNotes = snapshot.notes
   activeWorkflow.value = {
     ...activeWorkflow.value,
     steps,
@@ -1609,12 +1656,13 @@ function syncWorkflowFromNodes() {
       layout: uiLayout,
       parents: Object.keys(uiParents).length ? uiParents : undefined,
       groups: uiGroups.length ? uiGroups : undefined,
+      notes: uiNotes.length ? uiNotes : undefined,
     },
   }
   // Persist UI snapshot locally for this intent for resilience across reloads
   try {
     const intent = activeWorkflow.value.intent
-    setCachedUi(intent, { layout: uiLayout, parents: uiParents, groups: uiGroups })
+    setCachedUi(intent, { layout: uiLayout, parents: uiParents, groups: uiGroups, notes: uiNotes })
   } catch {}
 }
 
@@ -1649,6 +1697,11 @@ function onDrop(event: DragEvent) {
     dirty.value = true
     return
   }
+  if (token === STICKY_DRAG_TOKEN) {
+    appendNode(createStickyNode(position))
+    dirty.value = true
+    return
+  }
 
   const tool = toolMap.value.get(token)
   if (!tool) {
@@ -1673,6 +1726,14 @@ function onGroupDragStart(event: DragEvent) {
   isDraggingFromPalette.value = true
   event.dataTransfer.setData(DRAG_DATA_TYPE, GROUP_DRAG_TOKEN)
   event.dataTransfer.setData('text/plain', 'Group Container')
+  event.dataTransfer.effectAllowed = 'copyMove'
+}
+
+function onStickyDragStart(event: DragEvent) {
+  if (!event.dataTransfer) return
+  isDraggingFromPalette.value = true
+  event.dataTransfer.setData(DRAG_DATA_TYPE, STICKY_DRAG_TOKEN)
+  event.dataTransfer.setData('text/plain', 'Sticky Note')
   event.dataTransfer.effectAllowed = 'copyMove'
 }
 
@@ -1745,6 +1806,42 @@ function createGroupNode(position: { x: number; y: number }): WarppNode {
   }
 }
 
+function generateStickyId(): string {
+  let candidate = ''
+  do {
+    const unique =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? (crypto.randomUUID?.() ?? Math.random().toString(36).slice(2, 10))
+        : Math.random().toString(36).slice(2, 10)
+    candidate = `note-${unique.slice(0, 8)}`
+  } while (nodes.value.some((node) => node.id === candidate))
+  return candidate
+}
+
+function createStickyNode(position: { x: number; y: number }): WarppNode {
+  const id = generateStickyId()
+  const style = buildNodeStyle('utility')
+  // Ensure the sticky note has an explicit initial height since its children are absolutely positioned
+  const dims = getDefaultDimensions('utility')
+  style.height = toPx(dims.defaultHeight)
+  const groupId = findGroupAtPoint(position)
+  return {
+    id,
+    type: 'warppSticky',
+    position,
+    style,
+    draggable: true,
+    selectable: true,
+    connectable: false,
+    data: {
+      kind: 'utility',
+      label: 'Note',
+      note: '',
+      groupId: groupId ?? undefined,
+    } as any,
+  }
+}
+
 function createWorkflowNode(tool: WarppTool, position: { x: number; y: number }): WarppNode {
   const id = generateStepId(tool.name)
   const order = nextStepOrder()
@@ -1799,7 +1896,9 @@ function createUtilityNode(tool: WarppTool, position: { x: number; y: number }):
 function appendNode(node: WarppNode) {
   const previousStep = [...nodes.value].reverse().find((candidate) => isStepLikeNode(candidate))
   nodes.value = [...nodes.value, node]
-  if (isStepLikeNode(node) && previousStep && isStepLikeNode(previousStep)) {
+  const prevHasStep = previousStep && Boolean((previousStep!.data as any)?.step)
+  const newHasStep = isStepLikeNode(node) && Boolean((node.data as any)?.step)
+  if (newHasStep && prevHasStep && isStepLikeNode(previousStep!)) {
     edges.value = normalizeEdgesWithCurrentStyle([
       ...edges.value,
       { id: `e-${previousStep.id}-${node.id}`, source: previousStep.id, target: node.id },

@@ -384,6 +384,18 @@
                 <MapShowIcon class="h-5 w-5 -scale-x-100" />
               </button>
             </Panel>
+
+            <Panel position="top-right">
+              <button
+                type="button"
+                class="inline-flex items-center justify-center rounded-md border border-border/70 bg-surface/90 p-1.5 text-subtle-foreground shadow-sm backdrop-blur hover:text-foreground supports-[backdrop-filter]:bg-surface/75"
+                aria-label="Workflow help"
+                title="Workflow help"
+                @click="openHelpModal"
+              >
+                <HelpIcon class="h-5 w-5" />
+              </button>
+            </Panel>
           </VueFlow>
         </div>
       </div>
@@ -474,6 +486,34 @@
       </div>
     </div>
 
+    <!-- Help modal -->
+    <div v-if="showHelpModal" class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
+      <div class="absolute inset-0 bg-surface/70 backdrop-blur-sm" @click="closeHelpModal"></div>
+      <div class="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="warpp-help-title">
+        <div class="flex items-center justify-between border-b border-border/60 px-5 py-3">
+          <h3 id="warpp-help-title" class="text-base font-semibold text-foreground">Flow Help</h3>
+        </div>
+        <div class="px-5 py-4 space-y-4 text-sm text-foreground/90">
+          <p class="text-xs uppercase tracking-wide text-faint-foreground">Controls and Hotkeys</p>
+          <ul class="list-disc space-y-2 pl-5 text-sm text-subtle-foreground">
+            <li><span class="font-medium text-foreground">Shift + click &amp; drag</span> draws a selection box so you can move or delete multiple nodes together.</li>
+            <li><span class="font-medium text-foreground">Cmd/Ctrl + click</span> adds or removes individual nodes from the current selection.</li>
+            <li><span class="font-medium text-foreground">Backspace/Delete</span> removes the currently selected nodes or edges.</li>
+            <li><span class="font-medium text-foreground">Drag on empty canvas space</span> to pan the view; use your mouse wheel or trackpad gestures to zoom.</li>
+          </ul>
+        </div>
+        <div class="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3">
+          <button
+            type="button"
+            class="rounded px-3 py-1 text-sm font-medium bg-accent text-accent-foreground hover:bg-accent/90"
+            @click="closeHelpModal"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Metadata modal -->
     <div v-if="showMetaModal" class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8">
       <div class="absolute inset-0 bg-surface/70 backdrop-blur-sm" @click="closeMetaModal"></div>
@@ -517,6 +557,7 @@ import FullScreenIcon from '@/components/icons/FullScreen.vue'
 import LockedIcon from '@/components/icons/LockedBold.vue'
 import UnlockedIcon from '@/components/icons/UnlockedBold.vue'
 import MapShowIcon from '@/components/icons/MapShow.vue'
+import HelpIcon from '@/components/icons/Help.vue'
 import LayoutIcon from '@/components/icons/FlowLayout.vue'
 import CollapseIcon from '@/components/icons/Collapse.vue'
 import ExpandIcon from '@/components/icons/Expand.vue'
@@ -924,6 +965,8 @@ const metaDescription = ref('')
 const metaKeywords = ref('')
 const metaSaveDisabled = computed(() => metaDescription.value.trim().length === 0 || parseKeywords(metaKeywords.value).length === 0)
 
+const showHelpModal = ref(false)
+
 function openMetaModal() {
   if (!activeWorkflow.value) return
   // Pre-fill from current workflow
@@ -933,6 +976,14 @@ function openMetaModal() {
 }
 function closeMetaModal() {
   showMetaModal.value = false
+}
+
+function openHelpModal() {
+  showHelpModal.value = true
+}
+
+function closeHelpModal() {
+  showHelpModal.value = false
 }
 
 function parseKeywords(input: string): string[] {

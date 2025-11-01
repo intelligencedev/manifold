@@ -27,6 +27,7 @@ type GroupUIEntry struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Collapsed bool   `json:"collapsed,omitempty"`
+	Color     string `json:"color,omitempty"`
 }
 
 // NodeLayout captures the 2D position and optional size of a node on the editor canvas.

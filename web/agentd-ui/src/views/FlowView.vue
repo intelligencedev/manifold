@@ -701,7 +701,7 @@ function collectUiState(allNodes: WarppNode[]): UiSnapshot {
 
     if (isGroupNode(node)) {
       const data = node.data as GroupNodeData
-      groups.push({ id: node.id, label: data.label, collapsed: data.collapsed })
+      groups.push({ id: node.id, label: data.label, collapsed: data.collapsed, color: data.color })
       const width = entry.width ?? WARPP_GROUP_NODE_DIMENSIONS.defaultWidth
       const height = entry.height ?? WARPP_GROUP_NODE_DIMENSIONS.defaultHeight
       groupRects.set(node.id, {
@@ -1270,6 +1270,7 @@ function workflowToNodes(wf: WarppWorkflow): WarppNode[] {
         kind: 'group',
         label: group.label || 'Group',
         collapsed: group.collapsed ?? false,
+        color: group.color,
       },
     }
   })

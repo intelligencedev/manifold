@@ -20,6 +20,7 @@ export interface WarppGroupUIEntry {
   id: string
   label: string
   collapsed?: boolean
+  color?: string
 }
 
 export interface WarppWorkflowUI {

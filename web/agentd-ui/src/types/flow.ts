@@ -13,4 +13,5 @@ export interface GroupNodeData {
   kind: 'group'
   label: string
   collapsed?: boolean
+  color?: string
 }

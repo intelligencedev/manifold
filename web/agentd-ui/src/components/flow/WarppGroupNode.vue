@@ -1,6 +1,7 @@
 <template>
   <div class="group-node relative h-full w-full">
     <NodeResizer
+      v-if="isDesignMode"
       :min-width="GROUP_MIN_WIDTH"
       :min-height="GROUP_MIN_HEIGHT"
       :handle-style="RESIZER_HANDLE_STYLE"
@@ -53,16 +54,14 @@ const isDesignMode = computed(() => modeRef.value === 'design')
 const ungroupHandler = inject<((id: string) => void) | null>('warppRequestUngroup', null)
 
 const RESIZER_HANDLE_STYLE = Object.freeze({
-  width: '12px',
-  height: '12px',
-  borderRadius: '9999px',
-  background: 'var(--color-accent, #38bdf8)',
-  border: '1px solid rgba(0,0,0,0.25)',
+  width: '14px',
+  height: '14px',
+  opacity: '0',
+  border: 'none',
+  background: 'transparent',
 })
 
-const RESIZER_LINE_STYLE = Object.freeze({
-  stroke: 'var(--color-border, rgba(148, 163, 184, 0.7))',
-})
+const RESIZER_LINE_STYLE = Object.freeze({ opacity: '0' })
 
 const labelText = ref(defaultLabel)
 let suppressCommit = false

@@ -992,20 +992,74 @@ function toggleCollapseAll() {
 type DagreDirection = 'TB' | 'LR'
 
 function onAutoLayout(direction: DagreDirection) {
-  // Build dagre graph
+  // We don't need to refresh the UI snapshot here; we'll avoid triggering
+  // membership/delta translation during layout and finalize it afterward.
+  
+  // Separate nodes into top-level (including groups) and children (inside groups)
+  const topLevelNodes: WarppNode[] = []
+  const childNodes: Map<string, WarppNode[]> = new Map()
+  
+  for (const n of nodes.value) {
+    if (isGroupNode(n)) {
+      // Group nodes are always top-level
+      topLevelNodes.push(n)
+    } else if (isStepLikeNode(n)) {
+      const data = n.data as StepNodeData
+      if (data.groupId) {
+        // This node is inside a group
+        if (!childNodes.has(data.groupId)) {
+          childNodes.set(data.groupId, [])
+        }
+        childNodes.get(data.groupId)!.push(n)
+      } else {
+        // This node is top-level
+        topLevelNodes.push(n)
+      }
+    } else {
+      // Unknown node type, treat as top-level
+      topLevelNodes.push(n)
+    }
+  }
+  
+  // Build dagre graph with only top-level nodes
   const g = new dagre.graphlib.Graph()
   // Slightly increase separations to account for handles/margins
   g.setGraph({ rankdir: direction, nodesep: 60, ranksep: 80, marginx: 24, marginy: 24 })
   g.setDefaultEdgeLabel(() => ({}))
 
-  // Add nodes with measured sizes (fallback to base) to avoid overlaps
-  for (const n of nodes.value) {
+  // Add only top-level nodes with measured sizes
+  for (const n of topLevelNodes) {
     const size = readNodeSize(n)
     g.setNode(n.id, { width: size.width || DAGRE_NODE_BASE_WIDTH, height: size.height || DAGRE_NODE_BASE_HEIGHT })
   }
-  // Add edges for dependencies
+  
+  // Add edges between top-level nodes only. If an endpoint is a child, lift it to its group id.
+  const edgeKey = (a: string, b: string) => `${a}->${b}`
+  const added = new Set<string>()
   for (const e of edges.value) {
-    g.setEdge(e.source, e.target)
+    const sourceNode = nodes.value.find((n) => n.id === e.source)
+    const targetNode = nodes.value.find((n) => n.id === e.target)
+    if (!sourceNode || !targetNode) continue
+
+    const sourceGroupId = isStepLikeNode(sourceNode) ? (sourceNode.data as StepNodeData).groupId : undefined
+    const targetGroupId = isStepLikeNode(targetNode) ? (targetNode.data as StepNodeData).groupId : undefined
+
+    // Skip edges entirely inside the same group
+    if (sourceGroupId && targetGroupId && sourceGroupId === targetGroupId) continue
+
+    // Lift endpoints to their top-level containers (group id if present, else node id)
+    const liftedSource = sourceGroupId ?? sourceNode.id
+    const liftedTarget = targetGroupId ?? targetNode.id
+
+    // Avoid self-loops after lifting
+    if (liftedSource === liftedTarget) continue
+
+    // Avoid duplicates
+    const key = edgeKey(liftedSource, liftedTarget)
+    if (added.has(key)) continue
+    added.add(key)
+
+    g.setEdge(liftedSource, liftedTarget)
   }
 
   try {
@@ -1015,8 +1069,46 @@ function onAutoLayout(direction: DagreDirection) {
     return
   }
 
-  // Map node positions back to VueFlow (dagre gives centers)
+  // Build map of group movements
+  const groupDeltas = new Map<string, { dx: number; dy: number }>()
+  topLevelNodes.forEach((n) => {
+    if (!isGroupNode(n)) return
+    const oldPos = n.position ?? { x: 0, y: 0 }
+    const dagrePos = g.node(n.id) as { x: number; y: number } | undefined
+    if (!dagrePos) return
+    
+    const size = readNodeSize(n)
+    const width = size.width || DAGRE_NODE_BASE_WIDTH
+    const height = size.height || DAGRE_NODE_BASE_HEIGHT
+    const newPos = {
+      x: dagrePos.x - width / 2,
+      y: dagrePos.y - height / 2,
+    }
+    
+    groupDeltas.set(n.id, {
+      dx: newPos.x - oldPos.x,
+      dy: newPos.y - oldPos.y,
+    })
+  })
+
+  // Apply positions: top-level nodes get dagre positions, children move with their groups
   const positioned = nodes.value.map((n) => {
+    // Check if this is a child node
+    if (isStepLikeNode(n)) {
+      const data = n.data as StepNodeData
+      if (data.groupId) {
+        // This is a child node - move it by the same delta as its parent group
+        const delta = groupDeltas.get(data.groupId)
+        if (delta) {
+          const oldPos = n.position ?? { x: 0, y: 0 }
+          return { ...n, position: { x: oldPos.x + delta.dx, y: oldPos.y + delta.dy } }
+        }
+        // If no delta found, keep original position
+        return n
+      }
+    }
+    
+    // This is a top-level node (ungrouped or group) - use dagre position
     const pos = g.node(n.id) as { x: number; y: number } | undefined
     if (!pos) return n
     const size = readNodeSize(n)
@@ -1027,7 +1119,14 @@ function onAutoLayout(direction: DagreDirection) {
     return { ...n, position: { x, y } }
   })
 
+  // Prevent refreshUiSnapshot from translating children a second time
+  // while we commit the new positions.
+  isApplyingLayout.value = true
   nodes.value = positioned
+  // Update latest snapshot and previousGroupPositions without translating
+  // children or mutating memberships.
+  refreshUiSnapshot()
+  isApplyingLayout.value = false
   // Fit view after positioning
   scheduleFitView()
 }
@@ -1413,6 +1512,8 @@ function applyMembership(snapshot: UiSnapshot) {
 
 const latestUiSnapshot = ref<UiSnapshot>({ layout: {}, parents: {}, groups: [], memberships: {} })
 const previousGroupPositions = new Map<string, { x: number; y: number }>()
+// Guard to avoid double-moving children while auto-layout commits positions
+const isApplyingLayout = ref(false)
 
 function removeGroup(groupId: string) {
   let changed = false
@@ -1443,23 +1544,28 @@ function removeGroup(groupId: string) {
 
 function refreshUiSnapshot(): UiSnapshot {
   let snapshot = collectUiState(nodes.value)
-  const deltas: Array<{ id: string; dx: number; dy: number }> = []
-  snapshot.groups.forEach((group) => {
-    const entry = snapshot.layout[group.id]
-    if (!entry) return
-    const prev = previousGroupPositions.get(group.id)
-    if (prev) {
-      const dx = entry.x - prev.x
-      const dy = entry.y - prev.y
-      if (dx || dy) {
-        deltas.push({ id: group.id, dx, dy })
+
+  // When applying auto-layout, do NOT translate children or mutate memberships.
+  if (!isApplyingLayout.value) {
+    const deltas: Array<{ id: string; dx: number; dy: number }> = []
+    snapshot.groups.forEach((group) => {
+      const entry = snapshot.layout[group.id]
+      if (!entry) return
+      const prev = previousGroupPositions.get(group.id)
+      if (prev) {
+        const dx = entry.x - prev.x
+        const dy = entry.y - prev.y
+        if (dx || dy) {
+          deltas.push({ id: group.id, dx, dy })
+        }
       }
+    })
+    if (deltas.length) {
+      deltas.forEach(({ id, dx, dy }) => translateGroupChildren(id, dx, dy))
+      snapshot = collectUiState(nodes.value)
     }
-  })
-  if (deltas.length) {
-    deltas.forEach(({ id, dx, dy }) => translateGroupChildren(id, dx, dy))
-    snapshot = collectUiState(nodes.value)
   }
+
   previousGroupPositions.clear()
   snapshot.groups.forEach((group) => {
     const entry = snapshot.layout[group.id]
@@ -1467,7 +1573,10 @@ function refreshUiSnapshot(): UiSnapshot {
       previousGroupPositions.set(group.id, { x: entry.x, y: entry.y })
     }
   })
-  applyMembership(snapshot)
+
+  if (!isApplyingLayout.value) {
+    applyMembership(snapshot)
+  }
   latestUiSnapshot.value = snapshot
   return snapshot
 }

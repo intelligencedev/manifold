@@ -169,11 +169,12 @@
           >
             <div class="space-y-2">
               <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
-                Containers
+                Utility Nodes
               </h3>
               <p class="text-[10px] text-subtle-foreground">
-                Use groups to organize related nodes and move them together.
+                Utility nodes provide editor-only helpers for WARPP workflows.
               </p>
+              <!-- Group Container and Sticky Note are utility items and appear first -->
               <div
                 class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
                 draggable="true"
@@ -183,12 +184,6 @@
               >
                 Group Container
               </div>
-            </div>
-            <div class="space-y-2">
-              <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
-                Notes
-              </h3>
-              <p class="text-[10px] text-subtle-foreground">Add sticky notes for annotations. They don't execute.</p>
               <div
                 class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
                 draggable="true"
@@ -198,28 +193,19 @@
               >
                 Sticky Note
               </div>
-            </div>
-            <template v-if="utilityTools.length">
-              <div class="space-y-2">
-                <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
-                  Utility Nodes
-                </h3>
-                <p class="text-[10px] text-subtle-foreground">
-                  Utility nodes provide editor-only helpers for WARPP workflows.
-                </p>
-                <div
-                  v-for="tool in utilityTools"
-                  :key="tool.name"
-                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
-                  draggable="true"
-                  :title="tool.description ?? tool.name"
-                  @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
-                  @dragend="onPaletteDragEnd"
-                >
-                  {{ prettyUtilityLabel(tool.name) }}
-                </div>
+              <!-- Other utility tools from backend follow -->
+              <div
+                v-for="tool in utilityTools"
+                :key="tool.name"
+                class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
+                draggable="true"
+                :title="tool.description ?? tool.name"
+                @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
+                @dragend="onPaletteDragEnd"
+              >
+                {{ prettyUtilityLabel(tool.name) }}
               </div>
-            </template>
+            </div>
             <template v-if="workflowTools.length">
               <div class="space-y-2">
                 <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">

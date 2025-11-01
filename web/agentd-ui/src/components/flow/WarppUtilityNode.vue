@@ -1,11 +1,9 @@
 <template>
   <div
-    class="relative w-full flip-root text-xs text-muted-foreground"
+    class="relative w-full flip-root text-xs text-muted-foreground overflow-visible"
     :class="collapsed ? 'min-w-[220px] min-h-[72px]' : 'min-w-[320px] min-h-[200px] h-full'"
     :style="{ minWidth: UTILITY_MIN_WIDTH_PX, minHeight: UTILITY_MIN_HEIGHT_PX }"
   >
-    <Handle type="target" :position="Position.Left" class="!bg-accent" />
-
     <NodeResizer
       v-if="isDesignMode"
       :min-width="UTILITY_MIN_WIDTH"
@@ -16,7 +14,20 @@
     />
 
     <!-- Entire card flips -->
-    <div class="flip-card h-full w-full" :class="showBack ? 'is-flipped' : ''">
+    <div class="flip-card h-full w-full relative" :class="showBack ? 'is-flipped' : ''">
+      <!-- Handles anchored to the flip-card for proper centering -->
+      <Handle
+        type="target"
+        :position="Position.Left"
+        class="!bg-accent"
+        :style="{ position: 'absolute', top: '50%', left: '0', transform: 'translate(-50%, -50%)', width: '14px', height: '14px', zIndex: 10, pointerEvents: 'auto' }"
+      />
+      <Handle
+        type="source"
+        :position="Position.Right"
+        class="!bg-accent"
+        :style="{ position: 'absolute', top: '50%', right: '0', transform: 'translate(50%, -50%)', width: '14px', height: '14px', zIndex: 10, pointerEvents: 'auto' }"
+      />
       <!-- FRONT FACE -->
       <div class="flip-face flip-front relative h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
         <!-- Header with gear -->
@@ -27,21 +38,6 @@
             </div>
           </div>
           <div class="flex items-center gap-1">
-            <!-- Step ID chip with copy -->
-            <button
-              class="hidden sm:inline-flex max-w-[180px] items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground/80 hover:bg-muted/60"
-              :title="copied ? 'Copied!' : `Copy step id: ${props.id}`"
-              @click.prevent.stop="copyStepId"
-            >
-              <svg v-if="!copied" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-              </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <span class="truncate">{{ props.id }}</span>
-            </button>
             <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Utility</span>
             <button
               class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
@@ -52,6 +48,23 @@
               <GearIcon class="h-3.5 w-3.5" />
             </button>
           </div>
+        </div>
+        <!-- Node ID chip row (below header, always visible) -->
+        <div class="mt-1 flex items-center justify-between gap-2">
+          <button
+            class="hidden sm:inline-flex max-w-[200px] items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground/80 hover:bg-muted/60"
+            :title="copied ? 'Copied!' : `Copy step id: ${props.id}`"
+            @click.prevent.stop="copyStepId"
+          >
+            <svg v-if="!copied" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+            <span class="truncate">{{ props.id }}</span>
+          </button>
         </div>
 
         <!-- Front content -->
@@ -196,8 +209,6 @@
         </div>
       </div>
     </div>
-
-    <Handle type="source" :position="Position.Right" class="!bg-accent" />
   </div>
 </template>
 

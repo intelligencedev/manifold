@@ -14,6 +14,7 @@
           :key="`${key}-${index}`"
           :schema="childSchema"
           :label="childLabels[key]"
+          :name="key"
           :required="childRequired.has(key)"
           :model-value="childValue(key)"
           @update:model-value="(value) => updateChild(key, value)"
@@ -38,6 +39,7 @@
             <ParameterFormField
               :schema="itemSchema"
               :label="itemLabel(index)"
+              :name="props.name"
               :model-value="item"
               @update:model-value="(value) => updateArrayItem(index, value)"
             />
@@ -103,6 +105,13 @@
             {{ optionLabel(option) }}
           </option>
         </select>
+        <textarea
+          v-else-if="isMultilineString"
+          :value="stringValue"
+          :rows="multilineRows"
+          :class="textareaClass"
+          @input="onStringInput"
+        />
         <input
           v-else-if="isNumeric"
           type="number"
@@ -148,6 +157,7 @@ const props = defineProps<{
   modelValue: unknown
   label?: string
   required?: boolean
+  name?: string
 }>()
 
 const emit = defineEmits<{
@@ -198,11 +208,13 @@ const hasEnum = computed(() => enumOptions.value.length > 0)
 const childRequired = computed(
   () => new Set<string>(Array.isArray(props.schema.required) ? props.schema.required : []),
 )
-const childEntries = computed(() => Object.entries(props.schema.properties ?? {}))
+const childEntries = computed<[string, Record<string, any>][]>(
+  () => Object.entries(props.schema.properties ?? {}) as [string, Record<string, any>][]
+)
 const childLabels = computed(() => {
   const out: Record<string, string> = {}
   childEntries.value.forEach(([key, schema]) => {
-    out[key] = schema?.title ?? key
+    out[key] = (schema as any)?.title ?? key
   })
   return out
 })
@@ -235,7 +247,7 @@ function updateChild(key: string, value: unknown) {
 const stringValue = computed(() => (typeof props.modelValue === 'string' ? props.modelValue : ''))
 
 function onStringInput(event: Event) {
-  const target = event.target as HTMLInputElement
+  const target = event.target as HTMLInputElement | HTMLTextAreaElement
   const value = target.value
   emit('update:model-value', value === '' && !props.required ? undefined : value)
 }
@@ -308,6 +320,45 @@ function optionLabel(option: unknown) {
   }
   return String(option)
 }
+
+// Multiline string heuristics and styles
+const isString = computed(() => type.value === 'string' && !hasEnum.value && !isBoolean.value && !isNumeric.value)
+
+function includesWord(hay: string | undefined, re: RegExp): boolean {
+  if (!hay) return false
+  return re.test(hay.toLowerCase())
+}
+
+const isMultilineString = computed(() => {
+  if (!isString.value) return false
+  const s = props.schema || {}
+  // Explicit schema hints
+  if (s.format && typeof s.format === 'string' && s.format.toLowerCase() === 'textarea') return true
+  if (s['x-ui'] && String(s['x-ui']).toLowerCase() === 'textarea') return true
+  if ((s as any)['x-multiline'] === true) return true
+  if (typeof (s as any).contentMediaType === 'string' && (s as any).contentMediaType.startsWith('text/')) return true
+
+  // Heuristics based on field name/label
+  const name = (props.name || (props.label ?? (s as any).title) || '').toString().toLowerCase()
+  if (includesWord(name, /(patch|diff|body|content|script|message|notes|description|text)/)) return true
+
+  return false
+})
+
+const isMonospace = computed(() => {
+  const s = props.schema || {}
+  if ((s as any)['x-monospace'] === true) return true
+  if (typeof (s as any).format === 'string' && /^(code|diff|textarea-code)$/.test((s as any).format.toLowerCase())) return true
+  const name = (props.name || (props.label ?? (s as any).title) || '').toString().toLowerCase()
+  return includesWord(name, /(patch|diff|code|script|json|yaml)/)
+})
+
+const multilineRows = computed(() => (includesWord((props.name || props.label || '').toString(), /(patch|diff)/i) ? 8 : 4))
+
+const textareaClass = computed(() => [
+  'rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto',
+  isMonospace.value ? 'font-mono' : '',
+].join(' '))
 
 // Array handling
 const itemSchema = computed(() => {

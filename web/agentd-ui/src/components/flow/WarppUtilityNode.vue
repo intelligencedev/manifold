@@ -92,11 +92,13 @@
               class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto"
               placeholder="Enter static text or use ${A.key} placeholders"
               @input="markDirty"
+              @wheel.stop
             >
             </textarea>
             <div
               v-else
               class="min-h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words"
+              @wheel.stop
             >
               <span class="block max-h-[12rem] overflow-auto">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
             </div>
@@ -108,7 +110,7 @@
             {{ runtimeStatusMessage }}
           </p>
           <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-            <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
+            <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words" @wheel.stop>{{ runtimeError }}</span>
           </p>
         </div>
 

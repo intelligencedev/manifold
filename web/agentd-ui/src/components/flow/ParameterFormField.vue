@@ -111,6 +111,7 @@
           :rows="multilineRows"
           :class="textareaClass"
           @input="onStringInput"
+          @wheel.stop
         />
         <input
           v-else-if="isNumeric"

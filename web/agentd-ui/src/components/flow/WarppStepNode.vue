@@ -1,28 +1,16 @@
 <template>
-  <div
-    class="relative w-full flip-root text-xs text-muted-foreground overflow-visible"
-    :class="collapsed ? 'min-w-[160px] min-h-[72px]' : 'min-w-[320px] min-h-[260px] h-full'"
+  <WarppBaseNode
+    :collapsed="collapsed"
+    :min-width="STEP_MIN_WIDTH"
+    :min-height="STEP_MIN_HEIGHT"
+    :min-width-px="STEP_MIN_WIDTH_PX"
+    :min-height-px="STEP_MIN_HEIGHT_PX"
+    :show-resizer="isDesignMode"
+    :show-back="showBack"
+    :root-class="collapsed ? 'min-w-[160px] min-h-[72px]' : 'min-w-[320px] min-h-[260px] h-full'"
+    @resize-end="onResizeEnd"
   >
-    <Handle
-      type="target"
-      :position="Position.Left"
-      class="!bg-accent"
-      :style="{ top: '50%', left: '0.75rem', transform: 'translate(-50%, -50%)', width: '14px', height: '14px', zIndex: 10, pointerEvents: 'auto' }"
-    />
-
-    <NodeResizer
-      v-if="isDesignMode"
-      :min-width="STEP_MIN_WIDTH"
-      :min-height="STEP_MIN_HEIGHT"
-      :handle-style="RESIZER_HANDLE_STYLE"
-      :line-style="RESIZER_LINE_STYLE"
-      @resize-end="onResizeEnd"
-    />
-
-    <!-- Entire card flips -->
-    <div class="flip-card h-full w-full" :class="showBack ? 'is-flipped' : ''">
-      <!-- FRONT FACE (full card) -->
-      <div class="flip-face flip-front relative h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
+    <template #front>
         <!-- Header -->
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1">
@@ -172,97 +160,85 @@
             </button>
           </div>
         </div>
+    </template>
+
+    <template #back>
+      <!-- Back header -->
+      <div class="flex items-start justify-between gap-2">
+        <button
+          class="inline-flex items-center rounded px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+          title="Back"
+          @click.prevent.stop="toggleBack(false)"
+        >
+          Back
+        </button>
+        <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Advanced • Promote to attribute (optional)</span>
       </div>
 
-      <!-- BACK FACE (full card) -->
-      <div
-        class="flip-face flip-back absolute inset-0 h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
-        :class="showBack ? 'pointer-events-auto' : 'pointer-events-none'"
-      >
-        <!-- Back header -->
-        <div class="flex items-start justify-between gap-2">
-          <button
-            class="inline-flex items-center rounded px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
-            title="Back"
-            @click.prevent.stop="toggleBack(false)"
-          >
-            Back
-          </button>
-          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Advanced • Promote to attribute (optional)</span>
-        </div>
+      <!-- Back content -->
+      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
+        <div class="space-y-2">
+          <p class="text-[10px] text-faint-foreground">
+            Prefer referencing prior step data with
+            <code>{{ `\${A.${props.id}.json...}` }}</code>.
+            Promote to an attribute when you want a short, stable name (useful for guards and reuse).
+          </p>
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Output Attribute
+            <input
+              v-model="outputAttr"
+              type="text"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+              placeholder="e.g. result"
+              :disabled="!isDesignMode"
+              @input="markDirty"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Output From
+            <input
+              v-model="outputFrom"
+              type="text"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+              placeholder="payload | json.<path> | delta.<key> | args.<key>"
+              :disabled="!isDesignMode"
+              @input="markDirty"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Output Value
+            <input
+              v-model="outputValue"
+              type="text"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+              placeholder="Literal override"
+              :disabled="!isDesignMode"
+              @input="markDirty"
+            />
+          </label>
 
-        <!-- Back content -->
-        <div class="mt-3" :class="collapsed ? 'hidden' : ''">
-          <div class="space-y-2">
-            <p class="text-[10px] text-faint-foreground">
-              Prefer referencing prior step data with
-              <code>{{ `\${A.${props.id}.json...}` }}</code>.
-              Promote to an attribute when you want a short, stable name (useful for guards and reuse).
-            </p>
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Output Attribute
-              <input
-                v-model="outputAttr"
-                type="text"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="e.g. result"
-                :disabled="!isDesignMode"
-                @input="markDirty"
-              />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Output From
-              <input
-                v-model="outputFrom"
-                type="text"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="payload | json.<path> | delta.<key> | args.<key>"
-                :disabled="!isDesignMode"
-                @input="markDirty"
-              />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Output Value
-              <input
-                v-model="outputValue"
-                type="text"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="Literal override"
-                :disabled="!isDesignMode"
-                @input="markDirty"
-              />
-            </label>
-
-            <div v-show="isDesignMode" class="pt-1 flex items-center justify-end gap-2">
-              <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
-              <button
-                class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-                :disabled="!isDirty"
-                @click="applyChanges"
-              >
-                Apply
-              </button>
-            </div>
+          <div v-show="isDesignMode" class="pt-1 flex items-center justify-end gap-2">
+            <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
+            <button
+              class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
+              :disabled="!isDirty"
+              @click="applyChanges"
+            >
+              Apply
+            </button>
           </div>
         </div>
       </div>
-    </div>
-
-    <Handle
-      type="source"
-      :position="Position.Right"
-      class="!bg-accent"
-      :style="{ top: '50%', right: '0.75rem', transform: 'translate(50%, -50%)', width: '14px', height: '14px', zIndex: 10, pointerEvents: 'auto' }"
-    />
-  </div>
+    </template>
+  </WarppBaseNode>
 </template>
 
 <script setup lang="ts">
 import { computed, inject, ref, watch, type CSSProperties } from 'vue'
-import { Handle, Position, useVueFlow, type NodeProps } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
+import { useVueFlow, type NodeProps } from '@vue-flow/core'
 import type { OnResizeEnd } from '@vue-flow/node-resizer'
 
+import WarppBaseNode from './WarppBaseNode.vue'
 import ParameterFormField from '@/components/flow/ParameterFormField.vue'
 import type { StepNodeData } from '@/types/flow'
 import type { WarppTool, WarppStepTrace } from '@/types/warpp'
@@ -278,14 +254,6 @@ const STEP_MIN_WIDTH = WARPP_STEP_NODE_DIMENSIONS.minWidth
 const STEP_MIN_HEIGHT = WARPP_STEP_NODE_DIMENSIONS.minHeight
 const STEP_MIN_WIDTH_PX = `${STEP_MIN_WIDTH}px`
 const STEP_MIN_HEIGHT_PX = `${STEP_MIN_HEIGHT}px`
-const RESIZER_HANDLE_STYLE = Object.freeze({
-  width: '14px',
-  height: '14px',
-  opacity: '0',
-  border: 'none',
-  background: 'transparent',
-})
-const RESIZER_LINE_STYLE = Object.freeze({ opacity: '0' })
 
 const toolsRef = inject<Ref<WarppTool[]>>('warppTools', ref<WarppTool[]>([]))
 const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
@@ -605,12 +573,3 @@ function cloneStep(step: Record<string, unknown>) {
   }
 }
 </script>
-
-<style scoped>
-.flip-root { perspective: 800px; }
-.flip-card { position: relative; transform-style: preserve-3d; transition: transform 200ms ease; }
-.flip-card.is-flipped { transform: rotateX(180deg); }
-.flip-face { backface-visibility: hidden; transform-style: preserve-3d; }
-.flip-front { transform: rotateX(0deg); }
-.flip-back { transform: rotateX(180deg); }
-</style>

@@ -1,116 +1,200 @@
 <template>
-  <div
-    class="relative w-full flip-root text-xs text-muted-foreground overflow-visible"
-    :class="collapsed ? 'min-w-[220px] min-h-[72px]' : 'min-w-[320px] min-h-[200px] h-full'"
-    :style="{ minWidth: UTILITY_MIN_WIDTH_PX, minHeight: UTILITY_MIN_HEIGHT_PX }"
+  <WarppBaseNode
+    :collapsed="collapsed"
+    :min-width="UTILITY_MIN_WIDTH"
+    :min-height="UTILITY_MIN_HEIGHT"
+    :min-width-px="UTILITY_MIN_WIDTH_PX"
+    :min-height-px="UTILITY_MIN_HEIGHT_PX"
+    :show-resizer="isDesignMode"
+    :show-back="showBack"
+    :root-class="collapsed ? 'min-w-[220px] min-h-[72px]' : 'min-w-[320px] min-h-[200px] h-full'"
+    @resize-end="onResizeEnd"
   >
-    <NodeResizer
-      v-if="isDesignMode"
-      :min-width="UTILITY_MIN_WIDTH"
-      :min-height="UTILITY_MIN_HEIGHT"
-      :handle-style="RESIZER_HANDLE_STYLE"
-      :line-style="RESIZER_LINE_STYLE"
-      @resize-end="onResizeEnd"
-    />
-
-    <!-- Entire card flips -->
-    <div class="flip-card h-full w-full relative" :class="showBack ? 'is-flipped' : ''">
-      <!-- Handles anchored to the flip-card for proper centering -->
-      <Handle
-        type="target"
-        :position="Position.Left"
-        class="!bg-accent"
-        :style="{ position: 'absolute', top: '50%', left: '0', transform: 'translate(-50%, -50%)', width: '14px', height: '14px', zIndex: 10, pointerEvents: 'auto' }"
-      />
-      <Handle
-        type="source"
-        :position="Position.Right"
-        class="!bg-accent"
-        :style="{ position: 'absolute', top: '50%', right: '0', transform: 'translate(50%, -50%)', width: '14px', height: '14px', zIndex: 10, pointerEvents: 'auto' }"
-      />
-      <!-- FRONT FACE -->
-      <div class="flip-face flip-front relative h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg">
-        <!-- Header with gear -->
-        <div class="flex items-start justify-between gap-2">
-          <div class="flex-1">
+    <template #front>
+      <!-- Header with gear -->
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <button
+              class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
+              :aria-expanded="!collapsed"
+              :title="collapsed ? 'Expand' : 'Collapse'"
+              @click.prevent.stop="toggleCollapsed()"
+            >
+              <svg
+                class="h-3.5 w-3.5 transition-transform"
+                :class="collapsed ? '-rotate-90' : 'rotate-0'"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
             <div class="text-sm font-semibold text-foreground select-none">
               {{ headerLabel }}
             </div>
           </div>
-          <div class="flex items-center gap-1">
-            <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Utility</span>
-            <button
-              class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
-              title="Advanced (promote to attribute)"
-              aria-label="Advanced (promote to attribute)"
-              @click.prevent.stop="toggleBack(true)"
-            >
-              <GearIcon class="h-3.5 w-3.5" />
-            </button>
-          </div>
         </div>
-        <!-- Node ID chip row (below header, always visible) -->
-        <div class="mt-1 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1">
+          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Utility</span>
           <button
-            class="hidden sm:inline-flex max-w-[200px] items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground/80 hover:bg-muted/60"
-            :title="copied ? 'Copied!' : `Copy step id: ${props.id}`"
-            @click.prevent.stop="copyStepId"
+            class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
+            title="Advanced (promote to attribute)"
+            aria-label="Advanced (promote to attribute)"
+            @click.prevent.stop="toggleBack(true)"
           >
-            <svg v-if="!copied" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-            </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="20 6 9 17 4 12"></polyline>
-            </svg>
-            <span class="truncate">{{ props.id }}</span>
+            <GearIcon class="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      <!-- Node ID chip row (below header, always visible) -->
+      <div class="mt-1 flex items-center justify-between gap-2">
+        <button
+          class="hidden sm:inline-flex max-w-[200px] items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono text-foreground/80 hover:bg-muted/60"
+          :title="copied ? 'Copied!' : `Copy step id: ${props.id}`"
+          @click.prevent.stop="copyStepId"
+        >
+          <svg v-if="!copied" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5 text-green-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <span class="truncate">{{ props.id }}</span>
+        </button>
+      </div>
+
+      <!-- Front content -->
+      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
+        <div class="space-y-2">
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Display Label
+            <input
+              v-model="labelText"
+              type="text"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+              placeholder="Optional heading"
+              :disabled="!isDesignMode"
+              @input="markDirty"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Textbox Content
+            <textarea
+              v-if="isDesignMode"
+              v-model="contentText"
+              rows="4"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto"
+              placeholder="Enter static text or use ${A.key} placeholders"
+              @input="markDirty"
+            >
+            </textarea>
+            <div
+              v-else
+              class="min-h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words"
+            >
+              <span class="block max-h-[12rem] overflow-auto">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
+            </div>
+          </label>
+          <p v-if="runtimeStatus === 'pending'" class="text-[10px] italic text-faint-foreground">
+            Waiting for execution…
+          </p>
+          <p v-else-if="runtimeStatusMessage" class="text-[10px] italic text-faint-foreground">
+            {{ runtimeStatusMessage }}
+          </p>
+          <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
+            <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
+          </p>
+        </div>
+
+        <div v-if="isDesignMode" class="mt-3 flex items-center justify-end gap-2">
+          <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
+          <button
+            class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
+            :disabled="!isDirty"
+            @click="applyChanges"
+          >
+            Apply
           </button>
         </div>
 
-        <!-- Front content -->
-        <div class="mt-3" :class="collapsed ? 'hidden' : ''">
-          <div class="space-y-2">
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Display Label
-              <input
-                v-model="labelText"
-                type="text"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="Optional heading"
-                :disabled="!isDesignMode"
-                @input="markDirty"
-              />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Textbox Content
-              <textarea
-                v-if="isDesignMode"
-                v-model="contentText"
-                rows="4"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto"
-                placeholder="Enter static text or use ${A.key} placeholders"
-                @input="markDirty"
-              >
-              </textarea>
-              <div
-                v-else
-                class="min-h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words"
-              >
-                <span class="block max-h-[12rem] overflow-auto">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
-              </div>
-            </label>
-            <p v-if="runtimeStatus === 'pending'" class="text-[10px] italic text-faint-foreground">
-              Waiting for execution…
-            </p>
-            <p v-else-if="runtimeStatusMessage" class="text-[10px] italic text-faint-foreground">
-              {{ runtimeStatusMessage }}
-            </p>
-            <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-              <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
-            </p>
-          </div>
+        <div v-if="!isDesignMode && hasRuntimeDetails" class="mt-3 flex items-center justify-end">
+          <button
+            type="button"
+            class="text-[11px] font-medium text-accent underline decoration-dotted underline-offset-2 transition hover:text-accent-foreground"
+            @click="viewRuntimeDetails"
+          >
+            View details
+          </button>
+        </div>
+      </div>
+    </template>
 
-          <div v-if="isDesignMode" class="mt-3 flex items-center justify-end gap-2">
+    <template #back>
+      <div class="flex items-start justify-between gap-2">
+        <button
+          class="inline-flex items-center rounded px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+          title="Back"
+          @click.prevent.stop="toggleBack(false)"
+        >
+          Back
+        </button>
+        <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Advanced • Promote to attribute (optional)</span>
+      </div>
+      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
+        <div class="space-y-2">
+          <p class="text-[10px] text-faint-foreground">
+            Prefer referencing prior step data with
+            <code>{{ `\${A.${props.id}.json...}` }}</code>.
+            Promote to an attribute when you want a short, stable name (useful for guards and reuse).
+          </p>
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Output Attribute
+            <input
+              v-model="outputAttr"
+              type="text"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+              :placeholder="`Defaults to ${defaultAttributeHint}`"
+              :disabled="!isDesignMode"
+              @input="markDirty"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Output From
+            <input
+              v-model="outputFrom"
+              type="text"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+              placeholder="payload | json.<path> | delta.<key> | args.<key>"
+              :disabled="!isDesignMode"
+              @input="markDirty"
+            />
+          </label>
+          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+            Output Value
+            <input
+              v-model="outputValue"
+              type="text"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+              placeholder="Literal override"
+              :disabled="!isDesignMode"
+              @input="markDirty"
+            />
+          </label>
+          <p class="text-[10px] text-faint-foreground">
+            <template v-if="isDesignMode">
+              When left blank the value is published as <code>{{ defaultAttributeHint }}</code>.
+            </template>
+            <template v-else>
+              Value published as <code>{{ runtimeOutputAttr }}</code>.
+            </template>
+          </p>
+          <div v-if="isDesignMode" class="pt-1 flex items-center justify-end gap-2">
             <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
             <button
               class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
@@ -120,104 +204,18 @@
               Apply
             </button>
           </div>
-
-          <div v-if="!isDesignMode && hasRuntimeDetails" class="mt-3 flex items-center justify-end">
-            <button
-              type="button"
-              class="text-[11px] font-medium text-accent underline decoration-dotted underline-offset-2 transition hover:text-accent-foreground"
-              @click="viewRuntimeDetails"
-            >
-              View details
-            </button>
-          </div>
         </div>
       </div>
-      <!-- BACK FACE -->
-      <div
-        class="flip-face flip-back absolute inset-0 h-full w-full rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
-        :class="showBack ? 'pointer-events-auto' : 'pointer-events-none'"
-      >
-        <div class="flex items-start justify-between gap-2">
-          <button
-            class="inline-flex items-center rounded px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
-            title="Back"
-            @click.prevent.stop="toggleBack(false)"
-          >
-            Back
-          </button>
-          <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Advanced • Promote to attribute (optional)</span>
-        </div>
-        <div class="mt-3" :class="collapsed ? 'hidden' : ''">
-          <div class="space-y-2">
-            <p class="text-[10px] text-faint-foreground">
-              Prefer referencing prior step data with
-              <code>{{ `\${A.${props.id}.json...}` }}</code>.
-              Promote to an attribute when you want a short, stable name (useful for guards and reuse).
-            </p>
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Output Attribute
-              <input
-                v-model="outputAttr"
-                type="text"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                :placeholder="`Defaults to ${defaultAttributeHint}`"
-                :disabled="!isDesignMode"
-                @input="markDirty"
-              />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Output From
-              <input
-                v-model="outputFrom"
-                type="text"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="payload | json.<path> | delta.<key> | args.<key>"
-                :disabled="!isDesignMode"
-                @input="markDirty"
-              />
-            </label>
-            <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-              Output Value
-              <input
-                v-model="outputValue"
-                type="text"
-                class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-                placeholder="Literal override"
-                :disabled="!isDesignMode"
-                @input="markDirty"
-              />
-            </label>
-            <p class="text-[10px] text-faint-foreground">
-              <template v-if="isDesignMode">
-                When left blank the value is published as <code>{{ defaultAttributeHint }}</code>.
-              </template>
-              <template v-else>
-                Value published as <code>{{ runtimeOutputAttr }}</code>.
-              </template>
-            </p>
-            <div v-if="isDesignMode" class="pt-1 flex items-center justify-end gap-2">
-              <span v-if="isDirty" class="text-[10px] italic text-warning-foreground">Unsaved</span>
-              <button
-                class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-                :disabled="!isDirty"
-                @click="applyChanges"
-              >
-                Apply
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+    </template>
+  </WarppBaseNode>
 </template>
 
 <script setup lang="ts">
 import { computed, inject, ref, watch, type CSSProperties } from 'vue'
-import { Handle, Position, useVueFlow, type NodeProps } from '@vue-flow/core'
-import { NodeResizer } from '@vue-flow/node-resizer'
+import { useVueFlow, type NodeProps } from '@vue-flow/core'
 import type { OnResizeEnd } from '@vue-flow/node-resizer'
 
+import WarppBaseNode from './WarppBaseNode.vue'
 import type { StepNodeData } from '@/types/flow'
 import type { WarppStep, WarppStepTrace } from '@/types/warpp'
 import type { Ref } from 'vue'
@@ -234,14 +232,6 @@ const UTILITY_MIN_WIDTH = WARPP_UTILITY_NODE_DIMENSIONS.minWidth
 const UTILITY_MIN_HEIGHT = WARPP_UTILITY_NODE_DIMENSIONS.minHeight
 const UTILITY_MIN_WIDTH_PX = `${UTILITY_MIN_WIDTH}px`
 const UTILITY_MIN_HEIGHT_PX = `${UTILITY_MIN_HEIGHT}px`
-const RESIZER_HANDLE_STYLE = Object.freeze({
-  width: '14px',
-  height: '14px',
-  opacity: '0',
-  border: 'none',
-  background: 'transparent',
-})
-const RESIZER_LINE_STYLE = Object.freeze({ opacity: '0' })
 const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
 const modeRef = inject<Ref<'design' | 'run'>>('warppMode', ref<'design' | 'run'>('design'))
 const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>('warppRunTrace', ref<Record<string, WarppStepTrace>>({}))
@@ -393,6 +383,10 @@ function toggleBack(v?: boolean) {
   showBack.value = typeof v === 'boolean' ? v : !showBack.value
 }
 
+function toggleCollapsed(v?: boolean) {
+  collapsed.value = typeof v === 'boolean' ? v : !collapsed.value
+}
+
 async function copyStepId() {
   try {
     await navigator.clipboard.writeText(props.id)
@@ -441,13 +435,4 @@ watch(expandAllSeq, (v) => {
   }
 })
 </script>
-
-<style scoped>
-.flip-root { perspective: 800px; }
-.flip-card { position: relative; transform-style: preserve-3d; transition: transform 200ms ease; }
-.flip-card.is-flipped { transform: rotateX(180deg); }
-.flip-face { backface-visibility: hidden; transform-style: preserve-3d; }
-.flip-front { transform: rotateX(0deg); }
-.flip-back { transform: rotateX(180deg); }
-</style>
 

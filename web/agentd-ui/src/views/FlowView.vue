@@ -228,6 +228,7 @@
             :zoom-on-scroll="true"
             :zoom-on-double-click="false"
             :node-types="nodeTypes"
+            :default-edge-options="{ type: currentEdgeStyle }"
             class="h-full w-full"
             @dragover="onDragOver"
             @drop="onDrop"
@@ -297,6 +298,29 @@
                 >
                   <FullScreenIcon class="h-4 w-4" />
                 </button>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 rounded px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  :aria-label="edgeStyleAriaLabel"
+                  :title="edgeStyleButtonTitle"
+                  @click="cycleEdgeStyle"
+                >
+                  <svg
+                    class="h-4 w-4 shrink-0"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M3 18c3.5 0 4.5-12 8-12s4.5 6 8 6" />
+                    <circle cx="3" cy="18" r="1.5" fill="currentColor" stroke="none" />
+                    <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+                  </svg>
+                  <span class="leading-none">{{ edgeStyleLabel }}</span>
+                </button>
+                <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
                 <button
                   type="button"
                   class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
@@ -744,6 +768,40 @@ function toggleNodeLock() {
   nodesLocked.value = !nodesLocked.value
 }
 
+const EDGE_STYLES = ['default', 'smoothstep', 'step', 'straight', 'simplebezier'] as const
+type EdgeStyle = (typeof EDGE_STYLES)[number]
+const EDGE_STYLE_LABELS: Record<EdgeStyle, string> = {
+  default: 'Default',
+  smoothstep: 'Smoothstep',
+  step: 'Step',
+  straight: 'Straight',
+  simplebezier: 'Simple Bezier',
+}
+
+const edgeStyleIndex = ref(0)
+const currentEdgeStyle = computed<EdgeStyle>(() => EDGE_STYLES[edgeStyleIndex.value])
+const edgeStyleLabel = computed(() => EDGE_STYLE_LABELS[currentEdgeStyle.value])
+const edgeStyleButtonTitle = computed(() => `Edge style: ${edgeStyleLabel.value}. Click to cycle`)
+const edgeStyleAriaLabel = computed(() => `Switch edge style (current: ${edgeStyleLabel.value})`)
+
+function normalizeEdgesWithCurrentStyle(list: Edge[]): Edge[] {
+  const type = currentEdgeStyle.value
+  return list.map((edge) => ({ ...edge, type }))
+}
+
+function applyEdgeStyleToExistingEdges() {
+  if (!edges.value.length) return
+  edges.value = normalizeEdgesWithCurrentStyle(edges.value)
+}
+
+function cycleEdgeStyle() {
+  edgeStyleIndex.value = (edgeStyleIndex.value + 1) % EDGE_STYLES.length
+}
+
+watch(currentEdgeStyle, () => {
+  applyEdgeStyleToExistingEdges()
+})
+
 // Expand/Collapse all nodes via provided signals
 function collapseAll() {
   collapseAllSeq.value += 1
@@ -1045,7 +1103,7 @@ function workflowToEdges(wf: WarppWorkflow): Edge[] {
         out.push({ id: `e-${dep}-${step.id}`, source: dep, target: step.id })
       }
     }
-    return out
+    return normalizeEdgesWithCurrentStyle(out)
   }
   // Fallback to sequential
   for (let i = 1; i < wf.steps.length; i += 1) {
@@ -1053,7 +1111,7 @@ function workflowToEdges(wf: WarppWorkflow): Edge[] {
     const curr = wf.steps[i]
     out.push({ id: `e-${prev.id}-${curr.id}`, source: prev.id, target: curr.id })
   }
-  return out
+  return normalizeEdgesWithCurrentStyle(out)
 }
 
 async function loadWorkflow(intent: string) {
@@ -1151,7 +1209,7 @@ function onConnect(connection: Connection) {
   // prevent duplicate edges
   if (edges.value.some((e) => e.source === source && e.target === target)) return
   const id = `e-${source}-${target}-${Math.random().toString(36).slice(2, 8)}`
-  edges.value = [...edges.value, { id, source, target }]
+  edges.value = normalizeEdgesWithCurrentStyle([...edges.value, { id, source, target }])
 }
 
 function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
@@ -1217,10 +1275,10 @@ function appendNode(node: StepNode) {
   nodes.value = updatedNodes
   if (updatedNodes.length > 1) {
     const previous = updatedNodes[updatedNodes.length - 2]
-    edges.value = [
+    edges.value = normalizeEdgesWithCurrentStyle([
       ...edges.value,
       { id: `e-${previous.id}-${node.id}`, source: previous.id, target: node.id },
-    ]
+    ])
   }
 }
 

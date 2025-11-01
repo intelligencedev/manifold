@@ -165,14 +165,15 @@
     <template #back>
       <!-- Back header -->
       <div class="flex items-start justify-between gap-2">
+        <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Advanced • Promote to attribute (optional)</span>
         <button
-          class="inline-flex items-center rounded px-2 py-0.5 text-[11px] text-foreground hover:bg-muted/70"
+          class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
           title="Back"
+          aria-label="Back"
           @click.prevent.stop="toggleBack(false)"
         >
-          Back
+          <GearIcon class="h-3.5 w-3.5" />
         </button>
-        <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Advanced • Promote to attribute (optional)</span>
       </div>
 
       <!-- Back content -->

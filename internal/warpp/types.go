@@ -17,13 +17,24 @@ type Workflow struct {
 
 // WorkflowUI holds optional editor metadata (for example, node layout).
 type WorkflowUI struct {
-	Layout map[string]NodeLayout `json:"layout,omitempty"`
+	Layout  map[string]NodeLayout `json:"layout,omitempty"`
+	Parents map[string]string     `json:"parents,omitempty"`
+	Groups  []GroupUIEntry        `json:"groups,omitempty"`
 }
 
-// NodeLayout captures the 2D position of a node on the editor canvas.
+// GroupUIEntry represents a group container node in the UI.
+type GroupUIEntry struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Collapsed bool   `json:"collapsed,omitempty"`
+}
+
+// NodeLayout captures the 2D position and optional size of a node on the editor canvas.
 type NodeLayout struct {
-	X float64 `json:"x"`
-	Y float64 `json:"y"`
+	X      float64  `json:"x"`
+	Y      float64  `json:"y"`
+	Width  *float64 `json:"width,omitempty"`
+	Height *float64 `json:"height,omitempty"`
 }
 
 type Step struct {

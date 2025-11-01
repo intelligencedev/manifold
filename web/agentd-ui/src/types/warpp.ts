@@ -16,8 +16,16 @@ export interface WarppNodeLayout {
   height?: number
 }
 
+export interface WarppGroupUIEntry {
+  id: string
+  label: string
+  collapsed?: boolean
+}
+
 export interface WarppWorkflowUI {
   layout?: Record<string, WarppNodeLayout>
+  parents?: Record<string, string>
+  groups?: WarppGroupUIEntry[]
 }
 
 export interface WarppStep {

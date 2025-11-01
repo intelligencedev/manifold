@@ -6,4 +6,11 @@ export interface StepNodeData {
   kind?: 'step' | 'utility'
   // UI-only: whether the node card is collapsed to its header
   collapsed?: boolean
+  groupId?: string
+}
+
+export interface GroupNodeData {
+  kind: 'group'
+  label: string
+  collapsed?: boolean
 }

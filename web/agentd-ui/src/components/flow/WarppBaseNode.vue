@@ -1,7 +1,7 @@
 <template>
   <div
     class="relative w-full flip-root text-xs text-muted-foreground overflow-visible"
-    :class="rootClass"
+    :class="rootClasses"
     :style="rootStyle"
   >
     <NodeResizer
@@ -60,6 +60,7 @@ const props = defineProps<{
   showBack?: boolean
   rootClass?: string | string[] | Record<string, boolean>
   flipCardClass?: string | string[] | Record<string, boolean>
+  selected?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -82,6 +83,8 @@ const rootStyle = computed<CSSProperties>(() => {
   if (props.minHeightPx) style.minHeight = props.minHeightPx
   return style
 })
+
+const rootClasses = computed(() => [props.rootClass, { 'is-selected': Boolean(props.selected) }])
 
 const flipCardClasses = computed(() => [
   'flip-card',
@@ -126,5 +129,8 @@ function onResizeEnd(data: OnResizeEnd) {
   transform: rotateX(0deg);
   opacity: 1;
   pointer-events: auto;
+}
+.is-selected .flip-face {
+  border-color: var(--color-accent, #38bdf8);
 }
 </style>

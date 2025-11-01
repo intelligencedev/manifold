@@ -7,7 +7,8 @@
     :min-height-px="UTILITY_MIN_HEIGHT_PX"
     :show-resizer="isDesignMode"
     :show-back="showBack"
-    :root-class="collapsed ? 'min-w-[220px] min-h-[72px]' : 'min-w-[320px] min-h-[200px] h-full'"
+    :root-class="rootClass"
+    :selected="props.selected"
     @resize-end="onResizeEnd"
   >
     <template #front>
@@ -247,6 +248,10 @@ const outputAttr = ref('')
 const outputFrom = ref('')
 const outputValue = ref('')
 const showBack = ref(false)
+const rootClass = computed(() => [
+  collapsed.value ? 'min-w-[220px] min-h-[72px]' : 'min-w-[320px] min-h-[200px] h-full',
+  'transition-colors duration-150 ease-out',
+])
 const isDirty = ref(false)
 const collapsed = ref(false)
 const copied = ref(false)

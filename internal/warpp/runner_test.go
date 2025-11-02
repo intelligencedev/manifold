@@ -216,6 +216,121 @@ func TestExecuteWithTraceCapturesRenderedArgs(t *testing.T) {
 	}
 }
 
+func TestMultiInputSubstitutionAcrossPredecessors(t *testing.T) {
+	// Tools: textbox and a combine step that lets us inspect rendered args
+	reg := tools.NewRegistry()
+	reg.Register(utility.NewTextboxTool())
+	reg.Register(newFunctionalTool("combine", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		// just return ok; we'll assert via RenderedArgs in trace
+		return map[string]any{"ok": true}, nil
+	}))
+
+	// Workflow: two textboxes -> combine step using both values via ${A.<step>.json.text}
+	w := Workflow{
+		Intent: "multi_input",
+		Steps: []Step{
+			{ID: "boxA", Text: "A", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "alpha"}}},
+			{ID: "boxB", Text: "B", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "beta"}}},
+			{ID: "combine", Text: "C", Tool: &ToolRef{Name: "combine", Args: map[string]any{
+				"input": "A=${A.boxA.json.text} B=${A.boxB.json.text}",
+			}}},
+		},
+	}
+	runner := Runner{Workflows: &Registry{byIntent: map[string]Workflow{"multi_input": w}}, Tools: reg}
+
+	// Allow all tools
+	allowed := map[string]bool{"utility_textbox": true, "combine": true}
+
+	// Execute with trace to capture rendered args at combine
+	_, trace, err := runner.ExecuteWithTrace(context.Background(), w, allowed, Attrs{}, nil)
+	if err != nil {
+		t.Fatalf("ExecuteWithTrace error: %v", err)
+	}
+	if len(trace) != 3 {
+		t.Fatalf("expected 3 trace entries, got %d", len(trace))
+	}
+	// last step should be combine with both substitutions present
+	last := trace[2]
+	in, ok := last.RenderedArgs["input"].(string)
+	if !ok {
+		t.Fatalf("missing rendered input in combine args: %v", last.RenderedArgs)
+	}
+	if in != "A=alpha B=beta" {
+		t.Fatalf("unexpected combined input: %q", in)
+	}
+}
+
+func TestMultiInputSubstitutionIntoLLMTransform(t *testing.T) {
+	// Tools: textbox and a fake llm_transform that captures args
+	reg := tools.NewRegistry()
+	reg.Register(utility.NewTextboxTool())
+	var capturedInput string
+	reg.Register(newFunctionalTool("llm_transform", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		var args map[string]any
+		_ = json.Unmarshal(raw, &args)
+		if s, ok := args["input"].(string); ok {
+			capturedInput = s
+		}
+		return map[string]any{"ok": true, "output": "ok"}, nil
+	}))
+
+	w := Workflow{
+		Intent: "multi_input_llm",
+		Steps: []Step{
+			{ID: "box1", Text: "A", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "left"}}},
+			{ID: "box2", Text: "B", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "right"}}},
+			{ID: "t", Text: "T", Tool: &ToolRef{Name: "llm_transform", Args: map[string]any{
+				"instruction": "combine",
+				"input":       "L=${A.box1.json.text} R=${A.box2.json.text}",
+			}}},
+		},
+	}
+	runner := Runner{Workflows: &Registry{byIntent: map[string]Workflow{"multi_input_llm": w}}, Tools: reg}
+	allowed := map[string]bool{"utility_textbox": true, "llm_transform": true}
+	if _, err := runner.Execute(context.Background(), w, allowed, Attrs{}, nil); err != nil {
+		t.Fatalf("Execute error: %v", err)
+	}
+	if capturedInput != "L=left R=right" {
+		t.Fatalf("unexpected llm input: %q", capturedInput)
+	}
+}
+
+func TestMultiInputWithHyphenatedIDsAndJsonPath(t *testing.T) {
+	// Ensure paths like ${A.utility-textbox-XXXX.json.text} resolve for multiple predecessors
+	reg := tools.NewRegistry()
+	reg.Register(utility.NewTextboxTool())
+	reg.Register(newFunctionalTool("llm_transform", func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return map[string]any{"ok": true, "output": "done"}, nil
+	}))
+
+	w := Workflow{
+		Intent: "hyphen_ids",
+		Steps: []Step{
+			{ID: "utility-textbox-8103c942", Text: "A", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "AAA"}}},
+			{ID: "utility-textbox-e2d8e9ee", Text: "B", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "BBB"}}},
+			{ID: "utility-textbox-5d9535c5", Text: "C", Tool: &ToolRef{Name: "utility_textbox", Args: map[string]any{"text": "CCC"}}},
+			{ID: "llm-transform-212d3402", Text: "Combine", Tool: &ToolRef{Name: "llm_transform", Args: map[string]any{
+				"instruction": "noop",
+				"input":       "X=${A.utility-textbox-8103c942.json.text} Y=${A.utility-textbox-e2d8e9ee.json.text} Z=${A.utility-textbox-5d9535c5.json.text}",
+			}}, DependsOn: []string{"utility-textbox-8103c942", "utility-textbox-e2d8e9ee", "utility-textbox-5d9535c5"}},
+		},
+	}
+	runner := Runner{Workflows: &Registry{byIntent: map[string]Workflow{"hyphen_ids": w}}, Tools: reg}
+	allowed := map[string]bool{"utility_textbox": true, "llm_transform": true}
+	_, trace, err := runner.ExecuteWithTrace(context.Background(), w, allowed, Attrs{}, nil)
+	if err != nil {
+		t.Fatalf("ExecuteWithTrace error: %v", err)
+	}
+	if len(trace) != 4 {
+		t.Fatalf("expected 4 trace entries, got %d", len(trace))
+	}
+	last := trace[3]
+	inp, _ := last.RenderedArgs["input"].(string)
+	if inp != "X=AAA Y=BBB Z=CCC" {
+		t.Fatalf("unexpected input: %q", inp)
+	}
+}
+
 // helpers: functional tool
 type functionalTool struct {
 	name string

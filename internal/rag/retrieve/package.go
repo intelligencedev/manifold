@@ -2,6 +2,7 @@ package retrieve
 
 import (
     "context"
+    "time"
 )
 
 // AssembleResults runs the post-fusion pipeline: optional graph expansion,
@@ -13,10 +14,16 @@ func AssembleResults(ctx context.Context, g GraphFacade, rr Reranker, plan Query
     items := fused
     if opt.GraphAugment && g != nil {
         geOpt := GraphExpandOptions{TopN: min(opt.K, 10), MaxPerSeed: 3, Hops: 1, Boost: 0.01}
+        t0 := time.Now()
         var diag GraphDiagnostics
         var err error
         items, diag = ExpandWithGraph(ctx, g, items, geOpt)
-        debug["graph"] = map[string]any{"expanded": diag.Expanded, "ms": diag.Duration.Milliseconds()}
+        // prefer measured diag, but include wall time as well
+        gms := diag.Duration
+        if gms <= 0 {
+            gms = time.Since(t0)
+        }
+        debug["graph"] = map[string]any{"expanded": diag.Expanded, "ms": gms.Milliseconds()}
         if err != nil { // currently ExpandWithGraph cannot error, reserved
             return items, debug, err
         }
@@ -27,11 +34,13 @@ func AssembleResults(ctx context.Context, g GraphFacade, rr Reranker, plan Query
         if rr == nil {
             rr = NoopReranker{}
         }
+        t0 := time.Now()
         out, err := rr.Rerank(ctx, plan.Query, items)
         if err != nil {
             return items, debug, err
         }
         items = out
+        debug["rerank_ms"] = time.Since(t0).Milliseconds()
     }
 
     // Prune to K

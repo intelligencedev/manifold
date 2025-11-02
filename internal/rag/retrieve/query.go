@@ -13,6 +13,7 @@ type QueryPlan struct {
     FtK     int
     VecK    int
     Filters map[string]string
+    Tenant  string
 }
 
 // BuildQueryPlan normalizes the query, detects language (best-effort),
@@ -41,7 +42,7 @@ func BuildQueryPlan(ctx context.Context, q string, opt RetrieveOptions) QueryPla
         filters["lang"] = lang
     }
 
-    return QueryPlan{Query: nq, Lang: lang, FtK: ftK, VecK: vecK, Filters: filters}
+    return QueryPlan{Query: nq, Lang: lang, FtK: ftK, VecK: vecK, Filters: filters, Tenant: opt.Tenant}
 }
 
 func normalizeQuery(q string) string {

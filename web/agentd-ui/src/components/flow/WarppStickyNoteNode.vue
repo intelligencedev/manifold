@@ -53,7 +53,7 @@
         :disabled="!isDesignMode"
         class="sticky-textarea"
         placeholder="Type a note…"
-        rows="6"
+        rows="4"
         @wheel.stop
       />
     </div>
@@ -252,5 +252,6 @@ function onResizeEnd(event: OnResizeEnd) {
   border-radius: 0.5rem; border: 1px solid rgb(var(--color-border) / 0.6);
   background: rgb(var(--color-surface) / 0.85);
   padding: 0.5rem; font-size: 0.8rem; color: rgb(var(--color-foreground));
+  overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 </style>

@@ -90,7 +90,7 @@
               v-if="isDesignMode"
               v-model="contentText"
               rows="4"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full h-[92px] resize-none whitespace-pre-wrap break-words"
               placeholder="Enter static text or use ${A.key} placeholders"
               @input="markDirty"
               @wheel.stop
@@ -98,10 +98,11 @@
             </textarea>
             <div
               v-else
-              class="min-h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words"
+              class="h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words overflow-auto w-full"
+              style="contain: content; overflow-wrap: anywhere;"
               @wheel.stop
             >
-              <span class="block max-h-[12rem] overflow-auto">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
+              <span class="block">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
             </div>
           </label>
           <p v-if="runtimeStatus === 'pending'" class="text-[10px] italic text-faint-foreground">

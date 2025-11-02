@@ -749,7 +749,7 @@ const nodeTypes = markRaw({
   warppSticky: markRaw(WarppStickyNoteNode),
 })
 
-const { project, zoomIn, zoomOut, fitView, nodesDraggable } = useVueFlow()
+const { project, zoomIn, zoomOut, fitView, nodesDraggable, updateNode } = useVueFlow()
 
 const flowWrapper = ref<HTMLDivElement | null>(null)
 const isDraggingFromPalette = ref(false)
@@ -1183,6 +1183,29 @@ function setEditorMode(mode: 'design' | 'run') {
     return
   }
   editorMode.value = mode
+  // Freeze node dimensions when entering run mode to prevent auto-resize from content changes
+  if (mode === 'run') {
+    try {
+      // Use current measured size to set explicit width/height styles
+      nodes.value.forEach((n) => {
+        const size = readNodeSize(n)
+        updateNode(n.id, (node) => {
+          const baseStyle: Record<string, any> =
+            typeof node.style === 'function' ? ((node.style as any)(node) ?? {}) : { ...(node.style as any ?? {}) }
+          return {
+            style: {
+              ...baseStyle,
+              width: toPx(size.width),
+              // Also lock height to current size; content will scroll within
+              height: toPx(size.height),
+            },
+          }
+        })
+      })
+    } catch (e) {
+      console.warn('Failed to freeze node sizes for run mode', e)
+    }
+  }
   if (mode === 'design') {
     closeResultModal()
   }
@@ -1473,6 +1496,7 @@ async function loadWorkflow(intent: string) {
       layout: { ...(cached.layout ?? {}), ...((wf.ui?.layout ?? {}) as LayoutMap) },
       parents: (wf.ui?.parents ?? cached.parents) as any,
       groups: (wf.ui?.groups ?? cached.groups) as any,
+      notes: (wf.ui?.notes ?? cached.notes) as any,
     }
     const mergedWf: WarppWorkflow = { ...wf, ui: mergedUi }
     // Seed latest snapshot so hydration can preserve sizes

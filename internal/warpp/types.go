@@ -20,6 +20,8 @@ type WorkflowUI struct {
 	Layout  map[string]NodeLayout `json:"layout,omitempty"`
 	Parents map[string]string     `json:"parents,omitempty"`
 	Groups  []GroupUIEntry        `json:"groups,omitempty"`
+	// Notes are editor-only annotations (sticky notes) persisted with the workflow UI.
+	Notes []NoteUIEntry `json:"notes,omitempty"`
 }
 
 // GroupUIEntry represents a group container node in the UI.
@@ -28,6 +30,14 @@ type GroupUIEntry struct {
 	Label     string `json:"label"`
 	Collapsed bool   `json:"collapsed,omitempty"`
 	Color     string `json:"color,omitempty"`
+}
+
+// NoteUIEntry represents a sticky note node in the UI.
+type NoteUIEntry struct {
+	ID    string `json:"id"`
+	Label string `json:"label,omitempty"`
+	Color string `json:"color,omitempty"`
+	Note  string `json:"note,omitempty"`
 }
 
 // NodeLayout captures the 2D position and optional size of a node on the editor canvas.

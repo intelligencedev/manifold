@@ -121,7 +121,7 @@
               <template v-if="runtimeArgs.length">
                 <div v-for="([key, value], index) in runtimeArgs" :key="`${key}-${index}`" class="flex items-start gap-2">
                   <span class="min-w-[72px] font-semibold text-foreground">{{ key }}</span>
-                  <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words text-foreground/80">
+                  <span class="block flex-1 min-w-0 max-h-[6rem] overflow-auto whitespace-pre-wrap break-words text-foreground/80" style="overflow-wrap: anywhere;">
                     {{ formatRuntimeValue(value) }}
                   </span>
                 </div>
@@ -132,10 +132,10 @@
               <p v-else class="italic text-faint-foreground">
                 Run the workflow to see resolved values.
               </p>
-              <p v-if="runtimeStatusMessage" class="italic text-faint-foreground">{{ runtimeStatusMessage }}</p>
+              <p v-if="runtimeStatusMessage" class="italic text-faint-foreground break-words" style="overflow-wrap: anywhere;">{{ runtimeStatusMessage }}</p>
             </div>
             <p v-if="runtimeError && runtimeStatus !== 'pending'" class="rounded border border-danger/40 bg-danger/10 px-2 py-1 text-[10px] text-danger-foreground">
-              <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words">{{ runtimeError }}</span>
+              <span class="block max-h-[6rem] overflow-auto whitespace-pre-wrap break-words" style="overflow-wrap: anywhere;">{{ runtimeError }}</span>
             </p>
           </div>
 

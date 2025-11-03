@@ -53,6 +53,7 @@ import (
 	"manifold/internal/tools/utility"
 	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/tools/web"
+	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
 )
@@ -193,6 +194,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
 	toolRegistry.Register(db.NewGraphNeighborsTool(mgr.Graph))
 	toolRegistry.Register(db.NewGraphGetNodeTool(mgr.Graph))
+
+	// RAG tools backed by internal/rag Service
+	toolRegistry.Register(ragtool.NewIngestTool(mgr))
+	toolRegistry.Register(ragtool.NewRetrieveTool(mgr))
 
 	newProv := func(baseURL string) llmpkg.Provider {
 		cfgCopy := cfg.OpenAI

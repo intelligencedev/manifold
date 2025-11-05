@@ -1,0 +1,24 @@
+services:
+
+  pg-manifold-local-embed:
+    build:
+      context: .
+      dockerfile: ../docker/postgres.Dockerfile
+    container_name: postgres
+    environment:
+      POSTGRES_DB: manifold
+      POSTGRES_USER: manifold
+      POSTGRES_PASSWORD: manifold
+    ports:
+      - "5434:5432"
+    volumes:
+      - app_pg_local_embed_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U manifold -d manifold"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  app_pg_local_embed_data:

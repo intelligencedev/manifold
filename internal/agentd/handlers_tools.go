@@ -49,24 +49,26 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 			return
 		}
 
+		processModels, processWindow := llmpkg.TokenTotalsForWindow(window)
 		resp := tokenMetricsResponse{
 			Timestamp: time.Now().Unix(),
 			Source:    "process",
-			Models:    llmpkg.TokenTotalsSnapshot(),
+			Models:    processModels,
 		}
-		if window > 0 {
-			resp.WindowSeconds = int64(window.Seconds())
-		}
+		appliedWindow := processWindow
 		if a.tokenMetrics != nil {
-			if totals, appliedWindow, err := a.tokenMetrics.TokenTotals(r.Context(), window); err != nil {
+			if totals, chWindow, err := a.tokenMetrics.TokenTotals(r.Context(), window); err != nil {
 				log.Warn().Err(err).Msg("token metrics query failed")
 			} else if len(totals) > 0 {
 				resp.Models = totals
 				resp.Source = a.tokenMetrics.Source()
-				if appliedWindow > 0 {
-					resp.WindowSeconds = int64(appliedWindow.Seconds())
-				}
+				appliedWindow = chWindow
 			}
+		}
+		if appliedWindow > 0 {
+			resp.WindowSeconds = int64(appliedWindow.Seconds())
+		} else if window > 0 {
+			resp.WindowSeconds = int64(window.Seconds())
 		}
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Warn().Err(err).Msg("failed to encode token metrics response")

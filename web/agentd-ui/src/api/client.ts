@@ -276,6 +276,38 @@ export async function fetchAgentdSettings(): Promise<AgentdSettings> {
 }
 
 export async function updateAgentdSettings(payload: AgentdSettings): Promise<AgentdSettings> {
-  const { data } = await apiClient.put<AgentdSettings>('/config/agentd', payload)
-  return data
+  // Try PATCH -> PUT -> POST in order; treat 405/404/501 as "method not allowed/implemented" and fall through.
+  const tryCall = async (method: 'patch' | 'put' | 'post') => {
+    switch (method) {
+      case 'patch':
+        return apiClient.patch<AgentdSettings>('/config/agentd', payload)
+      case 'put':
+        return apiClient.put<AgentdSettings>('/config/agentd', payload)
+      case 'post':
+        return apiClient.post<AgentdSettings>('/config/agentd', payload)
+    }
+  }
+
+  const methods: Array<'patch' | 'put' | 'post'> = ['patch', 'put', 'post']
+  let lastErr: any
+  for (const m of methods) {
+    try {
+      const { data } = await tryCall(m)
+      return data
+    } catch (e: any) {
+      const status = e?.response?.status
+      // If method not allowed/not implemented or not found, try next
+      if (status === 405 || status === 404 || status === 501) {
+        lastErr = e
+        continue
+      }
+      // Other errors: propagate
+      throw e
+    }
+  }
+  // If we exhausted all methods with 405/404/501, throw a friendlier error the UI can detect.
+  const err: any = new Error('Agentd configuration is read-only or no write endpoint is available')
+  err.code = 'READ_ONLY'
+  err.response = lastErr?.response
+  throw err
 }

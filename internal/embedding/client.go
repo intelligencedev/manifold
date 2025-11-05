@@ -57,9 +57,17 @@ func EmbedText(ctx context.Context, cfg config.EmbeddingConfig, inputs []string)
 		b, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("embeddings error: %s: %s", resp.Status, string(b))
 	}
+
+	// Read the response body first so we can provide better error messages
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	var er embedResp
-	if err := json.NewDecoder(resp.Body).Decode(&er); err != nil {
-		return nil, err
+	if err := json.Unmarshal(bodyBytes, &er); err != nil {
+		return nil, fmt.Errorf("failed to parse embedding response (input count: %d, response: %s): %w",
+			len(inputs), string(bodyBytes[:min(200, len(bodyBytes))]), err)
 	}
 	if len(er.Data) != len(inputs) {
 		// still return what we have, but consider it an error
@@ -70,4 +78,11 @@ func EmbedText(ctx context.Context, cfg config.EmbeddingConfig, inputs []string)
 		out[i] = er.Data[i].Embedding
 	}
 	return out, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

@@ -3,7 +3,9 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"sync"
+	"time"
 
 	"manifold/internal/observability"
 
@@ -26,7 +28,20 @@ var (
 	completionCounter otelmetric.Int64Counter
 	totalsMu          sync.RWMutex
 	modelTotals       = map[string]struct{ Prompt, Completion int64 }{}
+	modelBuckets      = map[string]map[int64]*tokenBucket{}
 )
+
+const (
+	tokenBucketResolution = time.Minute
+	tokenBucketRetention  = 45 * 24 * time.Hour
+)
+
+type tokenBucket struct {
+	Prompt     int64
+	Completion int64
+}
+
+var timeNow = time.Now
 
 // ensureTokenInstruments lazily initializes OTel instruments once a provider
 // has been installed (InitOTel should run before first use in normal startup).
@@ -49,6 +64,10 @@ func ensureTokenInstruments() {
 // OTel export (we can't easily pull data back from the exporter) while still
 // leveraging standard metric instruments for external backends.
 func RecordTokenMetrics(model string, promptTokens, completionTokens int) {
+	recordTokenMetrics(model, promptTokens, completionTokens, timeNow())
+}
+
+func recordTokenMetrics(model string, promptTokens, completionTokens int, ts time.Time) {
 	if model == "" || (promptTokens == 0 && completionTokens == 0) {
 		return
 	}
@@ -60,11 +79,17 @@ func RecordTokenMetrics(model string, promptTokens, completionTokens int) {
 	if completionCounter != nil && completionTokens > 0 {
 		completionCounter.Add(ctx, int64(completionTokens), otelmetric.WithAttributes(attribute.String("llm.model", model)))
 	}
+	ts = ts.UTC()
+	p := int64(promptTokens)
+	c := int64(completionTokens)
 	totalsMu.Lock()
 	cur := modelTotals[model]
-	cur.Prompt += int64(promptTokens)
-	cur.Completion += int64(completionTokens)
+	cur.Prompt += p
+	cur.Completion += c
 	modelTotals[model] = cur
+	if p > 0 || c > 0 {
+		updateTokenBucketsLocked(model, ts, p, c)
+	}
 	totalsMu.Unlock()
 }
 
@@ -81,10 +106,120 @@ func TokenTotalsSnapshot() []TokenTotal {
 	totalsMu.RLock()
 	defer totalsMu.RUnlock()
 	out := make([]TokenTotal, 0, len(modelTotals))
-	for m, v := range modelTotals {
-		out = append(out, TokenTotal{Model: m, Prompt: v.Prompt, Completion: v.Completion, Total: v.Prompt + v.Completion})
+	for model, v := range modelTotals {
+		out = append(out, TokenTotal{Model: model, Prompt: v.Prompt, Completion: v.Completion, Total: v.Prompt + v.Completion})
 	}
+	sortTokenTotals(out)
 	return out
+}
+
+// TokenTotalsForWindow returns token aggregates limited to the requested
+// window. When the requested window exceeds in-memory retention, the applied
+// window in the return value reflects the actually covered duration.
+func TokenTotalsForWindow(window time.Duration) ([]TokenTotal, time.Duration) {
+	totalsMu.RLock()
+	defer totalsMu.RUnlock()
+
+	if window <= 0 {
+		out := make([]TokenTotal, 0, len(modelTotals))
+		for model, v := range modelTotals {
+			out = append(out, TokenTotal{Model: model, Prompt: v.Prompt, Completion: v.Completion, Total: v.Prompt + v.Completion})
+		}
+		sortTokenTotals(out)
+		return out, 0
+	}
+
+	now := timeNow().UTC()
+	cutoffKey := bucketKey(now.Add(-window))
+
+	out := make([]TokenTotal, 0, len(modelBuckets))
+	var earliestIncludedKey int64
+	hasIncluded := false
+
+	for model, buckets := range modelBuckets {
+		var prompt, completion int64
+		for key, bucket := range buckets {
+			if key < cutoffKey {
+				continue
+			}
+			prompt += bucket.Prompt
+			completion += bucket.Completion
+			if !hasIncluded || key < earliestIncludedKey {
+				earliestIncludedKey = key
+				hasIncluded = true
+			}
+		}
+		if prompt == 0 && completion == 0 {
+			continue
+		}
+		out = append(out, TokenTotal{
+			Model:      model,
+			Prompt:     prompt,
+			Completion: completion,
+			Total:      prompt + completion,
+		})
+	}
+	sortTokenTotals(out)
+
+	applied := window
+	if hasIncluded {
+		nowKey := bucketKey(now)
+		if nowKey >= earliestIncludedKey {
+			available := time.Duration(nowKey-earliestIncludedKey)*time.Second + tokenBucketResolution
+			if available < applied {
+				applied = available
+			}
+		}
+	}
+
+	return out, applied
+}
+
+func updateTokenBucketsLocked(model string, ts time.Time, prompt, completion int64) {
+	key := bucketKey(ts)
+	buckets := modelBuckets[model]
+	if buckets == nil {
+		buckets = make(map[int64]*tokenBucket)
+		modelBuckets[model] = buckets
+	}
+	bucket := buckets[key]
+	if bucket == nil {
+		bucket = &tokenBucket{}
+		buckets[key] = bucket
+	}
+	bucket.Prompt += prompt
+	bucket.Completion += completion
+
+	cutoffKey := bucketKey(ts.Add(-tokenBucketRetention))
+	for k := range buckets {
+		if k < cutoffKey {
+			delete(buckets, k)
+		}
+	}
+
+	if len(buckets) == 0 {
+		delete(modelBuckets, model)
+	}
+}
+
+func bucketKey(ts time.Time) int64 {
+	return ts.Truncate(tokenBucketResolution).Unix()
+}
+
+func sortTokenTotals(totals []TokenTotal) {
+	sort.Slice(totals, func(i, j int) bool {
+		if totals[i].Total == totals[j].Total {
+			return totals[i].Model < totals[j].Model
+		}
+		return totals[i].Total > totals[j].Total
+	})
+}
+
+func resetTokenMetricsState() {
+	totalsMu.Lock()
+	defer totalsMu.Unlock()
+	modelTotals = map[string]struct{ Prompt, Completion int64 }{}
+	modelBuckets = map[string]map[int64]*tokenBucket{}
 }
 
 // ConfigureLogging sets global behavior for prompt/response logging.

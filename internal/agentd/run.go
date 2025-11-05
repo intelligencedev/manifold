@@ -38,6 +38,8 @@ import (
 	playgroundregistry "manifold/internal/playground/registry"
 	"manifold/internal/playground/worker"
 	"manifold/internal/projects"
+	"manifold/internal/rag/embedder"
+	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
@@ -47,13 +49,13 @@ import (
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
+	ragtool "manifold/internal/tools/rag"
 	specialiststool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/textsplitter"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
 	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/tools/web"
-	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
 )
@@ -196,8 +198,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(db.NewGraphGetNodeTool(mgr.Graph))
 
 	// RAG tools backed by internal/rag Service
-	toolRegistry.Register(ragtool.NewIngestTool(mgr))
-	toolRegistry.Register(ragtool.NewRetrieveTool(mgr))
+	// Create a real embedder using the configured embedding service
+	emb := embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
+	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
+	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
 
 	newProv := func(baseURL string) llmpkg.Provider {
 		cfgCopy := cfg.OpenAI

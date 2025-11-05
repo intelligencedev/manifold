@@ -598,14 +598,35 @@ async function saveAgentdSettings() {
   try {
     const payload: AgentdSettings = { ...agentdSettings.value }
     const saved = await updateAgentdSettings(payload)
-    agentdSettings.value = normalizeAgentdSettings(saved)
+    // Some servers respond to PUT with 204 No Content. In that case, `saved` will
+    // be undefined/empty and we were previously resetting the form back to defaults.
+    // Prefer the server echo when present; otherwise reload from GET, and finally
+    // fall back to the payload the user submitted so the UI reflects their choices.
+    const looksLikeSettings =
+      saved && typeof saved === 'object' && 'openaiSummaryModel' in (saved as any)
+    if (looksLikeSettings) {
+      agentdSettings.value = normalizeAgentdSettings(saved as Partial<AgentdSettings>)
+    } else {
+      try {
+        await loadAgentdSettings()
+      } catch {
+        agentdSettings.value = normalizeAgentdSettings(payload)
+      }
+    }
     agentdSuccess.value = 'Saved'
     window.setTimeout(() => {
       agentdSuccess.value = ''
     }, 3000)
   } catch (error: any) {
     console.error('Failed to save agentd settings', error)
-    agentdSaveError.value = error?.response?.data ?? 'Save failed'
+    const status = error?.response?.status
+    if (error?.code === 'READ_ONLY' || status === 405 || status === 404 || status === 501) {
+      // Backend does not expose a write endpoint for agentd config.
+      // Keep the current UI values and show a clear message.
+      agentdSaveError.value = 'Configuration is read-only on this server. Update config.yaml / environment and restart agentd.'
+    } else {
+      agentdSaveError.value = error?.response?.data ?? 'Save failed'
+    }
   } finally {
     agentdSaving.value = false
   }

@@ -66,20 +66,24 @@ func (t *tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return map[string]any{"ok": false, "error": "workflow not found"}, nil
 	}
-	// Build attributes and personalize
+	// Build attributes and personalize (to infer A like utter/query/os),
+	// but execute the original workflow to allow dynamic guards to be
+	// evaluated at runtime. Pruning at personalize-time can incorrectly
+	// drop steps whose guards depend on outputs of prior steps.
 	attrs := warpp.Attrs{"utter": q}
-	wfStar, _, A, err := t.runner.Personalize(ctx, wf, attrs)
+	_, _, A, err := t.runner.Personalize(ctx, wf, attrs)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
-	// Build allowed tool allowlist from personalized workflow
+	// Build allowed tool allowlist from the full (unpruned) workflow so that
+	// steps gated by dynamic guards remain permitted at execute-time.
 	allowed := map[string]bool{}
-	for _, s := range wfStar.Steps {
+	for _, s := range wf.Steps {
 		if s.Tool != nil {
 			allowed[s.Tool.Name] = true
 		}
 	}
-	summary, err := t.runner.Execute(ctx, wfStar, allowed, A, nil)
+	summary, err := t.runner.Execute(ctx, wf, allowed, A, nil)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}

@@ -44,6 +44,8 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/specialists/", a.specialistDetailHandler())
 
 	mux.HandleFunc("/api/metrics/tokens", a.metricsTokensHandler())
+	// Agentd configuration (GET + POST/PUT/PATCH)
+	mux.HandleFunc("/api/config/agentd", a.agentdConfigHandler())
 	mux.HandleFunc("/api/warpp/tools", a.warppToolsHandler())
 	mux.HandleFunc("/api/warpp/workflows", a.warppWorkflowsHandler())
 	mux.HandleFunc("/api/warpp/workflows/", a.warppWorkflowDetailHandler())

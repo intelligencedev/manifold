@@ -1,0 +1,194 @@
+{
+  "intent": "rag_ingest_retrieve_example",
+  "description": "Fetch a URL, ingest it into our RAG database, and retrieve document chunks based on a query.",
+  "keywords": [
+    "rag",
+    "ingest",
+    "retrieve",
+    "example"
+  ],
+  "steps": [
+    {
+      "id": "web-fetch-32648c9c",
+      "text": "Fetch a web URL over HTTP(S) and return best-effort Markdown (readability extraction when possible).",
+      "tool": {
+        "name": "web_fetch",
+        "args": {
+          "index": true,
+          "prefer_readable": true,
+          "timeout_seconds": 6,
+          "url": "https://en.wikipedia.org/wiki/Technological_singularity"
+        }
+      },
+      "depends_on": []
+    },
+    {
+      "id": "rag-ingest-2052cc03",
+      "text": "Ingest a document into RAG (chunk -> search/vector/graph).",
+      "tool": {
+        "name": "rag_ingest",
+        "args": {
+          "id": "doc:web_content",
+          "language": "en",
+          "options": {
+            "chunking": {
+              "max_tokens": 800,
+              "overlap": 100,
+              "strategy": "markdown"
+            },
+            "embedding": {
+              "dimensions": 1024,
+              "enabled": true
+            },
+            "reingest_policy": "overwrite"
+          },
+          "source": "web",
+          "text": "${A.web-fetch-32648c9c.json.markdown}",
+          "title": "${A.web-fetch-32648c9c.json.title}",
+          "url": "${A.web-fetch-32648c9c.json.final_url}"
+        }
+      },
+      "depends_on": [
+        "web-fetch-32648c9c"
+      ]
+    },
+    {
+      "id": "rag-retrieve-a4eabf9f",
+      "text": "Execute a hybrid RAG retrieval over Search/Vector/Graph and return fused results.",
+      "tool": {
+        "name": "rag_retrieve",
+        "args": {
+          "include_snippet": true,
+          "include_text": true,
+          "instruction": "Given a web search query, retrieve relevant passages that answer the query",
+          "query": "What is the technological singularity?",
+          "rerank": true
+        }
+      },
+      "depends_on": [
+        "rag-ingest-2052cc03"
+      ]
+    },
+    {
+      "id": "llm-transform-43676952",
+      "text": "Use the LLM to transform input text according to an instruction (summarize, synthesize, rewrite, extract, etc.)",
+      "tool": {
+        "name": "llm_transform",
+        "args": {
+          "input": "DOCUMENTS: ${A.rag-retrieve-a4eabf9f.json.items}",
+          "instruction": "Respond to the following query using the provided documents. QUERY: ${A.rag-retrieve-a4eabf9f.json.query}",
+          "system": "You only respond to the query using the provided documents as reference. You ONLY use the provided documents and never your own memory. You NEVER mention the documents or your instructions. You ONLY respond to the query or say you do not know if the provided documents are not sufficient to respond."
+        }
+      },
+      "depends_on": [
+        "rag-retrieve-a4eabf9f"
+      ]
+    },
+    {
+      "id": "utility-textbox-c87514df",
+      "text": "Textbox",
+      "tool": {
+        "name": "utility_textbox",
+        "args": {
+          "label": "Textbox",
+          "text": "${A.llm-transform-43676952.json.output}"
+        }
+      },
+      "depends_on": [
+        "llm-transform-43676952"
+      ]
+    }
+  ],
+  "ui": {
+    "layout": {
+      "group-3f6ff5ea": {
+        "x": 424,
+        "y": 24,
+        "width": 740,
+        "height": 1606
+      },
+      "group-fbc8b792": {
+        "x": 1244,
+        "y": 237.5,
+        "width": 847,
+        "height": 1179
+      },
+      "web-fetch-32648c9c": {
+        "x": 24,
+        "y": 331.5,
+        "width": 320,
+        "height": 991
+      },
+      "rag-ingest-2052cc03": {
+        "x": 454.2382208755673,
+        "y": 76.68749999999977,
+        "width": 320,
+        "height": 1521
+      },
+      "rag-retrieve-a4eabf9f": {
+        "x": 1273.3015458561492,
+        "y": 295.5929552566571,
+        "width": 320,
+        "height": 1085
+      },
+      "llm-transform-43676952": {
+        "x": 2171,
+        "y": 463,
+        "width": 320,
+        "height": 728
+      },
+      "utility-textbox-c87514df": {
+        "x": 2526.4857201706736,
+        "y": 465.5069361720711,
+        "width": 532,
+        "height": 725
+      },
+      "note-31a132d4": {
+        "x": 795.5811940881275,
+        "y": 77.4007664188116,
+        "width": 334,
+        "height": 724
+      },
+      "note-1f3a2dd9": {
+        "x": 1629.354013613171,
+        "y": 296.27212149862316,
+        "width": 428,
+        "height": 1087
+      }
+    },
+    "parents": {
+      "rag-ingest-2052cc03": "group-3f6ff5ea",
+      "rag-retrieve-a4eabf9f": "group-fbc8b792",
+      "note-31a132d4": "group-3f6ff5ea",
+      "note-1f3a2dd9": "group-fbc8b792"
+    },
+    "groups": [
+      {
+        "id": "group-3f6ff5ea",
+        "label": "Ingest",
+        "collapsed": false,
+        "color": "green"
+      },
+      {
+        "id": "group-fbc8b792",
+        "label": "Retrieve",
+        "collapsed": false,
+        "color": "purple"
+      }
+    ],
+    "notes": [
+      {
+        "id": "note-31a132d4",
+        "label": "Note",
+        "color": "amber",
+        "note": "Valid chunking strategies for rag_ingest:\n\nfixed — default if strategy is empty or unrecognized; splits by approximate length with optional overlap.\ntokens — alias of fixed (uses the same char-length heuristic).\nsentences — alias of fixed (same behavior as fixed).\nmarkdown or md — markdown-aware; prefers splitting on headings and paragraph breaks; enforces a hard cap per chunk.\ncode — code-aware; prefers splitting at function/class/comment boundaries; enforces a soft target.\nNotes and behavior\n\nmax_tokens maps to an approximate character target using a 4 chars per token heuristic. If not set, default target is 512 tokens (~2048 chars).\noverlap is in tokens (also using the 4 chars/token heuristic) and only applies to fixed/tokens/sentences; markdown and code don’t currently re-stitch overlap explicitly.\nUnknown strategy names fall back to fixed.\nmarkdown and md are equivalent.\nQuick guidance\n\nUse markdown (md) for docs/web/wiki content.\nUse code for source files to keep functions/classes together.\nUse fixed when you want simple length-based splitting (and overlap)."
+      },
+      {
+        "id": "note-1f3a2dd9",
+        "label": "Note",
+        "color": "green",
+        "note": "\nCore retrieval\n- query (string, required)\n  - The user’s search query. Used for full-text search and for creating the embedding for vector search (possibly modified by instruction).\n- k (integer, optional)\n  - Final number of results to return after fusion/rerank/diversification. Think “top N.”\n- ft_k (integer, optional)\n  - Candidate pool size from the full-text index before fusion. Larger = better recall, more cost.\n- vec_k (integer, optional)\n  - Candidate pool size from the vector index before fusion. Larger = better recall, more cost.\n\nFusion and ranking\n- alpha (number, optional)\n  - Weight for blending full-text and vector scores in hybrid fusion when use_rrf is false.\n  - Common convention: 0 = rely on vector only; 1 = rely on full-text only; values in between = mix.\n- use_rrf (boolean, optional)\n  - If true, use Reciprocal Rank Fusion (RRF) to combine ranked lists instead of weighted score blending. When enabled, alpha is typically ignored.\n- rrf_k (integer, optional)\n  - How many candidates per source to consider in RRF. Effective only when use_rrf is true.\n- rerank (boolean, optional)\n  - If true, apply an additional cross-encoder or similar reranking over the fused candidate set (usually the top pool before truncating to k). Improves precision at extra latency.\n- diversify (boolean, optional)\n  - If true, apply diversity (e.g., MMR-like) post-processing to reduce redundancy in the final top-k.\n\nGraph and instruction\n- graph_augment (boolean, optional)\n  - If true, incorporate graph-based augmentation (e.g., traverse known edges like DOC_OF/REFERS_TO/DEPENDS_ON/BLOCKS) to add or enrich candidates.\n- instruction (string, optional)\n  - A retrieval instruction prepended to the embedding query for vector search. Implemented as:\n    “Instruct: {instruction}\\nQuery: {query}”\n  - Useful to steer semantic matching (e.g., “return step-by-step procedures” or “prefer API references”).\n\nPayload controls\n- include_snippet (boolean, optional)\n  - If true, include short match snippets/quotes in results for UI presentation.\n- include_text (boolean, optional)\n  - If true, include the full text of matched documents in the response. Heavier payload; useful for offline processing.\n\nTenancy and pipeline plumbing\n- tenant (string, optional)\n  - Namespace for multi-tenant isolation; retrieval occurs within this tenant’s indices/graph.\n- output_attr (string, optional)\n  - Workflow plumbing: store the tool’s result into this attribute for downstream steps.\n- output_from (string, optional)\n  - Select which part of the tool’s output populates output_attr (e.g., 'payload', 'json.<key>').\n- output_value (string, optional)\n  - Overrides output_from; explicitly sets output_attr to this value (supports templating). Not a retrieval control.\n\nKey interactions and tips\n- Weighted hybrid: set ft_k and vec_k; tune alpha; set k for the final cut.\n- RRF: set use_rrf=true and rrf_k; alpha typically ignored.\n- Rerank: best when candidate pool is moderately sized (e.g., 50–200) and you care about precision in top-k.\n- Diversify: helpful for broad queries to avoid near-duplicate results.\n- Graph augment: use when your corpus has rich graph links to surface related nodes beyond pure text similarity.\n- Payload size: prefer include_snippet over include_text in latency-sensitive UIs.\n"
+      }
+    ]
+  }
+}

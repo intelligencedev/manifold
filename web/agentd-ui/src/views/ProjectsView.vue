@@ -44,6 +44,24 @@ async function mkdir() {
   await store.ensureTree(cwd.value)
 }
 
+async function bulkDownload() {
+  const ids = Array.from(treeRef.value?.checked ?? new Set<string>())
+  if (!ids.length || !store.currentProjectId) return
+  
+  for (const path of ids) {
+    const url = projectFileUrl(store.currentProjectId, path)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = path.split('/').pop() || 'download'
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    // Small delay between downloads to avoid browser blocking
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+}
+
 async function bulkDelete() {
   const ids = Array.from(treeRef.value?.checked ?? new Set<string>())
   if (!ids.length) return
@@ -173,6 +191,11 @@ function onMoved(payload: { from: string; to: string }) {
               class="h-9 px-3 rounded-4 border border-border text-foreground bg-surface hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
               @click="pickUpload"
             >Upload</button>
+            <button
+              class="h-9 px-3 rounded-4 border border-accent/60 text-accent disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/10 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              :disabled="!(treeRef?.checked && treeRef.checked.size > 0)"
+              @click="bulkDownload"
+            >Download</button>
             <button
               class="h-9 px-3 rounded-4 border border-danger/60 text-danger disabled:opacity-50 disabled:cursor-not-allowed hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
               :disabled="!(treeRef?.checked && treeRef.checked.size > 0)"

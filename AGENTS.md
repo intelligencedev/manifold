@@ -16,6 +16,10 @@ Source lives in `internal/` (e.g., `internal/agent`, `internal/orchestrator`); k
 * Promote testability via interface‑driven design.
 * Use constructor functions (e.g., `NewService(...)`) to inject dependencies.
 
+### Concurrency
+
+Follows Go's concurrency mantra: "Don't communicate by sharing memory; share memory by communicating." The channel becomes the synchronization point.
+
 ## Essential Go CLI Tools
 
 The following Go command-line tools are essential for development, testing, and maintenance in this project. Use them as described to ensure code quality and consistency:

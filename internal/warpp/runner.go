@@ -290,8 +290,9 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 
 	// Channels for scheduling
 	type queued struct {
-		id   string
-		topo int
+		id       string
+		topo     int
+		snapshot Attrs // pre-cloned A at ready-time (single-writer pattern)
 	}
 	queueCh := make(chan queued)
 	resCh := make(chan nodeResult)
@@ -323,7 +324,9 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 					sem <- struct{}{}
 				}
 				qi := topoIndex
-				queueCh <- queued{id: id, topo: qi}
+				// Clone A HERE in scheduler (single-writer pattern)
+				ai := cloneAttrs(A)
+				queueCh <- queued{id: id, topo: qi, snapshot: ai}
 				topoIndex++
 			}
 			select {
@@ -374,7 +377,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 				continue
 			}
 			// Launch worker
-			go func(st Step, topo int) {
+			go func(st Step, topo int, ai Attrs) {
 				defer func() {
 					if rec := recover(); rec != nil {
 						if st.ContinueOnError {
@@ -398,8 +401,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 					errCh <- fmt.Errorf("tool not permitted: %s", st.Tool.Name)
 					return
 				}
-				// Snapshot A
-				ai := cloneAttrs(A)
+				// Use snapshot from scheduler (single-writer pattern)
 				// Per-step timeout
 				cctx := ctx
 				if d := parseDurationSafe(st.Timeout); d > 0 {
@@ -418,7 +420,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 					return
 				}
 				resCh <- nodeResult{id: st.ID, topo: topo, stepIdx: stepIndex[st.ID], delta: delta, payload: payload, publishIt: st.PublishResult, publishMode: st.PublishMode, text: st.Text, args: args, status: "completed"}
-			}(s, q.topo)
+			}(s, q.topo, q.snapshot)
 		}
 	}()
 
@@ -452,10 +454,26 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 //     fully-qualified attributes when a producing step exists in the plan;
 //   - normalizing write-file targets to a safe relative path under tmp/.
 func preprocessWorkflow(w Workflow, A Attrs) Workflow {
+	// To avoid mutating the caller's workflow (which may be shared across
+	// concurrent runs), deep-copy the workflow structure (steps + tool args)
+	// and operate on the copy. This prevents concurrent map writes when the
+	// same Workflow value is executed in parallel.
+	out := Workflow{Intent: w.Intent, Description: w.Description, Keywords: append([]string(nil), w.Keywords...)}
+	out.Steps = make([]Step, len(w.Steps))
+	for i, s := range w.Steps {
+		step := s // copy struct
+		if s.Tool != nil {
+			tc := *s.Tool
+			tc.Args = deepCopyArgs(s.Tool.Args)
+			step.Tool = &tc
+		}
+		out.Steps[i] = step
+	}
+
 	// Build a map of produced short aliases -> producer step id by scanning
 	// known tool types and their conventional outputs.
 	producers := map[string]string{}
-	for _, s := range w.Steps {
+	for _, s := range out.Steps {
 		if s.Tool == nil {
 			continue
 		}
@@ -479,12 +497,12 @@ func preprocessWorkflow(w Workflow, A Attrs) Workflow {
 
 	// Walk steps and rewrite literal string args containing ${A.key} where
 	// key is a known short alias into ${A.<step>.<key>}.
-	for si := range w.Steps {
-		s := &w.Steps[si]
+	for si := range out.Steps {
+		s := &out.Steps[si]
 		if s.Tool == nil || s.Tool.Args == nil {
 			continue
 		}
-		// mutate args in-place
+		// mutate args in-place on the copied workflow
 		for ak, av := range s.Tool.Args {
 			switch tv := av.(type) {
 			case string:
@@ -545,7 +563,49 @@ func preprocessWorkflow(w Workflow, A Attrs) Workflow {
 		}
 	}
 
-	return w
+	return out
+}
+
+// deepCopyArgs performs a deep-ish copy of tool argument structures so we can
+// safely mutate them without affecting a shared Workflow instance.
+func deepCopyArgs(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = deepCopyAny(v)
+	}
+	return out
+}
+
+func deepCopyAny(v any) any {
+	switch t := v.(type) {
+	case string:
+		return t
+	case []any:
+		out := make([]any, len(t))
+		for i, it := range t {
+			out[i] = deepCopyAny(it)
+		}
+		return out
+	case map[string]any:
+		m := make(map[string]any, len(t))
+		for k, val := range t {
+			m[k] = deepCopyAny(val)
+		}
+		return m
+	case map[string]string:
+		m := make(map[string]string, len(t))
+		for k, val := range t {
+			m[k] = val
+		}
+		return m
+	case []string:
+		return append([]string(nil), t...)
+	default:
+		return t
+	}
 }
 
 // renderArgs replaces ${A.key} placeholders in string values within args.

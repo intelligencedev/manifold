@@ -27,7 +27,7 @@ $ git submodule update --init --recursive
 $ nvm use 20
 
 # Install frontend dependencies
-$ cd cd web/agentd-ui/
+$ cd web/agentd-ui/
 $ pnpm install
 $ cd ../..
 

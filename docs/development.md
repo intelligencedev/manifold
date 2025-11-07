@@ -16,11 +16,35 @@ cd manifold
 ```
 
 2. Install Go dependencies:
+
 ```bash
 go mod download
 ```
 
-3. Install frontend dependencies:
+3. Install development tools (recommended):
+
+```bash
+# Install staticcheck for unused code detection
+go install honnef.co/go/tools/cmd/staticcheck@latest
+
+# Install golangci-lint for comprehensive linting
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+```
+
+4. Install git hooks (recommended):
+
+```bash
+./scripts/install-hooks.sh
+```
+
+This installs pre-commit hooks that automatically check:
+
+- Code formatting (gofmt)
+- Static analysis (go vet)
+- Unused code detection (staticcheck)
+- Build validation
+
+5. Install frontend dependencies:
 ```bash
 cd web/agentd-ui
 pnpm install

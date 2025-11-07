@@ -5,10 +5,8 @@ go 1.24.5
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.17.1
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.3.3
-	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
 	github.com/chromedp/chromedp v0.14.2
 	github.com/coreos/go-oidc/v3 v3.15.0
-	github.com/fsnotify/fsnotify v1.9.0
 	github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20250824095233-c09b0e0c4c20
 	github.com/go-shiori/go-readability v0.0.0-20250217085726-9f5bf5ca7612
 	github.com/google/uuid v1.6.0
@@ -43,6 +41,7 @@ require (
 	github.com/araddon/dateparse v0.0.0-20210429162001-6b43995a97de // indirect
 	github.com/cenkalti/backoff/v5 v5.0.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect

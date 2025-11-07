@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 )
 
+const distDir = "web/agentd-ui/dist"
+
 func frontendFS() (fs.FS, error) {
 	dir := os.Getenv("AGENTD_WEB_DIST")
 	if dir == "" {

@@ -6,8 +6,6 @@ import (
 	"path"
 )
 
-const distDir = "web/agentd-ui/dist"
-
 func DistFS() (fs.FS, error) {
 	fsys, err := frontendFS()
 	if err != nil {

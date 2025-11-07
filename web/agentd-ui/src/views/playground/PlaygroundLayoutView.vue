@@ -1,7 +1,7 @@
 <template>
   <!-- Make this view a proper column flex layout so inner routes can consume remaining height -->
   <section class="flex h-full min-h-0 flex-col">
-    <header class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+    <header class="ap-hairline-b mb-6 flex flex-col gap-4 pb-3 md:flex-row md:items-center md:justify-between">
       <div>
         <h1 class="text-2xl font-semibold text-foreground">Playground</h1>
         <p class="text-sm text-subtle-foreground">Experiment with prompts, datasets, and runs.</p>
@@ -11,8 +11,8 @@
           v-for="item in items"
           :key="item.to"
           :to="item.to"
-          class="rounded-lg border border-border/60 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
-          :class="isActive(item.to) ? 'bg-surface text-foreground border-border' : ''"
+          class="ap-chip rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+          :class="isActive(item.to) ? 'bg-surface text-foreground' : ''"
         >
           {{ item.label }}
         </RouterLink>

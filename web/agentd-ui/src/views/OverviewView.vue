@@ -5,7 +5,7 @@
       <div
         v-for="stat in headlineStats"
         :key="stat.label"
-        class="flex h-48 flex-col justify-between rounded-2xl border border-border/70 bg-surface p-6 shadow-lg"
+        class="ap-card flex h-48 flex-col justify-between rounded-2xl bg-surface p-6"
       >
         <p class="text-sm font-medium text-subtle-foreground">{{ stat.label }}</p>
         <p class="mt-4 text-3xl font-semibold text-foreground">{{ stat.value }}</p>

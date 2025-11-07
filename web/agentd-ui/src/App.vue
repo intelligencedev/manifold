@@ -1,6 +1,6 @@
 <template>
-  <div class="flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
-    <header class="border-b border-border/70 bg-surface/70 backdrop-blur">
+  <div class="aperture flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
+    <header class="ap-hairline-b bg-surface">
       <!-- Use a 3-column grid so left is flush left, center is perfectly centered, and right is flush right -->
   <div class="relative w-full grid grid-cols-[auto_1fr_auto] items-center px-4 py-2">
       <!-- Left: logo + app name (flush left) -->

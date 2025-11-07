@@ -41,7 +41,7 @@ export type ThemeDefinition = {
   tokens: ThemeTokens
 }
 
-export const defaultDarkTheme: ThemeId = 'midnight'
+export const defaultDarkTheme: ThemeId = 'aperture-dark'
 export const defaultLightTheme: ThemeId = 'dawn'
 
 export const themes: ThemeDefinition[] = [

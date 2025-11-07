@@ -5,7 +5,7 @@
         Workflow
         <select
           v-model="selectedIntent"
-          class="ml-2 rounded border border-border/70 bg-surface-muted/60 px-2 py-1 text-sm text-foreground"
+          class="ap-input ml-2 rounded bg-surface-muted/60 px-2 py-1 text-sm text-foreground"
         >
           <option disabled value="">Select workflow</option>
           <option v-for="wf in workflowList" :key="wf.intent" :value="wf.intent">
@@ -151,9 +151,7 @@
       class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden"
     >
       <aside class="lg:w-72">
-        <div
-          class="flex min-h-0 flex-col rounded-xl border border-border/70 bg-surface p-4 lg:h-full"
-        >
+        <div class="ap-panel ap-hover flex min-h-0 flex-col rounded-xl bg-surface p-4 lg:h-full">
           <div class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-foreground">Tool Palette</h2>
             <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
@@ -176,7 +174,7 @@
               </p>
               <!-- Group Container and Sticky Note are utility items and appear first -->
               <div
-                class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
+                class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                 draggable="true"
                 title="Group nodes to keep steps organized"
                 @dragstart="onGroupDragStart"
@@ -185,7 +183,7 @@
                 Group Container
               </div>
               <div
-                class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
+                class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                 draggable="true"
                 title="Sticky note (editor-only)"
                 @dragstart="onStickyDragStart"
@@ -197,7 +195,7 @@
               <div
                 v-for="tool in utilityTools"
                 :key="tool.name"
-                class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
+                class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                 draggable="true"
                 :title="tool.description ?? tool.name"
                 @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
@@ -214,7 +212,7 @@
                 <div
                   v-for="tool in workflowTools"
                   :key="tool.name"
-                  class="cursor-grab rounded border border-border/60 bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:border-accent hover:bg-surface truncate"
+                  class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   :title="tool.description ?? tool.name"
                   @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
@@ -258,7 +256,7 @@
             <!-- Themed Controls (replaces default Controls) -->
             <Panel position="bottom-left">
               <div
-                class="flex items-center gap-1 rounded-md border border-border/70 bg-surface/90 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/75"
+                class="ap-chip flex items-center gap-1 rounded-md p-1"
               >
                 <!-- Expand/Collapse all -->
                 <button
@@ -356,7 +354,7 @@
             <!-- Themed MiniMap -->
             <MiniMap
               v-if="showMiniMap"
-              class="rounded-md border border-border/70 bg-surface/90 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-surface/75"
+              class="ap-chip rounded-md p-1"
               :position="'bottom-right'"
               :pannable="true"
               :zoomable="true"
@@ -382,7 +380,7 @@
             >
               <button
                 type="button"
-                class="inline-flex h-6 w-6 items-center justify-center rounded bg-surface text-subtle-foreground hover:text-foreground border border-border/60 shadow-sm"
+                class="ap-chip inline-flex h-6 w-6 items-center justify-center rounded text-subtle-foreground hover:text-foreground"
                 aria-label="Hide minimap"
                 title="Hide minimap"
                 @click="showMiniMap = false"
@@ -395,7 +393,7 @@
             <Panel v-if="!showMiniMap" position="bottom-right">
               <button
                 type="button"
-                class="inline-flex items-center justify-center rounded-md border border-border/70 bg-surface/90 p-1.5 text-subtle-foreground shadow-sm backdrop-blur hover:text-foreground supports-[backdrop-filter]:bg-surface/75"
+                class="ap-chip inline-flex items-center justify-center rounded-md p-1.5 text-subtle-foreground hover:text-foreground"
                 aria-label="Show minimap"
                 title="Show minimap"
                 @click="showMiniMap = true"
@@ -407,7 +405,7 @@
             <Panel position="top-right">
               <button
                 type="button"
-                class="inline-flex items-center justify-center rounded-md border border-border/70 bg-surface/90 p-1.5 text-subtle-foreground shadow-sm backdrop-blur hover:text-foreground supports-[backdrop-filter]:bg-surface/75"
+                class="ap-chip inline-flex items-center justify-center rounded-md p-1.5 text-subtle-foreground hover:text-foreground"
                 aria-label="Workflow help"
                 title="Workflow help"
                 @click="openHelpModal"

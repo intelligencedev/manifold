@@ -9,7 +9,7 @@
 
     <div class="grid gap-6 lg:grid-cols-2">
       <!-- Application (client-side) settings — moved to top -->
-      <form class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6 lg:col-span-1">
+      <form class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6 lg:col-span-1">
         <header class="space-y-1">
           <h2 class="text-lg font-semibold text-foreground">Application</h2>
           <p class="text-sm text-subtle-foreground">Client-side settings stored in your browser.</p>
@@ -55,7 +55,7 @@
       </form>
 
       <!-- Appearance — moved to top -->
-      <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6 lg:col-span-1">
+      <section class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6 lg:col-span-1">
         <header class="space-y-1">
           <h2 class="text-lg font-semibold text-foreground">Appearance</h2>
           <p class="text-sm text-subtle-foreground">
@@ -101,7 +101,7 @@
 
         <template v-else>
           <!-- Summary & Truncation -->
-          <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+          <section class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6">
             <div>
               <h3 class="text-sm font-semibold text-foreground">Summary &amp; Truncation</h3>
               <p class="text-xs text-subtle-foreground">Control conversation summarization and transcript retention.</p>
@@ -131,7 +131,7 @@
           </section>
 
           <!-- Embedding Service -->
-          <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+          <section class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6">
             <div>
               <h3 class="text-sm font-semibold text-foreground">Embedding Service</h3>
               <p class="text-xs text-subtle-foreground">Configure the embedding provider for vector operations.</p>
@@ -162,7 +162,7 @@
 
           <!-- Timeouts and Execution & Safety in two columns -->
           <div class="grid gap-6 xl:grid-cols-2">
-            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+            <section class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6">
               <div>
                 <h3 class="text-sm font-semibold text-foreground">Agent Global Timeouts (seconds)</h3>
                 <p class="text-xs text-subtle-foreground">Use 0 to disable a timeout.</p>
@@ -183,7 +183,7 @@
               </div>
             </section>
 
-            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+            <section class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6">
               <div>
                 <h3 class="text-sm font-semibold text-foreground">Execution &amp; Safety</h3>
                 <p class="text-xs text-subtle-foreground">Restrict shell execution and output size.</p>
@@ -207,7 +207,7 @@
 
           <!-- Observability, Logging, Web Integrations -->
           <div class="grid gap-6 xl:grid-cols-3">
-            <section class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6">
+            <section class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6">
               <div>
                 <h3 class="text-sm font-semibold text-foreground">Observability</h3>
                 <p class="text-xs text-subtle-foreground">Export telemetry with descriptive metadata.</p>
@@ -358,7 +358,7 @@
         </template>
 
         <!-- Actions card -->
-        <div class="rounded-2xl border border-border/70 bg-surface p-4 flex flex-wrap items-center justify-between">
+        <div class="ap-panel ap-hover rounded-2xl bg-surface p-4 flex flex-wrap items-center justify-between">
           <p class="text-xs text-subtle-foreground">Saved values apply to new requests. Some changes may require restarting background workers.</p>
           <div class="flex flex-wrap items-center gap-3">
             <span v-if="agentdSaveError" class="text-xs text-danger-foreground">{{ agentdSaveError }}</span>
@@ -369,7 +369,7 @@
         </div>
       </form>
 
-      <section v-if="isAdmin" class="space-y-4 rounded-2xl border border-border/70 bg-surface p-6 lg:col-span-2">
+      <section v-if="isAdmin" class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6 lg:col-span-2">
         <header class="space-y-1">
           <h2 class="text-lg font-semibold text-foreground">Users</h2>
           <p class="text-sm text-subtle-foreground">Create, modify, and delete users. Admin only.</p>

@@ -22,7 +22,9 @@
       </div>
     </header>
 
-    <RunTable :runs="filteredRuns" />
+    <div class="ap-panel ap-hover rounded-2xl bg-surface p-4">
+      <RunTable :runs="filteredRuns" />
+    </div>
   </section>
 </template>
 

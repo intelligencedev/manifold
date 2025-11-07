@@ -1,0 +1,133 @@
+/* Manifold Aperture theme implementation (Dark baseline)
+   - Shared component classes to avoid per-view duplication
+   - Follows manifold/docs/manifold_uig.md
+*/
+
+/* Theme-scoped tokens for geometry + background */
+[data-theme="aperture-dark"] .aperture {
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* Cool background smooth gradients (no blur).
+     Keep highly subtle; sit behind opaque surfaces. */
+  --ap-bg-orb-a: radial-gradient(1200px 800px at 8% -10%, rgb(0 200 255 / 0.06), transparent 70%);
+  --ap-bg-orb-b: radial-gradient(1100px 720px at 110% 0%, rgb(160 120 255 / 0.05), transparent 65%);
+  --ap-bg-orb-c: radial-gradient(1000px 700px at 50% 115%, rgb(0 180 220 / 0.05), transparent 60%);
+  --ap-bg-vignette: linear-gradient(to bottom, rgb(0 0 0 / 0.00), rgb(0 0 0 / 0.03) 35%, rgb(0 0 0 / 0.06));
+
+  /* Compose layers; color is provided by tailwind bg-background class. */
+  background-image: var(--ap-bg-orb-a), var(--ap-bg-orb-b), var(--ap-bg-orb-c), var(--ap-bg-vignette);
+  background-repeat: no-repeat;
+  /* Fixed attachment provides a gentle parallax on scroll without motion; may be ignored by some mobile browsers */
+  background-attachment: fixed, fixed, fixed, scroll;
+}
+
+/* Base panels (containers, sections, sidebars) */
+[data-theme="aperture-dark"] .aperture .ap-panel {
+  border-radius: var(--radius-lg);
+  background: rgb(var(--color-surface));
+  /* E1 elevation per UIG: ring + tight layered shadows (no blur effects) */
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / 0.20),
+    0 2px 6px rgba(0, 0, 0, 0.12),
+    0 12px 18px rgba(0, 0, 0, 0.14);
+  border: none !important;
+}
+
+[data-theme="aperture-dark"] .aperture .ap-panel.ap-hover:hover {
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / 0.25),
+    0 4px 8px rgba(0, 0, 0, 0.14),
+    0 16px 24px rgba(0, 0, 0, 0.16);
+}
+
+/* Cards (smaller contained surfaces like message cards) */
+[data-theme="aperture-dark"] .aperture .ap-card {
+  border-radius: var(--radius-md);
+  background: rgb(var(--color-surface));
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / 0.20),
+    0 2px 6px rgba(0, 0, 0, 0.12),
+    0 12px 18px rgba(0, 0, 0, 0.14);
+  border: none !important;
+}
+
+[data-theme="aperture-dark"] .aperture .ap-card:hover {
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / 0.25),
+    0 4px 8px rgba(0, 0, 0, 0.14),
+    0 16px 24px rgba(0, 0, 0, 0.16);
+}
+
+/* Generic upgrade: treat common rounded surface containers as panels without editing templates */
+[data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-2xl.bg-surface,
+[data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-xl.bg-surface,
+[data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-5.bg-surface {
+  border: none !important;
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / 0.20),
+    0 2px 6px rgba(0, 0, 0, 0.12),
+    0 12px 18px rgba(0, 0, 0, 0.14);
+}
+
+/* Minimize Tailwind shadow-* clashes inside themed surface containers */
+[data-theme="aperture-dark"] .aperture :is(section,div,article).bg-surface[class*='shadow-'] {
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / 0.20),
+    0 2px 6px rgba(0, 0, 0, 0.12),
+    0 12px 18px rgba(0, 0, 0, 0.14) !important;
+}
+
+/* Accent rail pattern (e.g., assistant responses) */
+[data-theme="aperture-dark"] .aperture article.ap-rail {
+  position: relative;
+  overflow: hidden; /* clip pseudo-elements/media to curvature */
+}
+
+[data-theme="aperture-dark"] .aperture article.ap-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--rail-w, 3px);
+  background: rgb(var(--color-accent) / 0.40);
+  border-top-left-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-md);
+  z-index: 0;
+}
+
+/* Chips and small badges should use ring-only emphasis (no soft shadows) */
+[data-theme="aperture-dark"] .aperture .ap-chip {
+  border-radius: 999px;
+  background: rgb(var(--color-surface));
+  box-shadow: 0 0 0 1px rgb(var(--color-border) / 0.24);
+}
+
+/* Inputs: etched style via ring; avoid inner glows and heavy shadows */
+[data-theme="aperture-dark"] .aperture .ap-input {
+  border-radius: var(--radius-md);
+  background: rgb(var(--color-surface-muted) / 0.7);
+  box-shadow: 0 0 0 1px rgb(var(--color-border) / 0.24) inset;
+}
+
+[data-theme="aperture-dark"] .aperture .ap-input:focus-within,
+[data-theme="aperture-dark"] .aperture .ap-input:focus {
+  outline: 2px solid rgb(var(--color-ring));
+  outline-offset: 2px;
+}
+
+/* Buttons: never use drop shadows for contrast */
+[data-theme="aperture-dark"] .aperture button[class*='shadow-'] {
+  box-shadow: none !important;
+}
+
+/* Header separators: use 1px hairline instead of blur or big borders */
+[data-theme="aperture-dark"] .aperture .ap-hairline-b {
+  box-shadow: 0 1px 0 0 rgb(var(--color-border) / 0.20) inset;
+}
+
+/* Tables and sticky toolbars: use hairline rings */
+[data-theme="aperture-dark"] .aperture .ap-ring {
+  box-shadow: 0 0 0 1px rgb(var(--color-border) / 0.20);
+}
+

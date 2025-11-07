@@ -7,7 +7,7 @@
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
     <div class="flex flex-col xl:flex-row gap-4 flex-1 min-h-0">
       <!-- left: card grid -->
-      <div class="xl:w-1/2 min-w-0 rounded-md border border-border/50 bg-surface p-4 min-h-0 overflow-auto">
+      <div class="ap-panel ap-hover xl:w-1/2 min-w-0 rounded-md bg-surface p-4 min-h-0 overflow-auto">
         <div class="flex items-center justify-between mb-4">
           <h2 class="text-base font-semibold">Specialist Assistants</h2>
           <button @click="startCreate" class="rounded-md border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-border">
@@ -22,7 +22,7 @@
           <article
             v-for="s in specialists"
             :key="s.name"
-            class="flex flex-col rounded-2xl border border-border/70 bg-surface p-5 shadow-lg"
+            class="ap-card flex flex-col rounded-2xl bg-surface p-5"
           >
             <div class="flex items-start justify-between gap-3">
               <div>
@@ -84,7 +84,7 @@
 
       <!-- right: editor -->
       <div class="xl:w-1/2 min-w-0 min-h-0">
-        <div v-if="editing" class="rounded-md border border-border/50 bg-surface p-3 h-full min-h-0 overflow-auto flex flex-col">
+        <div v-if="editing" class="ap-panel ap-hover rounded-md bg-surface p-3 h-full min-h-0 overflow-auto flex flex-col">
           <div class="flex flex-col gap-4 h-full min-h-0">
             <h2 class="text-base font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
             <!-- Two-column layout: left (params), right (system prompt + tools). Implemented with explicit grid -->

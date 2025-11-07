@@ -1,7 +1,7 @@
 <template>
-  <div class="flex h-full min-h-0 flex-1 overflow-hidden">
+  <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px]"
+      class="grid flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
@@ -93,7 +93,7 @@
 
       <!-- Chat pane -->
       <section
-        class="relative flex min-h-0 flex-col overflow-hidden rounded-5 border border-border bg-surface"
+        class="relative flex min-h-0 flex-col overflow-hidden rounded-5 border border-border bg-surface chat-pane"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3"
@@ -1452,5 +1452,270 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .chat-markdown :deep(table) {
   display: block;
   overflow-x: auto; /* allow scroll within table if necessary */
+}
+</style>
+
+<!-- Aperture theme: modernized chat view (unscoped, theme-scoped) -->
+<style>
+/* Objective: sleek, minimal, forward-looking styling for ChatView under Aperture themes */
+
+/* Design tokens specific to this view (scoped under container to avoid global bleed) */
+[data-theme='aperture-dark'] .chat-modern,
+[data-theme='aperture-light'] .chat-modern {
+  --radius-lg: 14px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+}
+
+/* Remove background noise for cleaner, glassy panels */
+[data-theme='aperture-dark'] .chat-modern .surface-noise,
+[data-theme='aperture-light'] .chat-modern .surface-noise {
+  background-image: none !important;
+}
+
+/* Panels (chat + sidebars): glass, soft shadows, de-chromed borders */
+[data-theme='aperture-dark'] .chat-modern .chat-grid > aside,
+[data-theme='aperture-dark'] .chat-modern .chat-grid > section,
+[data-theme='aperture-light'] .chat-modern .chat-grid > aside,
+[data-theme='aperture-light'] .chat-modern .chat-grid > section {
+  border: none !important;
+  background: linear-gradient(180deg, rgb(var(--color-surface) / .60), rgb(var(--color-surface) / .50));
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 30px rgba(0,0,0,.22);
+}
+
+/* Panel headers/footers: hairline separators */
+[data-theme='aperture-dark'] .chat-modern .chat-pane > header,
+[data-theme='aperture-dark'] .chat-modern .chat-pane > footer,
+[data-theme='aperture-light'] .chat-modern .chat-pane > header,
+[data-theme='aperture-light'] .chat-modern .chat-pane > footer {
+  border-color: rgb(var(--color-border) / .16) !important;
+}
+
+/* Sessions (left sidebar) items: subtle hover lift */
+[data-theme='aperture-dark'] .chat-modern aside .group.rounded-lg,
+[data-theme='aperture-light'] .chat-modern aside .group.rounded-lg {
+  border-color: transparent !important;
+  background: transparent !important;
+  transition: background .25s ease, transform .2s ease;
+}
+[data-theme='aperture-dark'] .chat-modern aside .group.rounded-lg:hover,
+[data-theme='aperture-light'] .chat-modern aside .group.rounded-lg:hover {
+  background: rgb(var(--color-surface-muted) / .36) !important;
+  transform: translateY(-1px);
+}
+[data-theme='aperture-dark'] .chat-modern aside .group.rounded-lg[class*='border-accent/70'],
+[data-theme='aperture-dark'] .chat-modern aside .group.rounded-lg[class*='bg-surface-muted/60'],
+[data-theme='aperture-light'] .chat-modern aside .group.rounded-lg[class*='border-accent/70'],
+[data-theme='aperture-light'] .chat-modern aside .group.rounded-lg[class*='bg-surface-muted/60'] {
+  background: linear-gradient(180deg, rgb(var(--color-surface-muted) / .6), rgb(var(--color-surface-muted) / .45)) !important;
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / .25);
+}
+
+/* Chat messages: elevated cards, no visible borders */
+[data-theme='aperture-dark'] .chat-modern .chat-pane article,
+[data-theme='aperture-light'] .chat-modern .chat-pane article {
+  border: none !important;
+  background: linear-gradient(180deg, rgb(var(--color-surface) / .70), rgb(var(--color-surface) / .55));
+  backdrop-filter: blur(8px) saturate(120%);
+  -webkit-backdrop-filter: blur(8px) saturate(120%);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  transition: transform .18s ease, box-shadow .18s ease, background .30s ease;
+}
+[data-theme='aperture-dark'] .chat-modern .chat-pane article:hover,
+[data-theme='aperture-light'] .chat-modern .chat-pane article:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgba(0,0,0,.22);
+}
+
+/* Assistant messages: subtle accent infuse + glowing left rail */
+[data-theme='aperture-dark'] .chat-modern .chat-pane article[class*='bg-accent/5'],
+[data-theme='aperture-light'] .chat-modern .chat-pane article[class*='bg-accent/5'] {
+  position: relative;
+  background: linear-gradient(180deg,
+    color-mix(in oklab, rgb(var(--color-accent)) 12%, rgb(var(--color-surface))),
+    rgb(var(--color-surface))
+  );
+  /* Ensure decorative rails and inner effects follow the card's rounded corners */
+  overflow: hidden;
+}
+[data-theme='aperture-dark'] .chat-modern .chat-pane article[class*='bg-accent/5']::before,
+[data-theme='aperture-light'] .chat-modern .chat-pane article[class*='bg-accent/5']::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, rgb(var(--color-accent)), transparent);
+  opacity: .9;
+  /* Match the card's curved corners so the rail caps are rounded, not square */
+  border-top-left-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-md);
+}
+
+/* User messages: airy, lighter glass */
+[data-theme='aperture-dark'] .chat-modern .chat-pane article.ml-auto,
+[data-theme='aperture-light'] .chat-modern .chat-pane article.ml-auto {
+  background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+}
+
+/* Role chip: uppercase micro-badge */
+[data-theme='aperture-dark'] .chat-modern .chat-pane article > header > span:first-child,
+[data-theme='aperture-light'] .chat-modern .chat-pane article > header > span:first-child {
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 700;
+  font-size: 10px !important;
+  padding: .25rem .5rem !important;
+  border-radius: 999px !important;
+  border: 1px solid rgb(var(--color-border) / .25);
+  background: rgb(var(--color-surface-muted) / .35) !important;
+}
+[data-theme='aperture-dark'] .chat-modern .chat-pane article[class*='bg-accent/5'] > header > span:first-child,
+[data-theme='aperture-light'] .chat-modern .chat-pane article[class*='bg-accent/5'] > header > span:first-child {
+  color: rgb(var(--color-accent)) !important;
+  border-color: rgb(var(--color-accent) / .35) !important;
+  background: rgb(var(--color-accent) / .08) !important;
+}
+
+/* Markdown readability + code blocks */
+[data-theme='aperture-dark'] .chat-modern .chat-markdown,
+[data-theme='aperture-light'] .chat-modern .chat-markdown { line-height: 1.65; font-size: 0.95rem; }
+[data-theme='aperture-dark'] .chat-modern .chat-markdown :is(h1,h2,h3),
+[data-theme='aperture-light'] .chat-modern .chat-markdown :is(h1,h2,h3){ letter-spacing: -0.01em; }
+[data-theme='aperture-dark'] .chat-modern .chat-markdown :is(pre.hljs, code.hljs),
+[data-theme='aperture-light'] .chat-modern .chat-markdown :is(pre.hljs, code.hljs) {
+  background: rgb(var(--color-surface-muted) / .60) !important;
+  border: 1px solid rgb(var(--color-border) / .18) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+}
+[data-theme='aperture-dark'] .chat-modern .chat-markdown .md-codeblock-toolbar,
+[data-theme='aperture-light'] .chat-modern .chat-markdown .md-codeblock-toolbar {
+  background: linear-gradient(180deg, rgb(var(--color-surface-muted) / .90), rgb(var(--color-surface-muted) / .60)) !important;
+  border-bottom: 1px solid rgb(var(--color-border) / .20);
+}
+
+/* Composer: glass input with focus ring */
+[data-theme='aperture-dark'] .chat-modern .etched-dark,
+[data-theme='aperture-light'] .chat-modern .etched-dark {
+  border: none !important;
+  background: linear-gradient(180deg, rgb(var(--color-surface) / .55), rgb(var(--color-surface) / .45)) !important;
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 6px 18px rgba(0,0,0,.18);
+  border-radius: var(--radius-md) !important;
+  transition: box-shadow .2s ease, outline-color .2s ease;
+}
+[data-theme='aperture-dark'] .chat-modern .etched-dark:focus-within,
+[data-theme='aperture-light'] .chat-modern .etched-dark:focus-within {
+  outline: 1.5px solid rgb(var(--color-accent) / .60);
+  box-shadow: inset 0 0 0 1px rgb(var(--color-accent) / .25), 0 8px 26px rgba(0,0,0,.22);
+}
+[data-theme='aperture-dark'] .chat-modern .etched-dark textarea,
+[data-theme='aperture-light'] .chat-modern .etched-dark textarea {
+  font-size: 0.95rem !important;
+  line-height: 1.5;
+  color: rgb(var(--color-foreground)) !important;
+}
+[data-theme='aperture-dark'] .chat-modern .etched-dark textarea::placeholder,
+[data-theme='aperture-light'] .chat-modern .etched-dark textarea::placeholder {
+  color: rgb(var(--color-faint-foreground)) !important;
+}
+
+/* Inline action buttons (attach/mic/send): minimal, hover lift */
+[data-theme='aperture-dark'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 .h-8.w-8,
+[data-theme='aperture-light'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 .h-8.w-8 {
+  border-radius: 10px;
+  transition: background .2s ease, color .2s ease, transform .18s ease;
+}
+[data-theme='aperture-dark'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button:hover,
+[data-theme='aperture-light'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button:hover {
+  background: rgb(var(--color-surface-muted) / .60);
+  transform: translateY(-1px);
+}
+[data-theme='aperture-dark'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button[disabled],
+[data-theme='aperture-light'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button[disabled] {
+  opacity: .5; cursor: not-allowed;
+}
+[data-theme='aperture-dark'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button.bg-accent,
+[data-theme='aperture-light'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button.bg-accent,
+[data-theme='aperture-dark'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button[class*='border-danger/60'],
+[data-theme='aperture-light'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button[class*='border-danger/60'] {
+  box-shadow: 0 6px 14px rgb(var(--color-accent) / .25);
+}
+[data-theme='aperture-dark'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button.bg-accent:hover,
+[data-theme='aperture-light'] .chat-modern .etched-dark .absolute.inset-y-2.right-2 button.bg-accent:hover {
+  filter: saturate(1.15) brightness(1.05);
+}
+
+/* Scroll-to-latest pills: glass + hover lift */
+[data-theme='aperture-dark'] .chat-modern .chat-pane > button.absolute,
+[data-theme='aperture-light'] .chat-modern .chat-pane > button.absolute {
+  background: linear-gradient(180deg, rgb(var(--color-surface) / .65), rgb(var(--color-surface) / .50)) !important;
+  border: 1px solid rgb(var(--color-border) / .20) !important;
+  box-shadow: 0 10px 28px rgba(0,0,0,.25);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+}
+[data-theme='aperture-dark'] .chat-modern .chat-pane > button.absolute:hover,
+[data-theme='aperture-light'] .chat-modern .chat-pane > button.absolute:hover {
+  transform: translateY(-1px);
+}
+
+/* Softer radii overall (keeps class semantics, upgrades look) */
+[data-theme='aperture-dark'] .chat-modern .rounded-5,
+[data-theme='aperture-light'] .chat-modern .rounded-5 { border-radius: var(--radius-lg) !important; }
+[data-theme='aperture-dark'] .chat-modern .rounded-4,
+[data-theme='aperture-light'] .chat-modern .rounded-4 { border-radius: var(--radius-md) !important; }
+[data-theme='aperture-dark'] .chat-modern .rounded-3,
+[data-theme='aperture-light'] .chat-modern .rounded-3 { border-radius: var(--radius-sm) !important; }
+
+/* Typographic polish */
+[data-theme='aperture-dark'] .chat-modern h1,
+[data-theme='aperture-dark'] .chat-modern h2,
+[data-theme='aperture-dark'] .chat-modern h3,
+[data-theme='aperture-dark'] .chat-modern h4,
+[data-theme='aperture-dark'] .chat-modern h5,
+[data-theme='aperture-dark'] .chat-modern h6,
+[data-theme='aperture-light'] .chat-modern h1,
+[data-theme='aperture-light'] .chat-modern h2,
+[data-theme='aperture-light'] .chat-modern h3,
+[data-theme='aperture-light'] .chat-modern h4,
+[data-theme='aperture-light'] .chat-modern h5,
+[data-theme='aperture-light'] .chat-modern h6 {
+  -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+}
+[data-theme='aperture-dark'] .chat-modern .chat-markdown a,
+[data-theme='aperture-light'] .chat-modern .chat-markdown a { text-decoration: none; color: rgb(var(--color-accent)); }
+[data-theme='aperture-dark'] .chat-modern .chat-markdown a:hover,
+[data-theme='aperture-light'] .chat-modern .chat-markdown a:hover { text-decoration: underline; }
+
+/* Light-mode specific tune-ups for Aperture Light */
+[data-theme='aperture-light'] .chat-modern .chat-grid > aside,
+[data-theme='aperture-light'] .chat-modern .chat-grid > section {
+  box-shadow: 0 10px 30px rgba(0,0,0,.08);
+  background: linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,.60));
+}
+[data-theme='aperture-light'] .chat-modern .chat-pane article {
+  /* Sharper, more defined shadow for light mode responses */
+  /* Add a subtle 1px hairline ring + tighter layered shadows to reduce blur */
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / .20),
+    0 2px 6px rgba(0,0,0,.10),
+    0 12px 18px rgba(0,0,0,.12);
+  background: linear-gradient(180deg, rgba(255,255,255,.90), rgba(255,255,255,.75));
+}
+/* Light mode: refined hover to keep edges crisp without excessive bloom */
+[data-theme='aperture-light'] .chat-modern .chat-pane article:hover {
+  box-shadow:
+    0 0 0 1px rgb(var(--color-border) / .25),
+    0 4px 8px rgba(0,0,0,.12),
+    0 16px 24px rgba(0,0,0,.14);
+}
+[data-theme='aperture-light'] .chat-modern .etched-dark {
+  background: linear-gradient(180deg, rgba(255,255,255,.85), rgba(255,255,255,.70)) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.60), 0 6px 18px rgba(0,0,0,.08);
 }
 </style>

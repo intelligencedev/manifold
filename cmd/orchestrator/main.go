@@ -22,14 +22,13 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
-	"manifold/internal/tools/db"
 	kafkatools "manifold/internal/tools/kafka"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
-	"manifold/internal/tools/web"
 	warpptool "manifold/internal/tools/warpptool"
+	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
 
 	"manifold/internal/orchestrator"
@@ -159,17 +158,6 @@ func main() {
 		}
 	}
 
-	// DB tools
-	registry.Register(db.NewSearchIndexTool(mgr.Search))
-	registry.Register(db.NewSearchQueryTool(mgr.Search))
-	registry.Register(db.NewSearchRemoveTool(mgr.Search))
-	registry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
-	registry.Register(db.NewVectorQueryTool(mgr.Vector))
-	registry.Register(db.NewVectorDeleteTool(mgr.Vector))
-	registry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
-	registry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
-	registry.Register(db.NewGraphNeighborsTool(mgr.Graph))
-	registry.Register(db.NewGraphGetNodeTool(mgr.Graph))
 	// Provider factory for base_url override in llm_transform
 	newProv := func(baseURL string) llm.Provider {
 		c2 := cfg.OpenAI

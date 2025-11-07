@@ -43,7 +43,6 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
-	"manifold/internal/tools/db"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
 	llmtools "manifold/internal/tools/llmtool"
@@ -183,19 +182,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			log.Warn().Err(err).Msg("kafka tool registration failed, continuing without kafka support")
 		}
 	}
-
-	toolRegistry.Register(db.NewSearchIndexTool(mgr.Search))
-	toolRegistry.Register(db.NewSearchQueryTool(mgr.Search))
-	toolRegistry.Register(db.NewSearchRemoveTool(mgr.Search))
-	toolRegistry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
-	toolRegistry.Register(db.NewVectorQueryTool(mgr.Vector))
-	toolRegistry.Register(db.NewVectorDeleteTool(mgr.Vector))
-	toolRegistry.Register(db.NewHybridQueryTool(mgr.Search, mgr.Vector, cfg.Embedding))
-	toolRegistry.Register(db.NewIndexDocumentTool(mgr.Search, mgr.Vector, cfg.Embedding))
-	toolRegistry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
-	toolRegistry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
-	toolRegistry.Register(db.NewGraphNeighborsTool(mgr.Graph))
-	toolRegistry.Register(db.NewGraphGetNodeTool(mgr.Graph))
 
 	// RAG tools backed by internal/rag Service
 	// Create a real embedder using the configured embedding service

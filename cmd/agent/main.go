@@ -21,7 +21,6 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
-	"manifold/internal/tools/db"
 	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
 	specialists_tool "manifold/internal/tools/specialists"
@@ -174,20 +173,6 @@ func main() {
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))
 
-	// DB tools
-	registry.Register(db.NewSearchIndexTool(mgr.Search))
-	registry.Register(db.NewSearchQueryTool(mgr.Search))
-	registry.Register(db.NewSearchRemoveTool(mgr.Search))
-	registry.Register(db.NewVectorUpsertTool(mgr.Vector, cfg.Embedding))
-	registry.Register(db.NewVectorQueryTool(mgr.Vector))
-	registry.Register(db.NewVectorDeleteTool(mgr.Vector))
-	// Orchestration DB tools
-	registry.Register(db.NewHybridQueryTool(mgr.Search, mgr.Vector, cfg.Embedding))
-	registry.Register(db.NewIndexDocumentTool(mgr.Search, mgr.Vector, cfg.Embedding))
-	registry.Register(db.NewGraphUpsertNodeTool(mgr.Graph))
-	registry.Register(db.NewGraphUpsertEdgeTool(mgr.Graph))
-	registry.Register(db.NewGraphNeighborsTool(mgr.Graph))
-	registry.Register(db.NewGraphGetNodeTool(mgr.Graph))
 	// Provider factory for base_url override in llm_transform
 	newProv := func(baseURL string) llmpkg.Provider {
 		c2 := cfg.OpenAI

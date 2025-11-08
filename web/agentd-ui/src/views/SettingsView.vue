@@ -54,35 +54,6 @@
         </div>
       </form>
 
-      <!-- Appearance — moved to top -->
-      <section class="ap-panel ap-hover space-y-4 rounded-2xl bg-surface p-6 lg:col-span-1">
-        <header class="space-y-1">
-          <h2 class="text-lg font-semibold text-foreground">Appearance</h2>
-          <p class="text-sm text-subtle-foreground">
-            Swap themes or follow your operating system. Changes apply instantly.
-          </p>
-        </header>
-        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <button
-            v-for="option in themeOptions"
-            :key="option.id"
-            type="button"
-            :class="[
-              'flex flex-col rounded-xl border px-4 py-3 text-left shadow-sm transition',
-              option.id === themeSelection
-                ? 'border-accent bg-accent/10'
-                : 'border-border/60 bg-surface-muted/40 hover:border-border/80 hover:bg-surface-muted/70',
-            ]"
-            @click="selectTheme(option.id)"
-          >
-            <span class="text-sm font-semibold text-foreground">{{ option.label }}</span>
-            <span class="text-xs text-subtle-foreground">{{ option.description }}</span>
-            <span class="text-[10px] uppercase tracking-wide text-faint-foreground">
-              {{ option.id === 'system' ? 'auto' : option.appearance }}
-            </span>
-          </button>
-        </div>
-      </section>
 
       <!-- Agentd settings broken into focused panels -->
       <form class="space-y-6 lg:col-span-2" @submit.prevent="saveAgentdSettings">
@@ -443,8 +414,6 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useThemeStore } from '@/stores/theme'
-import type { ThemeChoice } from '@/theme/themes'
 import {
   listUsers,
   createUser,
@@ -632,9 +601,7 @@ async function saveAgentdSettings() {
   }
 }
 
-const themeStore = useThemeStore()
-const themeOptions = computed(() => themeStore.options)
-const themeSelection = computed(() => themeStore.selection)
+// theme selection UI removed; theme controlled via header toggle
 
 // Admin-only Users section state
 type User = {
@@ -680,9 +647,7 @@ function resetToDefaults() {
   apiUrl.value = ''
 }
 
-function selectTheme(choice: ThemeChoice) {
-  themeStore.setTheme(choice)
-}
+// Appearance panel removed
 
 async function refreshUsers() {
   try {

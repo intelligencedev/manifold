@@ -86,7 +86,7 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   function cycleTheme() {
-    const order: ThemeChoice[] = ['system', defaultDarkTheme, defaultLightTheme, 'aurora']
+    const order: ThemeChoice[] = ['system', defaultDarkTheme, defaultLightTheme]
     const currentIndex = order.indexOf(selection.value)
     const next = order[(currentIndex + 1) % order.length]
     selection.value = next

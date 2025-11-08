@@ -24,7 +24,7 @@
         </div>
       </nav>
 
-      <!-- Right: utilities cluster (divider, avatar) -->
+      <!-- Right: utilities cluster (theme toggle, divider, project select, avatar) -->
       <div class="flex items-center gap-3 justify-self-end">
         <span class="hidden sm:block h-6 w-px bg-border/60" aria-hidden="true"></span>
         <div class="hidden sm:flex items-center gap-2">
@@ -37,6 +37,16 @@
             aria-label="Project select"
           />
         </div>
+        <!-- Theme toggle: immediately left of the account dropdown -->
+        <button
+          type="button"
+          class="ap-input flex items-center justify-center h-9 w-9 rounded-md transition-colors hover:bg-surface-muted/60 focus:outline-none"
+          :aria-label="currentAppearance === 'dark' ? 'Dark theme active – switch to light' : 'Light theme active – switch to dark'"
+          @click="toggleAperture"
+        >
+          <!-- Icon now reflects CURRENT state (moon = dark, sun = light) -->
+          <component :is="currentAppearance === 'dark' ? MoonIcon : SunIcon" class="h-5 w-5" />
+        </button>
         <div class="ml-1">
           <AccountButton :username="user?.name || user?.email" />
         </div>
@@ -52,15 +62,25 @@
 
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
-import ThemeToggle from '@/components/ThemeToggle.vue'
 import AccountButton from '@/components/AccountButton.vue'
 import DropdownSelect from '@/components/DropdownSelect.vue'
 import manifoldLogo from '@/assets/images/manifold_logo.png'
 
 import { ref, computed, onMounted } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
+import { useThemeStore } from '@/stores/theme'
+import MoonIcon from '@/components/icons/Moon.vue'
+import SunIcon from '@/components/icons/Sun.vue'
 
-const isDark = ref(false)
+// Theme store provides resolved theme (includes system logic)
+const themeStore = useThemeStore()
+const currentAppearance = computed(() => themeStore.resolvedTheme.appearance)
+
+function toggleAperture() {
+  // Explicitly flip between aperture-dark and aperture-light, ignoring system & other themes.
+  const next = themeStore.resolvedThemeId === 'aperture-dark' ? 'aperture-light' : 'aperture-dark'
+  themeStore.setTheme(next)
+}
 
 // Load current user; fall back to global if present
 const user = ref<{ name?: string; email?: string; picture?: string } | null>(null)
@@ -78,10 +98,9 @@ onMounted(async () => {
   }
 })
 
+// Legacy toggleTheme retained if referenced elsewhere (currently unused)
 function toggleTheme() {
-  isDark.value = !isDark.value
-  // hook into global theme handling if present
-  console.log('toggle theme ->', isDark.value ? 'dark' : 'light')
+  toggleAperture()
 }
 
 function handleRefresh() {

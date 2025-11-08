@@ -155,8 +155,8 @@
             :key="message.id"
             class="ap-card relative max-w-[72ch] rounded-5 bg-surface p-5"
             :class="[
-              message.role === 'assistant' ? 'bg-accent/5 ap-rail' : '',
-              message.role === 'user' ? 'ml-auto' : '',
+              message.role === 'assistant' ? 'bg-accent/5' : '',
+              message.role === 'user' ? 'ml-auto bg-success/10' : '',
             ]"
           >
             <header class="flex flex-wrap items-center gap-2">

@@ -39,22 +39,51 @@
   --space-xl: 2rem;
   --space-2xl: 3rem;
 
+  /* Edge highlight color for caustic panel border */
+  --edge-highlight-color: 255 255 255;
+
   /* Surface gradient tokens (vertical for symmetry) */
   /* Using low-contrast stops to avoid banding while adding depth. */
-  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 0.70), rgb(var(--color-surface) / 0.60));
-  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface) / 0.72));
-  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.55), rgb(var(--color-surface-muted) / 0.45));
-  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.38), rgb(var(--color-surface-muted) / 0.30));
-  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.94));
+  /* Contrast tuned: widened stop deltas for clearer hierarchy (panel < card < input < muted) */
+  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 0.70), rgb(var(--color-surface) / 0.58));
+  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 0.88), rgb(var(--color-surface) / 0.70));
+  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.60), rgb(var(--color-surface-muted) / 0.44));
+  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.42), rgb(var(--color-surface-muted) / 0.28));
+  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.90));
 
   background: var(--grad-bg);
+
+  /* Accent sprinkles: ultra-light overlay and selection */
+  --accent-sprinkle: linear-gradient(to bottom, rgb(var(--color-accent) / 0.06), transparent 30%);
+  --accent-underline: linear-gradient(to right, rgb(var(--color-accent) / 0.6), rgb(var(--color-accent) / 0.2));
+}
+[data-theme="aperture-dark"] .aperture ::selection {
+  background: rgb(var(--color-accent) / 0.25);
+  color: rgb(var(--color-accent-foreground));
+}
+
+/* Heading underline accent (subtle) */
+[data-theme="aperture-dark"] .aperture h1,
+[data-theme="aperture-dark"] .aperture h2 {
+  background-image: none;
+}
+
+/* Lists with accent bullets */
+[data-theme="aperture-dark"] .aperture ul li::marker {
+  color: rgb(var(--color-accent));
 }
 
 /* Base panels - differentiated by subtle background shifts, not shadows */
 [data-theme="aperture-dark"] .aperture .ap-panel {
+  position: relative;
   border-radius: var(--radius-lg);
-  background: var(--grad-panel);
-  border: none !important;
+  /* Two-layer background: surface fill + caustic edge ring */
+  border: 1px solid transparent; /* required for background-clip ring */
+  background:
+    var(--grad-panel) padding-box,
+    linear-gradient(to bottom, rgb(var(--edge-highlight-color) / 0.30), rgb(var(--edge-highlight-color) / 0.08)) border-box; /* strengthened edge for clearer separation */
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
   box-shadow: none;
 }
 
@@ -62,7 +91,7 @@
 [data-theme="aperture-dark"] .aperture .ap-card {
   border-radius: var(--radius-md);
   background: var(--grad-card);
-  border: none !important;
+  border: 1px solid rgb(var(--color-border) / 0.14) !important; /* introduce subtle hairline for contrast */
   box-shadow: none;
 }
 
@@ -75,22 +104,7 @@
   background: var(--grad-panel);
 }
 
-/* Accent rail - bold, confident, no shadow */
-[data-theme="aperture-dark"] .aperture article.ap-rail {
-  position: relative;
-  overflow: hidden;
-}
-
-[data-theme="aperture-dark"] .aperture article.ap-rail::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--rail-w, 4px);
-  background: linear-gradient(180deg, rgb(var(--color-accent)), rgb(var(--color-accent) / 0.6));
-  border-top-left-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-md);
-  z-index: 0;
-}
+/* (rails removed by request) */
 
 /* Chips - minimal, no shadow, just background */
 [data-theme="aperture-dark"] .aperture .ap-chip {
@@ -109,13 +123,13 @@
   border-radius: var(--radius-md);
   background: var(--grad-input);
   box-shadow: none;
-  border: 1px solid rgb(var(--color-border) / 0.18);
+  border: 1px solid rgb(var(--color-border) / 0.22);
 }
 
 [data-theme="aperture-dark"] .aperture .ap-input:focus-within,
 [data-theme="aperture-dark"] .aperture .ap-input:focus {
   background: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.46), rgb(var(--color-surface-muted) / 0.38));
-  border-color: rgb(var(--color-accent) / 0.55);
+  border-color: rgb(var(--color-accent) / 0.60);
   outline: none;
 }
 
@@ -126,13 +140,13 @@
 
 /* Header separators - hairline only when necessary */
 [data-theme="aperture-dark"] .aperture .ap-hairline-b {
-  border-bottom: 1px solid rgb(var(--color-border) / 0.12);
+  border-bottom: 1px solid rgb(var(--color-border) / 0.16); /* slightly stronger for clarity */
   box-shadow: none;
 }
 
 /* Rings - minimal, subtle */
 [data-theme="aperture-dark"] .aperture .ap-ring {
-  border: 1px solid rgb(var(--color-border) / 0.15);
+  border: 1px solid rgb(var(--color-border) / 0.20);
   box-shadow: none;
 }
 
@@ -180,6 +194,28 @@
 */
 
 [data-theme="aperture-light"] .aperture {
+  /* Explicit light palette tokens to increase separation and readability */
+  --color-background: 248 249 251; /* page bg */
+  --color-surface: 255 255 255;     /* panels/cards */
+  --color-surface-muted: 245 247 250; /* chips/inputs */
+  --color-border: 210 216 222;      /* hairlines */
+  --color-input: 241 244 248;
+  --color-ring: 112 109 230;        /* keep accent ring */
+  --color-foreground: 23 27 34;     /* primary text */
+  --color-muted-foreground: 73 84 96;
+  --color-subtle-foreground: 95 106 118;
+  --color-faint-foreground: 124 135 148;
+  --color-muted: 250 252 255;
+  --color-accent: 90 89 211;
+  --color-accent-foreground: 255 255 255;
+  --color-destructive: 210 57 41;
+  --color-destructive-foreground: 255 255 255;
+  --color-success: 22 163 135;
+  --color-success-foreground: 255 255 255;
+  --color-info: 2 132 199;
+  --color-info-foreground: 255 255 255;
+  --color-warning: 202 138 4;
+  --color-warning-foreground: 24 24 27;
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -197,21 +233,47 @@
   --space-xl: 2rem;
   --space-2xl: 3rem;
 
-  /* Light surface gradient tokens */
-  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 0.93), rgb(var(--color-surface) / 0.86));
-  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 0.98), rgb(var(--color-surface) / 0.92));
-  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.60), rgb(var(--color-surface-muted) / 0.50));
-  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.42), rgb(var(--color-surface-muted) / 0.34));
-  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.97));
+  /* Edge highlight color for caustic panel border (still light; very faint) */
+  --edge-highlight-color: 255 255 255;
+
+  /* Light surface gradient tokens — stronger separation */
+  /* Contrast tuned for light theme: widened gradients & deeper page bg */
+  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 1), rgb(var(--color-surface) / 0.92));
+  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 1), rgb(var(--color-surface) / 0.985));
+  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.70), rgb(var(--color-surface-muted) / 0.54));
+  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.52), rgb(var(--color-surface-muted) / 0.38));
+  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.94));
 
   background: var(--grad-bg);
+
+  /* Accent sprinkles for light theme */
+  --accent-sprinkle: linear-gradient(to bottom, rgb(var(--color-accent) / 0.04), transparent 30%);
+  --accent-underline: linear-gradient(to right, rgb(var(--color-accent) / 0.7), rgb(var(--color-accent) / 0.25));
+}
+[data-theme="aperture-light"] .aperture ::selection {
+  background: rgb(var(--color-accent) / 0.20);
+  color: rgb(var(--color-accent-foreground));
+}
+
+[data-theme="aperture-light"] .aperture h1,
+[data-theme="aperture-light"] .aperture h2 {
+  background-image: none;
+}
+
+[data-theme="aperture-light"] .aperture ul li::marker {
+  color: rgb(var(--color-accent));
 }
 
 /* Base panels - warm off-white with subtle tint */
 [data-theme="aperture-light"] .aperture .ap-panel {
+  position: relative;
   border-radius: var(--radius-lg);
-  background: var(--grad-panel);
-  border: none !important;
+  border: 1px solid transparent;
+  background:
+    var(--grad-panel) padding-box,
+    linear-gradient(to bottom, rgb(var(--edge-highlight-color) / 0.40), rgb(var(--edge-highlight-color) / 0.14)) border-box; /* stronger edge */
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
   box-shadow: none;
 }
 
@@ -219,7 +281,7 @@
 [data-theme="aperture-light"] .aperture .ap-card {
   border-radius: var(--radius-md);
   background: var(--grad-card);
-  border: none !important;
+  border: 1px solid rgb(var(--color-border) / 0.34) !important; /* slightly stronger hairline for separation */
   box-shadow: none;
 }
 
@@ -227,27 +289,12 @@
 [data-theme="aperture-light"] .aperture :is(section,div,article).rounded-2xl.bg-surface,
 [data-theme="aperture-light"] .aperture :is(section,div,article).rounded-xl.bg-surface,
 [data-theme="aperture-light"] .aperture :is(section,div,article).rounded-5.bg-surface {
-  border: none !important;
+  border: 1px solid rgb(var(--color-border) / 0.18) !important; /* reinforce container separation */
   box-shadow: none !important;
   background: var(--grad-panel);
 }
 
-/* Accent rail - vibrant and clear */
-[data-theme="aperture-light"] .aperture article.ap-rail {
-  position: relative;
-  overflow: hidden;
-}
-
-[data-theme="aperture-light"] .aperture article.ap-rail::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: var(--rail-w, 4px);
-  background: linear-gradient(180deg, rgb(var(--color-accent)), rgb(var(--color-accent) / 0.75));
-  border-top-left-radius: var(--radius-md);
-  border-bottom-left-radius: var(--radius-md);
-  z-index: 0;
-}
+/* (rails removed by request) */
 
 /* Chips - with color tint for visual interest */
 [data-theme="aperture-light"] .aperture .ap-chip {
@@ -266,13 +313,13 @@
   border-radius: var(--radius-md);
   background: var(--grad-input);
   box-shadow: none;
-  border: 1px solid rgb(var(--color-border) / 0.2);
+  border: 1px solid rgb(var(--color-border) / 0.28);
 }
 
 [data-theme="aperture-light"] .aperture .ap-input:focus-within,
 [data-theme="aperture-light"] .aperture .ap-input:focus {
   background: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.50), rgb(var(--color-surface-muted) / 0.42));
-  border-color: rgb(var(--color-accent) / 0.55);
+  border-color: rgb(var(--color-accent) / 0.60);
   outline: none;
 }
 
@@ -283,13 +330,13 @@
 
 /* Header separators */
 [data-theme="aperture-light"] .aperture .ap-hairline-b {
-  border-bottom: 1px solid rgb(var(--color-border) / 0.15);
+  border-bottom: 1px solid rgb(var(--color-border) / 0.18); /* slightly stronger */
   box-shadow: none;
 }
 
 /* Rings */
 [data-theme="aperture-light"] .aperture .ap-ring {
-  border: 1px solid rgb(var(--color-border) / 0.18);
+  border: 1px solid rgb(var(--color-border) / 0.22);
   box-shadow: none;
 }
 

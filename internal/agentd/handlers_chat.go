@@ -516,6 +516,10 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			eng.OnToolStart = func(name string, args []byte, toolID string) {
 				payload := map[string]any{"type": "tool_start", "title": "Tool: " + name, "tool_id": toolID, "args": string(args)}
+				// Hint UI to group agent-related tool calls under a team panel
+				if name == "agent_call" || name == "ask_agent" {
+					payload["agent"] = true
+				}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
@@ -531,6 +535,9 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					return
 				}
 				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
+				if name == "agent_call" || name == "ask_agent" {
+					payload["agent"] = true
+				}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
@@ -717,6 +724,9 @@ func (a *app) promptHandler() http.HandlerFunc {
 			}
 			eng.OnToolStart = func(name string, args []byte, toolID string) {
 				payload := map[string]any{"type": "tool_start", "title": "Tool: " + name, "tool_id": toolID, "args": string(args)}
+				if name == "agent_call" || name == "ask_agent" {
+					payload["agent"] = true
+				}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
@@ -732,6 +742,9 @@ func (a *app) promptHandler() http.HandlerFunc {
 					return
 				}
 				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
+				if name == "agent_call" || name == "ask_agent" {
+					payload["agent"] = true
+				}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()

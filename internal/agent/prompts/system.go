@@ -35,6 +35,7 @@ Parallel Tool Execution (CRITICAL):
 - This includes:
   * Calling the SAME tool with different arguments (e.g., fetching 2+ URLs, searching multiple queries)
   * Calling DIFFERENT tools that don't depend on each other's outputs
+  * Fanning out to multiple agents at once (e.g., ask two specialists in parallel using ask_agent or agent_call)
 - NEVER concatenate multiple JSON objects as arguments to a single tool call
 - Format: {"tool_uses": [{"recipient_name": "tool_name", "parameters": {...}}, ...]}
 - Example fetching two URLs in parallel:
@@ -51,6 +52,13 @@ Parallel Tool Execution (CRITICAL):
       {"recipient_name": "run_cli", "parameters": {"command": "date", "args": []}}
     ]
   }
+ - Example asking two agents in parallel:
+   {
+     "tool_uses": [
+       {"recipient_name": "ask_agent", "parameters": {"to": "researcher", "prompt": "Find 3 authoritative sources on topic X"}},
+       {"recipient_name": "ask_agent", "parameters": {"to": "critic", "prompt": "Draft potential pitfalls for topic X"}}
+     ]
+   }
 - If you catch yourself wanting to call a tool more than once in a turn, STOP and use multi_tool_use_parallel instead
 
 Web Fetch Workflow:

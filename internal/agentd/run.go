@@ -42,6 +42,7 @@ import (
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
@@ -199,6 +200,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
 	toolRegistry.Register(specialiststool.New(specReg))
+
+	// Phase 1: register simple team tools
+	toolRegistry.Register(agenttools.NewAgentCallTool(toolRegistry, specReg))
+	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180"))
 
 	parallelTool := multitool.NewParallel(toolRegistry)
 	toolRegistry.Register(parallelTool)

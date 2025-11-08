@@ -77,14 +77,6 @@
 [data-theme="aperture-dark"] .aperture .ap-panel {
   position: relative;
   border-radius: var(--radius-lg);
-  /* Two-layer background: surface fill + caustic edge ring */
-  border: 1px solid transparent; /* required for background-clip ring */
-  background:
-    var(--grad-panel) padding-box,
-    linear-gradient(to bottom, rgb(var(--edge-highlight-color) / 0.30), rgb(var(--edge-highlight-color) / 0.08)) border-box; /* strengthened edge for clearer separation */
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
-  box-shadow: none;
 }
 
 /* Cards - lighter than panels for visual hierarchy */
@@ -268,13 +260,6 @@
 [data-theme="aperture-light"] .aperture .ap-panel {
   position: relative;
   border-radius: var(--radius-lg);
-  border: 1px solid transparent;
-  background:
-    var(--grad-panel) padding-box,
-    linear-gradient(to bottom, rgb(var(--edge-highlight-color) / 0.40), rgb(var(--edge-highlight-color) / 0.14)) border-box; /* stronger edge */
-  background-origin: border-box;
-  background-clip: padding-box, border-box;
-  box-shadow: none;
 }
 
 /* Cards - brighter than panels, crisp contrast */

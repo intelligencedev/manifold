@@ -5,7 +5,7 @@
     >
       <!-- Sessions sidebar -->
       <aside
-        class="ap-panel ap-hover hidden min-h-0 lg:flex flex-col gap-4 rounded-5 bg-surface p-4 surface-noise"
+        class="ap-panel ap-hover hidden min-h-0 lg:flex flex-col gap-4 rounded-5 bg-transparent p-4 surface-noise"
       >
         <header class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -447,7 +447,7 @@
 
       <!-- Context sidebar -->
       <aside
-        class="ap-panel ap-hover hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 bg-surface p-4 text-sm text-subtle-foreground surface-noise"
+        class="ap-panel ap-hover hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 bg-transparent p-4 text-sm text-subtle-foreground surface-noise"
       >
         <div>
           <h2 class="text-sm font-semibold text-foreground">Session details</h2>

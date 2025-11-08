@@ -1,133 +1,332 @@
-/* Manifold Aperture theme implementation (Dark baseline)
-   - Shared component classes to avoid per-view duplication
-   - Follows manifold/docs/manifold_uig.md
+/* Manifold Aperture Theme
+   Refined, high-performance gradient system + balanced color surfaces.
+   Principles:
+     • Subtle vertical (symmetrical) gradients only where they add depth.
+     • Avoid heavy multi-layer radial backgrounds (performance + visual noise).
+     • Keep contrast by pairing low-chroma neutrals with brand accent lines.
+     • No shadow stacking; rely on color, spacing, hierarchy.
+   Performance notes (see: tryhoverify.com blog on gradient optimization):
+     • Use a SINGLE linear-gradient per element instead of multiple stacked layers.
+     • Prefer linear-gradient over large radial backgrounds (cheaper to paint).
+     • Avoid background-attachment: fixed (triggers repaint on scroll).
+     • Reuse CSS vars so the browser can optimize caching.
 */
 
-/* Theme-scoped tokens for geometry + background */
+/* ============================================================================
+   APERTURE DARK THEME
+   - Deep, rich backgrounds with subtle color shifts
+   - Crisp contrast without harsh whites
+   ============================================================================ */
+
 [data-theme="aperture-dark"] .aperture {
+  /* Radius scale */
   --radius-sm: 6px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  
+  /* Typography scale */
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 0.9375rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
 
-  /* Cool background smooth gradients (no blur).
-     Keep highly subtle; sit behind opaque surfaces. */
-  --ap-bg-orb-a: radial-gradient(1200px 800px at 8% -10%, rgb(0 200 255 / 0.06), transparent 70%);
-  --ap-bg-orb-b: radial-gradient(1100px 720px at 110% 0%, rgb(160 120 255 / 0.05), transparent 65%);
-  --ap-bg-orb-c: radial-gradient(1000px 700px at 50% 115%, rgb(0 180 220 / 0.05), transparent 60%);
-  --ap-bg-vignette: linear-gradient(to bottom, rgb(0 0 0 / 0.00), rgb(0 0 0 / 0.03) 35%, rgb(0 0 0 / 0.06));
+  /* Spacing scale */
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
 
-  /* Compose layers; color is provided by tailwind bg-background class. */
-  background-image: var(--ap-bg-orb-a), var(--ap-bg-orb-b), var(--ap-bg-orb-c), var(--ap-bg-vignette);
-  background-repeat: no-repeat;
-  /* Fixed attachment provides a gentle parallax on scroll without motion; may be ignored by some mobile browsers */
-  background-attachment: fixed, fixed, fixed, scroll;
+  /* Surface gradient tokens (vertical for symmetry) */
+  /* Using low-contrast stops to avoid banding while adding depth. */
+  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 0.70), rgb(var(--color-surface) / 0.60));
+  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface) / 0.72));
+  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.55), rgb(var(--color-surface-muted) / 0.45));
+  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.38), rgb(var(--color-surface-muted) / 0.30));
+  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.94));
+
+  background: var(--grad-bg);
 }
 
-/* Base panels (containers, sections, sidebars) */
+/* Base panels - differentiated by subtle background shifts, not shadows */
 [data-theme="aperture-dark"] .aperture .ap-panel {
   border-radius: var(--radius-lg);
-  background: rgb(var(--color-surface));
-  /* E1 elevation per UIG: ring + tight layered shadows (no blur effects) */
-  box-shadow:
-    0 0 0 1px rgb(var(--color-border) / 0.20),
-    0 2px 6px rgba(0, 0, 0, 0.12),
-    0 12px 18px rgba(0, 0, 0, 0.14);
+  background: var(--grad-panel);
   border: none !important;
+  box-shadow: none;
 }
 
-[data-theme="aperture-dark"] .aperture .ap-panel.ap-hover:hover {
-  box-shadow:
-    0 0 0 1px rgb(var(--color-border) / 0.25),
-    0 4px 8px rgba(0, 0, 0, 0.14),
-    0 16px 24px rgba(0, 0, 0, 0.16);
-}
-
-/* Cards (smaller contained surfaces like message cards) */
+/* Cards - lighter than panels for visual hierarchy */
 [data-theme="aperture-dark"] .aperture .ap-card {
   border-radius: var(--radius-md);
-  background: rgb(var(--color-surface));
-  box-shadow:
-    0 0 0 1px rgb(var(--color-border) / 0.20),
-    0 2px 6px rgba(0, 0, 0, 0.12),
-    0 12px 18px rgba(0, 0, 0, 0.14);
+  background: var(--grad-card);
   border: none !important;
+  box-shadow: none;
 }
 
-[data-theme="aperture-dark"] .aperture .ap-card:hover {
-  box-shadow:
-    0 0 0 1px rgb(var(--color-border) / 0.25),
-    0 4px 8px rgba(0, 0, 0, 0.14),
-    0 16px 24px rgba(0, 0, 0, 0.16);
-}
-
-/* Generic upgrade: treat common rounded surface containers as panels without editing templates */
+/* Generic surface containers - no borders, rely on background differentiation */
 [data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-2xl.bg-surface,
 [data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-xl.bg-surface,
 [data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-5.bg-surface {
   border: none !important;
-  box-shadow:
-    0 0 0 1px rgb(var(--color-border) / 0.20),
-    0 2px 6px rgba(0, 0, 0, 0.12),
-    0 12px 18px rgba(0, 0, 0, 0.14);
+  box-shadow: none !important;
+  background: var(--grad-panel);
 }
 
-/* Minimize Tailwind shadow-* clashes inside themed surface containers */
-[data-theme="aperture-dark"] .aperture :is(section,div,article).bg-surface[class*='shadow-'] {
-  box-shadow:
-    0 0 0 1px rgb(var(--color-border) / 0.20),
-    0 2px 6px rgba(0, 0, 0, 0.12),
-    0 12px 18px rgba(0, 0, 0, 0.14) !important;
-}
-
-/* Accent rail pattern (e.g., assistant responses) */
+/* Accent rail - bold, confident, no shadow */
 [data-theme="aperture-dark"] .aperture article.ap-rail {
   position: relative;
-  overflow: hidden; /* clip pseudo-elements/media to curvature */
+  overflow: hidden;
 }
 
 [data-theme="aperture-dark"] .aperture article.ap-rail::before {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: var(--rail-w, 3px);
-  background: rgb(var(--color-accent) / 0.40);
+  width: var(--rail-w, 4px);
+  background: linear-gradient(180deg, rgb(var(--color-accent)), rgb(var(--color-accent) / 0.6));
   border-top-left-radius: var(--radius-md);
   border-bottom-left-radius: var(--radius-md);
   z-index: 0;
 }
 
-/* Chips and small badges should use ring-only emphasis (no soft shadows) */
+/* Chips - minimal, no shadow, just background */
 [data-theme="aperture-dark"] .aperture .ap-chip {
   border-radius: 999px;
-  background: rgb(var(--color-surface));
-  box-shadow: 0 0 0 1px rgb(var(--color-border) / 0.24);
+  background: var(--grad-muted);
+  box-shadow: none;
+  border: none;
+  padding: 0.375rem 0.65rem;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
 }
 
-/* Inputs: etched style via ring; avoid inner glows and heavy shadows */
+/* Inputs - subtle inset feel without heavy shadows */
 [data-theme="aperture-dark"] .aperture .ap-input {
   border-radius: var(--radius-md);
-  background: rgb(var(--color-surface-muted) / 0.7);
-  box-shadow: 0 0 0 1px rgb(var(--color-border) / 0.24) inset;
+  background: var(--grad-input);
+  box-shadow: none;
+  border: 1px solid rgb(var(--color-border) / 0.18);
 }
 
 [data-theme="aperture-dark"] .aperture .ap-input:focus-within,
 [data-theme="aperture-dark"] .aperture .ap-input:focus {
-  outline: 2px solid rgb(var(--color-ring));
-  outline-offset: 2px;
+  background: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.46), rgb(var(--color-surface-muted) / 0.38));
+  border-color: rgb(var(--color-accent) / 0.55);
+  outline: none;
 }
 
-/* Buttons: never use drop shadows for contrast */
+/* Buttons - no shadows, rely on background and hover states */
 [data-theme="aperture-dark"] .aperture button[class*='shadow-'] {
   box-shadow: none !important;
 }
 
-/* Header separators: use 1px hairline instead of blur or big borders */
+/* Header separators - hairline only when necessary */
 [data-theme="aperture-dark"] .aperture .ap-hairline-b {
-  box-shadow: 0 1px 0 0 rgb(var(--color-border) / 0.20) inset;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.12);
+  box-shadow: none;
 }
 
-/* Tables and sticky toolbars: use hairline rings */
+/* Rings - minimal, subtle */
 [data-theme="aperture-dark"] .aperture .ap-ring {
-  box-shadow: 0 0 0 1px rgb(var(--color-border) / 0.20);
+  border: 1px solid rgb(var(--color-border) / 0.15);
+  box-shadow: none;
+}
+
+/* Typography overrides for consistency */
+[data-theme="aperture-dark"] .aperture h1 { 
+  font-size: var(--font-size-xl); 
+  font-weight: 600; 
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+[data-theme="aperture-dark"] .aperture h2 { 
+  font-size: var(--font-size-lg); 
+  font-weight: 600; 
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+[data-theme="aperture-dark"] .aperture h3 { 
+  font-size: var(--font-size-base); 
+  font-weight: 600; 
+  line-height: 1.4;
+}
+
+[data-theme="aperture-dark"] .aperture p,
+[data-theme="aperture-dark"] .aperture .text-base { 
+  font-size: var(--font-size-base); 
+  line-height: 1.6;
+}
+
+[data-theme="aperture-dark"] .aperture .text-sm { 
+  font-size: var(--font-size-sm); 
+  line-height: 1.5;
+}
+
+[data-theme="aperture-dark"] .aperture .text-xs { 
+  font-size: var(--font-size-xs); 
+  line-height: 1.4;
+}
+
+/* ============================================================================
+  APERTURE LIGHT THEME
+  Subtle neutral gradients + gentle chroma lifts for clarity.
+  Mirrors dark theme structure for symmetry.
+*/
+
+[data-theme="aperture-light"] .aperture {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 0.9375rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.5rem;
+
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* Light surface gradient tokens */
+  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 0.93), rgb(var(--color-surface) / 0.86));
+  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 0.98), rgb(var(--color-surface) / 0.92));
+  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.60), rgb(var(--color-surface-muted) / 0.50));
+  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.42), rgb(var(--color-surface-muted) / 0.34));
+  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.97));
+
+  background: var(--grad-bg);
+}
+
+/* Base panels - warm off-white with subtle tint */
+[data-theme="aperture-light"] .aperture .ap-panel {
+  border-radius: var(--radius-lg);
+  background: var(--grad-panel);
+  border: none !important;
+  box-shadow: none;
+}
+
+/* Cards - brighter than panels, crisp contrast */
+[data-theme="aperture-light"] .aperture .ap-card {
+  border-radius: var(--radius-md);
+  background: var(--grad-card);
+  border: none !important;
+  box-shadow: none;
+}
+
+/* Generic surface containers - balanced opacity */
+[data-theme="aperture-light"] .aperture :is(section,div,article).rounded-2xl.bg-surface,
+[data-theme="aperture-light"] .aperture :is(section,div,article).rounded-xl.bg-surface,
+[data-theme="aperture-light"] .aperture :is(section,div,article).rounded-5.bg-surface {
+  border: none !important;
+  box-shadow: none !important;
+  background: var(--grad-panel);
+}
+
+/* Accent rail - vibrant and clear */
+[data-theme="aperture-light"] .aperture article.ap-rail {
+  position: relative;
+  overflow: hidden;
+}
+
+[data-theme="aperture-light"] .aperture article.ap-rail::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--rail-w, 4px);
+  background: linear-gradient(180deg, rgb(var(--color-accent)), rgb(var(--color-accent) / 0.75));
+  border-top-left-radius: var(--radius-md);
+  border-bottom-left-radius: var(--radius-md);
+  z-index: 0;
+}
+
+/* Chips - with color tint for visual interest */
+[data-theme="aperture-light"] .aperture .ap-chip {
+  border-radius: 999px;
+  background: var(--grad-muted);
+  box-shadow: none;
+  border: none;
+  padding: 0.375rem 0.65rem;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+/* Inputs - clear contrast with visible border */
+[data-theme="aperture-light"] .aperture .ap-input {
+  border-radius: var(--radius-md);
+  background: var(--grad-input);
+  box-shadow: none;
+  border: 1px solid rgb(var(--color-border) / 0.2);
+}
+
+[data-theme="aperture-light"] .aperture .ap-input:focus-within,
+[data-theme="aperture-light"] .aperture .ap-input:focus {
+  background: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.50), rgb(var(--color-surface-muted) / 0.42));
+  border-color: rgb(var(--color-accent) / 0.55);
+  outline: none;
+}
+
+/* Buttons */
+[data-theme="aperture-light"] .aperture button[class*='shadow-'] {
+  box-shadow: none !important;
+}
+
+/* Header separators */
+[data-theme="aperture-light"] .aperture .ap-hairline-b {
+  border-bottom: 1px solid rgb(var(--color-border) / 0.15);
+  box-shadow: none;
+}
+
+/* Rings */
+[data-theme="aperture-light"] .aperture .ap-ring {
+  border: 1px solid rgb(var(--color-border) / 0.18);
+  box-shadow: none;
+}
+
+/* Typography - same as dark for consistency */
+[data-theme="aperture-light"] .aperture h1 { 
+  font-size: var(--font-size-xl); 
+  font-weight: 600; 
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+[data-theme="aperture-light"] .aperture h2 { 
+  font-size: var(--font-size-lg); 
+  font-weight: 600; 
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+[data-theme="aperture-light"] .aperture h3 { 
+  font-size: var(--font-size-base); 
+  font-weight: 600; 
+  line-height: 1.4;
+}
+
+[data-theme="aperture-light"] .aperture p,
+[data-theme="aperture-light"] .aperture .text-base { 
+  font-size: var(--font-size-base); 
+  line-height: 1.6;
+}
+
+[data-theme="aperture-light"] .aperture .text-sm { 
+  font-size: var(--font-size-sm); 
+  line-height: 1.5;
+}
+
+[data-theme="aperture-light"] .aperture .text-xs { 
+  font-size: var(--font-size-xs); 
+  line-height: 1.4;
 }
 

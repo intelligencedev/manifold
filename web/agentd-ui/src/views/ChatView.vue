@@ -1455,4 +1455,3 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 </style>
 
-<!-- Removed bespoke unscoped theme block to consolidate styles via shared aperture.css classes per UIG -->

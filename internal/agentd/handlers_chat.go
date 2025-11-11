@@ -15,8 +15,6 @@ import (
 	"manifold/internal/auth"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
-	"manifold/internal/specialists"
-	specialiststool "manifold/internal/tools/specialists"
 	"manifold/internal/warpp"
 )
 
@@ -325,96 +323,6 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		} else if userID != nil {
 			specOwner = *userID
 		}
-		userSpecReg, err := a.specialistsRegistryForUser(r.Context(), specOwner)
-		if err != nil {
-			log.Error().Err(err).Msg("load_specialists_registry")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if spName := strings.TrimSpace(r.URL.Query().Get("specialist")); spName != "" && strings.ToLower(spName) != "orchestrator" {
-			if aSpec, ok := userSpecReg.Get(spName); ok {
-				seconds := a.cfg.AgentRunTimeoutSeconds
-				ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
-				defer cancel()
-				ctx = specialiststool.WithRegistry(ctx, userSpecReg)
-				if dur > 0 {
-					log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "specialist_override").Msg("using configured agent timeout")
-				} else {
-					log.Debug().Str("endpoint", "/agent/run").Str("mode", "specialist_override").Msg("no timeout configured; running until completion")
-				}
-				if r.Header.Get("Accept") == "text/event-stream" {
-					w.Header().Set("Content-Type", "text/event-stream")
-					w.Header().Set("Cache-Control", "no-cache")
-					fl, ok := w.(http.Flusher)
-					if !ok {
-						http.Error(w, "streaming not supported", http.StatusInternalServerError)
-						return
-					}
-					out, err := aSpec.Inference(ctx, req.Prompt, history)
-					if err != nil {
-						log.Error().Err(err).Msg("specialist override error")
-						if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
-							fmt.Fprintf(w, "data: %s\n\n", b)
-						} else {
-							fmt.Fprintf(w, "data: %q\n\n", "(error)")
-						}
-						fl.Flush()
-						a.runs.updateStatus(currentRun.ID, "failed", 0)
-						return
-					}
-					payload := map[string]string{"type": "final", "data": out}
-					b, _ := json.Marshal(payload)
-					fmt.Fprintf(w, "data: %s\n\n", b)
-					fl.Flush()
-					a.runs.updateStatus(currentRun.ID, "completed", 0)
-					if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, out, aSpec.Model); err != nil {
-						log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_specialist_stream")
-					}
-					return
-				}
-				out, err := aSpec.Inference(ctx, req.Prompt, history)
-				if err != nil {
-					log.Error().Err(err).Msg("specialist override error")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					a.runs.updateStatus(currentRun.ID, "failed", 0)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]string{"result": out})
-				a.runs.updateStatus(currentRun.ID, "completed", 0)
-				if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, out, aSpec.Model); err != nil {
-					log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_specialist")
-				}
-				return
-			}
-		}
-
-		if name := specialists.Route(a.cfg.SpecialistRoutes, req.Prompt); name != "" {
-			log.Info().Str("route", name).Msg("pre-dispatch specialist route matched")
-			aSpec, ok := a.specRegistry.Get(name)
-			if !ok {
-				log.Error().Str("route", name).Msg("specialist not found for route")
-			} else {
-				seconds := a.cfg.AgentRunTimeoutSeconds
-				ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
-				defer cancel()
-				if dur > 0 {
-					log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "specialist_pre_dispatch").Msg("using configured agent timeout")
-				} else {
-					log.Debug().Str("endpoint", "/agent/run").Str("mode", "specialist_pre_dispatch").Msg("no timeout configured; running until completion")
-				}
-				out, err := aSpec.Inference(ctx, req.Prompt, nil)
-				if err != nil {
-					log.Error().Err(err).Msg("specialist pre-dispatch")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]string{"result": out})
-				return
-			}
-		}
 
 		if r.URL.Query().Get("warpp") == "true" {
 			seconds := a.cfg.WorkflowTimeoutSeconds
@@ -423,7 +331,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
-			ctx = specialiststool.WithRegistry(ctx, userSpecReg)
+
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("using configured workflow timeout")
 			} else {
@@ -501,7 +409,6 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
-			ctx = specialiststool.WithRegistry(ctx, userSpecReg)
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", true).Msg("using configured stream timeout")
 			} else {

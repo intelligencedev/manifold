@@ -15,17 +15,13 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
-	"manifold/internal/llm/openai"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	"manifold/internal/persistence/databases"
-	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
 	kafkatools "manifold/internal/tools/kafka"
-	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
-	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
 	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/tools/web"
@@ -131,7 +127,6 @@ func main() {
 	}
 	// Configure global llm payload logging/truncation
 	llm.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
-	llmProv := openai.New(cfg.OpenAI, httpClient)
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	// Databases: construct backends and register tools
@@ -157,17 +152,6 @@ func main() {
 			observability.LoggerWithTrace(context.Background()).Warn().Err(err).Msg("kafka_tool_init_failed")
 		}
 	}
-
-	// Provider factory for base_url override in llm_transform
-	newProv := func(baseURL string) llm.Provider {
-		c2 := cfg.OpenAI
-		c2.BaseURL = baseURL
-		return openai.New(c2, httpClient)
-	}
-	registry.Register(llmtools.NewTransform(llmProv, cfg.OpenAI.Model, newProv)) // provides llm_transform
-	// Specialists tool for LLM-driven routing
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
-	registry.Register(specialists_tool.New(specReg))
 
 	// If tools are globally disabled, use an empty registry
 	if !cfg.EnableTools {

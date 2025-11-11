@@ -46,11 +46,9 @@ import (
 	"manifold/internal/tools/cli"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
-	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
 	ragtool "manifold/internal/tools/rag"
-	specialiststool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/textsplitter"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
@@ -195,15 +193,15 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		cfgCopy.BaseURL = baseURL
 		return openaillm.New(cfgCopy, httpClient)
 	}
-	toolRegistry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv))
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
-	toolRegistry.Register(specialiststool.New(specReg))
 
 	// Phase 1: register simple team tools
-	toolRegistry.Register(agenttools.NewAgentCallTool(toolRegistry, specReg))
-	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180"))
+	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg)
+	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
+	toolRegistry.Register(agentCallTool)
+	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
 
 	parallelTool := multitool.NewParallel(toolRegistry)
 	toolRegistry.Register(parallelTool)

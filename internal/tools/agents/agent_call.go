@@ -23,10 +23,24 @@ type AgentCallTool struct {
 	defaultSys string
 	// Max default steps if not provided in the call
 	defaultMaxSteps int
+	// defaultTimeout, if > 0, is applied when the parent context has no deadline
+	// and the caller does not provide timeout_seconds.
+	defaultTimeout time.Duration
 }
 
 func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry) *AgentCallTool {
 	return &AgentCallTool{reg: reg, specReg: specReg, defaultSys: "You are a helpful assistant.", defaultMaxSteps: 8}
+}
+
+// SetDefaultTimeoutSeconds sets a default timeout applied when the parent context
+// has no deadline and timeout_seconds is not specified by the caller. A value of
+// 0 disables the default.
+func (t *AgentCallTool) SetDefaultTimeoutSeconds(seconds int) {
+    if seconds > 0 {
+        t.defaultTimeout = time.Duration(seconds) * time.Second
+    } else {
+        t.defaultTimeout = 0
+    }
 }
 
 func (t *AgentCallTool) Name() string { return "agent_call" }
@@ -133,6 +147,10 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 	if args.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithTimeout(ctx, time.Duration(args.TimeoutSeconds)*time.Second)
+		defer cancel()
+	} else if _, has := ctx.Deadline(); !has && t.defaultTimeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(ctx, t.defaultTimeout)
 		defer cancel()
 	}
 	observability.LoggerWithTrace(ctx).Info().Str("agent_call", args.AgentName).Msg("agent_call_start")

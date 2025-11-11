@@ -119,6 +119,22 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 				e.OnToolStart(tc.Name, tc.Args, tc.ID)
 			}
 
+			// If the tool is the parallel wrapper, attach a subtool sink to forward
+			// subtool start/end events to the same UI callbacks used for top-level tools.
+			if tc.Name == "multi_tool_use_parallel" && (e.OnToolStart != nil || e.OnTool != nil) {
+				sink := func(ev tools.SubtoolEvent) {
+					if ev.Phase == "start" && e.OnToolStart != nil {
+						e.OnToolStart(ev.Name, ev.Args, "")
+						return
+					}
+					if ev.Phase == "end" && e.OnTool != nil {
+						e.OnTool(ev.Name, ev.Args, ev.Payload)
+						return
+					}
+				}
+				dispatchCtx = tools.WithSubtoolSink(dispatchCtx, sink)
+			}
+
 			// Log the tool being called and its (redacted) args at the agent level.
 			observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).RawJSON("args", observability.RedactJSON(tc.Args)).Msg("engine_tool_call")
 			payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
@@ -209,6 +225,22 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			// Fire pre-dispatch callback prior to execution
 			if e.OnToolStart != nil {
 				e.OnToolStart(tc.Name, tc.Args, tc.ID)
+			}
+
+			// If the tool is the parallel wrapper, attach a subtool sink to forward
+			// subtool start/end events to the same UI callbacks used for top-level tools.
+			if tc.Name == "multi_tool_use_parallel" && (e.OnToolStart != nil || e.OnTool != nil) {
+				sink := func(ev tools.SubtoolEvent) {
+					if ev.Phase == "start" && e.OnToolStart != nil {
+						e.OnToolStart(ev.Name, ev.Args, "")
+						return
+					}
+					if ev.Phase == "end" && e.OnTool != nil {
+						e.OnTool(ev.Name, ev.Args, ev.Payload)
+						return
+					}
+				}
+				dispatchCtx = tools.WithSubtoolSink(dispatchCtx, sink)
 			}
 
 			// Log the tool being called and its (redacted) args at the agent level.

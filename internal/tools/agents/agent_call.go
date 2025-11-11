@@ -36,11 +36,11 @@ func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry) *AgentC
 // has no deadline and timeout_seconds is not specified by the caller. A value of
 // 0 disables the default.
 func (t *AgentCallTool) SetDefaultTimeoutSeconds(seconds int) {
-    if seconds > 0 {
-        t.defaultTimeout = time.Duration(seconds) * time.Second
-    } else {
-        t.defaultTimeout = 0
-    }
+	if seconds > 0 {
+		t.defaultTimeout = time.Duration(seconds) * time.Second
+	} else {
+		t.defaultTimeout = 0
+	}
 }
 
 func (t *AgentCallTool) Name() string { return "agent_call" }

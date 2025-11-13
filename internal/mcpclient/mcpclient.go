@@ -2,8 +2,11 @@ package mcpclient
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -36,18 +39,8 @@ func (m *Manager) Close() {
 // in the form "<server>_<tool>" to avoid collisions.
 func (m *Manager) RegisterFromConfig(ctx context.Context, reg tools.Registry, mcpCfg config.MCPConfig) error {
 	for _, srv := range mcpCfg.Servers {
-		if strings.TrimSpace(srv.Command) == "" || strings.TrimSpace(srv.Name) == "" {
+		if strings.TrimSpace(srv.Name) == "" {
 			continue
-		}
-		// Build command
-		cmd := exec.Command(srv.Command, srv.Args...)
-		// Merge env
-		if len(srv.Env) > 0 {
-			env := os.Environ()
-			for k, v := range srv.Env {
-				env = append(env, fmt.Sprintf("%s=%s", k, v))
-			}
-			cmd.Env = env
 		}
 		// Create client
 		opts := &mcppkg.ClientOptions{}
@@ -55,8 +48,31 @@ func (m *Manager) RegisterFromConfig(ctx context.Context, reg tools.Registry, mc
 			opts.KeepAlive = time.Duration(srv.KeepAliveSeconds) * time.Second
 		}
 		client := mcppkg.NewClient(&mcppkg.Implementation{Name: "manifold", Version: version.Version}, opts)
-		// Connect
-		session, err := client.Connect(ctx, mcppkg.NewCommandTransport(cmd))
+
+		var session *mcppkg.ClientSession
+		var err error
+
+		if strings.TrimSpace(srv.Command) != "" {
+			// Build command
+			cmd := exec.Command(srv.Command, srv.Args...)
+			// Merge env
+			if len(srv.Env) > 0 {
+				env := os.Environ()
+				for k, v := range srv.Env {
+					env = append(env, fmt.Sprintf("%s=%s", k, v))
+				}
+				cmd.Env = env
+			}
+			// Connect via stdio transport (SDK v1)
+			session, err = client.Connect(ctx, &mcppkg.CommandTransport{Command: cmd}, nil)
+		} else if strings.TrimSpace(srv.URL) != "" {
+			// Connect via Streamable HTTP transport to remote server
+			httpClient := buildMCPHTTPClient(srv)
+			transport := &mcppkg.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: httpClient}
+			session, err = client.Connect(ctx, transport, nil)
+		} else {
+			continue
+		}
 		if err != nil {
 			// Don't fail entire setup; just skip this server.
 			continue
@@ -237,4 +253,65 @@ func sanitizeName(s string) string {
 	s = strings.ReplaceAll(s, "/", "_")
 	s = strings.ReplaceAll(s, ":", "_")
 	return s
+}
+
+// buildMCPHTTPClient constructs an HTTP client with optional proxy/TLS and header injection.
+func buildMCPHTTPClient(srv config.MCPServerConfig) *http.Client {
+    tr := &http.Transport{}
+    if p := strings.TrimSpace(srv.HTTP.ProxyURL); p != "" {
+        if u, err := url.Parse(p); err == nil {
+            tr.Proxy = http.ProxyURL(u)
+        }
+    }
+    tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: srv.HTTP.TLS.InsecureSkipVerify} // #nosec G402
+    rt := &headerRoundTripper{
+        base:     tr,
+        headers:  srv.Headers,
+        bearer:   strings.TrimSpace(srv.BearerToken),
+        origin:   defaultOrigin(srv.Origin),
+        protocol: strings.TrimSpace(srv.ProtocolVersion),
+    }
+    cli := &http.Client{Transport: rt}
+    if srv.HTTP.TimeoutSeconds > 0 {
+        cli.Timeout = time.Duration(srv.HTTP.TimeoutSeconds) * time.Second
+    }
+    return cli
+}
+
+type headerRoundTripper struct {
+    base     http.RoundTripper
+    headers  map[string]string
+    bearer   string
+    origin   string
+    protocol string
+}
+
+func (t *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+    r := req.Clone(req.Context())
+    if r.Header.Get("Accept") == "" {
+        r.Header.Set("Accept", "application/json, text/event-stream")
+    }
+    if t.origin != "" && r.Header.Get("Origin") == "" {
+        r.Header.Set("Origin", t.origin)
+    }
+    if t.protocol != "" && r.Header.Get("MCP-Protocol-Version") == "" {
+        r.Header.Set("MCP-Protocol-Version", t.protocol)
+    }
+    for k, v := range t.headers {
+        if r.Header.Get(k) == "" {
+            r.Header.Set(k, v)
+        }
+    }
+    if t.bearer != "" && r.Header.Get("Authorization") == "" {
+        r.Header.Set("Authorization", "Bearer "+t.bearer)
+    }
+    return t.base.RoundTrip(r)
+}
+
+func defaultOrigin(o string) string {
+    o = strings.TrimSpace(o)
+    if o != "" {
+        return o
+    }
+    return "https://manifold.local"
 }

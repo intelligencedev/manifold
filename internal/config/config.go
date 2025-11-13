@@ -258,12 +258,13 @@ type MCPConfig struct {
 	Servers []MCPServerConfig `yaml:"servers" json:"servers"`
 }
 
-// MCPServerConfig describes a single MCP server to connect to via stdio/command.
-// Only stdio via exec.Command is supported for now.
+// MCPServerConfig describes a single MCP server to connect to.
+// If Command is set, Manifold will launch the server via stdio.
+// If URL is set, Manifold will connect over Streamable HTTP to the remote endpoint.
 type MCPServerConfig struct {
 	// Name is a unique identifier for this server, used to prefix tool names.
 	Name string `yaml:"name" json:"name"`
-	// Command is the executable to run for this server. Required.
+	// Command is the executable to run for this server (stdio transport).
 	Command string `yaml:"command" json:"command"`
 	// Args are passed to the command.
 	Args []string `yaml:"args" json:"args"`
@@ -271,6 +272,34 @@ type MCPServerConfig struct {
 	Env map[string]string `yaml:"env" json:"env"`
 	// KeepAliveSeconds configures client ping interval; 0 disables keepalive.
 	KeepAliveSeconds int `yaml:"keepAliveSeconds" json:"keepAliveSeconds"`
+
+	// URL is the remote MCP endpoint (HTTP streamable transport), e.g., https://example.com/mcp
+	URL string `yaml:"url" json:"url"`
+	// Headers are additional HTTP headers to send on requests.
+	Headers map[string]string `yaml:"headers" json:"headers"`
+	// BearerToken, when set, is sent as Authorization: Bearer <token>.
+	BearerToken string `yaml:"bearerToken" json:"bearerToken"`
+	// Origin header to send when connecting to remote MCP servers. Some servers validate Origin.
+	Origin string `yaml:"origin" json:"origin"`
+	// ProtocolVersion optionally forces a specific MCP-Protocol-Version header.
+	ProtocolVersion string `yaml:"protocolVersion" json:"protocolVersion"`
+	// HTTP controls timeouts, TLS, and proxy settings for remote connections.
+	HTTP MCPHTTPClientConfig `yaml:"http" json:"http"`
+}
+
+// MCPHTTPClientConfig configures the HTTP client used for remote MCP servers.
+type MCPHTTPClientConfig struct {
+	TimeoutSeconds int          `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	ProxyURL       string       `yaml:"proxyURL" json:"proxyURL"`
+	TLS            MCPTLSConfig `yaml:"tls" json:"tls"`
+}
+
+// MCPTLSConfig provides TLS settings for remote MCP connections.
+type MCPTLSConfig struct {
+	InsecureSkipVerify bool   `yaml:"insecureSkipVerify" json:"insecureSkipVerify"`
+	CAFile             string `yaml:"caFile" json:"caFile"`
+	CertFile           string `yaml:"certFile" json:"certFile"`
+	KeyFile            string `yaml:"keyFile" json:"keyFile"`
 }
 
 // EmbeddingConfig configures the embedding service endpoint.

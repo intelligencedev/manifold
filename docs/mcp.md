@@ -4,7 +4,9 @@ manifold includes a Model Context Protocol (MCP) client to register external ser
 
 ## Configuration
 
-Configure MCP servers in your `config.yaml`:
+Configure MCP servers in your `config.yaml`. You can use either local stdio servers (Command) or remote HTTP servers (URL).
+
+Local stdio example:
 
 ```yaml
 mcp:
@@ -17,12 +19,32 @@ mcp:
         DATABASE_URL: "postgresql://user:pass@localhost/db"
 ```
 
+Remote HTTP (Streamable) example:
+
+```yaml
+mcp:
+  servers:
+    - name: acme
+      url: https://mcp.acme.com/mcp
+      origin: https://manifold.local   # optional Origin header
+      bearerToken: ${ACME_MCP_TOKEN}   # optional Authorization: Bearer
+      headers:
+        X-Client: Manifold
+      http:
+        timeoutSeconds: 30
+        proxyURL: ""
+        tls:
+          insecureSkipVerify: false
+          # caFile: /etc/ssl/certs/ca-bundle.crt
+```
+
 ## Supported MCP Features
 
 - Tool registration from external servers
 - Automatic tool discovery and registration
-- Environment variable passing to servers
-- Process lifecycle management
+- Environment variable passing to stdio servers
+- Process lifecycle management (stdio)
+- Remote servers over Streamable HTTP transport
 
 ## Example MCP Servers
 
@@ -33,7 +55,8 @@ mcp:
 
 ## Security Considerations
 
-- MCP servers run as separate processes
-- Environment variables are isolated per server
+- MCP stdio servers run as separate processes
+- Environment variables are isolated per stdio server
 - Tool execution follows the same security model as built-in tools
 - Review server code before adding to production environments
+- For remote servers, only connect to trusted endpoints; set an Origin header and use TLS where possible.

@@ -435,6 +435,21 @@ func loadSpecialists(cfg *Config) error {
 		Args             []string          `yaml:"args"`
 		Env              map[string]string `yaml:"env"`
 		KeepAliveSeconds int               `yaml:"keepAliveSeconds"`
+		URL              string            `yaml:"url"`
+		Headers          map[string]string `yaml:"headers"`
+		BearerToken      string            `yaml:"bearerToken"`
+		Origin           string            `yaml:"origin"`
+		ProtocolVersion  string            `yaml:"protocolVersion"`
+		HTTP             struct {
+			TimeoutSeconds int    `yaml:"timeoutSeconds"`
+			ProxyURL       string `yaml:"proxyURL"`
+			TLS            struct {
+				InsecureSkipVerify bool   `yaml:"insecureSkipVerify"`
+				CAFile             string `yaml:"caFile"`
+				CertFile           string `yaml:"certFile"`
+				KeyFile            string `yaml:"keyFile"`
+			} `yaml:"tls"`
+		} `yaml:"http"`
 	}
 	type mcpYAML struct {
 		Servers []mcpServerYAML `yaml:"servers"`
@@ -686,13 +701,25 @@ func loadSpecialists(cfg *Config) error {
 		if len(w.MCP.Servers) > 0 {
 			cfg.MCP.Servers = make([]MCPServerConfig, 0, len(w.MCP.Servers))
 			for _, s := range w.MCP.Servers {
-				cfg.MCP.Servers = append(cfg.MCP.Servers, MCPServerConfig{
+				mcps := MCPServerConfig{
 					Name:             strings.TrimSpace(s.Name),
 					Command:          strings.TrimSpace(s.Command),
 					Args:             append([]string{}, s.Args...),
 					Env:              s.Env,
 					KeepAliveSeconds: s.KeepAliveSeconds,
-				})
+					URL:              strings.TrimSpace(s.URL),
+					Headers:          s.Headers,
+					BearerToken:      strings.TrimSpace(s.BearerToken),
+					Origin:           strings.TrimSpace(s.Origin),
+					ProtocolVersion:  strings.TrimSpace(s.ProtocolVersion),
+				}
+				mcps.HTTP.TimeoutSeconds = s.HTTP.TimeoutSeconds
+				mcps.HTTP.ProxyURL = strings.TrimSpace(s.HTTP.ProxyURL)
+				mcps.HTTP.TLS.InsecureSkipVerify = s.HTTP.TLS.InsecureSkipVerify
+				mcps.HTTP.TLS.CAFile = strings.TrimSpace(s.HTTP.TLS.CAFile)
+				mcps.HTTP.TLS.CertFile = strings.TrimSpace(s.HTTP.TLS.CertFile)
+				mcps.HTTP.TLS.KeyFile = strings.TrimSpace(s.HTTP.TLS.KeyFile)
+				cfg.MCP.Servers = append(cfg.MCP.Servers, mcps)
 			}
 		}
 		// Global enableTools only if not set via env (env takes precedence)

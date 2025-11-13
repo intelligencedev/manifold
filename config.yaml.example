@@ -91,3 +91,17 @@ mcp:
       - -i
       - --rm
       - mcp/duckduckgo
+
+  # Remote HTTP streamable example
+  - name: acme
+    url: https://mcp.acme.com/mcp
+    origin: https://manifold.local
+    bearerToken: ${ACME_MCP_TOKEN}
+    headers:
+      X-Client: Manifold
+    http:
+      timeoutSeconds: 30
+      # proxyURL: http://proxy.local:3128
+      tls:
+        insecureSkipVerify: false
+        # caFile: /etc/ssl/certs/ca-bundle.crt

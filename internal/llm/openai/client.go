@@ -281,6 +281,29 @@ func ensureStrictJSONSchema(in any) any {
 	}
 }
 
+// extractReasoningEffort copies the reasoning_effort flag into the typed
+// Responses.Reasoning field and removes the deprecated top-level parameter so
+// it is not sent to the API.
+func extractReasoningEffort(extra map[string]any) (shared.ReasoningEffort, bool) {
+	if extra == nil {
+		return "", false
+	}
+	raw, ok := extra["reasoning_effort"]
+	if !ok {
+		return "", false
+	}
+	delete(extra, "reasoning_effort")
+	s, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	return shared.ReasoningEffort(s), true
+}
+
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
 	if strings.EqualFold(c.api, "responses") {
@@ -1263,10 +1286,9 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 		if len(tools) == 0 {
 			delete(merged, "parallel_tool_calls")
 		}
-		// Map common reasoning_effort string to typed field if provided
-		if v, ok := merged["reasoning_effort"].(string); ok && v != "" {
-			params.Reasoning.Effort = shared.ReasoningEffort(v)
-			// Keep original extra too for back-compat with proxies, but it's safe to leave
+		// Map reasoning_effort into the typed field to match Responses API contract.
+		if effort, ok := extractReasoningEffort(merged); ok {
+			params.Reasoning.Effort = effort
 		}
 		params.SetExtraFields(merged)
 	}
@@ -1366,8 +1388,8 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 		if len(tools) == 0 {
 			delete(merged, "parallel_tool_calls")
 		}
-		if v, ok := merged["reasoning_effort"].(string); ok && v != "" {
-			params.Reasoning.Effort = shared.ReasoningEffort(v)
+		if effort, ok := extractReasoningEffort(merged); ok {
+			params.Reasoning.Effort = effort
 		}
 		params.SetExtraFields(merged)
 	}

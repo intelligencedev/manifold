@@ -2,13 +2,16 @@ package openai
 
 import (
 	"context"
-	"manifold/internal/config"
-	"manifold/internal/llm"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openai/openai-go/v2/shared"
+
+	"manifold/internal/config"
+	"manifold/internal/llm"
 )
 
 func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
@@ -117,4 +120,44 @@ func (h *testStreamHandler) OnDelta(content string) {
 }
 
 func (h *testStreamHandler) OnToolCall(tc llm.ToolCall) {
+}
+
+func TestExtractReasoningEffort(t *testing.T) {
+	t.Parallel()
+	t.Run("extracts and strips string values", func(t *testing.T) {
+		extra := map[string]any{
+			"reasoning_effort": "medium",
+			"other":            "keep",
+		}
+		val, ok := extractReasoningEffort(extra)
+		if !ok {
+			t.Fatal("expected reasoning effort to be extracted")
+		}
+		if val != shared.ReasoningEffort("medium") {
+			t.Fatalf("unexpected effort value: %v", val)
+		}
+		if _, exists := extra["reasoning_effort"]; exists {
+			t.Fatal("reasoning_effort should have been removed from extra params")
+		}
+		if extra["other"] != "keep" {
+			t.Fatal("other fields should remain untouched")
+		}
+	})
+
+	t.Run("removes invalid types without setting field", func(t *testing.T) {
+		extra := map[string]any{"reasoning_effort": 123}
+		if _, ok := extractReasoningEffort(extra); ok {
+			t.Fatal("expected invalid type to be ignored")
+		}
+		if _, exists := extra["reasoning_effort"]; exists {
+			t.Fatal("invalid reasoning_effort entries should still be removed")
+		}
+	})
+
+	t.Run("ignores when not provided", func(t *testing.T) {
+		extra := map[string]any{"foo": "bar"}
+		if _, ok := extractReasoningEffort(extra); ok {
+			t.Fatal("unexpected extraction when key is missing")
+		}
+	})
 }

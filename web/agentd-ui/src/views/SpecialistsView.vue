@@ -61,6 +61,14 @@
               </button>
               <button
                 type="button"
+                @click="cloneSpecialist(s)"
+                class="rounded border border-border/60 px-3 py-1.5 text-xs font-semibold text-subtle-foreground hover:border-border"
+                title="Duplicate this specialist"
+              >
+                Clone
+              </button>
+              <button
+                type="button"
                 @click="togglePause(s)"
                 class="inline-flex items-center gap-1 rounded border border-border/60 px-3 py-1.5 text-xs font-semibold text-subtle-foreground hover:border-border"
                 :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
@@ -596,6 +604,35 @@ function edit(s: Specialist) {
   editing.value = true
   void ensurePromptsLoaded()
   void loadTools()
+}
+function cloneSpecialist(s: Specialist) {
+  original.value = null
+  const baseName = `${s.name || 'specialist'} copy`
+  const uniqueName = generateUniqueName(baseName)
+  form.value = {
+    ...s,
+    name: uniqueName,
+    paused: true,
+    description: s.description ?? '',
+  }
+  extraHeadersRaw.value = s.extraHeaders ? JSON.stringify(s.extraHeaders, null, 2) : ''
+  extraParamsRaw.value = s.extraParams ? JSON.stringify(s.extraParams, null, 2) : ''
+  editing.value = true
+  void ensurePromptsLoaded()
+  void loadTools()
+}
+function generateUniqueName(base: string) {
+  const names = new Set((data.value ?? []).map(sp => sp.name))
+  if (!names.has(base)) {
+    return base
+  }
+  let suffix = 2
+  let candidate = `${base} ${suffix}`
+  while (names.has(candidate)) {
+    suffix += 1
+    candidate = `${base} ${suffix}`
+  }
+  return candidate
 }
 async function save() {
   try {

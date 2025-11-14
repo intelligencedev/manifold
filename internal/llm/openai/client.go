@@ -1376,7 +1376,7 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 	stream := c.sdk.Responses.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
-	// Accumulate function call info per output index
+	// Accumulate function/custom tool call info per output index
 	type callAcc struct {
 		name string
 		id   string // call_id preferred
@@ -1411,6 +1411,24 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 				if ca.id == "" {
 					ca.id = fn.ID
 				}
+				if fn.Arguments != "" && ca.args.Len() == 0 {
+					ca.args.WriteString(fn.Arguments)
+				}
+			}
+			if ct := v.Item.AsCustomToolCall(); ct.Name != "" || ct.CallID != "" || ct.Input != "" {
+				ca := acc[v.OutputIndex]
+				if ca == nil {
+					ca = &callAcc{}
+					acc[v.OutputIndex] = ca
+				}
+				ca.name = ct.Name
+				ca.id = ct.CallID
+				if ca.id == "" {
+					ca.id = ct.ID
+				}
+				if ct.Input != "" && ca.args.Len() == 0 {
+					ca.args.WriteString(ct.Input)
+				}
 			}
 		case rs.ResponseOutputItemDoneEvent:
 			// Nothing special; metadata already handled
@@ -1427,8 +1445,33 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 		case rs.ResponseFunctionCallArgumentsDoneEvent:
 			ca := acc[v.OutputIndex]
 			if ca != nil && !ca.done {
+				if ca.args.Len() == 0 && v.Arguments != "" {
+					ca.args.WriteString(v.Arguments)
+				}
 				ca.done = true
 				// Emit tool call
+				h.OnToolCall(llm.ToolCall{
+					Name: ca.name,
+					Args: json.RawMessage(ca.args.String()),
+					ID:   ca.id,
+				})
+			}
+		case rs.ResponseCustomToolCallInputDeltaEvent:
+			ca := acc[v.OutputIndex]
+			if ca == nil {
+				ca = &callAcc{}
+				acc[v.OutputIndex] = ca
+			}
+			if v.Delta != "" {
+				ca.args.WriteString(v.Delta)
+			}
+		case rs.ResponseCustomToolCallInputDoneEvent:
+			ca := acc[v.OutputIndex]
+			if ca != nil && !ca.done {
+				if ca.args.Len() == 0 && v.Input != "" {
+					ca.args.WriteString(v.Input)
+				}
+				ca.done = true
 				h.OnToolCall(llm.ToolCall{
 					Name: ca.name,
 					Args: json.RawMessage(ca.args.String()),

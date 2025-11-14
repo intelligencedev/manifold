@@ -60,6 +60,16 @@ func (r *Registry) ReplaceFromConfigs(base config.OpenAIConfig, list []config.Sp
 			BaseURL: firstNonEmpty(sc.BaseURL, base.BaseURL),
 			API:     firstNonEmpty(sc.API, base.API),
 		}
+		if len(sc.ExtraParams) > 0 || strings.TrimSpace(sc.ReasoningEffort) != "" {
+			extra := make(map[string]any, len(sc.ExtraParams)+1)
+			for k, v := range sc.ExtraParams {
+				extra[k] = v
+			}
+			if re := strings.TrimSpace(sc.ReasoningEffort); re != "" {
+				extra["reasoning_effort"] = re
+			}
+			oc.ExtraParams = extra
+		}
 		// Build per-specialist HTTP client with extra headers if provided
 		hc := httpClient
 		if len(sc.ExtraHeaders) > 0 {
@@ -129,23 +139,10 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	if a.provider == nil {
 		return "", errors.New("provider not configured")
 	}
-	msgs := make([]llm.Message, 0, len(history)+2)
-	if sys := strings.TrimSpace(a.System); sys != "" {
-		msgs = append(msgs, llm.Message{Role: "system", Content: sys})
-	}
-	msgs = append(msgs, history...)
-	msgs = append(msgs, llm.Message{Role: "user", Content: user})
+	msgs := a.buildMessages(history, user)
 
 	// Extra fields for the request: start with configured extra params
-	extra := make(map[string]any, len(a.ExtraParams)+1)
-	for k, v := range a.ExtraParams {
-		extra[k] = v
-	}
-	if a.ReasoningEffort != "" && extra["reasoning_effort"] == nil {
-		// Provider expects a simple enum string for reasoning_effort ("low"|"medium"|"high").
-		// Previously we sent an object which caused a 400 invalid_type error.
-		extra["reasoning_effort"] = a.ReasoningEffort
-	}
+	extra := a.mergedExtraParams()
 
 	// If tools are enabled and a tools registry is attached, include schemas
 	// and perform a single-step execution: run the first tool call (if any)
@@ -196,6 +193,44 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 		return "", err
 	}
 	return resp.Content, nil
+}
+
+// Stream performs a best-effort streaming completion. Tool schemas are omitted
+// to avoid multi-step tool execution loops during live streaming.
+func (a *Agent) Stream(ctx context.Context, user string, history []llm.Message, handler llm.StreamHandler) error {
+	if a.provider == nil {
+		return errors.New("provider not configured")
+	}
+	msgs := a.buildMessages(history, user)
+	// Streaming path intentionally skips tool schemas to avoid executing tools
+	// mid-stream. This keeps the UX similar to a plain chat completion.
+	return a.provider.ChatStream(ctx, msgs, nil, a.Model, handler)
+}
+
+func (a *Agent) buildMessages(history []llm.Message, user string) []llm.Message {
+	msgs := make([]llm.Message, 0, len(history)+2)
+	if sys := strings.TrimSpace(a.System); sys != "" {
+		msgs = append(msgs, llm.Message{Role: "system", Content: sys})
+	}
+	msgs = append(msgs, history...)
+	if strings.TrimSpace(user) != "" {
+		msgs = append(msgs, llm.Message{Role: "user", Content: user})
+	}
+	return msgs
+}
+
+func (a *Agent) mergedExtraParams() map[string]any {
+	if len(a.ExtraParams) == 0 && a.ReasoningEffort == "" {
+		return nil
+	}
+	extra := make(map[string]any, len(a.ExtraParams)+1)
+	for k, v := range a.ExtraParams {
+		extra[k] = v
+	}
+	if a.ReasoningEffort != "" && extra["reasoning_effort"] == nil {
+		extra["reasoning_effort"] = a.ReasoningEffort
+	}
+	return extra
 }
 
 func firstNonEmpty(vals ...string) string {

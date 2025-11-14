@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/auth"
+	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 	"manifold/internal/warpp"
@@ -373,6 +374,13 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
+		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
+		if specialistName != "" && !strings.EqualFold(specialistName, "orchestrator") {
+			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
+				return
+			}
+		}
+
 		if a.cfg.OpenAI.APIKey == "" {
 			if r.Header.Get("Accept") == "text/event-stream" {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -719,4 +727,121 @@ func (a *app) promptHandler() http.HandlerFunc {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 	}
+}
+
+func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
+	reg, err := a.specialistsRegistryForUser(r.Context(), owner)
+	if err != nil {
+		log.Error().Err(err).Str("specialist", name).Msg("load_specialist_registry")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return true
+	}
+	sp, ok := reg.Get(name)
+	if !ok || sp == nil {
+		http.Error(w, "specialist not found", http.StatusNotFound)
+		return true
+	}
+	modelLabel := strings.TrimSpace(sp.Model)
+	if modelLabel != "" {
+		modelLabel = fmt.Sprintf("%s:%s", name, modelLabel)
+	} else {
+		modelLabel = name
+	}
+
+	if r.Header.Get("Accept") == "text/event-stream" {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		fl, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return true
+		}
+		seconds := a.cfg.StreamRunTimeoutSeconds
+		if seconds <= 0 {
+			seconds = a.cfg.AgentRunTimeoutSeconds
+		}
+		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+		defer cancel()
+		if dur > 0 {
+			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Bool("stream", true).Msg("using configured stream timeout")
+		} else {
+			log.Debug().Str("endpoint", "/agent/run").Str("specialist", name).Bool("stream", true).Msg("no timeout configured; running until completion")
+		}
+		prun := a.runs.create(prompt)
+		handler := &specialistStreamHandler{w: w, fl: fl}
+		if err := sp.Stream(ctx, prompt, history, handler); err != nil {
+			log.Error().Err(err).Str("specialist", name).Msg("specialist_stream_error")
+			handler.SendError(err.Error())
+			a.runs.updateStatus(prun.ID, "failed", 0)
+			return true
+		}
+		final := handler.Final()
+		handler.SendFinal(final)
+		a.runs.updateStatus(prun.ID, "completed", 0)
+		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, final, modelLabel); err != nil {
+			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist_stream")
+		}
+		return true
+	}
+
+	seconds := a.cfg.AgentRunTimeoutSeconds
+	ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+	defer cancel()
+	if dur > 0 {
+		log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Msg("using configured agent timeout")
+	} else {
+		log.Debug().Str("endpoint", "/agent/run").Str("specialist", name).Msg("no timeout configured; running until completion")
+	}
+	prun := a.runs.create(prompt)
+	out, err := sp.Inference(ctx, prompt, history)
+	if err != nil {
+		log.Error().Err(err).Str("specialist", name).Msg("specialist_inference_error")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		a.runs.updateStatus(prun.ID, "failed", 0)
+		return true
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"result": out})
+	a.runs.updateStatus(prun.ID, "completed", 0)
+	if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out, modelLabel); err != nil {
+		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")
+	}
+	return true
+}
+
+type specialistStreamHandler struct {
+	w   http.ResponseWriter
+	fl  http.Flusher
+	buf strings.Builder
+}
+
+func (h *specialistStreamHandler) OnDelta(content string) {
+	if content == "" {
+		return
+	}
+	h.buf.WriteString(content)
+	payload := map[string]string{"type": "delta", "data": content}
+	h.write(payload)
+}
+
+func (h *specialistStreamHandler) OnToolCall(tc llm.ToolCall) {
+	// Specialists are streamed as plain responses; tool calls are not surfaced.
+}
+
+func (h *specialistStreamHandler) Final() string {
+	return h.buf.String()
+}
+
+func (h *specialistStreamHandler) SendFinal(text string) {
+	h.write(map[string]string{"type": "final", "data": text})
+}
+
+func (h *specialistStreamHandler) SendError(msg string) {
+	h.write(map[string]string{"type": "error", "data": msg})
+}
+
+func (h *specialistStreamHandler) write(payload map[string]string) {
+	b, _ := json.Marshal(payload)
+	fmt.Fprintf(h.w, "data: %s\n\n", b)
+	h.fl.Flush()
 }

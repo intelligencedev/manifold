@@ -118,13 +118,13 @@ func (c *clickhouseTokenMetrics) TokenTotals(ctx context.Context, window time.Du
 	query := fmt.Sprintf(`
 SELECT
     %s AS model,
-			MetricName,
-			sum(%s) AS total_tokens
+		MetricName,
+		greatest(max(%s) - min(%s), 0) AS total_tokens
 FROM %s
 	WHERE MetricName IN (?, ?)
 		AND %s >= ?
 	GROUP BY model, MetricName
-`, c.attributeExpr, c.valueColumn, c.table, c.timestampColumn)
+`, c.attributeExpr, c.valueColumn, c.valueColumn, c.table, c.timestampColumn)
 
 	execCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()

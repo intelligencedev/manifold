@@ -70,6 +70,7 @@ type app struct {
 	specRegistry      *specialists.Registry
 	specRegMu         sync.RWMutex
 	userSpecRegs      map[int64]*specialists.Registry
+	summaryLLM        llmpkg.Provider
 	warppMu           sync.RWMutex
 	warppRunner       *warpp.Runner
 	warppRegistries   map[int64]*warpp.Registry
@@ -239,6 +240,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		httpClient:       httpClient,
 		mgr:              &mgr,
 		llm:              llm,
+		summaryLLM:       summaryLLM,
 		baseToolRegistry: baseToolRegistry,
 		toolRegistry:     toolRegistry,
 		specRegistry:     specReg,

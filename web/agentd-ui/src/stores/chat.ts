@@ -6,6 +6,7 @@ import {
   createChatSession as apiCreateChatSession,
   deleteChatSession as apiDeleteChatSession,
   fetchChatMessages,
+  generateChatSessionTitle,
   listChatSessions,
   renameChatSession as apiRenameChatSession,
   streamAgentRun,
@@ -98,6 +99,26 @@ export const useChatStore = defineStore('chat', () => {
     if (!content) return ''
     const trimmed = content.replace(/\s+/g, ' ').trim()
     return trimmed.length > 80 ? `${trimmed.slice(0, 77)}…` : trimmed
+  }
+
+  const defaultSessionNames = new Set(['', 'new chat', 'conversation'])
+
+  function isDefaultSessionName(name?: string | null) {
+    if (!name) return true
+    return defaultSessionNames.has(name.trim().toLowerCase())
+  }
+
+  function hasUserPrompt(sessionId: string) {
+    const existing = messagesBySession.value[sessionId] || []
+    return existing.some((m) => m.role === 'user')
+  }
+
+  function upsertSessionMeta(meta: ChatSessionMeta) {
+    const idx = sessions.value.findIndex((s) => s.id === meta.id)
+    if (idx === -1) return
+    const clone = [...sessions.value]
+    clone.splice(idx, 1, { ...clone[idx], ...meta })
+    sessions.value = clone
   }
 
   function httpStatus(error: unknown): number | null {
@@ -205,12 +226,7 @@ export const useChatStore = defineStore('chat', () => {
   async function renameSession(sessionId: string, name: string) {
     const updated = await apiRenameChatSession(sessionId, name)
     sessionsError.value = null
-    const idx = sessions.value.findIndex((s) => s.id === sessionId)
-    if (idx !== -1) {
-      const clone = [...sessions.value]
-      clone.splice(idx, 1, { ...clone[idx], name: updated.name })
-      sessions.value = clone
-    }
+    upsertSessionMeta(updated)
   }
 
   async function sendPrompt(
@@ -223,6 +239,10 @@ export const useChatStore = defineStore('chat', () => {
     if ((!content && !attachments.length) || isStreaming.value) return
     const sessionId = ensureSession()
     const now = new Date().toISOString()
+
+    if (content) {
+      void maybeAutoTitle(sessionId, content)
+    }
 
     if (options.echoUser !== false) {
       const attachmentsCopy = attachments.map((a) => ({ ...a }))
@@ -304,6 +324,20 @@ export const useChatStore = defineStore('chat', () => {
       isStreaming.value = false
       streamingAssistantId.value = null
       abortController.value = null
+    }
+  }
+
+  async function maybeAutoTitle(sessionId: string, prompt: string) {
+    const currentSession = sessions.value.find((s) => s.id === sessionId)
+    if (!currentSession || !isDefaultSessionName(currentSession.name)) return
+    if (hasUserPrompt(sessionId)) return
+    const trimmed = prompt.trim()
+    if (!trimmed) return
+    try {
+      const updated = await generateChatSessionTitle(sessionId, trimmed)
+      upsertSessionMeta(updated)
+    } catch (error) {
+      console.warn('auto-title failed', error)
     }
   }
 

@@ -81,6 +81,17 @@ export async function fetchChatMessages(
   return data;
 }
 
+export async function generateChatSessionTitle(
+  sessionId: string,
+  prompt: string,
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.post<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/title`,
+    { prompt },
+  );
+  return data;
+}
+
 const baseURL = (import.meta.env.VITE_AGENTD_BASE_URL || "").replace(/\/$/, "");
 const runEndpoint = `${baseURL}/agent/run`;
 const visionEndpoint = `${baseURL}/agent/vision`;

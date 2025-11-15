@@ -141,15 +141,23 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 		}
 		parts := strings.Split(rest, "/")
 		id := parts[0]
-		setChatCORSHeaders(w, r, "GET, PATCH, DELETE, OPTIONS")
-		if len(parts) == 2 && parts[1] == "messages" {
+		subresource := ""
+		if len(parts) == 2 {
+			subresource = parts[1]
+		}
+		switch subresource {
+		case "messages":
 			setChatCORSHeaders(w, r, "GET, OPTIONS")
+		case "title":
+			setChatCORSHeaders(w, r, "POST, OPTIONS")
+		default:
+			setChatCORSHeaders(w, r, "GET, PATCH, DELETE, OPTIONS")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if len(parts) == 2 && parts[1] == "messages" {
+		if subresource == "messages" {
 			if r.Method != http.MethodGet {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
@@ -177,6 +185,69 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(msgs); err != nil {
 				log.Error().Err(err).Msg("encode_chat_messages")
+			}
+			return
+		}
+		if subresource == "title" {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			defer r.Body.Close()
+			var body struct {
+				Prompt string `json:"prompt"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			prompt := strings.TrimSpace(body.Prompt)
+			if prompt == "" {
+				http.Error(w, "prompt required", http.StatusBadRequest)
+				return
+			}
+			sess, err := a.chatStore.GetSession(r.Context(), userID, id)
+			if err != nil {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				if errors.Is(err, persist.ErrNotFound) {
+					http.NotFound(w, r)
+					return
+				}
+				log.Error().Err(err).Str("session", id).Msg("get_chat_session")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !isDefaultSessionName(sess.Name) {
+				w.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(w).Encode(sess); err != nil {
+					log.Error().Err(err).Msg("encode_chat_session")
+				}
+				return
+			}
+			title, genErr := a.generateChatTitle(r.Context(), prompt)
+			if genErr != nil {
+				log.Warn().Err(genErr).Str("session", id).Msg("chat_title_fallback")
+			}
+			updated, err := a.chatStore.RenameSession(r.Context(), userID, id, title)
+			if err != nil {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				if errors.Is(err, persist.ErrNotFound) {
+					http.NotFound(w, r)
+					return
+				}
+				log.Error().Err(err).Str("session", id).Msg("rename_chat_session")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(updated); err != nil {
+				log.Error().Err(err).Msg("encode_chat_session")
 			}
 			return
 		}

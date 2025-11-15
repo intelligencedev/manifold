@@ -1,10 +1,10 @@
 <template>
   <WarppBaseNode
     :collapsed="collapsed"
-    :min-width="STEP_MIN_WIDTH"
-    :min-height="STEP_MIN_HEIGHT"
-    :min-width-px="STEP_MIN_WIDTH_PX"
-    :min-height-px="STEP_MIN_HEIGHT_PX"
+    :min-width="collapsed ? WARPP_STEP_NODE_COLLAPSED.width : STEP_MIN_WIDTH"
+    :min-height="collapsed ? WARPP_STEP_NODE_COLLAPSED.height : STEP_MIN_HEIGHT"
+    :min-width-px="nodeMinWidthPx"
+    :min-height-px="nodeMinHeightPx"
     :show-resizer="isDesignMode"
     :show-back="showBack"
     :root-class="rootClass"
@@ -236,7 +236,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, watch, type CSSProperties } from 'vue'
+import { computed, inject, ref, watch, onMounted, type CSSProperties } from 'vue'
 import { useVueFlow, type NodeProps } from '@vue-flow/core'
 import type { OnResizeEnd } from '@vue-flow/node-resizer'
 
@@ -246,7 +246,7 @@ import type { StepNodeData } from '@/types/flow'
 import type { WarppTool, WarppStepTrace } from '@/types/warpp'
 import type { Ref } from 'vue'
 import GearIcon from '@/components/icons/Gear.vue'
-import { WARPP_STEP_NODE_DIMENSIONS } from '@/constants/warppNodes'
+import { WARPP_STEP_NODE_DIMENSIONS, WARPP_STEP_NODE_COLLAPSED } from '@/constants/warppNodes'
 
 const props = defineProps<NodeProps<StepNodeData>>()
 
@@ -254,8 +254,8 @@ const { updateNodeData, updateNode } = useVueFlow()
 
 const STEP_MIN_WIDTH = WARPP_STEP_NODE_DIMENSIONS.minWidth
 const STEP_MIN_HEIGHT = WARPP_STEP_NODE_DIMENSIONS.minHeight
-const STEP_MIN_WIDTH_PX = `${STEP_MIN_WIDTH}px`
-const STEP_MIN_HEIGHT_PX = `${STEP_MIN_HEIGHT}px`
+const nodeMinWidthPx = computed(() => (collapsed.value ? `${WARPP_STEP_NODE_COLLAPSED.width}px` : `${STEP_MIN_WIDTH}px`))
+const nodeMinHeightPx = computed(() => (collapsed.value ? `${WARPP_STEP_NODE_COLLAPSED.height}px` : `${STEP_MIN_HEIGHT}px`))
 
 const toolsRef = inject<Ref<WarppTool[]>>('warppTools', ref<WarppTool[]>([]))
 const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
@@ -279,7 +279,7 @@ const publishResult = ref(false)
 const toolName = ref('')
 const argsState = ref<Record<string, unknown>>({})
 const isDirty = ref(false)
-const collapsed = ref(false)
+const collapsed = ref(true)
 const rootClass = computed(() => [
   collapsed.value ? 'min-w-[160px] min-h-[72px]' : 'min-w-[320px] min-h-[260px] h-full',
   'transition-colors duration-150 ease-out',
@@ -455,7 +455,7 @@ function applyChanges() {
 }
 
 function toggleCollapsed() {
-  collapsed.value = !collapsed.value
+  applyCollapsedStyle(!collapsed.value)
 }
 
 function toggleBack(v?: boolean) {
@@ -516,13 +516,13 @@ const lastExpandSeen = ref(0)
 watch(collapseAllSeq, (v) => {
   if (typeof v === 'number' && v !== lastCollapseSeen.value) {
     lastCollapseSeen.value = v
-    collapsed.value = true
+    applyCollapsedStyle(true)
   }
 })
 watch(expandAllSeq, (v) => {
   if (typeof v === 'number' && v !== lastExpandSeen.value) {
     lastExpandSeen.value = v
-    collapsed.value = false
+    applyCollapsedStyle(false)
   }
 })
 
@@ -578,4 +578,73 @@ function cloneStep(step: Record<string, unknown>) {
     return { ...step }
   }
 }
+
+// Remember last expanded size per node so we can restore on expand
+const prevExpandedSize = new Map<string, { w: number; h: number }>()
+
+function px(n: number) {
+  return `${Math.round(n)}px`
+}
+
+function applyCollapsedStyle(next: boolean) {
+  const nodeId = props.id
+  // Update style dimensions so Vue Flow hit-testing matches visible size
+  updateNode(nodeId, (node) => {
+    const baseStyle: CSSProperties =
+      typeof node.style === 'function' ? ((node.style(node) as CSSProperties) ?? {}) : { ...(node.style ?? {}) }
+
+    if (next) {
+      // store current explicit size to restore later
+      const currW = typeof (baseStyle as any).width === 'string' ? parseFloat((baseStyle as any).width as string) : undefined
+      const currH = typeof (baseStyle as any).height === 'string' ? parseFloat((baseStyle as any).height as string) : undefined
+      if (currW && currH) prevExpandedSize.set(nodeId, { w: currW, h: currH })
+      return {
+        style: {
+          ...baseStyle,
+          width: px(WARPP_STEP_NODE_COLLAPSED.width),
+          height: px(WARPP_STEP_NODE_COLLAPSED.height),
+          minWidth: px(WARPP_STEP_NODE_COLLAPSED.width),
+          minHeight: px(WARPP_STEP_NODE_COLLAPSED.height),
+        },
+      }
+    }
+
+    // expanding: try to restore previous explicit size, else defaults
+    const restored = prevExpandedSize.get(nodeId)
+    const targetW = restored?.w ?? WARPP_STEP_NODE_DIMENSIONS.defaultWidth
+    const targetH = restored?.h ?? WARPP_STEP_NODE_DIMENSIONS.defaultHeight
+    return {
+      style: {
+        ...baseStyle,
+        width: px(targetW),
+        height: px(targetH),
+        minWidth: px(WARPP_STEP_NODE_DIMENSIONS.minWidth),
+        minHeight: px(WARPP_STEP_NODE_DIMENSIONS.minHeight),
+      },
+    }
+  })
+
+  // Reflect state locally and on node data (ui-only)
+  collapsed.value = next
+  const nextData = { ...(props.data ?? { order: 0 }), collapsed: next }
+  updateNodeData(props.id, nextData)
+}
+
+// Sync with externally provided ui flag if present
+watch(
+  () => (props.data as any)?.collapsed,
+  (next) => {
+    if (typeof next === 'boolean') {
+      applyCollapsedStyle(next)
+    }
+  },
+  { immediate: false },
+)
+
+// Apply initial collapsed dimensions so hitbox matches visual state
+onMounted(() => {
+  // default collapsed unless explicitly set false on data
+  const initial = typeof (props.data as any)?.collapsed === 'boolean' ? (props.data as any).collapsed : true
+  applyCollapsedStyle(initial)
+})
 </script>

@@ -152,65 +152,88 @@
     >
       <aside class="lg:w-72">
         <div class="ap-panel ap-hover flex min-h-0 flex-col rounded-xl bg-surface p-4 lg:h-full">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold text-foreground">Tool Palette</h2>
-            <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
-              >Drag to add</span
-            >
-          </div>
-          <p class="mt-1 text-xs text-subtle-foreground">
-            Drag onto the canvas to add workflow steps, utilities, or group containers.
-          </p>
-
-          <div
-            class="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none"
-          >
-            <div class="space-y-2">
-              <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
-                Utility Nodes
-              </h3>
-              <p class="text-[10px] text-subtle-foreground">
-                Utility nodes provide editor-only helpers for WARPP workflows.
-              </p>
-              <!-- Group Container and Sticky Note are utility items and appear first -->
-              <div
-                class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
-                draggable="true"
-                title="Group nodes to keep steps organized"
-                @dragstart="onGroupDragStart"
-                @dragend="onPaletteDragEnd"
-              >
-                Group Container
-              </div>
-              <div
-                class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
-                draggable="true"
-                title="Sticky note (editor-only)"
-                @dragstart="onStickyDragStart"
-                @dragend="onPaletteDragEnd"
-              >
-                Sticky Note
-              </div>
-              <!-- Other utility tools from backend follow -->
-              <div
-                v-for="tool in utilityTools"
-                :key="tool.name"
-                class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
-                draggable="true"
-                :title="tool.description ?? tool.name"
-                @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
-                @dragend="onPaletteDragEnd"
-              >
-                {{ prettyUtilityLabel(tool.name) }}
+          <!-- Conditional: Node Configuration when a single node is selected, else show Tool Palette -->
+          <template v-if="selectedCount === 1 && selectedNode && !paletteOverride">
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <div class="flex items-center gap-2">
+                <button
+                  class="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
+                  title="Back to palette"
+                  aria-label="Back to palette"
+                  @click="backToPalette"
+                >
+                  <!-- simple left arrow -->
+                  <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                  </svg>
+                </button>
+                <h2 class="text-sm font-semibold text-foreground">Node Configuration</h2>
               </div>
             </div>
-            <template v-if="workflowTools.length">
+            <div class="text-[11px] text-subtle-foreground mb-3">
+              <div class="font-mono flex items-center gap-1">
+                <span class="text-foreground/70">ID:</span>
+                <span class="truncate" :title="selectedNode.id">{{ selectedNode.id }}</span>
+              </div>
+            </div>
+            <div class="lg:flex-1 lg:min-h-0 overflow-y-auto pr-1">
+              <NodeInspectorStep
+                v-if="selectedNode.type === 'warppStep'"
+                :node-id="selectedNode.id"
+                :data="selectedNode.data as any"
+                :tools="tools"
+              />
+              <NodeInspectorUtility
+                v-else-if="selectedNode.type === 'warppUtility'"
+                :node-id="selectedNode.id"
+                :data="selectedNode.data as any"
+              />
+              <NodeInspectorSticky
+                v-else-if="selectedNode.type === 'warppSticky'"
+                :node-id="selectedNode.id"
+                :data="selectedNode.data as any"
+              />
+              <div v-else class="text-xs text-subtle-foreground">
+                This node type has no configurable parameters.
+              </div>
+            </div>
+          </template>
+          <template v-else>
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="text-sm font-semibold text-foreground">Tool Palette</h2>
+              <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Drag to add</span>
+            </div>
+            <p class="mt-1 text-xs text-subtle-foreground">
+              Drag onto the canvas to add workflow steps, utilities, or group containers.
+            </p>
+            <div class="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none">
               <div class="space-y-2">
-                <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
-                  Workflow Tools
-                </h3>
+                <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">Utility Nodes</h3>
+                <p class="text-[10px] text-subtle-foreground">
+                  Utility nodes provide editor-only helpers for WARPP workflows.
+                </p>
+                <!-- Group Container and Sticky Note are utility items and appear first -->
                 <div
-                  v-for="tool in workflowTools"
+                  class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
+                  draggable="true"
+                  title="Group nodes to keep steps organized"
+                  @dragstart="onGroupDragStart"
+                  @dragend="onPaletteDragEnd"
+                >
+                  Group Container
+                </div>
+                <div
+                  class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
+                  draggable="true"
+                  title="Sticky note (editor-only)"
+                  @dragstart="onStickyDragStart"
+                  @dragend="onPaletteDragEnd"
+                >
+                  Sticky Note
+                </div>
+                <!-- Other utility tools from backend follow -->
+                <div
+                  v-for="tool in utilityTools"
                   :key="tool.name"
                   class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
@@ -218,17 +241,35 @@
                   @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
                   @dragend="onPaletteDragEnd"
                 >
-                  {{ tool.name }}
+                  {{ prettyUtilityLabel(tool.name) }}
                 </div>
               </div>
-            </template>
-            <div
-              v-if="!tools.length && !loading"
-              class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
-            >
-              No tools available for this configuration.
+              <template v-if="workflowTools.length">
+                <div class="space-y-2">
+                  <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
+                    Workflow Tools
+                  </h3>
+                  <div
+                    v-for="tool in workflowTools"
+                    :key="tool.name"
+                    class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
+                    draggable="true"
+                    :title="tool.description ?? tool.name"
+                    @dragstart="(event: DragEvent) => onPaletteDragStart(event, tool)"
+                    @dragend="onPaletteDragEnd"
+                  >
+                    {{ tool.name }}
+                  </div>
+                </div>
+              </template>
+              <div
+                v-if="!tools.length && !loading"
+                class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
+              >
+                No tools available for this configuration.
+              </div>
             </div>
-          </div>
+          </template>
         </div>
       </aside>
 
@@ -570,6 +611,9 @@ import WarppStepNode from '@/components/flow/WarppStepNode.vue'
 import WarppUtilityNode from '@/components/flow/WarppUtilityNode.vue'
 import WarppStickyNoteNode from '@/components/flow/WarppStickyNoteNode.vue'
 import WarppGroupNode from '@/components/flow/WarppGroupNode.vue'
+import NodeInspectorStep from '@/components/flow/NodeInspectorStep.vue'
+import NodeInspectorUtility from '@/components/flow/NodeInspectorUtility.vue'
+import NodeInspectorSticky from '@/components/flow/NodeInspectorSticky.vue'
 import ZoomInIcon from '@/components/icons/ZoomIn.vue'
 import ZoomOutIcon from '@/components/icons/ZoomOut.vue'
 import FullScreenIcon from '@/components/icons/FullScreen.vue'
@@ -589,6 +633,8 @@ import {
   WARPP_STEP_NODE_DIMENSIONS,
   WARPP_UTILITY_NODE_DIMENSIONS,
   WARPP_GROUP_NODE_DIMENSIONS,
+  WARPP_STEP_NODE_COLLAPSED,
+  WARPP_UTILITY_NODE_COLLAPSED,
 } from '@/constants/warppNodes'
 
 type LayoutEntry = {
@@ -655,8 +701,16 @@ function readNodeSize(node: WarppNode) {
   const styledHeight = parseDimension((style as any)?.height)
   const dimsWidth = graphNode?.dimensions?.width
   const dimsHeight = graphNode?.dimensions?.height
-  const width = styledWidth ?? dimsWidth ?? defaults.defaultWidth
-  const height = styledHeight ?? dimsHeight ?? defaults.defaultHeight
+  // If node is collapsed and no explicit style width/height are present, use collapsed footprint
+  const collapsed = (node.data as any)?.collapsed === true
+  const width =
+    styledWidth ??
+    dimsWidth ??
+    (collapsed ? (kind === 'utility' ? WARPP_UTILITY_NODE_COLLAPSED.width : WARPP_STEP_NODE_COLLAPSED.width) : defaults.defaultWidth)
+  const height =
+    styledHeight ??
+    dimsHeight ??
+    (collapsed ? (kind === 'utility' ? WARPP_UTILITY_NODE_COLLAPSED.height : WARPP_STEP_NODE_COLLAPSED.height) : defaults.defaultHeight)
   return { width, height }
 }
 
@@ -872,6 +926,24 @@ const toolMap = computed(() => {
     map.set(tool.name, tool)
   })
   return map
+})
+
+// Selection state for showing Node Configuration panel
+const selectedNodes = computed(() => nodes.value.filter((n) => n.selected))
+const selectedCount = computed(() => selectedNodes.value.length)
+const selectedNode = computed(() => (selectedCount.value === 1 ? selectedNodes.value[0] : null))
+const paletteOverride = ref(false)
+function backToPalette() {
+  paletteOverride.value = true
+}
+watch(
+  () => selectedNode.value?.id,
+  (next, prev) => {
+    if (next !== prev) paletteOverride.value = false
+  },
+)
+watch(selectedCount, (c) => {
+  if (c !== 1) paletteOverride.value = false
 })
 
 const workflowTools = computed(() => tools.value.filter((tool) => !isUtilityToolName(tool.name)))

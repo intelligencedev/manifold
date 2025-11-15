@@ -650,6 +650,7 @@ type WarppNodeData = StepNodeData | GroupNodeData
 type WarppNode = Node<WarppNodeData>
 type StepNode = Node<StepNodeData>
 type GroupNode = Node<GroupNodeData>
+type SelectableWarppNode = WarppNode & { selected?: boolean }
 
 const DRAG_DATA_TYPE = 'application/warpp-tool'
 const GROUP_DRAG_TOKEN = '__warpp-group__'
@@ -929,7 +930,7 @@ const toolMap = computed(() => {
 })
 
 // Selection state for showing Node Configuration panel
-const selectedNodes = computed(() => nodes.value.filter((n) => n.selected))
+const selectedNodes = computed(() => nodes.value.filter((n) => (n as SelectableWarppNode).selected))
 const selectedCount = computed(() => selectedNodes.value.length)
 const selectedNode = computed(() => (selectedCount.value === 1 ? selectedNodes.value[0] : null))
 const paletteOverride = ref(false)
@@ -1002,18 +1003,18 @@ function onZoomOut() {
   zoomOut()
 }
 function onFitView() {
-  fitView({ padding: 0.15 })
+  try {
+    fitView({ padding: 0.15 })
+  } catch (e) {
+    // ignore
+  }
 }
 // schedule a fitView on next tick to ensure nodes/edges are rendered
 async function scheduleFitView() {
   await nextTick()
   // small delay to let VueFlow compute bounds
   requestAnimationFrame(() => {
-    try {
-      fitView({ padding: 0.15 })
-    } catch (e) {
-      // ignore
-    }
+    onFitView()
   })
 }
 function toggleNodeLock() {

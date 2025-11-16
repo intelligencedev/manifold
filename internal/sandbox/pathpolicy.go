@@ -1,7 +1,9 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,10 +31,11 @@ func isAbsoluteOrDrive(p string) bool {
 // It rejects absolute paths and traversal, and ensures the final path
 // would remain under WORKDIR when joined.
 func SanitizeArg(workdir, arg string) (string, error) {
-	if strings.Contains(arg, "/") || strings.Contains(arg, `\\`) || strings.HasPrefix(arg, ".") {
-		// path-like argument; continue validation
-	} else {
+	if !looksPathLike(arg) {
 		return arg, nil
+	}
+	if workdir == "" {
+		return "", errors.New("workdir is required")
 	}
 	if isAbsoluteOrDrive(arg) {
 		return "", fmt.Errorf("absolute paths not allowed in args: %q", arg)
@@ -42,15 +45,52 @@ func SanitizeArg(workdir, arg string) (string, error) {
 	}
 
 	rel := filepath.Clean(arg)
-	target := filepath.Clean(filepath.Join(workdir, rel))
-	workdirWithSep := workdir
-	if !strings.HasSuffix(workdirWithSep, string(os.PathSeparator)) {
-		workdirWithSep += string(os.PathSeparator)
+	if rel == "." {
+		return rel, nil
 	}
-	if target != workdir && !strings.HasPrefix(target, workdirWithSep) {
-		return "", fmt.Errorf("arg escapes WORKDIR: %q", arg)
+	if !filepath.IsLocal(rel) {
+		return "", fmt.Errorf("argument must stay inside workdir: %q", arg)
+	}
+	if err := ensureWithinRoot(workdir, rel); err != nil {
+		return "", err
 	}
 	return rel, nil
+}
+
+func ensureWithinRoot(workdir, rel string) error {
+	root, err := os.OpenRoot(workdir)
+	if err != nil {
+		return fmt.Errorf("open root %q: %w", workdir, err)
+	}
+	defer root.Close()
+
+	candidate := rel
+	for candidate != "" && candidate != "." {
+		f, err := root.Open(candidate)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				candidate = filepath.Dir(candidate)
+				continue
+			}
+			return fmt.Errorf("path %q escapes workdir: %w", rel, err)
+		}
+		f.Close()
+		break
+	}
+	return nil
+}
+
+func looksPathLike(arg string) bool {
+	if arg == "" {
+		return false
+	}
+	if strings.HasPrefix(arg, ".") {
+		return true
+	}
+	if strings.ContainsRune(arg, os.PathSeparator) {
+		return true
+	}
+	return strings.ContainsRune(arg, '/') || strings.ContainsRune(arg, '\\')
 }
 
 func IsBinaryBlocked(cmd string, block map[string]struct{}) bool {

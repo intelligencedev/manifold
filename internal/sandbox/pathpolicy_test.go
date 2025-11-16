@@ -36,7 +36,7 @@ func TestIsAbsoluteOrDrive(t *testing.T) {
 }
 
 func TestSanitizeArg(t *testing.T) {
-	wd := filepath.Clean("/tmp/workdir")
+	wd := t.TempDir()
 	// normal file
 	r, err := SanitizeArg(wd, "file.txt")
 	if err != nil || r != "file.txt" {
@@ -53,6 +53,26 @@ func TestSanitizeArg(t *testing.T) {
 	// a normal subdir should be allowed
 	if _, err := SanitizeArg(wd, "otherdir/file"); err != nil {
 		t.Fatalf("expected subpath to be allowed, got err=%v", err)
+	}
+}
+
+func TestSanitizeArgBlocksSymlinkEscape(t *testing.T) {
+	wd := t.TempDir()
+	out := t.TempDir()
+	link := filepath.Join(wd, "jump")
+	if err := os.Symlink(out, link); err != nil {
+		t.Skipf("symlink unsupported on this platform: %v", err)
+	}
+	if _, err := SanitizeArg(wd, filepath.ToSlash("jump/secret.txt")); err == nil {
+		t.Fatalf("expected symlink escape to be rejected")
+	}
+}
+
+func TestSanitizeArgAllowsNonexistentDescendant(t *testing.T) {
+	wd := t.TempDir()
+	path := filepath.ToSlash("newdir/sub/file.txt")
+	if _, err := SanitizeArg(wd, path); err != nil {
+		t.Fatalf("expected nonexistent descendant to be allowed, got err=%v", err)
 	}
 }
 

@@ -30,6 +30,7 @@ type Client struct {
 	baseURL     string
 	httpClient  *http.Client
 	api         string // "completions" (default) or "responses"
+	apiKey      string // Stored for raw HTTP requests (e.g., Gemini)
 }
 
 // ImageAttachment represents a single image attachment to include in a user message.
@@ -144,7 +145,16 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if api == "" {
 		api = "completions"
 	}
-	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads, baseURL: c.BaseURL, httpClient: httpClient, api: api}
+	return &Client{
+		sdk:         sdk.NewClient(opts...),
+		model:       c.Model,
+		extra:       c.ExtraParams,
+		logPayloads: c.LogPayloads,
+		baseURL:     c.BaseURL,
+		httpClient:  httpClient,
+		api:         api,
+		apiKey:      c.APIKey,
+	}
 }
 
 // isSelfHosted returns true when we should use the fallback /tokenize endpoint
@@ -335,9 +345,16 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatResponses(ctx, msgs, tools, model, nil)
 	}
+
+	effectiveModel := firstNonEmpty(model, c.model)
+	// For Gemini 3 models, use raw HTTP request to preserve thought_signature fields
+	if isGemini3Model(effectiveModel) {
+		return c.chatGeminiRaw(ctx, msgs, tools, effectiveModel)
+	}
+
 	log := observability.LoggerWithTrace(ctx)
 	params := sdk.ChatCompletionNewParams{
-		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+		Model: sdk.ChatModel(effectiveModel),
 	}
 	// messages
 	params.Messages = AdaptMessages(string(params.Model), msgs)
@@ -459,6 +476,345 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		return llm.Message{}, nil
 	}
 	return out, nil
+}
+
+// chatGeminiRaw makes a raw HTTP request to Gemini models via the OpenAI compatibility endpoint,
+// preserving thought_signature fields in tool calls which the SDK doesn't support.
+func (c *Client) chatGeminiRaw(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	log := observability.LoggerWithTrace(ctx)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Chat (Gemini Raw)", model, len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	// Build raw request body
+	body := map[string]any{
+		"model":    model,
+		"messages": AdaptMessagesRaw(model, msgs),
+	}
+	if len(tools) > 0 {
+		// Convert tools to raw JSON format
+		rawTools := make([]map[string]any, 0, len(tools))
+		for _, t := range tools {
+			rawTools = append(rawTools, map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name":        t.Name,
+					"description": t.Description,
+					"parameters":  t.Parameters,
+				},
+			})
+		}
+		body["tools"] = rawTools
+	}
+	// Merge extra params
+	if len(c.extra) > 0 {
+		for k, v := range c.extra {
+			if k == "model" || k == "messages" || k == "tools" {
+				continue
+			}
+			if k == "parallel_tool_calls" && len(tools) == 0 {
+				continue
+			}
+			body[k] = v
+		}
+	}
+
+	// Determine endpoint URL
+	baseURL := strings.TrimSuffix(strings.TrimSpace(c.baseURL), "/")
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	url := baseURL + "/chat/completions"
+
+	// Marshal request
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return llm.Message{}, fmt.Errorf("marshal gemini request: %w", err)
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return llm.Message{}, fmt.Errorf("create gemini request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Set API key header. Gemini OpenAI compatibility endpoint expects Authorization: Bearer token
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	start := time.Now()
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		log.Error().Err(err).Str("model", model).Int("tools", len(tools)).Msg("gemini_raw_request_error")
+		span.RecordError(err)
+		return llm.Message{}, fmt.Errorf("gemini raw request: %w", err)
+	}
+	defer resp.Body.Close()
+	dur := time.Since(start)
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Error().Int("status", resp.StatusCode).RawJSON("body", observability.RedactJSON(bodyBytes)).
+			Str("model", model).Dur("duration", dur).Msg("gemini_raw_bad_status")
+		return llm.Message{}, fmt.Errorf("gemini raw request: status %d", resp.StatusCode)
+	}
+
+	// Parse response
+	var compResp struct {
+		Choices []struct {
+			Message struct {
+				Role      string `json:"role"`
+				Content   string `json:"content"`
+				ToolCalls []struct {
+					ID           string         `json:"id"`
+					Type         string         `json:"type"`
+					Function     map[string]any `json:"function"`
+					ExtraContent map[string]any `json:"extra_content"`
+				} `json:"tool_calls"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&compResp); err != nil {
+		log.Error().Err(err).Str("model", model).Dur("duration", dur).Msg("gemini_raw_decode_error")
+		span.RecordError(err)
+		return llm.Message{}, fmt.Errorf("decode gemini response: %w", err)
+	}
+
+	// Log metrics
+	log.Debug().Str("model", model).Int("tools", len(tools)).Dur("duration", dur).
+		Int("prompt_tokens", compResp.Usage.PromptTokens).
+		Int("completion_tokens", compResp.Usage.CompletionTokens).
+		Int("total_tokens", compResp.Usage.TotalTokens).
+		Msg("gemini_raw_ok")
+
+	// Build output message
+	var out llm.Message
+	if len(compResp.Choices) > 0 {
+		choice := compResp.Choices[0]
+		out.Role = "assistant"
+		out.Content = choice.Message.Content
+
+		for _, tc := range choice.Message.ToolCalls {
+			call := llm.ToolCall{
+				ID: tc.ID,
+			}
+			if fn, ok := tc.Function["name"].(string); ok {
+				call.Name = fn
+			}
+			if args, ok := tc.Function["arguments"].(string); ok {
+				call.Args = json.RawMessage(args)
+			}
+			// Extract thought_signature from extra_content
+			if tc.ExtraContent != nil {
+				if google, ok := tc.ExtraContent["google"].(map[string]any); ok {
+					if sig, ok := google["thought_signature"].(string); ok {
+						call.ThoughtSignature = sig
+					}
+				}
+			}
+			out.ToolCalls = append(out.ToolCalls, call)
+		}
+	}
+
+	llm.LogRedactedResponse(ctx, compResp.Choices)
+	llm.RecordTokenAttributes(span, compResp.Usage.PromptTokens, compResp.Usage.CompletionTokens, compResp.Usage.TotalTokens)
+	llm.RecordTokenMetrics(model, compResp.Usage.PromptTokens, compResp.Usage.CompletionTokens)
+
+	return out, nil
+}
+
+// chatGeminiRawStream implements streaming for Gemini models using raw HTTP requests
+// to properly handle thought_signature in extra_content fields.
+func (c *Client) chatGeminiRawStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	log := observability.LoggerWithTrace(ctx)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Gemini Raw Stream", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	// Build raw request body
+	body := map[string]any{
+		"model":    firstNonEmpty(model, c.model),
+		"messages": AdaptMessagesRaw(firstNonEmpty(model, c.model), msgs),
+		"stream":   true,
+	}
+	if len(tools) > 0 {
+		// Convert tools to raw JSON format
+		rawTools := make([]map[string]any, 0, len(tools))
+		for _, t := range tools {
+			rawTools = append(rawTools, map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name":        t.Name,
+					"description": t.Description,
+					"parameters":  t.Parameters,
+				},
+			})
+		}
+		body["tools"] = rawTools
+	}
+	if len(c.extra) > 0 {
+		for k, v := range c.extra {
+			if k == "model" || k == "messages" || k == "stream" || k == "tools" {
+				continue
+			}
+			body[k] = v
+		}
+	}
+
+	payload, _ := json.Marshal(body)
+	url := strings.TrimSuffix(c.baseURL, "/") + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+
+	start := time.Now()
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		log.Error().Err(err).Msg("gemini_raw_stream_request_error")
+		span.RecordError(err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		b, _ := io.ReadAll(resp.Body)
+		log.Error().Int("status", resp.StatusCode).RawJSON("body", observability.RedactJSON(b)).Msg("gemini_raw_stream_bad_status")
+		return fmt.Errorf("gemini raw stream: status %d", resp.StatusCode)
+	}
+
+	// Parse SSE stream
+	scanner := bufio.NewScanner(resp.Body)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	toolCalls := make(map[int]*llm.ToolCall)
+	toolCallsFlushed := false
+	var assistantContent strings.Builder
+	var promptTokens, completionTokens, totalTokens int
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "[DONE]" {
+			break
+		}
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index        int            `json:"index"`
+						ID           string         `json:"id"`
+						Type         string         `json:"type"`
+						Function     map[string]any `json:"function"`
+						ExtraContent map[string]any `json:"extra_content"`
+					} `json:"tool_calls"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage *struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
+		}
+
+		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+			continue
+		}
+
+		// Handle usage if present
+		if chunk.Usage != nil {
+			promptTokens = chunk.Usage.PromptTokens
+			completionTokens = chunk.Usage.CompletionTokens
+			totalTokens = chunk.Usage.TotalTokens
+		}
+
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+
+		delta := chunk.Choices[0].Delta
+
+		// Handle content deltas
+		if delta.Content != "" {
+			h.OnDelta(delta.Content)
+			assistantContent.WriteString(delta.Content)
+		}
+
+		// Handle tool calls
+		for _, tc := range delta.ToolCalls {
+			idx := tc.Index
+			if toolCalls[idx] == nil {
+				toolCalls[idx] = &llm.ToolCall{ID: tc.ID}
+			}
+
+			if name, ok := tc.Function["name"].(string); ok && name != "" {
+				toolCalls[idx].Name = name
+			}
+			if args, ok := tc.Function["arguments"].(string); ok && args != "" {
+				if toolCalls[idx].Args == nil {
+					toolCalls[idx].Args = json.RawMessage(args)
+				} else {
+					existing := string(toolCalls[idx].Args)
+					toolCalls[idx].Args = json.RawMessage(existing + args)
+				}
+			}
+
+			// Extract thought_signature from extra_content
+			if tc.ExtraContent != nil && toolCalls[idx].ThoughtSignature == "" {
+				if google, ok := tc.ExtraContent["google"].(map[string]any); ok {
+					if sig, ok := google["thought_signature"].(string); ok {
+						toolCalls[idx].ThoughtSignature = sig
+					}
+				}
+			}
+		}
+
+		// Check for finish_reason to flush tool calls
+		if chunk.Choices[0].FinishReason != "" && !toolCallsFlushed {
+			for _, tc := range toolCalls {
+				if tc != nil && tc.Name != "" && len(tc.Args) > 0 {
+					h.OnToolCall(*tc)
+				}
+			}
+			toolCallsFlushed = true
+		}
+	}
+
+	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
+		log.Error().Err(err).Msg("gemini_raw_stream_scan_error")
+		span.RecordError(err)
+		return err
+	}
+
+	dur := time.Since(start)
+	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+	if promptTokens > 0 || completionTokens > 0 {
+		llm.RecordTokenMetrics(firstNonEmpty(model, c.model), promptTokens, completionTokens)
+	}
+	llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
+	log.Debug().Dur("duration", dur).Int("prompt_tokens", promptTokens).Int("completion_tokens", completionTokens).Msg("gemini_raw_stream_ok")
+
+	return nil
 }
 
 // ChatWithOptions is like Chat but allows callers to:
@@ -595,18 +951,8 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		return c.chatStreamResponses(ctx, msgs, tools, model, h)
 	}
 	if isGemini3Model(firstNonEmpty(model, c.model)) {
-		// Gemini OpenAI compatibility streaming is not consistently supported; fall back to non-streaming and emit a single delta + tool calls.
-		msg, err := c.Chat(ctx, msgs, tools, model)
-		if err != nil {
-			return err
-		}
-		if msg.Content != "" {
-			h.OnDelta(msg.Content)
-		}
-		for _, tc := range msg.ToolCalls {
-			h.OnToolCall(tc)
-		}
-		return nil
+		// Use raw streaming implementation for Gemini to properly handle thought_signature
+		return c.chatGeminiRawStream(ctx, msgs, tools, model, h)
 	}
 	// For self-hosted backends (llama.cpp, mlx_lm.server, etc.), prefer a generic SSE reader
 	// to maximize compatibility. Some servers diverge slightly from OpenAI's

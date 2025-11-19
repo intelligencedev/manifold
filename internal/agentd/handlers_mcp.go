@@ -491,6 +491,16 @@ func (a *app) mcpOAuthCallbackHandler() http.HandlerFunc {
 						http.Error(w, "failed to persist token", http.StatusInternalServerError)
 						return
 					}
+					// Hot-reload server tools with new token (async to avoid delaying user response)
+					serverCopy := s
+					go func(sc persistence.MCPServer) {
+						// Best-effort re-registration; errors logged but not surfaced to user.
+						ctx := context.Background()
+						a.mcpManager.RemoveOne(sc.Name, a.toolRegistry)
+						if err := a.mcpManager.RegisterOne(ctx, a.toolRegistry, convertToConfig(sc)); err != nil {
+							fmt.Printf("mcp oauth re-register failed for %s: %v\n", sc.Name, err)
+						}
+					}(serverCopy)
 					break
 				}
 			}

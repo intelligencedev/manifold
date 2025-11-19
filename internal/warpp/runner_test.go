@@ -31,6 +31,14 @@ func (f *fakeWFStore) Upsert(context.Context, int64, persist.WarppWorkflow) (per
 	return persist.WarppWorkflow{}, nil
 }
 func (f *fakeWFStore) Delete(context.Context, int64, string) error { return nil }
+func (f *fakeWFStore) GetByIntent(ctx context.Context, userID int64, intent string) (persist.WarppWorkflow, bool, error) {
+	for _, wf := range f.wfs {
+		if wf.Intent == intent {
+			return wf, true, nil
+		}
+	}
+	return persist.WarppWorkflow{}, false, nil
+}
 
 // simple tool implementing tools.Tool
 type echoTool struct{ name string }

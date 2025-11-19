@@ -320,7 +320,7 @@
           <div v-if="mcpLoading" class="text-sm text-subtle-foreground">Loading servers…</div>
           <div v-if="mcpError" class="text-sm text-danger-foreground">{{ mcpError }}</div>
           <div v-else-if="!mcpServers.length" class="text-sm text-subtle-foreground">No MCP servers configured.</div>
-          <div v-else>
+          <div v-else class="space-y-3">
             <div v-for="server in mcpServers" :key="server.id" class="flex items-center justify-between gap-4 p-4 rounded-md border border-border/70 bg-surface-muted/60">
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-foreground truncate">{{ server.name }}</p>

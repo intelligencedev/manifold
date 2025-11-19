@@ -29,6 +29,7 @@ func NewRecordingRegistry(base Registry, on func(DispatchEvent)) Registry {
 }
 
 func (r *recordingRegistry) Register(t Tool)           { r.base.Register(t) }
+func (r *recordingRegistry) Unregister(name string)    { r.base.Unregister(name) }
 func (r *recordingRegistry) Schemas() []llm.ToolSchema { return r.base.Schemas() }
 
 // We need to mirror Schemas returning []llm.ToolSchema; to avoid import cycle,

@@ -46,9 +46,11 @@ import (
 	"manifold/internal/tools/cli"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
+	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
 	ragtool "manifold/internal/tools/rag"
+	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/textsplitter"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
@@ -85,6 +87,8 @@ type app struct {
 	authStore         *auth.Store
 	authProvider      auth.Provider
 	specStore         persist.SpecialistsStore
+	mcpStore          persist.MCPStore
+	mcpManager        *mcpclient.Manager
 	tokenMetrics      tokenMetricsProvider
 }
 
@@ -194,12 +198,14 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		cfgCopy.BaseURL = baseURL
 		return openaillm.New(cfgCopy, httpClient)
 	}
+	toolRegistry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv))
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
 	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
+	toolRegistry.Register(specialists_tool.New(specReg))
 
 	// Phase 1: register simple team tools
-	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg)
+	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, cfg.Workdir)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
@@ -233,6 +239,20 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
+
+	// Load from DB (System User)
+	if mgr.MCP != nil {
+		if servers, err := mgr.MCP.List(ctxInit, systemUserID); err == nil {
+			for _, s := range servers {
+				if s.Disabled {
+					continue
+				}
+				_ = mcpMgr.RegisterOne(ctxInit, toolRegistry, convertToConfig(s))
+			}
+		} else {
+			log.Warn().Err(err).Msg("failed to load mcp servers from db")
+		}
+	}
 	cancelInit()
 
 	app := &app{
@@ -246,6 +266,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		specRegistry:     specReg,
 		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:             newRunStore(),
+		mcpStore:         mgr.MCP,
+		mcpManager:       mcpMgr,
 	}
 
 	// Register WARPP workflows as callable tools for the runtime.

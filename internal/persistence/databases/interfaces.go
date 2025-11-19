@@ -8,9 +8,9 @@ import (
 
 // SearchResult represents a single hit from the full-text search backend.
 type SearchResult struct {
-	ID       string
-	Score    float64
-	Snippet  string
+	ID      string
+	Score   float64
+	Snippet string
 	// Text may contain the full document text when available.
 	Text     string `json:"text,omitempty"`
 	Metadata map[string]string
@@ -62,6 +62,7 @@ type Manager struct {
 	Chat       persistence.ChatStore
 	Playground *PlaygroundStore
 	Warpp      persistence.WarppWorkflowStore
+	MCP        persistence.MCPStore
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -79,6 +80,9 @@ func (m Manager) Close() {
 		c.Close()
 	}
 	if c, ok := any(m.Playground).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.MCP).(interface{ Close() }); ok {
 		c.Close()
 	}
 }

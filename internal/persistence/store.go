@@ -98,7 +98,42 @@ type WarppWorkflowStore interface {
 	Init(ctx context.Context) error
 	List(ctx context.Context, userID int64) ([]any, error) // deprecated; use ListWorkflows
 	ListWorkflows(ctx context.Context, userID int64) ([]WarppWorkflow, error)
-	Get(ctx context.Context, userID int64, intent string) (WarppWorkflow, bool, error)
-	Upsert(ctx context.Context, userID int64, wf WarppWorkflow) (WarppWorkflow, error)
+	GetByIntent(ctx context.Context, userID int64, intent string) (WarppWorkflow, bool, error)
+	Upsert(ctx context.Context, userID int64, w WarppWorkflow) (WarppWorkflow, error)
 	Delete(ctx context.Context, userID int64, intent string) error
+}
+
+// MCPServer represents a stored MCP server configuration.
+type MCPServer struct {
+	ID               int64             `json:"id"`
+	UserID           int64             `json:"userId"`
+	Name             string            `json:"name"`
+	Command          string            `json:"command"`
+	Args             []string          `json:"args"`
+	Env              map[string]string `json:"env"`
+	URL              string            `json:"url"`
+	Headers          map[string]string `json:"headers"`
+	BearerToken      string            `json:"bearerToken"`
+	Origin           string            `json:"origin"`
+	ProtocolVersion  string            `json:"protocolVersion"`
+	KeepAliveSeconds int               `json:"keepAliveSeconds"`
+	Disabled         bool              `json:"disabled"`
+
+	// OAuth fields
+	OAuthProvider     string    `json:"oauthProvider"`
+	OAuthClientID     string    `json:"oauthClientId"`
+	OAuthClientSecret string    `json:"oauthClientSecret"`
+	OAuthAccessToken  string    `json:"-"`
+	OAuthRefreshToken string    `json:"-"`
+	OAuthExpiresAt    time.Time `json:"-"`
+	OAuthScopes       []string  `json:"oauthScopes"`
+}
+
+// MCPStore defines CRUD over MCP servers.
+type MCPStore interface {
+	Init(ctx context.Context) error
+	List(ctx context.Context, userID int64) ([]MCPServer, error)
+	GetByName(ctx context.Context, userID int64, name string) (MCPServer, bool, error)
+	Upsert(ctx context.Context, userID int64, s MCPServer) (MCPServer, error)
+	Delete(ctx context.Context, userID int64, name string) error
 }

@@ -3,13 +3,18 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"manifold/internal/agent"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
+	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	"os"
+	"path/filepath"
 )
 
 // AgentCallTool invokes a named specialist (as a full agent) or the default agent engine
@@ -20,6 +25,7 @@ type AgentCallTool struct {
 	// overridden via specialists_tool.WithRegistry on the context in HTTP handlers.
 	reg        tools.Registry
 	specReg    *specialists.Registry
+	workdir    string
 	defaultSys string
 	// Max default steps if not provided in the call
 	defaultMaxSteps int
@@ -28,8 +34,8 @@ type AgentCallTool struct {
 	defaultTimeout time.Duration
 }
 
-func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry) *AgentCallTool {
-	return &AgentCallTool{reg: reg, specReg: specReg, defaultSys: "You are a helpful assistant.", defaultMaxSteps: 8}
+func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry, workdir string) *AgentCallTool {
+	return &AgentCallTool{reg: reg, specReg: specReg, workdir: workdir, defaultSys: "You are a helpful assistant.", defaultMaxSteps: 8}
 }
 
 // SetDefaultTimeoutSeconds sets a default timeout applied when the parent context
@@ -84,6 +90,14 @@ func (t *AgentCallTool) JSONSchema() map[string]any {
 					"type":        "integer",
 					"description": "Optional timeout for the agent run in seconds.",
 				},
+				"project_id": map[string]any{
+					"type":        "string",
+					"description": "Optional project ID to scope the agent's sandbox (must match projects/<id> under workdir; not the display name).",
+				},
+				"user_id": map[string]any{
+					"type":        "integer",
+					"description": "Optional user ID (defaults to system user 0) used with project_id to build sandbox path.",
+				},
 			},
 			"required": []string{"prompt"},
 		},
@@ -98,9 +112,21 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 		EnableTools    *bool         `json:"enable_tools"`
 		MaxSteps       int           `json:"max_steps"`
 		TimeoutSeconds int           `json:"timeout_seconds"`
+		ProjectID      string        `json:"project_id"`
+		UserID         int64         `json:"user_id"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
+	}
+
+	dispatchCtx := ctx
+	if pid := strings.TrimSpace(args.ProjectID); pid != "" && strings.TrimSpace(t.workdir) != "" {
+		uid := args.UserID
+		base := filepath.Join(t.workdir, "users", fmt.Sprint(uid), "projects", pid)
+		if st, err := os.Stat(base); err != nil || !st.IsDir() {
+			return map[string]any{"ok": false, "error": "project not found (project_id must match the project directory/ID)"}, nil
+		}
+		dispatchCtx = sandbox.WithBaseDir(ctx, base)
 	}
 
 	// Resolve provider and tool registry view
@@ -121,7 +147,7 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 		if a, ok := t.specReg.Get(name); ok && a != nil {
 			// Delegate to specialist single-shot inference for Phase 1 minimal implementation
 			observability.LoggerWithTrace(ctx).Info().Str("agent_call", name).Msg("agent_call_specialist_infer")
-			out, err := a.Inference(ctx, args.Prompt, args.History)
+			out, err := a.Inference(dispatchCtx, args.Prompt, args.History)
 			if err != nil {
 				return map[string]any{"ok": false, "agent": name, "error": err.Error()}, nil
 			}
@@ -146,11 +172,11 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 	runCtx := ctx
 	if args.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, time.Duration(args.TimeoutSeconds)*time.Second)
+		runCtx, cancel = context.WithTimeout(dispatchCtx, time.Duration(args.TimeoutSeconds)*time.Second)
 		defer cancel()
 	} else if _, has := ctx.Deadline(); !has && t.defaultTimeout > 0 {
 		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, t.defaultTimeout)
+		runCtx, cancel = context.WithTimeout(dispatchCtx, t.defaultTimeout)
 		defer cancel()
 	}
 	observability.LoggerWithTrace(ctx).Info().Str("agent_call", args.AgentName).Msg("agent_call_start")

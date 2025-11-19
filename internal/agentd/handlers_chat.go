@@ -10,12 +10,15 @@ import (
 	"strconv"
 	"strings"
 
+	"os"
+
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
+	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/warpp"
 )
 
@@ -355,18 +358,26 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
-		currentRun := a.runs.create(req.Prompt)
-		if req.SessionID == "" {
-			req.SessionID = "default"
-		}
-
+		// If a project_id was provided, ensure the sandbox path exists. Otherwise tools
+		// like run_cli will fail with permission errors because the base directory is
+		// missing.
 		if strings.TrimSpace(req.ProjectID) != "" {
 			var uid int64
 			if userID != nil {
 				uid = *userID
 			}
 			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects", req.ProjectID)
+			if st, err := os.Stat(base); err != nil || !st.IsDir() {
+				log.Error().Err(err).Str("project_id", req.ProjectID).Str("base", base).Msg("project_dir_missing")
+				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
+				return
+			}
 			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+		}
+
+		currentRun := a.runs.create(req.Prompt)
+		if req.SessionID == "" {
+			req.SessionID = "default"
 		}
 
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
@@ -395,6 +406,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		} else if userID != nil {
 			specOwner = *userID
 		}
+		userSpecReg, err := a.specialistsRegistryForUser(r.Context(), specOwner)
+		if err != nil {
+			log.Error().Err(err).Msg("load_specialists_registry")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 
 		if r.URL.Query().Get("warpp") == "true" {
 			seconds := a.cfg.WorkflowTimeoutSeconds
@@ -403,6 +420,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
 
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("using configured workflow timeout")
@@ -488,6 +506,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", true).Msg("using configured stream timeout")
 			} else {
@@ -571,6 +590,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		seconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+		ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", false).Msg("using configured agent timeout")
 		} else {
@@ -639,6 +659,20 @@ func (a *app) promptHandler() http.HandlerFunc {
 			req.SessionID = "default"
 		}
 
+		if strings.TrimSpace(req.ProjectID) != "" {
+			var uid int64
+			if userID != nil {
+				uid = *userID
+			}
+			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects", req.ProjectID)
+			if st, err := os.Stat(base); err != nil || !st.IsDir() {
+				log.Error().Err(err).Str("project_id", req.ProjectID).Str("base", base).Msg("project_dir_missing")
+				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
+				return
+			}
+			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+		}
+
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -655,6 +689,17 @@ func (a *app) promptHandler() http.HandlerFunc {
 				return
 			}
 			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		specOwner := systemUserID
+		if userID != nil {
+			specOwner = *userID
+		}
+		userSpecReg, err := a.specialistsRegistryForUser(r.Context(), specOwner)
+		if err != nil {
+			log.Error().Err(err).Msg("load_specialists_registry")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -696,6 +741,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", true).Msg("using configured stream timeout")
 			} else {
@@ -778,6 +824,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 		seconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+		ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", false).Msg("using configured agent timeout")
 		} else {

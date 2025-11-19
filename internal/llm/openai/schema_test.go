@@ -47,7 +47,7 @@ func TestAdaptMessages(t *testing.T) {
 		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "x", Args: []byte("{}")}}},
 		{Role: "tool", Content: "", ToolID: "tool-1"},
 	}
-	out := AdaptMessages(msgs)
+	out := AdaptMessages("gpt-4o", msgs)
 	if len(out) != len(msgs) {
 		t.Fatalf("expected %d messages, got %d", len(msgs), len(out))
 	}

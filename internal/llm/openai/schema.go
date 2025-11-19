@@ -1,6 +1,9 @@
 package openai
 
 import (
+	"encoding/json"
+	"strings"
+
 	sdk "github.com/openai/openai-go/v2"
 
 	"manifold/internal/llm"
@@ -20,9 +23,12 @@ func AdaptSchemas(schemas []llm.ToolSchema) []sdk.ChatCompletionToolUnionParam {
 	return out
 }
 
+func isGemini3Model(model string) bool { return strings.HasPrefix(strings.ToLower(model), "gemini-3") }
+
 // AdaptMessages converts portable llm.Message history to OpenAI SDK message params.
-func AdaptMessages(msgs []llm.Message) []sdk.ChatCompletionMessageParamUnion {
+func AdaptMessages(model string, msgs []llm.Message) []sdk.ChatCompletionMessageParamUnion {
 	out := make([]sdk.ChatCompletionMessageParamUnion, 0, len(msgs))
+	gemini := isGemini3Model(model)
 	for _, m := range msgs {
 		switch m.Role {
 		case "system":
@@ -57,6 +63,30 @@ func AdaptMessages(msgs []llm.Message) []sdk.ChatCompletionMessageParamUnion {
 				asst.Content.OfString = sdk.String(content)
 
 				for _, tc := range m.ToolCalls {
+					if gemini && strings.TrimSpace(tc.ThoughtSignature) != "" {
+						raw := map[string]any{
+							"id":   tc.ID,
+							"type": "function",
+							"function": map[string]any{
+								"arguments": string(tc.Args),
+								"name":      tc.Name,
+							},
+							"extra_content": map[string]any{
+								"google": map[string]any{"thought_signature": tc.ThoughtSignature},
+							},
+						}
+						// Fallback: SDK may not expose param.Override (version mismatch). Embed extra content as part of arguments JSON.
+						b, _ := json.Marshal(raw)
+						fn := sdk.ChatCompletionMessageFunctionToolCallParam{
+							ID: tc.ID,
+							Function: sdk.ChatCompletionMessageFunctionToolCallFunctionParam{
+								Arguments: string(b),
+								Name:      tc.Name,
+							},
+						}
+						asst.ToolCalls = append(asst.ToolCalls, sdk.ChatCompletionMessageToolCallUnionParam{OfFunction: &fn})
+						continue
+					}
 					fn := sdk.ChatCompletionMessageFunctionToolCallParam{
 						ID: tc.ID,
 						Function: sdk.ChatCompletionMessageFunctionToolCallFunctionParam{

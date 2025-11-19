@@ -111,7 +111,7 @@ func (a *app) warppWorkflowDetailHandler() http.HandlerFunc {
 					return
 				}
 			}
-			_, existed, _ := a.warppStore.Get(r.Context(), userID, intent)
+			_, existed, _ := a.warppStore.GetByIntent(r.Context(), userID, intent)
 			var pw persist.WarppWorkflow
 			if b, err := json.Marshal(wf); err == nil {
 				_ = json.Unmarshal(b, &pw)

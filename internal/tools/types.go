@@ -20,6 +20,7 @@ type Registry interface {
 	Schemas() []llm.ToolSchema
 	Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error)
 	Register(t Tool)
+	Unregister(name string)
 }
 
 type defaultRegistry struct {
@@ -63,6 +64,20 @@ func (r *defaultRegistry) Register(t Tool) {
 	r.byName[name] = t
 }
 
+func (r *defaultRegistry) Unregister(name string) {
+	if _, exists := r.byName[name]; exists {
+		delete(r.byName, name)
+		// Rebuild order slice to remove the name
+		newOrder := make([]string, 0, len(r.order)-1)
+		for _, n := range r.order {
+			if n != name {
+				newOrder = append(newOrder, n)
+			}
+		}
+		r.order = newOrder
+	}
+}
+
 func (r *defaultRegistry) Schemas() []llm.ToolSchema {
 	const maxToolSchemas = 1000
 	total := len(r.order)
@@ -88,6 +103,10 @@ func (r *defaultRegistry) Schemas() []llm.ToolSchema {
 
 func (f *filteredRegistry) Register(t Tool) {
 	f.base.Register(t)
+}
+
+func (f *filteredRegistry) Unregister(name string) {
+	f.base.Unregister(name)
 }
 
 func (f *filteredRegistry) Schemas() []llm.ToolSchema {

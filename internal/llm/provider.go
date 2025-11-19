@@ -9,6 +9,9 @@ type ToolCall struct {
 	Name string
 	Args json.RawMessage
 	ID   string
+	// ThoughtSignature carries provider-specific context (Gemini 3) that must be
+	// echoed back on subsequent turns to keep function calling valid.
+	ThoughtSignature string
 }
 
 type Message struct {

@@ -79,6 +79,10 @@ func (t *AskAgentTool) JSONSchema() map[string]any {
 					"type":        "string",
 					"description": "Optional chat session identifier. Auto-generated when omitted.",
 				},
+				"project_id": map[string]any{
+					"type":        "string",
+					"description": "Optional project ID to scope the remote agent's sandbox (passed through to /agent/run). This must be the project ID/UUID, not the display name.",
+				},
 				"timeout_ms": map[string]any{
 					"type":        "integer",
 					"description": "Optional timeout in milliseconds for the HTTP call.",
@@ -96,6 +100,7 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		History   []llm.Message `json:"history"`
 		TimeoutMS int           `json:"timeout_ms"`
 		SessionID string        `json:"session_id"`
+		ProjectID string        `json:"project_id"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
@@ -115,6 +120,9 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	body := map[string]any{"prompt": args.Prompt, "session_id": sessionID}
 	if len(args.History) > 0 {
 		body["history"] = args.History
+	}
+	if pid := strings.TrimSpace(args.ProjectID); pid != "" {
+		body["project_id"] = pid
 	}
 	b, _ := json.Marshal(body)
 	// Build endpoint URL; force non-stream JSON via stream=0; include specialist when provided
@@ -171,6 +179,13 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if resp.StatusCode >= 400 {
 		return map[string]any{"ok": false, "status": resp.StatusCode, "error": string(data)}, nil
 	}
-	// Expect {"result": "..."}
+	// If result is a JSON-encoded string, best-effort decode it so callers
+	// receive structured results rather than double-encoded payloads.
+	if raw, ok := payload["result"].(string); ok && strings.HasPrefix(strings.TrimSpace(raw), "{") {
+		var decoded any
+		if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
+			payload["result"] = decoded
+		}
+	}
 	return map[string]any{"ok": true, "to": args.To, "response": payload}, nil
 }

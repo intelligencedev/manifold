@@ -21,11 +21,17 @@ import (
 
 // Manager holds active MCP client sessions and generated tool wrappers.
 type Manager struct {
-	sessions map[string]*mcppkg.ClientSession
+	sessions  map[string]*mcppkg.ClientSession
+	toolNames map[string][]string
 }
 
 // NewManager creates a new Manager.
-func NewManager() *Manager { return &Manager{sessions: map[string]*mcppkg.ClientSession{}} }
+func NewManager() *Manager {
+	return &Manager{
+		sessions:  map[string]*mcppkg.ClientSession{},
+		toolNames: map[string][]string{},
+	}
+}
 
 // Close closes all active sessions.
 func (m *Manager) Close() {
@@ -39,56 +45,86 @@ func (m *Manager) Close() {
 // in the form "<server>_<tool>" to avoid collisions.
 func (m *Manager) RegisterFromConfig(ctx context.Context, reg tools.Registry, mcpCfg config.MCPConfig) error {
 	for _, srv := range mcpCfg.Servers {
-		if strings.TrimSpace(srv.Name) == "" {
-			continue
-		}
-		// Create client
-		opts := &mcppkg.ClientOptions{}
-		if srv.KeepAliveSeconds > 0 {
-			opts.KeepAlive = time.Duration(srv.KeepAliveSeconds) * time.Second
-		}
-		client := mcppkg.NewClient(&mcppkg.Implementation{Name: "manifold", Version: version.Version}, opts)
-
-		var session *mcppkg.ClientSession
-		var err error
-
-		if strings.TrimSpace(srv.Command) != "" {
-			// Build command
-			cmd := exec.Command(srv.Command, srv.Args...)
-			// Merge env
-			if len(srv.Env) > 0 {
-				env := os.Environ()
-				for k, v := range srv.Env {
-					env = append(env, fmt.Sprintf("%s=%s", k, v))
-				}
-				cmd.Env = env
-			}
-			// Connect via stdio transport (SDK v1)
-			session, err = client.Connect(ctx, &mcppkg.CommandTransport{Command: cmd}, nil)
-		} else if strings.TrimSpace(srv.URL) != "" {
-			// Connect via Streamable HTTP transport to remote server
-			httpClient := buildMCPHTTPClient(srv)
-			transport := &mcppkg.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: httpClient}
-			session, err = client.Connect(ctx, transport, nil)
-		} else {
-			continue
-		}
-		if err != nil {
+		if err := m.RegisterOne(ctx, reg, srv); err != nil {
 			// Don't fail entire setup; just skip this server.
 			continue
 		}
-		m.sessions[srv.Name] = session
-
-		// List all tools and register wrappers
-		// Use iterator to fetch all pages.
-		for tool, err := range session.Tools(ctx, nil) {
-			if err != nil {
-				break
-			}
-			reg.Register(&mcpTool{server: srv.Name, session: session, tool: tool})
-		}
 	}
 	return nil
+}
+
+// RegisterOne connects to a single MCP server and registers its tools.
+func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv config.MCPServerConfig) error {
+	if strings.TrimSpace(srv.Name) == "" {
+		return fmt.Errorf("server name required")
+	}
+
+	// If already exists, close it first (implicit update/replace)
+	m.RemoveOne(srv.Name, reg)
+
+	// Create client
+	opts := &mcppkg.ClientOptions{}
+	if srv.KeepAliveSeconds > 0 {
+		opts.KeepAlive = time.Duration(srv.KeepAliveSeconds) * time.Second
+	}
+	client := mcppkg.NewClient(&mcppkg.Implementation{Name: "manifold", Version: version.Version}, opts)
+
+	var session *mcppkg.ClientSession
+	var err error
+
+	if strings.TrimSpace(srv.Command) != "" {
+		// Build command
+		cmd := exec.Command(srv.Command, srv.Args...)
+		// Merge env
+		if len(srv.Env) > 0 {
+			env := os.Environ()
+			for k, v := range srv.Env {
+				env = append(env, fmt.Sprintf("%s=%s", k, v))
+			}
+			cmd.Env = env
+		}
+		// Connect via stdio transport (SDK v1)
+		session, err = client.Connect(ctx, &mcppkg.CommandTransport{Command: cmd}, nil)
+	} else if strings.TrimSpace(srv.URL) != "" {
+		// Connect via Streamable HTTP transport to remote server
+		httpClient := buildMCPHTTPClient(srv)
+		transport := &mcppkg.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: httpClient}
+		session, err = client.Connect(ctx, transport, nil)
+	} else {
+		return fmt.Errorf("invalid config: neither command nor url provided")
+	}
+	if err != nil {
+		return err
+	}
+	m.sessions[srv.Name] = session
+
+	// List all tools and register wrappers
+	// Use iterator to fetch all pages.
+	var tNames []string
+	for tool, err := range session.Tools(ctx, nil) {
+		if err != nil {
+			break
+		}
+		t := &mcpTool{server: srv.Name, session: session, tool: tool}
+		reg.Register(t)
+		tNames = append(tNames, t.Name())
+	}
+	m.toolNames[srv.Name] = tNames
+	return nil
+}
+
+// RemoveOne closes the session for the named server and unregisters its tools.
+func (m *Manager) RemoveOne(name string, reg tools.Registry) {
+	if s, ok := m.sessions[name]; ok {
+		_ = s.Close()
+		delete(m.sessions, name)
+	}
+	if names, ok := m.toolNames[name]; ok {
+		for _, tName := range names {
+			reg.Unregister(tName)
+		}
+		delete(m.toolNames, name)
+	}
 }
 
 // mcpTool adapts an MCP tool to the local tools.Tool interface.
@@ -257,61 +293,61 @@ func sanitizeName(s string) string {
 
 // buildMCPHTTPClient constructs an HTTP client with optional proxy/TLS and header injection.
 func buildMCPHTTPClient(srv config.MCPServerConfig) *http.Client {
-    tr := &http.Transport{}
-    if p := strings.TrimSpace(srv.HTTP.ProxyURL); p != "" {
-        if u, err := url.Parse(p); err == nil {
-            tr.Proxy = http.ProxyURL(u)
-        }
-    }
-    tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: srv.HTTP.TLS.InsecureSkipVerify} // #nosec G402
-    rt := &headerRoundTripper{
-        base:     tr,
-        headers:  srv.Headers,
-        bearer:   strings.TrimSpace(srv.BearerToken),
-        origin:   defaultOrigin(srv.Origin),
-        protocol: strings.TrimSpace(srv.ProtocolVersion),
-    }
-    cli := &http.Client{Transport: rt}
-    if srv.HTTP.TimeoutSeconds > 0 {
-        cli.Timeout = time.Duration(srv.HTTP.TimeoutSeconds) * time.Second
-    }
-    return cli
+	tr := &http.Transport{}
+	if p := strings.TrimSpace(srv.HTTP.ProxyURL); p != "" {
+		if u, err := url.Parse(p); err == nil {
+			tr.Proxy = http.ProxyURL(u)
+		}
+	}
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: srv.HTTP.TLS.InsecureSkipVerify} // #nosec G402
+	rt := &headerRoundTripper{
+		base:     tr,
+		headers:  srv.Headers,
+		bearer:   strings.TrimSpace(srv.BearerToken),
+		origin:   defaultOrigin(srv.Origin),
+		protocol: strings.TrimSpace(srv.ProtocolVersion),
+	}
+	cli := &http.Client{Transport: rt}
+	if srv.HTTP.TimeoutSeconds > 0 {
+		cli.Timeout = time.Duration(srv.HTTP.TimeoutSeconds) * time.Second
+	}
+	return cli
 }
 
 type headerRoundTripper struct {
-    base     http.RoundTripper
-    headers  map[string]string
-    bearer   string
-    origin   string
-    protocol string
+	base     http.RoundTripper
+	headers  map[string]string
+	bearer   string
+	origin   string
+	protocol string
 }
 
 func (t *headerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-    r := req.Clone(req.Context())
-    if r.Header.Get("Accept") == "" {
-        r.Header.Set("Accept", "application/json, text/event-stream")
-    }
-    if t.origin != "" && r.Header.Get("Origin") == "" {
-        r.Header.Set("Origin", t.origin)
-    }
-    if t.protocol != "" && r.Header.Get("MCP-Protocol-Version") == "" {
-        r.Header.Set("MCP-Protocol-Version", t.protocol)
-    }
-    for k, v := range t.headers {
-        if r.Header.Get(k) == "" {
-            r.Header.Set(k, v)
-        }
-    }
-    if t.bearer != "" && r.Header.Get("Authorization") == "" {
-        r.Header.Set("Authorization", "Bearer "+t.bearer)
-    }
-    return t.base.RoundTrip(r)
+	r := req.Clone(req.Context())
+	if r.Header.Get("Accept") == "" {
+		r.Header.Set("Accept", "application/json, text/event-stream")
+	}
+	if t.origin != "" && r.Header.Get("Origin") == "" {
+		r.Header.Set("Origin", t.origin)
+	}
+	if t.protocol != "" && r.Header.Get("MCP-Protocol-Version") == "" {
+		r.Header.Set("MCP-Protocol-Version", t.protocol)
+	}
+	for k, v := range t.headers {
+		if r.Header.Get(k) == "" {
+			r.Header.Set(k, v)
+		}
+	}
+	if t.bearer != "" && r.Header.Get("Authorization") == "" {
+		r.Header.Set("Authorization", "Bearer "+t.bearer)
+	}
+	return t.base.RoundTrip(r)
 }
 
 func defaultOrigin(o string) string {
-    o = strings.TrimSpace(o)
-    if o != "" {
-        return o
-    }
-    return "https://manifold.local"
+	o = strings.TrimSpace(o)
+	if o != "" {
+		return o
+	}
+	return "https://manifold.local"
 }

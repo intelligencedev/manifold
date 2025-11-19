@@ -82,6 +82,32 @@ func (t *sseTransportWrapper) RoundTrip(req *http.Request) (*http.Response, erro
 	return t.inner.RoundTrip(req)
 }
 
+func extractThoughtSignature(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return ""
+	}
+	// Handle both snake_case and camelCase
+	if ec, ok := m["extra_content"].(map[string]any); ok {
+		if g, ok2 := ec["google"].(map[string]any); ok2 {
+			if sig, ok3 := g["thought_signature"].(string); ok3 {
+				return sig
+			}
+		}
+	}
+	if ec, ok := m["extraContent"].(map[string]any); ok {
+		if g, ok2 := ec["google"].(map[string]any); ok2 {
+			if sig, ok3 := g["thoughtSignature"].(string); ok3 {
+				return sig
+			}
+		}
+	}
+	return ""
+}
+
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -314,7 +340,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
 	// messages
-	params.Messages = AdaptMessages(msgs)
+	params.Messages = AdaptMessages(string(params.Model), msgs)
 	// tools: include only when provided to avoid sending an empty array
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
@@ -386,16 +412,22 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 
 	// Prepare assistant message output before token fallback
 	var out llm.Message
+	gemini := isGemini3Model(string(params.Model))
 	if len(comp.Choices) > 0 {
 		msg := comp.Choices[0].Message
 		out = llm.Message{Role: "assistant", Content: msg.Content}
 		for _, tc := range msg.ToolCalls {
 			switch v := tc.AsAny().(type) {
 			case sdk.ChatCompletionMessageFunctionToolCall:
+				sig := ""
+				if gemini {
+					sig = extractThoughtSignature(v.RawJSON())
+				}
 				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-					Name: v.Function.Name,
-					Args: json.RawMessage(v.Function.Arguments),
-					ID:   v.ID,
+					Name:             v.Function.Name,
+					Args:             json.RawMessage(v.Function.Arguments),
+					ID:               v.ID,
+					ThoughtSignature: sig,
 				})
 			case sdk.ChatCompletionMessageCustomToolCall:
 				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
@@ -445,7 +477,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
-	params.Messages = AdaptMessages(msgs)
+	params.Messages = AdaptMessages(string(params.Model), msgs)
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
 			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
@@ -512,6 +544,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	fields.Debug().Msg("chat_completion_ok")
 	// Prepare assistant output first
 	var out llm.Message
+	gemini := isGemini3Model(string(params.Model))
 	if len(comp.Choices) > 0 {
 		msg := comp.Choices[0].Message
 		out = llm.Message{Role: "assistant", Content: msg.Content}
@@ -522,6 +555,12 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 					Name: v.Function.Name,
 					Args: json.RawMessage(v.Function.Arguments),
 					ID:   v.ID,
+					ThoughtSignature: func() string {
+						if gemini {
+							return extractThoughtSignature(v.RawJSON())
+						}
+						return ""
+					}(),
 				})
 			case sdk.ChatCompletionMessageCustomToolCall:
 				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
@@ -555,6 +594,20 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatStreamResponses(ctx, msgs, tools, model, h)
 	}
+	if isGemini3Model(firstNonEmpty(model, c.model)) {
+		// Gemini OpenAI compatibility streaming is not consistently supported; fall back to non-streaming and emit a single delta + tool calls.
+		msg, err := c.Chat(ctx, msgs, tools, model)
+		if err != nil {
+			return err
+		}
+		if msg.Content != "" {
+			h.OnDelta(msg.Content)
+		}
+		for _, tc := range msg.ToolCalls {
+			h.OnToolCall(tc)
+		}
+		return nil
+	}
 	// For self-hosted backends (llama.cpp, mlx_lm.server, etc.), prefer a generic SSE reader
 	// to maximize compatibility. Some servers diverge slightly from OpenAI's
 	// streaming chunk schema which can cause the SDK parser to abort and close
@@ -571,7 +624,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
 	// messages
-	params.Messages = AdaptMessages(msgs)
+	params.Messages = AdaptMessages(string(params.Model), msgs)
 	// tools
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
@@ -619,6 +672,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 
 	// Collect assistant content for self-hosted tokenization fallback
 	var assistantContentBuilder strings.Builder
+	gemini := isGemini3Model(string(params.Model))
 
 	for stream.Next() {
 		chunk := stream.Current()
@@ -683,6 +737,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 					existing := string(toolCalls[i].Args)
 					toolCalls[i].Args = json.RawMessage(existing + tc.Function.Arguments)
 				}
+			}
+			if gemini && toolCalls[i].ThoughtSignature == "" {
+				toolCalls[i].ThoughtSignature = extractThoughtSignature(tc.RawJSON())
 			}
 		}
 
@@ -760,7 +817,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	// Build body
 	body := map[string]any{
 		"model":    firstNonEmpty(model, c.model),
-		"messages": AdaptMessages(msgs),
+		"messages": AdaptMessages(model, msgs),
 		"stream":   true,
 	}
 	if len(tools) > 0 {
@@ -954,7 +1011,7 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	}
 
 	// Convert all messages except the last user message, then replace it with image content
-	adaptedMsgs := AdaptMessages(msgs)
+	adaptedMsgs := AdaptMessages(model, msgs)
 	if len(adaptedMsgs) > 0 {
 		// Find the last user message and replace it with image content
 		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
@@ -1042,6 +1099,7 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
 		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
+	gemini := isGemini3Model(firstNonEmpty(model, c.model))
 	for _, tc := range msg.ToolCalls {
 		switch v := tc.AsAny().(type) {
 		case sdk.ChatCompletionMessageFunctionToolCall:
@@ -1049,6 +1107,12 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 				Name: v.Function.Name,
 				Args: json.RawMessage(v.Function.Arguments),
 				ID:   v.ID,
+				ThoughtSignature: func() string {
+					if gemini {
+						return extractThoughtSignature(v.RawJSON())
+					}
+					return ""
+				}(),
 			})
 		case sdk.ChatCompletionMessageCustomToolCall:
 			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
@@ -1075,7 +1139,7 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	}
 
 	// Convert messages, then replace the last user message with text+image content parts
-	adaptedMsgs := AdaptMessages(msgs)
+	adaptedMsgs := AdaptMessages(model, msgs)
 	if len(adaptedMsgs) > 0 {
 		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
 			if adaptedMsgs[i].OfUser != nil {
@@ -1157,10 +1221,21 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
 		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
+	gemini := isGemini3Model(string(params.Model))
 	for _, tc := range msg.ToolCalls {
 		switch v := tc.AsAny().(type) {
 		case sdk.ChatCompletionMessageFunctionToolCall:
-			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{Name: v.Function.Name, Args: json.RawMessage(v.Function.Arguments), ID: v.ID})
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: v.Function.Name,
+				Args: json.RawMessage(v.Function.Arguments),
+				ID:   v.ID,
+				ThoughtSignature: func() string {
+					if gemini {
+						return extractThoughtSignature(v.RawJSON())
+					}
+					return ""
+				}(),
+			})
 		case sdk.ChatCompletionMessageCustomToolCall:
 			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{Name: v.Custom.Name, Args: json.RawMessage(v.Custom.Input), ID: v.ID})
 		}

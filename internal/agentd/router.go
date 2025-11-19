@@ -58,5 +58,10 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/audio/", a.audioServeHandler())
 	mux.HandleFunc("/stt", a.sttHandler())
 
+	mux.HandleFunc("/api/mcp/servers", a.mcpServersHandler())
+	mux.HandleFunc("/api/mcp/servers/", a.mcpServerDetailHandler())
+	mux.HandleFunc("/api/mcp/oauth/start", a.mcpOAuthStartHandler())
+	mux.HandleFunc("/api/mcp/oauth/callback", a.mcpOAuthCallbackHandler())
+
 	return mux
 }

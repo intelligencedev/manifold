@@ -18,9 +18,12 @@ type Config struct {
 	LogLevel    string
 	LogPayloads bool
 	Exec        ExecConfig
-	OpenAI      OpenAIConfig
-	Obs         ObsConfig
-	Web         WebConfig
+	// LLMClient controls which LLM provider to use and holds provider-specific settings.
+	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
+	// OpenAI retains the active OpenAI-compatible configuration for backward compatibility.
+	OpenAI OpenAIConfig
+	Obs    ObsConfig
+	Web    WebConfig
 	// Auth configures optional user authentication (OIDC/OAuth2) and RBAC.
 	Auth AuthConfig
 	// MCP defines Model Context Protocol client configuration. If configured,
@@ -91,6 +94,14 @@ type ExecConfig struct {
 	MaxCommandSeconds int
 }
 
+// LLMClientConfig selects the LLM provider and holds provider-specific configs.
+type LLMClientConfig struct {
+	Provider  string          `yaml:"provider" json:"provider"`
+	OpenAI    OpenAIConfig    `yaml:"openai" json:"openai"`
+	Anthropic AnthropicConfig `yaml:"anthropic" json:"anthropic"`
+	Google    GoogleConfig    `yaml:"google" json:"google"`
+}
+
 type OpenAIConfig struct {
 	APIKey         string
 	Model          string
@@ -106,6 +117,20 @@ type OpenAIConfig struct {
 	ExtraParams map[string]any
 	// LogPayloads enables verbose logging of request/response bodies with redaction.
 	LogPayloads bool `yaml:"logPayloads" json:"logPayloads"`
+}
+
+// AnthropicConfig holds Anthropic provider settings.
+type AnthropicConfig struct {
+	APIKey  string `yaml:"apiKey" json:"apiKey"`
+	Model   string `yaml:"model" json:"model"`
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+}
+
+// GoogleConfig holds Google Gemini provider settings.
+type GoogleConfig struct {
+	APIKey  string `yaml:"apiKey" json:"apiKey"`
+	Model   string `yaml:"model" json:"model"`
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
 }
 
 // SpecialistConfig describes a single specialist agent bound to a specific

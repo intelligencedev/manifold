@@ -29,15 +29,28 @@ auth:
     subjectField: "id"
     rolesField: ""
 
-openai:
-  api: completions
-  # Optional: request-wide headers for the main agent
-  # extraHeaders:
-  #   X-App-Tenant: example
-  extraParams:
-    parallel_tool_calls: true
-    prompt_cache_key: manifold-
-    reasoning_effort: medium
+llm_client:
+  # Options: openai (default), anthropic, google, local
+  provider: openai
+  openai:
+    api: completions
+    summaryBaseURL: "https://api.openai.com/v1"
+    summaryModel: gpt-5-nano
+    # Optional: request-wide headers for the main agent
+    # extraHeaders:
+    #   X-App-Tenant: example
+    extraParams:
+      parallel_tool_calls: true
+      prompt_cache_key: manifold-
+      reasoning_effort: medium
+  # anthropic:
+  #   apiKey: ""
+  #   model: ""
+  #   baseURL: ""
+  # google:
+  #   apiKey: ""
+  #   model: ""
+  #   baseURL: ""
 
 # No specialists configured for first launch
 specialists: []

@@ -14,6 +14,7 @@ import (
 	"manifold/internal/config"
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
+	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
@@ -127,7 +128,10 @@ func main() {
 	}
 
 	// Create LLM provider after potential DB overrides
-	llm := openaillm.New(cfg.OpenAI, httpClient)
+	llm, err := llmproviders.Build(cfg, httpClient)
+	if err != nil {
+		log.Fatal().Err(err).Msg("build llm provider")
+	}
 
 	// Build specialists registry from DB (fallback to YAML) so CLI resolves
 	// the same set as agentd.
@@ -175,9 +179,14 @@ func main() {
 
 	// Provider factory for base_url override in llm_transform
 	newProv := func(baseURL string) llmpkg.Provider {
-		c2 := cfg.OpenAI
-		c2.BaseURL = baseURL
-		return openaillm.New(c2, httpClient)
+		switch cfg.LLMClient.Provider {
+		case "", "openai", "local":
+			c2 := cfg.LLMClient.OpenAI
+			c2.BaseURL = baseURL
+			return openaillm.New(c2, httpClient)
+		default:
+			return llm
+		}
 	}
 	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
 	// Specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd)

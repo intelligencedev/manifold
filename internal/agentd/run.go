@@ -24,6 +24,7 @@ import (
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
+	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
@@ -66,7 +67,7 @@ type app struct {
 	cfg               *config.Config
 	httpClient        *http.Client
 	mgr               *databases.Manager
-	llm               *openaillm.Client
+	llm               llmpkg.Provider
 	baseToolRegistry  tools.Registry
 	toolRegistry      tools.Registry
 	specRegistry      *specialists.Registry
@@ -153,7 +154,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
-	llm := openaillm.New(cfg.OpenAI, httpClient)
+	llm, err := llmproviders.Build(*cfg, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("build llm provider: %w", err)
+	}
 	summaryCfg := cfg.OpenAI
 	summaryCfg.Model = cfg.OpenAI.SummaryModel
 	summaryCfg.BaseURL = cfg.OpenAI.SummaryBaseURL
@@ -194,9 +198,14 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
 
 	newProv := func(baseURL string) llmpkg.Provider {
-		cfgCopy := cfg.OpenAI
-		cfgCopy.BaseURL = baseURL
-		return openaillm.New(cfgCopy, httpClient)
+		switch cfg.LLMClient.Provider {
+		case "", "openai", "local":
+			cfgCopy := cfg.LLMClient.OpenAI
+			cfgCopy.BaseURL = baseURL
+			return openaillm.New(cfgCopy, httpClient)
+		default:
+			return llm
+		}
 	}
 	toolRegistry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv))
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
@@ -325,7 +334,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, err
 	}
 
-	if err := app.initSpecialists(ctx, llm); err != nil {
+	if err := app.initSpecialists(ctx); err != nil {
 		return nil, err
 	}
 
@@ -477,7 +486,7 @@ func (a *app) initAuth(ctx context.Context) error {
 	return nil
 }
 
-func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error {
+func (a *app) initSpecialists(ctx context.Context) error {
 	var pg *pgxpool.Pool
 	if a.cfg.Databases.DefaultDSN != "" {
 		if p, err := databasesTestPool(ctx, a.cfg.Databases.DefaultDSN); err == nil {
@@ -528,7 +537,11 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 		if sp.ExtraParams != nil {
 			a.cfg.OpenAI.ExtraParams = sp.ExtraParams
 		}
-		llm = openaillm.New(a.cfg.OpenAI, a.httpClient)
+		llm, err := llmproviders.Build(*a.cfg, a.httpClient)
+		if err != nil {
+			log.Error().Err(err).Msg("rebuild llm provider")
+			return err
+		}
 		a.llm = llm
 		a.engine.LLM = llm
 		a.engine.Model = a.cfg.OpenAI.Model

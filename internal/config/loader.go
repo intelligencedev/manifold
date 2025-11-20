@@ -21,15 +21,48 @@ func Load() (Config, error) {
 	cfg := Config{}
 	// Allow overriding the agent system prompt via env var SYSTEM_PROMPT.
 	cfg.SystemPrompt = strings.TrimSpace(os.Getenv("SYSTEM_PROMPT"))
+	cfg.LLMClient.Provider = strings.TrimSpace(os.Getenv("LLM_PROVIDER"))
 	// Read environment values first (no defaults here; we'll apply defaults later)
-	cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+	if v := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); v != "" {
+		cfg.OpenAI.APIKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAI_MODEL")); v != "" {
+		cfg.OpenAI.Model = v
+	}
 	// Allow overriding API base via env (useful for proxies/self-hosted gateways)
-	cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
-	cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL"))
-	cfg.OpenAI.SummaryModel = strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL"))
+	if v := firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))); v != "" {
+		cfg.OpenAI.BaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL")); v != "" {
+		cfg.OpenAI.SummaryBaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL")); v != "" {
+		cfg.OpenAI.SummaryModel = v
+	}
 	// Allow selecting API surface ("completions" or "responses"). Defaults later.
-	cfg.OpenAI.API = strings.TrimSpace(os.Getenv("OPENAI_API"))
+	if v := strings.TrimSpace(os.Getenv("OPENAI_API")); v != "" {
+		cfg.OpenAI.API = v
+	}
+	// Optional Anthropic provider env config
+	if v := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); v != "" {
+		cfg.LLMClient.Anthropic.APIKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")); v != "" {
+		cfg.LLMClient.Anthropic.Model = v
+	}
+	if v := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")); v != "" {
+		cfg.LLMClient.Anthropic.BaseURL = v
+	}
+	// Optional Google provider env config
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_LLM_API_KEY")); v != "" {
+		cfg.LLMClient.Google.APIKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_LLM_MODEL")); v != "" {
+		cfg.LLMClient.Google.Model = v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_LLM_BASE_URL")); v != "" {
+		cfg.LLMClient.Google.BaseURL = v
+	}
 	cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
 	cfg.LogPath = strings.TrimSpace(os.Getenv("LOG_PATH"))
 	cfg.LogLevel = strings.TrimSpace(os.Getenv("LOG_LEVEL"))
@@ -176,6 +209,19 @@ func Load() (Config, error) {
 	if cfg.OpenAI.API == "" {
 		cfg.OpenAI.API = "completions"
 	}
+	provider := strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
+	if provider == "" {
+		provider = "openai"
+	}
+	switch provider {
+	case "openai", "anthropic", "google", "local":
+		cfg.LLMClient.Provider = provider
+	default:
+		return Config{}, fmt.Errorf("llm provider must be one of openai, anthropic, google, or local (got %q)", provider)
+	}
+	if cfg.LLMClient.Provider == "local" {
+		cfg.OpenAI.API = "completions"
+	}
 	if cfg.Obs.ServiceName == "" {
 		cfg.Obs.ServiceName = "manifold"
 	}
@@ -291,7 +337,7 @@ func Load() (Config, error) {
 	}
 
 	if cfg.OpenAI.APIKey == "" {
-		return Config{}, errors.New("OPENAI_API_KEY is required (set in .env or environment)")
+		return Config{}, errors.New("OPENAI_API_KEY is required for llm_client.openai (set in .env or environment)")
 	}
 	if cfg.Workdir == "" {
 		return Config{}, errors.New("WORKDIR is required (set in .env or environment)")
@@ -309,6 +355,8 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
 	}
 	cfg.Workdir = absWD
+	// Keep LLMClient.OpenAI in sync with the effective OpenAI config.
+	cfg.LLMClient.OpenAI = cfg.OpenAI
 
 	// Parse blocklist
 	blockStr := strings.TrimSpace(os.Getenv("BLOCK_BINARIES"))
@@ -338,6 +386,19 @@ func loadSpecialists(cfg *Config) error {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("SPECIALISTS_DISABLED")), "true") {
 		return nil
 	}
+	providerFromEnv := strings.TrimSpace(os.Getenv("LLM_PROVIDER")) != ""
+	openAIAPIKeyFromEnv := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""
+	openAIModelFromEnv := strings.TrimSpace(os.Getenv("OPENAI_MODEL")) != ""
+	openAIBaseURLFromEnv := firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))) != ""
+	openAISummaryURLFromEnv := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL")) != ""
+	openAISummaryModelFromEnv := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL")) != ""
+	openAIAPIChoiceFromEnv := strings.TrimSpace(os.Getenv("OPENAI_API")) != ""
+	anthropicAPIKeyFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != ""
+	anthropicModelFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")) != ""
+	anthropicBaseURLFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")) != ""
+	googleAPIKeyFromEnv := strings.TrimSpace(os.Getenv("GOOGLE_LLM_API_KEY")) != ""
+	googleModelFromEnv := strings.TrimSpace(os.Getenv("GOOGLE_LLM_MODEL")) != ""
+	googleBaseURLFromEnv := strings.TrimSpace(os.Getenv("GOOGLE_LLM_BASE_URL")) != ""
 	var paths []string
 	if p := strings.TrimSpace(os.Getenv("SPECIALISTS_CONFIG")); p != "" {
 		paths = append(paths, p)
@@ -375,6 +436,22 @@ func loadSpecialists(cfg *Config) error {
 		ExtraHeaders   map[string]string `yaml:"extraHeaders"`
 		ExtraParams    map[string]any    `yaml:"extraParams"`
 		LogPayloads    bool              `yaml:"logPayloads"`
+	}
+	type anthropicYAML struct {
+		APIKey  string `yaml:"apiKey"`
+		Model   string `yaml:"model"`
+		BaseURL string `yaml:"baseURL"`
+	}
+	type googleYAML struct {
+		APIKey  string `yaml:"apiKey"`
+		Model   string `yaml:"model"`
+		BaseURL string `yaml:"baseURL"`
+	}
+	type llmClientYAML struct {
+		Provider  string        `yaml:"provider"`
+		OpenAI    openAIYAML    `yaml:"openai"`
+		Anthropic anthropicYAML `yaml:"anthropic"`
+		Google    googleYAML    `yaml:"google"`
 	}
 	type execYAML struct {
 		BlockBinaries     []string `yaml:"blockBinaries"`
@@ -504,6 +581,7 @@ func loadSpecialists(cfg *Config) error {
 		SystemPrompt     string             `yaml:"systemPrompt"`
 		Specialists      []SpecialistConfig `yaml:"specialists"`
 		Routes           []SpecialistRoute  `yaml:"routes"`
+		LLMClient        llmClientYAML      `yaml:"llm_client"`
 		OpenAI           openAIYAML         `yaml:"openai"`
 		Workdir          string             `yaml:"workdir"`
 		OutputTrunc      int                `yaml:"outputTruncateBytes"`
@@ -534,35 +612,78 @@ func loadSpecialists(cfg *Config) error {
 		if len(w.Routes) > 0 {
 			cfg.SpecialistRoutes = w.Routes
 		}
-		// OpenAI extras always merged
-		if len(w.OpenAI.ExtraHeaders) > 0 {
-			cfg.OpenAI.ExtraHeaders = w.OpenAI.ExtraHeaders
+
+		applyOpenAIExtras := func(src openAIYAML, override bool) {
+			if len(src.ExtraHeaders) > 0 && (override || len(cfg.OpenAI.ExtraHeaders) == 0) {
+				cfg.OpenAI.ExtraHeaders = src.ExtraHeaders
+			}
+			if len(src.ExtraParams) > 0 && (override || len(cfg.OpenAI.ExtraParams) == 0) {
+				cfg.OpenAI.ExtraParams = src.ExtraParams
+			}
+			if !cfg.LogPayloads && src.LogPayloads {
+				cfg.LogPayloads = true
+				cfg.OpenAI.LogPayloads = true
+			}
 		}
-		if len(w.OpenAI.ExtraParams) > 0 {
-			cfg.OpenAI.ExtraParams = w.OpenAI.ExtraParams
+		applyOpenAICore := func(src openAIYAML, allowOverride bool) {
+			if !openAIAPIKeyFromEnv && strings.TrimSpace(src.APIKey) != "" {
+				if allowOverride || cfg.OpenAI.APIKey == "" {
+					cfg.OpenAI.APIKey = strings.TrimSpace(src.APIKey)
+				}
+			}
+			if !openAIModelFromEnv && strings.TrimSpace(src.Model) != "" {
+				if allowOverride || cfg.OpenAI.Model == "" {
+					cfg.OpenAI.Model = strings.TrimSpace(src.Model)
+				}
+			}
+			if !openAIBaseURLFromEnv && strings.TrimSpace(src.BaseURL) != "" {
+				if allowOverride || cfg.OpenAI.BaseURL == "" {
+					cfg.OpenAI.BaseURL = strings.TrimSpace(src.BaseURL)
+				}
+			}
+			if !openAISummaryModelFromEnv && strings.TrimSpace(src.SummaryModel) != "" {
+				if allowOverride || cfg.OpenAI.SummaryModel == "" {
+					cfg.OpenAI.SummaryModel = strings.TrimSpace(src.SummaryModel)
+				}
+			}
+			if !openAISummaryURLFromEnv && strings.TrimSpace(src.SummaryBaseURL) != "" {
+				if allowOverride || cfg.OpenAI.SummaryBaseURL == "" {
+					cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(src.SummaryBaseURL)
+				}
+			}
+			if !openAIAPIChoiceFromEnv && strings.TrimSpace(src.API) != "" {
+				if allowOverride || cfg.OpenAI.API == "" {
+					cfg.OpenAI.API = strings.TrimSpace(src.API)
+				}
+			}
 		}
-		if !cfg.LogPayloads && w.OpenAI.LogPayloads {
-			cfg.LogPayloads = true
-			cfg.OpenAI.LogPayloads = true
+
+		// Legacy openai: only fill empty fields (env takes precedence).
+		applyOpenAIExtras(w.OpenAI, false)
+		applyOpenAICore(w.OpenAI, false)
+
+		if strings.TrimSpace(w.LLMClient.Provider) != "" && !providerFromEnv {
+			cfg.LLMClient.Provider = strings.TrimSpace(w.LLMClient.Provider)
 		}
-		// OpenAI core: only if empty (env overrides YAML)
-		if cfg.OpenAI.APIKey == "" && strings.TrimSpace(w.OpenAI.APIKey) != "" {
-			cfg.OpenAI.APIKey = strings.TrimSpace(w.OpenAI.APIKey)
+		applyOpenAIExtras(w.LLMClient.OpenAI, true)
+		applyOpenAICore(w.LLMClient.OpenAI, true)
+		if !anthropicAPIKeyFromEnv && strings.TrimSpace(w.LLMClient.Anthropic.APIKey) != "" {
+			cfg.LLMClient.Anthropic.APIKey = strings.TrimSpace(w.LLMClient.Anthropic.APIKey)
 		}
-		if cfg.OpenAI.Model == "" && strings.TrimSpace(w.OpenAI.Model) != "" {
-			cfg.OpenAI.Model = strings.TrimSpace(w.OpenAI.Model)
+		if !anthropicModelFromEnv && strings.TrimSpace(w.LLMClient.Anthropic.Model) != "" {
+			cfg.LLMClient.Anthropic.Model = strings.TrimSpace(w.LLMClient.Anthropic.Model)
 		}
-		if cfg.OpenAI.SummaryModel == "" && strings.TrimSpace(w.OpenAI.SummaryModel) != "" {
-			cfg.OpenAI.SummaryModel = strings.TrimSpace(w.OpenAI.SummaryModel)
+		if !anthropicBaseURLFromEnv && strings.TrimSpace(w.LLMClient.Anthropic.BaseURL) != "" {
+			cfg.LLMClient.Anthropic.BaseURL = strings.TrimSpace(w.LLMClient.Anthropic.BaseURL)
 		}
-		if cfg.OpenAI.BaseURL == "" && strings.TrimSpace(w.OpenAI.BaseURL) != "" {
-			cfg.OpenAI.BaseURL = strings.TrimSpace(w.OpenAI.BaseURL)
+		if !googleAPIKeyFromEnv && strings.TrimSpace(w.LLMClient.Google.APIKey) != "" {
+			cfg.LLMClient.Google.APIKey = strings.TrimSpace(w.LLMClient.Google.APIKey)
 		}
-		if cfg.OpenAI.SummaryBaseURL == "" && strings.TrimSpace(w.OpenAI.SummaryBaseURL) != "" {
-			cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(w.OpenAI.SummaryBaseURL)
+		if !googleModelFromEnv && strings.TrimSpace(w.LLMClient.Google.Model) != "" {
+			cfg.LLMClient.Google.Model = strings.TrimSpace(w.LLMClient.Google.Model)
 		}
-		if cfg.OpenAI.API == "" && strings.TrimSpace(w.OpenAI.API) != "" {
-			cfg.OpenAI.API = strings.TrimSpace(w.OpenAI.API)
+		if !googleBaseURLFromEnv && strings.TrimSpace(w.LLMClient.Google.BaseURL) != "" {
+			cfg.LLMClient.Google.BaseURL = strings.TrimSpace(w.LLMClient.Google.BaseURL)
 		}
 		// Workdir and others only if empty
 		if cfg.Workdir == "" && strings.TrimSpace(w.Workdir) != "" {

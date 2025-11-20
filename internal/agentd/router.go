@@ -40,6 +40,7 @@ func newRouter(a *app) *http.ServeMux {
 	}
 
 	mux.HandleFunc("/api/status", a.statusHandler())
+	mux.HandleFunc("/api/specialists/defaults", a.specialistDefaultsHandler())
 	mux.HandleFunc("/api/specialists", a.specialistsHandler())
 	mux.HandleFunc("/api/specialists/", a.specialistDetailHandler())
 

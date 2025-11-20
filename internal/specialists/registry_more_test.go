@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewRegistry_PopulatesAgentFields(t *testing.T) {
-	base := config.OpenAIConfig{APIKey: "basekey", Model: "basemodel", BaseURL: ""}
+	base := config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{APIKey: "basekey", Model: "basemodel", BaseURL: ""}}
 	list := []config.SpecialistConfig{{Name: "s1", APIKey: "specKey", Model: "specModel", System: "mysys", EnableTools: true, ReasoningEffort: " high ", ExtraParams: map[string]any{"k": "v"}}}
 	r := NewRegistry(base, list, http.DefaultClient, nil)
 	a, ok := r.Get("s1")

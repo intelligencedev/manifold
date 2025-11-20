@@ -11,6 +11,8 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/llm/anthropic"
+	"manifold/internal/llm/google"
 	openaillm "manifold/internal/llm/openai"
 	"manifold/internal/tools"
 )
@@ -25,8 +27,12 @@ type Agent struct {
 	ReasoningEffort string // optional: "low"|"medium"|"high"
 	ExtraParams     map[string]any
 
-	provider *openaillm.Client
+	provider llm.Provider
 	tools    tools.Registry
+}
+
+type chatWithOptionsProvider interface {
+	ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error)
 }
 
 // Registry holds addressable specialists by name.
@@ -38,30 +44,77 @@ type Registry struct {
 // NewRegistry builds a registry from config.SpecialistConfig entries.
 // The base OpenAI config is used as a default for API key/model unless
 // overridden per specialist.
-func NewRegistry(base config.OpenAIConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) *Registry {
+func NewRegistry(base config.LLMClientConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) *Registry {
 	reg := &Registry{agents: make(map[string]*Agent, len(list))}
 	reg.ReplaceFromConfigs(base, list, httpClient, toolsReg)
 	return reg
 }
 
-// ReplaceFromConfigs rebuilds the registry from configs (skips paused specialists).
-func (r *Registry) ReplaceFromConfigs(base config.OpenAIConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	agents := make(map[string]*Agent, len(list))
-	for _, sc := range list {
-		if sc.Paused {
-			continue
+func buildProvider(provider string, base config.LLMClientConfig, sc config.SpecialistConfig, httpClient *http.Client) (llm.Provider, string) {
+	hc := httpClient
+	if len(sc.ExtraHeaders) > 0 {
+		if hc == nil {
+			hc = http.DefaultClient
 		}
-		// Derive OpenAI cfg for the specialist
-		oc := config.OpenAIConfig{
-			APIKey:  firstNonEmpty(sc.APIKey, base.APIKey),
-			Model:   firstNonEmpty(sc.Model, base.Model),
-			BaseURL: firstNonEmpty(sc.BaseURL, base.BaseURL),
-			API:     firstNonEmpty(sc.API, base.API),
+		tr := hc.Transport
+		if tr == nil {
+			tr = http.DefaultTransport
 		}
-		if len(sc.ExtraParams) > 0 || strings.TrimSpace(sc.ReasoningEffort) != "" {
-			extra := make(map[string]any, len(sc.ExtraParams)+1)
+		hc = &http.Client{Transport: &headerTransport{base: tr, headers: sc.ExtraHeaders}}
+	}
+
+	switch strings.ToLower(provider) {
+	case "google":
+		cfg := base.Google
+		if strings.TrimSpace(sc.BaseURL) != "" {
+			cfg.BaseURL = strings.TrimSpace(sc.BaseURL)
+		}
+		if strings.TrimSpace(sc.APIKey) != "" {
+			cfg.APIKey = strings.TrimSpace(sc.APIKey)
+		}
+		if strings.TrimSpace(sc.Model) != "" {
+			cfg.Model = strings.TrimSpace(sc.Model)
+		}
+		prov, err := google.New(cfg, hc)
+		if err != nil {
+			return nil, ""
+		}
+		return prov, cfg.Model
+	case "anthropic":
+		cfg := base.Anthropic
+		if strings.TrimSpace(sc.BaseURL) != "" {
+			cfg.BaseURL = strings.TrimSpace(sc.BaseURL)
+		}
+		if strings.TrimSpace(sc.APIKey) != "" {
+			cfg.APIKey = strings.TrimSpace(sc.APIKey)
+		}
+		if strings.TrimSpace(sc.Model) != "" {
+			cfg.Model = strings.TrimSpace(sc.Model)
+		}
+		prov := anthropic.New(cfg, hc)
+		return prov, cfg.Model
+	default:
+		oc := base.OpenAI
+		if strings.ToLower(provider) == "local" {
+			oc.API = "completions"
+		}
+		if strings.TrimSpace(sc.API) != "" {
+			oc.API = strings.TrimSpace(sc.API)
+		}
+		if strings.TrimSpace(sc.BaseURL) != "" {
+			oc.BaseURL = strings.TrimSpace(sc.BaseURL)
+		}
+		if strings.TrimSpace(sc.APIKey) != "" {
+			oc.APIKey = strings.TrimSpace(sc.APIKey)
+		}
+		if strings.TrimSpace(sc.Model) != "" {
+			oc.Model = strings.TrimSpace(sc.Model)
+		}
+		if len(sc.ExtraParams) > 0 || strings.TrimSpace(sc.ReasoningEffort) != "" || len(oc.ExtraParams) > 0 {
+			extra := map[string]any{}
+			for k, v := range oc.ExtraParams {
+				extra[k] = v
+			}
 			for k, v := range sc.ExtraParams {
 				extra[k] = v
 			}
@@ -70,19 +123,28 @@ func (r *Registry) ReplaceFromConfigs(base config.OpenAIConfig, list []config.Sp
 			}
 			oc.ExtraParams = extra
 		}
-		// Build per-specialist HTTP client with extra headers if provided
-		hc := httpClient
-		if len(sc.ExtraHeaders) > 0 {
-			if hc == nil {
-				hc = http.DefaultClient
-			}
-			tr := hc.Transport
-			if tr == nil {
-				tr = http.DefaultTransport
-			}
-			hc = &http.Client{Transport: &headerTransport{base: tr, headers: sc.ExtraHeaders}}
-		}
 		prov := openaillm.New(oc, hc)
+		return prov, oc.Model
+	}
+}
+
+// ReplaceFromConfigs rebuilds the registry from configs (skips paused specialists).
+func (r *Registry) ReplaceFromConfigs(base config.LLMClientConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	agents := make(map[string]*Agent, len(list))
+	for _, sc := range list {
+		if sc.Paused {
+			continue
+		}
+		provName := strings.TrimSpace(sc.Provider)
+		if provName == "" {
+			provName = base.Provider
+		}
+		prov, model := buildProvider(provName, base, sc, httpClient)
+		if prov == nil || model == "" {
+			continue
+		}
 		var toolsView tools.Registry
 		if sc.EnableTools && toolsReg != nil {
 			toolsView = tools.NewFilteredRegistry(toolsReg, sc.AllowTools)
@@ -93,7 +155,7 @@ func (r *Registry) ReplaceFromConfigs(base config.OpenAIConfig, list []config.Sp
 		a := &Agent{
 			Name:            sc.Name,
 			System:          sc.System,
-			Model:           oc.Model,
+			Model:           model,
 			EnableTools:     sc.EnableTools,
 			ReasoningEffort: strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:     sc.ExtraParams,
@@ -144,20 +206,29 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	// Extra fields for the request: start with configured extra params
 	extra := a.mergedExtraParams()
 
-	// If tools are enabled and a tools registry is attached, include schemas
-	// and perform a single-step execution: run the first tool call (if any)
-	// and return its payload directly. If tools are disabled we must not
-	// include any schemas nor attempt dispatch.
+	schemas := []llm.ToolSchema(nil)
+	if a.EnableTools {
+		if a.tools != nil {
+			schemas = a.tools.Schemas()
+		} else {
+			schemas = []llm.ToolSchema{}
+		}
+	}
+	callWithOptions := func(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema) (llm.Message, error) {
+		if p, ok := a.provider.(chatWithOptionsProvider); ok {
+			return p.ChatWithOptions(ctx, messages, tools, a.Model, extra)
+		}
+		return a.provider.Chat(ctx, messages, tools, a.Model)
+	}
+
 	if a.EnableTools && a.tools != nil {
-		messages := msgs
-		// Optional tool sink for UIs to display tool calls
 		var sink ToolSink
 		if v := ctx.Value(toolSinkKey{}); v != nil {
 			if f, ok := v.(ToolSink); ok {
 				sink = f
 			}
 		}
-		msg, err := a.provider.ChatWithOptions(ctx, messages, a.tools.Schemas(), a.Model, extra)
+		msg, err := callWithOptions(ctx, msgs, schemas)
 		if err != nil {
 			return "", err
 		}
@@ -165,13 +236,7 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 			return msg.Content, nil
 		}
 		tc := msg.ToolCalls[0]
-		// Propagate the specialist's provider to the tool dispatch context so
-		// tools that make LLM calls (describe_image, llm_transform, etc.) can
-		// use the same provider/model/baseURL as the specialist.
-		dispatchCtx := ctx
-		if a.provider != nil {
-			dispatchCtx = tools.WithProvider(ctx, a.provider)
-		}
+		dispatchCtx := tools.WithProvider(ctx, a.provider)
 		payload, err := a.tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 		if err != nil {
 			payload = []byte("{" + strconv.Quote("error") + ":" + strconv.Quote(err.Error()) + "}")
@@ -182,13 +247,7 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 		return string(payload), nil
 	}
 
-	var schemas []llm.ToolSchema
-	if !a.EnableTools {
-		schemas = nil // ensure omission
-	} else {
-		schemas = []llm.ToolSchema{} // no attached registry; send empty
-	}
-	resp, err := a.provider.ChatWithOptions(ctx, msgs, schemas, a.Model, extra)
+	resp, err := callWithOptions(ctx, msgs, schemas)
 	if err != nil {
 		return "", err
 	}

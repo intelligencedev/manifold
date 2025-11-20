@@ -162,7 +162,7 @@ func main() {
 		}
 	}
 	registry.Register(llmtools.NewTransform(llmProv, cfg.OpenAI.Model, newProv)) // provides llm_transform
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
+	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
 	registry.Register(specialists_tool.New(specReg))
 
 	// Kafka tool (if brokers configured)

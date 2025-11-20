@@ -49,8 +49,8 @@ llm_client:
   #   baseURL: ""
   # google:
   #   apiKey: ""
-  #   model: ""
-  #   baseURL: ""
+  #   model: "gemini-1.5-flash"
+  #   baseURL: "https://generativelanguage.googleapis.com/"
 
 # No specialists configured for first launch
 specialists: []

@@ -137,9 +137,9 @@ func main() {
 	// the same set as agentd.
 	var specReg *specialists.Registry
 	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
-		specReg = specialists.NewRegistry(cfg.OpenAI, specialistsFromStore(list), httpClient, nil)
+		specReg = specialists.NewRegistry(cfg.LLMClient, specialistsFromStore(list), httpClient, nil)
 	} else {
-		specReg = specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, nil)
+		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, nil)
 	}
 
 	// If a specialist was requested, route the query directly and exit.

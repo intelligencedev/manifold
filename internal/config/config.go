@@ -139,6 +139,7 @@ type GoogleConfig struct {
 type SpecialistConfig struct {
 	Name        string `yaml:"name" json:"name"`
 	Description string `yaml:"description" json:"description"`
+	Provider    string `yaml:"provider" json:"provider"`
 	BaseURL     string `yaml:"baseURL" json:"baseURL"`
 	APIKey      string `yaml:"apiKey" json:"apiKey"`
 	Model       string `yaml:"model" json:"model"`

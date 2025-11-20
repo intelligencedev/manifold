@@ -210,7 +210,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv))
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
+	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
 	toolRegistry.Register(specialists_tool.New(specReg))
 
 	// Phase 1: register simple team tools
@@ -495,6 +495,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	}
 	specStore := databases.NewSpecialistsStore(pg)
 	_ = specStore.Init(ctx)
+	a.specStore = specStore
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		existing := map[string]bool{}
@@ -506,7 +507,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 				continue
 			}
 			_, _ = specStore.Upsert(ctx, systemUserID, persist.Specialist{
-				Name: sc.Name, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
+				Name: sc.Name, Provider: sc.Provider, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
 				EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
 				ReasoningEffort: sc.ReasoningEffort, System: sc.System,
 				ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
@@ -515,59 +516,18 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	}
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
-		a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
 
 	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
-		a.cfg.OpenAI.BaseURL = sp.BaseURL
-		a.cfg.OpenAI.APIKey = sp.APIKey
-		if strings.TrimSpace(sp.Model) != "" {
-			a.cfg.OpenAI.Model = sp.Model
+		if err := a.applyOrchestratorUpdate(ctx, sp); err != nil {
+			log.Warn().Err(err).Msg("failed to apply orchestrator overlay")
 		}
-		a.cfg.EnableTools = sp.EnableTools
-		a.cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
-		if strings.TrimSpace(sp.System) != "" {
-			a.cfg.SystemPrompt = sp.System
-		} else {
-			a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
-		}
-		if sp.ExtraHeaders != nil {
-			a.cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
-		}
-		if sp.ExtraParams != nil {
-			a.cfg.OpenAI.ExtraParams = sp.ExtraParams
-		}
-		llm, err := llmproviders.Build(*a.cfg, a.httpClient)
-		if err != nil {
-			log.Error().Err(err).Msg("rebuild llm provider")
-			return err
-		}
-		a.llm = llm
-		a.engine.LLM = llm
-		a.engine.Model = a.cfg.OpenAI.Model
-		a.engine.System = prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
-		if !a.cfg.EnableTools {
-			a.toolRegistry = tools.NewRegistry()
-		} else if len(a.cfg.ToolAllowList) > 0 {
-			a.toolRegistry = tools.NewFilteredRegistry(a.baseToolRegistry, a.cfg.ToolAllowList)
-		} else {
-			a.toolRegistry = a.baseToolRegistry
-		}
-		a.engine.Tools = a.toolRegistry
-		a.warppMu.Lock()
-		a.warppRunner.Tools = a.toolRegistry
-		a.warppMu.Unlock()
-		names := make([]string, 0, len(a.toolRegistry.Schemas()))
-		for _, s := range a.toolRegistry.Schemas() {
-			names = append(names, s.Name)
-		}
-		log.Info().Bool("enableTools", a.cfg.EnableTools).Strs("allowList", a.cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents_loaded_from_db")
 	} else {
 		a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
 		a.engine.System = prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
 	}
 
-	a.specStore = specStore
 	return nil
 }
 

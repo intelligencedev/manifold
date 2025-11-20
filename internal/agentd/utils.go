@@ -192,6 +192,7 @@ func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
 		}
 		out = append(out, config.SpecialistConfig{
 			Name:            s.Name,
+			Provider:        s.Provider,
 			BaseURL:         s.BaseURL,
 			APIKey:          s.APIKey,
 			Model:           s.Model,

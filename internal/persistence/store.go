@@ -21,6 +21,7 @@ type Specialist struct {
 	ID              int64             `json:"id"`
 	UserID          int64             `json:"userId"`
 	Name            string            `json:"name"`
+	Provider        string            `json:"provider"`
 	Description     string            `json:"description"`
 	BaseURL         string            `json:"baseURL"`
 	APIKey          string            `json:"apiKey"`

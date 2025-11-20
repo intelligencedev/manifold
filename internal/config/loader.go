@@ -339,6 +339,11 @@ func Load() (Config, error) {
 	if cfg.OpenAI.APIKey == "" {
 		return Config{}, errors.New("OPENAI_API_KEY is required for llm_client.openai (set in .env or environment)")
 	}
+	for i := range cfg.Specialists {
+		if strings.TrimSpace(cfg.Specialists[i].Provider) == "" {
+			cfg.Specialists[i].Provider = cfg.LLMClient.Provider
+		}
+	}
 	if cfg.Workdir == "" {
 		return Config{}, errors.New("WORKDIR is required (set in .env or environment)")
 	}
@@ -611,6 +616,11 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if len(w.Routes) > 0 {
 			cfg.SpecialistRoutes = w.Routes
+		}
+		for i := range cfg.Specialists {
+			if strings.TrimSpace(cfg.Specialists[i].Provider) == "" {
+				cfg.Specialists[i].Provider = cfg.LLMClient.Provider
+			}
 		}
 
 		applyOpenAIExtras := func(src openAIYAML, override bool) {

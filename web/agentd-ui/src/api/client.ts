@@ -151,14 +151,23 @@ export interface Specialist {
   id?: number
   name: string
   description?: string
+  provider?: string
   baseURL: string
   apiKey?: string
   model: string
   enableTools: boolean
   paused: boolean
   allowTools?: string[]
-  reasoningEffort?: 'low' | 'medium' | 'high' | ''
   system?: string
+  extraHeaders?: Record<string, string>
+  extraParams?: Record<string, any>
+}
+
+export interface SpecialistProviderDefaults {
+  provider: string
+  baseURL: string
+  apiKey?: string
+  model: string
   extraHeaders?: Record<string, string>
   extraParams?: Record<string, any>
 }
@@ -185,6 +194,11 @@ export async function upsertSpecialist(sp: Specialist): Promise<Specialist> {
 
 export async function deleteSpecialist(name: string): Promise<void> {
   await apiClient.delete(`/specialists/${encodeURIComponent(name)}`)
+}
+
+export async function listSpecialistDefaults(): Promise<Record<string, SpecialistProviderDefaults>> {
+  const { data } = await apiClient.get<Record<string, SpecialistProviderDefaults>>('/specialists/defaults')
+  return data
 }
 
 // Users & Roles

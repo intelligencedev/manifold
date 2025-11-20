@@ -26,7 +26,11 @@ func Build(cfg config.Config, httpClient *http.Client) (llm.Provider, error) {
 	case "anthropic":
 		return anthropic.New(cfg.LLMClient.Anthropic, httpClient), nil
 	case "google":
-		return google.New(cfg.LLMClient.Google, httpClient), nil
+		g, err := google.New(cfg.LLMClient.Google, httpClient)
+		if err != nil {
+			return nil, err
+		}
+		return g, nil
 	default:
 		return nil, fmt.Errorf("unsupported llm provider: %s", cfg.LLMClient.Provider)
 	}

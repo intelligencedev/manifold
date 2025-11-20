@@ -194,6 +194,12 @@ func (r *Registry) Get(name string) (*Agent, bool) {
 	return a, ok
 }
 
+// Provider exposes the underlying LLM provider for a specialist.
+func (a *Agent) Provider() llm.Provider { return a.provider }
+
+// ToolsRegistry returns the filtered tool registry view for this specialist, or nil when tools are disabled.
+func (a *Agent) ToolsRegistry() tools.Registry { return a.tools }
+
 // Inference performs a single-turn completion with optional history.
 // If tools are disabled, no tool schema is sent at all.
 // If ReasoningEffort is set, a provider-specific reasoning block is attached.

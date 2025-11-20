@@ -14,10 +14,12 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"manifold/internal/agent"
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
+	"manifold/internal/tools"
 	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/warpp"
 )
@@ -866,6 +868,26 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		modelLabel = name
 	}
 
+	prov := sp.Provider()
+	if prov == nil {
+		http.Error(w, "specialist not configured", http.StatusInternalServerError)
+		return true
+	}
+	toolReg := sp.ToolsRegistry()
+	if toolReg == nil || !sp.EnableTools {
+		toolReg = tools.NewRegistry()
+	}
+
+	buildEngine := func() *agent.Engine {
+		return &agent.Engine{
+			LLM:      prov,
+			Tools:    toolReg,
+			MaxSteps: a.cfg.MaxSteps,
+			System:   sp.System,
+			Model:    sp.Model,
+		}
+	}
+
 	if r.Header.Get("Accept") == "text/event-stream" {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -880,23 +902,84 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		}
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+		ctx = specialists_tool.WithRegistry(ctx, reg)
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Bool("stream", true).Msg("using configured stream timeout")
 		} else {
 			log.Debug().Str("endpoint", "/agent/run").Str("specialist", name).Bool("stream", true).Msg("no timeout configured; running until completion")
 		}
 		prun := a.runs.create(prompt)
-		handler := &specialistStreamHandler{w: w, fl: fl}
-		if err := sp.Stream(ctx, prompt, history, handler); err != nil {
+		eng := buildEngine()
+		eng.OnDelta = func(d string) {
+			if d == "" {
+				return
+			}
+			payload := map[string]string{"type": "delta", "data": d}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
+		eng.OnToolStart = func(toolName string, args []byte, toolID string) {
+			payload := map[string]any{"type": "tool_start", "title": "Tool: " + toolName, "tool_id": toolID, "args": string(args)}
+			if toolName == "agent_call" || toolName == "ask_agent" {
+				payload["agent"] = true
+			}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
+		eng.OnTool = func(toolName string, args []byte, result []byte) {
+			if toolName == "text_to_speech_chunk" {
+				var meta map[string]any
+				_ = json.Unmarshal(result, &meta)
+				metaPayload := map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]}
+				b, _ := json.Marshal(metaPayload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+				return
+			}
+			payload := map[string]any{"type": "tool_result", "title": "Tool: " + toolName, "data": string(result)}
+			if toolName == "agent_call" || toolName == "ask_agent" {
+				payload["agent"] = true
+			}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+			if toolName == "text_to_speech" {
+				var resp map[string]any
+				if err := json.Unmarshal(result, &resp); err == nil {
+					if fp, ok := resp["file_path"].(string); ok && fp != "" {
+						trimmed := strings.TrimPrefix(fp, "./")
+						trimmed = strings.TrimPrefix(trimmed, "/")
+						url := "/audio/" + trimmed
+						ap := map[string]any{"type": "tts_audio", "file_path": fp, "url": url}
+						if bb, err2 := json.Marshal(ap); err2 == nil {
+							fmt.Fprintf(w, "data: %s\n\n", bb)
+							fl.Flush()
+						}
+					}
+				}
+			}
+		}
+
+		res, err := eng.RunStream(ctx, prompt, history)
+		if err != nil {
 			log.Error().Err(err).Str("specialist", name).Msg("specialist_stream_error")
-			handler.SendError(err.Error())
+			if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
+				fmt.Fprintf(w, "data: %s\n\n", b)
+			} else {
+				fmt.Fprintf(w, "data: %q\n\n", "(error)")
+			}
+			fl.Flush()
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			return true
 		}
-		final := handler.Final()
-		handler.SendFinal(final)
+		payload := map[string]string{"type": "final", "data": res}
+		b, _ := json.Marshal(payload)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		fl.Flush()
 		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, final, modelLabel); err != nil {
+		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, res, modelLabel); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist_stream")
 		}
 		return true
@@ -905,13 +988,15 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	seconds := a.cfg.AgentRunTimeoutSeconds
 	ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 	defer cancel()
+	ctx = specialists_tool.WithRegistry(ctx, reg)
 	if dur > 0 {
 		log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Msg("using configured agent timeout")
 	} else {
 		log.Debug().Str("endpoint", "/agent/run").Str("specialist", name).Msg("no timeout configured; running until completion")
 	}
 	prun := a.runs.create(prompt)
-	out, err := sp.Inference(ctx, prompt, history)
+	eng := buildEngine()
+	out, err := eng.Run(ctx, prompt, history)
 	if err != nil {
 		log.Error().Err(err).Str("specialist", name).Msg("specialist_inference_error")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -925,41 +1010,4 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")
 	}
 	return true
-}
-
-type specialistStreamHandler struct {
-	w   http.ResponseWriter
-	fl  http.Flusher
-	buf strings.Builder
-}
-
-func (h *specialistStreamHandler) OnDelta(content string) {
-	if content == "" {
-		return
-	}
-	h.buf.WriteString(content)
-	payload := map[string]string{"type": "delta", "data": content}
-	h.write(payload)
-}
-
-func (h *specialistStreamHandler) OnToolCall(tc llm.ToolCall) {
-	// Specialists are streamed as plain responses; tool calls are not surfaced.
-}
-
-func (h *specialistStreamHandler) Final() string {
-	return h.buf.String()
-}
-
-func (h *specialistStreamHandler) SendFinal(text string) {
-	h.write(map[string]string{"type": "final", "data": text})
-}
-
-func (h *specialistStreamHandler) SendError(msg string) {
-	h.write(map[string]string{"type": "error", "data": msg})
-}
-
-func (h *specialistStreamHandler) write(payload map[string]string) {
-	b, _ := json.Marshal(payload)
-	fmt.Fprintf(h.w, "data: %s\n\n", b)
-	h.fl.Flush()
 }

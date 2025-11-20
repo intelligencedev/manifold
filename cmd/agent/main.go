@@ -191,9 +191,9 @@ func main() {
 	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
 	// Specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd)
 	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
-		specReg = specialists.NewRegistry(cfg.OpenAI, specialistsFromStore(list), httpClient, registry)
+		specReg = specialists.NewRegistry(cfg.LLMClient, specialistsFromStore(list), httpClient, registry)
 	} else {
-		specReg = specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, registry)
+		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
 	}
 	registry.Register(specialists_tool.New(specReg))
 

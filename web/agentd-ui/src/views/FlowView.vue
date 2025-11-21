@@ -659,6 +659,17 @@ const DEFAULT_LAYOUT_START_X = 140
 const DEFAULT_LAYOUT_START_Y = 160
 const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320
 const UTILITY_TOOL_PREFIX = 'utility_'
+const AGENT_RESPONSE_TOOL = 'agent_response'
+const BUILTIN_UTILITY_TOOLS: WarppTool[] = [
+  {
+    name: AGENT_RESPONSE_TOOL,
+    description: 'Render agent responses as text, markdown, or HTML',
+    parameters: {
+      text: 'Markdown or HTML content to render',
+      render_mode: 'raw | markdown | html',
+    },
+  },
+]
 
 // Dagre layout sizing
 // Use measured node sizes when available; these are fallbacks when not yet measured
@@ -928,6 +939,15 @@ const toolMap = computed(() => {
   })
   return map
 })
+
+function mergeBuiltinUtilityTools(list: WarppTool[]): WarppTool[] {
+  const names = new Set(list.map((tool) => tool.name))
+  const merged = [...list]
+  BUILTIN_UTILITY_TOOLS.forEach((builtin) => {
+    if (!names.has(builtin.name)) merged.push(builtin)
+  })
+  return merged
+}
 
 // Selection state for showing Node Configuration panel
 const selectedNodes = computed(() => nodes.value.filter((n) => (n as SelectableWarppNode).selected))
@@ -1213,10 +1233,12 @@ function onAutoLayout(direction: DagreDirection) {
 
 function isUtilityToolName(name?: string | null): boolean {
   if (typeof name !== 'string') return false
+  if (name === AGENT_RESPONSE_TOOL) return true
   return /^utility[_-]/.test(name)
 }
 
 function prettyUtilityLabel(name: string): string {
+  if (name === AGENT_RESPONSE_TOOL) return 'Agent Response'
   if (!isUtilityToolName(name)) return name
   const readable = name.replace(/^utility[_-]/, '')
   return readable.replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
@@ -1357,7 +1379,7 @@ onMounted(async () => {
       }),
       fetchWarppWorkflows(),
     ])
-    tools.value = toolResp
+    tools.value = mergeBuiltinUtilityTools(toolResp)
     workflowList.value = workflows
     if (selectedIntent.value) {
       await loadWorkflow(selectedIntent.value)
@@ -1952,11 +1974,15 @@ function createUtilityNode(tool: WarppTool, position: { x: number; y: number }):
   const id = generateStepId(tool.name)
   const order = nextStepOrder()
   const displayName = prettyUtilityLabel(tool.name)
+  const defaultArgs: Record<string, unknown> = { label: displayName, text: '', output_attr: '' }
+  if (tool.name === AGENT_RESPONSE_TOOL) {
+    defaultArgs.render_mode = 'markdown'
+  }
   const step: WarppStep = {
     id,
     text: displayName,
     publish_result: false,
-    tool: { name: tool.name, args: { label: displayName, text: '', output_attr: '' } },
+    tool: { name: tool.name, args: defaultArgs },
   }
   const style = buildNodeStyle('utility')
   const groupId = findGroupAtPoint(position)

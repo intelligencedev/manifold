@@ -436,6 +436,11 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		for _, tc := range msg.ToolCalls {
 			switch v := tc.AsAny().(type) {
 			case sdk.ChatCompletionMessageFunctionToolCall:
+				// Skip tool calls with empty arguments to prevent JSON unmarshal errors
+				if v.Function.Arguments == "" {
+					log.Warn().Str("tool", v.Function.Name).Str("id", v.ID).Msg("skipping tool call with empty arguments")
+					continue
+				}
 				sig := ""
 				if gemini {
 					sig = extractThoughtSignature(v.RawJSON())
@@ -447,6 +452,11 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 					ThoughtSignature: sig,
 				})
 			case sdk.ChatCompletionMessageCustomToolCall:
+				// Skip tool calls with empty input to prevent JSON unmarshal errors
+				if v.Custom.Input == "" {
+					log.Warn().Str("tool", v.Custom.Name).Str("id", v.ID).Msg("skipping tool call with empty input")
+					continue
+				}
 				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
 					Name: v.Custom.Name,
 					Args: json.RawMessage(v.Custom.Input),
@@ -608,7 +618,7 @@ func (c *Client) chatGeminiRaw(ctx context.Context, msgs []llm.Message, tools []
 			if fn, ok := tc.Function["name"].(string); ok {
 				call.Name = fn
 			}
-			if args, ok := tc.Function["arguments"].(string); ok {
+			if args, ok := tc.Function["arguments"].(string); ok && args != "" {
 				call.Args = json.RawMessage(args)
 			}
 			// Extract thought_signature from extra_content
@@ -619,7 +629,12 @@ func (c *Client) chatGeminiRaw(ctx context.Context, msgs []llm.Message, tools []
 					}
 				}
 			}
-			out.ToolCalls = append(out.ToolCalls, call)
+			// Skip tool calls with empty arguments
+			if call.Name != "" && len(call.Args) > 0 {
+				out.ToolCalls = append(out.ToolCalls, call)
+			} else if call.Name != "" {
+				log.Warn().Str("tool", call.Name).Str("id", call.ID).Msg("skipping Gemini tool call with empty arguments")
+			}
 		}
 	}
 
@@ -1095,6 +1110,8 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 			for _, tc := range toolCalls {
 				if tc != nil && tc.Name != "" && len(tc.Args) > 0 {
 					h.OnToolCall(*tc)
+				} else if tc != nil && tc.Name != "" {
+					log.Warn().Str("tool", tc.Name).Str("id", tc.ID).Msg("skipping tool call with empty arguments in stream")
 				}
 			}
 			toolCallsFlushed = true

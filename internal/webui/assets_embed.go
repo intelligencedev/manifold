@@ -9,11 +9,11 @@ import (
 
 const embeddedDistDir = "dist"
 
-// Embed all top-level files and assets, including underscore-prefixed helper chunks
-// Note: files beginning with '_' are excluded unless explicitly matched.
-// The explicit dist/assets/_* pattern ensures Vite's _plugin-vue_export-helper-*.js is embedded.
+// Embed all top-level files and assets
+// Note: files beginning with '_' are excluded by default in embed patterns.
+// If Vite generates underscore-prefixed files, add dist/assets/_* pattern.
 //
-//go:embed dist/* dist/assets/* dist/assets/_*
+//go:embed dist/* dist/assets/*
 var embeddedDist embed.FS
 
 func frontendFS() (fs.FS, error) {

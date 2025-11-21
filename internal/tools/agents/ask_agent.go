@@ -102,8 +102,12 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		SessionID string        `json:"session_id"`
 		ProjectID string        `json:"project_id"`
 	}
+	// Handle empty or nil JSON gracefully
+	if len(raw) == 0 {
+		return map[string]any{"ok": false, "error": "empty arguments: prompt is required"}, nil
+	}
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return nil, err
+		return map[string]any{"ok": false, "error": fmt.Sprintf("invalid arguments: %v", err)}, nil
 	}
 	sessionID := strings.TrimSpace(args.SessionID)
 	switch {

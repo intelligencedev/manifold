@@ -14,7 +14,7 @@ import (
 // Build constructs an llm.Provider based on the configured provider name.
 // - openai: uses the OpenAI client
 // - local: uses the OpenAI client with completions API
-// - anthropic/google: stub providers for future implementation
+// - anthropic/google: providers backed by vendor SDKs
 func Build(cfg config.Config, httpClient *http.Client) (llm.Provider, error) {
 	switch cfg.LLMClient.Provider {
 	case "", "openai":

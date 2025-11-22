@@ -104,6 +104,13 @@
         >
           Result: {{ runOutput }}
         </span>
+        <span
+          v-if="runTimerLabel"
+          class="text-sm font-semibold text-warning whitespace-nowrap"
+          :title="running ? 'Workflow runtime' : 'Duration of the most recent run'"
+        >
+          {{ runTimerLabel }}
+        </span>
         <div class="flex items-center gap-1">
           <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Mode</span>
           <div class="inline-flex overflow-hidden rounded border border-border/60 text-xs">
@@ -602,7 +609,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, provide, ref, watch, markRaw } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch, markRaw } from 'vue'
 import { VueFlow, type Edge, type Node, useVueFlow, type Connection, Panel, type GraphNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
@@ -855,6 +862,10 @@ provide('warppRunning', running)
 provide('warppRunOutput', runOutput)
 provide('warppRunLogs', runLogs)
 let runTraceTimers: ReturnType<typeof setTimeout>[] = []
+const runStartTime = ref<number | null>(null)
+const liveRunElapsedMs = ref(0)
+const lastRunDurationMs = ref<number | null>(null)
+let runTimerInterval: ReturnType<typeof setInterval> | null = null
 // Provide collapse/expand-all signals for nodes to react to
 const collapseAllSeq = ref(0)
 const expandAllSeq = ref(0)
@@ -1249,6 +1260,63 @@ function clearRunTraceTimers() {
   runTraceTimers = []
 }
 
+function formatRunDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const two = (n: number) => n.toString().padStart(2, '0')
+  if (hours > 0) {
+    return `${hours}:${two(minutes)}:${two(seconds)}`
+  }
+  return `${minutes}:${two(seconds)}`
+}
+
+function stopRunTimer(captureDuration: boolean) {
+  if (runTimerInterval) {
+    clearInterval(runTimerInterval)
+    runTimerInterval = null
+  }
+  if (captureDuration && runStartTime.value !== null) {
+    const duration = Math.max(0, Date.now() - runStartTime.value)
+    lastRunDurationMs.value = duration
+    liveRunElapsedMs.value = duration
+  }
+  runStartTime.value = null
+}
+
+function startRunTimer() {
+  stopRunTimer(false)
+  runStartTime.value = Date.now()
+  liveRunElapsedMs.value = 0
+  lastRunDurationMs.value = null
+  runTimerInterval = setInterval(() => {
+    if (runStartTime.value === null) return
+    liveRunElapsedMs.value = Date.now() - runStartTime.value
+  }, 200)
+}
+
+const runTimerLabel = computed(() => {
+  if (running.value) {
+    return `Running: ${formatRunDuration(liveRunElapsedMs.value)}`
+  }
+  if (lastRunDurationMs.value !== null) {
+    return `Last run time: ${formatRunDuration(lastRunDurationMs.value)}`
+  }
+  return ''
+})
+
+watch(
+  running,
+  (isRunning) => {
+    if (isRunning) {
+      startRunTimer()
+    } else {
+      stopRunTimer(runStartTime.value !== null)
+    }
+  },
+)
+
 function resetRunView() {
   clearRunTraceTimers()
   editorMode.value = 'design'
@@ -1396,6 +1464,11 @@ onMounted(async () => {
     // initial fit once the initial load settles
     scheduleFitView()
   }
+})
+
+onBeforeUnmount(() => {
+  stopRunTimer(false)
+  clearRunTraceTimers()
 })
 
 watch(selectedIntent, async (intent) => {

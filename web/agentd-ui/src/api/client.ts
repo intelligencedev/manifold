@@ -60,6 +60,38 @@ export async function fetchTokenMetrics(params?: TokenMetricsParams): Promise<To
   return response.data
 }
 
+export interface TraceMetricRow {
+  traceId?: string
+  name: string
+  model?: string
+  status: string
+  durationMillis?: number
+  timestamp: number
+  promptTokens?: number
+  completionTokens?: number
+  totalTokens?: number
+}
+
+export interface TraceMetricsResponse {
+  timestamp: number
+  windowSeconds?: number
+  source?: string
+  traces: TraceMetricRow[]
+}
+
+export interface TraceMetricsParams {
+  window?: string
+  windowSeconds?: number
+  limit?: number
+}
+
+export async function fetchTraceMetrics(params?: TraceMetricsParams): Promise<TraceMetricsResponse> {
+  const response = await apiClient.get<TraceMetricsResponse>('/metrics/traces', {
+    params,
+  })
+  return response.data
+}
+
 // Projects API --------------------------------------------------------------
 
 export interface ProjectSummary {

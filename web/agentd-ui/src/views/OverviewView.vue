@@ -1,6 +1,9 @@
 <template>
   <section class="grid gap-6 xl:grid-cols-4 xl:auto-rows-[minmax(0,1fr)] min-h-0">
-    <TokenUsagePanel class="xl:col-span-3" />
+    <div class="flex flex-col gap-6 xl:col-span-3 min-h-0">
+      <TokenUsagePanel />
+      <TracesPanel />
+    </div>
     <div class="flex flex-col gap-6 self-start xl:col-span-1">
       <div
         v-for="stat in headlineStats"
@@ -19,6 +22,7 @@
 import { computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import TokenUsagePanel from '@/components/observability/TokenUsagePanel.vue'
+import TracesPanel from '@/components/observability/TracesPanel.vue'
 import { fetchAgentRuns, fetchAgentStatus, listSpecialists } from '@/api/client'
 
 const { data: agentData } = useQuery({

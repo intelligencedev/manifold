@@ -11,7 +11,9 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -32,8 +34,11 @@ var (
 )
 
 const (
+	llmTracerName         = "internal/llm"
 	tokenBucketResolution = time.Minute
 	tokenBucketRetention  = 45 * 24 * time.Hour
+	traceRetention        = 45 * 24 * time.Hour
+	maxTraceEntries       = 2000
 )
 
 type tokenBucket struct {
@@ -42,6 +47,30 @@ type tokenBucket struct {
 }
 
 var timeNow = time.Now
+
+// TraceSnapshot represents a completed LLM span for UI consumption.
+type TraceSnapshot struct {
+	TraceID          string `json:"traceId,omitempty"`
+	Name             string `json:"name"`
+	Model            string `json:"model,omitempty"`
+	Status           string `json:"status"`
+	DurationMillis   int64  `json:"durationMillis"`
+	Timestamp        int64  `json:"timestamp"`
+	PromptTokens     int64  `json:"promptTokens,omitempty"`
+	CompletionTokens int64  `json:"completionTokens,omitempty"`
+	TotalTokens      int64  `json:"totalTokens,omitempty"`
+}
+
+type traceRecord struct {
+	snapshot   TraceSnapshot
+	recordedAt time.Time
+}
+
+var (
+	traceOnce    sync.Once
+	tracesMu     sync.RWMutex
+	traceRecords []traceRecord
+)
 
 // ensureTokenInstruments lazily initializes OTel instruments once a provider
 // has been installed (InitOTel should run before first use in normal startup).
@@ -56,6 +85,17 @@ func ensureTokenInstruments() {
 		completionCounter, err = m.Int64Counter("llm.completion_tokens", otelmetric.WithDescription("Cumulative completion tokens by model"))
 		if err != nil {
 		}
+	})
+}
+
+func ensureTraceProcessor() {
+	traceOnce.Do(func() {
+		tp, ok := otel.GetTracerProvider().(*sdktrace.TracerProvider)
+		if !ok {
+			tp = sdktrace.NewTracerProvider()
+			otel.SetTracerProvider(tp)
+		}
+		tp.RegisterSpanProcessor(&llmTraceProcessor{})
 	})
 }
 
@@ -233,7 +273,8 @@ func ConfigureLogging(enable bool, truncate int) {
 
 // StartRequestSpan starts a tracer span for an LLM request and sets common attributes.
 func StartRequestSpan(ctx context.Context, operation string, model string, tools int, messages int) (context.Context, trace.Span) {
-	ctx, span := otel.Tracer("internal/llm").Start(ctx, operation)
+	ensureTraceProcessor()
+	ctx, span := otel.Tracer(llmTracerName).Start(ctx, operation)
 	span.SetAttributes(attribute.String("llm.model", model), attribute.Int("llm.tools", tools), attribute.Int("llm.messages", messages))
 	return ctx, span
 }
@@ -308,4 +349,141 @@ func RecordTokenAttributes(span trace.Span, promptTokens, completionTokens, tota
 		// only updates OTel attributes; metric aggregation done at call-sites where
 		// model string is available. (No-op here.)
 	}
+}
+
+// TracesForWindow returns completed LLM traces limited to the requested window,
+// ordered from newest to oldest. A zero window returns all retained traces up
+// to the configured maximum.
+func TracesForWindow(window time.Duration, limit int) ([]TraceSnapshot, time.Duration) {
+	tracesMu.RLock()
+	defer tracesMu.RUnlock()
+
+	if limit <= 0 || limit > maxTraceEntries {
+		limit = maxTraceEntries
+	}
+
+	now := timeNow().UTC()
+	var cutoff time.Time
+	if window > 0 {
+		cutoff = now.Add(-window)
+	}
+
+	out := make([]TraceSnapshot, 0, min(limit, len(traceRecords)))
+	var earliest time.Time
+
+	for i := len(traceRecords) - 1; i >= 0; i-- {
+		rec := traceRecords[i]
+		if !cutoff.IsZero() && rec.recordedAt.Before(cutoff) {
+			break
+		}
+		out = append(out, rec.snapshot)
+		if earliest.IsZero() || rec.recordedAt.Before(earliest) {
+			earliest = rec.recordedAt
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+
+	var applied time.Duration
+	if window > 0 && !earliest.IsZero() {
+		available := now.Sub(earliest)
+		if available < window {
+			applied = available
+		} else {
+			applied = window
+		}
+	}
+
+	return out, applied
+}
+
+func recordTrace(rec traceRecord) {
+	tracesMu.Lock()
+	defer tracesMu.Unlock()
+
+	traceRecords = append(traceRecords, rec)
+
+	cutoff := timeNow().Add(-traceRetention)
+	writeIdx := 0
+	for _, existing := range traceRecords {
+		if existing.recordedAt.After(cutoff) || existing.recordedAt.Equal(cutoff) {
+			traceRecords[writeIdx] = existing
+			writeIdx++
+		}
+	}
+	traceRecords = traceRecords[:writeIdx]
+
+	if len(traceRecords) > maxTraceEntries {
+		traceRecords = append([]traceRecord(nil), traceRecords[len(traceRecords)-maxTraceEntries:]...)
+	}
+}
+
+func resetTraceMetricsState() {
+	tracesMu.Lock()
+	defer tracesMu.Unlock()
+	traceRecords = nil
+}
+
+type llmTraceProcessor struct{}
+
+func (p *llmTraceProcessor) OnStart(context.Context, sdktrace.ReadWriteSpan) {}
+
+func (p *llmTraceProcessor) OnEnd(s sdktrace.ReadOnlySpan) {
+	scope := s.InstrumentationScope()
+	if scope.Name != llmTracerName {
+		return
+	}
+
+	traceID := s.SpanContext().TraceID()
+	attrs := s.Attributes()
+	var model string
+	var promptTokens, completionTokens, totalTokens int64
+	for _, attr := range attrs {
+		switch attr.Key {
+		case "llm.model":
+			model = attr.Value.AsString()
+		case "llm.prompt_tokens":
+			promptTokens = attr.Value.AsInt64()
+		case "llm.completion_tokens":
+			completionTokens = attr.Value.AsInt64()
+		case "llm.total_tokens":
+			totalTokens = attr.Value.AsInt64()
+		}
+	}
+	if totalTokens == 0 {
+		totalTokens = promptTokens + completionTokens
+	}
+
+	status := "ok"
+	if s.Status().Code == codes.Error {
+		status = "error"
+	}
+	duration := s.EndTime().Sub(s.StartTime())
+	rec := traceRecord{
+		snapshot: TraceSnapshot{
+			TraceID:          traceID.String(),
+			Name:             s.Name(),
+			Model:            model,
+			Status:           status,
+			DurationMillis:   duration.Milliseconds(),
+			Timestamp:        s.EndTime().Unix(),
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
+		},
+		recordedAt: s.EndTime(),
+	}
+	recordTrace(rec)
+}
+
+func (p *llmTraceProcessor) Shutdown(context.Context) error { return nil }
+
+func (p *llmTraceProcessor) ForceFlush(context.Context) error { return nil }
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

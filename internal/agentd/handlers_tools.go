@@ -22,6 +22,13 @@ type tokenMetricsResponse struct {
 	Models        []llmpkg.TokenTotal `json:"models"`
 }
 
+type traceMetricsResponse struct {
+	Timestamp     int64                  `json:"timestamp"`
+	WindowSeconds int64                  `json:"windowSeconds,omitempty"`
+	Source        string                 `json:"source"`
+	Traces        []llmpkg.TraceSnapshot `json:"traces"`
+}
+
 func (a *app) metricsTokensHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.Auth.Enabled {
@@ -72,6 +79,46 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 		}
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Warn().Err(err).Msg("failed to encode token metrics response")
+		}
+	}
+}
+
+func (a *app) metricsTracesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.cfg.Auth.Enabled {
+			if _, ok := auth.CurrentUser(r.Context()); !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		window, err := parseWindowParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		limit := parseLimitParam(r, 200)
+
+		traces, applied := llmpkg.TracesForWindow(window, limit)
+		resp := traceMetricsResponse{
+			Timestamp: time.Now().Unix(),
+			Source:    "process",
+			Traces:    traces,
+		}
+		if applied > 0 {
+			resp.WindowSeconds = int64(applied.Seconds())
+		} else if window > 0 {
+			resp.WindowSeconds = int64(window.Seconds())
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Warn().Err(err).Msg("failed to encode trace metrics response")
 		}
 	}
 }
@@ -129,6 +176,17 @@ func parseFlexibleDuration(raw string) (time.Duration, error) {
 		return 0, errors.New("duration underflows")
 	}
 	return dur, nil
+}
+
+func parseLimitParam(r *http.Request, defaultValue int) int {
+	raw := strings.TrimSpace(r.URL.Query().Get("limit"))
+	if raw == "" {
+		return defaultValue
+	}
+	if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+		return v
+	}
+	return defaultValue
 }
 
 func (a *app) warppToolsHandler() http.HandlerFunc {

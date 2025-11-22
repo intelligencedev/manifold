@@ -71,8 +71,8 @@
       </div>
 
       <!-- Front content -->
-      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
-        <div class="space-y-2">
+      <div class="mt-3 warpp-utility-content flex flex-col h-full" :class="collapsed ? 'hidden' : ''">
+        <div class="flex-1 space-y-2 overflow-auto">
           <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
             Display Label
             <input
@@ -108,16 +108,15 @@
               v-if="isDesignMode"
               v-model="contentText"
               rows="4"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full h-[92px] resize-none whitespace-pre-wrap break-words"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full flex-1 min-h-[92px] resize-none whitespace-pre-wrap break-words"
               placeholder="Enter static text or use ${A.key} placeholders"
               @input="markDirty"
               @wheel.stop
-            >
-            </textarea>
+            ></textarea>
             <div
               v-else
               :class="[
-                isAgentResponse ? 'h-[120px]' : 'h-[92px]',
+                'flex-1',
                 'rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground overflow-auto w-full',
               ]"
               style="contain: content; overflow-wrap: anywhere;"
@@ -568,19 +567,19 @@ function onResizeEnd(event: OnResizeEnd) {
   if (!isDesignMode.value) return
   const widthPx = `${Math.round(event.params.width)}px`
   const heightPx = `${Math.round(event.params.height)}px`
-  updateNode(props.id, (node) => {
-    const baseStyle: CSSProperties =
-      typeof node.style === 'function' ? (node.style(node) as CSSProperties) ?? {} : { ...(node.style ?? {}) }
-    return {
-      style: {
-        ...baseStyle,
-        width: widthPx,
-        height: heightPx,
-        minWidth: UTILITY_MIN_WIDTH_PX,
-        minHeight: UTILITY_MIN_HEIGHT_PX,
-      },
-    }
-  })
+    updateNode(props.id, (node) => {
+      const baseStyle: CSSProperties =
+        typeof node.style === 'function' ? (node.style(node) as CSSProperties) ?? {} : { ...(node.style ?? {}) }
+      return {
+        style: {
+          ...baseStyle,
+          width: widthPx,
+          height: heightPx,
+          minWidth: px(UTILITY_MIN_WIDTH),
+          minHeight: px(UTILITY_MIN_HEIGHT),
+        },
+      }
+    })
   isDirty.value = true
 }
 watch(expandAllSeq, (v) => {

@@ -169,6 +169,7 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 		// Accumulate streaming content for this step
 		var accumulatedContent string
 		var accumulatedToolCalls []llm.ToolCall
+		var accumulatedImages []llm.GeneratedImage
 
 		handler := &streamHandler{
 			onDelta: func(content string) {
@@ -179,6 +180,9 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			},
 			onToolCall: func(tc llm.ToolCall) {
 				accumulatedToolCalls = append(accumulatedToolCalls, tc)
+			},
+			onImage: func(img llm.GeneratedImage) {
+				accumulatedImages = append(accumulatedImages, img)
 			},
 		}
 
@@ -201,6 +205,7 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 			Role:      "assistant",
 			Content:   accumulatedContent,
 			ToolCalls: accumulatedToolCalls,
+			Images:    accumulatedImages,
 		}
 
 		msgs = append(msgs, msg)
@@ -266,6 +271,7 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 type streamHandler struct {
 	onDelta    func(string)
 	onToolCall func(llm.ToolCall)
+	onImage    func(llm.GeneratedImage)
 }
 
 func (h *streamHandler) OnDelta(content string) {
@@ -277,6 +283,12 @@ func (h *streamHandler) OnDelta(content string) {
 func (h *streamHandler) OnToolCall(tc llm.ToolCall) {
 	if h.onToolCall != nil {
 		h.onToolCall(tc)
+	}
+}
+
+func (h *streamHandler) OnImage(img llm.GeneratedImage) {
+	if h.onImage != nil {
+		h.onImage(img)
 	}
 }
 

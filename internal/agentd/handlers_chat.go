@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"os"
 
 	"github.com/rs/zerolog/log"
 
@@ -354,6 +353,8 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			Prompt    string `json:"prompt"`
 			SessionID string `json:"session_id,omitempty"`
 			ProjectID string `json:"project_id,omitempty"`
+			Image     bool   `json:"image,omitempty"`
+			ImageSize string `json:"image_size,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -400,6 +401,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
+		}
+		if req.Image {
+			r = r.WithContext(llm.WithImagePrompt(r.Context(), llm.ImagePromptOptions{Size: req.ImageSize}))
+		}
+		if req.Image {
+			r = r.WithContext(llm.WithImagePrompt(r.Context(), llm.ImagePromptOptions{Size: req.ImageSize}))
 		}
 
 		specOwner := systemUserID
@@ -509,11 +516,16 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
 			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+			if req.Image {
+				ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+			}
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", true).Msg("using configured stream timeout")
 			} else {
 				log.Debug().Str("endpoint", "/agent/run").Bool("stream", true).Msg("no timeout configured; running until completion")
 			}
+			baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+			var savedImages []savedImage
 
 			eng.OnDelta = func(d string) {
 				payload := map[string]string{"type": "delta", "data": d}
@@ -565,6 +577,36 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					}
 				}
 			}
+			eng.OnAssistant = func(msg llm.Message) {
+				if len(msg.Images) == 0 {
+					return
+				}
+				saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+				if len(saved) == 0 {
+					return
+				}
+				savedImages = append(savedImages, saved...)
+				for _, img := range saved {
+					payload := map[string]any{
+						"type":     "image",
+						"name":     img.Name,
+						"mime":     img.MIME,
+						"data_url": img.DataURL,
+					}
+					if img.URL != "" {
+						payload["url"] = img.URL
+					}
+					if img.RelPath != "" {
+						payload["rel_path"] = img.RelPath
+					}
+					if img.FullPath != "" {
+						payload["file_path"] = img.FullPath
+					}
+					b, _ := json.Marshal(payload)
+					fmt.Fprintf(w, "data: %s\n\n", b)
+					fl.Flush()
+				}
+			}
 
 			res, err := eng.RunStream(ctx, req.Prompt, history)
 			if err != nil {
@@ -577,6 +619,9 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				fl.Flush()
 				a.runs.updateStatus(currentRun.ID, "failed", 0)
 				return
+			}
+			if len(savedImages) > 0 {
+				res = appendImageSummary(res, savedImages)
 			}
 			payload := map[string]string{"type": "final", "data": res}
 			b, _ := json.Marshal(payload)
@@ -593,10 +638,25 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
 		ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+		if req.Image {
+			ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+		}
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", false).Msg("using configured agent timeout")
 		} else {
 			log.Debug().Str("endpoint", "/agent/run").Bool("stream", false).Msg("no timeout configured; running until completion")
+		}
+		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+		var savedImages []savedImage
+		eng.OnAssistant = func(msg llm.Message) {
+			if len(msg.Images) == 0 {
+				return
+			}
+			saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+			if len(saved) == 0 {
+				return
+			}
+			savedImages = append(savedImages, saved...)
 		}
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
@@ -604,6 +664,9 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			a.runs.updateStatus(currentRun.ID, "failed", 0)
 			return
+		}
+		if len(savedImages) > 0 {
+			result = appendImageSummary(result, savedImages)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
@@ -651,6 +714,8 @@ func (a *app) promptHandler() http.HandlerFunc {
 			Prompt    string `json:"prompt"`
 			SessionID string `json:"session_id,omitempty"`
 			ProjectID string `json:"project_id,omitempty"`
+			Image     bool   `json:"image,omitempty"`
+			ImageSize string `json:"image_size,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("decode prompt: %v", err)
@@ -744,6 +809,11 @@ func (a *app) promptHandler() http.HandlerFunc {
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
 			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+			if req.Image {
+				ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+			}
+			baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+			var savedImages []savedImage
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", true).Msg("using configured stream timeout")
 			} else {
@@ -798,6 +868,36 @@ func (a *app) promptHandler() http.HandlerFunc {
 					}
 				}
 			}
+			eng.OnAssistant = func(msg llm.Message) {
+				if len(msg.Images) == 0 {
+					return
+				}
+				saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+				if len(saved) == 0 {
+					return
+				}
+				savedImages = append(savedImages, saved...)
+				for _, img := range saved {
+					payload := map[string]any{
+						"type":     "image",
+						"name":     img.Name,
+						"mime":     img.MIME,
+						"data_url": img.DataURL,
+					}
+					if img.URL != "" {
+						payload["url"] = img.URL
+					}
+					if img.RelPath != "" {
+						payload["rel_path"] = img.RelPath
+					}
+					if img.FullPath != "" {
+						payload["file_path"] = img.FullPath
+					}
+					b, _ := json.Marshal(payload)
+					fmt.Fprintf(w, "data: %s\n\n", b)
+					fl.Flush()
+				}
+			}
 
 			prun := a.runs.create(req.Prompt)
 			res, err := eng.RunStream(ctx, req.Prompt, history)
@@ -811,6 +911,9 @@ func (a *app) promptHandler() http.HandlerFunc {
 				fl.Flush()
 				a.runs.updateStatus(prun.ID, "failed", 0)
 				return
+			}
+			if len(savedImages) > 0 {
+				res = appendImageSummary(res, savedImages)
 			}
 			payload := map[string]string{"type": "final", "data": res}
 			b, _ := json.Marshal(payload)
@@ -827,18 +930,36 @@ func (a *app) promptHandler() http.HandlerFunc {
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
 		ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+		if req.Image {
+			ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+		}
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", false).Msg("using configured agent timeout")
 		} else {
 			log.Debug().Str("endpoint", "/api/prompt").Bool("stream", false).Msg("no timeout configured; running until completion")
 		}
 		prun := a.runs.create(req.Prompt)
+		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+		var savedImages []savedImage
+		eng.OnAssistant = func(msg llm.Message) {
+			if len(msg.Images) == 0 {
+				return
+			}
+			saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+			if len(saved) == 0 {
+				return
+			}
+			savedImages = append(savedImages, saved...)
+		}
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
 			log.Error().Err(err).Msg("agent run error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			return
+		}
+		if len(savedImages) > 0 {
+			result = appendImageSummary(result, savedImages)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
@@ -903,6 +1024,11 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
 		ctx = specialists_tool.WithRegistry(ctx, reg)
+		if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
+			ctx = llm.WithImagePrompt(ctx, opts)
+		}
+		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+		var savedImages []savedImage
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Bool("stream", true).Msg("using configured stream timeout")
 		} else {
@@ -961,6 +1087,33 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 				}
 			}
 		}
+		eng.OnAssistant = func(msg llm.Message) {
+			if len(msg.Images) == 0 {
+				return
+			}
+			saved := saveGeneratedImages(baseDir, msg.Images, "")
+			if len(saved) == 0 {
+				return
+			}
+			savedImages = append(savedImages, saved...)
+			for _, img := range saved {
+				payload := map[string]any{
+					"type":     "image",
+					"name":     img.Name,
+					"mime":     img.MIME,
+					"data_url": img.DataURL,
+				}
+				if img.RelPath != "" {
+					payload["rel_path"] = img.RelPath
+				}
+				if img.FullPath != "" {
+					payload["file_path"] = img.FullPath
+				}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+		}
 
 		res, err := eng.RunStream(ctx, prompt, history)
 		if err != nil {
@@ -973,6 +1126,9 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			fl.Flush()
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			return true
+		}
+		if len(savedImages) > 0 {
+			res = appendImageSummary(res, savedImages)
 		}
 		payload := map[string]string{"type": "final", "data": res}
 		b, _ := json.Marshal(payload)
@@ -989,6 +1145,9 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 	defer cancel()
 	ctx = specialists_tool.WithRegistry(ctx, reg)
+	if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
+		ctx = llm.WithImagePrompt(ctx, opts)
+	}
 	if dur > 0 {
 		log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Msg("using configured agent timeout")
 	} else {
@@ -996,12 +1155,27 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	}
 	prun := a.runs.create(prompt)
 	eng := buildEngine()
+	baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+	var savedImages []savedImage
+	eng.OnAssistant = func(msg llm.Message) {
+		if len(msg.Images) == 0 {
+			return
+		}
+		saved := saveGeneratedImages(baseDir, msg.Images, "")
+		if len(saved) == 0 {
+			return
+		}
+		savedImages = append(savedImages, saved...)
+	}
 	out, err := eng.Run(ctx, prompt, history)
 	if err != nil {
 		log.Error().Err(err).Str("specialist", name).Msg("specialist_inference_error")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		a.runs.updateStatus(prun.ID, "failed", 0)
 		return true
+	}
+	if len(savedImages) > 0 {
+		out = appendImageSummary(out, savedImages)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"result": out})

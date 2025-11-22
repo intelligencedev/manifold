@@ -8,6 +8,7 @@ export type ChatStreamEventType =
   | "tool_result"
   | "tts_chunk"
   | "tts_audio"
+  | "image"
   | "error";
 
 export interface ChatStreamEvent {
@@ -20,6 +21,10 @@ export interface ChatStreamEvent {
   b64?: string;
   url?: string;
   file_path?: string;
+  data_url?: string;
+  rel_path?: string;
+  mime?: string;
+  name?: string;
   [key: string]: unknown;
 }
 
@@ -35,6 +40,9 @@ export interface StreamAgentRunOptions {
   // Optional project context: when provided, backend will sandbox tools under
   // the user's project root and attach { project_id } in the JSON body.
   projectId?: string;
+  // When true, request image output from providers that support it (e.g., Google Gemini).
+  image?: boolean;
+  imageSize?: string;
 }
 
 export async function listChatSessions(): Promise<ChatSessionMeta[]> {
@@ -103,6 +111,8 @@ export async function streamAgentRun(
   const fetchFn = fetchImpl ?? fetch;
   const payload: Record<string, any> = { prompt, session_id: sessionId };
   if (projectId && projectId.trim()) payload.project_id = projectId.trim();
+  if (options.image) payload.image = true;
+  if (options.imageSize && options.imageSize.trim()) payload.image_size = options.imageSize.trim();
   const decoder = new TextDecoder();
 
   let response: Response;

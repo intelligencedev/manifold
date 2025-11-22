@@ -13,6 +13,7 @@ type collectHandler struct {
 
 func (c *collectHandler) OnDelta(s string)           { c.Deltas = append(c.Deltas, s) }
 func (c *collectHandler) OnToolCall(tc llm.ToolCall) {}
+func (c *collectHandler) OnImage(llm.GeneratedImage) {}
 
 func TestFakeProvider_Chat(t *testing.T) {
 	fp := &FakeProvider{Resp: llm.Message{Role: "assistant", Content: "ok"}}

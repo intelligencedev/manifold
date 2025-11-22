@@ -233,7 +233,7 @@ export const useChatStore = defineStore('chat', () => {
     text: string,
     attachments: ChatAttachment[] = [],
     filesByAttachment?: FilesByAttachment,
-    options: { echoUser?: boolean; specialist?: string; projectId?: string } = {},
+    options: { echoUser?: boolean; specialist?: string; projectId?: string; image?: boolean; imageSize?: string } = {},
   ) {
     const content = (text || '').trim()
     if ((!content && !attachments.length) || isStreaming.value) return
@@ -306,6 +306,8 @@ export const useChatStore = defineStore('chat', () => {
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
           specialist: options.specialist,
           projectId: options.projectId,
+          image: options.image,
+          imageSize: options.imageSize,
         })
       }
     } catch (error: any) {
@@ -406,6 +408,37 @@ export const useChatStore = defineStore('chat', () => {
             )
           }
         }
+        break
+      }
+      case 'image': {
+        const name =
+          typeof event.name === 'string' && event.name.trim()
+            ? event.name.trim()
+            : 'generated image'
+        const mime = typeof event.mime === 'string' ? event.mime : undefined
+        const relPath = typeof event.rel_path === 'string' ? event.rel_path : undefined
+        const filePath = typeof event.file_path === 'string' ? event.file_path : undefined
+        const url = typeof event.url === 'string' ? event.url : undefined
+        const dataUrl = typeof event.data_url === 'string' ? event.data_url : undefined
+        const previewUrl = dataUrl || url || relPath || filePath
+        const savedPath = relPath || filePath || url
+        updateMessage(sessionId, assistantId, (m) => {
+          const attachments = [...(m.attachments || [])]
+          attachments.push({
+            id: crypto.randomUUID(),
+            kind: 'image',
+            name: name || savedPath || 'image',
+            mime,
+            previewUrl: previewUrl || undefined,
+            path: savedPath,
+          })
+          let content = m.content
+          if (savedPath && !content.includes(savedPath)) {
+            const note = `Image saved: ${savedPath}`
+            content = content ? `${content}\n\n${note}` : note
+          }
+          return { ...m, attachments, content }
+        })
         break
       }
       case 'tts_chunk':

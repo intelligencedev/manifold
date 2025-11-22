@@ -63,11 +63,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		return llm.Message{}, err
 	}
 
-	resp, err := c.client.Models.GenerateContent(ctx, c.pickModel(model), contents, &genai.GenerateContentConfig{
-		HTTPOptions: &c.httpOptions,
-		Tools:       toolDecls,
-		ToolConfig:  toolCfg,
-	})
+	resp, err := c.client.Models.GenerateContent(ctx, c.pickModel(model), contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
 	if err != nil {
 		return llm.Message{}, err
 	}
@@ -85,11 +81,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		return err
 	}
 
-	stream := c.client.Models.GenerateContentStream(ctx, c.pickModel(model), contents, &genai.GenerateContentConfig{
-		HTTPOptions: &c.httpOptions,
-		Tools:       toolDecls,
-		ToolConfig:  toolCfg,
-	})
+	stream := c.client.Models.GenerateContentStream(ctx, c.pickModel(model), contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
 
 	for resp, err := range stream {
 		if err != nil {
@@ -99,8 +91,13 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		if err != nil {
 			return err
 		}
-		if h != nil && msg.Content != "" {
-			h.OnDelta(msg.Content)
+		if h != nil {
+			if msg.Content != "" {
+				h.OnDelta(msg.Content)
+			}
+			for _, img := range msg.Images {
+				h.OnImage(img)
+			}
 		}
 		for _, tc := range msg.ToolCalls {
 			if h != nil {
@@ -117,6 +114,25 @@ func (c *Client) pickModel(model string) string {
 		return c.model
 	}
 	return m
+}
+
+func (c *Client) buildContentConfig(ctx context.Context, tools []*genai.Tool, toolCfg *genai.ToolConfig) *genai.GenerateContentConfig {
+	cfg := &genai.GenerateContentConfig{
+		HTTPOptions: &c.httpOptions,
+		Tools:       tools,
+		ToolConfig:  toolCfg,
+	}
+	if opts, ok := llm.ImagePromptFromContext(ctx); ok {
+		size := strings.TrimSpace(opts.Size)
+		if size == "" {
+			size = "1K"
+		}
+		cfg.ResponseModalities = []string{"IMAGE", "TEXT"}
+		cfg.ImageConfig = &genai.ImageConfig{
+			ImageSize: size,
+		}
+	}
+	return cfg
 }
 
 func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error) {
@@ -219,10 +235,17 @@ func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, erro
 	content := resp.Candidates[0].Content
 	var sb strings.Builder
 	var tcs []llm.ToolCall
+	var images []llm.GeneratedImage
 	callIdx := 0
 	for _, part := range content.Parts {
 		if part == nil {
 			continue
+		}
+		if part.InlineData != nil {
+			images = append(images, llm.GeneratedImage{
+				Data:     part.InlineData.Data,
+				MIMEType: part.InlineData.MIMEType,
+			})
 		}
 		if part.Text != "" {
 			sb.WriteString(part.Text)
@@ -251,6 +274,12 @@ func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, erro
 				return nil
 			}
 			return tcs
+		}(),
+		Images: func() []llm.GeneratedImage {
+			if len(images) == 0 {
+				return nil
+			}
+			return images
 		}(),
 	}, nil
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	sdk "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go/v2/packages/param"
 	rs "github.com/openai/openai-go/v2/responses"
 	"github.com/openai/openai-go/v2/shared"
 
@@ -342,6 +344,10 @@ func extractReasoningEffort(extra map[string]any) (shared.ReasoningEffort, bool)
 
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
+		return c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
+	}
+
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatResponses(ctx, msgs, tools, model, nil)
 	}
@@ -962,6 +968,21 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 
 // ChatStream implements streaming chat completions using OpenAI's streaming API.
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
+		msg, err := c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
+		if err != nil {
+			return err
+		}
+		if h != nil {
+			if strings.TrimSpace(msg.Content) != "" {
+				h.OnDelta(msg.Content)
+			}
+			for _, img := range msg.Images {
+				h.OnImage(img)
+			}
+		}
+		return nil
+	}
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatStreamResponses(ctx, msgs, tools, model, h)
 	}
@@ -1359,6 +1380,97 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	}
 	observability.LoggerWithTrace(ctx).Debug().Dur("duration", dur).Msg("chat_stream_sse_fallback_ok")
 	return nil
+}
+
+func (c *Client) chatWithImageGeneration(ctx context.Context, msgs []llm.Message, model string, opts llm.ImagePromptOptions) (llm.Message, error) {
+	prompt := lastUserPrompt(msgs)
+	if strings.TrimSpace(prompt) == "" {
+		return llm.Message{}, fmt.Errorf("image generation requires a user prompt")
+	}
+
+	imgModel := c.imageModel(model)
+	size := normalizeImageSize(opts.Size)
+
+	log := observability.LoggerWithTrace(ctx)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ImageGen", imgModel, 0, len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	params := sdk.ImageGenerateParams{
+		Prompt: prompt,
+		Model:  sdk.ImageModel(imgModel),
+		N:      param.NewOpt[int64](1),
+		Size:   sdk.ImageGenerateParamsSize(size),
+	}
+
+	start := time.Now()
+	resp, err := c.sdk.Images.Generate(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", imgModel).Dur("duration", dur).Msg("image_generation_error")
+		span.RecordError(err)
+		return llm.Message{}, err
+	}
+	images := make([]llm.GeneratedImage, 0, len(resp.Data))
+	for _, img := range resp.Data {
+		if strings.TrimSpace(img.B64JSON) == "" {
+			continue
+		}
+		data, err := base64.StdEncoding.DecodeString(img.B64JSON)
+		if err != nil {
+			log.Warn().Err(err).Msg("decode_generated_image")
+			continue
+		}
+		images = append(images, llm.GeneratedImage{
+			Data:     data,
+			MIMEType: "image/png",
+		})
+	}
+	log.Debug().Str("model", imgModel).Dur("duration", dur).Int("images", len(images)).Msg("image_generation_ok")
+
+	content := "Generated image"
+	if len(images) > 1 {
+		content = fmt.Sprintf("Generated %d images", len(images))
+	}
+	return llm.Message{Role: "assistant", Content: content, Images: images}, nil
+}
+
+func lastUserPrompt(msgs []llm.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.EqualFold(msgs[i].Role, "user") && strings.TrimSpace(msgs[i].Content) != "" {
+			return msgs[i].Content
+		}
+	}
+	return ""
+}
+
+func normalizeImageSize(raw string) string {
+	r := strings.TrimSpace(raw)
+	switch strings.ToUpper(r) {
+	case "1K", "1024", "1024X1024":
+		return "1024x1024"
+	case "1024X1792", "PORTRAIT":
+		return "1024x1792"
+	case "1792X1024", "LANDSCAPE":
+		return "1792x1024"
+	default:
+		if r == "" {
+			return "1024x1024"
+		}
+		return r
+	}
+}
+
+func (c *Client) imageModel(model string) string {
+	m := strings.TrimSpace(firstNonEmpty(model, c.model))
+	if m == "" {
+		m = "gpt-image-1"
+	}
+	lower := strings.ToLower(m)
+	if strings.Contains(lower, "gpt-image") || strings.Contains(lower, "dall-e") {
+		return m
+	}
+	return "gpt-image-1"
 }
 
 // ChatWithImageAttachment sends a chat completion with an image attachment.

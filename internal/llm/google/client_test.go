@@ -15,11 +15,15 @@ import (
 type streamRecorder struct {
 	deltas []string
 	calls  []llm.ToolCall
+	images []llm.GeneratedImage
 }
 
 func (s *streamRecorder) OnDelta(content string) { s.deltas = append(s.deltas, content) }
 func (s *streamRecorder) OnToolCall(tc llm.ToolCall) {
 	s.calls = append(s.calls, tc)
+}
+func (s *streamRecorder) OnImage(img llm.GeneratedImage) {
+	s.images = append(s.images, img)
 }
 
 func TestChatSuccess(t *testing.T) {
@@ -286,5 +290,77 @@ func TestFunctionCallIDGeneratedWhenMissing(t *testing.T) {
 	frPart := contents[2].(map[string]any)["parts"].([]any)[0].(map[string]any)
 	if frName := frPart["functionResponse"].(map[string]any)["name"]; frName != "lookup" {
 		t.Fatalf("expected functionResponse name lookup, got %v", frName)
+	}
+}
+
+func TestChatImageInlineData(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}},{"text":"done"}]}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	ctx := llm.WithImagePrompt(context.Background(), llm.ImagePromptOptions{Size: "1K"})
+	msg, err := client.Chat(ctx, []llm.Message{{Role: "user", Content: "make an image"}}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	if msg.Content != "done" {
+		t.Fatalf("unexpected content %q", msg.Content)
+	}
+	if len(msg.Images) != 1 {
+		t.Fatalf("expected one image, got %d", len(msg.Images))
+	}
+	if msg.Images[0].MIMEType != "image/png" {
+		t.Fatalf("unexpected mime %q", msg.Images[0].MIMEType)
+	}
+	if string(msg.Images[0].Data) != "hello" {
+		t.Fatalf("unexpected image data %q", string(msg.Images[0].Data))
+	}
+	// ensure responseModalities/imageConfig were sent when image prompt is requested
+	if modes, ok := body["responseModalities"].([]any); !ok || len(modes) != 2 {
+		t.Fatalf("expected responseModalities with two entries, got %#v", body["responseModalities"])
+	}
+	imgCfg, ok := body["imageConfig"].(map[string]any)
+	if !ok || imgCfg["imageSize"] != "1K" {
+		t.Fatalf("expected imageConfig with size 1K, got %#v", body["imageConfig"])
+	}
+}
+
+func TestChatStreamEmitsImages(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		chunk := `{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/jpeg","data":"Yg=="}}]}}]}`
+		_, _ = w.Write([]byte("data: " + chunk + "\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	rec := &streamRecorder{}
+	ctx := llm.WithImagePrompt(context.Background(), llm.ImagePromptOptions{})
+	if err := client.ChatStream(ctx, []llm.Message{{Role: "user", Content: "image please"}}, nil, "", rec); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+	if len(rec.images) != 1 {
+		t.Fatalf("expected one image, got %d", len(rec.images))
+	}
+	if string(rec.images[0].Data) != "b" {
+		t.Fatalf("unexpected image data %q", string(rec.images[0].Data))
 	}
 }

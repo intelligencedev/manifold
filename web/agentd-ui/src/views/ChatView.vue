@@ -220,7 +220,8 @@
                     :key="img.id"
                     :src="img.previewUrl"
                     :alt="img.name"
-                    class="h-16 w-16 rounded object-cover border border-border"
+                    class="h-16 w-16 rounded object-cover border border-border cursor-zoom-in"
+                    @click="openImageModal(img)"
                   />
                 </div>
                 <div
@@ -441,9 +442,52 @@
                 </span>
               </div>
             </div>
+            <div
+              class="mt-2 flex items-center gap-2 text-xs text-subtle-foreground"
+            >
+              <label class="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  v-model="imagePrompt"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-border bg-surface-muted text-accent focus:ring-0"
+                  :disabled="!projectSelected || isStreaming"
+                />
+                <span class="select-none"
+                  >Generate image</span
+                >
+              </label>
+            </div>
           </form>
         </footer>
       </section>
+
+      <!-- Image modal -->
+      <div
+        v-if="showImageModal && modalImage"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        @click.self="closeImageModal"
+      >
+        <div class="relative max-h-[90vh] max-w-[90vw] rounded-5 bg-surface p-4 shadow-3 ring-1 ring-border/60">
+          <button
+            type="button"
+            class="absolute right-3 top-3 rounded-full bg-surface-muted px-2 py-1 text-sm text-foreground shadow hover:bg-surface"
+            @click="closeImageModal"
+          >
+            ×
+          </button>
+          <div class="flex flex-col items-center gap-3">
+            <img
+              :src="modalImageSrc"
+              :alt="modalImage.name"
+              class="max-h-[70vh] max-w-[80vw] rounded border border-border object-contain"
+            />
+            <div class="text-center text-xs text-subtle-foreground">
+              <p class="font-semibold text-foreground">{{ modalImage.name }}</p>
+              <p v-if="modalImage.path">Saved at: {{ modalImage.path }}</p>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Context sidebar -->
       <aside
@@ -621,6 +665,16 @@ const textAttachments = computed(() =>
 const filesByAttachment: Map<string, File> = new Map();
 // Render mode for streamed responses: 'markdown' (default) or 'html'
 const renderMode = ref<"markdown" | "html">("markdown");
+// Toggle to request image generation from providers that support it (e.g., Google Gemini)
+const imagePrompt = ref(false);
+// Image modal state
+const showImageModal = ref(false);
+const modalImage = ref<ChatAttachment | null>(null);
+const modalImageSrc = computed(() => {
+  const img = modalImage.value;
+  if (!img) return "";
+  return img.previewUrl || img.path || "";
+});
 
 // Specialists dropdown state
 const { data: specialistsData } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
@@ -930,7 +984,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   draft.value = options.echoUser === false ? draft.value : "";
   try {
     const specialist = selectedSpecialist.value && selectedSpecialist.value !== 'orchestrator' ? selectedSpecialist.value : undefined
-    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, { ...options, specialist, projectId: selectedProjectId.value || undefined });
+    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, { ...options, specialist, projectId: selectedProjectId.value || undefined, image: imagePrompt.value, imageSize: '1K' });
   } catch (error) {
     // handled in store
   } finally {
@@ -968,6 +1022,16 @@ function copyMessage(message: ChatMessage) {
     .catch(() => {
       copiedMessageId.value = null;
     });
+}
+
+function openImageModal(img: ChatAttachment) {
+  modalImage.value = img;
+  showImageModal.value = true;
+}
+
+function closeImageModal() {
+  showImageModal.value = false;
+  modalImage.value = null;
 }
 
 function labelForRole(role: ChatRole) {
@@ -1454,4 +1518,3 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   overflow-x: auto; /* allow scroll within table if necessary */
 }
 </style>
-

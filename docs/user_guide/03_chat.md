@@ -23,7 +23,7 @@ Chat is project-scoped. If no project is selected (via the app header), the comp
 
 - Text: Enter message; press Enter to send (Shift+Enter for newline).
 - Attachments: click the paperclip to attach images (PNG/JPEG) or text files (txt, md, log). Thumbnails and chips appear before send.
-- Voice: click the mic to record; speech is transcribed via /stt and appended to the composer. Recording uses a 16 kHz mono WAV stream under the hood.
+- Voice: click the mic to record; speech is transcribed via /stt and appended to the composer. The browser records audio, downsamples to 16 kHz mono, encodes a small WAV, and posts to /stt.
 - Send/Stop: the arrow sends; while streaming, the button switches to Stop.
 - Generate image: toggle to request an image response from providers that support image generation.
 

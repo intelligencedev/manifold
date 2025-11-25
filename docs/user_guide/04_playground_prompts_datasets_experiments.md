@@ -33,11 +33,11 @@ Placeholder for screenshots: [Prompts list; Version detail]
 ## Datasets
 
 Overview
-- Datasets are small JSON arrays you can paste/upload for quick experiments. Each row has at minimum an id and inputs, and may include expected, meta, and split fields.
+- Datasets are small JSON arrays you can paste for quick experiments. Each row has at minimum an id and inputs, and may include expected, meta, and split fields.
 
 Create dataset
 - Provide Name, optional Tags and Description.
-- Paste a JSON array of rows in the Rows field. Example:
+- Paste a JSON array of rows in the "Rows (JSON array)" field. Example:
 
   [
     { "id": "sample-1", "inputs": { "question": "Hello" }, "expected": "Hi" }
@@ -52,7 +52,7 @@ Browse and edit
 - Delete removes the dataset and all rows.
 
 Validation
-- Rows must be a JSON array; the UI normalizes rows (ensures id and split, carries inputs/expected/meta through). JSON errors are surfaced inline.
+- Rows must be a JSON array; the UI normalizes rows: if id is missing it becomes row-<n>, and split defaults to "train". JSON errors are surfaced inline.
 
 Placeholder for screenshots: [Datasets list; Dataset details table]
 
@@ -68,9 +68,9 @@ Create experiment
 - The UI constructs a spec with a single variant referencing the prompt version and model.
 
 Manage experiments and runs
-- Experiments list shows each with dataset id and variant count; actions: Details, Start run, Delete.
-- Start run triggers an asynchronous run; expand “Show runs” to view run history with status and timestamps.
-- The system polls run status per experiment; you can stop polling by collapsing.
+- Experiments list shows each with dataset id and variant count; actions: Details (opens a detail route), Start run, Delete.
+- Start run triggers an asynchronous run; toggle “Show runs” to view run history with status and timestamps.
+- The UI polls runs about every 2s while runs are active and the list is expanded; polling stops when collapsed or when no active runs remain.
 
 Placeholder for screenshots: [New experiment form; Runs list]
 

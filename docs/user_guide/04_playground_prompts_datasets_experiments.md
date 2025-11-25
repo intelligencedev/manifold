@@ -16,8 +16,8 @@ Overview
 
 Manage prompts
 - Create prompt: fill Name, optional Tags and Description; click Create.
-- List: filter by name/tag; navigate to details via the prompt name link.
-- Delete: Delete removes the prompt and all its versions.
+- List: filter by name/tag (client-side search); navigate to details via the prompt name link.
+- Delete: available in the list and in the prompt detail header; removes the prompt and all its versions.
 
 Prompt details and versions
 - Left panel lists versions (most recent first) with semver, created time, and hash.
@@ -52,7 +52,7 @@ Browse and edit
 - Delete removes the dataset and all rows.
 
 Validation
-- Rows must be a JSON array; the UI normalizes rows: if id is missing it becomes row-<n>, and split defaults to "train". JSON errors are surfaced inline.
+- Rows must be a JSON array; the UI normalizes rows on save: if id is missing it becomes row-<n>, and split defaults to "train". Normalization is applied without additional prompts; JSON parse errors are surfaced inline.
 
 Placeholder for screenshots: [Datasets list; Dataset details table]
 
@@ -70,7 +70,10 @@ Create experiment
 Manage experiments and runs
 - Experiments list shows each with dataset id and variant count; actions: Details (opens a detail route), Start run, Delete.
 - Start run triggers an asynchronous run; toggle “Show runs” to view run history with status and timestamps.
-- The UI polls runs about every 2s while runs are active and the list is expanded; polling stops when collapsed or when no active runs remain.
+- Polling is per-experiment: the UI polls the selected experiment’s runs about every 2s while runs are active and the runs list is expanded; polling stops when you collapse the list or when no active runs remain.
+
+Notes on experiment variants
+- A variant includes the promptVersionId and model (plus optional params). The create form initializes a single variant; adding multiple variants side-by-side is not exposed in this UI.
 
 Placeholder for screenshots: [New experiment form; Runs list]
 

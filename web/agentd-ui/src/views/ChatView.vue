@@ -160,15 +160,16 @@
             ]"
           >
             <header class="flex flex-wrap items-center gap-2">
+              <template v-if="message.role === 'assistant'">
+                <span
+                  class="rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent"
+                >
+                  {{ agentNameFor(message) }}
+                </span>
+              </template>
               <span
-                class="rounded-full px-2 py-1 text-xs font-semibold"
-                :class="
-                  message.role === 'assistant'
-                    ? 'bg-accent/10 text-accent'
-                    : message.role === 'user'
-                      ? 'bg-surface-muted text-muted-foreground'
-                      : 'bg-surface-muted text-muted-foreground'
-                "
+                v-else
+                class="rounded-full bg-surface-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
               >
                 {{ labelForRole(message.role) }}
               </span>
@@ -677,7 +678,15 @@ const modalImageSrc = computed(() => {
 });
 
 // Specialists dropdown state
-const { data: specialistsData } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
+const { data: specialistsData } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 });
+const specialistsByName = computed(() => {
+  const map = new Map<string, Specialist>();
+  (specialistsData?.value || []).forEach((s: Specialist) => {
+    const key = s.name?.trim().toLowerCase();
+    if (key) map.set(key, s);
+  });
+  return map;
+});
 const specialistNames = computed(() =>
   (specialistsData?.value || [])
     .map((s: Specialist) => s.name)
@@ -841,6 +850,9 @@ const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
+const sessionAgentDefaults = computed(() =>
+  parseAgentModelLabel(activeSession.value?.model || ""),
+);
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
 );
@@ -984,7 +996,16 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   draft.value = options.echoUser === false ? draft.value : "";
   try {
     const specialist = selectedSpecialist.value && selectedSpecialist.value !== 'orchestrator' ? selectedSpecialist.value : undefined
-    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, { ...options, specialist, projectId: selectedProjectId.value || undefined, image: imagePrompt.value, imageSize: '1K' });
+    const { agentName, agentModel } = resolveAgentContext();
+    await chat.sendPrompt(content, pendingAttachments.value, filesByAttachment, {
+      ...options,
+      specialist,
+      projectId: selectedProjectId.value || undefined,
+      image: imagePrompt.value,
+      imageSize: "1K",
+      agentName,
+      agentModel,
+    });
   } catch (error) {
     // handled in store
   } finally {
@@ -1001,10 +1022,22 @@ async function regenerateAssistant() {
   if (!projectSelected.value || !canRegenerate.value || !lastUser.value)
     return;
   const specialist = selectedSpecialist.value && selectedSpecialist.value !== 'orchestrator' ? selectedSpecialist.value : undefined
+  const { agentName, agentModel } = resolveAgentContext();
   await chat.regenerateAssistant({
     specialist,
     projectId: selectedProjectId.value,
+    agentName,
+    agentModel,
   });
+}
+
+function resolveAgentContext() {
+  const selected = (selectedSpecialist.value || "orchestrator").trim();
+  const fallback = sessionAgentDefaults.value;
+  const agentName = selected || fallback.agentName || "Agent";
+  const spec = specialistsByName.value.get(agentName.toLowerCase());
+  const agentModel = (spec?.model || "").trim() || fallback.model || "";
+  return { agentName, agentModel };
 }
 
 function copyMessage(message: ChatMessage) {
@@ -1032,6 +1065,34 @@ function openImageModal(img: ChatAttachment) {
 function closeImageModal() {
   showImageModal.value = false;
   modalImage.value = null;
+}
+
+function parseAgentModelLabel(label?: string) {
+  const raw = (label || "").trim();
+  if (!raw) return { agentName: "", model: "" };
+  const [maybeAgent, ...rest] = raw.split(":");
+  if (rest.length) {
+    return { agentName: maybeAgent, model: rest.join(":") };
+  }
+  return { agentName: "", model: raw };
+}
+
+function agentMetaForMessage(message: ChatMessage) {
+  if (message.role !== "assistant") return null;
+  const defaults = sessionAgentDefaults.value;
+  const agentName =
+    (message.agentName || message.agent || "").trim() ||
+    defaults.agentName ||
+    "Agent";
+  const agentModel =
+    (message.agentModel || message.model || "").trim() || defaults.model || "";
+  return { agentName, agentModel };
+}
+
+function agentNameFor(message: ChatMessage) {
+  const meta = agentMetaForMessage(message);
+  if (!meta) return labelForRole(message.role);
+  return meta.agentName || labelForRole(message.role);
 }
 
 function labelForRole(role: ChatRole) {

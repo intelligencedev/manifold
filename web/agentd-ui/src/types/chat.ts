@@ -28,6 +28,10 @@ export interface ChatMessage {
   audioUrl?: string
   audioFilePath?: string
   attachments?: ChatAttachment[]
+  agent?: string
+  agentName?: string
+  agentModel?: string
+  model?: string
 }
 
 export interface ChatSessionMeta {

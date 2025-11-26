@@ -233,12 +233,22 @@ export const useChatStore = defineStore('chat', () => {
     text: string,
     attachments: ChatAttachment[] = [],
     filesByAttachment?: FilesByAttachment,
-    options: { echoUser?: boolean; specialist?: string; projectId?: string; image?: boolean; imageSize?: string } = {},
+    options: {
+      echoUser?: boolean
+      specialist?: string
+      projectId?: string
+      image?: boolean
+      imageSize?: string
+      agentName?: string
+      agentModel?: string
+    } = {},
   ) {
     const content = (text || '').trim()
     if ((!content && !attachments.length) || isStreaming.value) return
     const sessionId = ensureSession()
     const now = new Date().toISOString()
+    const agentName = (options.agentName || '').trim()
+    const agentModel = (options.agentModel || '').trim()
 
     if (content) {
       void maybeAutoTitle(sessionId, content)
@@ -262,6 +272,9 @@ export const useChatStore = defineStore('chat', () => {
       content: '',
       createdAt: now,
       streaming: true,
+      agentName: agentName || undefined,
+      agentModel: agentModel || undefined,
+      model: agentModel || undefined,
     })
 
     streamingAssistantId.value = assistantId
@@ -481,7 +494,7 @@ export const useChatStore = defineStore('chat', () => {
     abortController.value?.abort()
   }
 
-  async function regenerateAssistant(options: { specialist?: string; projectId?: string } = {}) {
+  async function regenerateAssistant(options: { specialist?: string; projectId?: string; agentName?: string; agentModel?: string } = {}) {
     if (isStreaming.value) return
     const sessionId = ensureSession()
     const messages = messagesBySession.value[sessionId] || []
@@ -493,7 +506,13 @@ export const useChatStore = defineStore('chat', () => {
     const next = [...messages]
     if (targetIndex !== -1) next.splice(targetIndex, 1)
     setMessages(sessionId, next)
-    await sendPrompt(lastUser.content, [], undefined, { echoUser: false, specialist: options.specialist, projectId: options.projectId })
+    await sendPrompt(lastUser.content, [], undefined, {
+      echoUser: false,
+      specialist: options.specialist,
+      projectId: options.projectId,
+      agentName: options.agentName,
+      agentModel: options.agentModel,
+    })
   }
 
   return {

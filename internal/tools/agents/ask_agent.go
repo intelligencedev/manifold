@@ -15,6 +15,7 @@ import (
 
 	"manifold/internal/llm"
 	"manifold/internal/observability"
+	"manifold/internal/sandbox"
 )
 
 // AskAgentTool performs a synchronous HTTP call to the local /agent/run endpoint
@@ -109,7 +110,15 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return map[string]any{"ok": false, "error": fmt.Sprintf("invalid arguments: %v", err)}, nil
 	}
+
+	// Inherit session_id from context if not explicitly provided by the LLM.
+	// This allows delegated agents to share the same conversation context.
 	sessionID := strings.TrimSpace(args.SessionID)
+	if sessionID == "" {
+		if ctxSID, ok := sandbox.SessionIDFromContext(ctx); ok {
+			sessionID = ctxSID
+		}
+	}
 	switch {
 	case sessionID == "":
 		sessionID = uuid.NewString()
@@ -121,12 +130,21 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		}
 	}
 
+	// Inherit project_id from context if not explicitly provided by the LLM.
+	// This ensures delegated agents operate within the same project sandbox.
+	projectID := strings.TrimSpace(args.ProjectID)
+	if projectID == "" {
+		if ctxPID, ok := sandbox.ProjectIDFromContext(ctx); ok {
+			projectID = ctxPID
+		}
+	}
+
 	body := map[string]any{"prompt": args.Prompt, "session_id": sessionID}
 	if len(args.History) > 0 {
 		body["history"] = args.History
 	}
-	if pid := strings.TrimSpace(args.ProjectID); pid != "" {
-		body["project_id"] = pid
+	if projectID != "" {
+		body["project_id"] = projectID
 	}
 	b, _ := json.Marshal(body)
 	// Build endpoint URL; force non-stream JSON via stream=0; include specialist when provided

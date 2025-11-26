@@ -376,12 +376,16 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				return
 			}
 			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), req.ProjectID))
 		}
 
 		currentRun := a.runs.create(req.Prompt)
 		if req.SessionID == "" {
 			req.SessionID = "default"
 		}
+
+		// Attach session ID to context so tools like ask_agent can inherit it.
+		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
 
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
@@ -726,6 +730,9 @@ func (a *app) promptHandler() http.HandlerFunc {
 			req.SessionID = "default"
 		}
 
+		// Attach session ID to context so tools like ask_agent can inherit it.
+		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
+
 		if strings.TrimSpace(req.ProjectID) != "" {
 			var uid int64
 			if userID != nil {
@@ -738,6 +745,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 				return
 			}
 			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), req.ProjectID))
 		}
 
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {

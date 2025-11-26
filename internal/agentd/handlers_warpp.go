@@ -170,6 +170,7 @@ func (a *app) warppRunHandler() http.HandlerFunc {
 		if p := strings.TrimSpace(req.ProjectID); p != "" {
 			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(userID), "projects", p)
 			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), p))
 		}
 		intent := strings.TrimSpace(req.Intent)
 		if intent == "" {

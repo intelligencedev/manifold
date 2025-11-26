@@ -213,6 +213,24 @@
             <p class="mt-1 text-xs text-subtle-foreground">
               Drag onto the canvas to add workflow steps, utilities, or group containers.
             </p>
+            <div class="mt-3 flex items-center gap-2">
+              <input
+                v-model="paletteSearch"
+                type="search"
+                class="w-full rounded border border-border/60 bg-surface-muted/70 px-3 py-2 text-sm text-foreground placeholder:text-faint-foreground focus:border-accent focus:outline-none"
+                placeholder="Search tools…"
+                aria-label="Search tools"
+              />
+              <button
+                v-if="paletteSearch"
+                type="button"
+                class="text-xs text-subtle-foreground hover:text-foreground"
+                aria-label="Clear search"
+                @click="paletteSearch = ''"
+              >
+                Clear
+              </button>
+            </div>
             <div class="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none">
               <div class="space-y-2">
                 <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">Utility Nodes</h3>
@@ -221,6 +239,7 @@
                 </p>
                 <!-- Group Container and Sticky Note are utility items and appear first -->
                 <div
+                  v-if="showGroupContainer"
                   class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   title="Group nodes to keep steps organized"
@@ -230,6 +249,7 @@
                   Group Container
                 </div>
                 <div
+                  v-if="showStickyNote"
                   class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   title="Sticky note (editor-only)"
@@ -240,7 +260,7 @@
                 </div>
                 <!-- Other utility tools from backend follow -->
                 <div
-                  v-for="tool in utilityTools"
+                  v-for="tool in filteredUtilityTools"
                   :key="tool.name"
                   class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
@@ -251,13 +271,13 @@
                   {{ prettyUtilityLabel(tool.name) }}
                 </div>
               </div>
-              <template v-if="workflowTools.length">
+              <template v-if="filteredWorkflowTools.length">
                 <div class="space-y-2">
                   <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
                     Workflow Tools
                   </h3>
                   <div
-                    v-for="tool in workflowTools"
+                    v-for="tool in filteredWorkflowTools"
                     :key="tool.name"
                     class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                     draggable="true"
@@ -270,7 +290,13 @@
                 </div>
               </template>
               <div
-                v-if="!tools.length && !loading"
+                v-if="paletteMatchesCount === 0 && paletteSearch"
+                class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
+              >
+                No tools match your search.
+              </div>
+              <div
+                v-else-if="!tools.length && !loading"
                 class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
               >
                 No tools available for this configuration.
@@ -980,6 +1006,42 @@ watch(selectedCount, (c) => {
 
 const workflowTools = computed(() => tools.value.filter((tool) => !isUtilityToolName(tool.name)))
 const utilityTools = computed(() => tools.value.filter((tool) => isUtilityToolName(tool.name)))
+const paletteSearch = ref('')
+const paletteSearchTerm = computed(() => paletteSearch.value.trim().toLowerCase())
+function matchesSearch(haystack: string, term: string) {
+  return haystack.toLowerCase().includes(term)
+}
+const filteredWorkflowTools = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return workflowTools.value
+  return workflowTools.value.filter(
+    (tool) => matchesSearch(tool.name, term) || (tool.description ? matchesSearch(tool.description, term) : false),
+  )
+})
+const filteredUtilityTools = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return utilityTools.value
+  return utilityTools.value.filter(
+    (tool) => matchesSearch(tool.name, term) || (tool.description ? matchesSearch(tool.description, term) : false),
+  )
+})
+const showGroupContainer = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return true
+  return matchesSearch('group container', term)
+})
+const showStickyNote = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return true
+  return matchesSearch('sticky note', term)
+})
+const paletteMatchesCount = computed(
+  () =>
+    filteredWorkflowTools.value.length +
+    filteredUtilityTools.value.length +
+    (showGroupContainer.value ? 1 : 0) +
+    (showStickyNote.value ? 1 : 0),
+)
 const hasRunTrace = computed(() => {
   const rec = warppRunStore.runTrace
   if (!rec || typeof rec !== 'object') return false

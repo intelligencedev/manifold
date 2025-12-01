@@ -449,7 +449,6 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		}
 	}
 	a.engine.Model = currentModel
-	a.engine.System = prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
 
 	if !a.cfg.EnableTools {
 		a.toolRegistry = tools.NewRegistry()
@@ -498,6 +497,11 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	if list, err := a.specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
+	systemPrompt := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
+	if a.specRegistry != nil {
+		systemPrompt = a.specRegistry.AppendToSystemPrompt(systemPrompt)
+	}
+	a.engine.System = systemPrompt
 	names := make([]string, 0, len(a.toolRegistry.Schemas()))
 	for _, s := range a.toolRegistry.Schemas() {
 		names = append(names, s.Name)

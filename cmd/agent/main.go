@@ -269,11 +269,14 @@ func main() {
 		}
 	}
 
+	systemPrompt := prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt)
+	systemPrompt = specReg.AppendToSystemPrompt(systemPrompt)
+
 	eng := agent.Engine{
 		LLM:              llm,
 		Tools:            registry,
 		MaxSteps:         *maxSteps,
-		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		System:           systemPrompt,
 		SummaryEnabled:   cfg.SummaryEnabled,
 		SummaryThreshold: cfg.SummaryThreshold,
 		SummaryKeepLast:  cfg.SummaryKeepLast,
@@ -325,7 +328,7 @@ func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
 			continue
 		}
 		out = append(out, config.SpecialistConfig{
-			Name: s.Name, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
+			Name: s.Name, Description: s.Description, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
 			EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,
 			ReasoningEffort: s.ReasoningEffort, System: s.System,
 			ExtraHeaders: s.ExtraHeaders, ExtraParams: s.ExtraParams,

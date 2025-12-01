@@ -47,7 +47,6 @@ import (
 	"manifold/internal/tools/cli"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
-	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
 	ragtool "manifold/internal/tools/rag"
@@ -207,7 +206,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			return llm
 		}
 	}
-	toolRegistry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv))
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
 	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
@@ -284,11 +282,14 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, err
 	}
 
+	systemPrompt := prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt)
+	systemPrompt = specReg.AppendToSystemPrompt(systemPrompt)
+
 	app.engine = &agent.Engine{
 		LLM:              llm,
 		Tools:            toolRegistry,
 		MaxSteps:         cfg.MaxSteps,
-		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		System:           systemPrompt,
 		Model:            cfg.OpenAI.Model,
 		SummaryEnabled:   cfg.SummaryEnabled,
 		SummaryThreshold: cfg.SummaryThreshold,
@@ -525,7 +526,11 @@ func (a *app) initSpecialists(ctx context.Context) error {
 		}
 	} else {
 		a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
-		a.engine.System = prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
+		systemPrompt := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
+		if a.specRegistry != nil {
+			systemPrompt = a.specRegistry.AppendToSystemPrompt(systemPrompt)
+		}
+		a.engine.System = systemPrompt
 	}
 
 	return nil

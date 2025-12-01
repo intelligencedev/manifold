@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 // It is designed for inference-only requests (no tool schema unless enabled).
 type Agent struct {
 	Name            string
+	Description     string
 	System          string
 	Model           string
 	EnableTools     bool
@@ -37,8 +39,9 @@ type chatWithOptionsProvider interface {
 
 // Registry holds addressable specialists by name.
 type Registry struct {
-	mu     sync.RWMutex
-	agents map[string]*Agent
+	mu                   sync.RWMutex
+	agents               map[string]*Agent
+	systemPromptAddendum string
 }
 
 // NewRegistry builds a registry from config.SpecialistConfig entries.
@@ -154,6 +157,7 @@ func (r *Registry) ReplaceFromConfigs(base config.LLMClientConfig, list []config
 
 		a := &Agent{
 			Name:            sc.Name,
+			Description:     strings.TrimSpace(sc.Description),
 			System:          sc.System,
 			Model:           model,
 			EnableTools:     sc.EnableTools,
@@ -166,7 +170,14 @@ func (r *Registry) ReplaceFromConfigs(base config.LLMClientConfig, list []config
 			agents[a.Name] = a
 		}
 	}
+	addendum := buildSystemPromptAddendum(agents)
+	if addendum != "" {
+		for _, a := range agents {
+			a.System = combineSystemPrompts(a.System, addendum)
+		}
+	}
 	r.agents = agents
+	r.systemPromptAddendum = addendum
 }
 
 // Names returns sorted agent names.
@@ -184,6 +195,16 @@ func (r *Registry) Names() []string {
 		}
 	}
 	return out
+}
+
+// AppendToSystemPrompt appends the registry's specialist catalog to the provided
+// base system prompt, returning a combined prompt. If the registry has no
+// specialists, base is returned unchanged (after trimming).
+func (r *Registry) AppendToSystemPrompt(base string) string {
+	r.mu.RLock()
+	addition := r.systemPromptAddendum
+	r.mu.RUnlock()
+	return combineSystemPrompts(base, addition)
 }
 
 // Get returns the named specialist.
@@ -305,6 +326,52 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+func combineSystemPrompts(base, addition string) string {
+	base = strings.TrimSpace(base)
+	addition = strings.TrimSpace(addition)
+	switch {
+	case base == "":
+		return addition
+	case addition == "":
+		return base
+	default:
+		return base + "\n\n" + addition
+	}
+}
+
+func buildSystemPromptAddendum(agents map[string]*Agent) string {
+	if len(agents) == 0 {
+		return ""
+	}
+	list := make([]*Agent, 0, len(agents))
+	for _, a := range agents {
+		if a == nil || strings.TrimSpace(a.Name) == "" {
+			continue
+		}
+		list = append(list, a)
+	}
+	if len(list) == 0 {
+		return ""
+	}
+	sort.Slice(list, func(i, j int) bool { return strings.TrimSpace(list[i].Name) < strings.TrimSpace(list[j].Name) })
+	lines := make([]string, 0, len(list))
+	for _, a := range list {
+		name := strings.TrimSpace(a.Name)
+		if name == "" {
+			continue
+		}
+		desc := strings.TrimSpace(a.Description)
+		if desc == "" {
+			desc = "no description provided"
+		}
+		lines = append(lines, "- "+name+": "+desc)
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "Available specialists you can invoke:\n" + strings.Join(lines, "\n")
 }
 
 // headerTransport injects static headers into every request.

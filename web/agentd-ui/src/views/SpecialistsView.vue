@@ -103,7 +103,7 @@
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-provider" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Provider</label>
-                  <select id="specialist-provider" v-model="form.provider" @change="applyProviderDefaults" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
+                  <select id="specialist-provider" v-model="form.provider" @change="() => applyProviderDefaults()" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
                     <option v-for="opt in providerOptions" :key="opt" :value="opt">{{ opt }}</option>
                   </select>
                 </div>

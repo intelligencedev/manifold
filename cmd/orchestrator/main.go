@@ -15,18 +15,13 @@ import (
 
 	"manifold/internal/config"
 	llmpkg "manifold/internal/llm"
-	openaillm "manifold/internal/llm/openai"
-	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	"manifold/internal/persistence/databases"
-	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
 	kafkatools "manifold/internal/tools/kafka"
-	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
-	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/tts"
 	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/tools/web"
@@ -132,10 +127,6 @@ func main() {
 	}
 	// Configure global llm payload logging/truncation
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
-	llmProv, err := llmproviders.Build(cfg, httpClient)
-	if err != nil {
-		log.Fatal().Err(err).Msg("build llm provider")
-	}
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	// Databases: construct backends and register tools
@@ -151,19 +142,6 @@ func main() {
 	registry.Register(patchtool.New(cfg.Workdir))      // provides apply_patch
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))
-	newProv := func(baseURL string) llmpkg.Provider {
-		switch cfg.LLMClient.Provider {
-		case "", "openai", "local":
-			cfgCopy := cfg.LLMClient.OpenAI
-			cfgCopy.BaseURL = baseURL
-			return openaillm.New(cfgCopy, httpClient)
-		default:
-			return llmProv
-		}
-	}
-	registry.Register(llmtools.NewTransform(llmProv, cfg.OpenAI.Model, newProv)) // provides llm_transform
-	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
-	registry.Register(specialists_tool.New(specReg))
 
 	// Kafka tool (if brokers configured)
 	if cfg.Kafka.Brokers != "" {

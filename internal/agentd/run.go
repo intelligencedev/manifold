@@ -18,7 +18,6 @@ import (
 
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
-	"manifold/internal/agent/prompts"
 	"manifold/internal/auth"
 	"manifold/internal/config"
 	"manifold/internal/httpapi"
@@ -50,7 +49,6 @@ import (
 	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
 	ragtool "manifold/internal/tools/rag"
-	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/textsplitter"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
@@ -209,7 +207,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
 	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
-	toolRegistry.Register(specialists_tool.New(specReg))
 
 	// Phase 1: register simple team tools
 	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, cfg.Workdir)
@@ -277,13 +274,12 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		mcpManager:       mcpMgr,
 	}
 
+	systemPrompt := app.composeSystemPrompt()
+
 	// Register WARPP workflows as callable tools for the runtime.
 	if err := app.initWarpp(ctx, toolRegistry); err != nil {
 		return nil, err
 	}
-
-	systemPrompt := prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt)
-	systemPrompt = specReg.AppendToSystemPrompt(systemPrompt)
 
 	app.engine = &agent.Engine{
 		LLM:              llm,
@@ -519,6 +515,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
+	a.refreshEngineSystemPrompt()
 
 	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
 		if err := a.applyOrchestratorUpdate(ctx, sp); err != nil {
@@ -526,11 +523,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 		}
 	} else {
 		a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
-		systemPrompt := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
-		if a.specRegistry != nil {
-			systemPrompt = a.specRegistry.AppendToSystemPrompt(systemPrompt)
-		}
-		a.engine.System = systemPrompt
+		a.refreshEngineSystemPrompt()
 	}
 
 	return nil

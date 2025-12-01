@@ -13,7 +13,6 @@ import (
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	llmpkg "manifold/internal/llm"
-	openaillm "manifold/internal/llm/openai"
 	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
@@ -22,9 +21,7 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
-	llmtools "manifold/internal/tools/llmtool"
 	"manifold/internal/tools/patchtool"
-	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/tools/textsplitter"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
@@ -177,25 +174,12 @@ func main() {
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))
 
-	// Provider factory for base_url override in llm_transform
-	newProv := func(baseURL string) llmpkg.Provider {
-		switch cfg.LLMClient.Provider {
-		case "", "openai", "local":
-			c2 := cfg.LLMClient.OpenAI
-			c2.BaseURL = baseURL
-			return openaillm.New(c2, httpClient)
-		default:
-			return llm
-		}
-	}
-	registry.Register(llmtools.NewTransform(llm, cfg.OpenAI.Model, newProv)) // provides llm_transform
 	// Specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd)
 	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
 		specReg = specialists.NewRegistry(cfg.LLMClient, specialistsFromStore(list), httpClient, registry)
 	} else {
 		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
 	}
-	registry.Register(specialists_tool.New(specReg))
 
 	// If tools are globally disabled, use an empty registry
 	if !cfg.EnableTools {

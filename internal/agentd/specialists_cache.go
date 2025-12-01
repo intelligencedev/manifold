@@ -89,6 +89,7 @@ func (a *app) invalidateSpecialistsCache(ctx context.Context, userID int64) {
 			}
 			a.userSpecRegs[systemUserID] = a.specRegistry
 			a.specRegMu.Unlock()
+			a.refreshEngineSystemPrompt()
 		}
 		return
 	}

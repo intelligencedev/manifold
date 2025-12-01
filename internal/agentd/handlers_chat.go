@@ -19,7 +19,6 @@ import (
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 	"manifold/internal/tools"
-	specialists_tool "manifold/internal/tools/specialists"
 	"manifold/internal/warpp"
 )
 
@@ -419,12 +418,6 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		} else if userID != nil {
 			specOwner = *userID
 		}
-		userSpecReg, err := a.specialistsRegistryForUser(r.Context(), specOwner)
-		if err != nil {
-			log.Error().Err(err).Msg("load_specialists_registry")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
 
 		if r.URL.Query().Get("warpp") == "true" {
 			seconds := a.cfg.WorkflowTimeoutSeconds
@@ -433,7 +426,6 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
-			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
 
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("using configured workflow timeout")
@@ -519,7 +511,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
-			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+
 			if req.Image {
 				ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
 			}
@@ -641,7 +633,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		seconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
-		ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+
 		if req.Image {
 			ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
 		}
@@ -768,17 +760,6 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
-		specOwner := systemUserID
-		if userID != nil {
-			specOwner = *userID
-		}
-		userSpecReg, err := a.specialistsRegistryForUser(r.Context(), specOwner)
-		if err != nil {
-			log.Error().Err(err).Msg("load_specialists_registry")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
 		if a.cfg.OpenAI.APIKey == "" {
 			prun := a.runs.create(req.Prompt)
 			if r.Header.Get("Accept") == "text/event-stream" {
@@ -816,7 +797,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
-			ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+
 			if req.Image {
 				ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
 			}
@@ -937,7 +918,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 		seconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
-		ctx = specialists_tool.WithRegistry(ctx, userSpecReg)
+
 		if req.Image {
 			ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
 		}
@@ -1031,7 +1012,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		}
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
-		ctx = specialists_tool.WithRegistry(ctx, reg)
+
 		if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
 			ctx = llm.WithImagePrompt(ctx, opts)
 		}
@@ -1152,7 +1133,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	seconds := a.cfg.AgentRunTimeoutSeconds
 	ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 	defer cancel()
-	ctx = specialists_tool.WithRegistry(ctx, reg)
+
 	if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
 		ctx = llm.WithImagePrompt(ctx, opts)
 	}

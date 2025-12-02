@@ -43,7 +43,7 @@ func TestInvalidateSpecialistsCacheRefreshesSystemPrompt(t *testing.T) {
 	specReg := specialists.NewRegistry(cfg.LLMClient, nil, nil, baseTools)
 
 	app := &app{
-		cfg:              cfg,
+		cfg:              &cfg,
 		specStore:        &stubSpecialistsStore{list: []persistence.Specialist{{Name: "alpha", Description: "desc", Model: "m"}}},
 		specRegistry:     specReg,
 		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},

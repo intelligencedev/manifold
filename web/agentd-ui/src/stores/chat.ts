@@ -26,10 +26,14 @@ export const useChatStore = defineStore('chat', () => {
   const fetchedMessageSessions = new Set<string>()
 
   const activeSessionId = ref<string>('')
-  const isStreaming = ref(false)
-  const abortController = ref<AbortController | null>(null)
-  const streamingAssistantId = ref<string | null>(null)
-  const toolMessageIndex = new Map<string, string>()
+  type StreamState = { assistantId: string; abortController: AbortController }
+  const streamingStateBySession = ref<Record<string, StreamState>>({})
+  const isStreaming = computed(() => {
+    const sessionId = activeSessionId.value
+    if (!sessionId) return false
+    return Boolean(streamingStateBySession.value[sessionId])
+  })
+  const toolMessageIndex = new Map<string, Map<string, string>>()
 
   const activeSession = computed(
     () => sessions.value.find((s) => s.id === activeSessionId.value) || null,
@@ -43,6 +47,33 @@ export const useChatStore = defineStore('chat', () => {
   const toolMessages = computed(() =>
     activeMessages.value.filter((m) => m.role === 'tool'),
   )
+
+  function isSessionStreaming(sessionId: string) {
+    return Boolean(streamingStateBySession.value[sessionId])
+  }
+
+  function streamingStateFor(sessionId: string) {
+    return streamingStateBySession.value[sessionId]
+  }
+
+  function setStreamingState(sessionId: string, state: StreamState) {
+    streamingStateBySession.value = { ...streamingStateBySession.value, [sessionId]: state }
+  }
+
+  function clearStreamingState(sessionId: string) {
+    if (!(sessionId in streamingStateBySession.value)) return
+    const { [sessionId]: _removed, ...rest } = streamingStateBySession.value
+    streamingStateBySession.value = rest
+  }
+
+  function toolIndexFor(sessionId: string) {
+    let index = toolMessageIndex.get(sessionId)
+    if (!index) {
+      index = new Map<string, string>()
+      toolMessageIndex.set(sessionId, index)
+    }
+    return index
+  }
 
   function setMessages(sessionId: string, messages: ChatMessage[]) {
     messagesBySession.value = { ...messagesBySession.value, [sessionId]: messages }
@@ -244,8 +275,8 @@ export const useChatStore = defineStore('chat', () => {
     } = {},
   ) {
     const content = (text || '').trim()
-    if ((!content && !attachments.length) || isStreaming.value) return
     const sessionId = ensureSession()
+    if ((!content && !attachments.length) || isSessionStreaming(sessionId)) return
     const now = new Date().toISOString()
     const agentName = (options.agentName || '').trim()
     const agentModel = (options.agentModel || '').trim()
@@ -277,10 +308,9 @@ export const useChatStore = defineStore('chat', () => {
       model: agentModel || undefined,
     })
 
-    streamingAssistantId.value = assistantId
-    isStreaming.value = true
-    toolMessageIndex.clear()
-    abortController.value = new AbortController()
+    const controller = new AbortController()
+    setStreamingState(sessionId, { assistantId, abortController: controller })
+    toolMessageIndex.set(sessionId, new Map())
 
     try {
       // Expand text attachments into the prompt
@@ -306,7 +336,7 @@ export const useChatStore = defineStore('chat', () => {
           prompt: promptToSend,
           sessionId,
           files: imageFiles,
-          signal: abortController.value!.signal,
+          signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
           specialist: options.specialist,
           projectId: options.projectId,
@@ -315,7 +345,7 @@ export const useChatStore = defineStore('chat', () => {
         await streamAgentRun({
           prompt: promptToSend,
           sessionId,
-          signal: abortController.value!.signal,
+          signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
           specialist: options.specialist,
           projectId: options.projectId,
@@ -336,9 +366,8 @@ export const useChatStore = defineStore('chat', () => {
       })
       updateMessage(sessionId, assistantId, assistantUpdater)
     } finally {
-      isStreaming.value = false
-      streamingAssistantId.value = null
-      abortController.value = null
+      clearStreamingState(sessionId)
+      toolMessageIndex.delete(sessionId)
     }
   }
 
@@ -377,7 +406,7 @@ export const useChatStore = defineStore('chat', () => {
         const now = new Date().toISOString()
         const key = typeof event.tool_id === 'string' ? event.tool_id : crypto.randomUUID()
         const messageId = crypto.randomUUID()
-        toolMessageIndex.set(key, messageId)
+        toolIndexFor(sessionId).set(key, messageId)
         appendMessage(
           sessionId,
           {
@@ -397,10 +426,11 @@ export const useChatStore = defineStore('chat', () => {
         const now = new Date().toISOString()
         const result = typeof event.data === 'string' ? event.data : ''
         const key = typeof event.tool_id === 'string' ? event.tool_id : null
-        if (key && toolMessageIndex.has(key)) {
-          const messageId = toolMessageIndex.get(key) as string
+        const toolIndex = toolIndexFor(sessionId)
+        if (key && toolIndex.has(key)) {
+          const messageId = toolIndex.get(key) as string
           updateMessage(sessionId, messageId, (m) => ({ ...m, content: result, streaming: false }))
-          toolMessageIndex.delete(key)
+          toolIndex.delete(key)
         } else {
           // Fallback: attach to last streaming tool message
           const msgs = messagesBySession.value[sessionId] || []
@@ -490,13 +520,16 @@ export const useChatStore = defineStore('chat', () => {
     return -1
   }
 
-  function stopStreaming() {
-    abortController.value?.abort()
+  function stopStreaming(sessionId?: string) {
+    const targetSessionId = sessionId || activeSessionId.value
+    if (!targetSessionId) return
+    const state = streamingStateFor(targetSessionId)
+    state?.abortController.abort()
   }
 
   async function regenerateAssistant(options: { specialist?: string; projectId?: string; agentName?: string; agentModel?: string } = {}) {
-    if (isStreaming.value) return
     const sessionId = ensureSession()
+    if (isSessionStreaming(sessionId)) return
     const messages = messagesBySession.value[sessionId] || []
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
     const lastAssistantIdx = [...messages].reverse().findIndex((m) => m.role === 'assistant')

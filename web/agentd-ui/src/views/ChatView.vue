@@ -479,9 +479,9 @@
       <aside
         class="ap-panel ap-hover hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 bg-transparent p-4 text-sm text-subtle-foreground surface-noise"
       >
-        <div>
-          <!-- We will use this space for context-related information in a future update. For now, remove the previous debug elements to simplify the view. -->
-        </div>
+        <header class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-foreground">Tool Activity</h2>
+        </header>
         <div
           ref="toolsPane"
           class="flex-1 h-full space-y-2 overflow-y-auto pr-1"

@@ -35,6 +35,8 @@
 
             <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
 
+            <div class="flex-grow"></div>
+
             <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
               <span :class="toolsBadgeClass(s.enableTools)">{{ s.enableTools ? 'Tools enabled' : 'Tools disabled' }}</span>
               <span

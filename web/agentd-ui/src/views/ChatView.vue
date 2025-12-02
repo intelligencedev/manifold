@@ -133,7 +133,7 @@
 
         <div
           ref="messagesPane"
-          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-6"
+          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4 pb-3"
           @scroll="handleMessagesScroll"
           @click="handleMarkdownClick"
         >
@@ -295,7 +295,7 @@
           <span>Scroll to latest</span>
         </button>
 
-        <footer class="ap-hairline-b p-4">
+        <footer class="ap-hairline-b px-4 pt-2 pb-4">
           <form
             class="space-y-3"
             @submit.prevent="sendCurrentPrompt"
@@ -443,21 +443,6 @@
                 </span>
               </div>
             </div>
-            <div
-              class="mt-2 flex items-center gap-2 text-xs text-subtle-foreground"
-            >
-              <label class="inline-flex cursor-pointer items-center gap-2">
-                <input
-                  v-model="imagePrompt"
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-border bg-surface-muted text-accent focus:ring-0"
-                  :disabled="!projectSelected || isStreaming"
-                />
-                <span class="select-none"
-                  >Generate image</span
-                >
-              </label>
-            </div>
           </form>
         </footer>
       </section>
@@ -495,13 +480,7 @@
         class="ap-panel ap-hover hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 bg-transparent p-4 text-sm text-subtle-foreground surface-noise"
       >
         <div>
-          <h2 class="text-sm font-semibold text-foreground">Session details</h2>
-          <p class="mt-2 text-xs text-subtle-foreground">
-            Session ID: {{ activeSessionId }}
-          </p>
-          <p class="text-xs text-subtle-foreground">
-            Messages: {{ activeMessages.length }}
-          </p>
+          <!-- We will use this space for context-related information in a future update. For now, remove the previous debug elements to simplify the view. -->
         </div>
         <div
           ref="toolsPane"

@@ -495,7 +495,11 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.engine
+		eng := a.cloneEngine()
+		if eng == nil {
+			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if r.Header.Get("Accept") == "text/event-stream" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
@@ -781,7 +785,11 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.engine
+		eng := a.cloneEngine()
+		if eng == nil {
+			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if r.Header.Get("Accept") == "text/event-stream" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")

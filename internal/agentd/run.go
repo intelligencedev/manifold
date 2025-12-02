@@ -95,6 +95,22 @@ type tokenMetricsProvider interface {
 	Source() string
 }
 
+// cloneEngine returns a shallow copy of the base orchestrator engine so that
+// per-request callbacks (OnDelta/OnTool/etc) don't race across concurrent
+// requests. Callers can safely mutate the returned engine without affecting
+// other in-flight runs.
+func (a *app) cloneEngine() *agent.Engine {
+	if a.engine == nil {
+		return nil
+	}
+	clone := *a.engine
+	clone.OnAssistant = nil
+	clone.OnDelta = nil
+	clone.OnTool = nil
+	clone.OnToolStart = nil
+	return &clone
+}
+
 // Run initialises the agentd server and starts the HTTP listener.
 func Run() {
 	if err := loadEnv(); err != nil {

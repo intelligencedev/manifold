@@ -65,5 +65,14 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/mcp/oauth/start", a.mcpOAuthStartHandler())
 	mux.HandleFunc("/api/mcp/oauth/callback", a.mcpOAuthCallbackHandler())
 
+	// Debug/observability endpoints for chat + evolving memory.
+	// Expose both /debug/memory and /api/debug/memory so that the Vue
+	// frontend (which is configured with a "/api" base URL) can reach
+	// the same handler without special-casing its client.
+	mux.HandleFunc("/debug/memory", a.debugMemoryHandler())
+	mux.HandleFunc("/debug/memory/", a.debugMemoryHandler())
+	mux.HandleFunc("/api/debug/memory", a.debugMemoryHandler())
+	mux.HandleFunc("/api/debug/memory/", a.debugMemoryHandler())
+
 	return mux
 }

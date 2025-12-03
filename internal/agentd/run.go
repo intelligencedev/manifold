@@ -44,6 +44,7 @@ import (
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
+	codeevolvetool "manifold/internal/tools/codeevolve"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
 	"manifold/internal/tools/multitool"
@@ -210,6 +211,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
 
+	// AlphaEvolve-inspired code evolution tool
+	toolRegistry.Register(codeevolvetool.New(cfg, llm))
+
 	newProv := func(baseURL string) llmpkg.Provider {
 		switch cfg.LLMClient.Provider {
 		case "", "openai", "local":
@@ -297,26 +301,93 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, err
 	}
 
+	// Detect an approximate context window for the main model so summarization
+	// auto-mode can size history appropriately.
+	ctxSize, _ := llmpkg.ContextSize(cfg.OpenAI.Model)
 	app.engine = &agent.Engine{
-		LLM:              llm,
-		Tools:            toolRegistry,
-		MaxSteps:         cfg.MaxSteps,
-		System:           systemPrompt,
-		Model:            cfg.OpenAI.Model,
-		SummaryEnabled:   cfg.SummaryEnabled,
-		SummaryThreshold: cfg.SummaryThreshold,
-		SummaryKeepLast:  cfg.SummaryKeepLast,
+		LLM:                          llm,
+		Tools:                        toolRegistry,
+		MaxSteps:                     cfg.MaxSteps,
+		System:                       systemPrompt,
+		Model:                        cfg.OpenAI.Model,
+		ContextWindowTokens:          ctxSize,
+		SummaryEnabled:               cfg.SummaryEnabled,
+		SummaryThreshold:             cfg.SummaryThreshold,
+		SummaryKeepLast:              cfg.SummaryKeepLast,
+		SummaryMode:                  cfg.SummaryMode,
+		SummaryTargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
+		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
+		SummaryMaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
+	}
+
+	// Initialize evolving memory if enabled
+	if cfg.EvolvingMemory.Enabled {
+		// Prefer OpenAI summary client for evolving memory if available,
+		// to avoid provider/model mismatches (e.g., Google v1beta vs OpenAI models).
+		memLLM := llm
+		memModel := cfg.EvolvingMemory.Model
+		if summaryLLM != nil && strings.TrimSpace(cfg.OpenAI.SummaryModel) != "" {
+			memLLM = summaryLLM
+			memModel = cfg.OpenAI.SummaryModel
+		}
+
+		var evStore memory.EvolvingMemoryStore
+		if mgr.EvolvingMemory != nil {
+			if s, ok := mgr.EvolvingMemory.(memory.EvolvingMemoryStore); ok {
+				evStore = s
+			}
+		}
+
+		app.engine.EvolvingMemory = memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
+			EmbeddingConfig: cfg.Embedding,
+			LLM:             memLLM,
+			Model:           memModel,
+			MaxSize:         cfg.EvolvingMemory.MaxSize,
+			TopK:            cfg.EvolvingMemory.TopK,
+			WindowSize:      cfg.EvolvingMemory.WindowSize,
+			EnableRAG:       cfg.EvolvingMemory.EnableRAG,
+			Store:           evStore,
+			UserID:          systemUserID,
+		})
+		log.Info().
+			Bool("enabled", true).
+			Int("maxSize", cfg.EvolvingMemory.MaxSize).
+			Int("topK", cfg.EvolvingMemory.TopK).
+			Bool("rag", cfg.EvolvingMemory.EnableRAG).
+			Msg("evolving_memory_initialized")
+
+		// Initialize ReMem controller if enabled
+		if cfg.EvolvingMemory.ReMemEnabled {
+			app.engine.ReMemEnabled = true
+			app.engine.ReMemController = memory.NewReMemController(memory.ReMemConfig{
+				LLM:           memLLM,
+				Model:         memModel,
+				Memory:        app.engine.EvolvingMemory,
+				MaxInnerSteps: cfg.EvolvingMemory.MaxInnerSteps,
+			})
+			log.Info().
+				Bool("remem_enabled", true).
+				Int("maxInnerSteps", cfg.EvolvingMemory.MaxInnerSteps).
+				Msg("remem_controller_initialized")
+		}
 	}
 
 	app.chatStore = mgr.Chat
 	if app.chatStore == nil {
 		return nil, fmt.Errorf("chat store not initialized")
 	}
+	// Derive a context window for the summary model (may differ from main model).
+	summaryCtxSize, _ := llmpkg.ContextSize(cfg.OpenAI.SummaryModel)
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
-		Enabled:      cfg.SummaryEnabled,
-		Threshold:    cfg.SummaryThreshold,
-		KeepLast:     cfg.SummaryKeepLast,
-		SummaryModel: cfg.OpenAI.SummaryModel,
+		Enabled:               cfg.SummaryEnabled,
+		Mode:                  memory.MemoryMode(cfg.SummaryMode),
+		Threshold:             cfg.SummaryThreshold,
+		KeepLast:              cfg.SummaryKeepLast,
+		TargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
+		MinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
+		MaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
+		ContextWindowTokens:   summaryCtxSize,
+		SummaryModel:          cfg.OpenAI.SummaryModel,
 	})
 
 	if mgr.Playground == nil {

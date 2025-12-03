@@ -3,6 +3,7 @@
     <div class="flex flex-col gap-6 xl:col-span-3 min-h-0">
       <TokenUsagePanel />
       <TracesPanel />
+      <MemoryPanel />
     </div>
     <div class="flex flex-col gap-6 self-start xl:col-span-1">
       <div
@@ -23,6 +24,7 @@ import { computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
 import TokenUsagePanel from '@/components/observability/TokenUsagePanel.vue'
 import TracesPanel from '@/components/observability/TracesPanel.vue'
+import MemoryPanel from '@/components/observability/MemoryPanel.vue'
 import { fetchAgentRuns, fetchAgentStatus, listSpecialists } from '@/api/client'
 
 const { data: agentData } = useQuery({

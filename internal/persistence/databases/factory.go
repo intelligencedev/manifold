@@ -143,6 +143,11 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
 			m.Warpp = NewPostgresWarppStore(p)
 			_ = m.Warpp.Init(ctx)
+			// Also expose a Postgres-backed evolving memory store.
+			m.EvolvingMemory = NewPostgresEvolvingMemoryStore(p)
+			if em, ok := m.EvolvingMemory.(interface{ Init(context.Context) error }); ok {
+				_ = em.Init(ctx)
+			}
 		}
 	}
 

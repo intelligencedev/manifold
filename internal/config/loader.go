@@ -150,6 +150,25 @@ func Load() (Config, error) {
 			cfg.SummaryKeepLast = n
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_MODE")); v != "" {
+		cfg.SummaryMode = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_TARGET_UTILIZATION_PCT")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			// Interpret as percentage 0-100.
+			cfg.SummaryTargetUtilizationPct = float64(n) / 100.0
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_MIN_KEEP_LAST_MESSAGES")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryMinKeepLastMessages = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_MAX_SUMMARY_CHUNK_TOKENS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryMaxSummaryChunkTokens = n
+		}
+	}
 
 	// Global enableTools via env (overrides YAML)
 	if v := strings.TrimSpace(os.Getenv("ENABLE_TOOLS")); v != "" {
@@ -186,6 +205,40 @@ func Load() (Config, error) {
 		if n, err := parseInt(v); err == nil {
 			cfg.Embedding.Timeout = n
 		}
+	}
+
+	// Evolving Memory configuration via environment variables
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_ENABLED")); v != "" {
+		cfg.EvolvingMemory.Enabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MAX_SIZE")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.MaxSize = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_TOP_K")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.TopK = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_WINDOW_SIZE")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.WindowSize = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_ENABLE_RAG")); v != "" {
+		cfg.EvolvingMemory.EnableRAG = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_REMEM_ENABLED")); v != "" {
+		cfg.EvolvingMemory.ReMemEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MAX_INNER_STEPS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.MaxInnerSteps = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MODEL")); v != "" {
+		cfg.EvolvingMemory.Model = v
 	}
 
 	// Optionally load specialist agents from YAML.
@@ -544,6 +597,16 @@ func loadSpecialists(cfg *Config) error {
 		Path           string `yaml:"path"`
 		TimeoutSeconds int    `yaml:"timeoutSeconds"`
 	}
+	type evolvingMemoryYAML struct {
+		Enabled       bool   `yaml:"enabled"`
+		MaxSize       int    `yaml:"maxSize"`
+		TopK          int    `yaml:"topK"`
+		WindowSize    int    `yaml:"windowSize"`
+		EnableRAG     bool   `yaml:"enableRAG"`
+		ReMemEnabled  bool   `yaml:"reMemEnabled"`
+		MaxInnerSteps int    `yaml:"maxInnerSteps"`
+		Model         string `yaml:"model"`
+	}
 	type ttsYAML struct {
 		BaseURL string `yaml:"baseURL"`
 		Model   string `yaml:"model"`
@@ -599,6 +662,7 @@ func loadSpecialists(cfg *Config) error {
 		Databases        databasesYAML      `yaml:"databases"`
 		MCP              mcpYAML            `yaml:"mcp"`
 		Embedding        embeddingYAML      `yaml:"embedding"`
+		EvolvingMemory   evolvingMemoryYAML `yaml:"evolvingMemory"`
 		TTS              ttsYAML            `yaml:"tts"`
 		EnableTools      *bool              `yaml:"enableTools"`
 		// AllowTools is a top-level allow-list for tools exposed to the main agent.
@@ -827,6 +891,31 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Embedding.Timeout == 0 && w.Embedding.TimeoutSeconds > 0 {
 			cfg.Embedding.Timeout = w.Embedding.TimeoutSeconds
+		}
+		// EvolvingMemory: assign evolving memory config fields
+		if w.EvolvingMemory.Enabled {
+			cfg.EvolvingMemory.Enabled = true
+		}
+		if cfg.EvolvingMemory.MaxSize == 0 && w.EvolvingMemory.MaxSize > 0 {
+			cfg.EvolvingMemory.MaxSize = w.EvolvingMemory.MaxSize
+		}
+		if cfg.EvolvingMemory.TopK == 0 && w.EvolvingMemory.TopK > 0 {
+			cfg.EvolvingMemory.TopK = w.EvolvingMemory.TopK
+		}
+		if cfg.EvolvingMemory.WindowSize == 0 && w.EvolvingMemory.WindowSize > 0 {
+			cfg.EvolvingMemory.WindowSize = w.EvolvingMemory.WindowSize
+		}
+		if w.EvolvingMemory.EnableRAG {
+			cfg.EvolvingMemory.EnableRAG = true
+		}
+		if w.EvolvingMemory.ReMemEnabled {
+			cfg.EvolvingMemory.ReMemEnabled = true
+		}
+		if cfg.EvolvingMemory.MaxInnerSteps == 0 && w.EvolvingMemory.MaxInnerSteps > 0 {
+			cfg.EvolvingMemory.MaxInnerSteps = w.EvolvingMemory.MaxInnerSteps
+		}
+		if cfg.EvolvingMemory.Model == "" && strings.TrimSpace(w.EvolvingMemory.Model) != "" {
+			cfg.EvolvingMemory.Model = strings.TrimSpace(w.EvolvingMemory.Model)
 		}
 		// MCP servers
 		if len(w.MCP.Servers) > 0 {

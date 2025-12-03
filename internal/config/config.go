@@ -8,10 +8,14 @@ type Config struct {
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt string
 	// Rolling summarization config: enable and tuning knobs
-	SummaryEnabled     bool
-	SummaryThreshold   int
-	SummaryKeepLast    int
-	OutputTruncateByte int
+	SummaryEnabled               bool
+	SummaryThreshold             int
+	SummaryKeepLast              int
+	SummaryMode                  string  `yaml:"summaryMode" json:"summaryMode"`
+	SummaryTargetUtilizationPct  float64 `yaml:"summaryTargetUtilizationPct" json:"summaryTargetUtilizationPct"`
+	SummaryMinKeepLastMessages   int     `yaml:"summaryMinKeepLastMessages" json:"summaryMinKeepLastMessages"`
+	SummaryMaxSummaryChunkTokens int     `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
+	OutputTruncateByte           int
 	// Maximum number of reasoning steps the agent can take
 	MaxSteps    int
 	LogPath     string
@@ -48,6 +52,8 @@ type Config struct {
 	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig
+	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
+	EvolvingMemory EvolvingMemoryConfig
 	// TTS configures text-to-speech defaults and endpoint.
 	TTS TTSConfig `yaml:"tts" json:"tts"`
 	// AgentRunTimeoutSeconds sets an upper wall-clock bound for a single agent
@@ -336,4 +342,16 @@ type EmbeddingConfig struct {
 	APIHeader string `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
 	Path      string `yaml:"path" json:"path"`           // default: /v1/embeddings
 	Timeout   int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+}
+
+// EvolvingMemoryConfig configures the Search-Synthesis-Evolve memory system.
+type EvolvingMemoryConfig struct {
+	Enabled       bool   `yaml:"enabled" json:"enabled"`             // enable evolving memory
+	MaxSize       int    `yaml:"maxSize" json:"maxSize"`             // max entries (default 1000)
+	TopK          int    `yaml:"topK" json:"topK"`                   // retrieval top-k (default 4)
+	WindowSize    int    `yaml:"windowSize" json:"windowSize"`       // ExpRecent window (default 20)
+	EnableRAG     bool   `yaml:"enableRAG" json:"enableRAG"`         // enable ExpRAG retrieval
+	ReMemEnabled  bool   `yaml:"reMemEnabled" json:"reMemEnabled"`   // enable Think-Act-Refine mode
+	MaxInnerSteps int    `yaml:"maxInnerSteps" json:"maxInnerSteps"` // ReMem max inner loops (default 5)
+	Model         string `yaml:"model" json:"model"`                 // LLM model for summarization
 }

@@ -70,6 +70,29 @@ obs:
     lookbackHours: 24
     timeoutSeconds: 5
 
+# Evolving Memory System (Search → Synthesis → Evolve)
+# Based on https://arxiv.org/pdf/2511.20857
+# Requires embedding service configured below
+evolvingMemory:
+  enabled: false              # Enable evolving memory system
+  maxSize: 1000              # Max memory entries (automatic pruning)
+  topK: 4                    # Number of similar experiences to retrieve
+  windowSize: 20             # Sliding window size for ExpRecent mode
+  enableRAG: true            # Enable ExpRAG similarity-based retrieval
+  reMemEnabled: false        # Enable Think-Act-Refine mode (advanced)
+  maxInnerSteps: 5           # Max THINK/REFINE loops in ReMem mode
+  model: "gpt-4o-mini"       # Model for memory summarization
+
+# Embedding service (required for evolving memory)
+embedding:
+  baseURL: "http://localhost:11434"
+  model: "nomic-embed-text"
+  path: "/api/embeddings"
+  timeoutSeconds: 30
+  # For OpenAI-compatible services:
+  # apiKey: "${OPENAI_API_KEY}"
+  # apiHeader: "Authorization"
+
 databases:
   defaultDSN: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
   chat:

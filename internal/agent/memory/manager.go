@@ -17,12 +17,33 @@ const (
 	maxSummarizeChunkSize = 4096
 )
 
+// MemoryMode controls how chat history is summarized.
+type MemoryMode string
+
+const (
+	MemoryModeFixed MemoryMode = "fixed"
+	MemoryModeAuto  MemoryMode = "auto"
+)
+
 // Config tunes how chat history should be summarized before being sent to the LLM.
+//
+// In fixed mode, Threshold/KeepLast behave as before. In auto mode, the manager
+// attempts to size the history based on the model's context window.
 type Config struct {
-	Enabled      bool
-	Threshold    int
-	KeepLast     int
-	SummaryModel string
+	Enabled   bool       `yaml:"enabled" json:"enabled"`
+	Mode      MemoryMode `yaml:"mode" json:"mode"`
+	Threshold int        `yaml:"threshold" json:"threshold"`
+	KeepLast  int        `yaml:"keepLast" json:"keepLast"`
+
+	// Auto‑mode fields
+	TargetUtilizationPct  float64 `yaml:"targetUtilizationPct" json:"targetUtilizationPct"`
+	MinKeepLastMessages   int     `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
+	MaxSummaryChunkTokens int     `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	// ContextWindowTokens can be pre‑computed by the caller; if 0, ContextSize
+	// is used as a fallback.
+	ContextWindowTokens int `yaml:"contextWindowTokens" json:"contextWindowTokens"`
+
+	SummaryModel string `yaml:"summaryModel" json:"summaryModel"`
 }
 
 // Manager coordinates persistence-backed chat memory with rolling summaries so that
@@ -32,26 +53,77 @@ type Manager struct {
 	summary      llm.Provider
 	summaryModel string
 
-	enabled   bool
+	enabled bool
+	mode    MemoryMode
+
 	threshold int
 	keepLast  int
+
+	// auto‑mode fields
+	targetUtilizationPct  float64
+	minKeepLastMessages   int
+	maxSummaryChunkTokens int
+	contextWindowTokens   int
 }
+
+// Introspection helpers used by debug/observability surfaces.
+
+// Mode returns the current memory mode (fixed or auto).
+func (m *Manager) Mode() MemoryMode { return m.mode }
+
+// ContextWindowTokens returns the approximate context window size (in tokens)
+// used for auto-mode budgeting.
+func (m *Manager) ContextWindowTokens() int { return m.contextWindowTokens }
+
+// TargetUtilizationPct returns the target fraction of the context window the
+// manager aims to occupy with conversation history.
+func (m *Manager) TargetUtilizationPct() float64 { return m.targetUtilizationPct }
+
+// MinKeepLastMessages returns the minimum number of tail messages preserved
+// in raw form when summarizing.
+func (m *Manager) MinKeepLastMessages() int { return m.minKeepLastMessages }
+
+// MaxSummaryChunkTokens returns the maximum token budget used when building
+// summary chunks.
+func (m *Manager) MaxSummaryChunkTokens() int { return m.maxSummaryChunkTokens }
 
 // NewManager returns a chat memory manager.
 func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) *Manager {
 	m := &Manager{
-		store:        store,
-		summary:      provider,
-		summaryModel: cfg.SummaryModel,
-		enabled:      cfg.Enabled && provider != nil,
-		threshold:    cfg.Threshold,
-		keepLast:     cfg.KeepLast,
+		store:                 store,
+		summary:               provider,
+		summaryModel:          cfg.SummaryModel,
+		enabled:               cfg.Enabled && provider != nil,
+		mode:                  cfg.Mode,
+		threshold:             cfg.Threshold,
+		keepLast:              cfg.KeepLast,
+		targetUtilizationPct:  cfg.TargetUtilizationPct,
+		minKeepLastMessages:   cfg.MinKeepLastMessages,
+		maxSummaryChunkTokens: cfg.MaxSummaryChunkTokens,
+		contextWindowTokens:   cfg.ContextWindowTokens,
 	}
 	if m.threshold <= 0 {
 		m.threshold = defaultThreshold
 	}
 	if m.keepLast <= 0 {
 		m.keepLast = defaultKeepLast
+	}
+	if m.mode == "" {
+		m.mode = MemoryModeFixed
+	}
+	if m.targetUtilizationPct <= 0 || m.targetUtilizationPct > 1 {
+		m.targetUtilizationPct = 0.7
+	}
+	if m.minKeepLastMessages <= 0 {
+		m.minKeepLastMessages = 4
+	}
+	if m.maxSummaryChunkTokens <= 0 {
+		m.maxSummaryChunkTokens = maxSummarizeChunkSize
+	}
+	if m.contextWindowTokens <= 0 && cfg.SummaryModel != "" {
+		if size, _ := llm.ContextSize(cfg.SummaryModel); size > 0 {
+			m.contextWindowTokens = size
+		}
 	}
 	return m
 }
@@ -96,13 +168,59 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 	total := len(messages)
 	tailStart := 0
 	if m.enabled {
-		minTail := total - m.keepLast
-		if minTail < 0 {
-			minTail = 0
-		}
-		tailStart = summarizedCount
-		if tailStart < minTail {
-			tailStart = minTail
+		if m.mode == MemoryModeAuto {
+			// In auto mode, choose the tail based on an approximate token budget
+			// rather than a fixed message count.
+			ctxSize := m.contextWindowTokens
+			if ctxSize <= 0 {
+				ctxSize = 32_000
+			}
+			budget := int(float64(ctxSize) * m.targetUtilizationPct)
+			if budget <= 0 {
+				budget = ctxSize / 2
+			}
+
+			// Reserve roughly half the budget for the tail; the rest is for
+			// system prompts, tools, and the summary itself.
+			tailBudget := budget / 2
+			if tailBudget <= 0 {
+				tailBudget = budget
+			}
+
+			minTail := m.minKeepLastMessages
+			if minTail <= 0 {
+				minTail = 4
+			}
+
+			remaining := tailBudget
+			kept := 0
+			tailStart = total
+			for i := total - 1; i >= 0; i-- {
+				msgTokens := len([]rune(strings.TrimSpace(messages[i].Content)))/4 + 1
+				if kept >= minTail && remaining-msgTokens <= 0 {
+					break
+				}
+				remaining -= msgTokens
+				kept++
+				tailStart = i
+				if remaining <= 0 {
+					break
+				}
+			}
+			// Never include messages that have already been summarized.
+			if tailStart < summarizedCount {
+				tailStart = summarizedCount
+			}
+		} else {
+			// Fixed mode: original behavior based on KeepLast.
+			minTail := total - m.keepLast
+			if minTail < 0 {
+				minTail = 0
+			}
+			tailStart = summarizedCount
+			if tailStart < minTail {
+				tailStart = minTail
+			}
 		}
 		// If summarization failed we fall back to sending the full history.
 		if summary == "" && summarizedCount > 0 {
@@ -136,11 +254,91 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	}
 
 	total := len(messages)
-	if total <= m.threshold {
+	if total == 0 {
 		return session.Summary, session.SummarizedCount
 	}
 
-	target := total - m.keepLast
+	// Fixed mode preserves historical behavior based on message counts.
+	if m.mode == MemoryModeFixed {
+		if total <= m.threshold {
+			return session.Summary, session.SummarizedCount
+		}
+
+		target := total - m.keepLast
+		if target <= 0 {
+			return session.Summary, session.SummarizedCount
+		}
+
+		summarizedCount := session.SummarizedCount
+		if summarizedCount > target {
+			summarizedCount = target
+		}
+
+		if summarizedCount == target {
+			return session.Summary, summarizedCount
+		}
+
+		start := summarizedCount
+		if start < 0 || start > target {
+			start = 0
+		}
+
+		chunk := messages[start:target]
+		if len(chunk) == 0 {
+			return session.Summary, summarizedCount
+		}
+
+		summary, err := m.summarizeChunk(ctx, session.Summary, chunk)
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Error().Err(err).Str("session", session.ID).Msg("chat_summary_failed")
+			return session.Summary, summarizedCount
+		}
+
+		if err := m.store.UpdateSummary(ctx, userID, session.ID, summary, target); err != nil {
+			observability.LoggerWithTrace(ctx).Error().Err(err).Str("session", session.ID).Msg("chat_summary_persist_failed")
+			return session.Summary, summarizedCount
+		}
+
+		observability.LoggerWithTrace(ctx).Info().Str("session", session.ID).Int("messages", target).Msg("chat_summary_updated")
+		return summary, target
+	}
+
+	// Auto mode: estimate token usage and roll summary incrementally based on
+	// token budget rather than message counts.
+	ctxSize := m.contextWindowTokens
+	if ctxSize <= 0 && m.summaryModel != "" {
+		if size, _ := llm.ContextSize(m.summaryModel); size > 0 {
+			ctxSize = size
+		}
+	}
+	if ctxSize <= 0 {
+		ctxSize = 32_000
+	}
+
+	budget := int(float64(ctxSize) * m.targetUtilizationPct)
+	if budget <= 0 {
+		budget = ctxSize / 2
+	}
+
+	estimated := 0
+	for _, msg := range messages {
+		estimated += len([]rune(strings.TrimSpace(msg.Content)))/4 + 1
+	}
+	if estimated <= budget {
+		return session.Summary, session.SummarizedCount
+	}
+
+	// Decide how many early messages to include in the next summary chunk so we
+	// keep at least a small tail in raw form.
+	minTail := m.minKeepLastMessages
+	if minTail <= 0 {
+		minTail = 4
+	}
+	if total <= minTail {
+		return session.Summary, session.SummarizedCount
+	}
+
+	target := total - minTail
 	if target <= 0 {
 		return session.Summary, session.SummarizedCount
 	}
@@ -198,8 +396,12 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 		userPrompt.WriteString(msg.Role)
 		userPrompt.WriteString("\n")
 		content := strings.TrimSpace(msg.Content)
-		if len(content) > maxSummarizeChunkSize {
-			content = content[:maxSummarizeChunkSize] + "\n[TRUNCATED]"
+		limit := maxSummarizeChunkSize
+		if m.maxSummaryChunkTokens > 0 {
+			limit = m.maxSummaryChunkTokens
+		}
+		if len(content) > limit {
+			content = content[:limit] + "\n[TRUNCATED]"
 		}
 		userPrompt.WriteString(content)
 		userPrompt.WriteString("\n")

@@ -442,8 +442,8 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		for _, tc := range msg.ToolCalls {
 			switch v := tc.AsAny().(type) {
 			case sdk.ChatCompletionMessageFunctionToolCall:
-				// Skip tool calls with empty arguments to prevent JSON unmarshal errors
-				if v.Function.Arguments == "" {
+				// Skip tool calls with empty or effectively empty arguments to prevent JSON unmarshal errors
+				if isEmptyArgs(v.Function.Arguments) {
 					log.Warn().Str("tool", v.Function.Name).Str("id", v.ID).Msg("skipping tool call with empty arguments")
 					continue
 				}
@@ -459,7 +459,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 				})
 			case sdk.ChatCompletionMessageCustomToolCall:
 				// Skip tool calls with empty input to prevent JSON unmarshal errors
-				if v.Custom.Input == "" {
+				if isEmptyArgs(v.Custom.Input) {
 					log.Warn().Str("tool", v.Custom.Name).Str("id", v.ID).Msg("skipping tool call with empty input")
 					continue
 				}
@@ -813,7 +813,7 @@ func (c *Client) chatGeminiRawStream(ctx context.Context, msgs []llm.Message, to
 		// Check for finish_reason to flush tool calls
 		if chunk.Choices[0].FinishReason != "" && !toolCallsFlushed {
 			for _, tc := range toolCalls {
-				if tc != nil && tc.Name != "" && len(tc.Args) > 0 {
+				if tc != nil && tc.Name != "" && !isEmptyArgsBytes(tc.Args) {
 					h.OnToolCall(*tc)
 				}
 			}
@@ -1098,30 +1098,33 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		}
 
 		// Handle tool calls - accumulate across chunks
-		for i, tc := range delta.ToolCalls {
-			if toolCalls[i] == nil {
-				toolCalls[i] = &llm.ToolCall{
+		// Use tc.Index (the API-provided index) NOT the range iteration index,
+		// because chunks may arrive out of order or contain only a subset of tool calls.
+		for _, tc := range delta.ToolCalls {
+			idx := int(tc.Index)
+			if toolCalls[idx] == nil {
+				toolCalls[idx] = &llm.ToolCall{
 					ID: tc.ID,
 				}
 			}
 
 			// Accumulate function name
 			if tc.Function.Name != "" {
-				toolCalls[i].Name = tc.Function.Name
+				toolCalls[idx].Name = tc.Function.Name
 			}
 
 			// Accumulate function arguments
 			if tc.Function.Arguments != "" {
-				if toolCalls[i].Args == nil {
-					toolCalls[i].Args = json.RawMessage(tc.Function.Arguments)
+				if toolCalls[idx].Args == nil {
+					toolCalls[idx].Args = json.RawMessage(tc.Function.Arguments)
 				} else {
 					// Append new arguments to existing ones
-					existing := string(toolCalls[i].Args)
-					toolCalls[i].Args = json.RawMessage(existing + tc.Function.Arguments)
+					existing := string(toolCalls[idx].Args)
+					toolCalls[idx].Args = json.RawMessage(existing + tc.Function.Arguments)
 				}
 			}
-			if gemini && toolCalls[i].ThoughtSignature == "" {
-				toolCalls[i].ThoughtSignature = extractThoughtSignature(tc.RawJSON())
+			if gemini && toolCalls[idx].ThoughtSignature == "" {
+				toolCalls[idx].ThoughtSignature = extractThoughtSignature(tc.RawJSON())
 			}
 		}
 
@@ -1129,7 +1132,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" && !toolCallsFlushed {
 			// Send all accumulated tool calls
 			for _, tc := range toolCalls {
-				if tc != nil && tc.Name != "" && len(tc.Args) > 0 {
+				if tc != nil && tc.Name != "" && !isEmptyArgsBytes(tc.Args) {
 					h.OnToolCall(*tc)
 				} else if tc != nil && tc.Name != "" {
 					log.Warn().Str("tool", tc.Name).Str("id", tc.ID).Msg("skipping tool call with empty arguments in stream")
@@ -1718,6 +1721,34 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	return out, nil
 }
 
+// isEmptyArgs reports whether the provided arguments string is effectively empty
+// (blank, null, or an empty JSON object/array). This guards against ghost tool
+// calls with missing payloads.
+func isEmptyArgs(raw string) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "null" || s == "{}" || s == "[]" {
+		return true
+	}
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		// If it's invalid JSON but non-empty, let the tool handle the error.
+		return false
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		return len(t) == 0
+	case []any:
+		return len(t) == 0
+	case string:
+		return strings.TrimSpace(t) == ""
+	}
+	return false
+}
+
+func isEmptyArgsBytes(raw []byte) bool {
+	return isEmptyArgs(string(raw))
+}
+
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
 		if v != "" {
@@ -1857,6 +1888,11 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 	// Extract tool calls from output items if any
 	for _, it := range resp.Output {
 		if fn := it.AsFunctionCall(); fn.Name != "" || fn.CallID != "" || fn.Arguments != "" {
+			// Skip tool calls with empty or effectively empty arguments
+			if isEmptyArgs(fn.Arguments) {
+				log.Warn().Str("tool", fn.Name).Str("id", fn.CallID).Msg("skipping Responses API tool call with empty arguments")
+				continue
+			}
 			id := fn.CallID
 			if id == "" {
 				id = fn.ID
@@ -1868,7 +1904,11 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 			})
 		}
 		if ct := it.AsCustomToolCall(); ct.Name != "" || ct.CallID != "" || ct.Input != "" {
-			// Map custom tool call as well, using input as args
+			// Skip tool calls with empty or effectively empty input
+			if isEmptyArgs(ct.Input) {
+				log.Warn().Str("tool", ct.Name).Str("id", ct.CallID).Msg("skipping Responses API custom tool call with empty input")
+				continue
+			}
 			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
 				Name: ct.Name,
 				Args: json.RawMessage(ct.Input),
@@ -2021,10 +2061,16 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 					ca.args.WriteString(v.Arguments)
 				}
 				ca.done = true
+				// Skip tool calls with empty or effectively empty arguments
+				argsStr := ca.args.String()
+				if isEmptyArgs(argsStr) {
+					log.Warn().Str("tool", ca.name).Str("id", ca.id).Msg("skipping Responses API stream tool call with empty arguments")
+					continue
+				}
 				// Emit tool call
 				h.OnToolCall(llm.ToolCall{
 					Name: ca.name,
-					Args: json.RawMessage(ca.args.String()),
+					Args: json.RawMessage(argsStr),
 					ID:   ca.id,
 				})
 			}
@@ -2044,9 +2090,15 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 					ca.args.WriteString(v.Input)
 				}
 				ca.done = true
+				// Skip tool calls with empty or effectively empty input
+				argsStr := ca.args.String()
+				if isEmptyArgs(argsStr) {
+					log.Warn().Str("tool", ca.name).Str("id", ca.id).Msg("skipping Responses API stream custom tool call with empty input")
+					continue
+				}
 				h.OnToolCall(llm.ToolCall{
 					Name: ca.name,
-					Args: json.RawMessage(ca.args.String()),
+					Args: json.RawMessage(argsStr),
 					ID:   ca.id,
 				})
 			}

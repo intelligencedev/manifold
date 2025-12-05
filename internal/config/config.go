@@ -354,4 +354,10 @@ type EvolvingMemoryConfig struct {
 	ReMemEnabled  bool   `yaml:"reMemEnabled" json:"reMemEnabled"`   // enable Think-Act-Refine mode
 	MaxInnerSteps int    `yaml:"maxInnerSteps" json:"maxInnerSteps"` // ReMem max inner loops (default 5)
 	Model         string `yaml:"model" json:"model"`                 // LLM model for summarization
+
+	// Smart pruning options (advanced)
+	EnableSmartPrune bool    `yaml:"enableSmartPrune" json:"enableSmartPrune"` // enable similarity-based dedup & relevance pruning
+	PruneThreshold   float64 `yaml:"pruneThreshold" json:"pruneThreshold"`     // similarity threshold for duplicate detection (default 0.95)
+	RelevanceDecay   float64 `yaml:"relevanceDecay" json:"relevanceDecay"`     // daily decay factor for relevance (default 0.99)
+	MinRelevance     float64 `yaml:"minRelevance" json:"minRelevance"`         // minimum relevance to avoid pruning (default 0.1)
 }

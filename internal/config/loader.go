@@ -240,6 +240,25 @@ func Load() (Config, error) {
 	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MODEL")); v != "" {
 		cfg.EvolvingMemory.Model = v
 	}
+	// Smart pruning env vars
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_ENABLE_SMART_PRUNE")); v != "" {
+		cfg.EvolvingMemory.EnableSmartPrune = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_PRUNE_THRESHOLD")); v != "" {
+		if f, err := parseFloat(v); err == nil {
+			cfg.EvolvingMemory.PruneThreshold = f
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_RELEVANCE_DECAY")); v != "" {
+		if f, err := parseFloat(v); err == nil {
+			cfg.EvolvingMemory.RelevanceDecay = f
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MIN_RELEVANCE")); v != "" {
+		if f, err := parseFloat(v); err == nil {
+			cfg.EvolvingMemory.MinRelevance = f
+		}
+	}
 
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
@@ -598,14 +617,18 @@ func loadSpecialists(cfg *Config) error {
 		TimeoutSeconds int    `yaml:"timeoutSeconds"`
 	}
 	type evolvingMemoryYAML struct {
-		Enabled       bool   `yaml:"enabled"`
-		MaxSize       int    `yaml:"maxSize"`
-		TopK          int    `yaml:"topK"`
-		WindowSize    int    `yaml:"windowSize"`
-		EnableRAG     bool   `yaml:"enableRAG"`
-		ReMemEnabled  bool   `yaml:"reMemEnabled"`
-		MaxInnerSteps int    `yaml:"maxInnerSteps"`
-		Model         string `yaml:"model"`
+		Enabled          bool    `yaml:"enabled"`
+		MaxSize          int     `yaml:"maxSize"`
+		TopK             int     `yaml:"topK"`
+		WindowSize       int     `yaml:"windowSize"`
+		EnableRAG        bool    `yaml:"enableRAG"`
+		ReMemEnabled     bool    `yaml:"reMemEnabled"`
+		MaxInnerSteps    int     `yaml:"maxInnerSteps"`
+		Model            string  `yaml:"model"`
+		EnableSmartPrune bool    `yaml:"enableSmartPrune"`
+		PruneThreshold   float64 `yaml:"pruneThreshold"`
+		RelevanceDecay   float64 `yaml:"relevanceDecay"`
+		MinRelevance     float64 `yaml:"minRelevance"`
 	}
 	type ttsYAML struct {
 		BaseURL string `yaml:"baseURL"`
@@ -917,6 +940,19 @@ func loadSpecialists(cfg *Config) error {
 		if cfg.EvolvingMemory.Model == "" && strings.TrimSpace(w.EvolvingMemory.Model) != "" {
 			cfg.EvolvingMemory.Model = strings.TrimSpace(w.EvolvingMemory.Model)
 		}
+		// Smart pruning config from YAML
+		if w.EvolvingMemory.EnableSmartPrune {
+			cfg.EvolvingMemory.EnableSmartPrune = true
+		}
+		if cfg.EvolvingMemory.PruneThreshold == 0 && w.EvolvingMemory.PruneThreshold > 0 {
+			cfg.EvolvingMemory.PruneThreshold = w.EvolvingMemory.PruneThreshold
+		}
+		if cfg.EvolvingMemory.RelevanceDecay == 0 && w.EvolvingMemory.RelevanceDecay > 0 {
+			cfg.EvolvingMemory.RelevanceDecay = w.EvolvingMemory.RelevanceDecay
+		}
+		if cfg.EvolvingMemory.MinRelevance == 0 && w.EvolvingMemory.MinRelevance > 0 {
+			cfg.EvolvingMemory.MinRelevance = w.EvolvingMemory.MinRelevance
+		}
 		// MCP servers
 		if len(w.MCP.Servers) > 0 {
 			cfg.MCP.Servers = make([]MCPServerConfig, 0, len(w.MCP.Servers))
@@ -1070,4 +1106,10 @@ func parseInt(s string) (int, error) {
 	var n int
 	_, err := fmt.Sscanf(s, "%d", &n)
 	return n, err
+}
+
+func parseFloat(s string) (float64, error) {
+	var f float64
+	_, err := fmt.Sscanf(s, "%f", &f)
+	return f, err
 }

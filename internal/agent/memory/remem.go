@@ -206,25 +206,28 @@ Avoid infinite thinking loops. Move to ACT when you have sufficient reasoning.`
 // StoreExperience saves the task execution as a memory entry with feedback.
 // This should be called after Execute() completes.
 func (rc *ReMemController) StoreExperience(ctx context.Context, task, output, feedback string, trace []string) error {
+	return rc.StoreExperienceEnhanced(ctx, task, output, feedback, nil, trace)
+}
+
+// StoreExperienceEnhanced saves the task execution with full structured feedback support.
+// This properly integrates strategy cards as described in the paper.
+func (rc *ReMemController) StoreExperienceEnhanced(
+	ctx context.Context,
+	task, output, feedback string,
+	structuredFB *StructuredFeedback,
+	trace []string,
+) error {
 	log := observability.LoggerWithTrace(ctx)
 
-	// Combine reasoning trace into raw trace
-	rawTrace := ""
-	if len(trace) > 0 {
-		for i, t := range trace {
-			rawTrace += fmt.Sprintf("Step %d: %s\n", i+1, t)
-		}
-	}
-
-	// Generate a strategy card - for now, just use basic feedback
-	// In a full implementation, could enhance Evolve to accept optional strategy card
-	_, err := rc.generateStrategyCard(ctx, task, output, feedback, trace)
+	// Generate a strategy card from the experience
+	strategyCard, err := rc.generateStrategyCard(ctx, task, output, feedback, trace)
 	if err != nil {
 		log.Warn().Err(err).Msg("remem_strategy_card_failed")
+		strategyCard = "" // Continue without strategy card
 	}
 
-	// Store in evolving memory via Evolve method which handles embedding and storage
-	return rc.memory.Evolve(ctx, task, output, feedback)
+	// Use the enhanced Evolve method that properly stores strategy cards
+	return rc.memory.EvolveEnhanced(ctx, task, output, feedback, structuredFB, trace, strategyCard)
 }
 
 // generateStrategyCard asks the LLM to produce a reusable strategy from the experience.

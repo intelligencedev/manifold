@@ -71,10 +71,10 @@ obs:
     timeoutSeconds: 5
 
 # Evolving Memory System (Search → Synthesis → Evolve)
-# Based on https://arxiv.org/pdf/2511.20857
+# Based on https://arxiv.org/abs/2511.20857
 # Requires embedding service configured below
 evolvingMemory:
-  enabled: false              # Enable evolving memory system
+  enabled: false             # Enable evolving memory system
   maxSize: 1000              # Max memory entries (automatic pruning)
   topK: 4                    # Number of similar experiences to retrieve
   windowSize: 20             # Sliding window size for ExpRecent mode
@@ -82,6 +82,11 @@ evolvingMemory:
   reMemEnabled: false        # Enable Think-Act-Refine mode (advanced)
   maxInnerSteps: 5           # Max THINK/REFINE loops in ReMem mode
   model: "gpt-4o-mini"       # Model for memory summarization
+  # Smart pruning (advanced) - deduplication and relevance-based memory management
+  enableSmartPrune: false    # Enable similarity-based dedup & relevance pruning
+  pruneThreshold: 0.95       # Similarity threshold for duplicate detection (0.0-1.0)
+  relevanceDecay: 0.99       # Daily decay factor for relevance scores (0.0-1.0)
+  minRelevance: 0.1          # Minimum relevance to avoid pruning (0.0-1.0)
 
 # Embedding service (required for evolving memory)
 embedding:

@@ -339,21 +339,26 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		}
 
 		app.engine.EvolvingMemory = memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
-			EmbeddingConfig: cfg.Embedding,
-			LLM:             memLLM,
-			Model:           memModel,
-			MaxSize:         cfg.EvolvingMemory.MaxSize,
-			TopK:            cfg.EvolvingMemory.TopK,
-			WindowSize:      cfg.EvolvingMemory.WindowSize,
-			EnableRAG:       cfg.EvolvingMemory.EnableRAG,
-			Store:           evStore,
-			UserID:          systemUserID,
+			EmbeddingConfig:  cfg.Embedding,
+			LLM:              memLLM,
+			Model:            memModel,
+			MaxSize:          cfg.EvolvingMemory.MaxSize,
+			TopK:             cfg.EvolvingMemory.TopK,
+			WindowSize:       cfg.EvolvingMemory.WindowSize,
+			EnableRAG:        cfg.EvolvingMemory.EnableRAG,
+			EnableSmartPrune: cfg.EvolvingMemory.EnableSmartPrune,
+			PruneThreshold:   cfg.EvolvingMemory.PruneThreshold,
+			RelevanceDecay:   cfg.EvolvingMemory.RelevanceDecay,
+			MinRelevance:     cfg.EvolvingMemory.MinRelevance,
+			Store:            evStore,
+			UserID:           systemUserID,
 		})
 		log.Info().
 			Bool("enabled", true).
 			Int("maxSize", cfg.EvolvingMemory.MaxSize).
 			Int("topK", cfg.EvolvingMemory.TopK).
 			Bool("rag", cfg.EvolvingMemory.EnableRAG).
+			Bool("smartPrune", cfg.EvolvingMemory.EnableSmartPrune).
 			Msg("evolving_memory_initialized")
 
 		// Initialize ReMem controller if enabled

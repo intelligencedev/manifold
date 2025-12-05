@@ -1885,14 +1885,13 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 
 	// Prepare assistant output
 	out := llm.Message{Role: "assistant", Content: resp.OutputText()}
-	// Extract tool calls from output items if any
+	// Extract tool calls from output items based on their Type field.
+	// The SDK's As* methods always return a struct even for non-matching types,
+	// so we must check Type first to avoid creating ghost tool calls.
 	for _, it := range resp.Output {
-		if fn := it.AsFunctionCall(); fn.Name != "" || fn.CallID != "" || fn.Arguments != "" {
-			// Skip tool calls with empty or effectively empty arguments
-			if isEmptyArgs(fn.Arguments) {
-				log.Warn().Str("tool", fn.Name).Str("id", fn.CallID).Msg("skipping Responses API tool call with empty arguments")
-				continue
-			}
+		switch it.Type {
+		case "function_call":
+			fn := it.AsFunctionCall()
 			id := fn.CallID
 			if id == "" {
 				id = fn.ID
@@ -1902,17 +1901,13 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 				Args: json.RawMessage(fn.Arguments),
 				ID:   id,
 			})
-		}
-		if ct := it.AsCustomToolCall(); ct.Name != "" || ct.CallID != "" || ct.Input != "" {
-			// Skip tool calls with empty or effectively empty input
-			if isEmptyArgs(ct.Input) {
-				log.Warn().Str("tool", ct.Name).Str("id", ct.CallID).Msg("skipping Responses API custom tool call with empty input")
-				continue
-			}
+		case "mcp_call":
+			// MCP/custom tool calls use the mcp_call type
+			ct := it.AsMcpCall()
 			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
 				Name: ct.Name,
-				Args: json.RawMessage(ct.Input),
-				ID:   ct.CallID,
+				Args: json.RawMessage(ct.Arguments),
+				ID:   ct.ID,
 			})
 		}
 	}
@@ -2011,8 +2006,11 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 				assistantContent.WriteString(v.Delta)
 			}
 		case rs.ResponseOutputItemAddedEvent:
-			// Capture function call metadata early
-			if fn := v.Item.AsFunctionCall(); fn.Name != "" || fn.CallID != "" || fn.Arguments != "" {
+			// Only capture tool call metadata if the item type indicates a function/tool call.
+			// The SDK's As* methods always return a struct even for non-matching types.
+			switch v.Item.Type {
+			case "function_call":
+				fn := v.Item.AsFunctionCall()
 				ca := acc[v.OutputIndex]
 				if ca == nil {
 					ca = &callAcc{}
@@ -2026,20 +2024,17 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 				if fn.Arguments != "" && ca.args.Len() == 0 {
 					ca.args.WriteString(fn.Arguments)
 				}
-			}
-			if ct := v.Item.AsCustomToolCall(); ct.Name != "" || ct.CallID != "" || ct.Input != "" {
+			case "mcp_call":
+				ct := v.Item.AsMcpCall()
 				ca := acc[v.OutputIndex]
 				if ca == nil {
 					ca = &callAcc{}
 					acc[v.OutputIndex] = ca
 				}
 				ca.name = ct.Name
-				ca.id = ct.CallID
-				if ca.id == "" {
-					ca.id = ct.ID
-				}
-				if ct.Input != "" && ca.args.Len() == 0 {
-					ca.args.WriteString(ct.Input)
+				ca.id = ct.ID
+				if ct.Arguments != "" && ca.args.Len() == 0 {
+					ca.args.WriteString(ct.Arguments)
 				}
 			}
 		case rs.ResponseOutputItemDoneEvent:
@@ -2061,16 +2056,10 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 					ca.args.WriteString(v.Arguments)
 				}
 				ca.done = true
-				// Skip tool calls with empty or effectively empty arguments
-				argsStr := ca.args.String()
-				if isEmptyArgs(argsStr) {
-					log.Warn().Str("tool", ca.name).Str("id", ca.id).Msg("skipping Responses API stream tool call with empty arguments")
-					continue
-				}
 				// Emit tool call
 				h.OnToolCall(llm.ToolCall{
 					Name: ca.name,
-					Args: json.RawMessage(argsStr),
+					Args: json.RawMessage(ca.args.String()),
 					ID:   ca.id,
 				})
 			}
@@ -2090,15 +2079,9 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 					ca.args.WriteString(v.Input)
 				}
 				ca.done = true
-				// Skip tool calls with empty or effectively empty input
-				argsStr := ca.args.String()
-				if isEmptyArgs(argsStr) {
-					log.Warn().Str("tool", ca.name).Str("id", ca.id).Msg("skipping Responses API stream custom tool call with empty input")
-					continue
-				}
 				h.OnToolCall(llm.ToolCall{
 					Name: ca.name,
-					Args: json.RawMessage(argsStr),
+					Args: json.RawMessage(ca.args.String()),
 					ID:   ca.id,
 				})
 			}

@@ -144,7 +144,6 @@ import {
   type MemorySessionDebug,
 } from '@/api/memory'
 
-const sessions = ref<{ id: string; name: string }[]>([])
 const selectedSessionId = ref('')
 const evolvingQuery = ref('')
 
@@ -156,14 +155,14 @@ const evolvingDebug = ref<EvolvingMemoryDebug | null>(null)
 const evolvingLoading = ref(false)
 const evolvingError = ref('')
 
-const { refetch: refetchSessions } = useQuery({
+const { data: sessionsData, refetch: refetchSessions } = useQuery({
   queryKey: ['memory-sessions'],
   queryFn: fetchMemorySessions,
   staleTime: 30_000,
-  onSuccess(data) {
-    sessions.value = data
-  },
 })
+
+// Compute sessions from the query data - Vue Query v5 removed onSuccess callback
+const sessions = computed(() => sessionsData.value ?? [])
 
 async function refreshSessionDebug() {
   sessionError.value = ''

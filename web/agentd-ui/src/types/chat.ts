@@ -42,3 +42,29 @@ export interface ChatSessionMeta {
   lastMessagePreview?: string
   model?: string
 }
+
+export interface AgentTraceEntry {
+  id: string
+  type: 'message' | 'tool' | 'error'
+  role?: ChatRole
+  title?: string
+  content?: string
+  args?: string
+  data?: string
+  createdAt: string
+}
+
+export interface AgentThread {
+  callId: string
+  parentCallId?: string
+  agent?: string
+  model?: string
+  prompt?: string
+  depth: number
+  status: 'running' | 'done' | 'error'
+  content: string
+  entries: AgentTraceEntry[]
+  startedAt: string
+  finishedAt?: string
+  error?: string
+}

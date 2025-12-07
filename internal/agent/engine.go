@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"manifold/internal/agent/memory"
 	"manifold/internal/llm"
@@ -22,6 +23,14 @@ type Engine struct {
 	MaxSteps int
 	System   string
 	Model    string // default model name to pass to provider (used for metrics)
+	// Delegator, when set, is used to execute nested agent calls (e.g., specialists)
+	// without routing through tool implementations. This makes agent-to-agent
+	// collaboration a core engine capability and enables rich tracing.
+	Delegator Delegator
+	// AgentTracer receives trace events emitted during delegated agent runs.
+	AgentTracer AgentTracer
+	// AgentDepth tracks nesting depth for trace events (0 for top-level orchestrator).
+	AgentDepth int
 	// ContextWindowTokens is the approximate context window for Model in tokens.
 	// summarization auto-mode will derive it using llm.ContextSize.
 	ContextWindowTokens int
@@ -278,6 +287,18 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 // and invoking the appropriate callbacks/logging. It returns the updated msgs slice.
 func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCalls []llm.ToolCall) []llm.Message {
 	for _, tc := range toolCalls {
+		// Handle agent delegation as a first-class engine feature (not a tool).
+		if e.Delegator != nil && isAgentCall(tc.Name) {
+			payload := e.runDelegatedAgent(ctx, tc)
+			// Call tool callback for backwards compatibility with UIs expecting
+			// tool_result events.
+			if e.OnTool != nil {
+				e.OnTool(tc.Name, tc.Args, payload)
+			}
+			msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
+			continue
+		}
+
 		// Propagate the agent's provider to the tool dispatch context so
 		// tools that make LLM calls can use the same provider/model/baseURL as the agent.
 		dispatchCtx := ctx
@@ -339,6 +360,58 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 	}
 
 	return msgs
+}
+
+func isAgentCall(name string) bool {
+	return name == "agent_call" || name == "ask_agent"
+}
+
+// runDelegatedAgent executes an agent-to-agent handoff using the configured
+// Delegator and wraps the output in the legacy tool payload shape so the
+// parent loop can continue unchanged.
+func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte {
+	var args struct {
+		AgentName      string        `json:"agent_name"`
+		Prompt         string        `json:"prompt"`
+		History        []llm.Message `json:"history"`
+		EnableTools    *bool         `json:"enable_tools"`
+		MaxSteps       int           `json:"max_steps"`
+		TimeoutSeconds int           `json:"timeout_seconds"`
+		ProjectID      string        `json:"project_id"`
+		UserID         int64         `json:"user_id"`
+	}
+	if err := json.Unmarshal(tc.Args, &args); err != nil {
+		return []byte(fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error()))
+	}
+	if strings.TrimSpace(args.Prompt) == "" {
+		return []byte(`{"ok":false,"error":"prompt is required"}`)
+	}
+	callID := tc.ID
+	if strings.TrimSpace(callID) == "" {
+		callID = fmt.Sprintf("agent-%d", time.Now().UnixNano())
+	}
+	req := DelegateRequest{
+		AgentName:      strings.TrimSpace(args.AgentName),
+		Prompt:         args.Prompt,
+		History:        args.History,
+		EnableTools:    args.EnableTools,
+		MaxSteps:       args.MaxSteps,
+		TimeoutSeconds: args.TimeoutSeconds,
+		ProjectID:      strings.TrimSpace(args.ProjectID),
+		UserID:         args.UserID,
+		CallID:         callID,
+		ParentCallID:   tc.ID,
+		Depth:          e.AgentDepth + 1,
+	}
+	result, err := e.Delegator.Run(ctx, req, e.AgentTracer)
+	if err != nil {
+		return []byte(fmt.Sprintf(`{"ok":false,"agent":%q,"error":%q}`, req.AgentName, err.Error()))
+	}
+	out := map[string]any{"ok": true, "agent": req.AgentName, "output": result}
+	if b, err := json.Marshal(out); err == nil {
+		return b
+	}
+	return []byte(result)
 }
 
 // maybeSummarize inspects msgs and, if the number of messages exceeds

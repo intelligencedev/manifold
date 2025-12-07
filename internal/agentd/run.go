@@ -320,6 +320,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		SummaryMaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
 	}
 
+	delegator := agenttools.NewDelegator(toolRegistry, specReg, cfg.Workdir, cfg.MaxSteps)
+	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
+	app.engine.Delegator = delegator
+
 	// Initialize evolving memory if enabled
 	if cfg.EvolvingMemory.Enabled {
 		// Prefer OpenAI summary client for evolving memory if available,

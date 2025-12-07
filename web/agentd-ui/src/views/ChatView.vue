@@ -480,6 +480,69 @@
         class="ap-panel ap-hover hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 bg-transparent p-4 text-sm text-subtle-foreground surface-noise"
       >
         <header class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-foreground">Agent Collaborators</h2>
+        </header>
+        <div class="space-y-2 max-h-[34vh] overflow-y-auto pr-1">
+          <div
+            v-if="!agentThreads.length"
+            class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
+          >
+            No delegated agents yet
+          </div>
+          <article
+            v-for="thread in agentThreads"
+            :key="thread.callId"
+            class="overflow-hidden rounded-4 border border-border bg-gradient-to-br from-surface via-surface-muted/40 to-surface p-3 text-xs shadow-2 ring-1 ring-border/50"
+          >
+            <header class="flex items-start justify-between gap-2">
+              <div class="space-y-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <span class="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">{{ thread.agent || 'specialist' }}</span>
+                  <span v-if="thread.model" class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">{{ thread.model }}</span>
+                  <span class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">depth {{ thread.depth }}</span>
+                </div>
+                <p class="truncate text-[11px] text-subtle-foreground" :title="thread.prompt">{{ thread.prompt || 'No prompt captured' }}</p>
+              </div>
+              <div class="flex items-center gap-2 text-[11px]">
+                <span
+                  :class="{
+                    'text-accent': thread.status === 'running',
+                    'text-muted-foreground': thread.status === 'done',
+                    'text-danger': thread.status === 'error',
+                  }"
+                  class="flex items-center gap-1 font-semibold"
+                >
+                  <span class="h-1.5 w-1.5 rounded-full" :class="{
+                    'bg-accent animate-pulse': thread.status === 'running',
+                    'bg-muted-foreground': thread.status === 'done',
+                    'bg-danger': thread.status === 'error',
+                  }"></span>
+                  {{ thread.status === 'running' ? 'running' : thread.status === 'done' ? 'done' : 'error' }}
+                </span>
+              </div>
+            </header>
+            <div class="mt-2 space-y-2">
+              <div v-if="thread.content" class="chat-markdown text-[13px] leading-relaxed" v-html="renderMarkdownOrHtml(thread.content)"></div>
+              <div v-if="thread.entries.length" class="space-y-1">
+                <div
+                  v-for="entry in thread.entries"
+                  :key="entry.id"
+                  class="rounded-4 border border-border/60 bg-surface-muted/60 px-2 py-1"
+                >
+                  <div class="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span class="font-semibold">{{ entry.title || (entry.type === 'tool' ? 'Tool' : 'Note') }}</span>
+                    <span v-if="entry.createdAt" class="text-faint-foreground">{{ formatTimestamp(entry.createdAt) }}</span>
+                  </div>
+                  <div v-if="entry.args" class="mt-1 truncate text-[11px] text-faint-foreground">{{ entry.args }}</div>
+                  <div v-if="entry.data" class="chat-markdown mt-1 text-[12px]" v-html="renderMarkdownOrHtml(entry.data)"></div>
+                  <div v-if="entry.content && !entry.data" class="mt-1 text-[12px]" :class="entry.type === 'error' ? 'text-danger' : 'text-subtle-foreground'">{{ entry.content }}</div>
+                </div>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <header class="mt-2 flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Tool Activity</h2>
         </header>
         <div
@@ -616,6 +679,7 @@ const sessions = computed(() => chat.sessions);
 const messagesBySession = computed(() => chat.messagesBySession);
 const sessionsLoading = computed(() => chat.sessionsLoading);
 const sessionsError = computed(() => chat.sessionsError);
+const agentThreads = computed(() => chat.agentThreads);
 
 const activeSessionId = computed({
   get: () => chat.activeSessionId,

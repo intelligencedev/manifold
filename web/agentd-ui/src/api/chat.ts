@@ -9,7 +9,13 @@ export type ChatStreamEventType =
   | "tts_chunk"
   | "tts_audio"
   | "image"
-  | "error";
+  | "error"
+  | "agent_start"
+  | "agent_delta"
+  | "agent_final"
+  | "agent_tool_start"
+  | "agent_tool_result"
+  | "agent_error";
 
 export interface ChatStreamEvent {
   type: ChatStreamEventType;
@@ -25,6 +31,14 @@ export interface ChatStreamEvent {
   rel_path?: string;
   mime?: string;
   name?: string;
+  agent?: string;
+  model?: string;
+  call_id?: string;
+  parent_call_id?: string;
+  depth?: number;
+  role?: string;
+  content?: string;
+  error?: string;
   [key: string]: unknown;
 }
 

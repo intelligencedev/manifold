@@ -22,6 +22,38 @@ import (
 	"manifold/internal/warpp"
 )
 
+type agentStreamTracer struct {
+	w  io.Writer
+	fl http.Flusher
+}
+
+func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
+	if t == nil || t.w == nil || t.fl == nil {
+		return
+	}
+	payload := map[string]any{
+		"type":           ev.Type,
+		"agent":          ev.Agent,
+		"model":          ev.Model,
+		"call_id":        ev.CallID,
+		"parent_call_id": ev.ParentCallID,
+		"depth":          ev.Depth,
+		"role":           ev.Role,
+		"content":        ev.Content,
+		"title":          ev.Title,
+		"args":           ev.Args,
+		"data":           ev.Data,
+		"tool_id":        ev.ToolID,
+		"error":          ev.Error,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(t.w, "data: %s\n\n", b)
+	t.fl.Flush()
+}
+
 func (a *app) runsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.Auth.Enabled {
@@ -508,6 +540,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				http.Error(w, "streaming not supported", http.StatusInternalServerError)
 				return
 			}
+			tracer := &agentStreamTracer{w: w, fl: fl}
 
 			seconds := a.cfg.StreamRunTimeoutSeconds
 			if seconds <= 0 {
@@ -526,6 +559,8 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
 			var savedImages []savedImage
+			eng.AgentTracer = tracer
+			eng.AgentTracer = tracer
 
 			eng.OnDelta = func(d string) {
 				payload := map[string]string{"type": "delta", "data": d}
@@ -1014,6 +1049,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
 			return true
 		}
+		tracer := &agentStreamTracer{w: w, fl: fl}
 		seconds := a.cfg.StreamRunTimeoutSeconds
 		if seconds <= 0 {
 			seconds = a.cfg.AgentRunTimeoutSeconds
@@ -1033,6 +1069,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		}
 		prun := a.runs.create(prompt)
 		eng := buildEngine()
+		eng.AgentTracer = tracer
 		eng.OnDelta = func(d string) {
 			if d == "" {
 				return

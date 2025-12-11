@@ -795,8 +795,8 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
-	// Run the main loop to generate actual response
-	final, err := e.runLoop(ctx, msgs)
+	// Run the streaming loop to generate actual response (preserves streaming behavior)
+	final, err := e.runStreamLoop(ctx, msgs)
 	if err != nil {
 		return "", err
 	}

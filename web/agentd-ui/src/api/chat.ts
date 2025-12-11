@@ -187,11 +187,14 @@ export async function streamAgentRun(
       if (done) {
         break;
       }
-      buffer += decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
+      console.log('[SSE chunk]', JSON.stringify(chunk));
+      buffer += chunk;
       buffer = processBuffer(buffer, onEvent);
     }
     // flush remaining buffered data
     if (buffer.trim().length > 0) {
+      console.log('[SSE flush]', JSON.stringify(buffer));
       processBuffer(buffer, onEvent, true);
     }
   } finally {
@@ -204,8 +207,8 @@ function processBuffer(
   onEvent: (event: ChatStreamEvent) => void,
   flush = false,
 ): string {
-  const parts = buffer.split("\n\n");
-  const leftover = flush ? "" : parts.pop() || "";
+  const parts = buffer.split(/\n\n|\r\n\r\n/);
+  const leftover = flush ? "" : parts.pop() ?? "";
 
   for (const part of parts) {
     const payload = extractEventPayload(part);
@@ -219,7 +222,7 @@ function processBuffer(
 
 export function extractEventPayload(raw: string): ChatStreamEvent | null {
   const lines = raw
-    .split("\n")
+    .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 

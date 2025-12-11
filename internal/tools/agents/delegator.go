@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"manifold/internal/sandbox"
@@ -58,6 +59,8 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		if a, ok := d.specReg.Get(req.AgentName); ok && a != nil {
 			prov = a.Provider()
 			toolsReg = a.ToolsRegistry()
+			// The specialist's System field already has the default prompt prepended
+			// during registry initialization, so use it directly
 			system = a.System
 			model = a.Model
 			if a.EnableTools && toolsReg == nil {
@@ -106,7 +109,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		LLM:         prov,
 		Tools:       toolsReg,
 		MaxSteps:    maxSteps,
-		System:      system,
+		System:      prompts.EnsureMemoryInstructions(system),
 		Model:       model,
 		Delegator:   d,
 		AgentTracer: tracer,

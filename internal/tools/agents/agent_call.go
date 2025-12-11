@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"manifold/internal/sandbox"
@@ -145,7 +146,9 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 	// If a specialist/agent name is provided, use its configured provider and tools view
 	if name := args.AgentName; name != "" && t.specReg != nil {
 		if a, ok := t.specReg.Get(name); ok && a != nil {
-			// Delegate to specialist single-shot inference for Phase 1 minimal implementation
+			// Note: The specialist's Inference method already handles system prompt composition
+			// via buildMessages which includes its configured System field.
+			// The System field should already have default instructions prepended during registry initialization.
 			observability.LoggerWithTrace(ctx).Info().Str("agent_call", name).Msg("agent_call_specialist_infer")
 			out, err := a.Inference(dispatchCtx, args.Prompt, args.History)
 			if err != nil {
@@ -168,7 +171,7 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 	} else if toolsReg == nil {
 		toolsReg = tools.NewRegistry()
 	}
-	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: system}
+	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: prompts.EnsureMemoryInstructions(system)}
 	runCtx := ctx
 	if args.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc

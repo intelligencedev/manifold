@@ -562,29 +562,55 @@ func (a *app) discoverResourceMetadata(ctx context.Context, resourceURL string) 
 }
 
 func (a *app) discoverAuthServerMeta(ctx context.Context, issuer string) (*authServerMeta, error) {
-	// Try /.well-known/oauth-authorization-server first
+	// RFC 8414 + OpenID Connect Discovery compliant metadata discovery.
+	// Handles issuers with path components (e.g., Keycloak realms, Okta tenants).
 	u, err := url.Parse(issuer)
 	if err != nil {
 		return nil, err
 	}
 
-	paths := []string{"/.well-known/oauth-authorization-server", "/.well-known/openid-configuration"}
+	// Preserve the path component, trimming any trailing slash
+	path := strings.TrimSuffix(u.Path, "/")
+	base := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 
-	for _, p := range paths {
-		metaURL := fmt.Sprintf("%s://%s%s", u.Scheme, u.Host, p)
+	// Build candidates per RFC 8414 §3 and OIDC Discovery:
+	// 1. RFC 8414 OAuth AS metadata (insert /.well-known/oauth-authorization-server before path)
+	// 2. RFC 8414 OpenID config (insert /.well-known/openid-configuration before path)
+	// 3. Legacy OIDC Discovery (append /.well-known/openid-configuration after path)
+	candidates := []string{
+		base + "/.well-known/oauth-authorization-server" + path,
+		base + "/.well-known/openid-configuration" + path,
+		base + path + "/.well-known/openid-configuration",
+	}
+
+	for _, metaURL := range candidates {
 		req, _ := http.NewRequestWithContext(ctx, "GET", metaURL, nil)
 		resp, err := a.httpClient.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			defer resp.Body.Close()
+		if err != nil {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
 			var meta authServerMeta
-			if err := json.NewDecoder(resp.Body).Decode(&meta); err == nil {
+			decErr := json.NewDecoder(resp.Body).Decode(&meta)
+			resp.Body.Close()
+
+			if decErr == nil {
+				// Optional: Validate issuer claim matches requested issuer (RFC 8414 §3.3)
+				if meta.Issuer != "" && meta.Issuer != issuer {
+					// Issuer mismatch - try next candidate
+					continue
+				}
 				return &meta, nil
 			}
-		}
-		if resp != nil {
+		} else {
 			resp.Body.Close()
 		}
 	}
+
 	return nil, fmt.Errorf("metadata not found")
 }
 

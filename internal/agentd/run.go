@@ -227,6 +227,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
 	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
+	specReg.SetWorkdir(cfg.Workdir)
 
 	// Phase 1: register simple team tools
 	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, cfg.Workdir)
@@ -308,6 +309,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		LLM:                          llm,
 		Tools:                        toolRegistry,
 		MaxSteps:                     cfg.MaxSteps,
+		MaxToolParallelism:           cfg.MaxToolParallelism,
 		System:                       systemPrompt,
 		Model:                        cfg.OpenAI.Model,
 		ContextWindowTokens:          ctxSize,

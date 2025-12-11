@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -131,6 +132,7 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 // BuildContext assembles the conversation history that should be sent to the orchestrator
 // by combining a persisted summary (if any) with the most recent chat turns.
 func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID string) ([]llm.Message, error) {
+	log := observability.LoggerWithTrace(ctx)
 	if sessionID == "" {
 		return nil, nil
 	}
@@ -143,6 +145,7 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 			return nil, err
 		}
 	}
+	log.Info().Str("session_id", sessionID).Int("messages_count", len(messages)).Msg("build_context_list_messages")
 
 	session, err := m.store.GetSession(ctx, userID, sessionID)
 	if err != nil {
@@ -242,7 +245,37 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 			Content: "Conversation summary (for context only):\n" + summary,
 		})
 	}
-	for _, msg := range messages[tailStart:] {
+	for i, msg := range messages[tailStart:] {
+		log.Debug().Int("index", i).Str("role", msg.Role).Int("content_len", len(msg.Content)).Str("content_preview", truncate(msg.Content, 100)).Msg("build_context_message")
+		// Deserialize JSON-encoded messages (assistant with tool calls, tool messages)
+		if msg.Role == "assistant" && strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
+			var data struct {
+				Content   string         `json:"content"`
+				ToolCalls []llm.ToolCall `json:"tool_calls"`
+			}
+			if err := json.Unmarshal([]byte(msg.Content), &data); err == nil && len(data.ToolCalls) > 0 {
+				history = append(history, llm.Message{
+					Role:      msg.Role,
+					Content:   data.Content,
+					ToolCalls: data.ToolCalls,
+				})
+				continue
+			}
+		} else if msg.Role == "tool" && strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
+			var data struct {
+				Content string `json:"content"`
+				ToolID  string `json:"tool_id"`
+			}
+			if err := json.Unmarshal([]byte(msg.Content), &data); err == nil && data.ToolID != "" {
+				history = append(history, llm.Message{
+					Role:    msg.Role,
+					Content: data.Content,
+					ToolID:  data.ToolID,
+				})
+				continue
+			}
+		}
+		// Fallback: plain message
 		history = append(history, llm.Message{Role: msg.Role, Content: msg.Content})
 	}
 	return history, nil

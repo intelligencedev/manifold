@@ -86,6 +86,11 @@ func Load() (Config, error) {
 			cfg.MaxSteps = n
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("MAX_TOOL_PARALLELISM")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.MaxToolParallelism = n
+		}
+	}
 	// Agent / Stream / Workflow timeouts (seconds)
 	if v := strings.TrimSpace(os.Getenv("AGENT_RUN_TIMEOUT_SECONDS")); v != "" {
 		if n, err := parseInt(v); err == nil {
@@ -344,6 +349,10 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxSteps == 0 {
 		cfg.MaxSteps = 8
+	}
+	// MaxToolParallelism: 0 means unbounded (default), 1 means sequential, >1 caps concurrency
+	if cfg.MaxToolParallelism == 0 {
+		cfg.MaxToolParallelism = 0 // Explicitly keep 0 as default (unbounded)
 	}
 	// Provide sensible large defaults only if explicitly needed; leave 0 = disabled
 	if cfg.AgentRunTimeoutSeconds < 0 {

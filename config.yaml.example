@@ -55,6 +55,10 @@ llm_client:
 # No specialists configured for first launch
 specialists: []
 
+# Agent runtime configuration
+maxSteps: 1000                 # Maximum reasoning steps per agent run
+maxToolParallelism: 0          # Tool concurrency (0=unbounded, 1=sequential, >1=capped)
+
 obs:
   serviceName: manifold
   environment: local

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 
 	"manifold/internal/persistence"
 )
@@ -152,12 +153,14 @@ func (s *memChatStore) ListMessages(ctx context.Context, userID *int64, sessionI
 	if limit > 0 && len(msgs) > limit {
 		msgs = msgs[len(msgs)-limit:]
 	}
+	log.Info().Str("session_id", sessionID).Int("count", len(msgs)).Msg("mem_store_list_messages")
 	out := make([]persistence.ChatMessage, len(msgs))
 	copy(out, msgs)
 	return out, nil
 }
 
 func (s *memChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
+	log.Info().Str("session_id", sessionID).Int("count", len(messages)).Msg("mem_store_append_messages")
 	if len(messages) == 0 {
 		return nil
 	}

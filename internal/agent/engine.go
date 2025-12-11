@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"manifold/internal/agent/memory"
@@ -15,6 +16,7 @@ import (
 	"manifold/internal/tools/tts"
 
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Engine struct {
@@ -23,6 +25,9 @@ type Engine struct {
 	MaxSteps int
 	System   string
 	Model    string // default model name to pass to provider (used for metrics)
+	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
+	// <= 0 means unbounded (default to len(toolCalls)); 1 preserves sequential behavior.
+	MaxToolParallelism int
 	// Delegator, when set, is used to execute nested agent calls (e.g., specialists)
 	// without routing through tool implementations. This makes agent-to-agent
 	// collaboration a core engine capability and enables rich tracing.
@@ -67,6 +72,10 @@ type Engine struct {
 	// JSON arguments provided by the model (may still be partial JSON in some
 	// provider streaming implementations, but are generally complete here).
 	OnToolStart func(toolName string, args []byte, toolID string)
+	// OnTurnMessage, if set, is called for every message added to the conversation
+	// during this turn (including intermediate assistant messages with tool calls
+	// and tool response messages). This enables full conversation history capture.
+	OnTurnMessage func(llm.Message)
 }
 
 // Run executes the agent loop until the model produces a final answer.
@@ -102,11 +111,17 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	if e.EvolvingMemory != nil {
 		log.Info().Str("user_input", userInput).Int("response_len", len(final)).Msg("evolving_memory_store_triggered")
 		feedback := "success" // default; could be derived from user feedback or evaluation
-		if err := e.EvolvingMemory.Evolve(ctx, userInput, final, feedback); err != nil {
-			log.Error().Err(err).Str("feedback", feedback).Msg("evolving_memory_store_failed")
-		} else {
-			log.Info().Str("feedback", feedback).Msg("evolving_memory_stored")
+		bgCtx := context.Background()
+		if span := trace.SpanFromContext(ctx); span != nil {
+			bgCtx = trace.ContextWithSpanContext(bgCtx, span.SpanContext())
 		}
+		go func(ctx context.Context, input, response, fb string) {
+			if err := e.EvolvingMemory.Evolve(ctx, input, response, fb); err != nil {
+				log.Error().Err(err).Str("feedback", fb).Msg("evolving_memory_store_failed")
+				return
+			}
+			log.Info().Str("feedback", fb).Msg("evolving_memory_stored")
+		}(bgCtx, userInput, final, feedback)
 	}
 
 	return final, nil
@@ -192,6 +207,9 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		if e.OnAssistant != nil {
 			e.OnAssistant(msg)
 		}
+		if e.OnTurnMessage != nil {
+			e.OnTurnMessage(msg)
+		}
 
 		if len(msg.ToolCalls) == 0 {
 			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_final")
@@ -265,6 +283,9 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 		if e.OnAssistant != nil {
 			e.OnAssistant(msg)
 		}
+		if e.OnTurnMessage != nil {
+			e.OnTurnMessage(msg)
+		}
 
 		if len(msg.ToolCalls) == 0 {
 			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_stream_final")
@@ -286,27 +307,30 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 // dispatchTools executes a batch of tool calls, appending their tool messages to msgs
 // and invoking the appropriate callbacks/logging. It returns the updated msgs slice.
 func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCalls []llm.ToolCall) []llm.Message {
-	for _, tc := range toolCalls {
-		// Handle agent delegation as a first-class engine feature (not a tool).
-		if e.Delegator != nil && isAgentCall(tc.Name) {
-			payload := e.runDelegatedAgent(ctx, tc)
-			// Call tool callback for backwards compatibility with UIs expecting
-			// tool_result events.
-			if e.OnTool != nil {
-				e.OnTool(tc.Name, tc.Args, payload)
-			}
-			msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
-			continue
-		}
+	if len(toolCalls) == 0 {
+		return msgs
+	}
 
-		// Propagate the agent's provider to the tool dispatch context so
-		// tools that make LLM calls can use the same provider/model/baseURL as the agent.
+	maxParallel := e.MaxToolParallelism
+	if maxParallel <= 0 || maxParallel > len(toolCalls) {
+		maxParallel = len(toolCalls)
+	}
+	if maxParallel <= 0 {
+		maxParallel = 1
+	}
+
+	results := make([]llm.Message, len(toolCalls))
+	sem := make(chan struct{}, maxParallel)
+	var wg sync.WaitGroup
+
+	for i, tc := range toolCalls {
+		i, tc := i, tc
+
 		dispatchCtx := ctx
 		if e.LLM != nil {
 			dispatchCtx = tools.WithProvider(ctx, e.LLM)
 		}
 
-		// If this is the TTS tool and args indicate streaming, attach chunk callback if OnTool is set.
 		if tc.Name == "text_to_speech" && e.OnTool != nil {
 			var raw map[string]any
 			_ = json.Unmarshal(tc.Args, &raw)
@@ -314,9 +338,6 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 				cb := func(chunk []byte) {
 					meta := map[string]any{"event": "chunk", "bytes": len(chunk), "b64": base64.StdEncoding.EncodeToString(chunk)}
 					b, _ := json.Marshal(meta)
-					// Directly invoke OnTool so HTTP handlers can forward immediately.
-					// We use a synthetic tool name so UIs can distinguish chunks from the
-					// final tool result event.
 					if e.OnTool != nil {
 						e.OnTool("text_to_speech_chunk", tc.Args, b)
 					}
@@ -325,13 +346,6 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 			}
 		}
 
-		// Fire pre-dispatch callback so UIs can show tool call immediately.
-		if e.OnToolStart != nil {
-			e.OnToolStart(tc.Name, tc.Args, tc.ID)
-		}
-
-		// If the tool is the parallel wrapper, attach a subtool sink to forward
-		// subtool start/end events to the same UI callbacks used for top-level tools.
 		if tc.Name == "multi_tool_use_parallel" && (e.OnToolStart != nil || e.OnTool != nil) {
 			sink := func(ev tools.SubtoolEvent) {
 				if ev.Phase == "start" && e.OnToolStart != nil {
@@ -346,20 +360,48 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 			dispatchCtx = tools.WithSubtoolSink(dispatchCtx, sink)
 		}
 
-		// Log the tool being called and its (redacted) args at the agent level.
-		observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).RawJSON("args", observability.RedactJSON(tc.Args)).Msg("engine_tool_call")
-		payload, err := e.Tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
-		if err != nil {
-			payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
+		if !isAgentCall(tc.Name) && e.OnToolStart != nil {
+			e.OnToolStart(tc.Name, tc.Args, tc.ID)
 		}
-		// Call tool callback if set
+
+		sem <- struct{}{}
+		wg.Add(1)
+		go func(idx int, tc llm.ToolCall, dctx context.Context) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			results[idx] = e.executeToolCall(dctx, tc)
+		}(i, tc, dispatchCtx)
+	}
+
+	wg.Wait()
+	// Invoke OnTurnMessage for each tool response message
+	if e.OnTurnMessage != nil {
+		for _, toolMsg := range results {
+			e.OnTurnMessage(toolMsg)
+		}
+	}
+	return append(msgs, results...)
+}
+
+func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Message {
+	// Handle agent delegation as a first-class engine feature (not a tool).
+	if e.Delegator != nil && isAgentCall(tc.Name) {
+		payload := e.runDelegatedAgent(ctx, tc)
 		if e.OnTool != nil {
 			e.OnTool(tc.Name, tc.Args, payload)
 		}
-		msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
+		return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 	}
 
-	return msgs
+	observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).RawJSON("args", observability.RedactJSON(tc.Args)).Msg("engine_tool_call")
+	payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
+	if err != nil {
+		payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
+	}
+	if e.OnTool != nil {
+		e.OnTool(tc.Name, tc.Args, payload)
+	}
+	return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 }
 
 func isAgentCall(name string) bool {
@@ -640,7 +682,8 @@ func estimateTokens(s string) int {
 	return len([]rune(s))/4 + 1
 }
 
-// augmentWithMemory injects evolving memory context into messages (ExpRAG or ExpRecent).
+// augmentWithMemory appends evolving memory context to the system prompt (ExpRAG or ExpRecent).
+// This ensures memory context is reconstructed on every request without interfering with conversation history.
 func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
 	log := observability.LoggerWithTrace(ctx)
 
@@ -648,29 +691,45 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 
 	var memoryContext string
 
-	// Try ExpRAG (experience retrieval) first if enabled
+	// Try ExpRAG (experience retrieval) and ExpRecent (recent window) in parallel when enabled.
 	if e.EvolvingMemory != nil {
 		log.Debug().Msg("evolving_memory_search_starting")
-		retrieved, err := e.EvolvingMemory.Search(ctx, userInput)
-		if err != nil {
-			log.Error().Err(err).Str("query", userInput).Msg("evolving_memory_search_failed")
-		} else if len(retrieved) > 0 {
-			log.Info().Int("retrieved", len(retrieved)).Str("query", userInput).Msg("evolving_memory_search_success")
-			memoryContext = e.EvolvingMemory.Synthesize(ctx, userInput, retrieved)
-			log.Info().Int("retrieved", len(retrieved)).Int("context_len", len(memoryContext)).Msg("evolving_memory_exprag_synthesized")
-		} else {
+		var (
+			retrieved     []*memory.MemoryEntry
+			recentContext string
+			wg            sync.WaitGroup
+		)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := e.EvolvingMemory.Search(ctx, userInput)
+			if err != nil {
+				log.Error().Err(err).Str("query", userInput).Msg("evolving_memory_search_failed")
+				return
+			}
+			retrieved = res
+			if len(res) > 0 {
+				log.Info().Int("retrieved", len(res)).Str("query", userInput).Msg("evolving_memory_search_success")
+				return
+			}
 			log.Debug().Str("query", userInput).Msg("evolving_memory_search_no_results")
+		}()
+
+		log.Debug().Msg("evolving_memory_exprecent_starting")
+		recentContext = e.EvolvingMemory.BuildExpRecentContext()
+		if recentContext != "" {
+			log.Info().Int("context_len", len(recentContext)).Msg("evolving_memory_exprecent_used")
+		} else {
+			log.Debug().Msg("evolving_memory_exprecent_empty")
 		}
 
-		// Also add ExpRecent (recent window) if no retrieval results
-		if memoryContext == "" {
-			log.Debug().Msg("evolving_memory_exprecent_starting")
-			memoryContext = e.EvolvingMemory.BuildExpRecentContext()
-			if memoryContext != "" {
-				log.Info().Int("context_len", len(memoryContext)).Msg("evolving_memory_exprecent_used")
-			} else {
-				log.Debug().Msg("evolving_memory_exprecent_empty")
-			}
+		wg.Wait()
+		if len(retrieved) > 0 {
+			memoryContext = e.EvolvingMemory.Synthesize(ctx, userInput, retrieved)
+			log.Info().Int("retrieved", len(retrieved)).Int("context_len", len(memoryContext)).Msg("evolving_memory_exprag_synthesized")
+		} else if recentContext != "" {
+			memoryContext = recentContext
 		}
 	}
 
@@ -679,10 +738,10 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 		return msgs
 	}
 
-	log.Info().Int("context_len", len(memoryContext)).Int("orig_msgs", len(msgs)).Msg("evolving_memory_injecting_context")
+	log.Info().Int("context_len", len(memoryContext)).Int("orig_msgs", len(msgs)).Msg("evolving_memory_appending_to_system")
 
-	// Inject memory context after system prompt but before user message
-	augmented := make([]llm.Message, 0, len(msgs)+1)
+	// Append memory context to the system prompt instead of injecting as separate message
+	// This ensures it's reconstructed on every request and doesn't interfere with history
 	systemIdx := -1
 	for i, msg := range msgs {
 		if msg.Role == "system" {
@@ -692,25 +751,20 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 	}
 
 	if systemIdx >= 0 {
-		augmented = append(augmented, msgs[0:systemIdx+1]...)
-		augmented = append(augmented, llm.Message{
-			Role:    "system",
-			Content: memoryContext,
-		})
-		augmented = append(augmented, msgs[systemIdx+1:]...)
-		log.Debug().Int("injection_point", systemIdx+1).Msg("evolving_memory_injected_after_system")
+		// Append memory context to existing system message
+		msgs[systemIdx].Content += "\n\n## Relevant Context from Past Interactions\n\n" + memoryContext
+		log.Debug().Int("system_idx", systemIdx).Int("new_len", len(msgs[systemIdx].Content)).Msg("evolving_memory_appended_to_system")
 	} else {
-		// No system message, prepend memory
-		augmented = append(augmented, llm.Message{
+		// No system message exists, create one with memory context
+		msgs = append([]llm.Message{{
 			Role:    "system",
-			Content: memoryContext,
-		})
-		augmented = append(augmented, msgs...)
-		log.Debug().Msg("evolving_memory_prepended_no_system_msg")
+			Content: "## Relevant Context from Past Interactions\n\n" + memoryContext,
+		}}, msgs...)
+		log.Debug().Msg("evolving_memory_created_system_with_context")
 	}
 
-	log.Info().Int("orig_msgs", len(msgs)).Int("augmented_msgs", len(augmented)).Msg("evolving_memory_augmentation_complete")
-	return augmented
+	log.Info().Int("msgs_count", len(msgs)).Msg("evolving_memory_augmentation_complete")
+	return msgs
 }
 
 // runWithReMem executes the Think-Act-Refine pre-processing, then continues with the main agent loop.
@@ -750,11 +804,17 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 	// Store the experience with reasoning trace AFTER we have the actual response
 	feedback := "success" // default; in practice could be derived from evaluation
 	log.Info().Str("user_input", userInput).Int("reasoning_steps", len(reasoningTrace)).Msg("remem_store_experience_triggered")
-	if storeErr := e.ReMemController.StoreExperience(ctx, userInput, final, feedback, reasoningTrace); storeErr != nil {
-		log.Error().Err(storeErr).Str("feedback", feedback).Msg("remem_store_experience_failed")
-	} else {
-		log.Info().Str("feedback", feedback).Int("reasoning_steps", len(reasoningTrace)).Msg("remem_experience_stored")
+	bgCtx := context.Background()
+	if span := trace.SpanFromContext(ctx); span != nil {
+		bgCtx = trace.ContextWithSpanContext(bgCtx, span.SpanContext())
 	}
+	go func(ctx context.Context, input, resp, fb string, traceMsgs []string) {
+		if storeErr := e.ReMemController.StoreExperience(ctx, input, resp, fb, traceMsgs); storeErr != nil {
+			log.Error().Err(storeErr).Str("feedback", fb).Msg("remem_store_experience_failed")
+			return
+		}
+		log.Info().Str("feedback", fb).Int("reasoning_steps", len(traceMsgs)).Msg("remem_experience_stored")
+	}(bgCtx, userInput, final, feedback, reasoningTrace)
 
 	return final, nil
 }

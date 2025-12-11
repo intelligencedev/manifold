@@ -14,6 +14,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/prompts"
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
@@ -612,6 +613,10 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					}
 				}
 			}
+			var turnMessages []llm.Message
+			eng.OnTurnMessage = func(msg llm.Message) {
+				turnMessages = append(turnMessages, msg)
+			}
 			eng.OnAssistant = func(msg llm.Message) {
 				if len(msg.Images) == 0 {
 					return
@@ -663,7 +668,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(currentRun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			return
@@ -683,6 +688,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		}
 		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
 		var savedImages []savedImage
+		var turnMessages []llm.Message
 		eng.OnAssistant = func(msg llm.Message) {
 			if len(msg.Images) == 0 {
 				return
@@ -692,6 +698,9 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				return
 			}
 			savedImages = append(savedImages, saved...)
+		}
+		eng.OnTurnMessage = func(msg llm.Message) {
+			turnMessages = append(turnMessages, msg)
 		}
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
@@ -706,7 +715,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		a.runs.updateStatus(currentRun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 	}
@@ -900,6 +909,10 @@ func (a *app) promptHandler() http.HandlerFunc {
 					}
 				}
 			}
+			var turnMessages []llm.Message
+			eng.OnTurnMessage = func(msg llm.Message) {
+				turnMessages = append(turnMessages, msg)
+			}
 			eng.OnAssistant = func(msg llm.Message) {
 				if len(msg.Images) == 0 {
 					return
@@ -952,7 +965,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(prun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			return
@@ -973,6 +986,10 @@ func (a *app) promptHandler() http.HandlerFunc {
 		prun := a.runs.create(req.Prompt)
 		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
 		var savedImages []savedImage
+		var turnMessages []llm.Message
+		eng.OnTurnMessage = func(msg llm.Message) {
+			turnMessages = append(turnMessages, msg)
+		}
 		eng.OnAssistant = func(msg llm.Message) {
 			if len(msg.Images) == 0 {
 				return
@@ -996,7 +1013,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 	}
@@ -1036,7 +1053,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			LLM:      prov,
 			Tools:    toolReg,
 			MaxSteps: a.cfg.MaxSteps,
-			System:   sp.System,
+			System:   prompts.EnsureMemoryInstructions(sp.System),
 			Model:    sp.Model,
 		}
 	}
@@ -1121,6 +1138,10 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 				}
 			}
 		}
+		var turnMessages []llm.Message
+		eng.OnTurnMessage = func(msg llm.Message) {
+			turnMessages = append(turnMessages, msg)
+		}
 		eng.OnAssistant = func(msg llm.Message) {
 			if len(msg.Images) == 0 {
 				return
@@ -1169,7 +1190,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		fmt.Fprintf(w, "data: %s\n\n", b)
 		fl.Flush()
 		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, res, modelLabel); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist_stream")
 		}
 		return true
@@ -1191,6 +1212,10 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	eng := buildEngine()
 	baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
 	var savedImages []savedImage
+	var turnMessages []llm.Message
+	eng.OnTurnMessage = func(msg llm.Message) {
+		turnMessages = append(turnMessages, msg)
+	}
 	eng.OnAssistant = func(msg llm.Message) {
 		if len(msg.Images) == 0 {
 			return
@@ -1214,7 +1239,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"result": out})
 	a.runs.updateStatus(prun.ID, "completed", 0)
-	if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out, modelLabel); err != nil {
+	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, out, modelLabel); err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")
 	}
 	return true

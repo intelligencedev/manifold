@@ -497,7 +497,7 @@
             <header class="flex items-start justify-between gap-2">
               <div class="space-y-1 min-w-0">
                 <div class="flex items-center gap-2">
-                  <span class="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">{{ thread.agent || 'specialist' }}</span>
+                  <span class="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">{{ thread.agent || selectedSpecialist || 'Agent' }}</span>
                   <span v-if="thread.model" class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">{{ thread.model }}</span>
                   <span class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">depth {{ thread.depth }}</span>
                 </div>

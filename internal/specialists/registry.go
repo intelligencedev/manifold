@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/llm/anthropic"
@@ -42,15 +43,23 @@ type Registry struct {
 	mu                   sync.RWMutex
 	agents               map[string]*Agent
 	systemPromptAddendum string
+	workdir              string
 }
 
 // NewRegistry builds a registry from config.SpecialistConfig entries.
 // The base OpenAI config is used as a default for API key/model unless
 // overridden per specialist.
 func NewRegistry(base config.LLMClientConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) *Registry {
-	reg := &Registry{agents: make(map[string]*Agent, len(list))}
+	reg := &Registry{agents: make(map[string]*Agent, len(list)), workdir: ""}
 	reg.ReplaceFromConfigs(base, list, httpClient, toolsReg)
 	return reg
+}
+
+// SetWorkdir sets the working directory used for composing default system prompts.
+func (r *Registry) SetWorkdir(workdir string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.workdir = workdir
 }
 
 func buildProvider(provider string, base config.LLMClientConfig, sc config.SpecialistConfig, httpClient *http.Client) (llm.Provider, string) {
@@ -155,10 +164,18 @@ func (r *Registry) ReplaceFromConfigs(base config.LLMClientConfig, list []config
 			toolsView = nil
 		}
 
+		// Prepend default system prompt to specialist's configured system prompt
+		// This ensures specialists get tool usage rules, memory instructions, etc.
+		specialistSystem := sc.System
+		if specialistSystem != "" {
+			baseSystem := prompts.DefaultSystemPrompt(r.workdir, "")
+			specialistSystem = combineSystemPrompts(baseSystem, specialistSystem)
+		}
+
 		a := &Agent{
 			Name:            sc.Name,
 			Description:     strings.TrimSpace(sc.Description),
-			System:          sc.System,
+			System:          specialistSystem,
 			Model:           model,
 			EnableTools:     sc.EnableTools,
 			ReasoningEffort: strings.TrimSpace(sc.ReasoningEffort),

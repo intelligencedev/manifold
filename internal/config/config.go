@@ -17,11 +17,14 @@ type Config struct {
 	SummaryMaxSummaryChunkTokens int     `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
 	OutputTruncateByte           int
 	// Maximum number of reasoning steps the agent can take
-	MaxSteps    int
-	LogPath     string
-	LogLevel    string
-	LogPayloads bool
-	Exec        ExecConfig
+	MaxSteps int
+	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
+	// <= 0 means unbounded (run all tools in parallel); 1 forces sequential execution.
+	MaxToolParallelism int `yaml:"maxToolParallelism" json:"maxToolParallelism"`
+	LogPath            string
+	LogLevel           string
+	LogPayloads        bool
+	Exec               ExecConfig
 	// LLMClient controls which LLM provider to use and holds provider-specific settings.
 	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
 	// OpenAI retains the active OpenAI-compatible configuration for backward compatibility.

@@ -323,7 +323,10 @@
           <div v-else class="space-y-3">
             <div v-for="server in mcpServers" :key="server.id" class="flex items-center justify-between gap-4 p-4 rounded-md border border-border/70 bg-surface-muted/60">
               <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-foreground truncate">{{ server.name }}</p>
+                <div class="flex items-center gap-2">
+                  <p class="text-sm font-medium text-foreground truncate">{{ server.name }}</p>
+                  <span v-if="server.oauthClientId" class="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent-foreground">Registered</span>
+                </div>
                 <p class="text-xs text-subtle-foreground truncate">{{ server.url }}</p>
               </div>
               <div class="flex items-center gap-2">
@@ -381,14 +384,15 @@
               />
             </div>
             <div class="space-y-1">
-              <label for="server-oauth-client-id" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">OAuth Client ID (per-server)</label>
+              <label for="server-oauth-client-id" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">OAuth Client ID (Optional)</label>
               <input
                 id="server-oauth-client-id"
                 v-model="newServer.oauthClientId"
                 type="text"
-                placeholder="hf_xxx or app client id"
+                placeholder="Leave empty for dynamic registration"
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
               />
+              <p class="text-xs text-subtle-foreground">If supported by the server, we will attempt to register a client automatically when you connect.</p>
             </div>
           </div>
           <div class="flex justify-end gap-2 mt-4">

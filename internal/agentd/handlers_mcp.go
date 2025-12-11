@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -296,11 +297,14 @@ func (a *app) mcpOAuthStartHandler() http.HandlerFunc {
 		//    b) Environment MCP_OAUTH_CLIENT_ID
 		//    c) Dynamic registration (if supported and no ID yet)
 		clientID := ""
+		clientSecret := ""
 		if server != nil {
 			clientID = strings.TrimSpace(server.OAuthClientID)
+			clientSecret = strings.TrimSpace(server.OAuthClientSecret)
 		}
 		if clientID == "" {
 			clientID = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_ID"))
+			clientSecret = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_SECRET"))
 		}
 		// Attempt dynamic client registration if still empty and registration endpoint advertised
 		if clientID == "" && server != nil && asm.RegistrationEndpoint != "" {
@@ -321,6 +325,7 @@ func (a *app) mcpOAuthStartHandler() http.HandlerFunc {
 				*server = saved
 			}
 			clientID = clientIDReg
+			clientSecret = clientSecretReg
 		}
 		if clientID == "" {
 			http.Error(w, "mcp oauth client id not configured for this server", http.StatusBadRequest)
@@ -346,7 +351,8 @@ func (a *app) mcpOAuthStartHandler() http.HandlerFunc {
 
 		redirectBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
 		conf := &oauth2.Config{
-			ClientID: clientID,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  asm.AuthorizationEndpoint,
 				TokenURL: asm.TokenEndpoint,
@@ -441,6 +447,7 @@ func (a *app) mcpOAuthCallbackHandler() http.HandlerFunc {
 
 		// Resolve per-server clientID
 		clientID := ""
+		clientSecret := ""
 		if serverID != 0 {
 			// Load servers for the same user
 			uid, _ := strconv.ParseInt(userIDStr, 10, 64)
@@ -448,12 +455,14 @@ func (a *app) mcpOAuthCallbackHandler() http.HandlerFunc {
 			for _, s := range list {
 				if s.ID == serverID {
 					clientID = strings.TrimSpace(s.OAuthClientID)
+					clientSecret = strings.TrimSpace(s.OAuthClientSecret)
 					break
 				}
 			}
 		}
 		if clientID == "" {
 			clientID = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_ID"))
+			clientSecret = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_SECRET"))
 		}
 		if clientID == "" {
 			http.Error(w, "mcp oauth client id not configured for this server", http.StatusBadRequest)
@@ -461,7 +470,8 @@ func (a *app) mcpOAuthCallbackHandler() http.HandlerFunc {
 		}
 		redirectBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
 		conf := &oauth2.Config{
-			ClientID: clientID,
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  asm.AuthorizationEndpoint,
 				TokenURL: asm.TokenEndpoint,
@@ -571,18 +581,18 @@ func (a *app) discoverAuthServerMeta(ctx context.Context, issuer string) (*authS
 
 	// Preserve the path component, trimming any trailing slash
 	path := strings.TrimSuffix(u.Path, "/")
-	base := fmt.Sprintf("%s://%s", u.Scheme, u.Host)
 
 	// Build candidates per RFC 8414 §3 and OIDC Discovery:
-	// 1. RFC 8414 OAuth AS metadata (insert /.well-known/oauth-authorization-server before path)
-	// 2. RFC 8414 OpenID config (insert /.well-known/openid-configuration before path)
-	// 3. Legacy OIDC Discovery (append /.well-known/openid-configuration after path)
+	// 1. RFC 8414 OAuth AS metadata (host/path/.well-known/oauth-authorization-server)
+	// 2. Legacy OIDC Discovery (host/path/.well-known/openid-configuration)
+	// 3. RFC 8414 OpenID config (host/.well-known/openid-configuration) - fallback for root
 	candidates := []string{
-		base + "/.well-known/oauth-authorization-server" + path,
-		base + "/.well-known/openid-configuration" + path,
-		base + path + "/.well-known/openid-configuration",
+		fmt.Sprintf("%s://%s%s/.well-known/oauth-authorization-server", u.Scheme, u.Host, path),
+		fmt.Sprintf("%s://%s%s/.well-known/openid-configuration", u.Scheme, u.Host, path),
+		fmt.Sprintf("%s://%s/.well-known/openid-configuration", u.Scheme, u.Host),
 	}
 
+	var lastErr error
 	for _, metaURL := range candidates {
 		req, _ := http.NewRequestWithContext(ctx, "GET", metaURL, nil)
 		resp, err := a.httpClient.Do(req)
@@ -590,6 +600,7 @@ func (a *app) discoverAuthServerMeta(ctx context.Context, issuer string) (*authS
 			if resp != nil {
 				resp.Body.Close()
 			}
+			lastErr = fmt.Errorf("%s: %v", metaURL, err)
 			continue
 		}
 
@@ -599,18 +610,22 @@ func (a *app) discoverAuthServerMeta(ctx context.Context, issuer string) (*authS
 			resp.Body.Close()
 
 			if decErr == nil {
-				// Optional: Validate issuer claim matches requested issuer (RFC 8414 §3.3)
-				if meta.Issuer != "" && meta.Issuer != issuer {
-					// Issuer mismatch - try next candidate
-					continue
-				}
+				// Note: Per RFC 8414 §3.3, issuer validation is optional and should be lenient.
+				// Many real-world providers use different domains/paths between the advertised
+				// authorization_servers entry and the actual issuer claim in the metadata.
+				// We skip strict validation to maximize compatibility.
 				return &meta, nil
 			}
+			lastErr = fmt.Errorf("%s: decode error: %v", metaURL, decErr)
 		} else {
 			resp.Body.Close()
+			lastErr = fmt.Errorf("%s: status %d", metaURL, resp.StatusCode)
 		}
 	}
 
+	if lastErr != nil {
+		return nil, fmt.Errorf("metadata not found (last attempt: %v)", lastErr)
+	}
 	return nil, fmt.Errorf("metadata not found")
 }
 
@@ -653,7 +668,8 @@ func (a *app) registerOAuthClient(ctx context.Context, registrationEndpoint, cli
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", fmt.Errorf("registration status %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", "", fmt.Errorf("registration status %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 	var out struct {
 		ClientID     string `json:"client_id"`

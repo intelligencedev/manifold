@@ -43,29 +43,65 @@ func ContextSize(model string) (tokens int, known bool) {
 // memory budgeting, not for provider feature gating.
 var knownContextWindows = map[string]int{
 	// OpenAI GPT-5 / GPT-5.x
-	"gpt-5":        400_000,
-	"gpt-5-mini":   400_000,
-	"gpt-5-nano":   400_000,
-	"gpt-5.1":      400_000,
+	"gpt-5.2":            400_000,
+	"gpt-5.2-pro":        400_000,
+	"gpt-5.1":            400_000,
+	"gpt-5":              400_000,
+	"gpt-5-mini":         400_000,
+	"gpt-5-nano":         400_000,
+	"gpt-5-codex":        400_000,
+	"gpt-5.1-codex":      400_000,
+	"gpt-5.1-codex-mini": 400_000,
+	"gpt-5.1-codex-max":  400_000,
+
+	// (Optional) keep if you historically used these string keys; OpenAI docs publish gpt-5-mini/nano (not version-suffixed)
 	"gpt-5.1-mini": 400_000,
 	"gpt-5.1-nano": 400_000,
-	// OpenAI GPT‑4o / GPT‑4.x
-	"gpt-4o-mini":   128_000,
-	"gpt-4o":        128_000,
-	"gpt-4.1-mini":  128_000,
-	"gpt-4.1":       128_000,
+
+	// OpenAI GPT-4o / GPT-4.x
+	"gpt-4o":      128_000,
+	"gpt-4o-mini": 128_000,
+
+	// GPT-4.1 family (note: ~1M context window)
+	"gpt-4.1":      1_047_576,
+	"gpt-4.1-mini": 1_047_576,
+	"gpt-4.1-nano": 1_047_576,
+
 	"gpt-4-turbo":   128_000,
 	"gpt-4":         8_192,
 	"gpt-3.5-turbo": 16_385,
 
-	// Anthropic Claude 3.x (approximate 200k window)
+	// OpenAI Realtime (preview)
+	"gpt-4o-mini-realtime-preview": 16_000,
+
+	// Anthropic Claude 4.5 (Sonnet can do 1M with a beta header; default is 200K)
+	"claude-sonnet-4-5": 200_000,
+	"claude-haiku-4-5":  200_000,
+	"claude-opus-4-5":   200_000,
+
+	// Anthropic snapshot IDs (published alongside aliases)
+	"claude-sonnet-4-5-20250929": 200_000,
+	"claude-haiku-4-5-20251001":  200_000,
+	"claude-opus-4-5-20251101":   200_000,
+
+	// Anthropic Claude 3.x / 3.5 (kept for compatibility)
 	"claude-3.5":        200_000,
 	"claude-3-opus":     200_000,
 	"claude-3-sonnet":   200_000,
 	"claude-3-haiku":    200_000,
 	"claude-3.5-sonnet": 200_000,
 
-	// Google Gemini (approximate)
+	// Google Gemini (token limits shown in docs are *input* token limits; output limit is separate)
+	"gemini-3-pro-preview":  1_048_576,
+	"gemini-2.5-pro":        1_048_576,
+	"gemini-2.5-flash":      1_048_576,
+	"gemini-2.5-flash-lite": 1_048_576,
+
+	// Previous Gemini models still listed in the Gemini API docs
+	"gemini-2.0-flash":      1_048_576,
+	"gemini-2.0-flash-lite": 1_048_576,
+
+	// Legacy (may be discontinued depending on the Google product surface)
 	"gemini-1.5-pro":   1_000_000,
 	"gemini-1.5-flash": 1_000_000,
 	"gemini-1.0-pro":   32_000,

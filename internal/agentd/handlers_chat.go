@@ -386,6 +386,10 @@ func hydrateChatMessages(raw []persist.ChatMessage) []persist.ChatMessage {
 					args := strings.TrimSpace(string(tc.Args))
 					metaByID[tc.ID] = toolMeta{name: tc.Name, args: args}
 				}
+				// Assistant messages that only carried tool_calls should not render in the chat pane.
+				if strings.TrimSpace(data.Content) == "" && len(data.ToolCalls) > 0 {
+					continue
+				}
 			}
 		} else if m.Role == "tool" && strings.HasPrefix(trimmed, "{") {
 			var data struct {

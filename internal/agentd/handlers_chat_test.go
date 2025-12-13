@@ -50,6 +50,34 @@ func TestHydrateChatMessages_ToolMetadata(t *testing.T) {
 	}
 }
 
+func TestHydrateChatMessages_SkipsToolCallOnlyAssistant(t *testing.T) {
+	now := time.Now().UTC()
+	raw := []persist.ChatMessage{
+		{
+			ID:        "a1",
+			SessionID: "s",
+			Role:      "assistant",
+			Content:   `{"content":"","tool_calls":[{"name":"search","id":"call-1","args":{"q":"x"}}]}`,
+			CreatedAt: now,
+		},
+		{
+			ID:        "t1",
+			SessionID: "s",
+			Role:      "tool",
+			Content:   `{"content":"ok","tool_id":"call-1"}`,
+			CreatedAt: now,
+		},
+	}
+
+	hydrated := hydrateChatMessages(raw)
+	if len(hydrated) != 1 {
+		t.Fatalf("expected only tool message to remain, got %d", len(hydrated))
+	}
+	if hydrated[0].Role != "tool" {
+		t.Fatalf("expected remaining message to be tool, got %s", hydrated[0].Role)
+	}
+}
+
 func TestHydrateChatMessages_IgnoresPlainMessages(t *testing.T) {
 	now := time.Now().UTC()
 	raw := []persist.ChatMessage{{

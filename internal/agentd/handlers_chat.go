@@ -218,6 +218,7 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
+			msgs = hydrateChatMessages(msgs)
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(msgs); err != nil {
 				log.Error().Err(err).Msg("encode_chat_messages")
@@ -353,6 +354,62 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}
+}
+
+// hydrateChatMessages post-processes persisted messages for client display.
+// It strips JSON wrappers used to preserve tool calls and attaches tool names/args
+// to tool-role messages so the UI can render the tool pane correctly after reload.
+func hydrateChatMessages(raw []persist.ChatMessage) []persist.ChatMessage {
+	out := make([]persist.ChatMessage, 0, len(raw))
+
+	type toolMeta struct {
+		name string
+		args string
+	}
+
+	metaByID := make(map[string]toolMeta)
+
+	for _, msg := range raw {
+		m := msg
+		trimmed := strings.TrimSpace(m.Content)
+
+		if m.Role == "assistant" && strings.HasPrefix(trimmed, "{") {
+			var data struct {
+				Content   string         `json:"content"`
+				ToolCalls []llm.ToolCall `json:"tool_calls"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &data); err == nil {
+				if data.Content != "" {
+					m.Content = data.Content
+				}
+				for _, tc := range data.ToolCalls {
+					args := strings.TrimSpace(string(tc.Args))
+					metaByID[tc.ID] = toolMeta{name: tc.Name, args: args}
+				}
+			}
+		} else if m.Role == "tool" && strings.HasPrefix(trimmed, "{") {
+			var data struct {
+				Content string `json:"content"`
+				ToolID  string `json:"tool_id"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &data); err == nil {
+				if data.Content != "" {
+					m.Content = data.Content
+				}
+				if data.ToolID != "" {
+					m.ToolID = data.ToolID
+					if meta, ok := metaByID[data.ToolID]; ok {
+						m.Title = meta.name
+						m.ToolArgs = meta.args
+					}
+				}
+			}
+		}
+
+		out = append(out, m)
+	}
+
+	return out
 }
 
 func (a *app) agentRunHandler() http.HandlerFunc {

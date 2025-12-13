@@ -64,6 +64,10 @@ type ChatMessage struct {
 	Role      string    `json:"role"`
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"createdAt"`
+	// Optional, not persisted: used to hydrate tool calls for the UI.
+	Title    string `json:"title,omitempty"`
+	ToolArgs string `json:"toolArgs,omitempty"`
+	ToolID   string `json:"toolId,omitempty"`
 }
 
 // ChatStore persists chat sessions and messages.

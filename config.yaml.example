@@ -66,7 +66,7 @@ databases:
     backend: postgres   # memory | postgres
     dsn: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
   vector:
-    backend: postgres   # memory | postgres
+    backend: postgres   # memory | postgres | qdrant
     dsn: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
     #dimensions: 1536  # optional; for validation in some backends
     metric: cosine    # optional; cosine | dot | l2 (backend‑specific)

@@ -272,6 +272,20 @@ func (a *app) mcpOAuthStartHandler() http.HandlerFunc {
 			http.Error(w, "url required", http.StatusBadRequest)
 			return
 		}
+		// Validate URL to avoid SSRF / invalid schemes
+		u, err := url.Parse(targetURL)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			http.Error(w, "invalid url", http.StatusBadRequest)
+			return
+		}
+		if u.Scheme != "https" && u.Scheme != "http" {
+			http.Error(w, "unsupported url scheme", http.StatusBadRequest)
+			return
+		}
+		if strings.Contains(u.Host, "..") {
+			http.Error(w, "invalid host", http.StatusBadRequest)
+			return
+		}
 
 		// 1. Discover Protected Resource Metadata
 		prm, err := a.discoverResourceMetadata(r.Context(), targetURL)

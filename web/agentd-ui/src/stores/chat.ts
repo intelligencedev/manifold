@@ -412,11 +412,46 @@ export const useChatStore = defineStore('chat', () => {
     const trimmed = prompt.trim()
     if (!trimmed) return
     try {
+      // Optimistically set title immediately on the client for instant UI updates
+      const localTitle = computeLocalTitle(trimmed)
+      if (localTitle) {
+        upsertSessionMeta({ id: sessionId, name: localTitle, createdAt: currentSession.createdAt, updatedAt: new Date().toISOString() })
+      }
       const updated = await generateChatSessionTitle(sessionId, trimmed)
       upsertSessionMeta(updated)
     } catch (error) {
       console.warn('auto-title failed', error)
     }
+  }
+
+  // --- Local title generation mirrors backend behavior ---
+  const CHAT_TITLE_MAX_RUNES = 48
+  function collapseWhitespace(s: string): string {
+    if (!s || !s.trim()) return ''
+    return s.trim().replace(/\s+/g, ' ')
+  }
+  function truncateRunes(s: string, max: number): string {
+    if (max <= 0) return ''
+    const codepoints = Array.from(s)
+    if (codepoints.length <= max) return s.trim()
+    return codepoints.slice(0, max).join('').trim()
+  }
+  function firstSentence(s: string): string {
+    const input = s.trim()
+    if (!input) return ''
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i]
+      if (ch === '.' || ch === '?' || ch === '!' || ch === '\n') {
+        return input.slice(0, i + 1).trim()
+      }
+    }
+    return input
+  }
+  function computeLocalTitle(prompt: string): string {
+    const sentence = firstSentence(prompt) || prompt
+    const collapsed = collapseWhitespace(sentence)
+    if (!collapsed) return 'Conversation'
+    return truncateRunes(collapsed, CHAT_TITLE_MAX_RUNES)
   }
 
   function handleStreamEvent(event: ChatStreamEvent, sessionId: string, assistantId: string) {

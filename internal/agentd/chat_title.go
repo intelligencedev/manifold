@@ -4,15 +4,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 	"unicode/utf8"
-
-	"manifold/internal/llm"
 )
 
 const (
 	chatTitleMaxRunes = 48
-	chatTitleTimeout  = 12 * time.Second
 )
 
 var defaultSessionNames = map[string]struct{}{
@@ -27,48 +23,23 @@ func isDefaultSessionName(name string) bool {
 	return ok
 }
 
-func (a *app) generateChatTitle(ctx context.Context, prompt string) (string, error) {
+func (a *app) generateChatTitle(ctx context.Context, prompt string) (string, error) { // ctx kept for signature compatibility
+	_ = ctx
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return "", fmt.Errorf("prompt required")
 	}
 
-	provider := a.summaryLLM
-	model := strings.TrimSpace(a.cfg.OpenAI.SummaryModel)
-	if provider == nil {
-		provider = a.llm
+	// Derive title locally: first sentence of the first prompt, then truncate.
+	sentence := firstSentence(prompt)
+	if strings.TrimSpace(sentence) == "" {
+		sentence = prompt
 	}
-	if model == "" {
-		model = a.cfg.OpenAI.Model
+	sentence = collapseWhitespace(sentence)
+	if sentence == "" {
+		return fallbackChatTitle(prompt), nil
 	}
-
-	if provider == nil {
-		return fallbackChatTitle(prompt), fmt.Errorf("llm provider unavailable")
-	}
-
-	cctx, cancel := context.WithTimeout(ctx, chatTitleTimeout)
-	defer cancel()
-
-	msgs := []llm.Message{
-		{
-			Role: "system",
-			Content: "You write concise titles (max 6 words, max 48 characters) that describe a chat topic based on the first user prompt. " +
-				"Respond with only the title, no quotes or punctuation.",
-		},
-		{Role: "user", Content: prompt},
-	}
-
-	resp, err := provider.Chat(cctx, msgs, nil, model)
-	if err != nil {
-		return fallbackChatTitle(prompt), err
-	}
-
-	title := sanitizeGeneratedTitle(resp.Content)
-	if title == "" {
-		return fallbackChatTitle(prompt), fmt.Errorf("empty title from provider")
-	}
-
-	return title, nil
+	return truncateRunes(sentence, chatTitleMaxRunes), nil
 }
 
 func sanitizeGeneratedTitle(raw string) string {
@@ -114,4 +85,21 @@ func truncateRunes(s string, max int) string {
 		return strings.TrimSpace(s)
 	}
 	return strings.TrimSpace(string(runes[:max]))
+}
+
+// firstSentence returns the substring up to and including the first sentence terminator.
+// Sentence terminators considered: '.', '?', '!', and a newline. If none found, returns s.
+func firstSentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	for i, r := range s {
+		switch r {
+		case '.', '?', '!', '\n':
+			// include the terminator for a natural-looking title
+			return strings.TrimSpace(s[:i+1])
+		}
+	}
+	return s
 }

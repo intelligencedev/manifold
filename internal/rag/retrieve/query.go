@@ -28,6 +28,9 @@ func BuildQueryPlan(ctx context.Context, q string, opt RetrieveOptions) QueryPla
 	if k <= 0 {
 		k = 10
 	}
+	if k > 1000 {
+		k = 1000 // sanity cap to avoid runaway allocations
+	}
 	ftK, vecK := splitBudgets(k, opt)
 	filters := make(map[string]string, len(opt.Filter)+2)
 	for k, v := range opt.Filter {

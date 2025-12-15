@@ -98,6 +98,9 @@ func (m *memorySearch) SearchChunks(_ context.Context, query string, _ string, l
 	if limit <= 0 {
 		limit = 10
 	}
+	if limit > 1000 {
+		limit = 1000 // cap to prevent excessive allocations
+	}
 	q := strings.ToLower(query)
 	terms := strings.Fields(q)
 	results := make([]SearchResult, 0, limit)

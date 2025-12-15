@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -73,8 +74,12 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 	var err error
 
 	if strings.TrimSpace(srv.Command) != "" {
-		// Build command
-		cmd := exec.Command(srv.Command, srv.Args...)
+		// Build command (validated)
+		cleanCmd := filepath.Clean(srv.Command)
+		if cleanCmd != srv.Command || filepath.IsAbs(cleanCmd) || strings.Contains(cleanCmd, string(os.PathSeparator)+"..") {
+			return fmt.Errorf("invalid command path")
+		}
+		cmd := exec.Command(cleanCmd, srv.Args...)
 		// Merge env
 		if len(srv.Env) > 0 {
 			env := os.Environ()

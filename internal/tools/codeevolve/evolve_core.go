@@ -250,7 +250,8 @@ var diffRegexp = regexp.MustCompile(`(?s)<<<<<<< SEARCH\n(.*?)\n=======\n(.*?)\n
 // ParseLLMDiffOutput parses diff-style output into DiffBlocks.
 func ParseLLMDiffOutput(out string) ([]DiffBlock, error) {
 	log.Printf("[EVOLVE] Parsing LLM diff output, length: %d", len(out))
-	log.Printf("[EVOLVE] Raw LLM output: %s", out)
+	// Avoid logging raw LLM output which may contain sensitive data
+	log.Printf("[EVOLVE] Raw LLM output redacted")
 
 	matches := diffRegexp.FindAllStringSubmatch(out, -1)
 	if len(matches) == 0 {
@@ -264,7 +265,7 @@ func ParseLLMDiffOutput(out string) ([]DiffBlock, error) {
 		if len(m) >= 3 {
 			diff := DiffBlock{Search: strings.TrimSpace(m[1]), Replace: strings.TrimSpace(m[2])}
 			diffs = append(diffs, diff)
-			log.Printf("[EVOLVE] Diff block %d: search=%d chars, replace=%d chars", i, len(diff.Search), len(diff.Replace))
+			log.Printf("[EVOLVE] Diff block %d: search/replacement lengths captured", i)
 		}
 	}
 	return diffs, nil

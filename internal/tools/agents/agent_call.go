@@ -122,8 +122,16 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 
 	dispatchCtx := ctx
 	if pid := strings.TrimSpace(args.ProjectID); pid != "" && strings.TrimSpace(t.workdir) != "" {
+		cleanPID := filepath.Clean(pid)
+		if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
+			return map[string]any{"ok": false, "error": "invalid project_id"}, nil
+		}
 		uid := args.UserID
-		base := filepath.Join(t.workdir, "users", fmt.Sprint(uid), "projects", pid)
+		baseRoot := filepath.Join(t.workdir, "users", fmt.Sprint(uid), "projects")
+		base := filepath.Join(baseRoot, cleanPID)
+		if !strings.HasPrefix(base, baseRoot+string(os.PathSeparator)) && base != baseRoot {
+			return map[string]any{"ok": false, "error": "invalid project_id"}, nil
+		}
 		if st, err := os.Stat(base); err != nil || !st.IsDir() {
 			return map[string]any{"ok": false, "error": "project not found (project_id must match the project directory/ID)"}, nil
 		}

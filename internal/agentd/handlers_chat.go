@@ -457,19 +457,29 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		// If a project_id was provided, ensure the sandbox path exists. Otherwise tools
 		// like run_cli will fail with permission errors because the base directory is
 		// missing.
-		if strings.TrimSpace(req.ProjectID) != "" {
+		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
+			cleanPID := filepath.Clean(pid)
+			if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
 			var uid int64
 			if userID != nil {
 				uid = *userID
 			}
-			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects", req.ProjectID)
+			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects")
+			base := filepath.Join(baseRoot, cleanPID)
+			if !strings.HasPrefix(base, baseRoot+string(os.PathSeparator)) && base != baseRoot {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
 			if st, err := os.Stat(base); err != nil || !st.IsDir() {
-				log.Error().Err(err).Str("project_id", req.ProjectID).Str("base", base).Msg("project_dir_missing")
+				log.Error().Err(err).Str("project_id", cleanPID).Str("base", base).Msg("project_dir_missing")
 				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
 				return
 			}
 			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
-			r = r.WithContext(sandbox.WithProjectID(r.Context(), req.ProjectID))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanPID))
 		}
 
 		currentRun := a.runs.create(req.Prompt)
@@ -834,19 +844,29 @@ func (a *app) promptHandler() http.HandlerFunc {
 		// Attach session ID to context so tools like ask_agent can inherit it.
 		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
 
-		if strings.TrimSpace(req.ProjectID) != "" {
+		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
+			cleanPID := filepath.Clean(pid)
+			if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
 			var uid int64
 			if userID != nil {
 				uid = *userID
 			}
-			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects", req.ProjectID)
+			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects")
+			base := filepath.Join(baseRoot, cleanPID)
+			if !strings.HasPrefix(base, baseRoot+string(os.PathSeparator)) && base != baseRoot {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
 			if st, err := os.Stat(base); err != nil || !st.IsDir() {
-				log.Error().Err(err).Str("project_id", req.ProjectID).Str("base", base).Msg("project_dir_missing")
+				log.Error().Err(err).Str("project_id", cleanPID).Str("base", base).Msg("project_dir_missing")
 				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
 				return
 			}
 			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
-			r = r.WithContext(sandbox.WithProjectID(r.Context(), req.ProjectID))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanPID))
 		}
 
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {

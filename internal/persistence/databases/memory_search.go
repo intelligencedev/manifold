@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+const maxSearchLimit = 1000 // Upper bound to prevent excessive allocations.
+
 // memorySearch is a naive in-memory full text search implementation.
 type memorySearch struct {
 	mu   sync.RWMutex
@@ -98,8 +100,8 @@ func (m *memorySearch) SearchChunks(_ context.Context, query string, _ string, l
 	if limit <= 0 {
 		limit = 10
 	}
-	if limit > 1000 {
-		limit = 1000 // cap to prevent excessive allocations
+	if limit > maxSearchLimit {
+		limit = maxSearchLimit // cap to prevent excessive allocations
 	}
 	q := strings.ToLower(query)
 	terms := strings.Fields(q)

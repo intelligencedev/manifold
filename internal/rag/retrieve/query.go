@@ -6,6 +6,10 @@ import (
 	"strings"
 )
 
+
+// Maximum number of allowed filter keys to avoid excessive allocation or overflow
+const maxFilterEntries = 1000
+
 // QueryPlan is the normalized retrieval plan derived from input query and options.
 type QueryPlan struct {
 	Query   string
@@ -32,7 +36,11 @@ func BuildQueryPlan(ctx context.Context, q string, opt RetrieveOptions) QueryPla
 		k = 1000 // sanity cap to avoid runaway allocations
 	}
 	ftK, vecK := splitBudgets(k, opt)
-	filters := make(map[string]string, len(opt.Filter)+2)
+	sizeHint := len(opt.Filter)
+	if sizeHint > maxFilterEntries {
+		sizeHint = maxFilterEntries
+	}
+	filters := make(map[string]string, sizeHint+2)
 	for k, v := range opt.Filter {
 		if v != "" {
 			filters[k] = v

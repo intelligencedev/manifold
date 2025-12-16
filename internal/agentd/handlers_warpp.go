@@ -168,9 +168,20 @@ func (a *app) warppRunHandler() http.HandlerFunc {
 			return
 		}
 		if p := strings.TrimSpace(req.ProjectID); p != "" {
-			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(userID), "projects", p)
+			cleanP := filepath.Clean(p)
+			if cleanP != p || strings.HasPrefix(cleanP, "..") || strings.Contains(cleanP, string(filepath.Separator)+"..") || filepath.IsAbs(cleanP) {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
+			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(userID), "projects")
+			base := filepath.Join(baseRoot, cleanP)
+			// Require base to be strictly within baseRoot, except if baseRoot itself is being directly referred to
+			if !strings.HasPrefix(base, baseRoot+string(filepath.Separator)) && base != baseRoot {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
 			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
-			r = r.WithContext(sandbox.WithProjectID(r.Context(), p))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanP))
 		}
 		intent := strings.TrimSpace(req.Intent)
 		if intent == "" {

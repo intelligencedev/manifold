@@ -10,10 +10,14 @@ import (
 type fakeHandler struct {
 	deltas []string
 	calls  []ToolCall
+	images []GeneratedImage
 }
 
 func (f *fakeHandler) OnDelta(content string) { f.deltas = append(f.deltas, content) }
 func (f *fakeHandler) OnToolCall(tc ToolCall) { f.calls = append(f.calls, tc) }
+func (f *fakeHandler) OnImage(img GeneratedImage) {
+	f.images = append(f.images, img)
+}
 
 // fake provider implementing Provider interface
 type fakeProvider struct {

@@ -29,18 +29,35 @@ auth:
     subjectField: "id"
     rolesField: ""
 
-openai:
-  api: completions
-  # Optional: request-wide headers for the main agent
-  # extraHeaders:
-  #   X-App-Tenant: example
-  extraParams:
-    parallel_tool_calls: true
-    prompt_cache_key: manifold-
-    reasoning_effort: medium
+llm_client:
+  # Options: openai (default), anthropic, google, local
+  provider: openai
+  openai:
+    api: completions
+    summaryBaseURL: "https://api.openai.com/v1"
+    summaryModel: gpt-5-nano
+    # Optional: request-wide headers for the main agent
+    # extraHeaders:
+    #   X-App-Tenant: example
+    extraParams:
+      parallel_tool_calls: true
+      prompt_cache_key: manifold-
+      reasoning_effort: medium
+  # anthropic:
+  #   apiKey: ""
+  #   model: ""
+  #   baseURL: ""
+  # google:
+  #   apiKey: ""
+  #   model: "gemini-1.5-flash"
+  #   baseURL: "https://generativelanguage.googleapis.com/"
 
 # No specialists configured for first launch
 specialists: []
+
+# Agent runtime configuration
+maxSteps: 1000                 # Maximum reasoning steps per agent run
+maxToolParallelism: 0          # Tool concurrency (0=unbounded, 1=sequential, >1=capped)
 
 obs:
   serviceName: manifold
@@ -56,6 +73,34 @@ obs:
     completionMetricName: llm.completion_tokens
     lookbackHours: 24
     timeoutSeconds: 5
+
+# Evolving Memory System (Search → Synthesis → Evolve)
+# Based on https://arxiv.org/abs/2511.20857
+# Requires embedding service configured below
+evolvingMemory:
+  enabled: false             # Enable evolving memory system
+  maxSize: 1000              # Max memory entries (automatic pruning)
+  topK: 4                    # Number of similar experiences to retrieve
+  windowSize: 20             # Sliding window size for ExpRecent mode
+  enableRAG: true            # Enable ExpRAG similarity-based retrieval
+  reMemEnabled: false        # Enable Think-Act-Refine mode (advanced)
+  maxInnerSteps: 5           # Max THINK/REFINE loops in ReMem mode
+  model: "gpt-4o-mini"       # Model for memory summarization
+  # Smart pruning (advanced) - deduplication and relevance-based memory management
+  enableSmartPrune: false    # Enable similarity-based dedup & relevance pruning
+  pruneThreshold: 0.95       # Similarity threshold for duplicate detection (0.0-1.0)
+  relevanceDecay: 0.99       # Daily decay factor for relevance scores (0.0-1.0)
+  minRelevance: 0.1          # Minimum relevance to avoid pruning (0.0-1.0)
+
+# Embedding service (required for evolving memory)
+embedding:
+  baseURL: "http://localhost:11434"
+  model: "nomic-embed-text"
+  path: "/api/embeddings"
+  timeoutSeconds: 30
+  # For OpenAI-compatible services:
+  # apiKey: "${OPENAI_API_KEY}"
+  # apiHeader: "Authorization"
 
 databases:
   defaultDSN: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"

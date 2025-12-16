@@ -50,7 +50,7 @@ func (s *memWarppStore) ListWorkflows(_ context.Context, userID int64) ([]persis
 	}
 	return out, nil
 }
-func (s *memWarppStore) Get(ctx context.Context, userID int64, intent string) (persist.WarppWorkflow, bool, error) {
+func (s *memWarppStore) GetByIntent(ctx context.Context, userID int64, intent string) (persist.WarppWorkflow, bool, error) {
 	if userMap := s.m[userID]; userMap != nil {
 		v, ok := userMap[intent]
 		return v, ok, nil
@@ -134,7 +134,7 @@ func (s *pgWarppStore) ListWorkflows(ctx context.Context, userID int64) ([]persi
 	return out, rows.Err()
 }
 
-func (s *pgWarppStore) Get(ctx context.Context, userID int64, intent string) (persist.WarppWorkflow, bool, error) {
+func (s *pgWarppStore) GetByIntent(ctx context.Context, userID int64, intent string) (persist.WarppWorkflow, bool, error) {
 	row := s.pool.QueryRow(ctx, `SELECT doc FROM warpp_workflows WHERE user_id=$1 AND intent=$2`, userID, intent)
 	var b []byte
 	if err := row.Scan(&b); err != nil {

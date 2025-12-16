@@ -15,6 +15,16 @@
       <textarea v-model="contentText" rows="4" class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full h-[92px] resize-none whitespace-pre-wrap break-words" placeholder="Enter static text or use ${A.key} placeholders" :disabled="!isDesignMode || hydratingRef" />
     </label>
 
+    <label v-if="isAgentResponse" class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      Render Mode
+      <select v-model="renderMode" class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground" :disabled="!isDesignMode || hydratingRef">
+        <option value="raw">Raw text</option>
+        <option value="markdown">Markdown</option>
+        <option value="html">HTML</option>
+      </select>
+      <p class="text-[10px] text-faint-foreground">Choose how the response should be rendered inside the node.</p>
+    </label>
+
     <details class="mt-1" v-if="isDesignMode">
       <summary class="cursor-pointer text-[11px] text-subtle-foreground">Advanced (promote to attribute)</summary>
       <div class="mt-2 space-y-2">
@@ -47,6 +57,8 @@ import type { StepNodeData } from '@/types/flow'
 import type { WarppStep } from '@/types/warpp'
 
 const TOOL_NAME_FALLBACK = 'utility_textbox'
+const AGENT_RESPONSE_TOOL = 'agent_response'
+type RenderMode = 'raw' | 'markdown' | 'html'
 
 const props = defineProps<{ nodeId: string; data: StepNodeData }>()
 const { updateNodeData } = useVueFlow()
@@ -56,13 +68,20 @@ const hydratingRef = inject<Ref<boolean>>('warppHydrating', ref(false))
 const isDesignMode = computed(() => modeRef.value === 'design')
 const labelText = ref('')
 const contentText = ref('')
+const renderMode = ref<RenderMode>('markdown')
 const outputAttr = ref('')
 const outputFrom = ref('')
 const outputValue = ref('')
 const isDirty = ref(false)
 
 const toolName = computed(() => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBACK)
+const isAgentResponse = computed(() => toolName.value === AGENT_RESPONSE_TOOL)
 const defaultAttributeHint = computed(() => `${props.nodeId}_text`)
+
+function parseRenderMode(value: unknown): RenderMode {
+  const mode = typeof value === 'string' ? (value as RenderMode) : 'markdown'
+  return mode === 'raw' || mode === 'html' || mode === 'markdown' ? mode : 'markdown'
+}
 
 let suppress = false
 watch(
@@ -72,6 +91,7 @@ watch(
     const args = (step?.tool?.args ?? {}) as Record<string, unknown>
     labelText.value = String(args.label ?? step?.text ?? '')
     contentText.value = String(args.text ?? '')
+    renderMode.value = parseRenderMode(args.render_mode)
     outputAttr.value = typeof args.output_attr === 'string' ? (args.output_attr as string) : ''
     outputFrom.value = typeof args.output_from === 'string' ? (args.output_from as string) : ''
     outputValue.value = typeof args.output_value === 'string' ? (args.output_value as string) : ''
@@ -81,7 +101,7 @@ watch(
   { immediate: true, deep: true },
 )
 
-watch([labelText, contentText, outputAttr, outputFrom, outputValue], () => {
+watch([labelText, contentText, outputAttr, outputFrom, outputValue, renderMode], () => {
   if (suppress || hydratingRef.value || !isDesignMode.value) return
   isDirty.value = true
 })
@@ -111,6 +131,7 @@ function buildArgs(): Record<string, unknown> {
   const val = outputValue.value.trim()
   if (label) args.label = label
   if (text) args.text = text
+  if (isAgentResponse.value) args.render_mode = renderMode.value
   if (attr) args.output_attr = attr
   if (from) args.output_from = from
   if (val) args.output_value = val
@@ -118,6 +139,7 @@ function buildArgs(): Record<string, unknown> {
 }
 
 function prettifyName(name: string): string {
+  if (name === AGENT_RESPONSE_TOOL) return 'Agent Response'
   if (!name.startsWith('utility_')) return name
   return name.slice('utility_'.length).replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
@@ -126,4 +148,3 @@ function cloneStep(step: WarppStep) {
   try { return JSON.parse(JSON.stringify(step)) as WarppStep } catch { return { ...step } }
 }
 </script>
-

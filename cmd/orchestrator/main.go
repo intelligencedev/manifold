@@ -14,7 +14,7 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"manifold/internal/config"
-	"manifold/internal/llm"
+	llmpkg "manifold/internal/llm"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	"manifold/internal/persistence/databases"
@@ -126,7 +126,7 @@ func main() {
 		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
 	}
 	// Configure global llm payload logging/truncation
-	llm.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
+	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	// Databases: construct backends and register tools

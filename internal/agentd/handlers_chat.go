@@ -6,18 +6,54 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 
+	"manifold/internal/agent"
+	"manifold/internal/agent/prompts"
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
+	"manifold/internal/tools"
 	"manifold/internal/warpp"
 )
+
+type agentStreamTracer struct {
+	w  io.Writer
+	fl http.Flusher
+}
+
+func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
+	if t == nil || t.w == nil || t.fl == nil {
+		return
+	}
+	payload := map[string]any{
+		"type":           ev.Type,
+		"agent":          ev.Agent,
+		"model":          ev.Model,
+		"call_id":        ev.CallID,
+		"parent_call_id": ev.ParentCallID,
+		"depth":          ev.Depth,
+		"role":           ev.Role,
+		"content":        ev.Content,
+		"title":          ev.Title,
+		"args":           ev.Args,
+		"data":           ev.Data,
+		"tool_id":        ev.ToolID,
+		"error":          ev.Error,
+	}
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(t.w, "data: %s\n\n", b)
+	t.fl.Flush()
+}
 
 func (a *app) runsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +218,7 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
+			msgs = hydrateChatMessages(msgs)
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(msgs); err != nil {
 				log.Error().Err(err).Msg("encode_chat_messages")
@@ -319,6 +356,66 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 	}
 }
 
+// hydrateChatMessages post-processes persisted messages for client display.
+// It strips JSON wrappers used to preserve tool calls and attaches tool names/args
+// to tool-role messages so the UI can render the tool pane correctly after reload.
+func hydrateChatMessages(raw []persist.ChatMessage) []persist.ChatMessage {
+	out := make([]persist.ChatMessage, 0, len(raw))
+
+	type toolMeta struct {
+		name string
+		args string
+	}
+
+	metaByID := make(map[string]toolMeta)
+
+	for _, msg := range raw {
+		m := msg
+		trimmed := strings.TrimSpace(m.Content)
+
+		if m.Role == "assistant" && strings.HasPrefix(trimmed, "{") {
+			var data struct {
+				Content   string         `json:"content"`
+				ToolCalls []llm.ToolCall `json:"tool_calls"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &data); err == nil {
+				if data.Content != "" {
+					m.Content = data.Content
+				}
+				for _, tc := range data.ToolCalls {
+					args := strings.TrimSpace(string(tc.Args))
+					metaByID[tc.ID] = toolMeta{name: tc.Name, args: args}
+				}
+				// Assistant messages that only carried tool_calls should not render in the chat pane.
+				if strings.TrimSpace(data.Content) == "" && len(data.ToolCalls) > 0 {
+					continue
+				}
+			}
+		} else if m.Role == "tool" && strings.HasPrefix(trimmed, "{") {
+			var data struct {
+				Content string `json:"content"`
+				ToolID  string `json:"tool_id"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &data); err == nil {
+				if data.Content != "" {
+					m.Content = data.Content
+				}
+				if data.ToolID != "" {
+					m.ToolID = data.ToolID
+					if meta, ok := metaByID[data.ToolID]; ok {
+						m.Title = meta.name
+						m.ToolArgs = meta.args
+					}
+				}
+			}
+		}
+
+		out = append(out, m)
+	}
+
+	return out
+}
+
 func (a *app) agentRunHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
@@ -349,10 +446,47 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			Prompt    string `json:"prompt"`
 			SessionID string `json:"session_id,omitempty"`
 			ProjectID string `json:"project_id,omitempty"`
+			Image     bool   `json:"image,omitempty"`
+			ImageSize string `json:"image_size,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
+		}
+
+		// If a project_id was provided, ensure the sandbox path exists. Otherwise tools
+		// like run_cli will fail with permission errors because the base directory is
+		// missing.
+		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
+			cleanPID := filepath.Clean(pid)
+			if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
+			var uid int64
+			if userID != nil {
+				uid = *userID
+			}
+			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects")
+			base := filepath.Join(baseRoot, cleanPID)
+			absBaseRoot, err1 := filepath.Abs(baseRoot)
+			absBase, err2 := filepath.Abs(base)
+			if err1 != nil || err2 != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			relBase, errRel := filepath.Rel(absBaseRoot, absBase)
+			if errRel != nil || relBase == "." || strings.HasPrefix(relBase, ".."+string(os.PathSeparator)) || relBase == ".." {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
+			if st, err := os.Stat(absBase); err != nil || !st.IsDir() {
+				log.Error().Err(err).Str("project_id", cleanPID).Str("base", absBase).Msg("project_dir_missing")
+				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
+				return
+			}
+			r = r.WithContext(sandbox.WithBaseDir(r.Context(), absBase))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanPID))
 		}
 
 		currentRun := a.runs.create(req.Prompt)
@@ -360,14 +494,8 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			req.SessionID = "default"
 		}
 
-		if strings.TrimSpace(req.ProjectID) != "" {
-			var uid int64
-			if userID != nil {
-				uid = *userID
-			}
-			base := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects", req.ProjectID)
-			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
-		}
+		// Attach session ID to context so tools like ask_agent can inherit it.
+		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
 
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
@@ -387,6 +515,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
+		}
+		if req.Image {
+			r = r.WithContext(llm.WithImagePrompt(r.Context(), llm.ImagePromptOptions{Size: req.ImageSize}))
+		}
+		if req.Image {
+			r = r.WithContext(llm.WithImagePrompt(r.Context(), llm.ImagePromptOptions{Size: req.ImageSize}))
 		}
 
 		specOwner := systemUserID
@@ -472,7 +606,11 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.engine
+		eng := a.cloneEngine()
+		if eng == nil {
+			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if r.Header.Get("Accept") == "text/event-stream" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
@@ -481,6 +619,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				http.Error(w, "streaming not supported", http.StatusInternalServerError)
 				return
 			}
+			tracer := &agentStreamTracer{w: w, fl: fl}
 
 			seconds := a.cfg.StreamRunTimeoutSeconds
 			if seconds <= 0 {
@@ -488,11 +627,19 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+
+			if req.Image {
+				ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+			}
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", true).Msg("using configured stream timeout")
 			} else {
 				log.Debug().Str("endpoint", "/agent/run").Bool("stream", true).Msg("no timeout configured; running until completion")
 			}
+			baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+			var savedImages []savedImage
+			eng.AgentTracer = tracer
+			eng.AgentTracer = tracer
 
 			eng.OnDelta = func(d string) {
 				payload := map[string]string{"type": "delta", "data": d}
@@ -544,6 +691,40 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					}
 				}
 			}
+			var turnMessages []llm.Message
+			eng.OnTurnMessage = func(msg llm.Message) {
+				turnMessages = append(turnMessages, msg)
+			}
+			eng.OnAssistant = func(msg llm.Message) {
+				if len(msg.Images) == 0 {
+					return
+				}
+				saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+				if len(saved) == 0 {
+					return
+				}
+				savedImages = append(savedImages, saved...)
+				for _, img := range saved {
+					payload := map[string]any{
+						"type":     "image",
+						"name":     img.Name,
+						"mime":     img.MIME,
+						"data_url": img.DataURL,
+					}
+					if img.URL != "" {
+						payload["url"] = img.URL
+					}
+					if img.RelPath != "" {
+						payload["rel_path"] = img.RelPath
+					}
+					if img.FullPath != "" {
+						payload["file_path"] = img.FullPath
+					}
+					b, _ := json.Marshal(payload)
+					fmt.Fprintf(w, "data: %s\n\n", b)
+					fl.Flush()
+				}
+			}
 
 			res, err := eng.RunStream(ctx, req.Prompt, history)
 			if err != nil {
@@ -557,12 +738,15 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				a.runs.updateStatus(currentRun.ID, "failed", 0)
 				return
 			}
+			if len(savedImages) > 0 {
+				res = appendImageSummary(res, savedImages)
+			}
 			payload := map[string]string{"type": "final", "data": res}
 			b, _ := json.Marshal(payload)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(currentRun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			return
@@ -571,10 +755,30 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		seconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+
+		if req.Image {
+			ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+		}
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Bool("stream", false).Msg("using configured agent timeout")
 		} else {
 			log.Debug().Str("endpoint", "/agent/run").Bool("stream", false).Msg("no timeout configured; running until completion")
+		}
+		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+		var savedImages []savedImage
+		var turnMessages []llm.Message
+		eng.OnAssistant = func(msg llm.Message) {
+			if len(msg.Images) == 0 {
+				return
+			}
+			saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+			if len(saved) == 0 {
+				return
+			}
+			savedImages = append(savedImages, saved...)
+		}
+		eng.OnTurnMessage = func(msg llm.Message) {
+			turnMessages = append(turnMessages, msg)
 		}
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
@@ -583,10 +787,13 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			a.runs.updateStatus(currentRun.ID, "failed", 0)
 			return
 		}
+		if len(savedImages) > 0 {
+			result = appendImageSummary(result, savedImages)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		a.runs.updateStatus(currentRun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 	}
@@ -629,6 +836,8 @@ func (a *app) promptHandler() http.HandlerFunc {
 			Prompt    string `json:"prompt"`
 			SessionID string `json:"session_id,omitempty"`
 			ProjectID string `json:"project_id,omitempty"`
+			Image     bool   `json:"image,omitempty"`
+			ImageSize string `json:"image_size,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("decode prompt: %v", err)
@@ -637,6 +846,34 @@ func (a *app) promptHandler() http.HandlerFunc {
 		}
 		if req.SessionID == "" {
 			req.SessionID = "default"
+		}
+
+		// Attach session ID to context so tools like ask_agent can inherit it.
+		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
+
+		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
+			cleanPID := filepath.Clean(pid)
+			if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
+			var uid int64
+			if userID != nil {
+				uid = *userID
+			}
+			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects")
+			base := filepath.Join(baseRoot, cleanPID)
+			if !strings.HasPrefix(base, baseRoot+string(os.PathSeparator)) && base != baseRoot {
+				http.Error(w, "invalid project_id", http.StatusBadRequest)
+				return
+			}
+			if st, err := os.Stat(base); err != nil || !st.IsDir() {
+				log.Error().Err(err).Str("project_id", cleanPID).Str("base", base).Msg("project_dir_missing")
+				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
+				return
+			}
+			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanPID))
 		}
 
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
@@ -680,7 +917,11 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.engine
+		eng := a.cloneEngine()
+		if eng == nil {
+			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		if r.Header.Get("Accept") == "text/event-stream" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
@@ -696,6 +937,12 @@ func (a *app) promptHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 			defer cancel()
+
+			if req.Image {
+				ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+			}
+			baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+			var savedImages []savedImage
 			if dur > 0 {
 				log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", true).Msg("using configured stream timeout")
 			} else {
@@ -750,6 +997,40 @@ func (a *app) promptHandler() http.HandlerFunc {
 					}
 				}
 			}
+			var turnMessages []llm.Message
+			eng.OnTurnMessage = func(msg llm.Message) {
+				turnMessages = append(turnMessages, msg)
+			}
+			eng.OnAssistant = func(msg llm.Message) {
+				if len(msg.Images) == 0 {
+					return
+				}
+				saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+				if len(saved) == 0 {
+					return
+				}
+				savedImages = append(savedImages, saved...)
+				for _, img := range saved {
+					payload := map[string]any{
+						"type":     "image",
+						"name":     img.Name,
+						"mime":     img.MIME,
+						"data_url": img.DataURL,
+					}
+					if img.URL != "" {
+						payload["url"] = img.URL
+					}
+					if img.RelPath != "" {
+						payload["rel_path"] = img.RelPath
+					}
+					if img.FullPath != "" {
+						payload["file_path"] = img.FullPath
+					}
+					b, _ := json.Marshal(payload)
+					fmt.Fprintf(w, "data: %s\n\n", b)
+					fl.Flush()
+				}
+			}
 
 			prun := a.runs.create(req.Prompt)
 			res, err := eng.RunStream(ctx, req.Prompt, history)
@@ -764,12 +1045,15 @@ func (a *app) promptHandler() http.HandlerFunc {
 				a.runs.updateStatus(prun.ID, "failed", 0)
 				return
 			}
+			if len(savedImages) > 0 {
+				res = appendImageSummary(res, savedImages)
+			}
 			payload := map[string]string{"type": "final", "data": res}
 			b, _ := json.Marshal(payload)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(prun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, res, eng.Model); err != nil {
+			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			return
@@ -778,12 +1062,32 @@ func (a *app) promptHandler() http.HandlerFunc {
 		seconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+
+		if req.Image {
+			ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
+		}
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/api/prompt").Bool("stream", false).Msg("using configured agent timeout")
 		} else {
 			log.Debug().Str("endpoint", "/api/prompt").Bool("stream", false).Msg("no timeout configured; running until completion")
 		}
 		prun := a.runs.create(req.Prompt)
+		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+		var savedImages []savedImage
+		var turnMessages []llm.Message
+		eng.OnTurnMessage = func(msg llm.Message) {
+			turnMessages = append(turnMessages, msg)
+		}
+		eng.OnAssistant = func(msg llm.Message) {
+			if len(msg.Images) == 0 {
+				return
+			}
+			saved := saveGeneratedImages(baseDir, msg.Images, req.ProjectID)
+			if len(saved) == 0 {
+				return
+			}
+			savedImages = append(savedImages, saved...)
+		}
 		result, err := eng.Run(ctx, req.Prompt, history)
 		if err != nil {
 			log.Error().Err(err).Msg("agent run error")
@@ -791,10 +1095,13 @@ func (a *app) promptHandler() http.HandlerFunc {
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			return
 		}
+		if len(savedImages) > 0 {
+			result = appendImageSummary(result, savedImages)
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, result, eng.Model); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 	}
@@ -819,6 +1126,26 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		modelLabel = name
 	}
 
+	prov := sp.Provider()
+	if prov == nil {
+		http.Error(w, "specialist not configured", http.StatusInternalServerError)
+		return true
+	}
+	toolReg := sp.ToolsRegistry()
+	if toolReg == nil || !sp.EnableTools {
+		toolReg = tools.NewRegistry()
+	}
+
+	buildEngine := func() *agent.Engine {
+		return &agent.Engine{
+			LLM:      prov,
+			Tools:    toolReg,
+			MaxSteps: a.cfg.MaxSteps,
+			System:   prompts.EnsureMemoryInstructions(sp.System),
+			Model:    sp.Model,
+		}
+	}
+
 	if r.Header.Get("Accept") == "text/event-stream" {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -827,29 +1154,131 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
 			return true
 		}
+		tracer := &agentStreamTracer{w: w, fl: fl}
 		seconds := a.cfg.StreamRunTimeoutSeconds
 		if seconds <= 0 {
 			seconds = a.cfg.AgentRunTimeoutSeconds
 		}
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+
+		if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
+			ctx = llm.WithImagePrompt(ctx, opts)
+		}
+		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+		var savedImages []savedImage
 		if dur > 0 {
 			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Bool("stream", true).Msg("using configured stream timeout")
 		} else {
 			log.Debug().Str("endpoint", "/agent/run").Str("specialist", name).Bool("stream", true).Msg("no timeout configured; running until completion")
 		}
 		prun := a.runs.create(prompt)
-		handler := &specialistStreamHandler{w: w, fl: fl}
-		if err := sp.Stream(ctx, prompt, history, handler); err != nil {
+		eng := buildEngine()
+		eng.AgentTracer = tracer
+		eng.OnDelta = func(d string) {
+			if d == "" {
+				return
+			}
+			payload := map[string]string{"type": "delta", "data": d}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
+		eng.OnToolStart = func(toolName string, args []byte, toolID string) {
+			payload := map[string]any{"type": "tool_start", "title": "Tool: " + toolName, "tool_id": toolID, "args": string(args)}
+			if toolName == "agent_call" || toolName == "ask_agent" {
+				payload["agent"] = true
+			}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
+		eng.OnTool = func(toolName string, args []byte, result []byte) {
+			if toolName == "text_to_speech_chunk" {
+				var meta map[string]any
+				_ = json.Unmarshal(result, &meta)
+				metaPayload := map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]}
+				b, _ := json.Marshal(metaPayload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+				return
+			}
+			payload := map[string]any{"type": "tool_result", "title": "Tool: " + toolName, "data": string(result)}
+			if toolName == "agent_call" || toolName == "ask_agent" {
+				payload["agent"] = true
+			}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+			if toolName == "text_to_speech" {
+				var resp map[string]any
+				if err := json.Unmarshal(result, &resp); err == nil {
+					if fp, ok := resp["file_path"].(string); ok && fp != "" {
+						trimmed := strings.TrimPrefix(fp, "./")
+						trimmed = strings.TrimPrefix(trimmed, "/")
+						url := "/audio/" + trimmed
+						ap := map[string]any{"type": "tts_audio", "file_path": fp, "url": url}
+						if bb, err2 := json.Marshal(ap); err2 == nil {
+							fmt.Fprintf(w, "data: %s\n\n", bb)
+							fl.Flush()
+						}
+					}
+				}
+			}
+		}
+		var turnMessages []llm.Message
+		eng.OnTurnMessage = func(msg llm.Message) {
+			turnMessages = append(turnMessages, msg)
+		}
+		eng.OnAssistant = func(msg llm.Message) {
+			if len(msg.Images) == 0 {
+				return
+			}
+			saved := saveGeneratedImages(baseDir, msg.Images, "")
+			if len(saved) == 0 {
+				return
+			}
+			savedImages = append(savedImages, saved...)
+			for _, img := range saved {
+				payload := map[string]any{
+					"type":     "image",
+					"name":     img.Name,
+					"mime":     img.MIME,
+					"data_url": img.DataURL,
+				}
+				if img.RelPath != "" {
+					payload["rel_path"] = img.RelPath
+				}
+				if img.FullPath != "" {
+					payload["file_path"] = img.FullPath
+				}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+		}
+
+		res, err := eng.RunStream(ctx, prompt, history)
+		if err != nil {
 			log.Error().Err(err).Str("specialist", name).Msg("specialist_stream_error")
-			handler.SendError(err.Error())
+			if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
+				fmt.Fprintf(w, "data: %s\n\n", b)
+			} else {
+				fmt.Fprintf(w, "data: %q\n\n", "(error)")
+			}
+			fl.Flush()
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			return true
 		}
-		final := handler.Final()
-		handler.SendFinal(final)
+		if len(savedImages) > 0 {
+			res = appendImageSummary(res, savedImages)
+		}
+		payload := map[string]string{"type": "final", "data": res}
+		b, _ := json.Marshal(payload)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		fl.Flush()
 		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, final, modelLabel); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist_stream")
 		}
 		return true
@@ -858,61 +1287,48 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	seconds := a.cfg.AgentRunTimeoutSeconds
 	ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 	defer cancel()
+
+	if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
+		ctx = llm.WithImagePrompt(ctx, opts)
+	}
 	if dur > 0 {
 		log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("specialist", name).Msg("using configured agent timeout")
 	} else {
 		log.Debug().Str("endpoint", "/agent/run").Str("specialist", name).Msg("no timeout configured; running until completion")
 	}
 	prun := a.runs.create(prompt)
-	out, err := sp.Inference(ctx, prompt, history)
+	eng := buildEngine()
+	baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+	var savedImages []savedImage
+	var turnMessages []llm.Message
+	eng.OnTurnMessage = func(msg llm.Message) {
+		turnMessages = append(turnMessages, msg)
+	}
+	eng.OnAssistant = func(msg llm.Message) {
+		if len(msg.Images) == 0 {
+			return
+		}
+		saved := saveGeneratedImages(baseDir, msg.Images, "")
+		if len(saved) == 0 {
+			return
+		}
+		savedImages = append(savedImages, saved...)
+	}
+	out, err := eng.Run(ctx, prompt, history)
 	if err != nil {
 		log.Error().Err(err).Str("specialist", name).Msg("specialist_inference_error")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		a.runs.updateStatus(prun.ID, "failed", 0)
 		return true
 	}
+	if len(savedImages) > 0 {
+		out = appendImageSummary(out, savedImages)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"result": out})
 	a.runs.updateStatus(prun.ID, "completed", 0)
-	if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out, modelLabel); err != nil {
+	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, out, modelLabel); err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")
 	}
 	return true
-}
-
-type specialistStreamHandler struct {
-	w   http.ResponseWriter
-	fl  http.Flusher
-	buf strings.Builder
-}
-
-func (h *specialistStreamHandler) OnDelta(content string) {
-	if content == "" {
-		return
-	}
-	h.buf.WriteString(content)
-	payload := map[string]string{"type": "delta", "data": content}
-	h.write(payload)
-}
-
-func (h *specialistStreamHandler) OnToolCall(tc llm.ToolCall) {
-	// Specialists are streamed as plain responses; tool calls are not surfaced.
-}
-
-func (h *specialistStreamHandler) Final() string {
-	return h.buf.String()
-}
-
-func (h *specialistStreamHandler) SendFinal(text string) {
-	h.write(map[string]string{"type": "final", "data": text})
-}
-
-func (h *specialistStreamHandler) SendError(msg string) {
-	h.write(map[string]string{"type": "error", "data": msg})
-}
-
-func (h *specialistStreamHandler) write(payload map[string]string) {
-	b, _ := json.Marshal(payload)
-	fmt.Fprintf(h.w, "data: %s\n\n", b)
-	h.fl.Flush()
 }

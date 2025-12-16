@@ -43,16 +43,16 @@ const (
 // Config configures a splitter. The Kind selects the concrete strategy and the
 // corresponding sub-config should be populated.
 type Config struct {
-	Kind      Kind
-	Fixed     FixedConfig
-	Boundary  BoundaryConfig
-	Markdown  MarkdownConfig
-	Code      CodeConfig
-	Semantic  SemanticConfig
+	Kind       Kind
+	Fixed      FixedConfig
+	Boundary   BoundaryConfig
+	Markdown   MarkdownConfig
+	Code       CodeConfig
+	Semantic   SemanticConfig
 	TextTiling TextTilingConfig
-	Rolling   RollingConfig
-	Layout    LayoutConfig
-	Recursive RecursiveConfig
+	Rolling    RollingConfig
+	Layout     LayoutConfig
+	Recursive  RecursiveConfig
 }
 
 // NewFromConfig constructs a Splitter from a Config.

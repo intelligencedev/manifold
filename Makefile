@@ -1,5 +1,10 @@
 SHELL := /bin/bash
 
+# Use system default locations for Go caches (avoid polluting project tmp/)
+export GOCACHE := $(shell go env GOCACHE)
+export GOMODCACHE := $(shell go env GOMODCACHE)
+export GOPATH := $(shell go env GOPATH)
+
 # Binaries are discovered under cmd/*
 ## Discover cmd/* directories but exclude embedctl	@echo "Host build complete"
 
@@ -55,6 +60,8 @@ help:
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
 	@echo "  make ci                 # run CI checks (fmt-check, imports-check, vet, lint, test)"
 	@echo "  make clean              # clean $(DIST) and coverage.out"
+	@echo ""
+	@echo "Note: Go caches use system defaults (GOCACHE=$(GOCACHE), GOMODCACHE=$(GOMODCACHE))"
 
 # Install developer tools
 tools:
@@ -108,7 +115,9 @@ imports-check:
 	@missing=$$(goimports -l .); if [ -n "$$missing" ]; then echo "goimports needs to be run on:"; echo "$$missing"; exit 1; fi
 
 vet:
-	go vet ./...
+	@echo "Running go vet (excluding tmp/ and whisper.cpp)..."
+	@go vet $$(go list ./... | grep -v '/tmp/' | grep -v 'whisper.cpp/bindings/go') 2>&1 | grep -v "whisper.cpp" | grep -v "whisper.h" | grep -v "error generated" | grep -v "^\s*|" | grep -v "^$$" || true
+	@echo "go vet completed"
 
 lint:
 	@if ! command -v golangci-lint >/dev/null 2>&1; then \

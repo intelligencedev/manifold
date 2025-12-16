@@ -60,6 +60,38 @@ export async function fetchTokenMetrics(params?: TokenMetricsParams): Promise<To
   return response.data
 }
 
+export interface TraceMetricRow {
+  traceId?: string
+  name: string
+  model?: string
+  status: string
+  durationMillis?: number
+  timestamp: number
+  promptTokens?: number
+  completionTokens?: number
+  totalTokens?: number
+}
+
+export interface TraceMetricsResponse {
+  timestamp: number
+  windowSeconds?: number
+  source?: string
+  traces: TraceMetricRow[]
+}
+
+export interface TraceMetricsParams {
+  window?: string
+  windowSeconds?: number
+  limit?: number
+}
+
+export async function fetchTraceMetrics(params?: TraceMetricsParams): Promise<TraceMetricsResponse> {
+  const response = await apiClient.get<TraceMetricsResponse>('/metrics/traces', {
+    params,
+  })
+  return response.data
+}
+
 // Projects API --------------------------------------------------------------
 
 export interface ProjectSummary {
@@ -151,14 +183,23 @@ export interface Specialist {
   id?: number
   name: string
   description?: string
+  provider?: string
   baseURL: string
   apiKey?: string
   model: string
   enableTools: boolean
   paused: boolean
   allowTools?: string[]
-  reasoningEffort?: 'low' | 'medium' | 'high' | ''
   system?: string
+  extraHeaders?: Record<string, string>
+  extraParams?: Record<string, any>
+}
+
+export interface SpecialistProviderDefaults {
+  provider: string
+  baseURL: string
+  apiKey?: string
+  model: string
   extraHeaders?: Record<string, string>
   extraParams?: Record<string, any>
 }
@@ -185,6 +226,11 @@ export async function upsertSpecialist(sp: Specialist): Promise<Specialist> {
 
 export async function deleteSpecialist(name: string): Promise<void> {
   await apiClient.delete(`/specialists/${encodeURIComponent(name)}`)
+}
+
+export async function listSpecialistDefaults(): Promise<Record<string, SpecialistProviderDefaults>> {
+  const { data } = await apiClient.get<Record<string, SpecialistProviderDefaults>>('/specialists/defaults')
+  return data
 }
 
 // Users & Roles

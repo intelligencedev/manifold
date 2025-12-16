@@ -13,7 +13,7 @@ import (
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	llmpkg "manifold/internal/llm"
-	openaillm "manifold/internal/llm/openai"
+	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
@@ -125,15 +125,18 @@ func main() {
 	}
 
 	// Create LLM provider after potential DB overrides
-	llm := openaillm.New(cfg.OpenAI, httpClient)
+	llm, err := llmproviders.Build(cfg, httpClient)
+	if err != nil {
+		log.Fatal().Err(err).Msg("build llm provider")
+	}
 
 	// Build specialists registry from DB (fallback to YAML) so CLI resolves
 	// the same set as agentd.
 	var specReg *specialists.Registry
 	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
-		specReg = specialists.NewRegistry(cfg.OpenAI, specialistsFromStore(list), httpClient, nil)
+		specReg = specialists.NewRegistry(cfg.LLMClient, specialistsFromStore(list), httpClient, nil)
 	} else {
-		specReg = specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, nil)
+		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, nil)
 	}
 
 	// If a specialist was requested, route the query directly and exit.
@@ -170,6 +173,13 @@ func main() {
 	registry.Register(utility.NewTextboxTool())
 	// TTS tool
 	registry.Register(tts.New(cfg, httpClient))
+
+	// Specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd)
+	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
+		specReg = specialists.NewRegistry(cfg.LLMClient, specialistsFromStore(list), httpClient, registry)
+	} else {
+		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
+	}
 
 	// If tools are globally disabled, use an empty registry
 	if !cfg.EnableTools {
@@ -243,11 +253,14 @@ func main() {
 		}
 	}
 
+	systemPrompt := prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt)
+	systemPrompt = specReg.AppendToSystemPrompt(systemPrompt)
+
 	eng := agent.Engine{
 		LLM:              llm,
 		Tools:            registry,
 		MaxSteps:         *maxSteps,
-		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
+		System:           systemPrompt,
 		SummaryEnabled:   cfg.SummaryEnabled,
 		SummaryThreshold: cfg.SummaryThreshold,
 		SummaryKeepLast:  cfg.SummaryKeepLast,
@@ -299,7 +312,7 @@ func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
 			continue
 		}
 		out = append(out, config.SpecialistConfig{
-			Name: s.Name, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
+			Name: s.Name, Description: s.Description, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
 			EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,
 			ReasoningEffort: s.ReasoningEffort, System: s.System,
 			ExtraHeaders: s.ExtraHeaders, ExtraParams: s.ExtraParams,

@@ -104,6 +104,13 @@
         >
           Result: {{ runOutput }}
         </span>
+        <span
+          v-if="runTimerLabel"
+          class="text-sm font-semibold text-warning whitespace-nowrap"
+          :title="running ? 'Workflow runtime' : 'Duration of the most recent run'"
+        >
+          {{ runTimerLabel }}
+        </span>
         <div class="flex items-center gap-1">
           <span class="text-[10px] uppercase tracking-wide text-faint-foreground">Mode</span>
           <div class="inline-flex overflow-hidden rounded border border-border/60 text-xs">
@@ -206,6 +213,24 @@
             <p class="mt-1 text-xs text-subtle-foreground">
               Drag onto the canvas to add workflow steps, utilities, or group containers.
             </p>
+            <div class="mt-3 flex items-center gap-2">
+              <input
+                v-model="paletteSearch"
+                type="search"
+                class="w-full rounded border border-border/60 bg-surface-muted/70 px-3 py-2 text-sm text-foreground placeholder:text-faint-foreground focus:border-accent focus:outline-none"
+                placeholder="Search tools…"
+                aria-label="Search tools"
+              />
+              <button
+                v-if="paletteSearch"
+                type="button"
+                class="text-xs text-subtle-foreground hover:text-foreground"
+                aria-label="Clear search"
+                @click="paletteSearch = ''"
+              >
+                Clear
+              </button>
+            </div>
             <div class="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none">
               <div class="space-y-2">
                 <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">Utility Nodes</h3>
@@ -214,6 +239,7 @@
                 </p>
                 <!-- Group Container and Sticky Note are utility items and appear first -->
                 <div
+                  v-if="showGroupContainer"
                   class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   title="Group nodes to keep steps organized"
@@ -223,6 +249,7 @@
                   Group Container
                 </div>
                 <div
+                  v-if="showStickyNote"
                   class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   title="Sticky note (editor-only)"
@@ -233,7 +260,7 @@
                 </div>
                 <!-- Other utility tools from backend follow -->
                 <div
-                  v-for="tool in utilityTools"
+                  v-for="tool in filteredUtilityTools"
                   :key="tool.name"
                   class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
@@ -244,13 +271,13 @@
                   {{ prettyUtilityLabel(tool.name) }}
                 </div>
               </div>
-              <template v-if="workflowTools.length">
+              <template v-if="filteredWorkflowTools.length">
                 <div class="space-y-2">
                   <h3 class="text-[11px] font-semibold uppercase tracking-wide text-faint-foreground">
                     Workflow Tools
                   </h3>
                   <div
-                    v-for="tool in workflowTools"
+                    v-for="tool in filteredWorkflowTools"
                     :key="tool.name"
                     class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                     draggable="true"
@@ -263,7 +290,13 @@
                 </div>
               </template>
               <div
-                v-if="!tools.length && !loading"
+                v-if="paletteMatchesCount === 0 && paletteSearch"
+                class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
+              >
+                No tools match your search.
+              </div>
+              <div
+                v-else-if="!tools.length && !loading"
                 class="rounded border border-dashed border-border/60 bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
               >
                 No tools available for this configuration.
@@ -602,7 +635,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, provide, ref, watch, markRaw } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch, markRaw } from 'vue'
 import { VueFlow, type Edge, type Node, useVueFlow, type Connection, Panel, type GraphNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
@@ -659,6 +692,17 @@ const DEFAULT_LAYOUT_START_X = 140
 const DEFAULT_LAYOUT_START_Y = 160
 const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320
 const UTILITY_TOOL_PREFIX = 'utility_'
+const AGENT_RESPONSE_TOOL = 'agent_response'
+const BUILTIN_UTILITY_TOOLS: WarppTool[] = [
+  {
+    name: AGENT_RESPONSE_TOOL,
+    description: 'Render agent responses as text, markdown, or HTML',
+    parameters: {
+      text: 'Markdown or HTML content to render',
+      render_mode: 'raw | markdown | html',
+    },
+  },
+]
 
 // Dagre layout sizing
 // Use measured node sizes when available; these are fallbacks when not yet measured
@@ -844,6 +888,10 @@ provide('warppRunning', running)
 provide('warppRunOutput', runOutput)
 provide('warppRunLogs', runLogs)
 let runTraceTimers: ReturnType<typeof setTimeout>[] = []
+const runStartTime = ref<number | null>(null)
+const liveRunElapsedMs = ref(0)
+const lastRunDurationMs = ref<number | null>(null)
+let runTimerInterval: ReturnType<typeof setInterval> | null = null
 // Provide collapse/expand-all signals for nodes to react to
 const collapseAllSeq = ref(0)
 const expandAllSeq = ref(0)
@@ -929,6 +977,15 @@ const toolMap = computed(() => {
   return map
 })
 
+function mergeBuiltinUtilityTools(list: WarppTool[]): WarppTool[] {
+  const names = new Set(list.map((tool) => tool.name))
+  const merged = [...list]
+  BUILTIN_UTILITY_TOOLS.forEach((builtin) => {
+    if (!names.has(builtin.name)) merged.push(builtin)
+  })
+  return merged
+}
+
 // Selection state for showing Node Configuration panel
 const selectedNodes = computed(() => nodes.value.filter((n) => (n as SelectableWarppNode).selected))
 const selectedCount = computed(() => selectedNodes.value.length)
@@ -949,6 +1006,42 @@ watch(selectedCount, (c) => {
 
 const workflowTools = computed(() => tools.value.filter((tool) => !isUtilityToolName(tool.name)))
 const utilityTools = computed(() => tools.value.filter((tool) => isUtilityToolName(tool.name)))
+const paletteSearch = ref('')
+const paletteSearchTerm = computed(() => paletteSearch.value.trim().toLowerCase())
+function matchesSearch(haystack: string, term: string) {
+  return haystack.toLowerCase().includes(term)
+}
+const filteredWorkflowTools = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return workflowTools.value
+  return workflowTools.value.filter(
+    (tool) => matchesSearch(tool.name, term) || (tool.description ? matchesSearch(tool.description, term) : false),
+  )
+})
+const filteredUtilityTools = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return utilityTools.value
+  return utilityTools.value.filter(
+    (tool) => matchesSearch(tool.name, term) || (tool.description ? matchesSearch(tool.description, term) : false),
+  )
+})
+const showGroupContainer = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return true
+  return matchesSearch('group container', term)
+})
+const showStickyNote = computed(() => {
+  const term = paletteSearchTerm.value
+  if (!term) return true
+  return matchesSearch('sticky note', term)
+})
+const paletteMatchesCount = computed(
+  () =>
+    filteredWorkflowTools.value.length +
+    filteredUtilityTools.value.length +
+    (showGroupContainer.value ? 1 : 0) +
+    (showStickyNote.value ? 1 : 0),
+)
 const hasRunTrace = computed(() => {
   const rec = warppRunStore.runTrace
   if (!rec || typeof rec !== 'object') return false
@@ -1213,10 +1306,12 @@ function onAutoLayout(direction: DagreDirection) {
 
 function isUtilityToolName(name?: string | null): boolean {
   if (typeof name !== 'string') return false
+  if (name === AGENT_RESPONSE_TOOL) return true
   return /^utility[_-]/.test(name)
 }
 
 function prettyUtilityLabel(name: string): string {
+  if (name === AGENT_RESPONSE_TOOL) return 'Agent Response'
   if (!isUtilityToolName(name)) return name
   const readable = name.replace(/^utility[_-]/, '')
   return readable.replace(/[_-]+/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
@@ -1226,6 +1321,63 @@ function clearRunTraceTimers() {
   runTraceTimers.forEach((id) => clearTimeout(id))
   runTraceTimers = []
 }
+
+function formatRunDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  const two = (n: number) => n.toString().padStart(2, '0')
+  if (hours > 0) {
+    return `${hours}:${two(minutes)}:${two(seconds)}`
+  }
+  return `${minutes}:${two(seconds)}`
+}
+
+function stopRunTimer(captureDuration: boolean) {
+  if (runTimerInterval) {
+    clearInterval(runTimerInterval)
+    runTimerInterval = null
+  }
+  if (captureDuration && runStartTime.value !== null) {
+    const duration = Math.max(0, Date.now() - runStartTime.value)
+    lastRunDurationMs.value = duration
+    liveRunElapsedMs.value = duration
+  }
+  runStartTime.value = null
+}
+
+function startRunTimer() {
+  stopRunTimer(false)
+  runStartTime.value = Date.now()
+  liveRunElapsedMs.value = 0
+  lastRunDurationMs.value = null
+  runTimerInterval = setInterval(() => {
+    if (runStartTime.value === null) return
+    liveRunElapsedMs.value = Date.now() - runStartTime.value
+  }, 200)
+}
+
+const runTimerLabel = computed(() => {
+  if (running.value) {
+    return `Running: ${formatRunDuration(liveRunElapsedMs.value)}`
+  }
+  if (lastRunDurationMs.value !== null) {
+    return `Last run time: ${formatRunDuration(lastRunDurationMs.value)}`
+  }
+  return ''
+})
+
+watch(
+  running,
+  (isRunning) => {
+    if (isRunning) {
+      startRunTimer()
+    } else {
+      stopRunTimer(runStartTime.value !== null)
+    }
+  },
+)
 
 function resetRunView() {
   clearRunTraceTimers()
@@ -1357,7 +1509,7 @@ onMounted(async () => {
       }),
       fetchWarppWorkflows(),
     ])
-    tools.value = toolResp
+    tools.value = mergeBuiltinUtilityTools(toolResp)
     workflowList.value = workflows
     if (selectedIntent.value) {
       await loadWorkflow(selectedIntent.value)
@@ -1374,6 +1526,11 @@ onMounted(async () => {
     // initial fit once the initial load settles
     scheduleFitView()
   }
+})
+
+onBeforeUnmount(() => {
+  stopRunTimer(false)
+  clearRunTraceTimers()
 })
 
 watch(selectedIntent, async (intent) => {
@@ -1952,11 +2109,15 @@ function createUtilityNode(tool: WarppTool, position: { x: number; y: number }):
   const id = generateStepId(tool.name)
   const order = nextStepOrder()
   const displayName = prettyUtilityLabel(tool.name)
+  const defaultArgs: Record<string, unknown> = { label: displayName, text: '', output_attr: '' }
+  if (tool.name === AGENT_RESPONSE_TOOL) {
+    defaultArgs.render_mode = 'markdown'
+  }
   const step: WarppStep = {
     id,
     text: displayName,
     publish_result: false,
-    tool: { name: tool.name, args: { label: displayName, text: '', output_attr: '' } },
+    tool: { name: tool.name, args: defaultArgs },
   }
   const style = buildNodeStyle('utility')
   const groupId = findGroupAtPoint(position)

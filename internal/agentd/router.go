@@ -40,10 +40,12 @@ func newRouter(a *app) *http.ServeMux {
 	}
 
 	mux.HandleFunc("/api/status", a.statusHandler())
+	mux.HandleFunc("/api/specialists/defaults", a.specialistDefaultsHandler())
 	mux.HandleFunc("/api/specialists", a.specialistsHandler())
 	mux.HandleFunc("/api/specialists/", a.specialistDetailHandler())
 
 	mux.HandleFunc("/api/metrics/tokens", a.metricsTokensHandler())
+	mux.HandleFunc("/api/metrics/traces", a.metricsTracesHandler())
 	// Agentd configuration (GET + POST/PUT/PATCH)
 	mux.HandleFunc("/api/config/agentd", a.agentdConfigHandler())
 	mux.HandleFunc("/api/warpp/tools", a.warppToolsHandler())
@@ -57,6 +59,20 @@ func newRouter(a *app) *http.ServeMux {
 
 	mux.HandleFunc("/audio/", a.audioServeHandler())
 	mux.HandleFunc("/stt", a.sttHandler())
+
+	mux.HandleFunc("/api/mcp/servers", a.mcpServersHandler())
+	mux.HandleFunc("/api/mcp/servers/", a.mcpServerDetailHandler())
+	mux.HandleFunc("/api/mcp/oauth/start", a.mcpOAuthStartHandler())
+	mux.HandleFunc("/api/mcp/oauth/callback", a.mcpOAuthCallbackHandler())
+
+	// Debug/observability endpoints for chat + evolving memory.
+	// Expose both /debug/memory and /api/debug/memory so that the Vue
+	// frontend (which is configured with a "/api" base URL) can reach
+	// the same handler without special-casing its client.
+	mux.HandleFunc("/debug/memory", a.debugMemoryHandler())
+	mux.HandleFunc("/debug/memory/", a.debugMemoryHandler())
+	mux.HandleFunc("/api/debug/memory", a.debugMemoryHandler())
+	mux.HandleFunc("/api/debug/memory/", a.debugMemoryHandler())
 
 	return mux
 }

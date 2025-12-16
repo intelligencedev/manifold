@@ -45,6 +45,23 @@ The following Go command-line tools are essential for development, testing, and 
 ## Coding Style & Naming Conventions
 Target Go 1.24.5 and keep files `gofmt` clean with tabs. Maintain import order with `goimports` and keep `golangci-lint run` (via `make lint`) silent. Name packages after their capability, keep filenames lowercase, and export concise CamelCase APIs. Prefer constructor-style functions (e.g., `NewService`) for dependency injection.
 
+### **IMPORTANT: Always Format Modified Go Files**
+
+**After editing ANY Go file, you MUST run `go fmt` on that file before considering the task complete.**
+
+```bash
+# Format a single modified file
+go fmt path/to/file.go
+
+# Format multiple files
+go fmt internal/agent/engine.go internal/agent/memory/evolving.go
+
+# Format an entire package
+go fmt ./internal/agent/...
+```
+
+This ensures consistent code style and prevents formatting-related issues. Non-formatted code will fail CI checks.
+
 ### Go Language Features (1.22+)
 
 | feature                | micro-example                                                |

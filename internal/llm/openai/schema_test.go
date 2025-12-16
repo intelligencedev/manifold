@@ -47,7 +47,7 @@ func TestAdaptMessages(t *testing.T) {
 		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "x", Args: []byte("{}")}}},
 		{Role: "tool", Content: "", ToolID: "tool-1"},
 	}
-	out := AdaptMessages(msgs)
+	out := AdaptMessages("gpt-4o", msgs)
 	if len(out) != len(msgs) {
 		t.Fatalf("expected %d messages, got %d", len(msgs), len(out))
 	}
@@ -74,3 +74,21 @@ func TestAdaptMessages(t *testing.T) {
 		t.Fatalf("expected tool id in %s", string(js4))
 	}
 }
+
+func TestIsGemini3ModelVariants(t *testing.T) {
+	cases := map[string]bool{
+		"gemini-3-pro-preview":        true,
+		"google/gemini-3-pro-preview": true,
+		"GOOGLE/GEMINI-3-PRO-PREVIEW": true,
+		"google/gemini-2.5-flash":     false,
+		"gpt-4o":                      false,
+		"some/other-model":            false,
+	}
+	for m, exp := range cases {
+		if got := isGemini3Model(m); got != exp {
+			t.Fatalf("model %s expected %v got %v", m, exp, got)
+		}
+	}
+}
+
+// Thought signature inclusion is handled by raw Gemini request path, not SDK adaptation.

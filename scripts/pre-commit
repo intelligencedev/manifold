@@ -39,7 +39,7 @@ echo "${GREEN}✓ gofmt passed${NC}"
 
 # 2. Run go vet
 echo "${YELLOW}[2/4] Running go vet...${NC}"
-VET_OUTPUT=$(go vet ./... 2>&1 | grep -v "github.com/ggerganov/whisper.cpp" | grep -v "whisper.h" | grep -v "error generated" | grep -v "^$" | grep -v "^\s*|" || true)
+VET_OUTPUT=$(go vet $(go list ./... | grep -v '/tmp/') 2>&1 | grep -v "github.com/ggerganov/whisper.cpp" | grep -v "whisper.h" | grep -v "error generated" | grep -v "^$" | grep -v "^\s*|" || true)
 if [ -n "$VET_OUTPUT" ]; then
     echo "${RED}✗ go vet found issues:${NC}"
     echo "$VET_OUTPUT"
@@ -50,8 +50,8 @@ echo "${GREEN}✓ go vet passed${NC}"
 # 3. Run staticcheck for unused code (if available)
 echo "${YELLOW}[3/4] Running staticcheck for unused code...${NC}"
 if command -v staticcheck >/dev/null 2>&1; then
-    # Run staticcheck with unused code checks only, excluding whisper.cpp
-    STATICCHECK_OUTPUT=$(staticcheck -checks="U*" ./... 2>&1 | grep -v "github.com/ggerganov/whisper.cpp" | grep -v "whisper.h" | grep -v "error generated" | grep -v "^$" | grep -v "^\s*|" || true)
+    # Run staticcheck with unused code checks only, excluding whisper.cpp and tmp/
+    STATICCHECK_OUTPUT=$(staticcheck -checks="U*" $(go list ./... | grep -v '/tmp/') 2>&1 | grep -v "github.com/ggerganov/whisper.cpp" | grep -v "whisper.h" | grep -v "error generated" | grep -v "^$" | grep -v "^\s*|" || true)
     if [ -n "$STATICCHECK_OUTPUT" ]; then
         echo "${RED}✗ staticcheck found unused code:${NC}"
         echo "$STATICCHECK_OUTPUT"

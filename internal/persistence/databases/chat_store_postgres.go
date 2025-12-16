@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"manifold/internal/observability"
 	"manifold/internal/persistence"
 )
 
@@ -179,6 +180,7 @@ ORDER BY updated_at DESC, created_at DESC`
 }
 
 func (s *pgChatStore) GetSession(ctx context.Context, userID *int64, id string) (persistence.ChatSession, error) {
+	log := observability.LoggerWithTrace(ctx)
 	query := `
 SELECT id, name, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count
 FROM chat_sessions
@@ -187,15 +189,21 @@ WHERE id = $1`
 	if userID != nil {
 		query += ` AND user_id = $2`
 		args = append(args, *userID)
+		log.Debug().Int64("user_id", *userID).Str("session_id", id).Msg("get_session_with_userid")
+	} else {
+		log.Debug().Str("session_id", id).Msg("get_session_no_userid")
 	}
 	row := s.pool.QueryRow(ctx, query, args...)
 	cs, err := s.scanSession(row)
 	if err == nil {
+		log.Debug().Str("session_id", id).Msg("get_session_found")
 		return cs, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		log.Error().Err(err).Str("session_id", id).Msg("get_session_error")
 		return persistence.ChatSession{}, err
 	}
+	log.Warn().Str("session_id", id).Msg("get_session_no_rows")
 	if userID == nil {
 		return persistence.ChatSession{}, persistence.ErrNotFound
 	}
@@ -289,9 +297,13 @@ func (s *pgChatStore) DeleteSession(ctx context.Context, userID *int64, id strin
 }
 
 func (s *pgChatStore) ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
+	log := observability.LoggerWithTrace(ctx)
+	log.Debug().Str("session_id", sessionID).Int("limit", limit).Msg("list_messages_start")
 	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("list_messages_get_session_failed")
 		return nil, err
 	}
+	log.Debug().Str("session_id", sessionID).Msg("list_messages_session_ok")
 	query := `
 SELECT id, session_id, role, content, created_at
 FROM chat_messages
@@ -326,6 +338,7 @@ ORDER BY created_at ASC, id ASC`
 	if out == nil {
 		out = make([]persistence.ChatMessage, 0)
 	}
+	log.Debug().Str("session_id", sessionID).Int("message_count", len(out)).Msg("list_messages_complete")
 	return out, rows.Err()
 }
 

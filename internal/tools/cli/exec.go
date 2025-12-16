@@ -157,8 +157,12 @@ func (t *tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		TimeoutSeconds int      `json:"timeout_seconds"`
 		Stdin          string   `json:"stdin"`
 	}
+	// Handle empty or nil JSON gracefully
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty arguments: command and args are required")
+	}
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid arguments: %w", err)
 	}
 	res, err := t.exec.Run(ctx, ExecRequest{
 		Command: args.Command,

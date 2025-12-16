@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { useQueryClient } from '@tanstack/vue-query'
-import type { ChatAttachment, ChatMessage, ChatRole, ChatSessionMeta } from '@/types/chat'
+import type { AgentThread, ChatAttachment, ChatMessage, ChatRole, ChatSessionMeta } from '@/types/chat'
 import {
   createChatSession as apiCreateChatSession,
   deleteChatSession as apiDeleteChatSession,
@@ -26,10 +26,16 @@ export const useChatStore = defineStore('chat', () => {
   const fetchedMessageSessions = new Set<string>()
 
   const activeSessionId = ref<string>('')
-  const isStreaming = ref(false)
-  const abortController = ref<AbortController | null>(null)
-  const streamingAssistantId = ref<string | null>(null)
-  const toolMessageIndex = new Map<string, string>()
+  type StreamState = { assistantId: string; abortController: AbortController }
+  const streamingStateBySession = ref<Record<string, StreamState>>({})
+  const isStreaming = computed(() => {
+    const sessionId = activeSessionId.value
+    if (!sessionId) return false
+    return Boolean(streamingStateBySession.value[sessionId])
+  })
+  const toolMessageIndex = new Map<string, Map<string, string>>()
+  const agentThreadsBySession = ref<Record<string, AgentThread[]>>({})
+  const agentThreadIndex = new Map<string, Map<string, AgentThread>>()
 
   const activeSession = computed(
     () => sessions.value.find((s) => s.id === activeSessionId.value) || null,
@@ -43,6 +49,63 @@ export const useChatStore = defineStore('chat', () => {
   const toolMessages = computed(() =>
     activeMessages.value.filter((m) => m.role === 'tool'),
   )
+  const agentThreads = computed(() => agentThreadsBySession.value[activeSessionId.value] || [])
+
+  function isSessionStreaming(sessionId: string) {
+    return Boolean(streamingStateBySession.value[sessionId])
+  }
+
+  function streamingStateFor(sessionId: string) {
+    return streamingStateBySession.value[sessionId]
+  }
+
+  function setStreamingState(sessionId: string, state: StreamState) {
+    streamingStateBySession.value = { ...streamingStateBySession.value, [sessionId]: state }
+  }
+
+  function clearStreamingState(sessionId: string) {
+    if (!(sessionId in streamingStateBySession.value)) return
+    const { [sessionId]: _removed, ...rest } = streamingStateBySession.value
+    streamingStateBySession.value = rest
+  }
+
+  function toolIndexFor(sessionId: string) {
+    let index = toolMessageIndex.get(sessionId)
+    if (!index) {
+      index = new Map<string, string>()
+      toolMessageIndex.set(sessionId, index)
+    }
+    return index
+  }
+
+  function threadIndexFor(sessionId: string) {
+    let idx = agentThreadIndex.get(sessionId)
+    if (!idx) {
+      idx = new Map<string, AgentThread>()
+      agentThreadIndex.set(sessionId, idx)
+    }
+    return idx
+  }
+
+  function resetAgentThreads(sessionId: string) {
+    const next = { ...agentThreadsBySession.value, [sessionId]: [] }
+    agentThreadsBySession.value = next
+    agentThreadIndex.delete(sessionId)
+  }
+
+  function upsertAgentThread(sessionId: string, callId: string, factory: () => AgentThread, updater?: (t: AgentThread) => AgentThread): AgentThread {
+    const idx = threadIndexFor(sessionId)
+    const existing = idx.get(callId)
+    const thread = existing ? (updater ? updater(existing) : existing) : factory()
+    idx.set(callId, thread)
+    const list = agentThreadsBySession.value[sessionId] || []
+    const found = list.findIndex((t) => t.callId === callId)
+    const nextList = [...list]
+    if (found === -1) nextList.push(thread)
+    else nextList.splice(found, 1, thread)
+    agentThreadsBySession.value = { ...agentThreadsBySession.value, [sessionId]: nextList }
+    return thread
+  }
 
   function setMessages(sessionId: string, messages: ChatMessage[]) {
     messagesBySession.value = { ...messagesBySession.value, [sessionId]: messages }
@@ -233,12 +296,24 @@ export const useChatStore = defineStore('chat', () => {
     text: string,
     attachments: ChatAttachment[] = [],
     filesByAttachment?: FilesByAttachment,
-    options: { echoUser?: boolean; specialist?: string; projectId?: string } = {},
+    options: {
+      echoUser?: boolean
+      specialist?: string
+      projectId?: string
+      image?: boolean
+      imageSize?: string
+      agentName?: string
+      agentModel?: string
+    } = {},
   ) {
     const content = (text || '').trim()
-    if ((!content && !attachments.length) || isStreaming.value) return
     const sessionId = ensureSession()
+    if ((!content && !attachments.length) || isSessionStreaming(sessionId)) return
     const now = new Date().toISOString()
+    const agentName = (options.agentName || '').trim()
+    const agentModel = (options.agentModel || '').trim()
+
+    resetAgentThreads(sessionId)
 
     if (content) {
       void maybeAutoTitle(sessionId, content)
@@ -262,12 +337,14 @@ export const useChatStore = defineStore('chat', () => {
       content: '',
       createdAt: now,
       streaming: true,
+      agentName: agentName || undefined,
+      agentModel: agentModel || undefined,
+      model: agentModel || undefined,
     })
 
-    streamingAssistantId.value = assistantId
-    isStreaming.value = true
-    toolMessageIndex.clear()
-    abortController.value = new AbortController()
+    const controller = new AbortController()
+    setStreamingState(sessionId, { assistantId, abortController: controller })
+    toolMessageIndex.set(sessionId, new Map())
 
     try {
       // Expand text attachments into the prompt
@@ -293,7 +370,7 @@ export const useChatStore = defineStore('chat', () => {
           prompt: promptToSend,
           sessionId,
           files: imageFiles,
-          signal: abortController.value!.signal,
+          signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
           specialist: options.specialist,
           projectId: options.projectId,
@@ -302,10 +379,12 @@ export const useChatStore = defineStore('chat', () => {
         await streamAgentRun({
           prompt: promptToSend,
           sessionId,
-          signal: abortController.value!.signal,
+          signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
           specialist: options.specialist,
           projectId: options.projectId,
+          image: options.image,
+          imageSize: options.imageSize,
         })
       }
     } catch (error: any) {
@@ -321,9 +400,8 @@ export const useChatStore = defineStore('chat', () => {
       })
       updateMessage(sessionId, assistantId, assistantUpdater)
     } finally {
-      isStreaming.value = false
-      streamingAssistantId.value = null
-      abortController.value = null
+      clearStreamingState(sessionId)
+      toolMessageIndex.delete(sessionId)
     }
   }
 
@@ -334,11 +412,46 @@ export const useChatStore = defineStore('chat', () => {
     const trimmed = prompt.trim()
     if (!trimmed) return
     try {
+      // Optimistically set title immediately on the client for instant UI updates
+      const localTitle = computeLocalTitle(trimmed)
+      if (localTitle) {
+        upsertSessionMeta({ id: sessionId, name: localTitle, createdAt: currentSession.createdAt, updatedAt: new Date().toISOString() })
+      }
       const updated = await generateChatSessionTitle(sessionId, trimmed)
       upsertSessionMeta(updated)
     } catch (error) {
       console.warn('auto-title failed', error)
     }
+  }
+
+  // --- Local title generation mirrors backend behavior ---
+  const CHAT_TITLE_MAX_RUNES = 48
+  function collapseWhitespace(s: string): string {
+    if (!s || !s.trim()) return ''
+    return s.trim().replace(/\s+/g, ' ')
+  }
+  function truncateRunes(s: string, max: number): string {
+    if (max <= 0) return ''
+    const codepoints = Array.from(s)
+    if (codepoints.length <= max) return s.trim()
+    return codepoints.slice(0, max).join('').trim()
+  }
+  function firstSentence(s: string): string {
+    const input = s.trim()
+    if (!input) return ''
+    for (let i = 0; i < input.length; i++) {
+      const ch = input[i]
+      if (ch === '.' || ch === '?' || ch === '!' || ch === '\n') {
+        return input.slice(0, i + 1).trim()
+      }
+    }
+    return input
+  }
+  function computeLocalTitle(prompt: string): string {
+    const sentence = firstSentence(prompt) || prompt
+    const collapsed = collapseWhitespace(sentence)
+    if (!collapsed) return 'Conversation'
+    return truncateRunes(collapsed, CHAT_TITLE_MAX_RUNES)
   }
 
   function handleStreamEvent(event: ChatStreamEvent, sessionId: string, assistantId: string) {
@@ -362,7 +475,7 @@ export const useChatStore = defineStore('chat', () => {
         const now = new Date().toISOString()
         const key = typeof event.tool_id === 'string' ? event.tool_id : crypto.randomUUID()
         const messageId = crypto.randomUUID()
-        toolMessageIndex.set(key, messageId)
+        toolIndexFor(sessionId).set(key, messageId)
         appendMessage(
           sessionId,
           {
@@ -382,10 +495,11 @@ export const useChatStore = defineStore('chat', () => {
         const now = new Date().toISOString()
         const result = typeof event.data === 'string' ? event.data : ''
         const key = typeof event.tool_id === 'string' ? event.tool_id : null
-        if (key && toolMessageIndex.has(key)) {
-          const messageId = toolMessageIndex.get(key) as string
+        const toolIndex = toolIndexFor(sessionId)
+        if (key && toolIndex.has(key)) {
+          const messageId = toolIndex.get(key) as string
           updateMessage(sessionId, messageId, (m) => ({ ...m, content: result, streaming: false }))
-          toolMessageIndex.delete(key)
+          toolIndex.delete(key)
         } else {
           // Fallback: attach to last streaming tool message
           const msgs = messagesBySession.value[sessionId] || []
@@ -406,6 +520,37 @@ export const useChatStore = defineStore('chat', () => {
             )
           }
         }
+        break
+      }
+      case 'image': {
+        const name =
+          typeof event.name === 'string' && event.name.trim()
+            ? event.name.trim()
+            : 'generated image'
+        const mime = typeof event.mime === 'string' ? event.mime : undefined
+        const relPath = typeof event.rel_path === 'string' ? event.rel_path : undefined
+        const filePath = typeof event.file_path === 'string' ? event.file_path : undefined
+        const url = typeof event.url === 'string' ? event.url : undefined
+        const dataUrl = typeof event.data_url === 'string' ? event.data_url : undefined
+        const previewUrl = dataUrl || url || relPath || filePath
+        const savedPath = relPath || filePath || url
+        updateMessage(sessionId, assistantId, (m) => {
+          const attachments = [...(m.attachments || [])]
+          attachments.push({
+            id: crypto.randomUUID(),
+            kind: 'image',
+            name: name || savedPath || 'image',
+            mime,
+            previewUrl: previewUrl || undefined,
+            path: savedPath,
+          })
+          let content = m.content
+          if (savedPath && !content.includes(savedPath)) {
+            const note = `Image saved: ${savedPath}`
+            content = content ? `${content}\n\n${note}` : note
+          }
+          return { ...m, attachments, content }
+        })
         break
       }
       case 'tts_chunk':
@@ -434,6 +579,202 @@ export const useChatStore = defineStore('chat', () => {
         updateMessage(sessionId, assistantId, (existing) => ({ ...existing, streaming: false, error: message }))
         break
       }
+      case 'agent_start':
+      case 'agent_delta':
+      case 'agent_final':
+      case 'agent_tool_start':
+      case 'agent_tool_result':
+      case 'agent_error': {
+        handleAgentTraceEvent(event, sessionId)
+        break
+      }
+      default:
+        break
+    }
+  }
+
+  function handleAgentTraceEvent(event: ChatStreamEvent, sessionId: string) {
+    const now = new Date().toISOString()
+    const callId = typeof event.call_id === 'string' && event.call_id.trim() ? event.call_id.trim() : crypto.randomUUID()
+    const depth = typeof event.depth === 'number' && event.depth >= 0 ? event.depth : 1
+    const parentCallId = typeof event.parent_call_id === 'string' ? event.parent_call_id : undefined
+    const agentName = typeof event.agent === 'string' ? event.agent : undefined
+    const model = typeof event.model === 'string' ? event.model : undefined
+    const contentText = typeof event.content === 'string' ? event.content : undefined
+    const args = typeof event.args === 'string' ? event.args : undefined
+    const data = typeof event.data === 'string' ? event.data : undefined
+
+    switch (event.type) {
+      case 'agent_start': {
+        upsertAgentThread(
+          sessionId,
+          callId,
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            model,
+            prompt: contentText,
+            depth,
+            status: 'running',
+            content: '',
+            entries: [],
+            startedAt: now,
+          }),
+        )
+        break
+      }
+      case 'agent_delta': {
+        upsertAgentThread(
+          sessionId,
+          callId,
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            model,
+            prompt: contentText,
+            depth,
+            status: 'running',
+            content: contentText || '',
+            entries: [],
+            startedAt: now,
+          }),
+          (thread) => ({
+            ...thread,
+            content: (thread.content || '') + (contentText || ''),
+          }),
+        )
+        break
+      }
+      case 'agent_final': {
+        upsertAgentThread(
+          sessionId,
+          callId,
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            model,
+            prompt: contentText,
+            depth,
+            status: 'done',
+            content: contentText || '',
+            entries: [],
+            startedAt: now,
+            finishedAt: now,
+          }),
+          (thread) => ({
+            ...thread,
+            status: 'done',
+            finishedAt: thread.finishedAt || now,
+            content: contentText || thread.content,
+          }),
+        )
+        break
+      }
+      case 'agent_tool_start': {
+        upsertAgentThread(
+          sessionId,
+          callId,
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            model,
+            prompt: '',
+            depth,
+            status: 'running',
+            content: '',
+            entries: [
+              {
+                id: crypto.randomUUID(),
+                type: 'tool',
+                title: event.title || 'Tool',
+                args,
+                createdAt: now,
+              },
+            ],
+            startedAt: now,
+          }),
+          (thread) => ({
+            ...thread,
+            entries: [
+              ...thread.entries,
+              { id: crypto.randomUUID(), type: 'tool', title: event.title || 'Tool', args, createdAt: now },
+            ],
+          }),
+        )
+        break
+      }
+      case 'agent_tool_result': {
+        upsertAgentThread(
+          sessionId,
+          callId,
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            model,
+            prompt: '',
+            depth,
+            status: 'running',
+            content: '',
+            entries: [
+              {
+                id: crypto.randomUUID(),
+                type: 'tool',
+                title: event.title || 'Tool',
+                data,
+                createdAt: now,
+              },
+            ],
+            startedAt: now,
+          }),
+          (thread) => ({
+            ...thread,
+            entries: [
+              ...thread.entries,
+              { id: crypto.randomUUID(), type: 'tool', title: event.title || 'Tool', data, createdAt: now },
+            ],
+          }),
+        )
+        break
+      }
+      case 'agent_error': {
+        const errText = typeof event.error === 'string' ? event.error : data || 'Agent error'
+        upsertAgentThread(
+          sessionId,
+          callId,
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            model,
+            prompt: contentText,
+            depth,
+            status: 'error',
+            content: contentText || '',
+            entries: [
+              { id: crypto.randomUUID(), type: 'error', content: errText, createdAt: now },
+            ],
+            startedAt: now,
+            finishedAt: now,
+            error: errText,
+          }),
+          (thread) => ({
+            ...thread,
+            status: 'error',
+            finishedAt: thread.finishedAt || now,
+            error: errText,
+            entries: [
+              ...thread.entries,
+              { id: crypto.randomUUID(), type: 'error', content: errText, createdAt: now },
+            ],
+          }),
+        )
+        break
+      }
       default:
         break
     }
@@ -444,13 +785,16 @@ export const useChatStore = defineStore('chat', () => {
     return -1
   }
 
-  function stopStreaming() {
-    abortController.value?.abort()
+  function stopStreaming(sessionId?: string) {
+    const targetSessionId = sessionId || activeSessionId.value
+    if (!targetSessionId) return
+    const state = streamingStateFor(targetSessionId)
+    state?.abortController.abort()
   }
 
-  async function regenerateAssistant(options: { specialist?: string; projectId?: string } = {}) {
-    if (isStreaming.value) return
+  async function regenerateAssistant(options: { specialist?: string; projectId?: string; agentName?: string; agentModel?: string } = {}) {
     const sessionId = ensureSession()
+    if (isSessionStreaming(sessionId)) return
     const messages = messagesBySession.value[sessionId] || []
     const lastUser = [...messages].reverse().find((m) => m.role === 'user')
     const lastAssistantIdx = [...messages].reverse().findIndex((m) => m.role === 'assistant')
@@ -460,7 +804,13 @@ export const useChatStore = defineStore('chat', () => {
     const next = [...messages]
     if (targetIndex !== -1) next.splice(targetIndex, 1)
     setMessages(sessionId, next)
-    await sendPrompt(lastUser.content, [], undefined, { echoUser: false, specialist: options.specialist, projectId: options.projectId })
+    await sendPrompt(lastUser.content, [], undefined, {
+      echoUser: false,
+      specialist: options.specialist,
+      projectId: options.projectId,
+      agentName: options.agentName,
+      agentModel: options.agentModel,
+    })
   }
 
   return {
@@ -475,6 +825,7 @@ export const useChatStore = defineStore('chat', () => {
     activeMessages,
     chatMessages,
     toolMessages,
+    agentThreads,
     // actions
     init,
     refreshSessionsFromServer,

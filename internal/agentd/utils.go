@@ -2,6 +2,7 @@ package agentd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,8 +13,11 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/rs/zerolog/log"
+
 	"manifold/internal/auth"
 	"manifold/internal/config"
+	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 )
 
@@ -133,6 +137,79 @@ func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, 
 	return store.AppendMessages(ctx, userID, sessionID, messages, preview, model)
 }
 
+// storeChatTurnWithHistory stores a complete conversation turn including all intermediate
+// assistant messages (with tool calls) and tool response messages.
+func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent string, turnMessages []llm.Message, finalContent, model string) error {
+	roles := make([]string, len(turnMessages))
+	for i, m := range turnMessages {
+		roles[i] = m.Role
+	}
+	log.Info().Str("session_id", sessionID).Str("user_content_len", fmt.Sprint(len(userContent))).Int("turn_messages", len(turnMessages)).Strs("roles", roles).Msg("store_chat_turn_start")
+	messages := make([]persist.ChatMessage, 0, 2+len(turnMessages))
+	now := time.Now().UTC()
+
+	// Add user message
+	if strings.TrimSpace(userContent) != "" {
+		messages = append(messages, persist.ChatMessage{
+			SessionID: sessionID,
+			Role:      "user",
+			Content:   userContent,
+			CreatedAt: now,
+		})
+	}
+
+	// Add all intermediate turn messages (assistant with tool calls, tool responses)
+	for i, msg := range turnMessages {
+		// Serialize the message to preserve tool calls and tool IDs
+		var content string
+		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
+			// Serialize assistant messages with tool calls as JSON
+			b, err := json.Marshal(map[string]any{
+				"content":    msg.Content,
+				"tool_calls": msg.ToolCalls,
+			})
+			if err == nil {
+				content = string(b)
+			} else {
+				content = msg.Content
+			}
+		} else if msg.Role == "tool" {
+			// Serialize tool messages with tool_id
+			b, err := json.Marshal(map[string]any{
+				"content": msg.Content,
+				"tool_id": msg.ToolID,
+			})
+			if err == nil {
+				content = string(b)
+			} else {
+				content = msg.Content
+			}
+		} else {
+			content = msg.Content
+		}
+
+		messages = append(messages, persist.ChatMessage{
+			SessionID: sessionID,
+			Role:      msg.Role,
+			Content:   content,
+			CreatedAt: now.Add(time.Duration(i+1) * 10 * time.Millisecond),
+		})
+	}
+
+	if len(messages) == 0 {
+		return nil
+	}
+
+	preview := previewSnippet(finalContent)
+	if preview == "" && len(turnMessages) > 0 {
+		preview = previewSnippet(turnMessages[len(turnMessages)-1].Content)
+	}
+	if preview == "" {
+		preview = previewSnippet(userContent)
+	}
+	return store.AppendMessages(ctx, userID, sessionID, messages, preview, model)
+}
+
 func resolveChatAccess(ctx context.Context, authStore *auth.Store, user *auth.User) (*int64, bool, error) {
 	if authStore == nil || user == nil {
 		return nil, true, nil
@@ -192,6 +269,8 @@ func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
 		}
 		out = append(out, config.SpecialistConfig{
 			Name:            s.Name,
+			Description:     s.Description,
+			Provider:        s.Provider,
 			BaseURL:         s.BaseURL,
 			APIKey:          s.APIKey,
 			Model:           s.Model,

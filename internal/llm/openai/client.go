@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 
 	sdk "github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go/v2/packages/param"
 	rs "github.com/openai/openai-go/v2/responses"
 	"github.com/openai/openai-go/v2/shared"
 
@@ -30,6 +32,7 @@ type Client struct {
 	baseURL     string
 	httpClient  *http.Client
 	api         string // "completions" (default) or "responses"
+	apiKey      string // Stored for raw HTTP requests (e.g., Gemini)
 }
 
 // ImageAttachment represents a single image attachment to include in a user message.
@@ -82,6 +85,32 @@ func (t *sseTransportWrapper) RoundTrip(req *http.Request) (*http.Response, erro
 	return t.inner.RoundTrip(req)
 }
 
+func extractThoughtSignature(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		return ""
+	}
+	// Handle both snake_case and camelCase
+	if ec, ok := m["extra_content"].(map[string]any); ok {
+		if g, ok2 := ec["google"].(map[string]any); ok2 {
+			if sig, ok3 := g["thought_signature"].(string); ok3 {
+				return sig
+			}
+		}
+	}
+	if ec, ok := m["extraContent"].(map[string]any); ok {
+		if g, ok2 := ec["google"].(map[string]any); ok2 {
+			if sig, ok3 := g["thoughtSignature"].(string); ok3 {
+				return sig
+			}
+		}
+	}
+	return ""
+}
+
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -118,7 +147,16 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if api == "" {
 		api = "completions"
 	}
-	return &Client{sdk: sdk.NewClient(opts...), model: c.Model, extra: c.ExtraParams, logPayloads: c.LogPayloads, baseURL: c.BaseURL, httpClient: httpClient, api: api}
+	return &Client{
+		sdk:         sdk.NewClient(opts...),
+		model:       c.Model,
+		extra:       c.ExtraParams,
+		logPayloads: c.LogPayloads,
+		baseURL:     c.BaseURL,
+		httpClient:  httpClient,
+		api:         api,
+		apiKey:      c.APIKey,
+	}
 }
 
 // isSelfHosted returns true when we should use the fallback /tokenize endpoint
@@ -306,15 +344,22 @@ func extractReasoningEffort(extra map[string]any) (shared.ReasoningEffort, bool)
 
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
+		return c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
+	}
+
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatResponses(ctx, msgs, tools, model, nil)
 	}
+
+	effectiveModel := firstNonEmpty(model, c.model)
+
 	log := observability.LoggerWithTrace(ctx)
 	params := sdk.ChatCompletionNewParams{
-		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+		Model: sdk.ChatModel(effectiveModel),
 	}
 	// messages
-	params.Messages = AdaptMessages(msgs)
+	params.Messages = AdaptMessages(string(params.Model), msgs)
 	// tools: include only when provided to avoid sending an empty array
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
@@ -386,18 +431,34 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 
 	// Prepare assistant message output before token fallback
 	var out llm.Message
+	gemini := isGemini3Model(string(params.Model))
 	if len(comp.Choices) > 0 {
 		msg := comp.Choices[0].Message
 		out = llm.Message{Role: "assistant", Content: msg.Content}
 		for _, tc := range msg.ToolCalls {
 			switch v := tc.AsAny().(type) {
 			case sdk.ChatCompletionMessageFunctionToolCall:
+				// Skip tool calls with empty or effectively empty arguments to prevent JSON unmarshal errors
+				if isEmptyArgs(v.Function.Arguments) {
+					log.Warn().Str("tool", v.Function.Name).Str("id", v.ID).Msg("skipping tool call with empty arguments")
+					continue
+				}
+				sig := ""
+				if gemini {
+					sig = extractThoughtSignature(v.RawJSON())
+				}
 				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-					Name: v.Function.Name,
-					Args: json.RawMessage(v.Function.Arguments),
-					ID:   v.ID,
+					Name:             v.Function.Name,
+					Args:             json.RawMessage(v.Function.Arguments),
+					ID:               v.ID,
+					ThoughtSignature: sig,
 				})
 			case sdk.ChatCompletionMessageCustomToolCall:
+				// Skip tool calls with empty input to prevent JSON unmarshal errors
+				if isEmptyArgs(v.Custom.Input) {
+					log.Warn().Str("tool", v.Custom.Name).Str("id", v.ID).Msg("skipping tool call with empty input")
+					continue
+				}
 				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
 					Name: v.Custom.Name,
 					Args: json.RawMessage(v.Custom.Input),
@@ -445,7 +506,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
-	params.Messages = AdaptMessages(msgs)
+	params.Messages = AdaptMessages(string(params.Model), msgs)
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
 			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
@@ -512,6 +573,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	fields.Debug().Msg("chat_completion_ok")
 	// Prepare assistant output first
 	var out llm.Message
+	gemini := isGemini3Model(string(params.Model))
 	if len(comp.Choices) > 0 {
 		msg := comp.Choices[0].Message
 		out = llm.Message{Role: "assistant", Content: msg.Content}
@@ -522,6 +584,12 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 					Name: v.Function.Name,
 					Args: json.RawMessage(v.Function.Arguments),
 					ID:   v.ID,
+					ThoughtSignature: func() string {
+						if gemini {
+							return extractThoughtSignature(v.RawJSON())
+						}
+						return ""
+					}(),
 				})
 			case sdk.ChatCompletionMessageCustomToolCall:
 				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
@@ -552,6 +620,21 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 
 // ChatStream implements streaming chat completions using OpenAI's streaming API.
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
+		msg, err := c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
+		if err != nil {
+			return err
+		}
+		if h != nil {
+			if strings.TrimSpace(msg.Content) != "" {
+				h.OnDelta(msg.Content)
+			}
+			for _, img := range msg.Images {
+				h.OnImage(img)
+			}
+		}
+		return nil
+	}
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatStreamResponses(ctx, msgs, tools, model, h)
 	}
@@ -571,7 +654,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
 	// messages
-	params.Messages = AdaptMessages(msgs)
+	params.Messages = AdaptMessages(string(params.Model), msgs)
 	// tools
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
@@ -619,6 +702,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 
 	// Collect assistant content for self-hosted tokenization fallback
 	var assistantContentBuilder strings.Builder
+	gemini := isGemini3Model(string(params.Model))
 
 	for stream.Next() {
 		chunk := stream.Current()
@@ -662,27 +746,33 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		}
 
 		// Handle tool calls - accumulate across chunks
-		for i, tc := range delta.ToolCalls {
-			if toolCalls[i] == nil {
-				toolCalls[i] = &llm.ToolCall{
+		// Use tc.Index (the API-provided index) NOT the range iteration index,
+		// because chunks may arrive out of order or contain only a subset of tool calls.
+		for _, tc := range delta.ToolCalls {
+			idx := int(tc.Index)
+			if toolCalls[idx] == nil {
+				toolCalls[idx] = &llm.ToolCall{
 					ID: tc.ID,
 				}
 			}
 
 			// Accumulate function name
 			if tc.Function.Name != "" {
-				toolCalls[i].Name = tc.Function.Name
+				toolCalls[idx].Name = tc.Function.Name
 			}
 
 			// Accumulate function arguments
 			if tc.Function.Arguments != "" {
-				if toolCalls[i].Args == nil {
-					toolCalls[i].Args = json.RawMessage(tc.Function.Arguments)
+				if toolCalls[idx].Args == nil {
+					toolCalls[idx].Args = json.RawMessage(tc.Function.Arguments)
 				} else {
 					// Append new arguments to existing ones
-					existing := string(toolCalls[i].Args)
-					toolCalls[i].Args = json.RawMessage(existing + tc.Function.Arguments)
+					existing := string(toolCalls[idx].Args)
+					toolCalls[idx].Args = json.RawMessage(existing + tc.Function.Arguments)
 				}
+			}
+			if gemini && toolCalls[idx].ThoughtSignature == "" {
+				toolCalls[idx].ThoughtSignature = extractThoughtSignature(tc.RawJSON())
 			}
 		}
 
@@ -690,8 +780,10 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" && !toolCallsFlushed {
 			// Send all accumulated tool calls
 			for _, tc := range toolCalls {
-				if tc != nil && tc.Name != "" && len(tc.Args) > 0 {
+				if tc != nil && tc.Name != "" && !isEmptyArgsBytes(tc.Args) {
 					h.OnToolCall(*tc)
+				} else if tc != nil && tc.Name != "" {
+					log.Warn().Str("tool", tc.Name).Str("id", tc.ID).Msg("skipping tool call with empty arguments in stream")
 				}
 			}
 			toolCallsFlushed = true
@@ -760,7 +852,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	// Build body
 	body := map[string]any{
 		"model":    firstNonEmpty(model, c.model),
-		"messages": AdaptMessages(msgs),
+		"messages": AdaptMessages(model, msgs),
 		"stream":   true,
 	}
 	if len(tools) > 0 {
@@ -941,6 +1033,97 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	return nil
 }
 
+func (c *Client) chatWithImageGeneration(ctx context.Context, msgs []llm.Message, model string, opts llm.ImagePromptOptions) (llm.Message, error) {
+	prompt := lastUserPrompt(msgs)
+	if strings.TrimSpace(prompt) == "" {
+		return llm.Message{}, fmt.Errorf("image generation requires a user prompt")
+	}
+
+	imgModel := c.imageModel(model)
+	size := normalizeImageSize(opts.Size)
+
+	log := observability.LoggerWithTrace(ctx)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ImageGen", imgModel, 0, len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	params := sdk.ImageGenerateParams{
+		Prompt: prompt,
+		Model:  sdk.ImageModel(imgModel),
+		N:      param.NewOpt[int64](1),
+		Size:   sdk.ImageGenerateParamsSize(size),
+	}
+
+	start := time.Now()
+	resp, err := c.sdk.Images.Generate(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", imgModel).Dur("duration", dur).Msg("image_generation_error")
+		span.RecordError(err)
+		return llm.Message{}, err
+	}
+	images := make([]llm.GeneratedImage, 0, len(resp.Data))
+	for _, img := range resp.Data {
+		if strings.TrimSpace(img.B64JSON) == "" {
+			continue
+		}
+		data, err := base64.StdEncoding.DecodeString(img.B64JSON)
+		if err != nil {
+			log.Warn().Err(err).Msg("decode_generated_image")
+			continue
+		}
+		images = append(images, llm.GeneratedImage{
+			Data:     data,
+			MIMEType: "image/png",
+		})
+	}
+	log.Debug().Str("model", imgModel).Dur("duration", dur).Int("images", len(images)).Msg("image_generation_ok")
+
+	content := "Generated image"
+	if len(images) > 1 {
+		content = fmt.Sprintf("Generated %d images", len(images))
+	}
+	return llm.Message{Role: "assistant", Content: content, Images: images}, nil
+}
+
+func lastUserPrompt(msgs []llm.Message) string {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.EqualFold(msgs[i].Role, "user") && strings.TrimSpace(msgs[i].Content) != "" {
+			return msgs[i].Content
+		}
+	}
+	return ""
+}
+
+func normalizeImageSize(raw string) string {
+	r := strings.TrimSpace(raw)
+	switch strings.ToUpper(r) {
+	case "1K", "1024", "1024X1024":
+		return "1024x1024"
+	case "1024X1792", "PORTRAIT":
+		return "1024x1792"
+	case "1792X1024", "LANDSCAPE":
+		return "1792x1024"
+	default:
+		if r == "" {
+			return "1024x1024"
+		}
+		return r
+	}
+}
+
+func (c *Client) imageModel(model string) string {
+	m := strings.TrimSpace(firstNonEmpty(model, c.model))
+	if m == "" {
+		m = "gpt-image-1"
+	}
+	lower := strings.ToLower(m)
+	if strings.Contains(lower, "gpt-image") || strings.Contains(lower, "dall-e") {
+		return m
+	}
+	return "gpt-image-1"
+}
+
 // ChatWithImageAttachment sends a chat completion with an image attachment.
 // This is a concrete method specific to the OpenAI provider.
 func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message, mimeType, base64Data string, tools []llm.ToolSchema, model string) (llm.Message, error) {
@@ -954,7 +1137,7 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	}
 
 	// Convert all messages except the last user message, then replace it with image content
-	adaptedMsgs := AdaptMessages(msgs)
+	adaptedMsgs := AdaptMessages(model, msgs)
 	if len(adaptedMsgs) > 0 {
 		// Find the last user message and replace it with image content
 		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
@@ -1042,6 +1225,7 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
 		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
+	gemini := isGemini3Model(firstNonEmpty(model, c.model))
 	for _, tc := range msg.ToolCalls {
 		switch v := tc.AsAny().(type) {
 		case sdk.ChatCompletionMessageFunctionToolCall:
@@ -1049,6 +1233,12 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 				Name: v.Function.Name,
 				Args: json.RawMessage(v.Function.Arguments),
 				ID:   v.ID,
+				ThoughtSignature: func() string {
+					if gemini {
+						return extractThoughtSignature(v.RawJSON())
+					}
+					return ""
+				}(),
 			})
 		case sdk.ChatCompletionMessageCustomToolCall:
 			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
@@ -1075,7 +1265,7 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	}
 
 	// Convert messages, then replace the last user message with text+image content parts
-	adaptedMsgs := AdaptMessages(msgs)
+	adaptedMsgs := AdaptMessages(model, msgs)
 	if len(adaptedMsgs) > 0 {
 		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
 			if adaptedMsgs[i].OfUser != nil {
@@ -1157,15 +1347,54 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
 		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
+	gemini := isGemini3Model(string(params.Model))
 	for _, tc := range msg.ToolCalls {
 		switch v := tc.AsAny().(type) {
 		case sdk.ChatCompletionMessageFunctionToolCall:
-			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{Name: v.Function.Name, Args: json.RawMessage(v.Function.Arguments), ID: v.ID})
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: v.Function.Name,
+				Args: json.RawMessage(v.Function.Arguments),
+				ID:   v.ID,
+				ThoughtSignature: func() string {
+					if gemini {
+						return extractThoughtSignature(v.RawJSON())
+					}
+					return ""
+				}(),
+			})
 		case sdk.ChatCompletionMessageCustomToolCall:
 			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{Name: v.Custom.Name, Args: json.RawMessage(v.Custom.Input), ID: v.ID})
 		}
 	}
 	return out, nil
+}
+
+// isEmptyArgs reports whether the provided arguments string is effectively empty
+// (blank, null, or an empty JSON object/array). This guards against ghost tool
+// calls with missing payloads.
+func isEmptyArgs(raw string) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" || s == "null" || s == "{}" || s == "[]" {
+		return true
+	}
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err != nil {
+		// If it's invalid JSON but non-empty, let the tool handle the error.
+		return false
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		return len(t) == 0
+	case []any:
+		return len(t) == 0
+	case string:
+		return strings.TrimSpace(t) == ""
+	}
+	return false
+}
+
+func isEmptyArgsBytes(raw []byte) bool {
+	return isEmptyArgs(string(raw))
 }
 
 func firstNonEmpty(vals ...string) string {
@@ -1304,9 +1533,13 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 
 	// Prepare assistant output
 	out := llm.Message{Role: "assistant", Content: resp.OutputText()}
-	// Extract tool calls from output items if any
+	// Extract tool calls from output items based on their Type field.
+	// The SDK's As* methods always return a struct even for non-matching types,
+	// so we must check Type first to avoid creating ghost tool calls.
 	for _, it := range resp.Output {
-		if fn := it.AsFunctionCall(); fn.Name != "" || fn.CallID != "" || fn.Arguments != "" {
+		switch it.Type {
+		case "function_call":
+			fn := it.AsFunctionCall()
 			id := fn.CallID
 			if id == "" {
 				id = fn.ID
@@ -1316,13 +1549,13 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 				Args: json.RawMessage(fn.Arguments),
 				ID:   id,
 			})
-		}
-		if ct := it.AsCustomToolCall(); ct.Name != "" || ct.CallID != "" || ct.Input != "" {
-			// Map custom tool call as well, using input as args
+		case "mcp_call":
+			// MCP/custom tool calls use the mcp_call type
+			ct := it.AsMcpCall()
 			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
 				Name: ct.Name,
-				Args: json.RawMessage(ct.Input),
-				ID:   ct.CallID,
+				Args: json.RawMessage(ct.Arguments),
+				ID:   ct.ID,
 			})
 		}
 	}
@@ -1421,8 +1654,11 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 				assistantContent.WriteString(v.Delta)
 			}
 		case rs.ResponseOutputItemAddedEvent:
-			// Capture function call metadata early
-			if fn := v.Item.AsFunctionCall(); fn.Name != "" || fn.CallID != "" || fn.Arguments != "" {
+			// Only capture tool call metadata if the item type indicates a function/tool call.
+			// The SDK's As* methods always return a struct even for non-matching types.
+			switch v.Item.Type {
+			case "function_call":
+				fn := v.Item.AsFunctionCall()
 				ca := acc[v.OutputIndex]
 				if ca == nil {
 					ca = &callAcc{}
@@ -1436,20 +1672,17 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 				if fn.Arguments != "" && ca.args.Len() == 0 {
 					ca.args.WriteString(fn.Arguments)
 				}
-			}
-			if ct := v.Item.AsCustomToolCall(); ct.Name != "" || ct.CallID != "" || ct.Input != "" {
+			case "mcp_call":
+				ct := v.Item.AsMcpCall()
 				ca := acc[v.OutputIndex]
 				if ca == nil {
 					ca = &callAcc{}
 					acc[v.OutputIndex] = ca
 				}
 				ca.name = ct.Name
-				ca.id = ct.CallID
-				if ca.id == "" {
-					ca.id = ct.ID
-				}
-				if ct.Input != "" && ca.args.Len() == 0 {
-					ca.args.WriteString(ct.Input)
+				ca.id = ct.ID
+				if ct.Arguments != "" && ca.args.Len() == 0 {
+					ca.args.WriteString(ct.Arguments)
 				}
 			}
 		case rs.ResponseOutputItemDoneEvent:

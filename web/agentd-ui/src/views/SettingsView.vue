@@ -302,13 +302,126 @@
           </div>
         </fieldset>
       </template>
+
+      <!-- MCP Servers -->
+      <template v-if="activeSection === 'mcp'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">MCP Servers</legend>
+          <div class="flex justify-between items-center">
+            <h3 class="text-sm font-medium text-foreground">Configured Servers</h3>
+            <button
+              type="button"
+              class="rounded bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground hover:bg-accent/90"
+              @click="showAddServerModal = true"
+            >
+              Add Server
+            </button>
+          </div>
+          <div v-if="mcpLoading" class="text-sm text-subtle-foreground">Loading servers…</div>
+          <div v-if="mcpError" class="text-sm text-danger-foreground">{{ mcpError }}</div>
+          <div v-else-if="!mcpServers.length" class="text-sm text-subtle-foreground">No MCP servers configured.</div>
+          <div v-else class="space-y-3">
+            <div v-for="server in mcpServers" :key="server.id" class="flex items-center justify-between gap-4 p-4 rounded-md border border-border/70 bg-surface-muted/60">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2">
+                  <p class="text-sm font-medium text-foreground truncate">{{ server.name }}</p>
+                  <span v-if="server.oauthClientId" class="rounded bg-accent/20 px-1.5 py-0.5 text-[10px] font-medium text-accent-foreground">Registered</span>
+                </div>
+                <p class="text-xs text-subtle-foreground truncate">{{ server.url }}</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  v-if="server.url && !server.hasToken"
+                  type="button"
+                  class="rounded bg-accent px-3 py-1 text-xs font-semibold text-accent-foreground hover:bg-accent/90"
+                  @click="connectServer(server)"
+                >
+                  Connect
+                </button>
+                <button
+                  v-if="server.source === 'db'"
+                  type="button"
+                  class="rounded border border-danger/60 bg-danger/10 px-3 py-1 text-xs font-semibold text-danger-foreground hover:bg-danger/20"
+                  @click="deleteServer(server)"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+      </template>
     </form>
+
+    <!-- Add Server Modal -->
+    <transition name="modal">
+      <div
+        v-if="showAddServerModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/30"
+        @click.self="showAddServerModal = false"
+      >
+        <div class="w-full max-w-md rounded-lg border border-border/70 bg-surface p-6">
+          <h3 class="text-lg font-semibold text-foreground mb-4">Add MCP Server</h3>
+          <div class="space-y-4">
+            <div class="space-y-1">
+              <label for="server-name" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Server Name</label>
+              <input
+                id="server-name"
+                v-model="newServer.name"
+                type="text"
+                placeholder="My MCP Server"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+              />
+            </div>
+            <div class="space-y-1">
+              <label for="server-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Server URL</label>
+              <input
+                id="server-url"
+                v-model="newServer.url"
+                type="url"
+                placeholder="https://mcp-server.local"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+              />
+            </div>
+            <div class="space-y-1">
+              <label for="server-oauth-client-id" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">OAuth Client ID (Optional)</label>
+              <input
+                id="server-oauth-client-id"
+                v-model="newServer.oauthClientId"
+                type="text"
+                placeholder="Leave empty for dynamic registration"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+              />
+              <p class="text-xs text-subtle-foreground">If supported by the server, we will attempt to register a client automatically when you connect.</p>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 mt-4">
+            <button
+              type="button"
+              class="rounded border border-border/70 px-3 py-2 text-xs font-semibold hover:border-border"
+              @click="showAddServerModal = false"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="rounded bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent/90"
+              @click="addServer"
+            >
+              Add Server
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { fetchAgentdSettings, updateAgentdSettings, type AgentdSettings } from '@/api/client'
+import { listMCPServers, createMCPServer, deleteMCPServer, startMCPOAuth } from '@/api/mcp'
+import type { MCPServer, CreateMCPServerRequest } from '@/types/mcp'
 
 const apiUrl = ref('')
 
@@ -487,10 +600,69 @@ async function saveAgentdSettings() {
   }
 }
 
+// MCP Management
+const mcpServers = ref<MCPServer[]>([])
+const mcpLoading = ref(false)
+const mcpError = ref('')
+const showAddServerModal = ref(false)
+const newServer = ref<CreateMCPServerRequest>({ name: '', url: '', oauthClientId: '' })
+
+async function loadMCPServers() {
+  mcpLoading.value = true
+  mcpError.value = ''
+  try {
+    mcpServers.value = await listMCPServers()
+  } catch (e: any) {
+    mcpError.value = e.message || 'Failed to load MCP servers'
+  } finally {
+    mcpLoading.value = false
+  }
+}
+
+async function addServer() {
+  if (!newServer.value.name) return
+  try {
+    await createMCPServer(newServer.value)
+    showAddServerModal.value = false
+  newServer.value = { name: '', url: '', oauthClientId: '' }
+    loadMCPServers()
+  } catch (e: any) {
+    alert('Failed to add server: ' + (e.response?.data || e.message))
+  }
+}
+
+async function deleteServer(server: MCPServer) {
+  if (!confirm(`Delete server ${server.name}?`)) return
+  try {
+    await deleteMCPServer(server.name)
+    loadMCPServers()
+  } catch (e: any) {
+    alert('Failed to delete server: ' + (e.response?.data || e.message))
+  }
+}
+
+async function connectServer(server: MCPServer) {
+  if (!server.url) return
+  try {
+    const res = await startMCPOAuth(server.id, server.url)
+    if (res.redirectUrl) {
+      window.open(res.redirectUrl, 'mcp_oauth', 'width=600,height=700')
+    }
+  } catch (e: any) {
+    alert('Failed to start OAuth: ' + (e.response?.data || e.message))
+  }
+}
+
+function handleMessage(event: MessageEvent) {
+  if (event.data?.type === 'mcp-oauth-success') {
+    loadMCPServers()
+  }
+}
+
 // theme selection UI removed; theme controlled via header toggle
 
 // Sections (sidebar navigation)
-type SectionKey = 'general' | 'summarization' | 'embeddings' | 'timeouts' | 'observability' | 'web' | 'databases'
+type SectionKey = 'general' | 'summarization' | 'embeddings' | 'timeouts' | 'observability' | 'web' | 'databases' | 'mcp'
 const sections: { key: SectionKey; label: string }[] = [
   { key: 'general', label: 'General' },
   { key: 'summarization', label: 'Summarization' },
@@ -499,6 +671,7 @@ const sections: { key: SectionKey; label: string }[] = [
   { key: 'observability', label: 'Observability & Logging' },
   { key: 'web', label: 'Search & Web' },
   { key: 'databases', label: 'Databases' },
+  { key: 'mcp', label: 'MCP Servers' },
 ]
 const activeSection = ref<SectionKey>('general')
 const sectionDescriptions: Record<SectionKey, string> = {
@@ -509,6 +682,7 @@ const sectionDescriptions: Record<SectionKey, string> = {
   observability: 'Telemetry export and logging verbosity.',
   web: 'Search service integration exposed to tools/UI.',
   databases: 'Primary, search, vector, and graph database connection settings.',
+  mcp: 'Manage Model Context Protocol servers and connections.',
 }
 const currentSectionLabel = computed(() => sections.find((s) => s.key === activeSection.value)?.label || '')
 
@@ -523,6 +697,12 @@ onMounted(() => {
     console.warn('Unable to parse stored settings', error)
   }
   loadAgentdSettings()
+  loadMCPServers()
+  window.addEventListener('message', handleMessage)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('message', handleMessage)
 })
 
 function persist() {

@@ -35,6 +35,8 @@
 
             <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
 
+            <div class="flex-grow"></div>
+
             <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
               <span :class="toolsBadgeClass(s.enableTools)">{{ s.enableTools ? 'Tools enabled' : 'Tools disabled' }}</span>
               <span
@@ -42,12 +44,6 @@
                 class="inline-flex items-center rounded-full border border-border/50 bg-surface-muted/30 px-2 py-1 font-medium text-subtle-foreground"
               >
                 Allow list · {{ s.allowTools.length }}
-              </span>
-              <span
-                v-if="s.reasoningEffort"
-                class="inline-flex items-center rounded-full border border-info/40 bg-info/10 px-2 py-1 font-medium text-info"
-              >
-                Reasoning: {{ s.reasoningEffort }}
               </span>
             </div>
 
@@ -108,6 +104,12 @@
                   <textarea id="specialist-description" v-model="form.description" rows="3" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm"></textarea>
                 </div>
                 <div class="flex flex-col gap-1">
+                  <label for="specialist-provider" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Provider</label>
+                  <select id="specialist-provider" v-model="form.provider" @change="() => applyProviderDefaults()" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
+                    <option v-for="opt in providerOptions" :key="opt" :value="opt">{{ opt }}</option>
+                  </select>
+                </div>
+                <div class="flex flex-col gap-1">
                   <label for="specialist-model" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Model</label>
                   <input id="specialist-model" v-model="form.model" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" />
                 </div>
@@ -126,15 +128,6 @@
                 <div class="flex items-center gap-2 text-sm">
                   <input id="specialist-paused" type="checkbox" v-model="form.paused" class="h-4 w-4" />
                   <label for="specialist-paused" class="text-subtle-foreground">Paused</label>
-                </div>
-                <div class="flex flex-col gap-1">
-                  <label for="specialist-reasoning" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Reasoning Effort</label>
-                  <select id="specialist-reasoning" v-model="form.reasoningEffort" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
-                    <option value="">(default)</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                  </select>
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-extra-headers" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Extra Headers (JSON)</label>
@@ -389,7 +382,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { listSpecialists, upsertSpecialist, deleteSpecialist, type Specialist } from '@/api/client'
+import { listSpecialists, upsertSpecialist, deleteSpecialist, listSpecialistDefaults, type Specialist } from '@/api/client'
 import { listPrompts, listPromptVersions, type Prompt, type PromptVersion } from '@/api/playground'
 import { fetchWarppTools } from '@/api/warpp'
 import type { WarppTool } from '@/types/warpp'
@@ -400,6 +393,7 @@ const TOOL_PREVIEW_LIMIT = 8
 
 const qc = useQueryClient()
 const { data, isLoading: loading, isError: error } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
+const { data: providerDefaults } = useQuery({ queryKey: ['specialist-defaults'], queryFn: listSpecialistDefaults, staleTime: 30_000 })
 // Always present specialists sorted by name (case-insensitive)
 const specialists = computed<Specialist[]>(() => {
   const list = data.value ?? []
@@ -418,9 +412,17 @@ const specialists = computed<Specialist[]>(() => {
   return [...unique].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 })
 
+const providerOptions = computed(() => {
+  const defaults = providerDefaults?.value
+  if (defaults && typeof defaults === 'object') {
+    return Object.keys(defaults).sort()
+  }
+  return ['openai', 'anthropic', 'google', 'local']
+})
+
 const editing = ref(false)
 const original = ref<Specialist | null>(null)
-const form = ref<Specialist>({ name: '', description: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} })
+const form = ref<Specialist>({ name: '', description: '', provider: 'openai', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], extraHeaders: {}, extraParams: {} })
   // UI helpers for editing structured fields
 const extraHeadersRaw = ref('')
 const extraParamsRaw = ref('')
@@ -586,18 +588,37 @@ function setErr(e: unknown, fallback: string) {
   actionError.value = String(msg)
 }
 
+function applyProviderDefaults(force = false) {
+  const prov = (form.value.provider || providerOptions.value[0] || 'openai').trim()
+  form.value.provider = prov
+  const defaults = providerDefaults?.value?.[prov]
+  if (!defaults) return
+  if (force || !form.value.model) form.value.model = defaults.model || ''
+  if (force || !form.value.baseURL) form.value.baseURL = defaults.baseURL || ''
+  if (force || !form.value.apiKey) form.value.apiKey = defaults.apiKey || ''
+  if (prov === 'openai') {
+    const hasHeaders = form.value.extraHeaders && Object.keys(form.value.extraHeaders).length > 0
+    const hasParams = form.value.extraParams && Object.keys(form.value.extraParams).length > 0
+    if (force || !hasHeaders) form.value.extraHeaders = defaults.extraHeaders || {}
+    if (force || !hasParams) form.value.extraParams = defaults.extraParams || {}
+  }
+  extraHeadersRaw.value = form.value.extraHeaders ? JSON.stringify(form.value.extraHeaders, null, 2) : ''
+  extraParamsRaw.value = form.value.extraParams ? JSON.stringify(form.value.extraParams, null, 2) : ''
+}
+
 function startCreate() {
   original.value = null
-  form.value = { name: '', description: '', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], reasoningEffort: '', extraHeaders: {}, extraParams: {} }
-  extraHeadersRaw.value = ''
-  extraParamsRaw.value = ''
+  const defaultProvider = providerOptions.value[0] || 'openai'
+  form.value = { name: '', description: '', provider: defaultProvider, model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], extraHeaders: {}, extraParams: {} }
+  applyProviderDefaults(true)
   editing.value = true
   void ensurePromptsLoaded()
   void loadTools()
 }
 function edit(s: Specialist) {
   original.value = s
-  form.value = { ...s, description: s.description ?? '' }
+  form.value = { ...s, provider: s.provider || providerOptions.value[0] || 'openai', description: s.description ?? '' }
+  applyProviderDefaults(false)
 	// populate raw editors for structured fields
   extraHeadersRaw.value = s.extraHeaders ? JSON.stringify(s.extraHeaders, null, 2) : ''
   extraParamsRaw.value = s.extraParams ? JSON.stringify(s.extraParams, null, 2) : ''
@@ -615,6 +636,10 @@ function cloneSpecialist(s: Specialist) {
     paused: true,
     description: s.description ?? '',
   }
+  if (!form.value.provider) {
+    form.value.provider = providerOptions.value[0] || 'openai'
+  }
+  applyProviderDefaults(false)
   extraHeadersRaw.value = s.extraHeaders ? JSON.stringify(s.extraHeaders, null, 2) : ''
   extraParamsRaw.value = s.extraParams ? JSON.stringify(s.extraParams, null, 2) : ''
   editing.value = true
@@ -654,10 +679,13 @@ async function save() {
         setErr(err, 'Invalid JSON in Extra Params')
         return
       }
-    } else {
-      form.value.extraParams = {}
-    }
+  } else {
+    form.value.extraParams = {}
+  }
 
+    if (!form.value.provider) {
+      form.value.provider = providerOptions.value[0] || 'openai'
+    }
     await upsertSpecialist(form.value)
     actionError.value = null
     editing.value = false

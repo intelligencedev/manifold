@@ -8,19 +8,29 @@ type Config struct {
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt string
 	// Rolling summarization config: enable and tuning knobs
-	SummaryEnabled     bool
-	SummaryThreshold   int
-	SummaryKeepLast    int
-	OutputTruncateByte int
+	SummaryEnabled               bool
+	SummaryThreshold             int
+	SummaryKeepLast              int
+	SummaryMode                  string  `yaml:"summaryMode" json:"summaryMode"`
+	SummaryTargetUtilizationPct  float64 `yaml:"summaryTargetUtilizationPct" json:"summaryTargetUtilizationPct"`
+	SummaryMinKeepLastMessages   int     `yaml:"summaryMinKeepLastMessages" json:"summaryMinKeepLastMessages"`
+	SummaryMaxSummaryChunkTokens int     `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
+	OutputTruncateByte           int
 	// Maximum number of reasoning steps the agent can take
-	MaxSteps    int
-	LogPath     string
-	LogLevel    string
-	LogPayloads bool
-	Exec        ExecConfig
-	OpenAI      OpenAIConfig
-	Obs         ObsConfig
-	Web         WebConfig
+	MaxSteps int
+	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
+	// <= 0 means unbounded (run all tools in parallel); 1 forces sequential execution.
+	MaxToolParallelism int `yaml:"maxToolParallelism" json:"maxToolParallelism"`
+	LogPath            string
+	LogLevel           string
+	LogPayloads        bool
+	Exec               ExecConfig
+	// LLMClient controls which LLM provider to use and holds provider-specific settings.
+	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
+	// OpenAI retains the active OpenAI-compatible configuration for backward compatibility.
+	OpenAI OpenAIConfig
+	Obs    ObsConfig
+	Web    WebConfig
 	// Auth configures optional user authentication (OIDC/OAuth2) and RBAC.
 	Auth AuthConfig
 	// MCP defines Model Context Protocol client configuration. If configured,
@@ -45,6 +55,8 @@ type Config struct {
 	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig
+	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
+	EvolvingMemory EvolvingMemoryConfig
 	// TTS configures text-to-speech defaults and endpoint.
 	TTS TTSConfig `yaml:"tts" json:"tts"`
 	// AgentRunTimeoutSeconds sets an upper wall-clock bound for a single agent
@@ -91,6 +103,14 @@ type ExecConfig struct {
 	MaxCommandSeconds int
 }
 
+// LLMClientConfig selects the LLM provider and holds provider-specific configs.
+type LLMClientConfig struct {
+	Provider  string          `yaml:"provider" json:"provider"`
+	OpenAI    OpenAIConfig    `yaml:"openai" json:"openai"`
+	Anthropic AnthropicConfig `yaml:"anthropic" json:"anthropic"`
+	Google    GoogleConfig    `yaml:"google" json:"google"`
+}
+
 type OpenAIConfig struct {
 	APIKey         string
 	Model          string
@@ -108,12 +128,27 @@ type OpenAIConfig struct {
 	LogPayloads bool `yaml:"logPayloads" json:"logPayloads"`
 }
 
+// AnthropicConfig holds Anthropic provider settings.
+type AnthropicConfig struct {
+	APIKey  string `yaml:"apiKey" json:"apiKey"`
+	Model   string `yaml:"model" json:"model"`
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+}
+
+// GoogleConfig holds Google Gemini provider settings.
+type GoogleConfig struct {
+	APIKey  string `yaml:"apiKey" json:"apiKey"`
+	Model   string `yaml:"model" json:"model"`
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+}
+
 // SpecialistConfig describes a single specialist agent bound to a specific
 // OpenAI-compatible endpoint and model. It can optionally specify a different
 // API key and base URL than the default OpenAI config.
 type SpecialistConfig struct {
 	Name        string `yaml:"name" json:"name"`
 	Description string `yaml:"description" json:"description"`
+	Provider    string `yaml:"provider" json:"provider"`
 	BaseURL     string `yaml:"baseURL" json:"baseURL"`
 	APIKey      string `yaml:"apiKey" json:"apiKey"`
 	Model       string `yaml:"model" json:"model"`
@@ -310,4 +345,22 @@ type EmbeddingConfig struct {
 	APIHeader string `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
 	Path      string `yaml:"path" json:"path"`           // default: /v1/embeddings
 	Timeout   int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+}
+
+// EvolvingMemoryConfig configures the Search-Synthesis-Evolve memory system.
+type EvolvingMemoryConfig struct {
+	Enabled       bool   `yaml:"enabled" json:"enabled"`             // enable evolving memory
+	MaxSize       int    `yaml:"maxSize" json:"maxSize"`             // max entries (default 1000)
+	TopK          int    `yaml:"topK" json:"topK"`                   // retrieval top-k (default 4)
+	WindowSize    int    `yaml:"windowSize" json:"windowSize"`       // ExpRecent window (default 20)
+	EnableRAG     bool   `yaml:"enableRAG" json:"enableRAG"`         // enable ExpRAG retrieval
+	ReMemEnabled  bool   `yaml:"reMemEnabled" json:"reMemEnabled"`   // enable Think-Act-Refine mode
+	MaxInnerSteps int    `yaml:"maxInnerSteps" json:"maxInnerSteps"` // ReMem max inner loops (default 5)
+	Model         string `yaml:"model" json:"model"`                 // LLM model for summarization
+
+	// Smart pruning options (advanced)
+	EnableSmartPrune bool    `yaml:"enableSmartPrune" json:"enableSmartPrune"` // enable similarity-based dedup & relevance pruning
+	PruneThreshold   float64 `yaml:"pruneThreshold" json:"pruneThreshold"`     // similarity threshold for duplicate detection (default 0.95)
+	RelevanceDecay   float64 `yaml:"relevanceDecay" json:"relevanceDecay"`     // daily decay factor for relevance (default 0.99)
+	MinRelevance     float64 `yaml:"minRelevance" json:"minRelevance"`         // minimum relevance to avoid pruning (default 0.1)
 }

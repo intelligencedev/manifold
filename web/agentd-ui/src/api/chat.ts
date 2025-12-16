@@ -8,7 +8,14 @@ export type ChatStreamEventType =
   | "tool_result"
   | "tts_chunk"
   | "tts_audio"
-  | "error";
+  | "image"
+  | "error"
+  | "agent_start"
+  | "agent_delta"
+  | "agent_final"
+  | "agent_tool_start"
+  | "agent_tool_result"
+  | "agent_error";
 
 export interface ChatStreamEvent {
   type: ChatStreamEventType;
@@ -20,6 +27,18 @@ export interface ChatStreamEvent {
   b64?: string;
   url?: string;
   file_path?: string;
+  data_url?: string;
+  rel_path?: string;
+  mime?: string;
+  name?: string;
+  agent?: string;
+  model?: string;
+  call_id?: string;
+  parent_call_id?: string;
+  depth?: number;
+  role?: string;
+  content?: string;
+  error?: string;
   [key: string]: unknown;
 }
 
@@ -35,6 +54,9 @@ export interface StreamAgentRunOptions {
   // Optional project context: when provided, backend will sandbox tools under
   // the user's project root and attach { project_id } in the JSON body.
   projectId?: string;
+  // When true, request image output from providers that support it (e.g., Google Gemini).
+  image?: boolean;
+  imageSize?: string;
 }
 
 export async function listChatSessions(): Promise<ChatSessionMeta[]> {
@@ -103,6 +125,8 @@ export async function streamAgentRun(
   const fetchFn = fetchImpl ?? fetch;
   const payload: Record<string, any> = { prompt, session_id: sessionId };
   if (projectId && projectId.trim()) payload.project_id = projectId.trim();
+  if (options.image) payload.image = true;
+  if (options.imageSize && options.imageSize.trim()) payload.image_size = options.imageSize.trim();
   const decoder = new TextDecoder();
 
   let response: Response;
@@ -163,11 +187,14 @@ export async function streamAgentRun(
       if (done) {
         break;
       }
-      buffer += decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
+      console.log('[SSE chunk]', JSON.stringify(chunk));
+      buffer += chunk;
       buffer = processBuffer(buffer, onEvent);
     }
     // flush remaining buffered data
     if (buffer.trim().length > 0) {
+      console.log('[SSE flush]', JSON.stringify(buffer));
       processBuffer(buffer, onEvent, true);
     }
   } finally {
@@ -180,8 +207,8 @@ function processBuffer(
   onEvent: (event: ChatStreamEvent) => void,
   flush = false,
 ): string {
-  const parts = buffer.split("\n\n");
-  const leftover = flush ? "" : parts.pop() || "";
+  const parts = buffer.split(/\n\n|\r\n\r\n/);
+  const leftover = flush ? "" : parts.pop() ?? "";
 
   for (const part of parts) {
     const payload = extractEventPayload(part);
@@ -195,7 +222,7 @@ function processBuffer(
 
 export function extractEventPayload(raw: string): ChatStreamEvent | null {
   const lines = raw
-    .split("\n")
+    .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
 

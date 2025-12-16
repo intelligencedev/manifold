@@ -71,8 +71,8 @@
       </div>
 
       <!-- Front content -->
-      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
-        <div class="space-y-2">
+      <div class="mt-3 warpp-utility-content flex flex-col h-full" :class="collapsed ? 'hidden' : ''">
+        <div class="flex-1 space-y-2 overflow-auto">
           <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
             Display Label
             <input
@@ -85,26 +85,87 @@
             />
           </label>
           <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Textbox Content
+            <div class="flex items-center justify-between gap-2">
+              <span>{{ isAgentResponse ? 'Response Content' : 'Textbox Content' }}</span>
+              <div
+                v-if="isAgentResponse"
+                class="flex items-center gap-1 text-[10px] uppercase tracking-wide text-faint-foreground"
+              >
+                <span>Render</span>
+                <select
+                  v-model="renderMode"
+                  class="rounded border border-border/60 bg-surface-muted px-1.5 py-1 text-[11px] text-foreground"
+                  :disabled="!isDesignMode"
+                  @change="markDirty"
+                >
+                  <option value="raw">Raw text</option>
+                  <option value="markdown">Markdown</option>
+                  <option value="html">HTML</option>
+                </select>
+              </div>
+            </div>
             <textarea
               v-if="isDesignMode"
               v-model="contentText"
               rows="4"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full h-[92px] resize-none whitespace-pre-wrap break-words"
+              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full flex-1 min-h-[92px] resize-none whitespace-pre-wrap break-words"
               placeholder="Enter static text or use ${A.key} placeholders"
               @input="markDirty"
               @wheel.stop
-            >
-            </textarea>
+            ></textarea>
             <div
               v-else
-              class="h-[92px] rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground whitespace-pre-wrap break-words overflow-auto w-full"
+              :class="[
+                'flex-1',
+                'rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground overflow-auto w-full',
+              ]"
               style="contain: content; overflow-wrap: anywhere;"
               @wheel.stop
             >
-              <span class="block">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
+              <template v-if="isAgentResponse">
+                <div v-if="hasDisplayText" class="h-full overflow-auto pr-1 space-y-1">
+                  <pre
+                    v-if="renderMode === 'raw'"
+                    class="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-foreground"
+                  >{{ displayText }}</pre>
+                  <div
+                    v-else
+                    class="agent-response-render text-[11px] leading-relaxed space-y-1 break-words"
+                    v-html="renderedContent"
+                  ></div>
+                </div>
+                <span v-else class="block">
+                  {{ runtimeStatus === 'pending' ? 'Waiting for execution…' : 'Run the workflow to see rendered text.' }}
+                </span>
+              </template>
+              <template v-else>
+                <span class="block">{{ runtimeText || 'Run the workflow to see resolved text.' }}</span>
+              </template>
             </div>
           </label>
+          <div
+            v-if="isAgentResponse && isDesignMode"
+            class="rounded border border-border/60 bg-surface-muted/70 px-2 py-2 text-[11px] text-foreground"
+          >
+            <div class="flex items-center justify-between text-[10px] uppercase tracking-wide text-faint-foreground">
+              <span>Preview</span>
+              <span class="text-[10px] capitalize">{{ renderMode }}</span>
+            </div>
+            <div class="mt-1 max-h-[140px] overflow-auto pr-1 space-y-1">
+              <template v-if="hasDisplayText">
+                <pre
+                  v-if="renderMode === 'raw'"
+                  class="whitespace-pre-wrap break-words text-[11px] leading-relaxed text-foreground"
+                >{{ displayText }}</pre>
+                <div
+                  v-else
+                  class="agent-response-render text-[11px] leading-relaxed space-y-1 break-words"
+                  v-html="renderedContent"
+                ></div>
+              </template>
+              <p v-else class="text-[10px] text-faint-foreground">Add content to see a live preview.</p>
+            </div>
+          </div>
           <p v-if="runtimeStatus === 'pending'" class="text-[10px] italic text-faint-foreground">
             Waiting for execution…
           </p>
@@ -226,8 +287,11 @@ import type { WarppStep, WarppStepTrace } from '@/types/warpp'
 import type { Ref } from 'vue'
 import GearIcon from '@/components/icons/Gear.vue'
 import { WARPP_UTILITY_NODE_DIMENSIONS, WARPP_UTILITY_NODE_COLLAPSED } from '@/constants/warppNodes'
+import { renderMarkdown } from '@/utils/markdown'
 
 const TOOL_NAME_FALLBACK = 'utility_textbox'
+const AGENT_RESPONSE_TOOL = 'agent_response'
+type RenderMode = 'raw' | 'markdown' | 'html'
 
 const props = defineProps<NodeProps<StepNodeData>>()
 
@@ -243,8 +307,21 @@ const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>('warppRunTrace',
 const runningRef = inject<Ref<boolean>>('warppRunning', ref(false))
 const openResultModal = inject<(stepId: string, title: string) => void>('warppOpenResultModal', () => {})
 
+function normalizeDisplayText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  const str = typeof value === 'string' ? value : String(value)
+  // Replace escaped newlines so literal "\n" render as actual line breaks
+  return str.replace(/\r\n/g, '\n').replace(/\\n/g, '\n')
+}
+
+function parseRenderMode(value: unknown): RenderMode {
+  const mode = typeof value === 'string' ? (value as RenderMode) : 'markdown'
+  return mode === 'raw' || mode === 'html' || mode === 'markdown' ? mode : 'markdown'
+}
+
 const labelText = ref('')
 const contentText = ref('')
+const renderMode = ref<RenderMode>('markdown')
 const outputAttr = ref('')
 const outputFrom = ref('')
 const outputValue = ref('')
@@ -258,6 +335,7 @@ const collapsed = ref(true)
 const copied = ref(false)
 
 const toolName = computed(() => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBACK)
+const isAgentResponse = computed(() => toolName.value === AGENT_RESPONSE_TOOL)
 const defaultAttributeHint = computed(() => `${props.id}_text`)
 const headerLabel = computed(() => labelText.value.trim() || prettifyName(toolName.value))
 const isDesignMode = computed(() => modeRef.value === 'design')
@@ -269,8 +347,24 @@ const runtimeTrace = computed(() => {
 const runtimeText = computed(() => {
   const trace = runtimeTrace.value
   const text = trace?.renderedArgs?.text
-  if (typeof text === 'string') return text
-  return ''
+  if (typeof text !== 'string') return ''
+  return isAgentResponse.value ? normalizeDisplayText(text) : text
+})
+const designText = computed(() => (isAgentResponse.value ? normalizeDisplayText(contentText.value) : contentText.value))
+const displayText = computed(() => (isDesignMode.value ? designText.value : runtimeText.value))
+const hasDisplayText = computed(() => displayText.value.length > 0)
+const renderedContent = computed(() => {
+  const text = displayText.value
+  if (!text) return ''
+  switch (renderMode.value) {
+    case 'markdown':
+      return renderMarkdown(text)
+    case 'html':
+      return text.replace(/\n/g, '<br />')
+    case 'raw':
+    default:
+      return text
+  }
 })
 const runtimeOutputAttr = computed(() => {
   const trace = runtimeTrace.value
@@ -310,6 +404,7 @@ watch(
     const args = (step?.tool?.args ?? {}) as Record<string, unknown>
     labelText.value = String(args.label ?? step?.text ?? '')
     contentText.value = String(args.text ?? '')
+    renderMode.value = parseRenderMode(args.render_mode)
     outputAttr.value = typeof args.output_attr === 'string' ? (args.output_attr as string) : ''
     outputFrom.value = typeof args.output_from === 'string' ? (args.output_from as string) : ''
     outputValue.value = typeof args.output_value === 'string' ? (args.output_value as string) : ''
@@ -319,7 +414,7 @@ watch(
   { immediate: true, deep: true },
 )
 
-watch([labelText, contentText, outputAttr, outputFrom, outputValue], () => {
+watch([labelText, contentText, outputAttr, outputFrom, outputValue, renderMode], () => {
   if (suppressCommit || hydratingRef.value || !isDesignMode.value) return
   isDirty.value = true
 })
@@ -360,6 +455,7 @@ function buildArgs(): Record<string, unknown> {
   const val = outputValue.value.trim()
   if (label) args.label = label
   if (text) args.text = text
+  if (isAgentResponse.value) args.render_mode = renderMode.value
   if (attr) args.output_attr = attr
   if (from) args.output_from = from
   if (val) args.output_value = val
@@ -376,6 +472,7 @@ function cloneStep(step: WarppStep) {
 }
 
 function prettifyName(name: string): string {
+  if (name === AGENT_RESPONSE_TOOL) return 'Agent Response'
   if (!name.startsWith('utility_')) return name
   return name
     .slice('utility_'.length)
@@ -470,19 +567,19 @@ function onResizeEnd(event: OnResizeEnd) {
   if (!isDesignMode.value) return
   const widthPx = `${Math.round(event.params.width)}px`
   const heightPx = `${Math.round(event.params.height)}px`
-  updateNode(props.id, (node) => {
-    const baseStyle: CSSProperties =
-      typeof node.style === 'function' ? (node.style(node) as CSSProperties) ?? {} : { ...(node.style ?? {}) }
-    return {
-      style: {
-        ...baseStyle,
-        width: widthPx,
-        height: heightPx,
-        minWidth: UTILITY_MIN_WIDTH_PX,
-        minHeight: UTILITY_MIN_HEIGHT_PX,
-      },
-    }
-  })
+    updateNode(props.id, (node) => {
+      const baseStyle: CSSProperties =
+        typeof node.style === 'function' ? (node.style(node) as CSSProperties) ?? {} : { ...(node.style ?? {}) }
+      return {
+        style: {
+          ...baseStyle,
+          width: widthPx,
+          height: heightPx,
+          minWidth: px(UTILITY_MIN_WIDTH),
+          minHeight: px(UTILITY_MIN_HEIGHT),
+        },
+      }
+    })
   isDirty.value = true
 }
 watch(expandAllSeq, (v) => {
@@ -510,3 +607,21 @@ onMounted(() => {
 })
 </script>
 
+<style scoped>
+.agent-response-render :deep(p) {
+  margin: 0.15rem 0;
+}
+
+.agent-response-render :deep(ul),
+.agent-response-render :deep(ol) {
+  padding-left: 1.05rem;
+  margin: 0.25rem 0;
+}
+
+.agent-response-render :deep(pre) {
+  background-color: rgb(var(--color-surface-muted));
+  border-radius: 6px;
+  padding: 0.5rem;
+  overflow-x: auto;
+}
+</style>

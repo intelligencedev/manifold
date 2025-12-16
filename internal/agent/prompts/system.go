@@ -2,10 +2,42 @@ package prompts
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 )
+
+const memoryInstructions = `
+
+[memory]
+- You have access to an **EvolvingMemory** system that provides two types of context:
+  1. **Past Relevant Experiences**: Semantic search results showing similar tasks you've completed before, including strategies, solutions, and lessons learned.
+  2. **Conversation History**: The actual message history from the current chat session, showing what was previously discussed.
+
+- When you receive messages with "## Past Relevant Experiences" or "## Current Task":
+  - These are injected by the EvolvingMemory system and contain valuable context.
+  - **Always acknowledge and use this information** when it's relevant to the user's query.
+  - If the user asks about previous discussions or "what we talked about", the conversation history contains the definitive answer.
+
+- When you see an assistant message in the conversation history:
+  - This is YOUR previous response in this session.
+  - Treat it as authoritative context about what has been discussed.
+  - Reference it naturally when asked about prior exchanges.
+
+- Memory usage guidelines:
+  - Past experiences help you avoid repeating mistakes and reuse successful patterns.
+  - Conversation history is essential for maintaining context and continuity.
+  - Don't claim "this is our first message" when conversation history is present.
+  - Use memories to improve your responses, not to replace direct answers.
+[/memory]`
+
+// EnsureMemoryInstructions appends memory system instructions to any system prompt
+// if they are not already present. This ensures all agents (orchestrator, specialists,
+// and delegated agents) receive memory usage guidance.
+func EnsureMemoryInstructions(systemPrompt string) string {
+	if strings.Contains(systemPrompt, "[memory]") {
+		return systemPrompt
+	}
+	return systemPrompt + memoryInstructions
+}
 
 // DefaultSystemPrompt describes the run_cli tool clearly so the model will use it.
 // If an AGENTS.md file exists in the provided workdir, its contents will be
@@ -87,12 +119,15 @@ Be cautious with destructive operations. If a command could modify files, consid
 		wd = "."
 	}
 	// Attempt to read AGENTS.md in the workdir and append its contents if present.
-	agentsPath := filepath.Join(wd, "AGENTS.md")
-	if data, err := os.ReadFile(agentsPath); err == nil {
-		trimmed := strings.TrimSpace(string(data))
-		if trimmed != "" {
-			base = base + "\n\n" + "Additional agent instructions (from AGENTS.md):\n" + trimmed
-		}
-	}
-	return base
+	// To avoid sending unnecessary context, we will comment this out.
+	// A specialist can be instructed to check for this file in its custom system prompt if needed.
+	// agentsPath := filepath.Join(wd, "AGENTS.md")
+	// if data, err := os.ReadFile(agentsPath); err == nil {
+	// 	trimmed := strings.TrimSpace(string(data))
+	// 	if trimmed != "" {
+	// 		base = base + "\n\n" + "Additional agent instructions (from AGENTS.md):\n" + trimmed
+	// 	}
+	// }
+	// Always append memory instructions at the end
+	return EnsureMemoryInstructions(base)
 }

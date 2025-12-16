@@ -21,15 +21,48 @@ func Load() (Config, error) {
 	cfg := Config{}
 	// Allow overriding the agent system prompt via env var SYSTEM_PROMPT.
 	cfg.SystemPrompt = strings.TrimSpace(os.Getenv("SYSTEM_PROMPT"))
+	cfg.LLMClient.Provider = strings.TrimSpace(os.Getenv("LLM_PROVIDER"))
 	// Read environment values first (no defaults here; we'll apply defaults later)
-	cfg.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	cfg.OpenAI.Model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
+	if v := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")); v != "" {
+		cfg.OpenAI.APIKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAI_MODEL")); v != "" {
+		cfg.OpenAI.Model = v
+	}
 	// Allow overriding API base via env (useful for proxies/self-hosted gateways)
-	cfg.OpenAI.BaseURL = firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL")))
-	cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL"))
-	cfg.OpenAI.SummaryModel = strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL"))
+	if v := firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))); v != "" {
+		cfg.OpenAI.BaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL")); v != "" {
+		cfg.OpenAI.SummaryBaseURL = v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL")); v != "" {
+		cfg.OpenAI.SummaryModel = v
+	}
 	// Allow selecting API surface ("completions" or "responses"). Defaults later.
-	cfg.OpenAI.API = strings.TrimSpace(os.Getenv("OPENAI_API"))
+	if v := strings.TrimSpace(os.Getenv("OPENAI_API")); v != "" {
+		cfg.OpenAI.API = v
+	}
+	// Optional Anthropic provider env config
+	if v := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")); v != "" {
+		cfg.LLMClient.Anthropic.APIKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")); v != "" {
+		cfg.LLMClient.Anthropic.Model = v
+	}
+	if v := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")); v != "" {
+		cfg.LLMClient.Anthropic.BaseURL = v
+	}
+	// Optional Google provider env config
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_LLM_API_KEY")); v != "" {
+		cfg.LLMClient.Google.APIKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_LLM_MODEL")); v != "" {
+		cfg.LLMClient.Google.Model = v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_LLM_BASE_URL")); v != "" {
+		cfg.LLMClient.Google.BaseURL = v
+	}
 	cfg.Workdir = strings.TrimSpace(os.Getenv("WORKDIR"))
 	cfg.LogPath = strings.TrimSpace(os.Getenv("LOG_PATH"))
 	cfg.LogLevel = strings.TrimSpace(os.Getenv("LOG_LEVEL"))
@@ -51,6 +84,11 @@ func Load() (Config, error) {
 	if v := strings.TrimSpace(os.Getenv("MAX_STEPS")); v != "" {
 		if n, err := parseInt(v); err == nil {
 			cfg.MaxSteps = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("MAX_TOOL_PARALLELISM")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.MaxToolParallelism = n
 		}
 	}
 	// Agent / Stream / Workflow timeouts (seconds)
@@ -117,6 +155,25 @@ func Load() (Config, error) {
 			cfg.SummaryKeepLast = n
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_MODE")); v != "" {
+		cfg.SummaryMode = v
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_TARGET_UTILIZATION_PCT")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			// Interpret as percentage 0-100.
+			cfg.SummaryTargetUtilizationPct = float64(n) / 100.0
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_MIN_KEEP_LAST_MESSAGES")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryMinKeepLastMessages = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_MAX_SUMMARY_CHUNK_TOKENS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryMaxSummaryChunkTokens = n
+		}
+	}
 
 	// Global enableTools via env (overrides YAML)
 	if v := strings.TrimSpace(os.Getenv("ENABLE_TOOLS")); v != "" {
@@ -155,6 +212,59 @@ func Load() (Config, error) {
 		}
 	}
 
+	// Evolving Memory configuration via environment variables
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_ENABLED")); v != "" {
+		cfg.EvolvingMemory.Enabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MAX_SIZE")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.MaxSize = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_TOP_K")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.TopK = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_WINDOW_SIZE")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.WindowSize = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_ENABLE_RAG")); v != "" {
+		cfg.EvolvingMemory.EnableRAG = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_REMEM_ENABLED")); v != "" {
+		cfg.EvolvingMemory.ReMemEnabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MAX_INNER_STEPS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.EvolvingMemory.MaxInnerSteps = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MODEL")); v != "" {
+		cfg.EvolvingMemory.Model = v
+	}
+	// Smart pruning env vars
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_ENABLE_SMART_PRUNE")); v != "" {
+		cfg.EvolvingMemory.EnableSmartPrune = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_PRUNE_THRESHOLD")); v != "" {
+		if f, err := parseFloat(v); err == nil {
+			cfg.EvolvingMemory.PruneThreshold = f
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_RELEVANCE_DECAY")); v != "" {
+		if f, err := parseFloat(v); err == nil {
+			cfg.EvolvingMemory.RelevanceDecay = f
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MIN_RELEVANCE")); v != "" {
+		if f, err := parseFloat(v); err == nil {
+			cfg.EvolvingMemory.MinRelevance = f
+		}
+	}
+
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
 		return Config{}, err
@@ -174,6 +284,19 @@ func Load() (Config, error) {
 	}
 	// Default API surface to completions when absent or invalid
 	if cfg.OpenAI.API == "" {
+		cfg.OpenAI.API = "completions"
+	}
+	provider := strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
+	if provider == "" {
+		provider = "openai"
+	}
+	switch provider {
+	case "openai", "anthropic", "google", "local":
+		cfg.LLMClient.Provider = provider
+	default:
+		return Config{}, fmt.Errorf("llm provider must be one of openai, anthropic, google, or local (got %q)", provider)
+	}
+	if cfg.LLMClient.Provider == "local" {
 		cfg.OpenAI.API = "completions"
 	}
 	if cfg.Obs.ServiceName == "" {
@@ -226,6 +349,10 @@ func Load() (Config, error) {
 	}
 	if cfg.MaxSteps == 0 {
 		cfg.MaxSteps = 8
+	}
+	// MaxToolParallelism: 0 means unbounded (default), 1 means sequential, >1 caps concurrency
+	if cfg.MaxToolParallelism == 0 {
+		cfg.MaxToolParallelism = 0 // Explicitly keep 0 as default (unbounded)
 	}
 	// Provide sensible large defaults only if explicitly needed; leave 0 = disabled
 	if cfg.AgentRunTimeoutSeconds < 0 {
@@ -291,7 +418,12 @@ func Load() (Config, error) {
 	}
 
 	if cfg.OpenAI.APIKey == "" {
-		return Config{}, errors.New("OPENAI_API_KEY is required (set in .env or environment)")
+		return Config{}, errors.New("OPENAI_API_KEY is required for llm_client.openai (set in .env or environment)")
+	}
+	for i := range cfg.Specialists {
+		if strings.TrimSpace(cfg.Specialists[i].Provider) == "" {
+			cfg.Specialists[i].Provider = cfg.LLMClient.Provider
+		}
 	}
 	if cfg.Workdir == "" {
 		return Config{}, errors.New("WORKDIR is required (set in .env or environment)")
@@ -309,6 +441,8 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
 	}
 	cfg.Workdir = absWD
+	// Keep LLMClient.OpenAI in sync with the effective OpenAI config.
+	cfg.LLMClient.OpenAI = cfg.OpenAI
 
 	// Parse blocklist
 	blockStr := strings.TrimSpace(os.Getenv("BLOCK_BINARIES"))
@@ -338,6 +472,19 @@ func loadSpecialists(cfg *Config) error {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("SPECIALISTS_DISABLED")), "true") {
 		return nil
 	}
+	providerFromEnv := strings.TrimSpace(os.Getenv("LLM_PROVIDER")) != ""
+	openAIAPIKeyFromEnv := strings.TrimSpace(os.Getenv("OPENAI_API_KEY")) != ""
+	openAIModelFromEnv := strings.TrimSpace(os.Getenv("OPENAI_MODEL")) != ""
+	openAIBaseURLFromEnv := firstNonEmpty(strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")), strings.TrimSpace(os.Getenv("OPENAI_API_BASE_URL"))) != ""
+	openAISummaryURLFromEnv := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL")) != ""
+	openAISummaryModelFromEnv := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL")) != ""
+	openAIAPIChoiceFromEnv := strings.TrimSpace(os.Getenv("OPENAI_API")) != ""
+	anthropicAPIKeyFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != ""
+	anthropicModelFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")) != ""
+	anthropicBaseURLFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")) != ""
+	googleAPIKeyFromEnv := strings.TrimSpace(os.Getenv("GOOGLE_LLM_API_KEY")) != ""
+	googleModelFromEnv := strings.TrimSpace(os.Getenv("GOOGLE_LLM_MODEL")) != ""
+	googleBaseURLFromEnv := strings.TrimSpace(os.Getenv("GOOGLE_LLM_BASE_URL")) != ""
 	var paths []string
 	if p := strings.TrimSpace(os.Getenv("SPECIALISTS_CONFIG")); p != "" {
 		paths = append(paths, p)
@@ -375,6 +522,22 @@ func loadSpecialists(cfg *Config) error {
 		ExtraHeaders   map[string]string `yaml:"extraHeaders"`
 		ExtraParams    map[string]any    `yaml:"extraParams"`
 		LogPayloads    bool              `yaml:"logPayloads"`
+	}
+	type anthropicYAML struct {
+		APIKey  string `yaml:"apiKey"`
+		Model   string `yaml:"model"`
+		BaseURL string `yaml:"baseURL"`
+	}
+	type googleYAML struct {
+		APIKey  string `yaml:"apiKey"`
+		Model   string `yaml:"model"`
+		BaseURL string `yaml:"baseURL"`
+	}
+	type llmClientYAML struct {
+		Provider  string        `yaml:"provider"`
+		OpenAI    openAIYAML    `yaml:"openai"`
+		Anthropic anthropicYAML `yaml:"anthropic"`
+		Google    googleYAML    `yaml:"google"`
 	}
 	type execYAML struct {
 		BlockBinaries     []string `yaml:"blockBinaries"`
@@ -462,6 +625,20 @@ func loadSpecialists(cfg *Config) error {
 		Path           string `yaml:"path"`
 		TimeoutSeconds int    `yaml:"timeoutSeconds"`
 	}
+	type evolvingMemoryYAML struct {
+		Enabled          bool    `yaml:"enabled"`
+		MaxSize          int     `yaml:"maxSize"`
+		TopK             int     `yaml:"topK"`
+		WindowSize       int     `yaml:"windowSize"`
+		EnableRAG        bool    `yaml:"enableRAG"`
+		ReMemEnabled     bool    `yaml:"reMemEnabled"`
+		MaxInnerSteps    int     `yaml:"maxInnerSteps"`
+		Model            string  `yaml:"model"`
+		EnableSmartPrune bool    `yaml:"enableSmartPrune"`
+		PruneThreshold   float64 `yaml:"pruneThreshold"`
+		RelevanceDecay   float64 `yaml:"relevanceDecay"`
+		MinRelevance     float64 `yaml:"minRelevance"`
+	}
 	type ttsYAML struct {
 		BaseURL string `yaml:"baseURL"`
 		Model   string `yaml:"model"`
@@ -504,6 +681,7 @@ func loadSpecialists(cfg *Config) error {
 		SystemPrompt     string             `yaml:"systemPrompt"`
 		Specialists      []SpecialistConfig `yaml:"specialists"`
 		Routes           []SpecialistRoute  `yaml:"routes"`
+		LLMClient        llmClientYAML      `yaml:"llm_client"`
 		OpenAI           openAIYAML         `yaml:"openai"`
 		Workdir          string             `yaml:"workdir"`
 		OutputTrunc      int                `yaml:"outputTruncateBytes"`
@@ -516,6 +694,7 @@ func loadSpecialists(cfg *Config) error {
 		Databases        databasesYAML      `yaml:"databases"`
 		MCP              mcpYAML            `yaml:"mcp"`
 		Embedding        embeddingYAML      `yaml:"embedding"`
+		EvolvingMemory   evolvingMemoryYAML `yaml:"evolvingMemory"`
 		TTS              ttsYAML            `yaml:"tts"`
 		EnableTools      *bool              `yaml:"enableTools"`
 		// AllowTools is a top-level allow-list for tools exposed to the main agent.
@@ -534,35 +713,83 @@ func loadSpecialists(cfg *Config) error {
 		if len(w.Routes) > 0 {
 			cfg.SpecialistRoutes = w.Routes
 		}
-		// OpenAI extras always merged
-		if len(w.OpenAI.ExtraHeaders) > 0 {
-			cfg.OpenAI.ExtraHeaders = w.OpenAI.ExtraHeaders
+		for i := range cfg.Specialists {
+			if strings.TrimSpace(cfg.Specialists[i].Provider) == "" {
+				cfg.Specialists[i].Provider = cfg.LLMClient.Provider
+			}
 		}
-		if len(w.OpenAI.ExtraParams) > 0 {
-			cfg.OpenAI.ExtraParams = w.OpenAI.ExtraParams
+
+		applyOpenAIExtras := func(src openAIYAML, override bool) {
+			if len(src.ExtraHeaders) > 0 && (override || len(cfg.OpenAI.ExtraHeaders) == 0) {
+				cfg.OpenAI.ExtraHeaders = src.ExtraHeaders
+			}
+			if len(src.ExtraParams) > 0 && (override || len(cfg.OpenAI.ExtraParams) == 0) {
+				cfg.OpenAI.ExtraParams = src.ExtraParams
+			}
+			if !cfg.LogPayloads && src.LogPayloads {
+				cfg.LogPayloads = true
+				cfg.OpenAI.LogPayloads = true
+			}
 		}
-		if !cfg.LogPayloads && w.OpenAI.LogPayloads {
-			cfg.LogPayloads = true
-			cfg.OpenAI.LogPayloads = true
+		applyOpenAICore := func(src openAIYAML, allowOverride bool) {
+			if !openAIAPIKeyFromEnv && strings.TrimSpace(src.APIKey) != "" {
+				if allowOverride || cfg.OpenAI.APIKey == "" {
+					cfg.OpenAI.APIKey = strings.TrimSpace(src.APIKey)
+				}
+			}
+			if !openAIModelFromEnv && strings.TrimSpace(src.Model) != "" {
+				if allowOverride || cfg.OpenAI.Model == "" {
+					cfg.OpenAI.Model = strings.TrimSpace(src.Model)
+				}
+			}
+			if !openAIBaseURLFromEnv && strings.TrimSpace(src.BaseURL) != "" {
+				if allowOverride || cfg.OpenAI.BaseURL == "" {
+					cfg.OpenAI.BaseURL = strings.TrimSpace(src.BaseURL)
+				}
+			}
+			if !openAISummaryModelFromEnv && strings.TrimSpace(src.SummaryModel) != "" {
+				if allowOverride || cfg.OpenAI.SummaryModel == "" {
+					cfg.OpenAI.SummaryModel = strings.TrimSpace(src.SummaryModel)
+				}
+			}
+			if !openAISummaryURLFromEnv && strings.TrimSpace(src.SummaryBaseURL) != "" {
+				if allowOverride || cfg.OpenAI.SummaryBaseURL == "" {
+					cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(src.SummaryBaseURL)
+				}
+			}
+			if !openAIAPIChoiceFromEnv && strings.TrimSpace(src.API) != "" {
+				if allowOverride || cfg.OpenAI.API == "" {
+					cfg.OpenAI.API = strings.TrimSpace(src.API)
+				}
+			}
 		}
-		// OpenAI core: only if empty (env overrides YAML)
-		if cfg.OpenAI.APIKey == "" && strings.TrimSpace(w.OpenAI.APIKey) != "" {
-			cfg.OpenAI.APIKey = strings.TrimSpace(w.OpenAI.APIKey)
+
+		// Legacy openai: only fill empty fields (env takes precedence).
+		applyOpenAIExtras(w.OpenAI, false)
+		applyOpenAICore(w.OpenAI, false)
+
+		if strings.TrimSpace(w.LLMClient.Provider) != "" && !providerFromEnv {
+			cfg.LLMClient.Provider = strings.TrimSpace(w.LLMClient.Provider)
 		}
-		if cfg.OpenAI.Model == "" && strings.TrimSpace(w.OpenAI.Model) != "" {
-			cfg.OpenAI.Model = strings.TrimSpace(w.OpenAI.Model)
+		applyOpenAIExtras(w.LLMClient.OpenAI, true)
+		applyOpenAICore(w.LLMClient.OpenAI, true)
+		if !anthropicAPIKeyFromEnv && strings.TrimSpace(w.LLMClient.Anthropic.APIKey) != "" {
+			cfg.LLMClient.Anthropic.APIKey = strings.TrimSpace(w.LLMClient.Anthropic.APIKey)
 		}
-		if cfg.OpenAI.SummaryModel == "" && strings.TrimSpace(w.OpenAI.SummaryModel) != "" {
-			cfg.OpenAI.SummaryModel = strings.TrimSpace(w.OpenAI.SummaryModel)
+		if !anthropicModelFromEnv && strings.TrimSpace(w.LLMClient.Anthropic.Model) != "" {
+			cfg.LLMClient.Anthropic.Model = strings.TrimSpace(w.LLMClient.Anthropic.Model)
 		}
-		if cfg.OpenAI.BaseURL == "" && strings.TrimSpace(w.OpenAI.BaseURL) != "" {
-			cfg.OpenAI.BaseURL = strings.TrimSpace(w.OpenAI.BaseURL)
+		if !anthropicBaseURLFromEnv && strings.TrimSpace(w.LLMClient.Anthropic.BaseURL) != "" {
+			cfg.LLMClient.Anthropic.BaseURL = strings.TrimSpace(w.LLMClient.Anthropic.BaseURL)
 		}
-		if cfg.OpenAI.SummaryBaseURL == "" && strings.TrimSpace(w.OpenAI.SummaryBaseURL) != "" {
-			cfg.OpenAI.SummaryBaseURL = strings.TrimSpace(w.OpenAI.SummaryBaseURL)
+		if !googleAPIKeyFromEnv && strings.TrimSpace(w.LLMClient.Google.APIKey) != "" {
+			cfg.LLMClient.Google.APIKey = strings.TrimSpace(w.LLMClient.Google.APIKey)
 		}
-		if cfg.OpenAI.API == "" && strings.TrimSpace(w.OpenAI.API) != "" {
-			cfg.OpenAI.API = strings.TrimSpace(w.OpenAI.API)
+		if !googleModelFromEnv && strings.TrimSpace(w.LLMClient.Google.Model) != "" {
+			cfg.LLMClient.Google.Model = strings.TrimSpace(w.LLMClient.Google.Model)
+		}
+		if !googleBaseURLFromEnv && strings.TrimSpace(w.LLMClient.Google.BaseURL) != "" {
+			cfg.LLMClient.Google.BaseURL = strings.TrimSpace(w.LLMClient.Google.BaseURL)
 		}
 		// Workdir and others only if empty
 		if cfg.Workdir == "" && strings.TrimSpace(w.Workdir) != "" {
@@ -696,6 +923,44 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Embedding.Timeout == 0 && w.Embedding.TimeoutSeconds > 0 {
 			cfg.Embedding.Timeout = w.Embedding.TimeoutSeconds
+		}
+		// EvolvingMemory: assign evolving memory config fields
+		if w.EvolvingMemory.Enabled {
+			cfg.EvolvingMemory.Enabled = true
+		}
+		if cfg.EvolvingMemory.MaxSize == 0 && w.EvolvingMemory.MaxSize > 0 {
+			cfg.EvolvingMemory.MaxSize = w.EvolvingMemory.MaxSize
+		}
+		if cfg.EvolvingMemory.TopK == 0 && w.EvolvingMemory.TopK > 0 {
+			cfg.EvolvingMemory.TopK = w.EvolvingMemory.TopK
+		}
+		if cfg.EvolvingMemory.WindowSize == 0 && w.EvolvingMemory.WindowSize > 0 {
+			cfg.EvolvingMemory.WindowSize = w.EvolvingMemory.WindowSize
+		}
+		if w.EvolvingMemory.EnableRAG {
+			cfg.EvolvingMemory.EnableRAG = true
+		}
+		if w.EvolvingMemory.ReMemEnabled {
+			cfg.EvolvingMemory.ReMemEnabled = true
+		}
+		if cfg.EvolvingMemory.MaxInnerSteps == 0 && w.EvolvingMemory.MaxInnerSteps > 0 {
+			cfg.EvolvingMemory.MaxInnerSteps = w.EvolvingMemory.MaxInnerSteps
+		}
+		if cfg.EvolvingMemory.Model == "" && strings.TrimSpace(w.EvolvingMemory.Model) != "" {
+			cfg.EvolvingMemory.Model = strings.TrimSpace(w.EvolvingMemory.Model)
+		}
+		// Smart pruning config from YAML
+		if w.EvolvingMemory.EnableSmartPrune {
+			cfg.EvolvingMemory.EnableSmartPrune = true
+		}
+		if cfg.EvolvingMemory.PruneThreshold == 0 && w.EvolvingMemory.PruneThreshold > 0 {
+			cfg.EvolvingMemory.PruneThreshold = w.EvolvingMemory.PruneThreshold
+		}
+		if cfg.EvolvingMemory.RelevanceDecay == 0 && w.EvolvingMemory.RelevanceDecay > 0 {
+			cfg.EvolvingMemory.RelevanceDecay = w.EvolvingMemory.RelevanceDecay
+		}
+		if cfg.EvolvingMemory.MinRelevance == 0 && w.EvolvingMemory.MinRelevance > 0 {
+			cfg.EvolvingMemory.MinRelevance = w.EvolvingMemory.MinRelevance
 		}
 		// MCP servers
 		if len(w.MCP.Servers) > 0 {
@@ -850,4 +1115,10 @@ func parseInt(s string) (int, error) {
 	var n int
 	_, err := fmt.Sscanf(s, "%d", &n)
 	return n, err
+}
+
+func parseFloat(s string) (float64, error) {
+	var f float64
+	_, err := fmt.Sscanf(s, "%f", &f)
+	return f, err
 }

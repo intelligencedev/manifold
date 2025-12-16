@@ -18,12 +18,12 @@ import (
 
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
-	"manifold/internal/agent/prompts"
 	"manifold/internal/auth"
 	"manifold/internal/config"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
+	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
@@ -44,6 +44,7 @@ import (
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
+	codeevolvetool "manifold/internal/tools/codeevolve"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
 	"manifold/internal/tools/multitool"
@@ -64,7 +65,7 @@ type app struct {
 	cfg               *config.Config
 	httpClient        *http.Client
 	mgr               *databases.Manager
-	llm               *openaillm.Client
+	llm               llmpkg.Provider
 	baseToolRegistry  tools.Registry
 	toolRegistry      tools.Registry
 	specRegistry      *specialists.Registry
@@ -85,12 +86,30 @@ type app struct {
 	authStore         *auth.Store
 	authProvider      auth.Provider
 	specStore         persist.SpecialistsStore
+	mcpStore          persist.MCPStore
+	mcpManager        *mcpclient.Manager
 	tokenMetrics      tokenMetricsProvider
 }
 
 type tokenMetricsProvider interface {
 	TokenTotals(ctx context.Context, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
 	Source() string
+}
+
+// cloneEngine returns a shallow copy of the base orchestrator engine so that
+// per-request callbacks (OnDelta/OnTool/etc) don't race across concurrent
+// requests. Callers can safely mutate the returned engine without affecting
+// other in-flight runs.
+func (a *app) cloneEngine() *agent.Engine {
+	if a.engine == nil {
+		return nil
+	}
+	clone := *a.engine
+	clone.OnAssistant = nil
+	clone.OnDelta = nil
+	clone.OnTool = nil
+	clone.OnToolStart = nil
+	return &clone
 }
 
 // Run initialises the agentd server and starts the HTTP listener.
@@ -149,7 +168,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
-	llm := openaillm.New(cfg.OpenAI, httpClient)
+	llm, err := llmproviders.Build(*cfg, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("build llm provider: %w", err)
+	}
 	summaryCfg := cfg.OpenAI
 	summaryCfg.Model = cfg.OpenAI.SummaryModel
 	summaryCfg.BaseURL = cfg.OpenAI.SummaryBaseURL
@@ -189,17 +211,26 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
 
+	// AlphaEvolve-inspired code evolution tool
+	toolRegistry.Register(codeevolvetool.New(cfg, llm))
+
 	newProv := func(baseURL string) llmpkg.Provider {
-		cfgCopy := cfg.OpenAI
-		cfgCopy.BaseURL = baseURL
-		return openaillm.New(cfgCopy, httpClient)
+		switch cfg.LLMClient.Provider {
+		case "", "openai", "local":
+			cfgCopy := cfg.LLMClient.OpenAI
+			cfgCopy.BaseURL = baseURL
+			return openaillm.New(cfgCopy, httpClient)
+		default:
+			return llm
+		}
 	}
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
-	specReg := specialists.NewRegistry(cfg.OpenAI, cfg.Specialists, httpClient, toolRegistry)
+	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
+	specReg.SetWorkdir(cfg.Workdir)
 
 	// Phase 1: register simple team tools
-	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg)
+	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, cfg.Workdir)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
@@ -233,6 +264,20 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
+
+	// Load from DB (System User)
+	if mgr.MCP != nil {
+		if servers, err := mgr.MCP.List(ctxInit, systemUserID); err == nil {
+			for _, s := range servers {
+				if s.Disabled {
+					continue
+				}
+				_ = mcpMgr.RegisterOne(ctxInit, toolRegistry, convertToConfig(s))
+			}
+		} else {
+			log.Warn().Err(err).Msg("failed to load mcp servers from db")
+		}
+	}
 	cancelInit()
 
 	app := &app{
@@ -246,33 +291,114 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		specRegistry:     specReg,
 		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:             newRunStore(),
+		mcpStore:         mgr.MCP,
+		mcpManager:       mcpMgr,
 	}
+
+	systemPrompt := app.composeSystemPrompt()
 
 	// Register WARPP workflows as callable tools for the runtime.
 	if err := app.initWarpp(ctx, toolRegistry); err != nil {
 		return nil, err
 	}
 
+	// Detect an approximate context window for the main model so summarization
+	// auto-mode can size history appropriately.
+	ctxSize, _ := llmpkg.ContextSize(cfg.OpenAI.Model)
 	app.engine = &agent.Engine{
-		LLM:              llm,
-		Tools:            toolRegistry,
-		MaxSteps:         cfg.MaxSteps,
-		System:           prompts.DefaultSystemPrompt(cfg.Workdir, cfg.SystemPrompt),
-		Model:            cfg.OpenAI.Model,
-		SummaryEnabled:   cfg.SummaryEnabled,
-		SummaryThreshold: cfg.SummaryThreshold,
-		SummaryKeepLast:  cfg.SummaryKeepLast,
+		LLM:                          llm,
+		Tools:                        toolRegistry,
+		MaxSteps:                     cfg.MaxSteps,
+		MaxToolParallelism:           cfg.MaxToolParallelism,
+		System:                       systemPrompt,
+		Model:                        cfg.OpenAI.Model,
+		ContextWindowTokens:          ctxSize,
+		SummaryEnabled:               cfg.SummaryEnabled,
+		SummaryThreshold:             cfg.SummaryThreshold,
+		SummaryKeepLast:              cfg.SummaryKeepLast,
+		SummaryMode:                  cfg.SummaryMode,
+		SummaryTargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
+		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
+		SummaryMaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
+	}
+
+	delegator := agenttools.NewDelegator(toolRegistry, specReg, cfg.Workdir, cfg.MaxSteps)
+	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
+	app.engine.Delegator = delegator
+
+	// Initialize evolving memory if enabled
+	if cfg.EvolvingMemory.Enabled {
+		// Prefer OpenAI summary client for evolving memory if available,
+		// to avoid provider/model mismatches (e.g., Google v1beta vs OpenAI models).
+		memLLM := llm
+		memModel := cfg.EvolvingMemory.Model
+		if summaryLLM != nil && strings.TrimSpace(cfg.OpenAI.SummaryModel) != "" {
+			memLLM = summaryLLM
+			memModel = cfg.OpenAI.SummaryModel
+		}
+
+		var evStore memory.EvolvingMemoryStore
+		if mgr.EvolvingMemory != nil {
+			if s, ok := mgr.EvolvingMemory.(memory.EvolvingMemoryStore); ok {
+				evStore = s
+			}
+		}
+
+		app.engine.EvolvingMemory = memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
+			EmbeddingConfig:  cfg.Embedding,
+			LLM:              memLLM,
+			Model:            memModel,
+			MaxSize:          cfg.EvolvingMemory.MaxSize,
+			TopK:             cfg.EvolvingMemory.TopK,
+			WindowSize:       cfg.EvolvingMemory.WindowSize,
+			EnableRAG:        cfg.EvolvingMemory.EnableRAG,
+			EnableSmartPrune: cfg.EvolvingMemory.EnableSmartPrune,
+			PruneThreshold:   cfg.EvolvingMemory.PruneThreshold,
+			RelevanceDecay:   cfg.EvolvingMemory.RelevanceDecay,
+			MinRelevance:     cfg.EvolvingMemory.MinRelevance,
+			Store:            evStore,
+			UserID:           systemUserID,
+		})
+		log.Info().
+			Bool("enabled", true).
+			Int("maxSize", cfg.EvolvingMemory.MaxSize).
+			Int("topK", cfg.EvolvingMemory.TopK).
+			Bool("rag", cfg.EvolvingMemory.EnableRAG).
+			Bool("smartPrune", cfg.EvolvingMemory.EnableSmartPrune).
+			Msg("evolving_memory_initialized")
+
+		// Initialize ReMem controller if enabled
+		if cfg.EvolvingMemory.ReMemEnabled {
+			app.engine.ReMemEnabled = true
+			app.engine.ReMemController = memory.NewReMemController(memory.ReMemConfig{
+				LLM:           memLLM,
+				Model:         memModel,
+				Memory:        app.engine.EvolvingMemory,
+				MaxInnerSteps: cfg.EvolvingMemory.MaxInnerSteps,
+			})
+			log.Info().
+				Bool("remem_enabled", true).
+				Int("maxInnerSteps", cfg.EvolvingMemory.MaxInnerSteps).
+				Msg("remem_controller_initialized")
+		}
 	}
 
 	app.chatStore = mgr.Chat
 	if app.chatStore == nil {
 		return nil, fmt.Errorf("chat store not initialized")
 	}
+	// Derive a context window for the summary model (may differ from main model).
+	summaryCtxSize, _ := llmpkg.ContextSize(cfg.OpenAI.SummaryModel)
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
-		Enabled:      cfg.SummaryEnabled,
-		Threshold:    cfg.SummaryThreshold,
-		KeepLast:     cfg.SummaryKeepLast,
-		SummaryModel: cfg.OpenAI.SummaryModel,
+		Enabled:               cfg.SummaryEnabled,
+		Mode:                  memory.MemoryMode(cfg.SummaryMode),
+		Threshold:             cfg.SummaryThreshold,
+		KeepLast:              cfg.SummaryKeepLast,
+		TargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
+		MinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
+		MaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
+		ContextWindowTokens:   summaryCtxSize,
+		SummaryModel:          cfg.OpenAI.SummaryModel,
 	})
 
 	if mgr.Playground == nil {
@@ -303,7 +429,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, err
 	}
 
-	if err := app.initSpecialists(ctx, llm); err != nil {
+	if err := app.initSpecialists(ctx); err != nil {
 		return nil, err
 	}
 
@@ -455,7 +581,7 @@ func (a *app) initAuth(ctx context.Context) error {
 	return nil
 }
 
-func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error {
+func (a *app) initSpecialists(ctx context.Context) error {
 	var pg *pgxpool.Pool
 	if a.cfg.Databases.DefaultDSN != "" {
 		if p, err := databasesTestPool(ctx, a.cfg.Databases.DefaultDSN); err == nil {
@@ -464,6 +590,7 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 	}
 	specStore := databases.NewSpecialistsStore(pg)
 	_ = specStore.Init(ctx)
+	a.specStore = specStore
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		existing := map[string]bool{}
@@ -475,7 +602,7 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 				continue
 			}
 			_, _ = specStore.Upsert(ctx, systemUserID, persist.Specialist{
-				Name: sc.Name, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
+				Name: sc.Name, Provider: sc.Provider, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
 				EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
 				ReasoningEffort: sc.ReasoningEffort, System: sc.System,
 				ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
@@ -484,55 +611,19 @@ func (a *app) initSpecialists(ctx context.Context, llm *openaillm.Client) error 
 	}
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
-		a.specRegistry.ReplaceFromConfigs(a.cfg.OpenAI, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
+	a.refreshEngineSystemPrompt()
 
 	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
-		a.cfg.OpenAI.BaseURL = sp.BaseURL
-		a.cfg.OpenAI.APIKey = sp.APIKey
-		if strings.TrimSpace(sp.Model) != "" {
-			a.cfg.OpenAI.Model = sp.Model
+		if err := a.applyOrchestratorUpdate(ctx, sp); err != nil {
+			log.Warn().Err(err).Msg("failed to apply orchestrator overlay")
 		}
-		a.cfg.EnableTools = sp.EnableTools
-		a.cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
-		if strings.TrimSpace(sp.System) != "" {
-			a.cfg.SystemPrompt = sp.System
-		} else {
-			a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
-		}
-		if sp.ExtraHeaders != nil {
-			a.cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
-		}
-		if sp.ExtraParams != nil {
-			a.cfg.OpenAI.ExtraParams = sp.ExtraParams
-		}
-		llm = openaillm.New(a.cfg.OpenAI, a.httpClient)
-		a.llm = llm
-		a.engine.LLM = llm
-		a.engine.Model = a.cfg.OpenAI.Model
-		a.engine.System = prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
-		if !a.cfg.EnableTools {
-			a.toolRegistry = tools.NewRegistry()
-		} else if len(a.cfg.ToolAllowList) > 0 {
-			a.toolRegistry = tools.NewFilteredRegistry(a.baseToolRegistry, a.cfg.ToolAllowList)
-		} else {
-			a.toolRegistry = a.baseToolRegistry
-		}
-		a.engine.Tools = a.toolRegistry
-		a.warppMu.Lock()
-		a.warppRunner.Tools = a.toolRegistry
-		a.warppMu.Unlock()
-		names := make([]string, 0, len(a.toolRegistry.Schemas()))
-		for _, s := range a.toolRegistry.Schemas() {
-			names = append(names, s.Name)
-		}
-		log.Info().Bool("enableTools", a.cfg.EnableTools).Strs("allowList", a.cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents_loaded_from_db")
 	} else {
 		a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
-		a.engine.System = prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
+		a.refreshEngineSystemPrompt()
 	}
 
-	a.specStore = specStore
 	return nil
 }
 

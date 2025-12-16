@@ -157,7 +157,14 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 		}
 
 		vrun := a.runs.create("[vision] " + prompt)
-		out, err := a.llm.ChatWithImageAttachments(ctx, msgs, images, nil, a.cfg.OpenAI.Model)
+
+		openaiClient, ok := a.llm.(*openaillm.Client)
+		if !ok {
+			http.Error(w, "vision is only supported with the OpenAI provider", http.StatusBadRequest)
+			a.runs.updateStatus(vrun.ID, "failed", 0)
+			return
+		}
+		out, err := openaiClient.ChatWithImageAttachments(ctx, msgs, images, nil, a.cfg.OpenAI.Model)
 		if err != nil {
 			log.Error().Err(err).Msg("vision chat error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)

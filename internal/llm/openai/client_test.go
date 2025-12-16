@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -120,6 +121,47 @@ func (h *testStreamHandler) OnDelta(content string) {
 }
 
 func (h *testStreamHandler) OnToolCall(tc llm.ToolCall) {
+}
+
+func (h *testStreamHandler) OnImage(llm.GeneratedImage) {
+}
+
+func TestChatImageGeneration(t *testing.T) {
+	t.Parallel()
+	var gotPath string
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"aGVsbG8="}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.OpenAIConfig{
+		APIKey:  "k",
+		Model:   "gpt-image-1",
+		BaseURL: srv.URL,
+	}, srv.Client())
+
+	ctx := llm.WithImagePrompt(context.Background(), llm.ImagePromptOptions{Size: "1K"})
+	msg, err := client.Chat(ctx, []llm.Message{{Role: "user", Content: "draw a cat"}}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	if gotPath != "/images/generations" {
+		t.Fatalf("expected image generation path, got %q", gotPath)
+	}
+	if len(msg.Images) != 1 || string(msg.Images[0].Data) != "hello" {
+		t.Fatalf("unexpected images: %+v", msg.Images)
+	}
+	if msg.Content == "" {
+		t.Fatalf("expected content hint for image generation")
+	}
+	if prompt, ok := gotBody["prompt"].(string); !ok || !strings.Contains(prompt, "cat") {
+		t.Fatalf("expected prompt forwarded, got %#v", gotBody["prompt"])
+	}
 }
 
 func TestExtractReasoningEffort(t *testing.T) {

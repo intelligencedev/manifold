@@ -76,32 +76,32 @@ func TestSplitTextTokensWhitespace(t *testing.T) {
 }
 
 func TestKindsEnumerated(t *testing.T) {
-    tool := New()
-    schema := tool.JSONSchema()
-    props := schema["parameters"].(map[string]any)["properties"].(map[string]any)
-    kindsAny := props["kind"].(map[string]any)["enum"].([]any)
-    // ensure a few expected kinds exist
-    want := map[string]bool{"fixed": true, "sentences": true, "paragraphs": true, "markdown": true, "code": true, "semantic": true, "texttiling": true, "rolling_sentences": true, "hybrid": true, "layout": true, "recursive": true}
-    have := map[string]bool{}
-    for _, k := range kindsAny {
-        have[k.(string)] = true
-    }
-    for k := range want {
-        if !have[k] {
-            t.Fatalf("missing kind %s", k)
-        }
-    }
+	tool := New()
+	schema := tool.JSONSchema()
+	props := schema["parameters"].(map[string]any)["properties"].(map[string]any)
+	kindsAny := props["kind"].(map[string]any)["enum"].([]any)
+	// ensure a few expected kinds exist
+	want := map[string]bool{"fixed": true, "sentences": true, "paragraphs": true, "markdown": true, "code": true, "semantic": true, "texttiling": true, "rolling_sentences": true, "hybrid": true, "layout": true, "recursive": true}
+	have := map[string]bool{}
+	for _, k := range kindsAny {
+		have[k.(string)] = true
+	}
+	for k := range want {
+		if !have[k] {
+			t.Fatalf("missing kind %s", k)
+		}
+	}
 }
 
 func TestSentenceChunkingBasic(t *testing.T) {
-    tool := New()
-    text := "One. Two three. Four five six."
-    payload, _ := json.Marshal(map[string]any{"text": text, "kind": "sentences", "unit": "chars", "size": 20})
-    resAny, err := tool.Call(context.Background(), payload)
-    require.NoError(t, err)
-    res := resAny.(map[string]any)
-    b, _ := json.Marshal(res["chunks"]) 
-    var chunks []string
-    _ = json.Unmarshal(b, &chunks)
-    require.GreaterOrEqual(t, len(chunks), 2)
+	tool := New()
+	text := "One. Two three. Four five six."
+	payload, _ := json.Marshal(map[string]any{"text": text, "kind": "sentences", "unit": "chars", "size": 20})
+	resAny, err := tool.Call(context.Background(), payload)
+	require.NoError(t, err)
+	res := resAny.(map[string]any)
+	b, _ := json.Marshal(res["chunks"])
+	var chunks []string
+	_ = json.Unmarshal(b, &chunks)
+	require.GreaterOrEqual(t, len(chunks), 2)
 }

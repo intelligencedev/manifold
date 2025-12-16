@@ -17,7 +17,9 @@ type fetchTool struct {
 
 // NewFetchTool constructs the web_fetch tool. If a FullTextSearch backend is
 // provided, successfully fetched content will be indexed by default.
-func NewFetchTool(search databases.FullTextSearch) *fetchTool { return &fetchTool{f: NewFetcher(), search: search} }
+func NewFetchTool(search databases.FullTextSearch) *fetchTool {
+	return &fetchTool{f: NewFetcher(), search: search}
+}
 
 func (t *fetchTool) Name() string { return "web_fetch" }
 

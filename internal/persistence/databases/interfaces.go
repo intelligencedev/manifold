@@ -3,14 +3,15 @@ package databases
 import (
 	"context"
 
+	"manifold/internal/agent/memory"
 	"manifold/internal/persistence"
 )
 
 // SearchResult represents a single hit from the full-text search backend.
 type SearchResult struct {
-	ID       string
-	Score    float64
-	Snippet  string
+	ID      string
+	Score   float64
+	Snippet string
 	// Text may contain the full document text when available.
 	Text     string `json:"text,omitempty"`
 	Metadata map[string]string
@@ -56,12 +57,14 @@ type GraphDB interface {
 
 // Manager holds concrete database backends resolved from configuration.
 type Manager struct {
-	Search     FullTextSearch
-	Vector     VectorStore
-	Graph      GraphDB
-	Chat       persistence.ChatStore
-	Playground *PlaygroundStore
-	Warpp      persistence.WarppWorkflowStore
+	Search         FullTextSearch
+	Vector         VectorStore
+	Graph          GraphDB
+	Chat           persistence.ChatStore
+	EvolvingMemory memory.EvolvingMemoryStore
+	Playground     *PlaygroundStore
+	Warpp          persistence.WarppWorkflowStore
+	MCP            persistence.MCPStore
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -78,7 +81,13 @@ func (m Manager) Close() {
 	if c, ok := any(m.Chat).(interface{ Close() }); ok {
 		c.Close()
 	}
+	if c, ok := any(m.EvolvingMemory).(interface{ Close() }); ok {
+		c.Close()
+	}
 	if c, ok := any(m.Playground).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.MCP).(interface{ Close() }); ok {
 		c.Close()
 	}
 }

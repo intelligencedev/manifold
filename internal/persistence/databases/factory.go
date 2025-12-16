@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"manifold/internal/config"
+	"manifold/internal/persistence"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -151,6 +152,11 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
 			m.Warpp = NewPostgresWarppStore(p)
 			_ = m.Warpp.Init(ctx)
+			// Also expose a Postgres-backed evolving memory store.
+			m.EvolvingMemory = NewPostgresEvolvingMemoryStore(p)
+			if em, ok := m.EvolvingMemory.(interface{ Init(context.Context) error }); ok {
+				_ = em.Init(ctx)
+			}
 		}
 	}
 
@@ -171,6 +177,24 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 		}
 		return Manager{}, fmt.Errorf("init chat store: %w", err)
 	}
+
+	// MCP Store
+	// Use default DSN if available, otherwise memory
+	var mcpStore persistence.MCPStore
+	if cfg.DefaultDSN != "" {
+		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
+			mcpStore = NewMCPStore(p)
+		} else {
+			mcpStore = NewMCPStore(nil)
+		}
+	} else {
+		mcpStore = NewMCPStore(nil)
+	}
+	if err := mcpStore.Init(ctx); err != nil {
+		return Manager{}, fmt.Errorf("init mcp store: %w", err)
+	}
+	m.MCP = mcpStore
+
 	return m, nil
 }
 

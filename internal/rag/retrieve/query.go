@@ -36,14 +36,17 @@ func BuildQueryPlan(ctx context.Context, q string, opt RetrieveOptions) QueryPla
 		k = 1000 // sanity cap to avoid runaway allocations
 	}
 	ftK, vecK := splitBudgets(k, opt)
-	sizeHint := len(opt.Filter)
-	if sizeHint > maxFilterEntries {
-		sizeHint = maxFilterEntries
-	}
-	filters := make(map[string]string, sizeHint+2)
+	// Defensive: only allow up to maxFilterEntries nonempty entries in the filters map,
+	// regardless of the size of opt.Filter, to prevent excessive allocation or overflow.
+	entriesAdded := 0
+	filters := make(map[string]string, 0, maxFilterEntries+2)
 	for k, v := range opt.Filter {
+		if entriesAdded >= maxFilterEntries {
+			break
+		}
 		if v != "" {
 			filters[k] = v
+			entriesAdded++
 		}
 	}
 	if opt.Tenant != "" {

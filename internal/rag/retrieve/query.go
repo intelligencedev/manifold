@@ -39,7 +39,7 @@ func BuildQueryPlan(ctx context.Context, q string, opt RetrieveOptions) QueryPla
 	// Defensive: only allow up to maxFilterEntries nonempty entries in the filters map,
 	// regardless of the size of opt.Filter, to prevent excessive allocation or overflow.
 	entriesAdded := 0
-	filters := make(map[string]string, 0, maxFilterEntries+2)
+	filters := make(map[string]string, maxFilterEntries+2)
 	for k, v := range opt.Filter {
 		if entriesAdded >= maxFilterEntries {
 			break

@@ -379,6 +379,26 @@
                   <SolarMicrophone3Bold class="h-5 w-5" />
                 </button>
 
+                <!-- Toggle Image Generation -->
+                <button
+                  type="button"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline transition"
+                  :class="[
+                    imagePrompt
+                      ? 'bg-accent/20 text-accent hover:bg-accent/30'
+                      : 'text-foreground/80 hover:text-accent',
+                    isStreaming || !projectSelected
+                      ? 'opacity-50 cursor-not-allowed'
+                      : '',
+                  ]"
+                  :disabled="isStreaming || !projectSelected"
+                  title="Generate image response"
+                  aria-label="Generate image response"
+                  @click="imagePrompt = !imagePrompt"
+                >
+                  <Camera class="h-5 w-5" />
+                </button>
+
                 <!-- Send / Stop Streaming -->
                 <button
                   type="button"
@@ -661,6 +681,7 @@ import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
 import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.vue";
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
+import Camera from "@/components/icons/Camera.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import { useChatStore } from "@/stores/chat";
 import { useProjectsStore } from "@/stores/projects";

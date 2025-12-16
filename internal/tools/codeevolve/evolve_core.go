@@ -311,7 +311,7 @@ func RunAlphaEvolve(
 	generations int,
 	progress func(int, Program),
 ) (Program, error) {
-	log.Printf("[EVOLVE] Starting RunAlphaEvolve with file: %s, generations: %d", initialPath, generations)
+	log.Printf("[EVOLVE] Starting RunAlphaEvolve with generations: %d", generations)
 
 	prog, err := ParseInitialProgram(initialPath)
 	if err != nil {

@@ -27,3 +27,27 @@ docker run -d \
 databases:
   defaultDSN: "postgres://intelligence_dev:intelligence_dev@localhost:5432/manifold?sslmode=disable"
 ```
+
+---
+
+# Deploy With Qdrant Vector Search
+
+You can use [Qdrant](https://qdrant.tech/) as an alternate vector search provider.
+
+### Run the container
+
+```
+docker run -d -p 6334:6334 qdrant/qdrant
+```
+
+### Configure in config.yaml
+```
+databases:
+  vector:
+    backend: qdrant
+    dsn: "http://localhost:6334"
+    # With API key: "http://localhost:6334?api_key=your-secret-api-key"
+    index: "embeddings"  # collection name
+    dimensions: 1536     # vector dimensions
+    metric: cosine       # cosine | dot | l2 | manhattan
+```

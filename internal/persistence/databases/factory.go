@@ -72,6 +72,15 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 			return Manager{}, fmt.Errorf("connect postgres (vector): %w", err)
 		}
 		m.Vector = NewPostgresVector(p, cfg.Vector.Dimensions, cfg.Vector.Metric)
+	case "qdrant":
+		if vectorDSN == "" {
+			return Manager{}, fmt.Errorf("vector backend qdrant requires DSN")
+		}
+		vs, err := NewQdrantVector(vectorDSN, cfg.Vector.Index, cfg.Vector.Dimensions, cfg.Vector.Metric)
+		if err != nil {
+			return Manager{}, fmt.Errorf("connect qdrant (vector): %w", err)
+		}
+		m.Vector = vs
 	case "none", "disabled":
 		m.Vector = noopVector{}
 	default:

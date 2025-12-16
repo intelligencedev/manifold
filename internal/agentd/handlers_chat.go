@@ -469,16 +469,23 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects")
 			base := filepath.Join(baseRoot, cleanPID)
-			if !strings.HasPrefix(base, baseRoot+string(os.PathSeparator)) && base != baseRoot {
+			absBaseRoot, err1 := filepath.Abs(baseRoot)
+			absBase, err2 := filepath.Abs(base)
+			if err1 != nil || err2 != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			relBase, errRel := filepath.Rel(absBaseRoot, absBase)
+			if errRel != nil || relBase == "." || strings.HasPrefix(relBase, ".."+string(os.PathSeparator)) || relBase == ".." {
 				http.Error(w, "invalid project_id", http.StatusBadRequest)
 				return
 			}
-			if st, err := os.Stat(base); err != nil || !st.IsDir() {
-				log.Error().Err(err).Str("project_id", cleanPID).Str("base", base).Msg("project_dir_missing")
+			if st, err := os.Stat(absBase); err != nil || !st.IsDir() {
+				log.Error().Err(err).Str("project_id", cleanPID).Str("base", absBase).Msg("project_dir_missing")
 				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
 				return
 			}
-			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
+			r = r.WithContext(sandbox.WithBaseDir(r.Context(), absBase))
 			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanPID))
 		}
 

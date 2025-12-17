@@ -66,7 +66,10 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 		if a.tokenMetrics != nil {
 			if totals, chWindow, err := a.tokenMetrics.TokenTotals(r.Context(), window); err != nil {
 				log.Warn().Err(err).Msg("token metrics query failed")
-			} else if len(totals) > 0 {
+			} else {
+				// Prefer ClickHouse when configured so metrics persist across restarts.
+				// If ClickHouse has no rows for the selected window, return an empty
+				// dataset (instead of falling back to in-process counters).
 				resp.Models = totals
 				resp.Source = a.tokenMetrics.Source()
 				appliedWindow = chWindow

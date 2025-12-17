@@ -112,18 +112,18 @@
           </p>
           <div class="max-h-56 space-y-2 overflow-y-auto pr-1">
             <div
-              v-for="entry in (evolvingDebug.retrieved?.length ? evolvingDebug.retrieved : evolvingDebug.recentWindow || [])"
-              :key="'mem-' + (entry.entry ? entry.entry.id : entry.id)"
+              v-for="e in evolvingEntries"
+              :key="'mem-' + e.id"
               class="rounded-4 border border-border bg-surface px-3 py-2"
             >
               <p class="text-[11px] font-semibold text-foreground truncate">
-                {{ preview(entry.entry ? entry.entry.input : entry.input) }}
+                {{ preview(e.input) }}
               </p>
               <p class="mt-1 text-[11px] text-subtle-foreground line-clamp-2">
-                {{ preview(entry.entry ? entry.entry.summary || entry.entry.output : entry.summary || entry.output, 200) }}
+                {{ preview(e.summary || e.output, 200) }}
               </p>
-              <p v-if="entry.score != null" class="mt-1 text-[10px] text-faint-foreground">
-                score {{ (entry.score as number).toFixed(3) }}
+              <p v-if="e.score != null" class="mt-1 text-[10px] text-faint-foreground">
+                score {{ (e.score as number).toFixed(3) }}
               </p>
             </div>
           </div>
@@ -142,6 +142,8 @@ import {
   fetchMemorySessions,
   type EvolvingMemoryDebug,
   type MemorySessionDebug,
+  type EvolvingMemoryEntry,
+  type ScoredEvolvingMemoryEntry,
 } from '@/api/memory'
 
 const selectedSessionId = ref('')
@@ -205,6 +207,24 @@ const preview = (text?: string, limit = 120) => {
 }
 
 const hasMemory = computed(() => !!evolvingDebug.value || !!sessionDebug.value)
+
+type NormalizedEvolvingEntry = EvolvingMemoryEntry & { score: number | null }
+
+const evolvingEntries = computed<NormalizedEvolvingEntry[]>(() => {
+  const dbg = evolvingDebug.value
+  if (!dbg) return []
+  const list = (dbg.retrieved && dbg.retrieved.length ? dbg.retrieved : dbg.recentWindow || []) as Array<
+    ScoredEvolvingMemoryEntry | EvolvingMemoryEntry
+  >
+  return list.map((item) => {
+    if ('entry' in item) {
+      const se = item as ScoredEvolvingMemoryEntry
+      return { ...se.entry, score: se.score }
+    }
+    const ee = item as EvolvingMemoryEntry
+    return { ...ee, score: null }
+  })
+})
 
 defineExpose({ hasMemory })
 </script>

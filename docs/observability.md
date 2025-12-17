@@ -57,7 +57,26 @@ Key metrics collected:
 - Request duration and count
 - Tool execution statistics
 - Error rates
-- Token usage (if available from LLM provider)
+ - Token usage (if available from LLM provider)
+
+Token usage details:
+
+- **Metric names:**
+	- `llm.prompt_tokens` — cumulative prompt tokens by model (OTel Int64Counter).
+	- `llm.completion_tokens` — cumulative completion tokens by model (OTel Int64Counter).
+	- `llm.total_tokens` — total tokens recorded as a span attribute (used in traces; not an OTel counter).
+
+- **Span attributes (used with traces):**
+	- `llm.model` — model name attached to spans.
+	- `llm.prompt_preview` — truncated prompt preview (set when payload logging is enabled).
+	- `llm.tools`, `llm.messages` — integer attributes set on request spans.
+
+- **Implementation notes:**
+	- The counters are created in `internal/llm/observability.go` and recorded by the LLM integration.
+	- Traces and span attributes are queried (for UI "Recent Runs" and traces) via ClickHouse in `internal/agentd/traces_clickhouse.go`.
+	- Config keys in `config.yaml` map these metric names for ClickHouse queries: `obs.clickhouse.promptMetricName` and `obs.clickhouse.completionMetricName`.
+
+Use these metric names/attributes when configuring dashboards or querying telemetry backends.
 
 ## Monitoring
 

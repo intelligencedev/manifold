@@ -115,6 +115,8 @@ func Load() (Config, error) {
 	cfg.Obs.ClickHouse.DSN = strings.TrimSpace(os.Getenv("CLICKHOUSE_DSN"))
 	cfg.Obs.ClickHouse.Database = strings.TrimSpace(os.Getenv("CLICKHOUSE_DATABASE"))
 	cfg.Obs.ClickHouse.MetricsTable = strings.TrimSpace(os.Getenv("CLICKHOUSE_METRICS_TABLE"))
+	cfg.Obs.ClickHouse.TracesTable = strings.TrimSpace(os.Getenv("CLICKHOUSE_TRACES_TABLE"))
+	cfg.Obs.ClickHouse.LogsTable = strings.TrimSpace(os.Getenv("CLICKHOUSE_LOGS_TABLE"))
 	cfg.Obs.ClickHouse.TimestampColumn = strings.TrimSpace(os.Getenv("CLICKHOUSE_TIMESTAMP_COLUMN"))
 	cfg.Obs.ClickHouse.ValueColumn = strings.TrimSpace(os.Getenv("CLICKHOUSE_VALUE_COLUMN"))
 	cfg.Obs.ClickHouse.ModelAttributeKey = strings.TrimSpace(os.Getenv("CLICKHOUSE_MODEL_ATTRIBUTE_KEY"))
@@ -307,6 +309,12 @@ func Load() (Config, error) {
 	}
 	if cfg.Obs.ClickHouse.MetricsTable == "" {
 		cfg.Obs.ClickHouse.MetricsTable = "metrics_sum"
+	}
+	if cfg.Obs.ClickHouse.TracesTable == "" {
+		cfg.Obs.ClickHouse.TracesTable = "traces"
+	}
+	if cfg.Obs.ClickHouse.LogsTable == "" {
+		cfg.Obs.ClickHouse.LogsTable = "logs"
 	}
 	if cfg.Obs.ClickHouse.TimestampColumn == "" {
 		cfg.Obs.ClickHouse.TimestampColumn = "TimeUnix"
@@ -547,6 +555,8 @@ func loadSpecialists(cfg *Config) error {
 		DSN                  string `yaml:"dsn"`
 		Database             string `yaml:"database"`
 		MetricsTable         string `yaml:"metricsTable"`
+		TracesTable          string `yaml:"tracesTable"`
+		LogsTable            string `yaml:"logsTable"`
 		TimestampColumn      string `yaml:"timestampColumn"`
 		ValueColumn          string `yaml:"valueColumn"`
 		ModelAttributeKey    string `yaml:"modelAttributeKey"`
@@ -840,6 +850,12 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Obs.ClickHouse.MetricsTable == "" && strings.TrimSpace(w.Obs.ClickHouse.MetricsTable) != "" {
 			cfg.Obs.ClickHouse.MetricsTable = strings.TrimSpace(w.Obs.ClickHouse.MetricsTable)
+		}
+		if cfg.Obs.ClickHouse.TracesTable == "" && strings.TrimSpace(w.Obs.ClickHouse.TracesTable) != "" {
+			cfg.Obs.ClickHouse.TracesTable = strings.TrimSpace(w.Obs.ClickHouse.TracesTable)
+		}
+		if cfg.Obs.ClickHouse.LogsTable == "" && strings.TrimSpace(w.Obs.ClickHouse.LogsTable) != "" {
+			cfg.Obs.ClickHouse.LogsTable = strings.TrimSpace(w.Obs.ClickHouse.LogsTable)
 		}
 		if cfg.Obs.ClickHouse.TimestampColumn == "" && strings.TrimSpace(w.Obs.ClickHouse.TimestampColumn) != "" {
 			cfg.Obs.ClickHouse.TimestampColumn = strings.TrimSpace(w.Obs.ClickHouse.TimestampColumn)

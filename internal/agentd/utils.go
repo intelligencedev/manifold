@@ -40,12 +40,16 @@ func newRunStore() *runStore {
 }
 
 func (s *runStore) create(prompt string) AgentRun {
+	return s.createWithID(fmt.Sprintf("run_%d", time.Now().UnixNano()), prompt, time.Now().UTC())
+}
+
+func (s *runStore) createWithID(id string, prompt string, createdAt time.Time) AgentRun {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	run := AgentRun{
-		ID:        fmt.Sprintf("run_%d", time.Now().UnixNano()),
+		ID:        id,
 		Prompt:    prompt,
-		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		CreatedAt: createdAt.UTC().Format(time.RFC3339),
 		Status:    "running",
 	}
 	s.runs = append(s.runs, run)

@@ -107,9 +107,19 @@ func (a *app) metricsTracesHandler() http.HandlerFunc {
 		limit := parseLimitParam(r, 200)
 
 		traces, applied := llmpkg.TracesForWindow(window, limit)
+		source := "process"
+		if a.traceMetrics != nil {
+			if chTraces, chWindow, err := a.traceMetrics.Traces(r.Context(), window, limit); err != nil {
+				log.Warn().Err(err).Msg("trace metrics query failed")
+			} else if len(chTraces) > 0 {
+				traces = chTraces
+				applied = chWindow
+				source = "clickhouse"
+			}
+		}
 		resp := traceMetricsResponse{
 			Timestamp: time.Now().Unix(),
-			Source:    "process",
+			Source:    source,
 			Traces:    traces,
 		}
 		if applied > 0 {

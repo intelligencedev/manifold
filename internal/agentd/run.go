@@ -89,6 +89,8 @@ type app struct {
 	mcpStore          persist.MCPStore
 	mcpManager        *mcpclient.Manager
 	tokenMetrics      tokenMetricsProvider
+	traceMetrics      *clickhouseTraceMetrics
+	runMetrics        *clickhouseRunMetrics
 }
 
 type tokenMetricsProvider interface {
@@ -437,6 +439,13 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		log.Warn().Err(err).Msg("clickhouse metrics disabled")
 	} else if tm != nil {
 		app.tokenMetrics = tm
+	}
+
+	if chTraces, err := newClickHouseTraceMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
+		log.Warn().Err(err).Msg("clickhouse trace queries disabled")
+	} else if chTraces != nil {
+		app.traceMetrics = chTraces
+		app.runMetrics = newClickHouseRunMetrics(chTraces)
 	}
 
 	_ = mcpMgr // ensure lifetime; manager currently long-lived

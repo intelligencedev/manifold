@@ -66,6 +66,8 @@ obs:
   clickhouse:
     dsn: "tcp://clickhouse:9000?database=otel"
     metricsTable: metrics_sum
+    tracesTable: traces
+    logsTable: logs
     timestampColumn: TimeUnix
     valueColumn: Value
     modelAttributeKey: llm.model

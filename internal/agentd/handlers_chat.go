@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -70,6 +71,18 @@ func (a *app) runsHandler() http.HandlerFunc {
 		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
+
+		// Prefer ClickHouse-backed runs when available so the UI persists across restarts.
+		if a.runMetrics != nil {
+			runs, err := a.runMetrics.RecentRuns(r.Context(), 24*time.Hour, 200)
+			if err != nil {
+				log.Warn().Err(err).Msg("clickhouse runs query failed")
+			} else if len(runs) > 0 {
+				_ = json.NewEncoder(w).Encode(runs)
+				return
+			}
+		}
+
 		_ = json.NewEncoder(w).Encode(a.runs.list())
 	}
 }

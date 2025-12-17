@@ -180,6 +180,8 @@ type ClickHouseConfig struct {
 	DSN                  string `yaml:"dsn" json:"dsn"`
 	Database             string `yaml:"database" json:"database"`
 	MetricsTable         string `yaml:"metricsTable" json:"metricsTable"`
+	TracesTable          string `yaml:"tracesTable" json:"tracesTable"`
+	LogsTable            string `yaml:"logsTable" json:"logsTable"`
 	TimestampColumn      string `yaml:"timestampColumn" json:"timestampColumn"`
 	ValueColumn          string `yaml:"valueColumn" json:"valueColumn"`
 	ModelAttributeKey    string `yaml:"modelAttributeKey" json:"modelAttributeKey"`

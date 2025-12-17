@@ -1,7 +1,7 @@
 <template>
-  <section class="flex h-full min-h-0 flex-col gap-6">
+  <section class="flex h-full min-h-0 flex-col gap-6 overflow-x-hidden overflow-y-auto">
     <!-- Page header / key stats -->
-    <header class="flex flex-wrap items-start justify-between gap-4">
+    <header class="flex flex-shrink-0 flex-wrap items-start justify-between gap-4 px-1 pt-6">
       <div>
         <h1 class="text-lg font-semibold text-foreground">Overview</h1>
         <p class="text-sm text-subtle-foreground">
@@ -22,23 +22,43 @@
             {{ runsToday }}
           </p>
         </div>
+        <button
+          @click="resetLayout"
+          class="rounded-3 border border-border/60 bg-surface px-3 py-2 text-xs text-subtle-foreground hover:bg-surface-muted transition-colors"
+          title="Reset dashboard layout"
+        >
+          Reset Layout
+        </button>
       </div>
     </header>
 
-    <div
-      class="grid min-h-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)] xl:auto-rows-[minmax(0,1fr)]"
+    <!-- Draggable dashboard grid -->
+    <div class="min-h-0 flex-1 px-1 pb-6">
+      <DashboardGrid
+        ref="dashboardGridRef"
+        :layout="dashboardLayout"
+        storage-key="overview-dashboard-layout"
+        @layout-change="onLayoutChange"
+      >
     >
-      <!-- Main observability surface -->
-      <div class="flex min-h-0 flex-col gap-6">
+      <!-- Token Usage Panel -->
+      <template #item-tokens>
         <TokenUsagePanel />
-        <TracesPanel />
-        <MemoryPanel />
-      </div>
+      </template>
 
-      <!-- Side column: agents + recent runs -->
-      <aside class="flex min-h-0 flex-col gap-4 self-start">
-        <!-- Agents list -->
-        <section class="ap-panel ap-hover flex min-h-0 flex-col rounded-2xl bg-surface p-4">
+      <!-- Traces Panel -->
+      <template #item-traces>
+        <TracesPanel />
+      </template>
+
+      <!-- Memory Panel -->
+      <template #item-memory>
+        <MemoryPanel />
+      </template>
+
+      <!-- Agents Panel -->
+      <template #item-agents>
+        <section class="ap-panel ap-hover flex h-full flex-col rounded-2xl bg-surface p-4">
           <header class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-foreground">Agents</h2>
             <span class="text-[11px] text-faint-foreground">
@@ -84,11 +104,11 @@
             </li>
           </ul>
         </section>
+      </template>
 
-        <!-- Recent runs -->
-        <section
-          class="ap-panel ap-hover flex min-h-0 flex-col overflow-hidden rounded-2xl bg-surface p-4"
-        >
+      <!-- Recent Runs Panel -->
+      <template #item-runs>
+        <section class="ap-panel ap-hover flex h-full flex-col overflow-hidden rounded-2xl bg-surface p-4">
           <header class="flex items-center justify-between gap-2">
             <h2 class="text-sm font-semibold text-foreground">Recent Runs</h2>
             <span class="text-[11px] text-faint-foreground">
@@ -100,10 +120,7 @@
             No recent runs in the last 24 hours.
           </p>
 
-          <ul
-            v-else
-            class="mt-3 min-h-0 max-h-[50vh] space-y-2 overflow-y-auto pr-1 text-xs"
-          >
+          <ul v-else class="mt-3 space-y-2 overflow-y-auto pr-1 text-xs">
             <li
               v-for="run in recentRuns"
               :key="run.id"
@@ -132,18 +149,37 @@
             </li>
           </ul>
         </section>
-      </aside>
+      </template>
+      </DashboardGrid>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import DashboardGrid, { type GridItemConfig } from '@/components/DashboardGrid.vue'
 import TokenUsagePanel from '@/components/observability/TokenUsagePanel.vue'
 import TracesPanel from '@/components/observability/TracesPanel.vue'
 import MemoryPanel from '@/components/observability/MemoryPanel.vue'
 import { fetchAgentRuns, fetchAgentStatus, listSpecialists } from '@/api/client'
+
+const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>()
+
+// Define default dashboard layout
+// 12 columns grid, row height = 80px + 16px margin = 96px per row
+const dashboardLayout = ref<GridItemConfig[]>([
+  // Token Usage - wide, tall (takes up more space)
+  { i: 'tokens', x: 0, y: 0, w: 8, h: 4, minW: 4, minH: 3 },
+  // Agents - sidebar
+  { i: 'agents', x: 8, y: 0, w: 4, h: 4, minW: 3, minH: 3 },
+  // Traces - wide, tall
+  { i: 'traces', x: 0, y: 4, w: 8, h: 5, minW: 4, minH: 4 },
+  // Recent Runs - sidebar
+  { i: 'runs', x: 8, y: 4, w: 4, h: 5, minW: 3, minH: 3 },
+  // Memory - full width
+  { i: 'memory', x: 0, y: 9, w: 12, h: 4, minW: 4, minH: 3 },
+])
 
 const { data: agentData } = useQuery({
   queryKey: ['agent-status'],
@@ -228,5 +264,14 @@ function formatRelativeTime(value: string) {
 
   const days = Math.floor(hours / 24)
   return `${days} d${days === 1 ? '' : 's'} ago`
+}
+
+function onLayoutChange(newLayout: GridItemConfig[]) {
+  // Layout changes are automatically saved via DashboardGrid component
+  console.log('Dashboard layout updated:', newLayout)
+}
+
+function resetLayout() {
+  dashboardGridRef.value?.resetLayout()
 }
 </script>

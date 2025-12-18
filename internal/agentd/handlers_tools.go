@@ -66,7 +66,10 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 		if a.tokenMetrics != nil {
 			if totals, chWindow, err := a.tokenMetrics.TokenTotals(r.Context(), window); err != nil {
 				log.Warn().Err(err).Msg("token metrics query failed")
-			} else if len(totals) > 0 {
+			} else {
+				// Prefer ClickHouse when configured so metrics persist across restarts.
+				// If ClickHouse has no rows for the selected window, return an empty
+				// dataset (instead of falling back to in-process counters).
 				resp.Models = totals
 				resp.Source = a.tokenMetrics.Source()
 				appliedWindow = chWindow
@@ -107,9 +110,19 @@ func (a *app) metricsTracesHandler() http.HandlerFunc {
 		limit := parseLimitParam(r, 200)
 
 		traces, applied := llmpkg.TracesForWindow(window, limit)
+		source := "process"
+		if a.traceMetrics != nil {
+			if chTraces, chWindow, err := a.traceMetrics.Traces(r.Context(), window, limit); err != nil {
+				log.Warn().Err(err).Msg("trace metrics query failed")
+			} else if len(chTraces) > 0 {
+				traces = chTraces
+				applied = chWindow
+				source = "clickhouse"
+			}
+		}
 		resp := traceMetricsResponse{
 			Timestamp: time.Now().Unix(),
-			Source:    "process",
+			Source:    source,
 			Traces:    traces,
 		}
 		if applied > 0 {

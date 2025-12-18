@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-
 // Maximum number of allowed filter keys to avoid excessive allocation or overflow
 const maxFilterEntries = 1000
 

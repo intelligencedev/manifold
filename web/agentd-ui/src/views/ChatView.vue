@@ -283,7 +283,7 @@
 
         <button
           type="button"
-          class="absolute bottom-28 right-6 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transition-all duration-200"
+          class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transform transition-all duration-200"
           :class="
             showScrollToBottom
               ? 'pointer-events-auto opacity-100 translate-y-0'
@@ -647,7 +647,7 @@
 
         <button
           type="button"
-          class="absolute bottom-6 right-6 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transition-all duration-200"
+          class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transform transition-all duration-200"
           :class="
             showToolScrollToBottom
               ? 'pointer-events-auto opacity-100 translate-y-0'

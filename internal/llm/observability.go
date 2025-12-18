@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -292,6 +293,13 @@ func LogRedactedPrompt(ctx context.Context, msgs []Message) {
 		return
 	} else {
 		log := observability.LoggerWithTrace(ctx)
+		// Attach a compact prompt preview as a span attribute so it can be queried
+		// from ClickHouse and used for persisted "Recent Runs" rendering.
+		if span := trace.SpanFromContext(ctx); span != nil {
+			if preview := buildPromptPreview(msgs); preview != "" {
+				span.SetAttributes(attribute.String("llm.prompt_preview", preview))
+			}
+		}
 		if b, err := json.Marshal(msgs); err == nil {
 			red := observability.RedactJSON(b)
 			if t > 0 && len(red) > t {
@@ -308,6 +316,29 @@ func LogRedactedPrompt(ctx context.Context, msgs []Message) {
 			tt.Debug().Msg("llm_request")
 		}
 	}
+}
+
+func buildPromptPreview(msgs []Message) string {
+	// Prefer the last user message.
+	var content string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if strings.EqualFold(msgs[i].Role, "user") {
+			content = msgs[i].Content
+			break
+		}
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	// Collapse whitespace to keep the attribute small.
+	content = strings.Join(strings.Fields(content), " ")
+	const maxRunes = 160
+	r := []rune(content)
+	if len(r) > maxRunes {
+		return string(r[:maxRunes]) + "…"
+	}
+	return content
 }
 
 // LogRedactedResponse logs a redacted copy of the response payload at debug level.

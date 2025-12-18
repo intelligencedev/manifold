@@ -414,6 +414,7 @@ func isAgentCall(name string) bool {
 func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte {
 	var args struct {
 		AgentName      string        `json:"agent_name"`
+		To             string        `json:"to"`
 		Prompt         string        `json:"prompt"`
 		History        []llm.Message `json:"history"`
 		EnableTools    *bool         `json:"enable_tools"`
@@ -424,6 +425,10 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 	}
 	if err := json.Unmarshal(tc.Args, &args); err != nil {
 		return []byte(fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error()))
+	}
+	// Support both `agent_name` (internal) and `to` (ask_agent tool)
+	if strings.TrimSpace(args.AgentName) == "" && strings.TrimSpace(args.To) != "" {
+		args.AgentName = strings.TrimSpace(args.To)
 	}
 	if strings.TrimSpace(args.Prompt) == "" {
 		return []byte(`{"ok":false,"error":"prompt is required"}`)

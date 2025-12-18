@@ -38,6 +38,13 @@ func (d *Delegator) SetDefaultTimeout(seconds int) {
 	}
 }
 
+// SetRegistry updates the internal tools registry used by delegated agent runs.
+// This allows the orchestrator to rebuild its tool registry (e.g., allowlists)
+// and propagate the change to the delegator without recreating it.
+func (d *Delegator) SetRegistry(reg tools.Registry) {
+	d.reg = reg
+}
+
 func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer agent.AgentTracer) (string, error) {
 	dispatchCtx := ctx
 	if pid := req.ProjectID; pid != "" && d.workdir != "" {

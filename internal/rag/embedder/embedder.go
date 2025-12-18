@@ -19,6 +19,8 @@ type Embedder interface {
 	Name() string
 	// Dimension returns the embedding dimensionality (0 for variable/unknown).
 	Dimension() int
+	// Ping checks if the embedding service is reachable.
+	Ping(ctx context.Context) error
 }
 
 // clientEmbedder wraps the embedding.EmbedText HTTP client for real embeddings.
@@ -47,6 +49,10 @@ func NewClient(cfg config.EmbeddingConfig, dim int) Embedder {
 
 func (c *clientEmbedder) Name() string   { return c.cfg.Model }
 func (c *clientEmbedder) Dimension() int { return c.dim }
+
+func (c *clientEmbedder) Ping(ctx context.Context) error {
+	return embedding.CheckReachability(ctx, c.cfg)
+}
 
 func (c *clientEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
@@ -110,6 +116,8 @@ func NewDeterministic(dim int, normalize bool, seed uint64) Embedder {
 
 func (d *deterministicEmbedder) Name() string   { return d.name }
 func (d *deterministicEmbedder) Dimension() int { return d.dim }
+
+func (d *deterministicEmbedder) Ping(_ context.Context) error { return nil }
 
 func (d *deterministicEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
 	out := make([][]float32, len(texts))

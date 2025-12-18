@@ -80,6 +80,16 @@ func EmbedText(ctx context.Context, cfg config.EmbeddingConfig, inputs []string)
 	return out, nil
 }
 
+// CheckReachability verifies that the embedding endpoint is reachable and
+// responding correctly by sending a small test request.
+func CheckReachability(ctx context.Context, cfg config.EmbeddingConfig) error {
+	_, err := EmbedText(ctx, cfg, []string{"ping"})
+	if err != nil {
+		return fmt.Errorf("embedding endpoint reachability check failed: %w", err)
+	}
+	return nil
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

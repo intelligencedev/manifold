@@ -308,7 +308,7 @@ func Load() (Config, error) {
 		cfg.Obs.Environment = "dev"
 	}
 	if cfg.Obs.ClickHouse.MetricsTable == "" {
-		cfg.Obs.ClickHouse.MetricsTable = "metrics_sum"
+		cfg.Obs.ClickHouse.MetricsTable = "metrics"
 	}
 	if cfg.Obs.ClickHouse.TracesTable == "" {
 		cfg.Obs.ClickHouse.TracesTable = "traces"

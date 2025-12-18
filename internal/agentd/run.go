@@ -435,6 +435,11 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, err
 	}
 
+	// Ensure ClickHouse tables exist before initializing metrics providers.
+	if err := ensureClickHouseTables(ctx, cfg.Obs.ClickHouse); err != nil {
+		log.Warn().Err(err).Msg("failed to ensure clickhouse tables")
+	}
+
 	if tm, err := newClickHouseTokenMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
 		log.Warn().Err(err).Msg("clickhouse metrics disabled")
 	} else if tm != nil {

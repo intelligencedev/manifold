@@ -12,6 +12,7 @@ import (
 	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
 	"manifold/internal/tools"
+	agenttools "manifold/internal/tools/agents"
 )
 
 func (a *app) statusHandler() http.HandlerFunc {
@@ -458,6 +459,12 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	}
 
 	a.engine.Tools = a.toolRegistry
+	// Propagate updated tool registry to the delegator (if present)
+	if a.engine != nil && a.engine.Delegator != nil {
+		if d, ok := a.engine.Delegator.(*agenttools.Delegator); ok {
+			d.SetRegistry(a.toolRegistry)
+		}
+	}
 	a.warppMu.Lock()
 	a.warppRunner.Tools = a.toolRegistry
 	a.warppMu.Unlock()

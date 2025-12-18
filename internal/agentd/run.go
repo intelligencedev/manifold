@@ -210,6 +210,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// RAG tools backed by internal/rag Service
 	// Create a real embedder using the configured embedding service
 	emb := embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
+	if err := emb.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
+	}
 	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
 

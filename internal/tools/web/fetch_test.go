@@ -83,3 +83,19 @@ func TestFetchMarkdown_NonText(t *testing.T) {
 		t.Fatalf("expected stub for binary")
 	}
 }
+func TestNewFetcherTransportLimits(t *testing.T) {
+	f := NewFetcher()
+	if f == nil || f.client == nil {
+		t.Fatal("NewFetcher returned nil client")
+	}
+	tr, ok := f.client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", f.client.Transport)
+	}
+	if tr.MaxConnsPerHost < 100 {
+		t.Fatalf("MaxConnsPerHost too low: %d", tr.MaxConnsPerHost)
+	}
+	if tr.MaxIdleConnsPerHost < 50 {
+		t.Fatalf("MaxIdleConnsPerHost too low: %d", tr.MaxIdleConnsPerHost)
+	}
+}

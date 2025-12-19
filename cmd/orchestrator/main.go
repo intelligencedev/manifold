@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -120,8 +122,20 @@ func main() {
 	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
 	defer func() { _ = shutdown(context.Background()) }()
 
-	// HTTP client with observability hooks
-	httpClient := observability.NewHTTPClient(nil)
+	// Tuned HTTP transport for concurrency and observability
+	tr := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 7 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   7 * time.Second,
+		MaxIdleConns:          200,
+		MaxIdleConnsPerHost:   50,
+		MaxConnsPerHost:       200,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: 10 * time.Second,
+	}
+
+	httpClient := observability.NewHTTPClient(&http.Client{Transport: tr})
 	if len(cfg.OpenAI.ExtraHeaders) > 0 {
 		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
 	}

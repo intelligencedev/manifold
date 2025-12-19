@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -207,6 +208,32 @@ func Load() (Config, error) {
 	cfg.Embedding.Model = strings.TrimSpace(os.Getenv("EMBED_MODEL"))
 	cfg.Embedding.APIKey = strings.TrimSpace(os.Getenv("EMBED_API_KEY"))
 	cfg.Embedding.APIHeader = strings.TrimSpace(os.Getenv("EMBED_API_HEADER"))
+	// Optional: set EMBED_API_HEADERS as JSON string or comma-separated key:value pairs
+	if v := strings.TrimSpace(os.Getenv("EMBED_API_HEADERS")); v != "" {
+		// Try JSON first
+		var m map[string]string
+		if err := json.Unmarshal([]byte(v), &m); err == nil {
+			cfg.Embedding.Headers = m
+		} else {
+			// Fallback: parse comma-separated key:value pairs
+			m = make(map[string]string)
+			parts := strings.Split(v, ",")
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				if strings.Contains(p, ":") {
+					kv := strings.SplitN(p, ":", 2)
+					m[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+				} else if strings.Contains(p, "=") {
+					kv := strings.SplitN(p, "=", 2)
+					m[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+				}
+			}
+			cfg.Embedding.Headers = m
+		}
+	}
 	cfg.Embedding.Path = strings.TrimSpace(os.Getenv("EMBED_PATH"))
 	if v := strings.TrimSpace(os.Getenv("EMBED_TIMEOUT")); v != "" {
 		if n, err := parseInt(v); err == nil {

@@ -276,6 +276,7 @@ export interface AgentdSettings {
   embedModel: string
   embedApiKey: string
   embedApiHeader: string
+  embedApiHeaders: Record<string, string>
   embedPath: string
 
   agentRunTimeoutSeconds: number

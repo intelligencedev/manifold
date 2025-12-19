@@ -87,6 +87,10 @@ embedding:
   # For OpenAI-compatible services:
   # apiKey: "${OPENAI_API_KEY}"
   # apiHeader: "Authorization"
+  # Optional: provide additional headers (map)
+  # headers:
+  #   x-trace-id: "abc123"
+  #   x-algo: "v2"
 ```
 
 ## Memory Entry Structure

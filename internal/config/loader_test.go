@@ -108,3 +108,34 @@ func TestLoadSpecialists_WrapperAndListAndDisabled(t *testing.T) {
 	}
 	_ = os.Unsetenv("SPECIALISTS_DISABLED")
 }
+
+func TestEmbedApiHeadersEnv_JSONAndCSV(t *testing.T) {
+	oldJSON := os.Getenv("EMBED_API_HEADERS")
+	defer func() { _ = os.Setenv("EMBED_API_HEADERS", oldJSON) }()
+
+	// Ensure required env for Load()
+	oldOpenAI := os.Getenv("OPENAI_API_KEY")
+	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
+	_ = os.Setenv("OPENAI_API_KEY", "dummy")
+	oldWorkdir := os.Getenv("WORKDIR")
+	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
+	_ = os.Setenv("WORKDIR", ".")
+
+	_ = os.Setenv("EMBED_API_HEADERS", `{"x-api-key":"abc"}`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if got := cfg.Embedding.Headers["x-api-key"]; got != "abc" {
+		t.Fatalf("expected x-api-key abc, got %q", got)
+	}
+
+	_ = os.Setenv("EMBED_API_HEADERS", "x-api-key:abc,foo=bar")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if got := cfg.Embedding.Headers["foo"]; got != "bar" {
+		t.Fatalf("expected foo bar, got %q", got)
+	}
+}

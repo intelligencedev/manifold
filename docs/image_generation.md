@@ -2,9 +2,9 @@
 
 This project supports first‑class image generation for both OpenAI and Google providers. The two providers have different models, defaults, and request shapes—use the sections below to configure and trigger generation correctly.
 
-## OpenAI (gpt-image-1)
+## OpenAI (gpt-image-1.5)
 
-**Model**: Set the orchestrator/specialist model to `gpt-image-1` (or another image-capable OpenAI model).  
+**Model**: Set the orchestrator/specialist model to `gpt-image-1.5` (or another image-capable OpenAI model).  
 **API surface**: Even if the provider is configured with `api: responses`, image runs are executed via the OpenAI Images API under the hood.  
 **How to trigger**:
 - In the UI: toggle **Request image output** before sending your prompt.  

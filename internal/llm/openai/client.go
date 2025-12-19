@@ -1115,13 +1115,13 @@ func normalizeImageSize(raw string) string {
 func (c *Client) imageModel(model string) string {
 	m := strings.TrimSpace(firstNonEmpty(model, c.model))
 	if m == "" {
-		m = "gpt-image-1"
+		m = "gpt-image-1.5"
 	}
 	lower := strings.ToLower(m)
 	if strings.Contains(lower, "gpt-image") || strings.Contains(lower, "dall-e") {
 		return m
 	}
-	return "gpt-image-1"
+	return "gpt-image-1.5"
 }
 
 // ChatWithImageAttachment sends a chat completion with an image attachment.

@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"manifold/internal/persistence/databases"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type fetchTool struct {

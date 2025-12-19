@@ -19,11 +19,12 @@ type agentdSettings struct {
 	SummaryThreshold   int    `json:"summaryThreshold"`
 	SummaryKeepLast    int    `json:"summaryKeepLast"`
 
-	EmbedBaseURL   string `json:"embedBaseUrl"`
-	EmbedModel     string `json:"embedModel"`
-	EmbedAPIKey    string `json:"embedApiKey"`
-	EmbedAPIHeader string `json:"embedApiHeader"`
-	EmbedPath      string `json:"embedPath"`
+	EmbedBaseURL    string            `json:"embedBaseUrl"`
+	EmbedModel      string            `json:"embedModel"`
+	EmbedAPIKey     string            `json:"embedApiKey"`
+	EmbedAPIHeader  string            `json:"embedApiHeader"`
+	EmbedAPIHeaders map[string]string `json:"embedApiHeaders"`
+	EmbedPath       string            `json:"embedPath"`
 
 	AgentRunTimeoutSeconds  int `json:"agentRunTimeoutSeconds"`
 	StreamRunTimeoutSeconds int `json:"streamRunTimeoutSeconds"`
@@ -93,11 +94,12 @@ func (a *app) handleGetAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		SummaryThreshold:   a.cfg.SummaryThreshold,
 		SummaryKeepLast:    a.cfg.SummaryKeepLast,
 
-		EmbedBaseURL:   a.cfg.Embedding.BaseURL,
-		EmbedModel:     a.cfg.Embedding.Model,
-		EmbedAPIKey:    a.cfg.Embedding.APIKey,
-		EmbedAPIHeader: a.cfg.Embedding.APIHeader,
-		EmbedPath:      a.cfg.Embedding.Path,
+		EmbedBaseURL:    a.cfg.Embedding.BaseURL,
+		EmbedModel:      a.cfg.Embedding.Model,
+		EmbedAPIKey:     a.cfg.Embedding.APIKey,
+		EmbedAPIHeader:  a.cfg.Embedding.APIHeader,
+		EmbedAPIHeaders: a.cfg.Embedding.Headers,
+		EmbedPath:       a.cfg.Embedding.Path,
 
 		AgentRunTimeoutSeconds:  a.cfg.AgentRunTimeoutSeconds,
 		StreamRunTimeoutSeconds: a.cfg.StreamRunTimeoutSeconds,
@@ -180,6 +182,9 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if payload.EmbedAPIHeader != "" {
 		a.cfg.Embedding.APIHeader = payload.EmbedAPIHeader
+	}
+	if payload.EmbedAPIHeaders != nil {
+		a.cfg.Embedding.Headers = payload.EmbedAPIHeaders
 	}
 	if payload.EmbedPath != "" {
 		a.cfg.Embedding.Path = payload.EmbedPath
@@ -337,6 +342,11 @@ func persistToDotEnv(s agentdSettings) error {
 	set("EMBED_MODEL", s.EmbedModel)
 	set("EMBED_API_KEY", s.EmbedAPIKey)
 	set("EMBED_API_HEADER", s.EmbedAPIHeader)
+	if s.EmbedAPIHeaders != nil && len(s.EmbedAPIHeaders) > 0 {
+		if b, err := json.Marshal(s.EmbedAPIHeaders); err == nil {
+			set("EMBED_API_HEADERS", string(b))
+		}
+	}
 	set("EMBED_PATH", s.EmbedPath)
 
 	if s.AgentRunTimeoutSeconds != 0 {

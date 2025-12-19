@@ -134,6 +134,31 @@
               <label for="embed-key" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">API Key</label>
               <input id="embed-key" type="password" autocomplete="off" v-model="agentdSettings.embedApiKey" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm" />
             </div>
+
+            <div class="space-y-1 lg:col-span-3">
+              <label class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Additional Headers</label>
+              <div class="space-y-2">
+                <div v-for="(v, k) in agentdSettings.embedApiHeaders" :key="k" class="flex gap-2">
+                  <div class="w-48 space-y-1">
+                    <label class="text-xs text-subtle-foreground">Header</label>
+                    <input type="text" :value="k" readonly class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm" />
+                  </div>
+                  <div class="flex-1 space-y-1">
+                    <label class="text-xs text-subtle-foreground">Value</label>
+                    <input type="text" v-model="agentdSettings.embedApiHeaders[k]" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm" />
+                  </div>
+                  <div class="flex items-end">
+                    <button type="button" class="rounded border border-danger/40 px-2 py-1 text-xs text-danger-foreground" @click="removeEmbedHeader(k)">Remove</button>
+                  </div>
+                </div>
+
+                <div class="flex gap-2">
+                  <input type="text" v-model="newEmbedHeaderKey" placeholder="Header name (e.g. x-api-key)" class="w-48 rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm" />
+                  <input type="text" v-model="newEmbedHeaderValue" placeholder="Value" class="flex-1 rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm" />
+                  <button type="button" class="rounded bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground" @click="addEmbedHeader">Add</button>
+                </div>
+              </div>
+            </div>
           </div>
         </fieldset>
       </template>
@@ -441,6 +466,7 @@ const defaultAgentdSettings: AgentdSettings = {
   embedModel: 'text-embedding-3-small',
   embedApiKey: '',
   embedApiHeader: 'Authorization',
+  embedApiHeaders: {},
   embedPath: '/v1/embeddings',
   agentRunTimeoutSeconds: 0,
   streamRunTimeoutSeconds: 0,
@@ -478,6 +504,22 @@ const agentdSaving = ref(false)
 const agentdLoadError = ref('')
 const agentdSaveError = ref('')
 const agentdSuccess = ref('')
+
+// Helpers for embedding headers UI
+const newEmbedHeaderKey = ref('')
+const newEmbedHeaderValue = ref('')
+function addEmbedHeader() {
+  const k = newEmbedHeaderKey.value.trim()
+  if (!k) return
+  agentdSettings.value.embedApiHeaders = { ...agentdSettings.value.embedApiHeaders, [k]: newEmbedHeaderValue.value }
+  newEmbedHeaderKey.value = ''
+  newEmbedHeaderValue.value = ''
+}
+function removeEmbedHeader(key: string) {
+  const h = { ...agentdSettings.value.embedApiHeaders }
+  delete h[key]
+  agentdSettings.value.embedApiHeaders = h
+}
 
 const logLevelOptions = ['trace', 'debug', 'info', 'warn', 'error']
 const vectorMetricOptions = ['cosine', 'dot', 'euclidean']

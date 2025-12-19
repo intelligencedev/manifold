@@ -341,12 +341,13 @@ type MCPTLSConfig struct {
 
 // EmbeddingConfig configures the embedding service endpoint.
 type EmbeddingConfig struct {
-	BaseURL   string `yaml:"baseURL" json:"baseURL"`
-	Model     string `yaml:"model" json:"model"`
-	APIKey    string `yaml:"apiKey" json:"apiKey"`
-	APIHeader string `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
-	Path      string `yaml:"path" json:"path"`           // default: /v1/embeddings
-	Timeout   int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	BaseURL   string            `yaml:"baseURL" json:"baseURL"`
+	Model     string            `yaml:"model" json:"model"`
+	APIKey    string            `yaml:"apiKey" json:"apiKey"`
+	APIHeader string            `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
+	Headers   map[string]string `yaml:"headers" json:"headers"`     // optional additional headers
+	Path      string            `yaml:"path" json:"path"`           // default: /v1/embeddings
+	Timeout   int               `yaml:"timeoutSeconds" json:"timeoutSeconds"`
 }
 
 // EvolvingMemoryConfig configures the Search-Synthesis-Evolve memory system.

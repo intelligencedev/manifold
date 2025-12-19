@@ -41,11 +41,31 @@ func EmbedText(ctx context.Context, cfg config.EmbeddingConfig, inputs []string)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.APIHeader == "Authorization" {
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	} else if cfg.APIHeader != "" {
-		req.Header.Set(cfg.APIHeader, cfg.APIKey)
+	// Apply headers from the map first. Map entries take precedence and are used verbatim.
+	if len(cfg.Headers) > 0 {
+		for k, v := range cfg.Headers {
+			if k == "" {
+				continue
+			}
+			req.Header.Set(k, v)
+		}
+		// If Authorization header not present in headers map, fall back to legacy APIHeader/APIKey
+		if _, ok := cfg.Headers["Authorization"]; !ok {
+			if cfg.APIHeader == "Authorization" && cfg.APIKey != "" {
+				req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+			} else if cfg.APIHeader != "" && cfg.APIKey != "" {
+				req.Header.Set(cfg.APIHeader, cfg.APIKey)
+			}
+		}
+	} else {
+		// Backwards compatible behavior when no headers map provided.
+		if cfg.APIHeader == "Authorization" {
+			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		} else if cfg.APIHeader != "" {
+			req.Header.Set(cfg.APIHeader, cfg.APIKey)
+		}
 	}
+
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)

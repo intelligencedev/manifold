@@ -141,7 +141,7 @@ func TestChatImageGeneration(t *testing.T) {
 
 	client := New(config.OpenAIConfig{
 		APIKey:  "k",
-		Model:   "gpt-image-1",
+		Model:   "gpt-image-1.5",
 		BaseURL: srv.URL,
 	}, srv.Client())
 

@@ -473,9 +473,12 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'tool_start': {
         const now = new Date().toISOString()
-        const key = typeof event.tool_id === 'string' ? event.tool_id : crypto.randomUUID()
+        const key =
+          typeof event.tool_id === 'string' && event.tool_id.trim()
+            ? event.tool_id
+            : null
         const messageId = crypto.randomUUID()
-        toolIndexFor(sessionId).set(key, messageId)
+        if (key) toolIndexFor(sessionId).set(key, messageId)
         appendMessage(
           sessionId,
           {
@@ -494,11 +497,19 @@ export const useChatStore = defineStore('chat', () => {
       case 'tool_result': {
         const now = new Date().toISOString()
         const result = typeof event.data === 'string' ? event.data : ''
-        const key = typeof event.tool_id === 'string' ? event.tool_id : null
+        const key =
+          typeof event.tool_id === 'string' && event.tool_id.trim()
+            ? event.tool_id
+            : null
         const toolIndex = toolIndexFor(sessionId)
         if (key && toolIndex.has(key)) {
           const messageId = toolIndex.get(key) as string
-          updateMessage(sessionId, messageId, (m) => ({ ...m, content: result, streaming: false }))
+          updateMessage(sessionId, messageId, (m) => ({
+            ...m,
+            title: m.title || event.title || 'Tool result',
+            content: m.content ? `${m.content}${result}` : result,
+            streaming: false,
+          }))
           toolIndex.delete(key)
         } else {
           // Fallback: attach to last streaming tool message
@@ -509,7 +520,7 @@ export const useChatStore = defineStore('chat', () => {
             updateMessage(sessionId, messageId, (m) => ({
               ...m,
               title: m.title || event.title || 'Tool result',
-              content: result,
+              content: m.content ? `${m.content}${result}` : result,
               streaming: false,
             }))
           } else {

@@ -64,8 +64,8 @@ type Engine struct {
 	OnAssistant func(llm.Message)
 	// OnDelta, if set, is called for streaming content deltas (for partial responses)
 	OnDelta func(string)
-	// OnTool, if set, is called after each tool execution with tool name, args, and result
-	OnTool func(toolName string, args []byte, result []byte)
+	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
+	OnTool func(toolName string, args []byte, result []byte, toolID string)
 	// OnToolStart, if set, is invoked immediately after the model emits a tool call
 	// but before the tool is executed. This allows UIs to display a pending tool
 	// invocation and later append the result when OnTool fires. Args are the raw
@@ -339,7 +339,7 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 					meta := map[string]any{"event": "chunk", "bytes": len(chunk), "b64": base64.StdEncoding.EncodeToString(chunk)}
 					b, _ := json.Marshal(meta)
 					if e.OnTool != nil {
-						e.OnTool("text_to_speech_chunk", tc.Args, b)
+						e.OnTool("text_to_speech_chunk", tc.Args, b, tc.ID)
 					}
 				}
 				dispatchCtx = tts.WithStreamChunkCallback(dispatchCtx, cb)
@@ -349,18 +349,18 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 		if tc.Name == "multi_tool_use_parallel" && (e.OnToolStart != nil || e.OnTool != nil) {
 			sink := func(ev tools.SubtoolEvent) {
 				if ev.Phase == "start" && e.OnToolStart != nil {
-					e.OnToolStart(ev.Name, ev.Args, "")
+					e.OnToolStart(ev.Name, ev.Args, ev.ToolCallID)
 					return
 				}
 				if ev.Phase == "end" && e.OnTool != nil {
-					e.OnTool(ev.Name, ev.Args, ev.Payload)
+					e.OnTool(ev.Name, ev.Args, ev.Payload, ev.ToolCallID)
 					return
 				}
 			}
 			dispatchCtx = tools.WithSubtoolSink(dispatchCtx, sink)
 		}
 
-		if !isAgentCall(tc.Name) && e.OnToolStart != nil {
+		if e.OnToolStart != nil {
 			e.OnToolStart(tc.Name, tc.Args, tc.ID)
 		}
 
@@ -388,7 +388,7 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 	if e.Delegator != nil && isAgentCall(tc.Name) {
 		payload := e.runDelegatedAgent(ctx, tc)
 		if e.OnTool != nil {
-			e.OnTool(tc.Name, tc.Args, payload)
+			e.OnTool(tc.Name, tc.Args, payload, tc.ID)
 		}
 		return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 	}
@@ -399,7 +399,7 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 		payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
 	}
 	if e.OnTool != nil {
-		e.OnTool(tc.Name, tc.Args, payload)
+		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
 	}
 	return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 }

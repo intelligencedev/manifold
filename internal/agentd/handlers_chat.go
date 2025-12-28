@@ -670,7 +670,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 			}
-			eng.OnTool = func(name string, args []byte, result []byte) {
+			eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
 				if name == "text_to_speech_chunk" {
 					var meta map[string]any
 					_ = json.Unmarshal(result, &meta)
@@ -680,7 +680,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					fl.Flush()
 					return
 				}
-				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
+				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result), "tool_id": toolID}
 				if name == "agent_call" || name == "ask_agent" {
 					payload["agent"] = true
 				}
@@ -977,7 +977,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 			}
-			eng.OnTool = func(name string, args []byte, result []byte) {
+			eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
 				if name == "text_to_speech_chunk" {
 					var meta map[string]any
 					_ = json.Unmarshal(result, &meta)
@@ -987,7 +987,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 					fl.Flush()
 					return
 				}
-				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result)}
+				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result), "tool_id": toolID}
 				if name == "agent_call" || name == "ask_agent" {
 					payload["agent"] = true
 				}
@@ -1206,7 +1206,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 		}
-		eng.OnTool = func(toolName string, args []byte, result []byte) {
+		eng.OnTool = func(toolName string, args []byte, result []byte, toolID string) {
 			if toolName == "text_to_speech_chunk" {
 				var meta map[string]any
 				_ = json.Unmarshal(result, &meta)
@@ -1216,7 +1216,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 				fl.Flush()
 				return
 			}
-			payload := map[string]any{"type": "tool_result", "title": "Tool: " + toolName, "data": string(result)}
+			payload := map[string]any{"type": "tool_result", "title": "Tool: " + toolName, "data": string(result), "tool_id": toolID}
 			if toolName == "agent_call" || toolName == "ask_agent" {
 				payload["agent"] = true
 			}

@@ -133,8 +133,8 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		eng.OnToolStart = func(name string, args []byte, toolID string) {
 			tracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), ToolID: toolID})
 		}
-		eng.OnTool = func(name string, args []byte, result []byte) {
-			tracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result)})
+		eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
+			tracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result), ToolID: toolID})
 		}
 	}
 

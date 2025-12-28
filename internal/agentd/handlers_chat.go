@@ -20,6 +20,7 @@ import (
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
+	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/warpp"
 )
@@ -593,7 +594,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		}
 
 		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
-		if specialistName != "" && !strings.EqualFold(specialistName, "orchestrator") {
+		if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
 			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
 				return
 			}

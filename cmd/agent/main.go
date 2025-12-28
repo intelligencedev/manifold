@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
@@ -16,7 +18,6 @@ import (
 	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
-	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
@@ -27,16 +28,12 @@ import (
 	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
-
-	"strings"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const systemUserID int64 = 0
 
 func main() {
-	// Load config first to get defaults
+	// Load config first to populate defaults.
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal().Err(err).Msg("config")
@@ -54,87 +51,62 @@ func main() {
 
 	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
 	log.Info().Msg("agent starting")
-	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
+	baseCtx := context.Background()
+	shutdown, _ := observability.InitOTel(baseCtx, cfg.Obs)
 	defer func() { _ = shutdown(context.Background()) }()
 
+	// Configure global LLM payload logging/truncation before creating providers.
+	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
+
+	// Initialize the specialists store and apply DB-backed overrides so the CLI
+	// mirrors agentd behavior (specialists and orchestrator loaded from DB).
+	var specPool *pgxpool.Pool
+	if cfg.Databases.DefaultDSN != "" {
+		if p, err := databases.OpenPool(baseCtx, cfg.Databases.DefaultDSN); err == nil {
+			specPool = p
+		}
+	}
+	if specPool != nil {
+		defer specPool.Close()
+	}
+	specStore := databases.NewSpecialistsStore(specPool)
+	if err := specStore.Init(baseCtx); err != nil {
+		log.Warn().Err(err).Msg("init specialists store")
+	}
+	if err := specialists.SeedStore(baseCtx, specStore, systemUserID, cfg.Specialists); err != nil {
+		log.Warn().Err(err).Msg("seed specialists")
+	}
+	specList, specListErr := specStore.List(baseCtx, systemUserID)
+	if specListErr != nil {
+		log.Warn().Err(specListErr).Msg("list specialists")
+	}
+	if sp, ok, _ := specStore.GetByName(baseCtx, systemUserID, specialists.OrchestratorName); ok {
+		specialists.ApplyOrchestratorConfig(&cfg, sp)
+		if strings.TrimSpace(cfg.SystemPrompt) == "" {
+			cfg.SystemPrompt = specialists.DefaultOrchestratorPrompt
+		}
+	} else {
+		// Ensure a safe default system prompt when no DB record exists.
+		cfg.SystemPrompt = specialists.DefaultOrchestratorPrompt
+	}
+
 	httpClient := observability.NewHTTPClient(nil)
-	// Inject global headers for main agent if configured
+	// Inject global headers for the main agent if configured.
 	if len(cfg.OpenAI.ExtraHeaders) > 0 {
 		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
 	}
-	// Configure global llm payload logging/truncation before creating providers
-	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
 
-	// Initialize specialists store and apply DB-backed overrides so the CLI
-	// mirrors agentd behavior (specialists and orchestrator loaded from DB).
-	var specStore persist.SpecialistsStore
-	{
-		var pg *pgxpool.Pool
-		if cfg.Databases.DefaultDSN != "" {
-			if p, err := databasesTestPool(context.Background(), cfg.Databases.DefaultDSN); err == nil {
-				pg = p
-			}
-		}
-		specStore = databases.NewSpecialistsStore(pg)
-		_ = specStore.Init(context.Background())
-		// Seed from YAML only if the store is empty or missing entries
-		if list, err := specStore.List(context.Background(), systemUserID); err == nil {
-			existing := map[string]bool{}
-			for _, s := range list {
-				existing[s.Name] = true
-			}
-			for _, sc := range cfg.Specialists {
-				if sc.Name == "" {
-					continue
-				}
-				if existing[sc.Name] {
-					continue
-				}
-				_, _ = specStore.Upsert(context.Background(), systemUserID, persist.Specialist{
-					Name: sc.Name, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
-					EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
-					ReasoningEffort: sc.ReasoningEffort, System: sc.System,
-					ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
-				})
-			}
-		}
-		// Load orchestrator configuration from the database (if present)
-		if sp, ok, _ := specStore.GetByName(context.Background(), systemUserID, "orchestrator"); ok {
-			cfg.OpenAI.BaseURL = sp.BaseURL
-			cfg.OpenAI.APIKey = sp.APIKey
-			if strings.TrimSpace(sp.Model) != "" {
-				cfg.OpenAI.Model = sp.Model
-			}
-			cfg.EnableTools = sp.EnableTools
-			cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
-			if strings.TrimSpace(sp.System) != "" {
-				cfg.SystemPrompt = sp.System
-			} else {
-				cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
-			}
-			if sp.ExtraHeaders != nil {
-				cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
-			}
-			if sp.ExtraParams != nil {
-				cfg.OpenAI.ExtraParams = sp.ExtraParams
-			}
-		} else {
-			// Ensure a safe default system prompt when no DB record exists
-			cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
-		}
-	}
-
-	// Create LLM provider after potential DB overrides
+	// Create the LLM provider after potential DB overrides.
 	llm, err := llmproviders.Build(cfg, httpClient)
 	if err != nil {
 		log.Fatal().Err(err).Msg("build llm provider")
 	}
 
-	// Build specialists registry from DB (fallback to YAML) so CLI resolves
+	// Build specialists registry from DB (fallback to YAML) so the CLI resolves
 	// the same set as agentd.
 	var specReg *specialists.Registry
-	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
-		specReg = specialists.NewRegistry(cfg.LLMClient, specialistsFromStore(list), httpClient, nil)
+	if specListErr == nil {
+		specReg = specialists.NewRegistry(cfg.LLMClient, specialists.ConfigsFromStore(specList), httpClient, nil)
 	} else {
 		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, nil)
 	}
@@ -158,7 +130,7 @@ func main() {
 	}
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
-	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
+	mgr, err := databases.NewManager(baseCtx, cfg.Databases)
 	if err != nil {
 		log.Fatal().Err(err).Msg("databases")
 	}
@@ -166,22 +138,22 @@ func main() {
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
 	registry.Register(web.NewFetchTool(mgr.Search))    // provides web_fetch
-	// Patch application tool (unified diff)
+	// Register patch application tool (unified diff).
 	registry.Register(patchtool.New(cfg.Workdir)) // provides apply_patch
-	// Text splitting tool (RAG ingestion helpers)
+	// Register text splitting tool (RAG ingestion helpers).
 	registry.Register(textsplitter.New()) // provides split_text
 	registry.Register(utility.NewTextboxTool())
-	// TTS tool
+	// Register TTS tool.
 	registry.Register(tts.New(cfg, httpClient))
 
-	// Specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd)
-	if list, err := specStore.List(context.Background(), systemUserID); err == nil {
-		specReg = specialists.NewRegistry(cfg.LLMClient, specialistsFromStore(list), httpClient, registry)
+	// Register specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd).
+	if specListErr == nil {
+		specReg = specialists.NewRegistry(cfg.LLMClient, specialists.ConfigsFromStore(specList), httpClient, registry)
 	} else {
 		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
 	}
 
-	// If tools are globally disabled, use an empty registry
+	// If tools are globally disabled, use an empty registry.
 	if !cfg.EnableTools {
 		registry = tools.NewRegistry() // Empty registry
 	} else if len(cfg.ToolAllowList) > 0 {
@@ -190,8 +162,7 @@ func main() {
 		registry = tools.NewFilteredRegistry(registry, cfg.ToolAllowList)
 	}
 
-	// Debug: log which tools are exposed after any filtering so we can diagnose
-	// missing tool registrations at runtime.
+	// Log which tools are exposed after filtering to diagnose missing registrations at runtime.
 	{
 		names := make([]string, 0, len(registry.Schemas()))
 		for _, s := range registry.Schemas() {
@@ -200,17 +171,17 @@ func main() {
 		log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents")
 	}
 
-	// MCP: connect to configured servers and register their tools
+	// Connect to configured MCP servers and register their tools.
 	mcpMgr := mcpclient.NewManager()
-	ctxInit, cancelInit := context.WithTimeout(context.Background(), 20*time.Second)
+	ctxInit, cancelInit := context.WithTimeout(baseCtx, 20*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP)
 	cancelInit()
 
-	// WARPP mode: run the WARPP workflow executor instead of the LLM loop
+	// Run the WARPP workflow executor instead of the LLM loop when enabled.
 	if *warppFlag {
 		// Configure WARPP to source defaults from the database, not hard-coded values.
 		warpp.SetDefaultStore(mgr.Warpp)
-		wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp, systemUserID)
+		wfreg, _ := warpp.LoadFromStore(baseCtx, mgr.Warpp, systemUserID)
 		runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
@@ -235,7 +206,7 @@ func main() {
 		return
 	}
 
-	// Pre-dispatch routing: call a specialist directly if there's a match.
+	// Call a specialist directly if a pre-dispatch route matches.
 	if name := specialists.Route(cfg.SpecialistRoutes, *q); name != "" {
 		log.Info().Str("route", name).Msg("pre-dispatch specialist route matched")
 		a, ok := specReg.Get(name)
@@ -266,7 +237,7 @@ func main() {
 		SummaryKeepLast:  cfg.SummaryKeepLast,
 	}
 
-	// Global agent run context: honor configurable timeout; 0 => no deadline.
+	// Honor the configured run timeout; 0 disables the deadline.
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if cfg.AgentRunTimeoutSeconds > 0 {
@@ -281,42 +252,4 @@ func main() {
 		log.Fatal().Err(err).Msg("agent")
 	}
 	fmt.Println(final)
-}
-
-// databasesTestPool mirrors the lightweight helper in agentd to open a pgx pool
-// for feature stores (e.g., specialists). It pings with a short timeout.
-func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, err
-	}
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if err := pool.Ping(cctx); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	return pool, nil
-}
-
-// specialistsFromStore converts persisted specialists to config structs
-func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
-	out := make([]config.SpecialistConfig, 0, len(list))
-	for _, s := range list {
-		// Skip the orchestrator; it is the main agent, not a specialist tool
-		if strings.EqualFold(strings.TrimSpace(s.Name), "orchestrator") {
-			continue
-		}
-		out = append(out, config.SpecialistConfig{
-			Name: s.Name, Description: s.Description, BaseURL: s.BaseURL, APIKey: s.APIKey, Model: s.Model,
-			EnableTools: s.EnableTools, Paused: s.Paused, AllowTools: s.AllowTools,
-			ReasoningEffort: s.ReasoningEffort, System: s.System,
-			ExtraHeaders: s.ExtraHeaders, ExtraParams: s.ExtraParams,
-		})
-	}
-	return out
 }

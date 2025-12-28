@@ -11,6 +11,7 @@ import (
 
 	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
+	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
 )
@@ -132,7 +133,7 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 			if strings.TrimSpace(sp.Provider) == "" {
 				sp.Provider = a.cfg.LLMClient.Provider
 			}
-			if name == "orchestrator" {
+			if name == specialists.OrchestratorName {
 				// Allow non-system users to persist a per-user orchestrator overlay
 				// without mutating the global engine/config.
 				if userID == systemUserID {
@@ -144,7 +145,7 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 					json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
 					return
 				}
-				sp.Name = "orchestrator"
+				sp.Name = specialists.OrchestratorName
 				sp.UserID = userID
 				if _, err := a.specStore.Upsert(r.Context(), userID, sp); err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
@@ -193,7 +194,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 
 		switch r.Method {
 		case http.MethodGet:
-			if name == "orchestrator" {
+			if name == specialists.OrchestratorName {
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
 				return
@@ -220,7 +221,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 			if strings.TrimSpace(sp.Provider) == "" {
 				sp.Provider = a.cfg.LLMClient.Provider
 			}
-			if name == "orchestrator" {
+			if name == specialists.OrchestratorName {
 				// Allow non-system users to update their per-user orchestrator overlay
 				if userID == systemUserID {
 					if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
@@ -231,7 +232,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 					json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
 					return
 				}
-				sp.Name = "orchestrator"
+				sp.Name = specialists.OrchestratorName
 				sp.UserID = userID
 				if _, err := a.specStore.Upsert(r.Context(), userID, sp); err != nil {
 					http.Error(w, err.Error(), http.StatusBadRequest)
@@ -253,7 +254,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 			json.NewEncoder(w).Encode(saved)
 			a.invalidateSpecialistsCache(r.Context(), userID)
 		case http.MethodDelete:
-			if name == "orchestrator" {
+			if name == specialists.OrchestratorName {
 				http.Error(w, "cannot delete orchestrator", http.StatusBadRequest)
 				return
 			}
@@ -279,7 +280,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 	out := persist.Specialist{
 		ID:           0,
 		UserID:       userID,
-		Name:         "orchestrator",
+		Name:         specialists.OrchestratorName,
 		Description:  "",
 		Provider:     defaultProvider,
 		BaseURL:      baseURL,
@@ -293,7 +294,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		ExtraParams:  baseParams,
 	}
 	// Apply per-user overlay if present
-	if sp, ok, _ := a.specStore.GetByName(ctx, userID, "orchestrator"); ok {
+	if sp, ok, _ := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName); ok {
 		out.ID = sp.ID
 		out.Description = sp.Description
 		if strings.TrimSpace(sp.Provider) != "" {
@@ -377,59 +378,7 @@ func copyAnyMap(in map[string]any) map[string]any {
 }
 
 func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist) error {
-	provider := strings.TrimSpace(sp.Provider)
-	if provider == "" {
-		provider = a.cfg.LLMClient.Provider
-	}
-	llmCfg := a.cfg.LLMClient
-	llmCfg.Provider = provider
-
-	switch provider {
-	case "anthropic":
-		if strings.TrimSpace(sp.BaseURL) != "" {
-			llmCfg.Anthropic.BaseURL = strings.TrimSpace(sp.BaseURL)
-		}
-		if strings.TrimSpace(sp.APIKey) != "" {
-			llmCfg.Anthropic.APIKey = strings.TrimSpace(sp.APIKey)
-		}
-		if strings.TrimSpace(sp.Model) != "" {
-			llmCfg.Anthropic.Model = strings.TrimSpace(sp.Model)
-		}
-	case "google":
-		if strings.TrimSpace(sp.BaseURL) != "" {
-			llmCfg.Google.BaseURL = strings.TrimSpace(sp.BaseURL)
-		}
-		if strings.TrimSpace(sp.APIKey) != "" {
-			llmCfg.Google.APIKey = strings.TrimSpace(sp.APIKey)
-		}
-		if strings.TrimSpace(sp.Model) != "" {
-			llmCfg.Google.Model = strings.TrimSpace(sp.Model)
-		}
-	default:
-		if strings.TrimSpace(sp.BaseURL) != "" {
-			llmCfg.OpenAI.BaseURL = strings.TrimSpace(sp.BaseURL)
-		}
-		if strings.TrimSpace(sp.APIKey) != "" {
-			llmCfg.OpenAI.APIKey = strings.TrimSpace(sp.APIKey)
-		}
-		if strings.TrimSpace(sp.Model) != "" {
-			llmCfg.OpenAI.Model = strings.TrimSpace(sp.Model)
-		}
-		if sp.ExtraHeaders != nil {
-			llmCfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
-		}
-		if sp.ExtraParams != nil {
-			llmCfg.OpenAI.ExtraParams = sp.ExtraParams
-		}
-	}
-
-	a.cfg.LLMClient = llmCfg
-	if provider == "openai" || provider == "local" || provider == "" {
-		a.cfg.OpenAI = llmCfg.OpenAI
-	}
-	a.cfg.EnableTools = sp.EnableTools
-	a.cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
-	a.cfg.SystemPrompt = sp.System
+	provider := specialists.ApplyOrchestratorConfig(a.cfg, sp)
 
 	llm, err := llmproviders.Build(*a.cfg, a.httpClient)
 	if err != nil {
@@ -470,7 +419,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	a.warppMu.Unlock()
 
 	toSave := persist.Specialist{
-		Name:        "orchestrator",
+		Name:        specialists.OrchestratorName,
 		Description: sp.Description,
 		EnableTools: a.cfg.EnableTools,
 		Paused:      false,
@@ -501,7 +450,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		return err
 	}
 	if list, err := a.specStore.List(ctx, systemUserID); err == nil {
-		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
 	a.refreshEngineSystemPrompt()
 	names := make([]string, 0, len(a.toolRegistry.Schemas()))

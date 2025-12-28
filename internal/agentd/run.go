@@ -197,7 +197,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(*cfg, httpClient))
 
-	// Kafka tool for publishing messages
+	// Register the Kafka tool for publishing messages.
 	if cfg.Kafka.Brokers != "" {
 		if producer, err := kafkatools.NewProducerFromBrokers(cfg.Kafka.Brokers); err == nil {
 			// NewSendMessageTool will auto-detect orchestrator commands topics by pattern matching
@@ -207,8 +207,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		}
 	}
 
-	// RAG tools backed by internal/rag Service
-	// Create a real embedder using the configured embedding service
+	// Register RAG tools backed by the internal rag service.
+	// Create a real embedder using the configured embedding service.
 	emb := embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
 	if err := emb.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
@@ -216,7 +216,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
 
-	// AlphaEvolve-inspired code evolution tool
+	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))
 
 	newProv := func(baseURL string) llmpkg.Provider {
@@ -234,7 +234,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
 	specReg.SetWorkdir(cfg.Workdir)
 
-	// Phase 1: register simple team tools
+	// Register specialist routing tools.
 	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, cfg.Workdir)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
 	toolRegistry.Register(agentCallTool)
@@ -270,7 +270,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
 
-	// Load from DB (System User)
+	// Load MCP servers from the system user store.
 	if mgr.MCP != nil {
 		if servers, err := mgr.MCP.List(ctxInit, systemUserID); err == nil {
 			for _, s := range servers {
@@ -467,7 +467,7 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 	var wfStore persist.WarppWorkflowStore
 
 	if a.cfg.Databases.DefaultDSN != "" {
-		if p, errPool := databasesTestPool(ctx, a.cfg.Databases.DefaultDSN); errPool == nil {
+		if p, errPool := databases.OpenPool(ctx, a.cfg.Databases.DefaultDSN); errPool == nil {
 			wfStore = persistdb.NewPostgresWarppStore(p)
 		}
 	}
@@ -501,7 +501,7 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 	a.warppRegistries = map[int64]*warpp.Registry{systemUserID: wfreg}
 	a.warppRunner = &warpp.Runner{Workflows: wfreg, Tools: toolRegistry}
 	a.warppStore = wfStore
-	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly
+	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly.
 	warpptool.RegisterAll(toolRegistry, a.warppRunner)
 	return nil
 }
@@ -525,7 +525,7 @@ func (a *app) initAuth(ctx context.Context) error {
 	if dsn == "" {
 		return fmt.Errorf("auth enabled but databases.defaultDSN is empty")
 	}
-	pool, err := databasesTestPool(ctx, dsn)
+	pool, err := databases.OpenPool(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("auth db connect failed: %w", err)
 	}
@@ -601,7 +601,7 @@ func (a *app) initAuth(ctx context.Context) error {
 func (a *app) initSpecialists(ctx context.Context) error {
 	var pg *pgxpool.Pool
 	if a.cfg.Databases.DefaultDSN != "" {
-		if p, err := databasesTestPool(ctx, a.cfg.Databases.DefaultDSN); err == nil {
+		if p, err := databases.OpenPool(ctx, a.cfg.Databases.DefaultDSN); err == nil {
 			pg = p
 		}
 	}
@@ -609,35 +609,21 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	_ = specStore.Init(ctx)
 	a.specStore = specStore
 
-	if list, err := specStore.List(ctx, systemUserID); err == nil {
-		existing := map[string]bool{}
-		for _, s := range list {
-			existing[s.Name] = true
-		}
-		for _, sc := range a.cfg.Specialists {
-			if sc.Name == "" || existing[sc.Name] {
-				continue
-			}
-			_, _ = specStore.Upsert(ctx, systemUserID, persist.Specialist{
-				Name: sc.Name, Provider: sc.Provider, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
-				EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
-				ReasoningEffort: sc.ReasoningEffort, System: sc.System,
-				ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
-			})
-		}
+	if err := specialists.SeedStore(ctx, specStore, systemUserID, a.cfg.Specialists); err != nil {
+		log.Warn().Err(err).Msg("seed specialists")
 	}
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
-		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
 	a.refreshEngineSystemPrompt()
 
-	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
+	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, specialists.OrchestratorName); ok {
 		if err := a.applyOrchestratorUpdate(ctx, sp); err != nil {
 			log.Warn().Err(err).Msg("failed to apply orchestrator overlay")
 		}
 	} else {
-		a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
+		a.cfg.SystemPrompt = specialists.DefaultOrchestratorPrompt
 		a.refreshEngineSystemPrompt()
 	}
 

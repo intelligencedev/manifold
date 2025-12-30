@@ -394,16 +394,19 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	// Derive a context window for the summary model (may differ from main model).
 	summaryCtxSize, _ := llmpkg.ContextSize(cfg.OpenAI.SummaryModel)
+	useResponsesCompaction := (cfg.LLMClient.Provider == "" || cfg.LLMClient.Provider == "openai") &&
+		strings.EqualFold(cfg.OpenAI.API, "responses")
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
-		Enabled:               cfg.SummaryEnabled,
-		Mode:                  memory.MemoryMode(cfg.SummaryMode),
-		Threshold:             cfg.SummaryThreshold,
-		KeepLast:              cfg.SummaryKeepLast,
-		TargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
-		MinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
-		MaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
-		ContextWindowTokens:   summaryCtxSize,
-		SummaryModel:          cfg.OpenAI.SummaryModel,
+		Enabled:                cfg.SummaryEnabled,
+		Mode:                   memory.MemoryMode(cfg.SummaryMode),
+		Threshold:              cfg.SummaryThreshold,
+		KeepLast:               cfg.SummaryKeepLast,
+		TargetUtilizationPct:   cfg.SummaryTargetUtilizationPct,
+		MinKeepLastMessages:    cfg.SummaryMinKeepLastMessages,
+		MaxSummaryChunkTokens:  cfg.SummaryMaxSummaryChunkTokens,
+		ContextWindowTokens:    summaryCtxSize,
+		SummaryModel:           cfg.OpenAI.SummaryModel,
+		UseResponsesCompaction: useResponsesCompaction,
 	})
 
 	if mgr.Playground == nil {

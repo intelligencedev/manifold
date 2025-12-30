@@ -1435,6 +1435,10 @@ func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instr
 	items = make([]rs.ResponseInputItemUnionParam, 0, len(msgs))
 	var sys []string
 	for _, m := range msgs {
+		if m.Compaction != nil {
+			items = append(items, responseCompactionItemParam(*m.Compaction))
+			continue
+		}
 		switch m.Role {
 		case "system":
 			if strings.TrimSpace(m.Content) != "" {
@@ -1473,6 +1477,18 @@ func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instr
 		instructions = strings.Join(sys, "\n\n")
 	}
 	return items, instructions
+}
+
+func responseCompactionItemParam(item llm.CompactionItem) rs.ResponseInputItemUnionParam {
+	payload := map[string]any{
+		"type":              "compaction",
+		"encrypted_content": item.EncryptedContent,
+	}
+	if strings.TrimSpace(item.ID) != "" {
+		payload["id"] = item.ID
+	}
+	raw, _ := json.Marshal(payload)
+	return param.Override[rs.ResponseInputItemUnionParam](json.RawMessage(raw))
 }
 
 // chatResponses handles non-streaming chat via the Responses API.
@@ -1767,4 +1783,112 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 		base.Debug().Msg("responses_stream_ok")
 	}
 	return err
+}
+
+type responseCompactRequest struct {
+	Model              string `json:"model"`
+	Input              any    `json:"input,omitempty"`
+	Instructions       string `json:"instructions,omitempty"`
+	PreviousResponseID string `json:"previous_response_id,omitempty"`
+}
+
+type responseCompactOutput struct {
+	Type             string `json:"type"`
+	ID               string `json:"id"`
+	EncryptedContent string `json:"encrypted_content"`
+}
+
+type responseCompactResponse struct {
+	ID        string                  `json:"id"`
+	Object    string                  `json:"object"`
+	CreatedAt int64                   `json:"created_at"`
+	Output    []responseCompactOutput `json:"output"`
+}
+
+// Compact compresses conversation state using the Responses API compaction endpoint.
+func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, previous *llm.CompactionItem) (*llm.CompactionItem, error) {
+	if c.api != "responses" {
+		return nil, fmt.Errorf("responses api required for compaction")
+	}
+	log := observability.LoggerWithTrace(ctx)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Compact", firstNonEmpty(model, c.model), 0, len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	input, instructions := buildCompactionInput(msgs, previous)
+	req := responseCompactRequest{Model: firstNonEmpty(model, c.model)}
+	if len(input) > 0 {
+		req.Input = input
+	}
+	if strings.TrimSpace(instructions) != "" {
+		req.Instructions = instructions
+	}
+
+	var resp responseCompactResponse
+	start := time.Now()
+	if err := c.sdk.Post(ctx, "/responses/compact", req, &resp); err != nil {
+		log.Error().Err(err).Str("model", req.Model).Dur("duration", time.Since(start)).Msg("responses_compact_error")
+		span.RecordError(err)
+		return nil, err
+	}
+
+	for _, item := range resp.Output {
+		if item.Type == "compaction" && strings.TrimSpace(item.EncryptedContent) != "" {
+			return &llm.CompactionItem{ID: item.ID, EncryptedContent: item.EncryptedContent}, nil
+		}
+	}
+	return nil, errors.New("responses compact returned no compaction item")
+}
+
+func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]any, string) {
+	items := make([]any, 0, len(msgs)+1)
+	if previous != nil && strings.TrimSpace(previous.EncryptedContent) != "" {
+		payload := map[string]any{
+			"type":              "compaction",
+			"encrypted_content": previous.EncryptedContent,
+		}
+		if strings.TrimSpace(previous.ID) != "" {
+			payload["id"] = previous.ID
+		}
+		items = append(items, payload)
+	}
+
+	var sys []string
+	assistantIndex := 0
+	for _, m := range msgs {
+		switch m.Role {
+		case "system":
+			if strings.TrimSpace(m.Content) != "" {
+				sys = append(sys, m.Content)
+			}
+		case "user":
+			content := strings.TrimSpace(m.Content)
+			if content == "" {
+				content = " "
+			}
+			part := rs.ResponseInputContentParamOfInputText(content)
+			items = append(items, rs.ResponseInputItemUnionParam{OfInputMessage: &rs.ResponseInputItemMessageParam{
+				Content: rs.ResponseInputMessageContentListParam{part},
+				Role:    "user",
+			}})
+		case "assistant":
+			content := strings.TrimSpace(m.Content)
+			if content == "" {
+				continue
+			}
+			msgID := fmt.Sprintf("assistant_%d", assistantIndex)
+			assistantIndex++
+			text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
+			contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
+			items = append(items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
+		case "tool":
+			out := strings.TrimSpace(m.Content)
+			if out == "" {
+				out = "{}"
+			}
+			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(m.ToolID, out))
+		}
+	}
+
+	return items, strings.Join(sys, "\n\n")
 }

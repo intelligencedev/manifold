@@ -16,6 +16,7 @@ const (
 	defaultThreshold      = 40
 	defaultKeepLast       = 12
 	maxSummarizeChunkSize = 4096
+	compactionSummaryType = "compaction"
 )
 
 // MemoryMode controls how chat history is summarized.
@@ -45,6 +46,8 @@ type Config struct {
 	ContextWindowTokens int `yaml:"contextWindowTokens" json:"contextWindowTokens"`
 
 	SummaryModel string `yaml:"summaryModel" json:"summaryModel"`
+	// UseResponsesCompaction enables the Responses API compaction endpoint when supported.
+	UseResponsesCompaction bool `yaml:"useResponsesCompaction" json:"useResponsesCompaction"`
 }
 
 // Manager coordinates persistence-backed chat memory with rolling summaries so that
@@ -61,10 +64,11 @@ type Manager struct {
 	keepLast  int
 
 	// auto‑mode fields
-	targetUtilizationPct  float64
-	minKeepLastMessages   int
-	maxSummaryChunkTokens int
-	contextWindowTokens   int
+	targetUtilizationPct   float64
+	minKeepLastMessages    int
+	maxSummaryChunkTokens  int
+	contextWindowTokens    int
+	useResponsesCompaction bool
 }
 
 // Introspection helpers used by debug/observability surfaces.
@@ -91,17 +95,18 @@ func (m *Manager) MaxSummaryChunkTokens() int { return m.maxSummaryChunkTokens }
 // NewManager returns a chat memory manager.
 func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) *Manager {
 	m := &Manager{
-		store:                 store,
-		summary:               provider,
-		summaryModel:          cfg.SummaryModel,
-		enabled:               cfg.Enabled && provider != nil,
-		mode:                  cfg.Mode,
-		threshold:             cfg.Threshold,
-		keepLast:              cfg.KeepLast,
-		targetUtilizationPct:  cfg.TargetUtilizationPct,
-		minKeepLastMessages:   cfg.MinKeepLastMessages,
-		maxSummaryChunkTokens: cfg.MaxSummaryChunkTokens,
-		contextWindowTokens:   cfg.ContextWindowTokens,
+		store:                  store,
+		summary:                provider,
+		summaryModel:           cfg.SummaryModel,
+		enabled:                cfg.Enabled && provider != nil,
+		mode:                   cfg.Mode,
+		threshold:              cfg.Threshold,
+		keepLast:               cfg.KeepLast,
+		targetUtilizationPct:   cfg.TargetUtilizationPct,
+		minKeepLastMessages:    cfg.MinKeepLastMessages,
+		maxSummaryChunkTokens:  cfg.MaxSummaryChunkTokens,
+		contextWindowTokens:    cfg.ContextWindowTokens,
+		useResponsesCompaction: cfg.UseResponsesCompaction,
 	}
 	if m.threshold <= 0 {
 		m.threshold = defaultThreshold
@@ -240,10 +245,21 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 
 	history := make([]llm.Message, 0, (total-tailStart)+1)
 	if summary != "" {
-		history = append(history, llm.Message{
-			Role:    "system",
-			Content: "Conversation summary (for context only):\n" + summary,
-		})
+		if m.useResponsesCompaction {
+			if item, ok := decodeCompactionSummary(summary); ok {
+				history = append(history, llm.Message{Role: "assistant", Compaction: &item})
+			} else {
+				history = append(history, llm.Message{
+					Role:    "system",
+					Content: "Conversation summary (for context only):\n" + summary,
+				})
+			}
+		} else {
+			history = append(history, llm.Message{
+				Role:    "system",
+				Content: "Conversation summary (for context only):\n" + summary,
+			})
+		}
 	}
 	for i, msg := range messages[tailStart:] {
 		log.Debug().Int("index", i).Str("role", msg.Role).Int("content_len", len(msg.Content)).Str("content_preview", truncate(msg.Content, 100)).Msg("build_context_message")
@@ -414,9 +430,14 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 	if m.summary == nil {
 		return existingSummary, fmt.Errorf("llm provider unavailable")
 	}
+	if m.useResponsesCompaction {
+		return m.compactChunk(ctx, existingSummary, chunk)
+	}
 
 	var userPrompt strings.Builder
-	userPrompt.WriteString("Update the running summary of this chat.\n")
+	userPrompt.WriteString("Update the running summary of this chat. Keep it concise but information-dense.\n")
+	userPrompt.WriteString("Preserve user goals, preferences, decisions, key facts, identifiers (files, URLs, IDs), tool results/errors, and open questions.\n")
+	userPrompt.WriteString("If content includes [TRUNCATED], assume important details may be missing.\n")
 	if strings.TrimSpace(existingSummary) != "" {
 		userPrompt.WriteString("\nExisting summary:\n")
 		userPrompt.WriteString(strings.TrimSpace(existingSummary))
@@ -425,22 +446,34 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 	userPrompt.WriteString("New conversation turns:\n")
 
 	for _, msg := range chunk {
+		summaryMsg := buildSummaryPromptMessage(msg)
 		userPrompt.WriteString("\nRole: ")
-		userPrompt.WriteString(msg.Role)
+		userPrompt.WriteString(summaryMsg.Role)
 		userPrompt.WriteString("\n")
-		content := strings.TrimSpace(msg.Content)
+		if len(summaryMsg.ToolCalls) > 0 {
+			userPrompt.WriteString("Tool calls: ")
+			userPrompt.WriteString(strings.Join(summaryMsg.ToolCalls, ", "))
+			userPrompt.WriteString("\n")
+		}
+		if strings.TrimSpace(summaryMsg.ToolID) != "" {
+			userPrompt.WriteString("Tool ID: ")
+			userPrompt.WriteString(summaryMsg.ToolID)
+			userPrompt.WriteString("\n")
+		}
+		content := strings.TrimSpace(summaryMsg.Content)
 		limit := maxSummarizeChunkSize
 		if m.maxSummaryChunkTokens > 0 {
 			limit = m.maxSummaryChunkTokens
 		}
-		if len(content) > limit {
-			content = content[:limit] + "\n[TRUNCATED]"
+		content = truncateForSummary(content, limit)
+		if content == "" {
+			content = "(no content)"
 		}
 		userPrompt.WriteString(content)
 		userPrompt.WriteString("\n")
 	}
 
-	userPrompt.WriteString("\nReturn only the updated concise summary (<= 300 characters).")
+	userPrompt.WriteString("\nReturn only the updated summary. Aim for <= 1200 characters; use short bullets if helpful.")
 
 	sysPrompt := "You are a concise summarizer. Maintain an accurate running summary of a conversation."
 
@@ -459,4 +492,194 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 		return existingSummary, fmt.Errorf("empty summary returned")
 	}
 	return summary, nil
+}
+
+type summaryPromptMessage struct {
+	Role      string
+	Content   string
+	ToolCalls []string
+	ToolID    string
+}
+
+func buildSummaryPromptMessage(msg persistence.ChatMessage) summaryPromptMessage {
+	out := summaryPromptMessage{
+		Role:    msg.Role,
+		Content: strings.TrimSpace(msg.Content),
+	}
+	raw := strings.TrimSpace(msg.Content)
+	if raw == "" {
+		return out
+	}
+	if msg.Role == "assistant" && strings.HasPrefix(raw, "{") {
+		var data struct {
+			Content   string         `json:"content"`
+			ToolCalls []llm.ToolCall `json:"tool_calls"`
+		}
+		if err := json.Unmarshal([]byte(raw), &data); err == nil && len(data.ToolCalls) > 0 {
+			out.Content = strings.TrimSpace(data.Content)
+			out.ToolCalls = summarizeToolCalls(data.ToolCalls)
+			return out
+		}
+	}
+	if msg.Role == "tool" && strings.HasPrefix(raw, "{") {
+		var data struct {
+			Content string `json:"content"`
+			ToolID  string `json:"tool_id"`
+		}
+		if err := json.Unmarshal([]byte(raw), &data); err == nil {
+			if strings.TrimSpace(data.Content) != "" {
+				out.Content = strings.TrimSpace(data.Content)
+			} else {
+				out.Content = ""
+			}
+			out.ToolID = strings.TrimSpace(data.ToolID)
+			return out
+		}
+	}
+	return out
+}
+
+func summarizeToolCalls(calls []llm.ToolCall) []string {
+	out := make([]string, 0, len(calls))
+	for _, call := range calls {
+		name := strings.TrimSpace(call.Name)
+		if name == "" {
+			continue
+		}
+		args := strings.TrimSpace(string(call.Args))
+		if isEmptySummaryArgs(args) {
+			out = append(out, name)
+			continue
+		}
+		args = strings.Join(strings.Fields(args), " ")
+		args = truncateInline(args, 160)
+		out = append(out, fmt.Sprintf("%s args=%s", name, args))
+	}
+	return out
+}
+
+func isEmptySummaryArgs(raw string) bool {
+	switch strings.TrimSpace(raw) {
+	case "", "null", "{}", "[]":
+		return true
+	default:
+		return false
+	}
+}
+
+func truncateInline(content string, limit int) string {
+	trimmed := strings.TrimSpace(content)
+	if limit <= 0 {
+		return trimmed
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= limit {
+		return trimmed
+	}
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
+}
+
+func truncateForSummary(content string, limit int) string {
+	trimmed := strings.TrimSpace(content)
+	if limit <= 0 {
+		return trimmed
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= limit {
+		return trimmed
+	}
+	markerRunes := []rune("\n[TRUNCATED]\n")
+	if limit <= len(markerRunes)+4 {
+		if limit <= 0 {
+			return ""
+		}
+		return string(runes[:limit]) + string(markerRunes)
+	}
+	available := limit - len(markerRunes)
+	head := int(float64(available) * 0.6)
+	if head < 1 {
+		head = 1
+	}
+	tail := available - head
+	if tail < 1 {
+		tail = 1
+		head = available - tail
+	}
+	if head+tail > len(runes) {
+		return trimmed
+	}
+	return string(runes[:head]) + string(markerRunes) + string(runes[len(runes)-tail:])
+}
+
+func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chunk []persistence.ChatMessage) (string, error) {
+	compactor, ok := m.summary.(llm.CompactionProvider)
+	if !ok {
+		observability.LoggerWithTrace(ctx).Warn().Msg("responses_compaction_unavailable")
+		return existingSummary, nil
+	}
+
+	var prev *llm.CompactionItem
+	if item, ok := decodeCompactionSummary(existingSummary); ok {
+		prev = &item
+	}
+
+	msgs := make([]llm.Message, 0, len(chunk)+1)
+	if prev == nil && strings.TrimSpace(existingSummary) != "" {
+		msgs = append(msgs, llm.Message{Role: "assistant", Content: strings.TrimSpace(existingSummary)})
+	}
+	for _, msg := range chunk {
+		msgs = append(msgs, llm.Message{Role: msg.Role, Content: msg.Content})
+	}
+
+	item, err := compactor.Compact(ctx, msgs, m.summaryModel, prev)
+	if err != nil {
+		return existingSummary, err
+	}
+	if item == nil || strings.TrimSpace(item.EncryptedContent) == "" {
+		return existingSummary, fmt.Errorf("responses compaction returned empty content")
+	}
+	encoded := encodeCompactionSummary(*item)
+	if encoded == "" {
+		return existingSummary, fmt.Errorf("responses compaction encode failed")
+	}
+	return encoded, nil
+}
+
+func decodeCompactionSummary(summary string) (llm.CompactionItem, bool) {
+	trimmed := strings.TrimSpace(summary)
+	if trimmed == "" || !strings.HasPrefix(trimmed, "{") {
+		return llm.CompactionItem{}, false
+	}
+	var payload struct {
+		Type             string `json:"type"`
+		ID               string `json:"id,omitempty"`
+		EncryptedContent string `json:"encrypted_content"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return llm.CompactionItem{}, false
+	}
+	if payload.Type != compactionSummaryType || strings.TrimSpace(payload.EncryptedContent) == "" {
+		return llm.CompactionItem{}, false
+	}
+	return llm.CompactionItem{ID: payload.ID, EncryptedContent: payload.EncryptedContent}, true
+}
+
+func encodeCompactionSummary(item llm.CompactionItem) string {
+	payload := struct {
+		Type             string `json:"type"`
+		ID               string `json:"id,omitempty"`
+		EncryptedContent string `json:"encrypted_content"`
+	}{
+		Type:             compactionSummaryType,
+		ID:               item.ID,
+		EncryptedContent: item.EncryptedContent,
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }

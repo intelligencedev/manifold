@@ -38,6 +38,57 @@ func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	}
 }
 
+func TestCompactResponses(t *testing.T) {
+	var gotModel string
+	var gotInput []any
+
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/responses/compact" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if v, ok := payload["model"].(string); ok {
+			gotModel = v
+		}
+		if v, ok := payload["input"].([]any); ok {
+			gotInput = v
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"cmp_1","object":"response.compaction","created_at":1,"output":[{"type":"compaction","id":"c1","encrypted_content":"enc"}]}`))
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "responses"}
+	cli := New(c, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	item, err := cli.Compact(ctx, []llm.Message{{Role: "user", Content: "hello"}}, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if item.EncryptedContent != "enc" {
+		t.Fatalf("expected encrypted content, got %q", item.EncryptedContent)
+	}
+	if gotModel != "m" {
+		t.Fatalf("expected model m, got %q", gotModel)
+	}
+	if len(gotInput) != 1 {
+		t.Fatalf("expected 1 input item, got %d", len(gotInput))
+	}
+	first, ok := gotInput[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected input object, got %#v", gotInput[0])
+	}
+	if first["role"] != "user" {
+		t.Fatalf("expected user role, got %#v", first["role"])
+	}
+}
+
 func TestFirstNonEmpty(t *testing.T) {
 	if firstNonEmpty("", "a", "b") != "a" {
 		t.Fatalf("unexpected firstNonEmpty")

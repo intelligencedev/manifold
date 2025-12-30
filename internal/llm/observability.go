@@ -445,8 +445,13 @@ func recordTrace(rec traceRecord) {
 	}
 	traceRecords = traceRecords[:writeIdx]
 
+	// Sort to maintain oldest-first order (required by TracesForWindow)
+	sort.Slice(traceRecords, func(i, j int) bool {
+		return traceRecords[i].recordedAt.Before(traceRecords[j].recordedAt)
+	})
+
 	if len(traceRecords) > maxTraceEntries {
-		traceRecords = append([]traceRecord(nil), traceRecords[len(traceRecords)-maxTraceEntries:]...)
+		traceRecords = traceRecords[:maxTraceEntries]
 	}
 }
 

@@ -2,6 +2,8 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,38 @@ func (s *stubLLM) Chat(ctx context.Context, msgs []llm.Message, tools []llm.Tool
 }
 
 func (s *stubLLM) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	return nil
+}
+
+type stubCompactor struct {
+	item  llm.CompactionItem
+	calls int
+}
+
+func (s *stubCompactor) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	return llm.Message{Role: "assistant", Content: "unused"}, nil
+}
+
+func (s *stubCompactor) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	return nil
+}
+
+func (s *stubCompactor) Compact(ctx context.Context, msgs []llm.Message, model string, previous *llm.CompactionItem) (*llm.CompactionItem, error) {
+	s.calls++
+	return &s.item, nil
+}
+
+type recordingLLM struct {
+	response string
+	lastMsgs []llm.Message
+}
+
+func (r *recordingLLM) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	r.lastMsgs = append([]llm.Message(nil), msgs...)
+	return llm.Message{Role: "assistant", Content: r.response}, nil
+}
+
+func (r *recordingLLM) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
 	return nil
 }
 
@@ -172,5 +206,115 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 	}
 	if session.SummarizedCount != 4 {
 		t.Fatalf("expected summarized count 4, got %d", session.SummarizedCount)
+	}
+}
+
+func TestManagerBuildContextWithCompaction(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+
+	if _, err := store.EnsureSession(ctx, nil, "sess", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		messages := []persistence.ChatMessage{
+			{Role: "user", Content: "u", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
+			{Role: "assistant", Content: "a", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
+		}
+		if err := store.AppendMessages(ctx, nil, "sess", messages, "a", "model"); err != nil {
+			t.Fatalf("AppendMessages: %v", err)
+		}
+	}
+
+	compactor := &stubCompactor{item: llm.CompactionItem{EncryptedContent: "enc"}}
+	manager := NewManager(store, compactor, Config{
+		Enabled:                true,
+		Threshold:              4,
+		KeepLast:               2,
+		SummaryModel:           "stub",
+		UseResponsesCompaction: true,
+	})
+
+	history, err := manager.BuildContext(ctx, nil, "sess")
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if len(history) != 3 {
+		t.Fatalf("expected 3 messages (compaction + 2 turns), got %d", len(history))
+	}
+	if history[0].Compaction == nil || history[0].Compaction.EncryptedContent != "enc" {
+		t.Fatalf("expected compaction item in history, got %#v", history[0])
+	}
+
+	session, err := store.GetSession(ctx, nil, "sess")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.Summary == "" {
+		t.Fatalf("expected summary to be stored")
+	}
+	if session.SummarizedCount != 4 {
+		t.Fatalf("expected summarized count 4, got %d", session.SummarizedCount)
+	}
+	if compactor.calls == 0 {
+		t.Fatalf("expected compaction provider to be called")
+	}
+}
+
+func TestSummarizeChunkFormatsToolMessages(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+	recorder := &recordingLLM{response: "summary"}
+	manager := NewManager(store, recorder, Config{
+		Enabled:                true,
+		SummaryModel:           "stub",
+		MaxSummaryChunkTokens:  40,
+		UseResponsesCompaction: false,
+	})
+
+	assistantPayload := map[string]any{
+		"content": "assistant message",
+		"tool_calls": []llm.ToolCall{
+			{Name: "run_cli", Args: json.RawMessage(`{"cmd":"ls -la"}`), ID: "call_1"},
+		},
+	}
+	assistantRaw, err := json.Marshal(assistantPayload)
+	if err != nil {
+		t.Fatalf("marshal assistant payload: %v", err)
+	}
+
+	toolPayload := map[string]any{
+		"content": strings.Repeat("A", 30) + "MIDDLE" + strings.Repeat("B", 30),
+		"tool_id": "call_1",
+	}
+	toolRaw, err := json.Marshal(toolPayload)
+	if err != nil {
+		t.Fatalf("marshal tool payload: %v", err)
+	}
+
+	_, err = manager.summarizeChunk(ctx, "", []persistence.ChatMessage{
+		{Role: "assistant", Content: string(assistantRaw)},
+		{Role: "tool", Content: string(toolRaw)},
+	})
+	if err != nil {
+		t.Fatalf("summarizeChunk: %v", err)
+	}
+	if len(recorder.lastMsgs) < 2 {
+		t.Fatalf("expected summarizer prompt messages, got %d", len(recorder.lastMsgs))
+	}
+	prompt := recorder.lastMsgs[1].Content
+	if !strings.Contains(prompt, "Tool calls: run_cli") {
+		t.Fatalf("expected tool call summary in prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "Tool ID: call_1") {
+		t.Fatalf("expected tool id in prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "[TRUNCATED]") {
+		t.Fatalf("expected truncation marker in prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "AAAAA") || !strings.Contains(prompt, "BBBBB") {
+		t.Fatalf("expected head and tail content in prompt, got %q", prompt)
 	}
 }

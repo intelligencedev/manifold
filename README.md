@@ -38,6 +38,27 @@ Manifold implements internal tools for agent workflows as well as MCP support to
 
 ![specialists](docs/img/manifold_mcp.jpg)
 
+### Skills (SKILL.md)
+
+Manifold supports a lightweight "skills" mechanism for discoverable, reusable workflows.
+
+- Create skills under your repo at: `.manifold/skills/<skill-name>/SKILL.md`
+- The agent surfaces available skills in its system prompt as a `## Skills` section
+  (name + description + file path) so the model can decide which to use.
+- Only skill *metadata* is injected; the model should open the listed `SKILL.md` on-demand
+  (progressive disclosure) rather than loading all skill bodies up front.
+
+`SKILL.md` must start with YAML frontmatter:
+
+```yaml
+---
+name: my-skill
+description: One sentence describing what this skill does.
+metadata:
+  short-description: Optional shorter description for listings.
+---
+```
+
 ### **Workflow Editor**
 Design agent workflows using a visual flow editor.
 

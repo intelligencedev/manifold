@@ -1855,6 +1855,7 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 
 	var sys []string
 	assistantIndex := 0
+	toolIndex := 0
 	for _, m := range msgs {
 		switch m.Role {
 		case "system":
@@ -1876,7 +1877,7 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 			if content == "" {
 				continue
 			}
-			msgID := fmt.Sprintf("assistant_%d", assistantIndex)
+			msgID := fmt.Sprintf("msg_%d", assistantIndex+1)
 			assistantIndex++
 			text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
 			contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
@@ -1886,7 +1887,12 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 			if out == "" {
 				out = "{}"
 			}
-			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(m.ToolID, out))
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				toolIndex++
+				toolID = fmt.Sprintf("call_%d", toolIndex)
+			}
+			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 		}
 	}
 

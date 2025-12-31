@@ -614,6 +614,37 @@ func truncateForSummary(content string, limit int) string {
 	return string(runes[:head]) + string(markerRunes) + string(runes[len(runes)-tail:])
 }
 
+func decodePersistedChatMessage(msg persistence.ChatMessage) llm.Message {
+	raw := strings.TrimSpace(msg.Content)
+	if msg.Role == "assistant" && strings.HasPrefix(raw, "{") {
+		var data struct {
+			Content   string         `json:"content"`
+			ToolCalls []llm.ToolCall `json:"tool_calls"`
+		}
+		if err := json.Unmarshal([]byte(raw), &data); err == nil && len(data.ToolCalls) > 0 {
+			return llm.Message{
+				Role:      msg.Role,
+				Content:   strings.TrimSpace(data.Content),
+				ToolCalls: data.ToolCalls,
+			}
+		}
+	}
+	if msg.Role == "tool" && strings.HasPrefix(raw, "{") {
+		var data struct {
+			Content string `json:"content"`
+			ToolID  string `json:"tool_id"`
+		}
+		if err := json.Unmarshal([]byte(raw), &data); err == nil {
+			return llm.Message{
+				Role:    msg.Role,
+				Content: strings.TrimSpace(data.Content),
+				ToolID:  strings.TrimSpace(data.ToolID),
+			}
+		}
+	}
+	return llm.Message{Role: msg.Role, Content: msg.Content}
+}
+
 func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chunk []persistence.ChatMessage) (string, error) {
 	compactor, ok := m.summary.(llm.CompactionProvider)
 	if !ok {
@@ -631,7 +662,7 @@ func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chun
 		msgs = append(msgs, llm.Message{Role: "assistant", Content: strings.TrimSpace(existingSummary)})
 	}
 	for _, msg := range chunk {
-		msgs = append(msgs, llm.Message{Role: msg.Role, Content: msg.Content})
+		msgs = append(msgs, decodePersistedChatMessage(msg))
 	}
 
 	item, err := compactor.Compact(ctx, msgs, m.summaryModel, prev)

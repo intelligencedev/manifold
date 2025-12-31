@@ -2,7 +2,11 @@ package prompts
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"manifold/internal/skills"
 )
 
 const memoryInstructions = `
@@ -118,16 +122,51 @@ Be cautious with destructive operations. If a command could modify files, consid
 	if strings.TrimSpace(wd) == "" {
 		wd = "."
 	}
-	// Attempt to read AGENTS.md in the workdir and append its contents if present.
-	// To avoid sending unnecessary context, we will comment this out.
-	// A specialist can be instructed to check for this file in its custom system prompt if needed.
-	// agentsPath := filepath.Join(wd, "AGENTS.md")
-	// if data, err := os.ReadFile(agentsPath); err == nil {
-	// 	trimmed := strings.TrimSpace(string(data))
-	// 	if trimmed != "" {
-	// 		base = base + "\n\n" + "Additional agent instructions (from AGENTS.md):\n" + trimmed
-	// 	}
-	// }
+
+	// Append skills discovery section so the model can see available SKILL.md entries.
+	if skillsSection := renderSkillsSection(wd); skillsSection != "" {
+		base = base + "\n\n" + skillsSection
+	}
+
 	// Always append memory instructions at the end
 	return EnsureMemoryInstructions(base)
+}
+
+// renderSkillsSection builds a markdown "## Skills" section from SKILL.md files discovered
+// under .manifold/skills (repo, user, admin precedence). Only metadata is injected to keep context small.
+func renderSkillsSection(workdir string) string {
+	loader := skills.Loader{
+		Workdir:  workdir,
+		UserDir:  filepath.Join(userHomeDir(), ".manifold", "skills"),
+		AdminDir: filepath.Join(string(filepath.Separator), "etc", "codex", "skills"),
+	}
+	outcome := loader.Load()
+	if len(outcome.Skills) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Skills\n")
+	b.WriteString("These skills are discovered from local .manifold/skills folders. Each entry includes a name, description, and file path.\n")
+	for _, s := range outcome.Skills {
+		desc := s.Description
+		if strings.TrimSpace(s.ShortDescription) != "" {
+			desc = s.ShortDescription
+		}
+		fmt.Fprintf(&b, "- %s: %s (file: %s)\n", s.Name, desc, s.Path)
+	}
+
+	b.WriteString("- Trigger rules: If the user names a skill (with $skill-name or plain text) OR the task matches a skill description, use it for that turn. Multiple mentions mean use them all.\n")
+	b.WriteString("- Progressive disclosure: After selecting a skill, open its SKILL.md; load additional files (references/, scripts/, assets/) only as needed.\n")
+	b.WriteString("- Missing/blocked: If a named skill path cannot be read, say so briefly and continue with a fallback.\n")
+	b.WriteString("- Context hygiene: Keep context small—summarize long files, avoid bulk-loading references, and only load variant-specific files when relevant.\n")
+	return b.String()
+}
+
+// userHomeDir returns the user's home directory; falls back to current dir on error.
+func userHomeDir() string {
+	if h, err := os.UserHomeDir(); err == nil {
+		return h
+	}
+	return "."
 }

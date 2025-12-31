@@ -41,6 +41,8 @@ func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 func TestCompactResponses(t *testing.T) {
 	var gotModel string
 	var gotInput []any
+	var gotAssistantID string
+	var gotToolCallID string
 
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/responses/compact" {
@@ -55,6 +57,24 @@ func TestCompactResponses(t *testing.T) {
 		}
 		if v, ok := payload["input"].([]any); ok {
 			gotInput = v
+			for _, item := range v {
+				obj, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				typ, _ := obj["type"].(string)
+				role, _ := obj["role"].(string)
+				if gotAssistantID == "" && (typ == "message" || role == "assistant") {
+					if id, ok := obj["id"].(string); ok && id != "" {
+						gotAssistantID = id
+					}
+				}
+				if gotToolCallID == "" && (typ == "function_call_output" || obj["call_id"] != nil) {
+					if callID, ok := obj["call_id"].(string); ok && callID != "" {
+						gotToolCallID = callID
+					}
+				}
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"cmp_1","object":"response.compaction","created_at":1,"output":[{"type":"compaction","id":"c1","encrypted_content":"enc"}]}`))
@@ -67,7 +87,11 @@ func TestCompactResponses(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	item, err := cli.Compact(ctx, []llm.Message{{Role: "user", Content: "hello"}}, "", nil)
+	item, err := cli.Compact(ctx, []llm.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "hi there"},
+		{Role: "tool", Content: "result"},
+	}, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,8 +101,8 @@ func TestCompactResponses(t *testing.T) {
 	if gotModel != "m" {
 		t.Fatalf("expected model m, got %q", gotModel)
 	}
-	if len(gotInput) != 1 {
-		t.Fatalf("expected 1 input item, got %d", len(gotInput))
+	if len(gotInput) != 3 {
+		t.Fatalf("expected 3 input items, got %d", len(gotInput))
 	}
 	first, ok := gotInput[0].(map[string]any)
 	if !ok {
@@ -86,6 +110,18 @@ func TestCompactResponses(t *testing.T) {
 	}
 	if first["role"] != "user" {
 		t.Fatalf("expected user role, got %#v", first["role"])
+	}
+	if gotAssistantID == "" {
+		t.Fatalf("expected assistant id in compaction input")
+	}
+	if !strings.HasPrefix(gotAssistantID, "msg_") {
+		t.Fatalf("expected assistant id to start with msg_, got %q", gotAssistantID)
+	}
+	if gotToolCallID == "" {
+		t.Fatalf("expected tool call id in compaction input")
+	}
+	if !strings.HasPrefix(gotToolCallID, "call_") {
+		t.Fatalf("expected tool call id to start with call_, got %q", gotToolCallID)
 	}
 }
 

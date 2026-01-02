@@ -13,11 +13,10 @@ import (
 
 // agentdSettings mirrors the frontend AgentdSettings shape.
 type agentdSettings struct {
-	OpenAISummaryModel string `json:"openaiSummaryModel"`
-	OpenAISummaryURL   string `json:"openaiSummaryUrl"`
-	SummaryEnabled     bool   `json:"summaryEnabled"`
-	SummaryThreshold   int    `json:"summaryThreshold"`
-	SummaryKeepLast    int    `json:"summaryKeepLast"`
+	OpenAISummaryModel         string `json:"openaiSummaryModel"`
+	OpenAISummaryURL           string `json:"openaiSummaryUrl"`
+	SummaryEnabled             bool   `json:"summaryEnabled"`
+	SummaryReserveBufferTokens int    `json:"summaryReserveBufferTokens"`
 
 	EmbedBaseURL    string            `json:"embedBaseUrl"`
 	EmbedModel      string            `json:"embedModel"`
@@ -88,11 +87,10 @@ func (a *app) handleGetAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s := agentdSettings{
-		OpenAISummaryModel: a.cfg.OpenAI.SummaryModel,
-		OpenAISummaryURL:   a.cfg.OpenAI.SummaryBaseURL,
-		SummaryEnabled:     a.cfg.SummaryEnabled,
-		SummaryThreshold:   a.cfg.SummaryThreshold,
-		SummaryKeepLast:    a.cfg.SummaryKeepLast,
+		OpenAISummaryModel:         a.cfg.OpenAI.SummaryModel,
+		OpenAISummaryURL:           a.cfg.OpenAI.SummaryBaseURL,
+		SummaryEnabled:             a.cfg.SummaryEnabled,
+		SummaryReserveBufferTokens: a.cfg.SummaryReserveBufferTokens,
 
 		EmbedBaseURL:    a.cfg.Embedding.BaseURL,
 		EmbedModel:      a.cfg.Embedding.Model,
@@ -164,11 +162,8 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		a.cfg.OpenAI.SummaryBaseURL = payload.OpenAISummaryURL
 	}
 	a.cfg.SummaryEnabled = payload.SummaryEnabled
-	if payload.SummaryThreshold != 0 {
-		a.cfg.SummaryThreshold = payload.SummaryThreshold
-	}
-	if payload.SummaryKeepLast != 0 {
-		a.cfg.SummaryKeepLast = payload.SummaryKeepLast
+	if payload.SummaryReserveBufferTokens != 0 {
+		a.cfg.SummaryReserveBufferTokens = payload.SummaryReserveBufferTokens
 	}
 
 	if payload.EmbedBaseURL != "" {
@@ -331,11 +326,8 @@ func persistToDotEnv(s agentdSettings) error {
 	set("OPENAI_SUMMARY_MODEL", s.OpenAISummaryModel)
 	set("OPENAI_SUMMARY_URL", s.OpenAISummaryURL)
 	set("SUMMARY_ENABLED", fmtBool(s.SummaryEnabled))
-	if s.SummaryThreshold != 0 {
-		set("SUMMARY_THRESHOLD", fmtInt(s.SummaryThreshold))
-	}
-	if s.SummaryKeepLast != 0 {
-		set("SUMMARY_KEEP_LAST", fmtInt(s.SummaryKeepLast))
+	if s.SummaryReserveBufferTokens != 0 {
+		set("SUMMARY_RESERVE_BUFFER_TOKENS", fmtInt(s.SummaryReserveBufferTokens))
 	}
 
 	set("EMBED_BASE_URL", s.EmbedBaseURL)

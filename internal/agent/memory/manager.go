@@ -13,35 +13,37 @@ import (
 )
 
 const (
-	defaultThreshold      = 40
-	defaultKeepLast       = 12
+	defaultReserveBuffer  = 25000
 	maxSummarizeChunkSize = 4096
 	compactionSummaryType = "compaction"
 )
 
-// MemoryMode controls how chat history is summarized.
-type MemoryMode string
-
-const (
-	MemoryModeFixed MemoryMode = "fixed"
-	MemoryModeAuto  MemoryMode = "auto"
-)
+// SummaryResult contains metadata about summarization that occurred during BuildContext.
+// Callers can use this to notify users (e.g., via SSE events) when summarization happens.
+type SummaryResult struct {
+	// Triggered is true if summarization occurred during this BuildContext call.
+	Triggered bool
+	// EstimatedTokens is the estimated token count that triggered summarization.
+	EstimatedTokens int
+	// TokenBudget is the available token budget.
+	TokenBudget int
+	// MessageCount is the total number of messages before summarization.
+	MessageCount int
+	// SummarizedCount is the number of messages that were summarized.
+	SummarizedCount int
+}
 
 // Config tunes how chat history should be summarized before being sent to the LLM.
-//
-// In fixed mode, Threshold/KeepLast behave as before. In auto mode, the manager
-// attempts to size the history based on the model's context window.
+// All summarization is now token-based using a reserve buffer pattern.
 type Config struct {
-	Enabled   bool       `yaml:"enabled" json:"enabled"`
-	Mode      MemoryMode `yaml:"mode" json:"mode"`
-	Threshold int        `yaml:"threshold" json:"threshold"`
-	KeepLast  int        `yaml:"keepLast" json:"keepLast"`
+	Enabled bool `yaml:"enabled" json:"enabled"`
 
-	// Auto‑mode fields
-	TargetUtilizationPct  float64 `yaml:"targetUtilizationPct" json:"targetUtilizationPct"`
-	MinKeepLastMessages   int     `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
-	MaxSummaryChunkTokens int     `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
-	// ContextWindowTokens can be pre‑computed by the caller; if 0, ContextSize
+	// ReserveBufferTokens reserves tokens for output (including reasoning tokens
+	// for reasoning models). OpenAI recommends ~25,000 for reasoning models.
+	ReserveBufferTokens   int `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
+	MinKeepLastMessages   int `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
+	MaxSummaryChunkTokens int `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	// ContextWindowTokens can be pre-computed by the caller; if 0, ContextSize
 	// is used as a fallback.
 	ContextWindowTokens int `yaml:"contextWindowTokens" json:"contextWindowTokens"`
 
@@ -58,13 +60,9 @@ type Manager struct {
 	summaryModel string
 
 	enabled bool
-	mode    MemoryMode
 
-	threshold int
-	keepLast  int
-
-	// auto‑mode fields
-	targetUtilizationPct   float64
+	// Token-based summarization fields
+	reserveBufferTokens    int
 	minKeepLastMessages    int
 	maxSummaryChunkTokens  int
 	contextWindowTokens    int
@@ -73,16 +71,12 @@ type Manager struct {
 
 // Introspection helpers used by debug/observability surfaces.
 
-// Mode returns the current memory mode (fixed or auto).
-func (m *Manager) Mode() MemoryMode { return m.mode }
-
 // ContextWindowTokens returns the approximate context window size (in tokens)
-// used for auto-mode budgeting.
+// used for token budgeting.
 func (m *Manager) ContextWindowTokens() int { return m.contextWindowTokens }
 
-// TargetUtilizationPct returns the target fraction of the context window the
-// manager aims to occupy with conversation history.
-func (m *Manager) TargetUtilizationPct() float64 { return m.targetUtilizationPct }
+// ReserveBufferTokens returns the reserve buffer for output tokens.
+func (m *Manager) ReserveBufferTokens() int { return m.reserveBufferTokens }
 
 // MinKeepLastMessages returns the minimum number of tail messages preserved
 // in raw form when summarizing.
@@ -99,26 +93,14 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 		summary:                provider,
 		summaryModel:           cfg.SummaryModel,
 		enabled:                cfg.Enabled && provider != nil,
-		mode:                   cfg.Mode,
-		threshold:              cfg.Threshold,
-		keepLast:               cfg.KeepLast,
-		targetUtilizationPct:   cfg.TargetUtilizationPct,
+		reserveBufferTokens:    cfg.ReserveBufferTokens,
 		minKeepLastMessages:    cfg.MinKeepLastMessages,
 		maxSummaryChunkTokens:  cfg.MaxSummaryChunkTokens,
 		contextWindowTokens:    cfg.ContextWindowTokens,
 		useResponsesCompaction: cfg.UseResponsesCompaction,
 	}
-	if m.threshold <= 0 {
-		m.threshold = defaultThreshold
-	}
-	if m.keepLast <= 0 {
-		m.keepLast = defaultKeepLast
-	}
-	if m.mode == "" {
-		m.mode = MemoryModeFixed
-	}
-	if m.targetUtilizationPct <= 0 || m.targetUtilizationPct > 1 {
-		m.targetUtilizationPct = 0.7
+	if m.reserveBufferTokens <= 0 {
+		m.reserveBufferTokens = defaultReserveBuffer
 	}
 	if m.minKeepLastMessages <= 0 {
 		m.minKeepLastMessages = 4
@@ -136,10 +118,11 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 
 // BuildContext assembles the conversation history that should be sent to the orchestrator
 // by combining a persisted summary (if any) with the most recent chat turns.
-func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID string) ([]llm.Message, error) {
+// Returns the messages and a SummaryResult indicating if summarization was triggered.
+func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID string) ([]llm.Message, *SummaryResult, error) {
 	log := observability.LoggerWithTrace(ctx)
 	if sessionID == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	messages, err := m.store.ListMessages(ctx, userID, sessionID, 0)
@@ -147,7 +130,7 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 		if errors.Is(err, persistence.ErrNotFound) {
 			messages = nil
 		} else {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	log.Info().Str("session_id", sessionID).Int("messages_count", len(messages)).Msg("build_context_list_messages")
@@ -158,78 +141,75 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 			// Session is guaranteed to exist via ensureChatSession but guard anyway.
 			session = persistence.ChatSession{ID: sessionID}
 		} else {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	summary := session.Summary
 	summarizedCount := session.SummarizedCount
+	var summaryResult *SummaryResult
 
 	if m.enabled {
-		updatedSummary, updatedCount := m.ensureSummary(ctx, userID, session, messages)
+		updatedSummary, updatedCount, result := m.ensureSummary(ctx, userID, session, messages)
 		if updatedSummary != "" || updatedCount != summarizedCount {
 			summary = updatedSummary
 			summarizedCount = updatedCount
+		}
+		if result != nil && result.Triggered {
+			summaryResult = result
 		}
 	}
 
 	total := len(messages)
 	tailStart := 0
 	if m.enabled {
-		if m.mode == MemoryModeAuto {
-			// In auto mode, choose the tail based on an approximate token budget
-			// rather than a fixed message count.
-			ctxSize := m.contextWindowTokens
-			if ctxSize <= 0 {
-				ctxSize = 32_000
-			}
-			budget := int(float64(ctxSize) * m.targetUtilizationPct)
-			if budget <= 0 {
-				budget = ctxSize / 2
-			}
+		// Token-based approach: choose the tail based on available token budget
+		// (context window minus reserve buffer).
+		ctxSize := m.contextWindowTokens
+		if ctxSize <= 0 {
+			ctxSize = 128_000 // Conservative default for modern models
+		}
+		reserveBuffer := m.reserveBufferTokens
+		if reserveBuffer <= 0 {
+			reserveBuffer = defaultReserveBuffer
+		}
+		budget := ctxSize - reserveBuffer
+		if budget <= 0 {
+			budget = ctxSize / 2
+		}
 
-			// Reserve roughly half the budget for the tail; the rest is for
-			// system prompts, tools, and the summary itself.
-			tailBudget := budget / 2
-			if tailBudget <= 0 {
-				tailBudget = budget
-			}
+		// Reserve roughly half the budget for the tail; the rest is for
+		// system prompts, tools, and the summary itself.
+		tailBudget := budget / 2
+		if tailBudget <= 0 {
+			tailBudget = budget
+		}
 
-			minTail := m.minKeepLastMessages
-			if minTail <= 0 {
-				minTail = 4
-			}
+		minTail := m.minKeepLastMessages
+		if minTail <= 0 {
+			minTail = 4
+		}
 
-			remaining := tailBudget
-			kept := 0
-			tailStart = total
-			for i := total - 1; i >= 0; i-- {
-				msgTokens := len([]rune(strings.TrimSpace(messages[i].Content)))/4 + 1
-				if kept >= minTail && remaining-msgTokens <= 0 {
-					break
-				}
-				remaining -= msgTokens
-				kept++
-				tailStart = i
-				if remaining <= 0 {
-					break
-				}
+		remaining := tailBudget
+		kept := 0
+		tailStart = total
+		for i := total - 1; i >= 0; i-- {
+			msgTokens := len([]rune(strings.TrimSpace(messages[i].Content)))/4 + 1
+			if kept >= minTail && remaining-msgTokens <= 0 {
+				break
 			}
-			// Never include messages that have already been summarized.
-			if tailStart < summarizedCount {
-				tailStart = summarizedCount
-			}
-		} else {
-			// Fixed mode: original behavior based on KeepLast.
-			minTail := total - m.keepLast
-			if minTail < 0 {
-				minTail = 0
-			}
-			tailStart = summarizedCount
-			if tailStart < minTail {
-				tailStart = minTail
+			remaining -= msgTokens
+			kept++
+			tailStart = i
+			if remaining <= 0 {
+				break
 			}
 		}
+		// Never include messages that have already been summarized.
+		if tailStart < summarizedCount {
+			tailStart = summarizedCount
+		}
+
 		// If summarization failed we fall back to sending the full history.
 		if summary == "" && summarizedCount > 0 {
 			tailStart = 0
@@ -294,66 +274,21 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 		// Fallback: plain message
 		history = append(history, llm.Message{Role: msg.Role, Content: msg.Content})
 	}
-	return history, nil
+	return history, summaryResult, nil
 }
 
-func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session persistence.ChatSession, messages []persistence.ChatMessage) (string, int) {
+func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session persistence.ChatSession, messages []persistence.ChatMessage) (string, int, *SummaryResult) {
 	if !m.enabled || m.summary == nil {
-		return session.Summary, session.SummarizedCount
+		return session.Summary, session.SummarizedCount, nil
 	}
 
 	total := len(messages)
 	if total == 0 {
-		return session.Summary, session.SummarizedCount
+		return session.Summary, session.SummarizedCount, nil
 	}
 
-	// Fixed mode preserves historical behavior based on message counts.
-	if m.mode == MemoryModeFixed {
-		if total <= m.threshold {
-			return session.Summary, session.SummarizedCount
-		}
-
-		target := total - m.keepLast
-		if target <= 0 {
-			return session.Summary, session.SummarizedCount
-		}
-
-		summarizedCount := session.SummarizedCount
-		if summarizedCount > target {
-			summarizedCount = target
-		}
-
-		if summarizedCount == target {
-			return session.Summary, summarizedCount
-		}
-
-		start := summarizedCount
-		if start < 0 || start > target {
-			start = 0
-		}
-
-		chunk := messages[start:target]
-		if len(chunk) == 0 {
-			return session.Summary, summarizedCount
-		}
-
-		summary, err := m.summarizeChunk(ctx, session.Summary, chunk)
-		if err != nil {
-			observability.LoggerWithTrace(ctx).Error().Err(err).Str("session", session.ID).Msg("chat_summary_failed")
-			return session.Summary, summarizedCount
-		}
-
-		if err := m.store.UpdateSummary(ctx, userID, session.ID, summary, target); err != nil {
-			observability.LoggerWithTrace(ctx).Error().Err(err).Str("session", session.ID).Msg("chat_summary_persist_failed")
-			return session.Summary, summarizedCount
-		}
-
-		observability.LoggerWithTrace(ctx).Info().Str("session", session.ID).Int("messages", target).Msg("chat_summary_updated")
-		return summary, target
-	}
-
-	// Auto mode: estimate token usage and roll summary incrementally based on
-	// token budget rather than message counts.
+	// Token-based: estimate token usage and roll summary incrementally based on
+	// token budget (context window minus reserve buffer).
 	ctxSize := m.contextWindowTokens
 	if ctxSize <= 0 && m.summaryModel != "" {
 		if size, _ := llm.ContextSize(m.summaryModel); size > 0 {
@@ -361,10 +296,15 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		}
 	}
 	if ctxSize <= 0 {
-		ctxSize = 32_000
+		ctxSize = 128_000 // Conservative default for modern models
 	}
 
-	budget := int(float64(ctxSize) * m.targetUtilizationPct)
+	reserveBuffer := m.reserveBufferTokens
+	if reserveBuffer <= 0 {
+		reserveBuffer = defaultReserveBuffer
+	}
+
+	budget := ctxSize - reserveBuffer
 	if budget <= 0 {
 		budget = ctxSize / 2
 	}
@@ -374,7 +314,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		estimated += len([]rune(strings.TrimSpace(msg.Content)))/4 + 1
 	}
 	if estimated <= budget {
-		return session.Summary, session.SummarizedCount
+		return session.Summary, session.SummarizedCount, nil
 	}
 
 	// Decide how many early messages to include in the next summary chunk so we
@@ -384,12 +324,12 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		minTail = 4
 	}
 	if total <= minTail {
-		return session.Summary, session.SummarizedCount
+		return session.Summary, session.SummarizedCount, nil
 	}
 
 	target := total - minTail
 	if target <= 0 {
-		return session.Summary, session.SummarizedCount
+		return session.Summary, session.SummarizedCount, nil
 	}
 
 	summarizedCount := session.SummarizedCount
@@ -398,7 +338,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	}
 
 	if summarizedCount == target {
-		return session.Summary, summarizedCount
+		return session.Summary, summarizedCount, nil
 	}
 
 	start := summarizedCount
@@ -408,22 +348,43 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 
 	chunk := messages[start:target]
 	if len(chunk) == 0 {
-		return session.Summary, summarizedCount
+		return session.Summary, summarizedCount, nil
+	}
+
+	// Log summarization trigger with consistent format as Engine.maybeSummarize
+	log := observability.LoggerWithTrace(ctx)
+	log.Info().
+		Str("session", session.ID).
+		Int("messages", total).
+		Int("estimated_tokens", estimated).
+		Int("token_budget", budget).
+		Int("context_window", ctxSize).
+		Int("reserve_buffer", reserveBuffer).
+		Int("summarizing_count", len(chunk)).
+		Msg("summarization_triggered")
+
+	// Build result metadata for the caller to notify users
+	result := &SummaryResult{
+		Triggered:       true,
+		EstimatedTokens: estimated,
+		TokenBudget:     budget,
+		MessageCount:    total,
+		SummarizedCount: len(chunk),
 	}
 
 	summary, err := m.summarizeChunk(ctx, session.Summary, chunk)
 	if err != nil {
-		observability.LoggerWithTrace(ctx).Error().Err(err).Str("session", session.ID).Msg("chat_summary_failed")
-		return session.Summary, summarizedCount
+		log.Error().Err(err).Str("session", session.ID).Msg("chat_summary_failed")
+		return session.Summary, summarizedCount, result
 	}
 
 	if err := m.store.UpdateSummary(ctx, userID, session.ID, summary, target); err != nil {
-		observability.LoggerWithTrace(ctx).Error().Err(err).Str("session", session.ID).Msg("chat_summary_persist_failed")
-		return session.Summary, summarizedCount
+		log.Error().Err(err).Str("session", session.ID).Msg("chat_summary_persist_failed")
+		return session.Summary, summarizedCount, result
 	}
 
-	observability.LoggerWithTrace(ctx).Info().Str("session", session.ID).Int("messages", target).Msg("chat_summary_updated")
-	return summary, target
+	log.Info().Str("session", session.ID).Int("messages", target).Msg("chat_summary_updated")
+	return summary, target, result
 }
 
 func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, chunk []persistence.ChatMessage) (string, error) {

@@ -7,14 +7,17 @@ type Config struct {
 	Kafka KafkaConfig
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt string
-	// Rolling summarization config: enable and tuning knobs
-	SummaryEnabled               bool
-	SummaryThreshold             int
-	SummaryKeepLast              int
-	SummaryMode                  string  `yaml:"summaryMode" json:"summaryMode"`
-	SummaryTargetUtilizationPct  float64 `yaml:"summaryTargetUtilizationPct" json:"summaryTargetUtilizationPct"`
-	SummaryMinKeepLastMessages   int     `yaml:"summaryMinKeepLastMessages" json:"summaryMinKeepLastMessages"`
-	SummaryMaxSummaryChunkTokens int     `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
+	// Rolling summarization config: enable and tuning knobs (token-based only)
+	SummaryEnabled bool
+	// SummaryReserveBufferTokens is the number of tokens to reserve for model output
+	// (including reasoning tokens for reasoning models). OpenAI recommends ~25,000
+	// when experimenting with reasoning models. Default: 25000.
+	SummaryReserveBufferTokens int `yaml:"summaryReserveBufferTokens" json:"summaryReserveBufferTokens"`
+	// SummaryMinKeepLastMessages is the minimum number of recent messages to preserve
+	// in raw form, even if the token budget is small. Default: 4.
+	SummaryMinKeepLastMessages int `yaml:"summaryMinKeepLastMessages" json:"summaryMinKeepLastMessages"`
+	// SummaryMaxSummaryChunkTokens caps the size of the summary prompt in tokens.
+	SummaryMaxSummaryChunkTokens int `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
 	OutputTruncateByte           int
 	// Maximum number of reasoning steps the agent can take
 	MaxSteps int
@@ -71,6 +74,22 @@ type Config struct {
 	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
 	// Projects controls per-user projects service behavior.
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
+	// Tokenization configures accurate token counting for summarization.
+	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
+}
+
+// TokenizationConfig controls how tokens are counted for summarization decisions.
+type TokenizationConfig struct {
+	// Enabled activates accurate token counting using provider APIs when available.
+	// When false, falls back to heuristic (chars/4).
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// CacheSize is the maximum number of token counts to cache. Default: 1000.
+	CacheSize int `yaml:"cacheSize" json:"cacheSize"`
+	// CacheTTLSeconds is how long cached token counts remain valid. Default: 3600 (1 hour).
+	CacheTTLSeconds int `yaml:"cacheTTLSeconds" json:"cacheTTLSeconds"`
+	// FallbackToHeuristic allows falling back to heuristic on tokenization errors.
+	// Default: true.
+	FallbackToHeuristic bool `yaml:"fallbackToHeuristic" json:"fallbackToHeuristic"`
 }
 
 // KafkaConfig holds Kafka connectivity and topic defaults for orchestrator

@@ -59,6 +59,17 @@ specialists: []
 maxSteps: 1000                 # Maximum reasoning steps per agent run
 maxToolParallelism: 0          # Tool concurrency (0=unbounded, 1=sequential, >1=capped)
 
+# Chat summarization configuration (token-based only)
+# All summarization uses a reserve buffer pattern to protect output tokens
+summaryEnabled: true
+# Reserve buffer for output tokens (including reasoning tokens for reasoning models)
+# Standard chat: 8,000-16,000 | Reasoning models (o1/o3): ~25,000 | Code generation: 16,000-32,000
+summaryReserveBufferTokens: 25000
+# Minimum number of recent messages to keep in raw form when summarizing
+summaryMinKeepLastMessages: 4
+# Maximum tokens per summary chunk when building multi-turn summaries
+summaryMaxSummaryChunkTokens: 4096
+
 obs:
   serviceName: manifold
   environment: local

@@ -319,13 +319,11 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		Model:                        cfg.OpenAI.Model,
 		ContextWindowTokens:          ctxSize,
 		SummaryEnabled:               cfg.SummaryEnabled,
-		SummaryThreshold:             cfg.SummaryThreshold,
-		SummaryKeepLast:              cfg.SummaryKeepLast,
-		SummaryMode:                  cfg.SummaryMode,
-		SummaryTargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
+		SummaryReserveBufferTokens:   cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
 	}
+	app.engine.AttachTokenizer(llm, nil)
 
 	delegator := agenttools.NewDelegator(toolRegistry, specReg, cfg.Workdir, cfg.MaxSteps)
 	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
@@ -398,10 +396,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		strings.EqualFold(cfg.OpenAI.API, "responses")
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
 		Enabled:                cfg.SummaryEnabled,
-		Mode:                   memory.MemoryMode(cfg.SummaryMode),
-		Threshold:              cfg.SummaryThreshold,
-		KeepLast:               cfg.SummaryKeepLast,
-		TargetUtilizationPct:   cfg.SummaryTargetUtilizationPct,
+		ReserveBufferTokens:    cfg.SummaryReserveBufferTokens,
 		MinKeepLastMessages:    cfg.SummaryMinKeepLastMessages,
 		MaxSummaryChunkTokens:  cfg.SummaryMaxSummaryChunkTokens,
 		ContextWindowTokens:    summaryCtxSize,

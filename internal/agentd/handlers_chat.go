@@ -520,7 +520,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := a.chatMemory.BuildContext(r.Context(), userID, req.SessionID)
+		history, memorySummaryResult, err := a.chatMemory.BuildContext(r.Context(), userID, req.SessionID)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -633,6 +633,21 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				http.Error(w, "streaming not supported", http.StatusInternalServerError)
 				return
 			}
+
+			// If memory manager triggered summarization during BuildContext, emit event
+			if memorySummaryResult != nil && memorySummaryResult.Triggered {
+				payload := map[string]any{
+					"type":             "summary",
+					"input_tokens":     memorySummaryResult.EstimatedTokens,
+					"token_budget":     memorySummaryResult.TokenBudget,
+					"message_count":    memorySummaryResult.MessageCount,
+					"summarized_count": memorySummaryResult.SummarizedCount,
+				}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+
 			tracer := &agentStreamTracer{w: w, fl: fl}
 
 			seconds := a.cfg.StreamRunTimeoutSeconds
@@ -738,6 +753,18 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					fmt.Fprintf(w, "data: %s\n\n", b)
 					fl.Flush()
 				}
+			}
+			eng.OnSummaryTriggered = func(inputTokens, tokenBudget, messageCount, summarizedCount int) {
+				payload := map[string]any{
+					"type":             "summary",
+					"input_tokens":     inputTokens,
+					"token_budget":     tokenBudget,
+					"message_count":    messageCount,
+					"summarized_count": summarizedCount,
+				}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
 			}
 
 			res, err := eng.RunStream(ctx, req.Prompt, history)
@@ -899,7 +926,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := a.chatMemory.BuildContext(r.Context(), userID, req.SessionID)
+		history, _, err := a.chatMemory.BuildContext(r.Context(), userID, req.SessionID)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -1151,13 +1178,15 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	}
 
 	buildEngine := func() *agent.Engine {
-		return &agent.Engine{
+		eng := &agent.Engine{
 			LLM:      prov,
 			Tools:    toolReg,
 			MaxSteps: a.cfg.MaxSteps,
 			System:   prompts.EnsureMemoryInstructions(sp.System),
 			Model:    sp.Model,
 		}
+		eng.AttachTokenizer(prov, nil)
+		return eng
 	}
 
 	if r.Header.Get("Accept") == "text/event-stream" {

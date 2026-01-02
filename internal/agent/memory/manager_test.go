@@ -164,13 +164,14 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
+	// Use longer content to ensure proper token counting
 	turns := []struct {
 		user      string
 		assistant string
 	}{
-		{"u1", "a1"},
-		{"u2", "a2"},
-		{"u3", "a3"},
+		{"user message one with some content", "assistant message one with some content"},
+		{"user message two with some content", "assistant message two with some content"},
+		{"user message three with some content", "assistant message three with some content"},
 	}
 	for i, turn := range turns {
 		messages := []persistence.ChatMessage{
@@ -182,19 +183,31 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 		}
 	}
 
-	manager := NewManager(store, &stubLLM{response: "summary"}, Config{Enabled: true, Threshold: 4, KeepLast: 2, SummaryModel: "stub"})
-	history, err := manager.BuildContext(ctx, nil, "sess")
+	// With 6 messages at ~10 tokens each = ~60 tokens
+	// Context window = 50, reserve buffer = 5, budget = 45
+	// This should trigger summarization
+	manager := NewManager(store, &stubLLM{response: "summary"}, Config{
+		Enabled:             true,
+		ReserveBufferTokens: 5,
+		MinKeepLastMessages: 2,
+		ContextWindowTokens: 50, // Smaller than total tokens to trigger summarization
+		SummaryModel:        "stub",
+	})
+	history, summaryResult, err := manager.BuildContext(ctx, nil, "sess")
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
 	if len(history) != 3 {
-		t.Fatalf("expected 3 messages (summary + 2 turns), got %d", len(history))
+		t.Fatalf("expected 3 messages (summary + 2 turns), got %d: %+v", len(history), history)
 	}
 	if history[0].Role != "system" || history[0].Content == "" {
 		t.Fatalf("expected system summary message, got %#v", history[0])
 	}
-	if history[1].Content != "u3" || history[2].Content != "a3" {
+	if history[1].Content != "user message three with some content" || history[2].Content != "assistant message three with some content" {
 		t.Fatalf("unexpected tail messages: %#v", history[1:])
+	}
+	if summaryResult == nil || !summaryResult.Triggered {
+		t.Fatalf("expected summaryResult.Triggered to be true")
 	}
 
 	session, err := store.GetSession(ctx, nil, "sess")
@@ -218,10 +231,11 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
+	// Use longer content to ensure proper token counting
 	for i := 0; i < 3; i++ {
 		messages := []persistence.ChatMessage{
-			{Role: "user", Content: "u", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
-			{Role: "assistant", Content: "a", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
+			{Role: "user", Content: "user message with enough content to trigger summarization", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
+			{Role: "assistant", Content: "assistant message with enough content to trigger summarization", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
 		}
 		if err := store.AppendMessages(ctx, nil, "sess", messages, "a", "model"); err != nil {
 			t.Fatalf("AppendMessages: %v", err)
@@ -229,15 +243,19 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	}
 
 	compactor := &stubCompactor{item: llm.CompactionItem{EncryptedContent: "enc"}}
+	// With 6 messages at ~15 tokens each = ~90 tokens
+	// Context window = 50, reserve buffer = 5, budget = 45
+	// This should trigger summarization
 	manager := NewManager(store, compactor, Config{
 		Enabled:                true,
-		Threshold:              4,
-		KeepLast:               2,
+		ReserveBufferTokens:    5,
+		MinKeepLastMessages:    2,
+		ContextWindowTokens:    50, // Smaller than total tokens to trigger summarization
 		SummaryModel:           "stub",
 		UseResponsesCompaction: true,
 	})
 
-	history, err := manager.BuildContext(ctx, nil, "sess")
+	history, summaryResult, err := manager.BuildContext(ctx, nil, "sess")
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
@@ -246,6 +264,9 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	}
 	if history[0].Compaction == nil || history[0].Compaction.EncryptedContent != "enc" {
 		t.Fatalf("expected compaction item in history, got %#v", history[0])
+	}
+	if summaryResult == nil || !summaryResult.Triggered {
+		t.Fatalf("expected summaryResult.Triggered to be true")
 	}
 
 	session, err := store.GetSession(ctx, nil, "sess")

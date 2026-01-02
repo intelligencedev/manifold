@@ -144,27 +144,13 @@ func Load() (Config, error) {
 	cfg.TTS.Model = strings.TrimSpace(os.Getenv("TTS_MODEL"))
 	cfg.TTS.Voice = strings.TrimSpace(os.Getenv("TTS_VOICE"))
 
-	// Summary configuration via env
+	// Summary configuration via env (token-based only)
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_ENABLED")); v != "" {
 		cfg.SummaryEnabled = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
 	}
-	if v := strings.TrimSpace(os.Getenv("SUMMARY_THRESHOLD")); v != "" {
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_RESERVE_BUFFER_TOKENS")); v != "" {
 		if n, err := parseInt(v); err == nil {
-			cfg.SummaryThreshold = n
-		}
-	}
-	if v := strings.TrimSpace(os.Getenv("SUMMARY_KEEP_LAST")); v != "" {
-		if n, err := parseInt(v); err == nil {
-			cfg.SummaryKeepLast = n
-		}
-	}
-	if v := strings.TrimSpace(os.Getenv("SUMMARY_MODE")); v != "" {
-		cfg.SummaryMode = v
-	}
-	if v := strings.TrimSpace(os.Getenv("SUMMARY_TARGET_UTILIZATION_PCT")); v != "" {
-		if n, err := parseInt(v); err == nil {
-			// Interpret as percentage 0-100.
-			cfg.SummaryTargetUtilizationPct = float64(n) / 100.0
+			cfg.SummaryReserveBufferTokens = n
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_MIN_KEEP_LAST_MESSAGES")); v != "" {
@@ -399,6 +385,17 @@ func Load() (Config, error) {
 	if cfg.WorkflowTimeoutSeconds < 0 {
 		cfg.WorkflowTimeoutSeconds = 0
 	}
+
+	// Apply tokenization defaults
+	if cfg.Tokenization.CacheSize <= 0 {
+		cfg.Tokenization.CacheSize = 1000
+	}
+	if cfg.Tokenization.CacheTTLSeconds <= 0 {
+		cfg.Tokenization.CacheTTLSeconds = 3600 // 1 hour
+	}
+	// FallbackToHeuristic defaults to true (zero value is false, so we need explicit check)
+	// We leave it as-is since YAML/env can set it; default behavior is true when not configured.
+	// The consuming code should treat unset (false) as "use default true".
 
 	// Apply embedding defaults
 	if cfg.Embedding.BaseURL == "" {
@@ -715,25 +712,23 @@ func loadSpecialists(cfg *Config) error {
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
-		SystemPrompt     string             `yaml:"systemPrompt"`
-		Specialists      []SpecialistConfig `yaml:"specialists"`
-		Routes           []SpecialistRoute  `yaml:"routes"`
-		LLMClient        llmClientYAML      `yaml:"llm_client"`
-		OpenAI           openAIYAML         `yaml:"openai"`
-		Workdir          string             `yaml:"workdir"`
-		OutputTrunc      int                `yaml:"outputTruncateBytes"`
-		SummaryEnabled   bool               `yaml:"summaryEnabled"`
-		SummaryThreshold int                `yaml:"summaryThreshold"`
-		SummaryKeepLast  int                `yaml:"summaryKeepLast"`
-		Exec             execYAML           `yaml:"exec"`
-		Obs              obsYAML            `yaml:"obs"`
-		Web              webYAML            `yaml:"web"`
-		Databases        databasesYAML      `yaml:"databases"`
-		MCP              mcpYAML            `yaml:"mcp"`
-		Embedding        embeddingYAML      `yaml:"embedding"`
-		EvolvingMemory   evolvingMemoryYAML `yaml:"evolvingMemory"`
-		TTS              ttsYAML            `yaml:"tts"`
-		EnableTools      *bool              `yaml:"enableTools"`
+		SystemPrompt   string             `yaml:"systemPrompt"`
+		Specialists    []SpecialistConfig `yaml:"specialists"`
+		Routes         []SpecialistRoute  `yaml:"routes"`
+		LLMClient      llmClientYAML      `yaml:"llm_client"`
+		OpenAI         openAIYAML         `yaml:"openai"`
+		Workdir        string             `yaml:"workdir"`
+		OutputTrunc    int                `yaml:"outputTruncateBytes"`
+		SummaryEnabled bool               `yaml:"summaryEnabled"`
+		Exec           execYAML           `yaml:"exec"`
+		Obs            obsYAML            `yaml:"obs"`
+		Web            webYAML            `yaml:"web"`
+		Databases      databasesYAML      `yaml:"databases"`
+		MCP            mcpYAML            `yaml:"mcp"`
+		Embedding      embeddingYAML      `yaml:"embedding"`
+		EvolvingMemory evolvingMemoryYAML `yaml:"evolvingMemory"`
+		TTS            ttsYAML            `yaml:"tts"`
+		EnableTools    *bool              `yaml:"enableTools"`
 		// AllowTools is a top-level allow-list for tools exposed to the main agent.
 		// If present, it should map into cfg.ToolAllowList.
 		AllowTools []string `yaml:"allowTools"`
@@ -844,12 +839,6 @@ func loadSpecialists(cfg *Config) error {
 		// Summary config from YAML if not provided via env
 		if !cfg.SummaryEnabled && w.SummaryEnabled {
 			cfg.SummaryEnabled = true
-		}
-		if cfg.SummaryThreshold == 0 && w.SummaryThreshold > 0 {
-			cfg.SummaryThreshold = w.SummaryThreshold
-		}
-		if cfg.SummaryKeepLast == 0 && w.SummaryKeepLast > 0 {
-			cfg.SummaryKeepLast = w.SummaryKeepLast
 		}
 		if cfg.Exec.MaxCommandSeconds == 0 && w.Exec.MaxCommandSeconds > 0 {
 			cfg.Exec.MaxCommandSeconds = w.Exec.MaxCommandSeconds

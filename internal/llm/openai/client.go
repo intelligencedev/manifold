@@ -1898,3 +1898,18 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 
 	return items, strings.Join(sys, "\n\n")
 }
+
+// Tokenizer returns a ResponsesTokenizer for accurate token counting.
+// Returns nil if the client is not configured for the Responses API.
+func (c *Client) Tokenizer(cache *llm.TokenCache) llm.Tokenizer {
+	if c.api != "responses" {
+		return nil
+	}
+	return NewResponsesTokenizer(c, c.model, cache)
+}
+
+// SupportsTokenization returns true if the client supports the Responses API
+// input_tokens endpoint for accurate token counting.
+func (c *Client) SupportsTokenization() bool {
+	return c.api == "responses"
+}

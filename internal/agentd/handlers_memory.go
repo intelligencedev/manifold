@@ -15,16 +15,16 @@ import (
 // memoryPlanResponse exposes how chat memory is currently sizing history for a session.
 // It mirrors the heuristics in internal/agent/memory.Manager and Engine.maybeSummarize.
 type memoryPlanResponse struct {
-	Mode                   string  `json:"mode"`
-	ContextWindowTokens    int     `json:"contextWindowTokens"`
-	TargetUtilizationPct   float64 `json:"targetUtilizationPct"`
-	TailTokenBudget        int     `json:"tailTokenBudget"`
-	MinKeepLastMessages    int     `json:"minKeepLastMessages"`
-	MaxSummaryChunkTokens  int     `json:"maxSummaryChunkTokens"`
-	EstimatedHistoryTokens int     `json:"estimatedHistoryTokens"`
-	EstimatedTailTokens    int     `json:"estimatedTailTokens"`
-	TailStartIndex         int     `json:"tailStartIndex"`
-	TotalMessages          int     `json:"totalMessages"`
+	ContextWindowTokens    int `json:"contextWindowTokens"`
+	ReserveBufferTokens    int `json:"reserveBufferTokens"`
+	TokenBudget            int `json:"tokenBudget"`
+	TailTokenBudget        int `json:"tailTokenBudget"`
+	MinKeepLastMessages    int `json:"minKeepLastMessages"`
+	MaxSummaryChunkTokens  int `json:"maxSummaryChunkTokens"`
+	EstimatedHistoryTokens int `json:"estimatedHistoryTokens"`
+	EstimatedTailTokens    int `json:"estimatedTailTokens"`
+	TailStartIndex         int `json:"tailStartIndex"`
+	TotalMessages          int `json:"totalMessages"`
 }
 
 // debugMemorySessionResponse contains high-level memory state for a chat session.
@@ -158,7 +158,7 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Rebuild the LLM context for this session using the same logic as /agent/run
-	ctxMsgs, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
+	ctxMsgs, _, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -238,7 +238,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxMsgs, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
+	ctxMsgs, _, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -265,27 +265,27 @@ func (a *app) deriveMemoryPlan(sess any, msgs []llm.Message) memoryPlanResponse 
 		estTail += len([]rune(strings.TrimSpace(m.Content)))/4 + 1
 	}
 
-	mode := string(a.chatMemory.Mode())
-	if mode == "" {
-		mode = "fixed"
-	}
 	ctxTokens := a.chatMemory.ContextWindowTokens()
 	if ctxTokens <= 0 {
-		ctxTokens = 32_000
+		ctxTokens = 128_000
 	}
-	util := a.chatMemory.TargetUtilizationPct()
-	if util <= 0 || util > 1 {
-		util = 0.7
+	reserveBuffer := a.chatMemory.ReserveBufferTokens()
+	if reserveBuffer <= 0 {
+		reserveBuffer = 25_000
 	}
-	tailBudget := int(float64(ctxTokens) * util / 2)
+	tokenBudget := ctxTokens - reserveBuffer
+	if tokenBudget <= 0 {
+		tokenBudget = ctxTokens / 2
+	}
+	tailBudget := tokenBudget / 2
 	if tailBudget <= 0 {
-		tailBudget = ctxTokens / 2
+		tailBudget = tokenBudget
 	}
 
 	return memoryPlanResponse{
-		Mode:                   mode,
 		ContextWindowTokens:    ctxTokens,
-		TargetUtilizationPct:   util,
+		ReserveBufferTokens:    reserveBuffer,
+		TokenBudget:            tokenBudget,
 		TailTokenBudget:        tailBudget,
 		MinKeepLastMessages:    a.chatMemory.MinKeepLastMessages(),
 		MaxSummaryChunkTokens:  a.chatMemory.MaxSummaryChunkTokens(),

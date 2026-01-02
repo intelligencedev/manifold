@@ -180,6 +180,7 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 		toolsReg = tools.NewRegistry()
 	}
 	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: prompts.EnsureMemoryInstructions(system)}
+	eng.AttachTokenizer(prov, nil)
 	runCtx := ctx
 	if args.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc

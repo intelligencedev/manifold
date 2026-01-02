@@ -228,13 +228,12 @@ func main() {
 	systemPrompt = specReg.AppendToSystemPrompt(systemPrompt)
 
 	eng := agent.Engine{
-		LLM:              llm,
-		Tools:            registry,
-		MaxSteps:         *maxSteps,
-		System:           systemPrompt,
-		SummaryEnabled:   cfg.SummaryEnabled,
-		SummaryThreshold: cfg.SummaryThreshold,
-		SummaryKeepLast:  cfg.SummaryKeepLast,
+		LLM:                        llm,
+		Tools:                      registry,
+		MaxSteps:                   *maxSteps,
+		System:                     systemPrompt,
+		SummaryEnabled:             cfg.SummaryEnabled,
+		SummaryReserveBufferTokens: cfg.SummaryReserveBufferTokens,
 	}
 
 	// Honor the configured run timeout; 0 disables the deadline.

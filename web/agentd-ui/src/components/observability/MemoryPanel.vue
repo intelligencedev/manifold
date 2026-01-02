@@ -1,6 +1,6 @@
 <template>
-  <section class="ap-panel ap-hover flex flex-col gap-4 rounded-5 bg-surface p-4">
-    <header class="flex flex-wrap items-center justify-between gap-3">
+  <section class="ap-panel ap-hover flex h-full flex-col gap-4 rounded-5 bg-surface p-4">
+    <header class="flex flex-wrap items-center justify-between gap-3 shrink-0">
       <div>
         <h2 class="text-sm font-semibold text-foreground">Memory</h2>
         <p class="mt-0.5 text-xs text-subtle-foreground">
@@ -31,8 +31,9 @@
       </div>
     </header>
 
-    <div class="grid gap-4 md:grid-cols-2 min-h-0">
-      <div class="flex min-h-0 flex-col gap-2">
+    <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+      <!-- Chat Summary - full width, shrink-0 to maintain size -->
+      <div class="flex shrink-0 flex-col gap-2">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
           Chat summary
         </h3>
@@ -56,7 +57,7 @@
         </div>
         <div
           v-else-if="sessionDebug"
-          class="flex min-h-0 flex-col gap-3 rounded-4 border border-border bg-surface-muted/40 p-3 text-xs"
+          class="flex flex-col gap-3 rounded-4 border border-border bg-surface-muted/40 p-3 text-xs"
         >
           <p class="whitespace-pre-wrap text-foreground">
             {{ sessionDebug.summary || 'No summary yet.' }}
@@ -80,8 +81,9 @@
         </div>
       </div>
 
-      <div class="flex min-h-0 flex-col gap-2">
-        <h3 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
+      <!-- Evolving Memory - full width, flex-1 to expand and fill remaining space -->
+      <div class="flex min-h-0 flex-1 flex-col gap-2">
+        <h3 class="shrink-0 text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
           Evolving memory
         </h3>
         <div
@@ -104,23 +106,46 @@
         </div>
         <div
           v-else
-          class="flex min-h-0 flex-col gap-2 rounded-4 border border-border bg-surface-muted/40 p-3 text-xs"
+          class="flex min-h-0 flex-1 flex-col gap-2 rounded-4 border border-border bg-surface-muted/40 p-3 text-xs"
         >
-          <p class="text-faint-foreground">
+          <p class="shrink-0 text-faint-foreground">
             {{ evolvingDebug.totalEntries }} entries · window {{ evolvingDebug.windowSize }} · topK
             {{ evolvingDebug.topK }}
           </p>
-          <div class="max-h-56 space-y-2 overflow-y-auto pr-1">
+          <div class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             <div
               v-for="e in evolvingEntries"
               :key="'mem-' + e.id"
-              class="rounded-4 border border-border bg-surface px-3 py-2"
+              class="rounded-4 border border-border bg-surface px-3 py-2 cursor-pointer transition-colors hover:bg-surface-muted/60"
+              @click="toggleExpanded(e.id)"
             >
-              <p class="text-[11px] font-semibold text-foreground truncate">
-                {{ preview(e.input) }}
-              </p>
-              <p class="mt-1 text-[11px] text-subtle-foreground line-clamp-2">
-                {{ preview(e.summary || e.output, 200) }}
+              <div class="flex items-start justify-between gap-2">
+                <p :class="[
+                  'text-[11px] font-semibold text-foreground',
+                  isExpanded(e.id) ? 'whitespace-pre-wrap' : 'truncate'
+                ]">
+                  {{ isExpanded(e.id) ? e.input : preview(e.input) }}
+                </p>
+                <button
+                  class="shrink-0 text-subtle-foreground hover:text-foreground transition-colors"
+                  :aria-label="isExpanded(e.id) ? 'Collapse' : 'Expand'"
+                >
+                  <svg
+                    class="h-4 w-4 transition-transform"
+                    :class="{ 'rotate-180': isExpanded(e.id) }"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
+              <p :class="[
+                'mt-1 text-[11px] text-subtle-foreground',
+                isExpanded(e.id) ? 'whitespace-pre-wrap' : 'line-clamp-2'
+              ]">
+                {{ isExpanded(e.id) ? (e.summary || e.output || '') : preview(e.summary || e.output, 200) }}
               </p>
               <p v-if="e.score != null" class="mt-1 text-[10px] text-faint-foreground">
                 score {{ (e.score as number).toFixed(3) }}
@@ -148,6 +173,7 @@ import {
 
 const selectedSessionId = ref('')
 const evolvingQuery = ref('')
+const expandedEntries = ref<Set<string>>(new Set())
 
 const sessionDebug = ref<MemorySessionDebug | null>(null)
 const sessionLoading = ref(false)
@@ -205,6 +231,16 @@ const preview = (text?: string, limit = 120) => {
   if (!text) return ''
   return text.length > limit ? text.slice(0, limit) + '…' : text
 }
+
+const toggleExpanded = (id: string) => {
+  if (expandedEntries.value.has(id)) {
+    expandedEntries.value.delete(id)
+  } else {
+    expandedEntries.value.add(id)
+  }
+}
+
+const isExpanded = (id: string) => expandedEntries.value.has(id)
 
 const hasMemory = computed(() => !!evolvingDebug.value || !!sessionDebug.value)
 

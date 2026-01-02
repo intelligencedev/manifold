@@ -104,12 +104,26 @@
             </h1>
           </div>
           <div class="flex items-center gap-2 text-xs text-subtle-foreground">
+            <!-- Summary triggered indicator -->
             <span
-              v-if="isStreaming"
-              class="flex items-center gap-1 text-accent"
+              v-if="activeSummaryEvent"
+              class="flex items-center gap-1.5 rounded-full bg-warning/10 dark:bg-warning/20 border border-warning/30 px-2.5 py-1 text-warning dark:text-warning-foreground transition-all duration-300"
+              :title="`Summarized ${activeSummaryEvent.summarizedCount} of ${activeSummaryEvent.messageCount} messages (${activeSummaryEvent.inputTokens.toLocaleString()} tokens exceeded ${activeSummaryEvent.tokenBudget.toLocaleString()} budget)`"
             >
-              <span class="h-2 w-2 animate-pulse rounded-full bg-accent"></span>
-              Streaming response…
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
+              </svg>
+              <span class="font-medium">Context summarized</span>
+              <button
+                type="button"
+                class="ml-0.5 rounded-full p-0.5 hover:bg-warning/20 dark:hover:bg-warning/30 transition"
+                title="Dismiss"
+                @click.stop="chat.clearSummaryEvent()"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
             </span>
             <div class="flex items-center gap-2">
               <DropdownSelect
@@ -176,6 +190,22 @@
               <span class="text-xs text-faint-foreground">{{
                 formatTimestamp(message.createdAt)
               }}</span>
+              <span
+                v-if="shouldShowResponseTimer(message)"
+                class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
+                :class="
+                  message.streaming
+                    ? 'border-accent/30 bg-accent/10 text-accent'
+                    : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
+                "
+                :title="
+                  message.streaming
+                    ? 'Response time (running)'
+                    : 'Response time'
+                "
+              >
+                {{ formatDuration(responseElapsedMs(message.id)) }}
+              </span>
               <span
                 v-if="message.streaming"
                 class="flex items-center gap-1 text-xs text-accent"
@@ -664,7 +694,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import axios from "axios";
 import type {
@@ -914,6 +944,7 @@ const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
+const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
   parseAgentModelLabel(activeSession.value?.model || ""),
 );
@@ -923,6 +954,81 @@ const showScrollToBottom = computed(
 const showToolScrollToBottom = computed(
   () => !toolAutoScrollEnabled.value && toolMessages.value.length > 0,
 );
+
+// --- Response timer (elapsed while streaming; frozen when stream completes) ---
+// Note: historical messages loaded from the server won't have timing info; we only
+// show timers for messages created/streamed during this UI session.
+const responseStartMsByMessageId = new Map<string, number>();
+const responseElapsedMsByMessageId = ref<Record<string, number>>({});
+const responseIntervalByMessageId = new Map<string, number>();
+
+function safeParseIsoMs(iso: string) {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function responseElapsedMs(messageId: string) {
+  return responseElapsedMsByMessageId.value[messageId] ?? 0;
+}
+
+function formatDuration(ms: number) {
+  const clamped = Math.max(0, ms);
+  const seconds = clamped / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function ensureResponseTimer(message: ChatMessage) {
+  const id = message.id;
+  if (!id) return;
+
+  if (!responseStartMsByMessageId.has(id)) {
+    const start = safeParseIsoMs(message.createdAt) ?? Date.now();
+    responseStartMsByMessageId.set(id, start);
+  }
+
+  const startMs = responseStartMsByMessageId.get(id);
+  if (!startMs) return;
+
+  responseElapsedMsByMessageId.value[id] = Math.max(0, Date.now() - startMs);
+
+  if (isBrowser && !responseIntervalByMessageId.has(id)) {
+    const handle = window.setInterval(() => {
+      const start = responseStartMsByMessageId.get(id);
+      if (!start) return;
+      responseElapsedMsByMessageId.value[id] = Math.max(0, Date.now() - start);
+    }, 100);
+    responseIntervalByMessageId.set(id, handle);
+  }
+}
+
+function stopResponseTimer(messageId: string) {
+  const start = responseStartMsByMessageId.get(messageId);
+  if (start) {
+    responseElapsedMsByMessageId.value[messageId] = Math.max(0, Date.now() - start);
+  }
+  const handle = responseIntervalByMessageId.get(messageId);
+  if (handle != null) {
+    if (isBrowser) window.clearInterval(handle);
+    responseIntervalByMessageId.delete(messageId);
+  }
+}
+
+function stopAllResponseTimers() {
+  // Iterate a snapshot since stopResponseTimer mutates the map.
+  for (const id of Array.from(responseIntervalByMessageId.keys())) {
+    stopResponseTimer(id);
+  }
+}
+
+function shouldShowResponseTimer(message: ChatMessage) {
+  if (message.role !== "assistant") return false;
+  if (message.streaming) return true;
+  return message.id in responseElapsedMsByMessageId.value;
+}
+
 const lastUser = computed(() =>
   findLast(activeMessages.value, (msg) => msg.role === "user"),
 );
@@ -943,6 +1049,28 @@ watch(
   { flush: "post" },
 );
 
+// Keep response timers in sync with streaming lifecycle.
+watch(
+  () => activeMessages.value.map((m) => `${m.id}:${m.role}:${m.streaming ? 1 : 0}`),
+  () => {
+    for (const msg of activeMessages.value) {
+      if (msg.role !== "assistant") continue;
+      if (msg.streaming) ensureResponseTimer(msg);
+      else if (msg.id in responseElapsedMsByMessageId.value) stopResponseTimer(msg.id);
+    }
+  },
+  { flush: "post" },
+);
+
+// Auto-dismiss summary event after 8 seconds
+watch(activeSummaryEvent, (event) => {
+  if (event) {
+    setTimeout(() => {
+      chat.clearSummaryEvent();
+    }, 8000);
+  }
+});
+
 // Tools pane: auto-scroll on content changes
 watch(
   () =>
@@ -957,6 +1085,8 @@ watch(activeSessionId, (sessionId) => {
   if (sessionId) {
     void loadMessagesFromServer(sessionId);
   }
+  // Switching sessions: ensure we don't leave any intervals running.
+  stopAllResponseTimers();
 });
 
 watch(renamingSessionId, (value) => {
@@ -974,6 +1104,10 @@ onMounted(() => {
     scrollMessagesToBottom({ force: true, behavior: "auto" });
     scrollToolsToBottom({ force: true, behavior: "auto" });
   });
+});
+
+onBeforeUnmount(() => {
+  stopAllResponseTimers();
 });
 
 watch(draft, () => autoSizeComposer());
@@ -1056,6 +1190,10 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   if (!projectSelected.value) return;
   if ((!content && !pendingAttachments.value.length) || isStreaming.value)
     return;
+
+  // New prompt: ensure any prior timer intervals are stopped before we start a new stream.
+  stopAllResponseTimers();
+
   autoScrollEnabled.value = true;
   draft.value = options.echoUser === false ? draft.value : "";
   try {

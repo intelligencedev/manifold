@@ -16,6 +16,14 @@ import {
 
 type FilesByAttachment = Map<string, File>
 
+export interface SummaryEvent {
+  inputTokens: number
+  tokenBudget: number
+  messageCount: number
+  summarizedCount: number
+  timestamp: string
+}
+
 export const useChatStore = defineStore('chat', () => {
   const queryClient = useQueryClient()
 
@@ -36,6 +44,8 @@ export const useChatStore = defineStore('chat', () => {
   const toolMessageIndex = new Map<string, Map<string, string>>()
   const agentThreadsBySession = ref<Record<string, AgentThread[]>>({})
   const agentThreadIndex = new Map<string, Map<string, AgentThread>>()
+  // Track summary events per session - cleared after display
+  const summaryEventBySession = ref<Record<string, SummaryEvent | null>>({})
 
   const activeSession = computed(
     () => sessions.value.find((s) => s.id === activeSessionId.value) || null,
@@ -50,6 +60,14 @@ export const useChatStore = defineStore('chat', () => {
     activeMessages.value.filter((m) => m.role === 'tool'),
   )
   const agentThreads = computed(() => agentThreadsBySession.value[activeSessionId.value] || [])
+  const activeSummaryEvent = computed(() => summaryEventBySession.value[activeSessionId.value] || null)
+
+  function clearSummaryEvent(sessionId?: string) {
+    const id = sessionId || activeSessionId.value
+    if (id) {
+      summaryEventBySession.value = { ...summaryEventBySession.value, [id]: null }
+    }
+  }
 
   function isSessionStreaming(sessionId: string) {
     return Boolean(streamingStateBySession.value[sessionId])
@@ -585,6 +603,17 @@ export const useChatStore = defineStore('chat', () => {
         }
         break
       }
+      case 'summary': {
+        const summaryEvt: SummaryEvent = {
+          inputTokens: typeof event.input_tokens === 'number' ? event.input_tokens : 0,
+          tokenBudget: typeof event.token_budget === 'number' ? event.token_budget : 0,
+          messageCount: typeof event.message_count === 'number' ? event.message_count : 0,
+          summarizedCount: typeof event.summarized_count === 'number' ? event.summarized_count : 0,
+          timestamp: new Date().toISOString(),
+        }
+        summaryEventBySession.value = { ...summaryEventBySession.value, [sessionId]: summaryEvt }
+        break
+      }
       case 'error': {
         const message = typeof event.data === 'string' ? event.data : 'Agent error'
         updateMessage(sessionId, assistantId, (existing) => ({ ...existing, streaming: false, error: message }))
@@ -837,6 +866,7 @@ export const useChatStore = defineStore('chat', () => {
     chatMessages,
     toolMessages,
     agentThreads,
+    activeSummaryEvent,
     // actions
     init,
     refreshSessionsFromServer,
@@ -848,5 +878,6 @@ export const useChatStore = defineStore('chat', () => {
     sendPrompt,
     stopStreaming,
     regenerateAssistant,
+    clearSummaryEvent,
   }
 })

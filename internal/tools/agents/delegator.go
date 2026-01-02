@@ -122,6 +122,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		AgentTracer: tracer,
 		AgentDepth:  req.Depth,
 	}
+	eng.AttachTokenizer(prov, nil)
 
 	if tracer != nil {
 		eng.OnDelta = func(delta string) {

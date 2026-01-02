@@ -78,14 +78,32 @@
             <div
               class="mt-2 flex items-center justify-between text-[10px] text-faint-foreground"
             >
-              <span>{{ formatTimestamp(session.updatedAt) }}</span>
-              <button
-                type="button"
-                class="rounded px-1 text-[10px] text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
-                @click.stop="deleteSession(session.id)"
-              >
-                Delete
-              </button>
+              <div class="flex items-center gap-2">
+                <span
+                  class="rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] text-subtle-foreground"
+                >
+                  {{ messageCountFor(session.id) }} msg{{ messageCountFor(session.id) === 1 ? '' : 's' }}
+                </span>
+                <span>{{ formatTimestamp(session.updatedAt) }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span
+                  v-if="sessionIsStreaming(session.id)"
+                  class="flex items-center gap-1 text-xs text-accent"
+                >
+                  <span
+                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                  ></span>
+                  Streaming
+                </span>
+                <button
+                  type="button"
+                  class="rounded px-1 text-[10px] text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
+                  @click.stop="deleteSession(session.id)"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -954,6 +972,27 @@ const showScrollToBottom = computed(
 const showToolScrollToBottom = computed(
   () => !toolAutoScrollEnabled.value && toolMessages.value.length > 0,
 );
+const sessionMessageCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {};
+  for (const session of sessions.value) {
+    const local = messagesBySession.value[session.id];
+    const metaCount = session.messageCount ?? 0;
+    if (Array.isArray(local) && local.length) {
+      counts[session.id] = local.length;
+    } else {
+      counts[session.id] = metaCount;
+    }
+  }
+  return counts;
+});
+
+function messageCountFor(sessionId: string) {
+  return sessionMessageCounts.value[sessionId] ?? 0;
+}
+
+function sessionIsStreaming(sessionId: string) {
+  return chat.isSessionStreaming(sessionId);
+}
 
 // --- Response timer (elapsed while streaming; frozen when stream completes) ---
 // Note: historical messages loaded from the server won't have timing info; we only

@@ -1,155 +1,122 @@
 <template>
-  <section class="flex h-full min-h-0 flex-col gap-6 overflow-x-hidden overflow-y-auto">
-    <!-- Page header / key stats -->
-    <header class="flex flex-shrink-0 flex-wrap items-start justify-between gap-4 px-1 pt-6">
-      <div>
-        <h1 class="text-lg font-semibold text-foreground">Overview</h1>
-        <p class="text-sm text-subtle-foreground">
-          Live usage, traces, memory, Avg. Prompt Tokens, and agent activity across your
-          deployment.
-        </p>
-      </div>
-      <div class="flex flex-wrap items-center gap-3 text-xs text-faint-foreground">
-        <div class="rounded-3 border border-border/60 bg-surface px-3 py-2">
-          <p class="text-[11px] font-medium text-subtle-foreground">Active Agents</p>
-          <p class="mt-1 text-base font-semibold text-foreground tabular-nums">
-            {{ agents.length }}
-          </p>
-        </div>
-        <div class="rounded-3 border border-border/60 bg-surface px-3 py-2">
-          <p class="text-[11px] font-medium text-subtle-foreground">Runs Today</p>
-          <p class="mt-1 text-base font-semibold text-foreground tabular-nums">
-            {{ runsToday }}
-          </p>
-        </div>
+  <section class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+    <Panel
+      title="Overview"
+      description="Live usage, traces, memory, prompt tokens, and agent activity across your deployment."
+    >
+      <template #actions>
         <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
           @click="resetLayout"
-          class="rounded-3 border border-border/60 bg-surface px-3 py-2 text-xs text-subtle-foreground hover:bg-surface-muted transition-colors"
-          title="Reset dashboard layout"
         >
-          Reset Layout
+          Reset layout
         </button>
-      </div>
-    </header>
+      </template>
 
-    <!-- Draggable dashboard grid -->
-    <div class="min-h-0 flex-1 px-1 pb-6">
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Active Agents" :value="agents.length" secondary="Reporting status" />
+        <MetricCard label="Runs Today" :value="runsToday" :secondary="runsSummary" />
+        <MetricCard label="Recent Runs" :value="recentRuns.length" secondary="Past 24 hours" />
+        <MetricCard label="Specialists" :value="specialistCount" secondary="Available roles" />
+      </div>
+    </Panel>
+
+    <div class="min-h-0 flex-1 pb-6">
       <DashboardGrid
         ref="dashboardGridRef"
         :layout="dashboardLayout"
         storage-key="overview-dashboard-layout"
         @layout-change="onLayoutChange"
       >
-    >
-      <!-- Token Usage Panel -->
-      <template #item-tokens>
-        <TokenUsagePanel />
-      </template>
+        <template #item-tokens>
+          <GlassCard class="h-full">
+            <TokenUsagePanel />
+          </GlassCard>
+        </template>
 
-      <!-- Traces Panel -->
-      <template #item-traces>
-        <TracesPanel />
-      </template>
+        <template #item-traces>
+          <GlassCard class="h-full">
+            <TracesPanel />
+          </GlassCard>
+        </template>
 
-      <!-- Memory Panel -->
-      <template #item-memory>
-        <MemoryPanel />
-      </template>
+        <template #item-memory>
+          <GlassCard class="h-full">
+            <MemoryPanel />
+          </GlassCard>
+        </template>
 
-      <!-- Agents Panel -->
-      <template #item-agents>
-        <section class="ap-panel ap-hover flex h-full flex-col rounded-2xl bg-surface p-4">
-          <header class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold text-foreground">Agents</h2>
-            <span class="text-[11px] text-faint-foreground">
-              {{ agents.length ? `${agents.length} total` : 'No agents' }}
-            </span>
-          </header>
-
-          <p v-if="!agents.length" class="mt-3 text-xs text-faint-foreground">
-            No agents reported from the backend yet.
-          </p>
-
-          <ul v-else class="mt-3 space-y-2 overflow-y-auto pr-1 text-xs">
-            <li
-              v-for="agent in agents"
-              :key="agent.id"
-              class="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-surface-muted/40 px-3 py-2"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-xs font-medium text-foreground">
-                  {{ agent.name || agent.id }}
-                </p>
-                <p class="mt-0.5 truncate text-[11px] text-faint-foreground">
-                  {{ agent.model || 'Model not set' }}
-                </p>
+        <template #item-agents>
+          <GlassCard class="flex h-full flex-col">
+            <header class="flex items-center justify-between gap-2">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-subtle-foreground">Agents</p>
+                <h2 class="text-base font-semibold text-foreground">Status</h2>
               </div>
-              <div class="flex flex-col items-end gap-1">
-                <span
-                  :class="[
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                    agent.state === 'online'
-                      ? 'bg-success/15 text-success'
-                      : agent.state === 'degraded'
-                        ? 'bg-warning/15 text-warning'
-                        : 'bg-border/50 text-subtle-foreground',
-                  ]"
-                >
-                  {{ agent.state }}
-                </span>
-                <span class="text-[10px] text-faint-foreground">
-                  {{ formatRelativeTime(agent.updatedAt) }}
-                </span>
-              </div>
-            </li>
-          </ul>
-        </section>
-      </template>
+              <Pill tone="neutral" size="sm">{{ agents.length ? `${agents.length} total` : 'None' }}</Pill>
+            </header>
 
-      <!-- Recent Runs Panel -->
-      <template #item-runs>
-        <section class="ap-panel ap-hover flex h-full flex-col overflow-hidden rounded-2xl bg-surface p-4">
-          <header class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold text-foreground">Recent Runs</h2>
-            <span class="text-[11px] text-faint-foreground">
-              {{ recentRuns.length ? `${recentRuns.length} shown` : 'None' }}
-            </span>
-          </header>
+            <p v-if="!agents.length" class="mt-4 text-xs text-faint-foreground">
+              No agents reported from the backend yet.
+            </p>
 
-          <p v-if="!recentRuns.length" class="mt-3 text-xs text-faint-foreground">
-            No recent runs in the last 24 hours.
-          </p>
-
-          <ul v-else class="mt-3 space-y-2 overflow-y-auto pr-1 text-xs">
-            <li
-              v-for="run in recentRuns"
-              :key="run.id"
-              class="rounded-lg border border-border/50 bg-surface-muted/40 px-3 py-2"
-            >
-              <p class="line-clamp-2 text-xs font-medium text-foreground">
-                {{ run.prompt || 'Untitled run' }}
-              </p>
-              <div
-                class="mt-1 flex items-center justify-between gap-2 text-[11px] text-faint-foreground"
+            <ul v-else class="mt-4 space-y-2 overflow-y-auto pr-1 text-xs">
+              <li
+                v-for="agent in agents"
+                :key="agent.id"
+                class="flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-surface-muted/40 px-3 py-2"
               >
-                <span
-                  :class="[
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                    run.status === 'completed'
-                      ? 'bg-success/15 text-success'
-                      : run.status === 'running'
-                        ? 'bg-accent/15 text-accent'
-                        : 'bg-danger/10 text-danger',
-                  ]"
-                >
-                  {{ run.status }}
-                </span>
-                <span>{{ formatRelativeTime(run.createdAt) }}</span>
+                <div class="min-w-0">
+                  <p class="truncate text-xs font-semibold text-foreground">
+                    {{ agent.name || agent.id }}
+                  </p>
+                  <p class="mt-0.5 truncate text-[11px] text-faint-foreground">
+                    {{ agent.model || 'Model not set' }}
+                  </p>
+                </div>
+                <div class="flex flex-col items-end gap-1">
+                  <Pill :tone="agentTone(agent.state)" size="sm">{{ agent.state }}</Pill>
+                  <span class="text-[10px] text-faint-foreground">
+                    {{ formatRelativeTime(agent.updatedAt) }}
+                  </span>
+                </div>
+              </li>
+            </ul>
+          </GlassCard>
+        </template>
+
+        <template #item-runs>
+          <GlassCard class="flex h-full flex-col overflow-hidden">
+            <header class="flex items-center justify-between gap-2">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-subtle-foreground">Recent Runs</p>
+                <h2 class="text-base font-semibold text-foreground">Past 24 hours</h2>
               </div>
-            </li>
-          </ul>
-        </section>
-      </template>
+              <Pill tone="neutral" size="sm">{{ recentRuns.length ? `${recentRuns.length} shown` : 'None' }}</Pill>
+            </header>
+
+            <p v-if="!recentRuns.length" class="mt-4 text-xs text-faint-foreground">
+              No recent runs in the last 24 hours.
+            </p>
+
+            <ul v-else class="mt-4 space-y-2 overflow-y-auto pr-1 text-xs">
+              <li
+                v-for="run in recentRuns"
+                :key="run.id"
+                class="rounded-[14px] border border-white/10 bg-surface-muted/40 px-3 py-2"
+              >
+                <p class="line-clamp-2 text-xs font-semibold text-foreground">
+                  {{ run.prompt || 'Untitled run' }}
+                </p>
+                <div class="mt-2 flex items-center justify-between gap-2 text-[11px] text-faint-foreground">
+                  <Pill :tone="runTone(run.status)" size="sm">{{ run.status }}</Pill>
+                  <span>{{ formatRelativeTime(run.createdAt) }}</span>
+                </div>
+              </li>
+            </ul>
+          </GlassCard>
+        </template>
       </DashboardGrid>
     </div>
   </section>
@@ -162,6 +129,10 @@ import DashboardGrid, { type GridItemConfig } from '@/components/DashboardGrid.v
 import TokenUsagePanel from '@/components/observability/TokenUsagePanel.vue'
 import TracesPanel from '@/components/observability/TracesPanel.vue'
 import MemoryPanel from '@/components/observability/MemoryPanel.vue'
+import GlassCard from '@/components/ui/GlassCard.vue'
+import Panel from '@/components/ui/Panel.vue'
+import Pill from '@/components/ui/Pill.vue'
+import MetricCard from '@/components/ui/MetricCard.vue'
 import { fetchAgentRuns, fetchAgentStatus, listSpecialists } from '@/api/client'
 
 const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>()
@@ -223,9 +194,13 @@ const agents = computed(() => {
 })
 const runs = computed(() => runsData.value ?? [])
 
+const specialistCount = computed(() => (specialistsData?.value ?? []).length)
+
 const runsToday = computed(
   () => runs.value.filter((run) => isToday(run.createdAt)).length,
 )
+
+const runsSummary = computed(() => `${runsToday.value} started today`)
 
 const recentRuns = computed(() =>
   runs.value
@@ -273,5 +248,18 @@ function onLayoutChange(newLayout: GridItemConfig[]) {
 
 function resetLayout() {
   dashboardGridRef.value?.resetLayout()
+}
+
+function agentTone(state: string) {
+  if (state === 'online') return 'success'
+  if (state === 'degraded') return 'warning'
+  if (state === 'offline') return 'danger'
+  return 'neutral'
+}
+
+function runTone(status: string) {
+  if (status === 'completed') return 'success'
+  if (status === 'running') return 'accent'
+  return 'danger'
 }
 </script>

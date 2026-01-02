@@ -23,7 +23,9 @@ function systemPrefersDark(): boolean {
 function applyTheme(theme: ThemeDefinition) {
   if (!isClient) return
   const root = document.documentElement
+  const body = document.body
   root.dataset.theme = theme.id
+  body.classList.toggle('theme-obsdash', theme.id === 'obsdash-dark')
   root.style.colorScheme = theme.appearance
   Object.entries(theme.tokens).forEach(([token, value]) => {
     root.style.setProperty(`--color-${token}`, value)
@@ -34,9 +36,15 @@ export const useThemeStore = defineStore('theme', () => {
   const selection = ref<ThemeChoice>('system')
 
   if (isClient) {
-    const stored = window.localStorage.getItem(STORAGE_KEY)
-    if (stored === 'system' || (stored && isThemeId(stored))) {
-      selection.value = stored as ThemeChoice
+    const params = new URLSearchParams(window.location.search)
+    const flaggedTheme = params.get('uiTheme')
+    if (flaggedTheme && isThemeId(flaggedTheme)) {
+      selection.value = flaggedTheme
+    } else {
+      const stored = window.localStorage.getItem(STORAGE_KEY)
+      if (stored === 'system' || (stored && isThemeId(stored))) {
+        selection.value = stored as ThemeChoice
+      }
     }
   }
 
@@ -86,7 +94,7 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   function cycleTheme() {
-    const order: ThemeChoice[] = ['system', defaultDarkTheme, defaultLightTheme]
+    const order: ThemeChoice[] = ['system', 'obsdash-dark', defaultDarkTheme, defaultLightTheme]
     const currentIndex = order.indexOf(selection.value)
     const next = order[(currentIndex + 1) % order.length]
     selection.value = next

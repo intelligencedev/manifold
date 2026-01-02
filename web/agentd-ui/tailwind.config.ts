@@ -71,10 +71,37 @@ export default {
     },
   },
   plugins: [
-  function (api: any) {
+    function (api: any) {
       api.addUtilities({
         '.etched-light': { boxShadow: 'inset 0 1px 0 rgba(0,0,0,0.04)' },
         '.etched-dark': { boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)' },
+        '.bg-grid-glow': {
+          backgroundImage:
+            'radial-gradient(circle at 20% 20%, rgb(var(--color-accent) / 0.18), transparent 32%),' +
+            'radial-gradient(circle at 78% 8%, rgb(var(--color-info) / 0.12), transparent 30%),' +
+            'radial-gradient(circle at 50% 70%, rgba(255,255,255,0.04), transparent 42%),' +
+            'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px),' +
+            'linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)',
+          backgroundSize: '120% 120%, 110% 110%, 140% 140%, 72px 72px, 72px 72px',
+          backgroundPosition: 'center center',
+        },
+        '.bg-grain': {
+          backgroundImage: 'url(/assets/noise.png)',
+          mixBlendMode: 'soft-light',
+          opacity: '0.35',
+        },
+        '.glass-surface': {
+          backgroundImage:
+            'linear-gradient(120deg, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface-muted) / 0.76))',
+          border: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: '0 24px 80px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)',
+          backdropFilter: 'blur(18px)',
+          WebkitBackdropFilter: 'blur(18px)',
+        },
+        '.pill-glow': {
+          boxShadow:
+            '0 0 0 1px rgba(var(--color-accent), 0.35), 0 10px 34px rgba(var(--color-accent), 0.18), 0 1px 0 rgba(255,255,255,0.08)',
+        },
       })
     },
   ],

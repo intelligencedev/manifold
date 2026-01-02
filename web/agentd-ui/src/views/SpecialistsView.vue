@@ -7,30 +7,33 @@
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
     <div class="flex flex-col xl:flex-row gap-4 flex-1 min-h-0">
       <!-- left: card grid -->
-      <div class="ap-panel xl:w-1/2 min-w-0 rounded-md p-4 min-h-0 overflow-auto">
-        <div class="flex items-center justify-between mb-4">
+      <div class="xl:w-1/2 min-w-0 min-h-0 overflow-auto rounded-[var(--radius-lg,26px)] glass-surface p-4">
+        <div class="mb-4 flex items-center justify-between">
           <h2 class="text-base font-semibold">Specialist Assistants</h2>
-          <button @click="startCreate" class="rounded-md border border-border/60 px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-border">
+          <button @click="startCreate" class="rounded-full border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10">
             New
           </button>
         </div>
 
-        <div v-if="loading" class="rounded-md border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading…</div>
-        <div v-else-if="error" class="rounded-md border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load specialists.</div>
-        <div v-else-if="!specialists.length" class="rounded-md border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No specialists configured yet.</div>
+        <div v-if="loading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading…</div>
+        <div v-else-if="error" class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load specialists.</div>
+        <div v-else-if="!specialists.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No specialists configured yet.</div>
         <div v-else class="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
-          <article
+          <GlassCard
             v-for="s in specialists"
             :key="s.name"
-            class="ap-card flex flex-col rounded-2xl bg-surface-muted p-5"
+            class="flex flex-col"
+            interactive
           >
             <div class="flex items-start justify-between gap-3">
               <div>
                 <h3 class="text-base font-semibold text-foreground">{{ s.name }}</h3>
-                <p class="mt-1 text-xs uppercase tracking-wide text-subtle-foreground">Model</p>
+                <p class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground">Model</p>
                 <p class="text-sm text-muted-foreground">{{ s.model || '—' }}</p>
               </div>
-              <span :class="statusBadgeClass(s.paused)">{{ s.paused ? 'Paused' : 'Active' }}</span>
+              <Pill :tone="s.paused ? 'danger' : 'success'" size="sm" :glow="!s.paused">
+                {{ s.paused ? 'Paused' : 'Active' }}
+              </Pill>
             </div>
 
             <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
@@ -38,10 +41,12 @@
             <div class="flex-grow"></div>
 
             <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
-              <span :class="toolsBadgeClass(s.enableTools)">{{ s.enableTools ? 'Tools enabled' : 'Tools disabled' }}</span>
+              <Pill :tone="s.enableTools ? 'accent' : 'neutral'" size="sm">
+                {{ s.enableTools ? 'Tools enabled' : 'Tools disabled' }}
+              </Pill>
               <span
                 v-if="Array.isArray(s.allowTools) && s.allowTools.length > 0"
-                class="inline-flex items-center rounded-full border border-border/50 bg-surface-muted/30 px-2 py-1 font-medium text-subtle-foreground"
+                class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
               >
                 Allow list · {{ s.allowTools.length }}
               </span>
@@ -51,14 +56,14 @@
               <button
                 type="button"
                 @click="edit(s)"
-                class="rounded border border-border/60 px-3 py-1.5 text-xs font-semibold text-subtle-foreground hover:border-border"
+                class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
               >
                 Edit
               </button>
               <button
                 type="button"
                 @click="cloneSpecialist(s)"
-                class="rounded border border-border/60 px-3 py-1.5 text-xs font-semibold text-subtle-foreground hover:border-border"
+                class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                 title="Duplicate this specialist"
               >
                 Clone
@@ -66,7 +71,7 @@
               <button
                 type="button"
                 @click="togglePause(s)"
-                class="inline-flex items-center gap-1 rounded border border-border/60 px-3 py-1.5 text-xs font-semibold text-subtle-foreground hover:border-border"
+                class="inline-flex items-center gap-1 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                 :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
                 :aria-label="s.paused ? 'Resume specialist' : 'Pause specialist'"
               >
@@ -77,24 +82,24 @@
               <button
                 type="button"
                 @click="remove(s)"
-                class="rounded border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 hover:border-danger"
+                class="rounded-full border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
               >
                 Delete
               </button>
             </div>
-          </article>
+          </GlassCard>
         </div>
       </div>
 
       <!-- right: editor -->
       <div class="xl:w-1/2 min-w-0 min-h-0">
-        <div v-if="editing" class="ap-panel ap-hover rounded-md p-3 h-full min-h-0 overflow-auto flex flex-col">
-          <div class="flex flex-col gap-4 h-full min-h-0">
+        <GlassCard v-if="editing" class="h-full min-h-0 overflow-auto">
+          <div class="flex h-full min-h-0 flex-col gap-4">
             <h2 class="text-base font-semibold">{{ form.name ? 'Edit' : 'Create' }} Specialist</h2>
             <!-- Two-column layout: left (params), right (system prompt + tools). Implemented with explicit grid -->
-            <div class="flex-1 min-h-0 grid items-stretch grid-cols-1 md:grid-cols-6 lg:grid-cols-10 xl:grid-cols-12 gap-3">
+            <div class="grid min-h-0 flex-1 grid-cols-1 items-stretch gap-3 md:grid-cols-6 lg:grid-cols-10 xl:grid-cols-12">
               <!-- Left column: core settings -->
-              <div class="flex flex-col gap-2 min-h-0 h-full p-0 md:col-span-2 lg:col-span-3 xl:col-span-3 lg:sticky lg:top-3 lg:self-start">
+              <div class="flex h-full min-h-0 flex-col gap-2 p-0 md:col-span-2 lg:col-span-3 xl:col-span-3 lg:sticky lg:top-3 lg:self-start">
                 <div class="flex flex-col gap-1">
                   <label for="specialist-name" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Name</label>
                   <input id="specialist-name" v-model="form.name" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm" :disabled="!!original?.name" />
@@ -140,7 +145,7 @@
               </div>
               
               <!-- Right column: system prompt -->
-              <div class="flex min-h-0 flex-col gap-2 md:col-span-4 lg:col-span-7 xl:col-span-9 overflow-auto">
+              <div class="flex min-h-0 flex-col gap-2 overflow-auto md:col-span-4 lg:col-span-7 xl:col-span-9">
                 <section class="flex min-h-0 flex-1 flex-col gap-2 p-0">
                   <label for="specialist-system" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">System Prompt</label>
                   <textarea id="specialist-system" v-model="form.system" class="flex-1 min-h-0 resize-none rounded border border-border/60 bg-surface px-2 py-2 text-sm"></textarea>
@@ -286,10 +291,10 @@
               <button @click="cancel" class="rounded-md border border-border/60 px-2 py-1.5 text-sm">Cancel</button>
             </div>
           </div>
-        </div>
-        <div v-else class="rounded-md border border-border/50 bg-surface p-4 h-full min-h-0 flex items-center justify-center text-sm text-subtle-foreground">
+        </GlassCard>
+        <GlassCard v-else class="flex h-full min-h-0 items-center justify-center p-4 text-sm text-subtle-foreground">
           Select a specialist or click New to create one.
-        </div>
+        </GlassCard>
       </div>
     </div>
 
@@ -388,6 +393,8 @@ import { fetchWarppTools } from '@/api/warpp'
 import type { WarppTool } from '@/types/warpp'
 import SolarPause from '@/components/icons/SolarPause.vue'
 import SolarPlay from '@/components/icons/SolarPlay.vue'
+import GlassCard from '@/components/ui/GlassCard.vue'
+import Pill from '@/components/ui/Pill.vue'
 
 const TOOL_PREVIEW_LIMIT = 8
 

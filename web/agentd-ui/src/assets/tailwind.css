@@ -1,9 +1,14 @@
+@import url('https://rsms.me/inter/inter.css');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    --radius: 18px;
+    --radius-lg: 26px;
     /* Default to system/store-driven tokens. These initial values are for SSR fallback only. */
     color-scheme: dark;
     --color-background: 12 14 16; /* aperture-dark background */
@@ -33,6 +38,11 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+  }
+
+  code,
+  pre {
+    font-family: 'Inter', 'Inter var', ui-monospace, SFMono-Regular, monospace;
   }
 
   /* Global scrollbar styling (thin, accent-colored, no visible rail) */

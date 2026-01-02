@@ -1,7 +1,7 @@
 <template>
-  <div class="flex h-full min-h-0 rounded-2xl border border-border/60 bg-surface overflow-hidden">
+  <div class="glass-surface flex h-full min-h-0 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12">
     <!-- Sidebar navigation -->
-  <aside class="w-56 shrink-0 border-r border-border/50 bg-surface/50 backdrop-blur-sm p-4 space-y-4 overflow-y-auto">
+  <aside class="w-60 shrink-0 border-r border-white/10 bg-surface/40 backdrop-blur-md p-4 space-y-4 overflow-y-auto">
       <h1 class="text-lg font-semibold text-foreground">Settings</h1>
       <nav class="space-y-1">
         <button

@@ -5,7 +5,7 @@
     >
       <!-- Sessions sidebar -->
       <aside
-        class="ap-panel ap-hover hidden min-h-0 lg:flex flex-col gap-4 rounded-5 bg-transparent p-4 surface-noise"
+        class="glass-surface hidden min-h-0 lg:flex flex-col gap-4 rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
       >
         <header class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -111,7 +111,7 @@
 
       <!-- Chat pane -->
       <section
-        class="ap-panel ap-hover relative flex min-h-0 flex-col overflow-hidden rounded-5 bg-surface chat-pane"
+        class="glass-surface relative flex min-h-0 flex-col overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/80 chat-pane"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3"
@@ -185,7 +185,7 @@
           <article
             v-for="message in chatMessages"
             :key="message.id"
-            class="ap-card relative max-w-[72ch] rounded-5 bg-surface p-5"
+            class="relative max-w-[72ch] glass-surface rounded-[var(--radius,18px)] border border-white/12 p-5"
             :class="[
               message.role === 'assistant' ? 'bg-accent/5' : '',
               message.role === 'user' ? 'ml-auto bg-success/10' : '',

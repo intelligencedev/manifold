@@ -91,6 +91,7 @@ export default {
           opacity: '0.35',
         },
         '.glass-surface': {
+          padding: '16px',
           backgroundImage:
             'linear-gradient(120deg, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface-muted) / 0.76))',
           border: '1px solid rgba(255,255,255,0.08)',

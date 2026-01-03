@@ -221,9 +221,7 @@
             </div>
             <div class="space-y-1">
               <label for="log-level" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Level</label>
-              <select id="log-level" v-model="agentdSettings.logLevel" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm">
-                <option v-for="level in logLevelOptions" :key="level" :value="level">{{ level }}</option>
-              </select>
+              <DropdownSelect id="log-level" v-model="agentdSettings.logLevel" :options="logLevelDropdownOptions" class="w-full" />
             </div>
             <div class="space-y-1 flex items-center gap-2 lg:col-span-2">
               <input id="log-payloads" type="checkbox" class="h-4 w-4" v-model="agentdSettings.logPayloads" />
@@ -307,9 +305,7 @@
             </div>
             <div class="space-y-1">
               <label for="vector-metric" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Metric</label>
-              <select id="vector-metric" v-model="agentdSettings.vectorMetric" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm">
-                <option v-for="metric in vectorMetricOptions" :key="metric" :value="metric">{{ metric }}</option>
-              </select>
+              <DropdownSelect id="vector-metric" v-model="agentdSettings.vectorMetric" :options="vectorMetricDropdownOptions" class="w-full" />
             </div>
           </div>
         </fieldset>
@@ -447,6 +443,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { fetchAgentdSettings, updateAgentdSettings, type AgentdSettings } from '@/api/client'
 import { listMCPServers, createMCPServer, deleteMCPServer, startMCPOAuth } from '@/api/mcp'
 import type { MCPServer, CreateMCPServerRequest } from '@/types/mcp'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 
 const apiUrl = ref('')
 
@@ -523,6 +520,9 @@ function removeEmbedHeader(key: string) {
 
 const logLevelOptions = ['trace', 'debug', 'info', 'warn', 'error']
 const vectorMetricOptions = ['cosine', 'dot', 'euclidean']
+
+const logLevelDropdownOptions = logLevelOptions.map((level) => ({ id: level, label: level, value: level }))
+const vectorMetricDropdownOptions = vectorMetricOptions.map((metric) => ({ id: metric, label: metric, value: metric }))
 
 type NumericSettingKey =
   | 'summaryThreshold'

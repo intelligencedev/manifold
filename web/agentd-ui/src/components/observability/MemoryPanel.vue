@@ -8,19 +8,12 @@
         </p>
       </div>
       <div class="flex items-center gap-2 text-xs">
-        <select
+        <DropdownSelect
           v-model="selectedSessionId"
-          class="ap-input min-w-[120px] rounded border border-border bg-surface px-2 py-1 text-xs text-foreground"
-        >
-          <option value="">Select session…</option>
-          <option
-            v-for="s in sessions"
-            :key="s.id"
-            :value="s.id"
-          >
-            {{ s.name || s.id }}
-          </option>
-        </select>
+          size="sm"
+          class="min-w-[120px] text-xs"
+          :options="sessionDropdownOptions"
+        />
         <input
           v-model="evolvingQuery"
           type="search"
@@ -161,6 +154,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useQuery } from '@tanstack/vue-query'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 import {
   fetchEvolvingMemory,
   fetchMemorySessionDebug,
@@ -191,6 +185,11 @@ const { data: sessionsData, refetch: refetchSessions } = useQuery({
 
 // Compute sessions from the query data - Vue Query v5 removed onSuccess callback
 const sessions = computed(() => sessionsData.value ?? [])
+
+const sessionDropdownOptions = computed(() => [
+  { id: '', label: 'Select session…', value: '' },
+  ...sessions.value.map((s) => ({ id: s.id, label: s.name || s.id, value: s.id })),
+])
 
 async function refreshSessionDebug() {
   sessionError.value = ''

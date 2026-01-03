@@ -81,12 +81,12 @@ const baseClasses = computed(() =>
   [
     'dropdown-select',
     'appearance-none',
-    'border-border',
-    'bg-surface-muted/60',
+    'border',
+    'border-white/12',
+    'bg-surface/70',
     'text-foreground',
     'font-semibold',
     'transition-colors',
-    'focus:border-ring',
     'focus:outline-none',
     'focus:ring-2',
     'focus:ring-ring/60',
@@ -113,9 +113,9 @@ const sizeClasses = computed(() => {
 const stateClasses = computed(() => {
   const classes: string[] = []
   if (props.disabled) {
-    classes.push('opacity-60', 'cursor-not-allowed', 'bg-surface-muted/30', 'border-border')
+    classes.push('opacity-60', 'cursor-not-allowed', 'bg-surface-muted/30')
   } else {
-    classes.push('border-border', 'hover:border-accent/80', 'bg-surface')
+    classes.push('cursor-pointer', 'hover:bg-surface')
   }
   return classes.join(' ')
 })

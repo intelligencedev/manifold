@@ -110,9 +110,13 @@
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-provider" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Provider</label>
-                  <select id="specialist-provider" v-model="form.provider" @change="() => applyProviderDefaults()" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
-                    <option v-for="opt in providerOptions" :key="opt" :value="opt">{{ opt }}</option>
-                  </select>
+                  <DropdownSelect
+                    id="specialist-provider"
+                    v-model="form.provider"
+                    :options="providerDropdownOptions"
+                    class="w-full text-sm"
+                    @update:modelValue="applyProviderDefaults"
+                  />
                 </div>
                 <div class="flex flex-col gap-1">
                   <label for="specialist-model" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Model</label>
@@ -155,17 +159,24 @@
                     <div class="grid gap-2 md:grid-cols-2">
                       <div class="flex flex-col gap-1">
                         <label for="prompt-select" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Prompt</label>
-                        <select id="prompt-select" v-model="promptApply.promptId" @change="onSelectPrompt" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
-                          <option value="">Select prompt</option>
-                          <option v-for="p in availablePrompts" :key="p.id" :value="p.id">{{ p.name }}</option>
-                        </select>
+                        <DropdownSelect
+                          id="prompt-select"
+                          v-model="promptApply.promptId"
+                          :options="promptDropdownOptions"
+                          class="w-full text-sm"
+                          @update:modelValue="onSelectPrompt"
+                        />
                       </div>
                       <div class="flex flex-col gap-1">
                         <label for="prompt-version-select" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Version</label>
-                        <select id="prompt-version-select" v-model="promptApply.versionId" @change="onSelectVersion" :disabled="!promptApply.promptId || versionsLoading" class="w-full rounded border border-border/60 bg-surface-muted/40 px-2 py-1.5 text-sm">
-                          <option value="">Select version</option>
-                          <option v-for="v in availableVersions" :key="v.id" :value="v.id">{{ v.semver || formatDate(v.createdAt) }}</option>
-                        </select>
+                        <DropdownSelect
+                          id="prompt-version-select"
+                          v-model="promptApply.versionId"
+                          :options="versionDropdownOptions"
+                          class="w-full text-sm"
+                          :disabled="!promptApply.promptId || versionsLoading"
+                          @update:modelValue="onSelectVersion"
+                        />
                       </div>
                     </div>
                     <div v-if="applyVersionError" class="text-xs text-danger-foreground">{{ applyVersionError }}</div>
@@ -394,6 +405,7 @@ import type { WarppTool } from '@/types/warpp'
 import SolarPause from '@/components/icons/SolarPause.vue'
 import SolarPlay from '@/components/icons/SolarPlay.vue'
 import GlassCard from '@/components/ui/GlassCard.vue'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 import Pill from '@/components/ui/Pill.vue'
 
 const TOOL_PREVIEW_LIMIT = 8
@@ -427,6 +439,8 @@ const providerOptions = computed(() => {
   return ['openai', 'anthropic', 'google', 'local']
 })
 
+const providerDropdownOptions = computed(() => providerOptions.value.map((opt) => ({ id: opt, label: opt, value: opt })))
+
 const editing = ref(false)
 const original = ref<Specialist | null>(null)
 const form = ref<Specialist>({ name: '', description: '', provider: 'openai', model: '', baseURL: '', apiKey: '', enableTools: false, paused: false, system: '', allowTools: [], extraHeaders: {}, extraParams: {} })
@@ -442,6 +456,16 @@ const promptsLoading = ref(false)
 const versionsLoading = ref(false)
 const applyVersionError = ref<string | null>(null)
 const promptApply = ref<{ promptId: string; versionId: string }>({ promptId: '', versionId: '' })
+
+const promptDropdownOptions = computed(() => [
+  { id: '', label: 'Select prompt', value: '' },
+  ...availablePrompts.value.map((p) => ({ id: p.id, label: p.name, value: p.id })),
+])
+
+const versionDropdownOptions = computed(() => [
+  { id: '', label: 'Select version', value: '' },
+  ...availableVersions.value.map((v) => ({ id: v.id, label: v.semver || formatDate(v.createdAt), value: v.id })),
+])
 
 // Tools palette (dynamic like FlowView)
 const tools = ref<WarppTool[]>([])

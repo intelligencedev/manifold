@@ -94,17 +94,14 @@
           {{ fieldLabel }}
           <span v-if="required" class="text-[10px] text-danger-foreground">*</span>
         </span>
-        <select
+        <DropdownSelect
           v-if="hasEnum"
-          :value="selectValue"
-          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-          @change="onSelectChange"
-        >
-          <option v-if="!required" value="">(unset)</option>
-          <option v-for="option in enumOptions" :key="optionKey(option)" :value="String(option)">
-            {{ optionLabel(option) }}
-          </option>
-        </select>
+          :model-value="selectValue"
+          size="xs"
+          class="text-[11px]"
+          :options="enumDropdownOptions"
+          @update:modelValue="onSelectChange"
+        />
         <textarea
           v-else-if="isMultilineString"
           :value="stringValue"
@@ -150,6 +147,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 
 defineOptions({ name: 'ParameterFormField' })
 
@@ -205,6 +203,17 @@ const isUnsupported = computed(
 
 const enumOptions = computed(() => (Array.isArray(props.schema.enum) ? props.schema.enum : []))
 const hasEnum = computed(() => enumOptions.value.length > 0)
+
+const enumDropdownOptions = computed(() => {
+  const options = [] as { id: string; label: string; value: string }[]
+  if (!props.required) {
+    options.push({ id: '', label: '(unset)', value: '' })
+  }
+  for (const option of enumOptions.value) {
+    options.push({ id: String(optionKey(option)), label: optionLabel(option), value: String(option) })
+  }
+  return options
+})
 
 const childRequired = computed(
   () => new Set<string>(Array.isArray(props.schema.required) ? props.schema.required : []),
@@ -293,9 +302,8 @@ const selectValue = computed(() => {
   return String(props.modelValue)
 })
 
-function onSelectChange(event: Event) {
-  const target = event.target as HTMLSelectElement
-  const raw = target.value
+function onSelectChange(value: unknown) {
+  const raw = value === undefined || value === null ? '' : String(value)
   if (raw === '') {
     emit('update:model-value', undefined)
     return

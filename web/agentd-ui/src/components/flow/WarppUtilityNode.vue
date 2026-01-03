@@ -92,16 +92,18 @@
                 class="flex items-center gap-1 text-[10px] uppercase tracking-wide text-faint-foreground"
               >
                 <span>Render</span>
-                <select
+                <DropdownSelect
                   v-model="renderMode"
-                  class="rounded border border-border/60 bg-surface-muted px-1.5 py-1 text-[11px] text-foreground"
+                  size="xs"
+                  class="text-[11px]"
                   :disabled="!isDesignMode"
-                  @change="markDirty"
-                >
-                  <option value="raw">Raw text</option>
-                  <option value="markdown">Markdown</option>
-                  <option value="html">HTML</option>
-                </select>
+                  :options="[
+                    { id: 'raw', label: 'Raw text', value: 'raw' },
+                    { id: 'markdown', label: 'Markdown', value: 'markdown' },
+                    { id: 'html', label: 'HTML', value: 'html' },
+                  ]"
+                  @update:modelValue="markDirty"
+                />
               </div>
             </div>
             <textarea
@@ -288,6 +290,7 @@ import type { Ref } from 'vue'
 import GearIcon from '@/components/icons/Gear.vue'
 import { WARPP_UTILITY_NODE_DIMENSIONS, WARPP_UTILITY_NODE_COLLAPSED } from '@/constants/warppNodes'
 import { renderMarkdown } from '@/utils/markdown'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 
 const TOOL_NAME_FALLBACK = 'utility_textbox'
 const AGENT_RESPONSE_TOOL = 'agent_response'

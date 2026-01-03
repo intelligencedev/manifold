@@ -17,11 +17,17 @@
 
     <label v-if="isAgentResponse" class="flex flex-col gap-1 text-[11px] text-muted-foreground">
       Render Mode
-      <select v-model="renderMode" class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground" :disabled="!isDesignMode || hydratingRef">
-        <option value="raw">Raw text</option>
-        <option value="markdown">Markdown</option>
-        <option value="html">HTML</option>
-      </select>
+      <DropdownSelect
+        v-model="renderMode"
+        size="xs"
+        class="text-[11px]"
+        :disabled="!isDesignMode || hydratingRef"
+        :options="[
+          { id: 'raw', label: 'Raw text', value: 'raw' },
+          { id: 'markdown', label: 'Markdown', value: 'markdown' },
+          { id: 'html', label: 'HTML', value: 'html' },
+        ]"
+      />
       <p class="text-[10px] text-faint-foreground">Choose how the response should be rendered inside the node.</p>
     </label>
 
@@ -55,6 +61,7 @@ import { computed, inject, ref, watch, type Ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import type { StepNodeData } from '@/types/flow'
 import type { WarppStep } from '@/types/warpp'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 
 const TOOL_NAME_FALLBACK = 'utility_textbox'
 const AGENT_RESPONSE_TOOL = 'agent_response'

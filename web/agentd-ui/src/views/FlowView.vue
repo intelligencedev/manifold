@@ -3,15 +3,15 @@
     <div class="flex flex-wrap items-center gap-3">
       <label class="text-sm text-muted-foreground">
         Workflow
-        <select
+        <DropdownSelect
           v-model="selectedIntent"
-          class="ap-input ml-2 rounded bg-surface-muted/60 px-2 py-1 text-sm text-foreground"
-        >
-          <option disabled value="">Select workflow</option>
-          <option v-for="wf in workflowList" :key="wf.intent" :value="wf.intent">
-            {{ wf.intent }}
-          </option>
-        </select>
+          size="sm"
+          class="ml-2 text-sm"
+          :options="[
+            { id: '', label: 'Select workflow', value: '', disabled: true },
+            ...workflowList.map((wf) => ({ id: wf.intent, label: wf.intent, value: wf.intent })),
+          ]"
+        />
       </label>
 
       <button
@@ -639,6 +639,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch, ma
 import { VueFlow, type Edge, type Node, useVueFlow, type Connection, Panel, type GraphNode } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
 import { MiniMap } from '@vue-flow/minimap'
+
+import DropdownSelect from '@/components/DropdownSelect.vue'
 
 import WarppStepNode from '@/components/flow/WarppStepNode.vue'
 import WarppUtilityNode from '@/components/flow/WarppUtilityNode.vue'

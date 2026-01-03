@@ -1,9 +1,9 @@
 <template>
-  <div :class="['relative min-h-screen overflow-hidden bg-background text-foreground', isObsDash ? 'theme-obsdash' : '']">
-    <div v-if="isObsDash" class="pointer-events-none absolute inset-0 bg-grid-glow opacity-90"></div>
+  <div :class="['relative h-screen overflow-hidden bg-background text-foreground', isObsDash ? 'theme-obsdash' : '']">
+    <div v-if="isObsDash" class="pointer-events-none absolute inset-0 opacity-90"></div>
     <div v-if="isObsDash" class="pointer-events-none absolute inset-0 bg-grain mix-blend-soft-light opacity-35"></div>
 
-    <div class="relative z-10 flex min-h-screen flex-col">
+    <div class="relative z-10 flex h-full flex-col">
       <div class="px-4 pt-4 md:px-8 md:pt-6">
         <Topbar>
           <template #logo>
@@ -11,7 +11,6 @@
               <img :src="manifoldLogo" alt="Manifold logo" class="h-10 w-10 rounded object-contain" />
               <div class="min-w-0">
                 <p class="text-base font-semibold leading-none">Manifold</p>
-                <p class="text-[11px] uppercase tracking-[0.08em] text-subtle-foreground">Agentd UI</p>
               </div>
             </div>
           </template>
@@ -28,12 +27,6 @@
             </RouterLink>
           </template>
 
-          <template #meta>
-            <Pill :tone="isObsDash ? 'accent' : 'neutral'" size="sm" :glow="isObsDash">
-              {{ isObsDash ? 'Observability' : 'Aperture' }}
-            </Pill>
-          </template>
-
           <template #actions>
             <div class="hidden items-center gap-2 sm:flex">
               <DropdownSelect
@@ -45,7 +38,6 @@
                 aria-label="Project select"
               />
             </div>
-            <ThemeToggle class="hidden sm:block w-36" />
             <button
               type="button"
               class="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-surface/70 text-foreground transition hover:border-accent/40 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -75,7 +67,7 @@
         </div>
       </div>
 
-      <main class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-10 pt-4 md:px-8">
+      <main class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 md:px-8">
         <RouterView />
       </main>
     </div>

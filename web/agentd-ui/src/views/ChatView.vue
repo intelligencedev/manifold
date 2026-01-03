@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="glass-surface hidden min-h-0 lg:flex flex-col gap-4 rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
+        class="glass-surface hidden h-full min-h-0 lg:flex flex-col gap-4 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
       >
         <header class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -111,7 +111,7 @@
 
       <!-- Chat pane -->
       <section
-        class="glass-surface relative flex min-h-0 flex-col overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/80 chat-pane"
+        class="glass-surface relative flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/80 chat-pane"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3"
@@ -186,10 +186,7 @@
             v-for="message in chatMessages"
             :key="message.id"
             class="relative max-w-[72ch] glass-surface rounded-[var(--radius,18px)] border border-white/12 p-5"
-            :class="[
-              message.role === 'assistant' ? 'bg-accent/5' : '',
-              message.role === 'user' ? 'ml-auto bg-success/10' : '',
-            ]"
+            :class="message.role === 'user' ? 'ml-auto' : ''"
           >
             <header class="flex flex-wrap items-center gap-2">
               <template v-if="message.role === 'assistant'">
@@ -545,12 +542,12 @@
 
       <!-- Context sidebar -->
       <aside
-        class="ap-panel ap-hover hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 bg-transparent p-4 text-sm text-subtle-foreground surface-noise"
+        class="ap-panel ap-hover hidden h-full min-h-0 xl:flex relative flex-col overflow-hidden gap-4 rounded-5 bg-transparent p-4 text-sm text-subtle-foreground surface-noise"
       >
         <header class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Agent Collaborators</h2>
         </header>
-        <div class="space-y-2 max-h-[34vh] overflow-y-auto pr-1">
+        <div class="space-y-2 flex-1 min-h-0 overflow-y-auto pr-1">
           <div
             v-if="!agentThreads.length"
             class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
@@ -615,7 +612,7 @@
         </header>
         <div
           ref="toolsPane"
-          class="flex-1 h-full space-y-2 overflow-y-auto pr-1"
+          class="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1"
           @scroll="handleToolsScroll"
           @click="handleMarkdownClick"
         >
@@ -738,10 +735,17 @@ import type { DropdownOption } from "@/types/dropdown";
 const router = useRouter();
 const isBrowser = typeof window !== "undefined";
 const SCROLL_LOCK_THRESHOLD = 80;
+let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
 const proj = useProjectsStore();
-onMounted(() => { void proj.refresh(); });
+onMounted(() => {
+  void proj.refresh();
+  if (isBrowser) {
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+});
 const projects = computed(() => proj.projects);
 const selectedProjectId = computed({ get: () => proj.currentProjectId || '', set: (v: string) => (proj.currentProjectId = v) });
 const sessions = computed(() => chat.sessions);
@@ -1147,6 +1151,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopAllResponseTimers();
+  if (isBrowser && previousBodyOverflow !== null) {
+    document.body.style.overflow = previousBodyOverflow;
+  }
 });
 
 watch(draft, () => autoSizeComposer());
@@ -1633,6 +1640,27 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 </script>
 
 <style scoped>
+.chat-modern {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.chat-grid {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
+.chat-pane {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
 .chat-markdown {
   white-space: normal;
   overflow-wrap: anywhere; /* allow breaking long tokens */

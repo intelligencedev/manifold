@@ -1,5 +1,5 @@
 <template>
-  <section class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
+  <section class="flex h-full min-h-0 flex-col overflow-y-auto">
     <Panel
       title="Overview"
       description="Live usage, traces, memory, prompt tokens, and agent activity across your deployment."

@@ -7,7 +7,7 @@
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
     <div class="flex flex-col xl:flex-row gap-4 flex-1 min-h-0">
       <!-- left: card grid -->
-      <div class="xl:w-1/2 min-w-0 min-h-0 overflow-auto rounded-[var(--radius-lg,26px)] glass-surface p-4">
+      <div class="scrollbar-inset xl:w-1/2 min-w-0 min-h-0 overflow-auto rounded-[var(--radius-lg,26px)] glass-surface p-4">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="text-base font-semibold">Specialist Assistants</h2>
           <button @click="startCreate" class="rounded-full border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10">

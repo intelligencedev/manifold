@@ -6,6 +6,8 @@ import Panel from '@/components/ui/Panel.vue'
 import GlassCard from '@/components/ui/GlassCard.vue'
 import Pill from '@/components/ui/Pill.vue'
 import FileTree from '@/components/FileTree.vue'
+import DropdownSelect from '@/components/DropdownSelect.vue'
+import type { DropdownOption } from '@/types/dropdown'
 
 const store = useProjectsStore()
 const newProjectName = ref('')
@@ -24,6 +26,21 @@ onMounted(() => {
 
 const current = computed(() => store.projects.find(p => p.id === store.currentProjectId) || null)
 const entries = computed(() => store.treeByPath[`${store.currentProjectId}:${cwd.value}`] || [])
+
+const projectOptions = computed<DropdownOption[]>(() =>
+  store.projects.map((p) => ({
+    id: p.id,
+    label: p.name,
+    value: p.id,
+  }))
+)
+
+const selectedProjectId = computed({
+  get: () => store.currentProjectId || '',
+  set: (v: string) => {
+    void store.setCurrent(v)
+  },
+})
 
 function pickUpload() {
   uploadInput.value?.click()
@@ -96,12 +113,6 @@ function openFile(path: string) {
   selectedFile.value = path
 }
 
-function onProjectChange() {
-  cwd.value = '.'
-  selectedFile.value = ''
-  void store.ensureTree('.')
-}
-
 watch(
   () => store.currentProjectId,
   () => {
@@ -142,46 +153,43 @@ function onMoved(payload: { from: string; to: string }) {
       description="Create projects, upload files, and preview artifacts in one place."
       :padded="true"
     >
-      <div class="flex flex-col gap-4">
-        <div class="flex flex-wrap items-center gap-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <label class="sr-only" for="new-project">New project name</label>
-            <input
-              id="new-project"
-              v-model="newProjectName"
-              placeholder="New project name"
-              class="h-10 w-64 rounded-full border border-white/10 bg-surface/70 px-4 text-sm text-foreground placeholder:text-subtle-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            />
-            <button
-              class="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-accent/60 bg-accent/90 px-4 text-sm font-semibold text-accent-foreground shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition hover:bg-accent"
-              @click="createProject"
-            >
-              Create
-            </button>
-          </div>
-
-          <div class="flex flex-wrap items-center gap-2 md:ml-auto">
-            <label class="sr-only" for="project-select">Select project</label>
-            <select
-              id="project-select"
-              class="h-10 rounded-full border border-white/10 bg-surface/80 px-4 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              v-model="store.currentProjectId"
-              @change="onProjectChange"
-            >
-              <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-            <button
-              v-if="store.currentProjectId"
-              class="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-danger/50 px-4 text-sm font-semibold text-danger transition hover:bg-danger/10"
-              @click="() => store.remove(store.currentProjectId)"
-            >
-              Delete
-            </button>
-          </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="sr-only" for="new-project">New project name</label>
+          <input
+            id="new-project"
+            v-model="newProjectName"
+            placeholder="New project name"
+            class="h-9 w-48 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground placeholder:text-subtle-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <button
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/60 bg-accent/90 px-3 text-sm font-semibold text-accent-foreground shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition hover:bg-accent"
+            @click="createProject"
+          >
+            Create
+          </button>
         </div>
 
-        <div v-if="current" class="flex flex-wrap items-center gap-2 text-sm text-faint-foreground">
-          <span>Created {{ new Date(current.createdAt).toLocaleString() }}</span>
+        <div class="flex flex-wrap items-center gap-2">
+          <DropdownSelect
+            id="project-select"
+            v-model="selectedProjectId"
+            :options="projectOptions"
+            size="sm"
+            aria-label="Project"
+            title="Current project"
+          />
+          <button
+            v-if="store.currentProjectId"
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-danger/50 px-3 text-sm font-semibold text-danger transition hover:bg-danger/10"
+            @click="() => store.remove(store.currentProjectId)"
+          >
+            Delete
+          </button>
+        </div>
+
+        <div v-if="current" class="flex flex-wrap items-center gap-2 text-xs text-faint-foreground md:ml-auto">
+          <span>Created {{ new Date(current.createdAt).toLocaleDateString() }}</span>
           <Pill tone="neutral" size="sm">{{ current.files }} files</Pill>
           <Pill tone="neutral" size="sm">{{ (current.sizeBytes/1024).toFixed(1) }} KB</Pill>
         </div>
@@ -228,7 +236,7 @@ function onMoved(payload: { from: string; to: string }) {
             <input ref="uploadInput" type="file" multiple class="sr-only" @change="onFiles" />
           </div>
         </div>
-        <div class="min-h-0 flex-1 overflow-auto">
+        <div class="scrollbar-inset min-h-0 flex-1 overflow-auto">
           <FileTree
             ref="treeRef"
             :selected="selectedFile"
@@ -245,7 +253,7 @@ function onMoved(payload: { from: string; to: string }) {
           <div class="uppercase tracking-wide">Preview</div>
           <div class="max-w-[70%] truncate text-subtle-foreground" v-if="selectedFile">{{ selectedFile }}</div>
         </div>
-        <div class="min-h-0 flex-1 overflow-auto">
+        <div class="scrollbar-inset min-h-0 flex-1 overflow-auto">
           <div v-if="!selectedFile" class="p-2 text-subtle-foreground">Select a file to preview</div>
           <template v-else>
             <div v-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)">

@@ -21,6 +21,7 @@
         :key="option.id"
         :value="optionValue(option)"
         :disabled="option.disabled"
+        :title="option.label"
       >
         {{ option.label }}
       </option>

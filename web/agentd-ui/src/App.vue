@@ -29,13 +29,15 @@
 
           <template #actions>
             <div class="hidden items-center gap-2 sm:flex">
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-subtle-foreground">Project</span>
               <DropdownSelect
                 v-model="selectedProjectId"
                 :options="projectOptions"
                 size="sm"
                 placeholder="Project"
-                title="Current project"
+                :title="selectedProjectTitle"
                 aria-label="Project select"
+                class="w-56 truncate"
               />
             </div>
             <button
@@ -119,7 +121,6 @@ const navigation = [
   { label: 'Chat', to: '/chat' },
   { label: 'Playground', to: '/playground' },
   { label: 'Flow', to: '/flow' },
-  { label: 'Runs', to: '/runs' },
   { label: 'Settings', to: '/settings' },
 ]
 
@@ -146,6 +147,13 @@ onMounted(() => {
 })
 
 const projectOptions = computed(() => projectsStore.projects.map((p) => ({ id: p.id, label: p.name, value: p.id })))
+
+const selectedProjectTitle = computed(() => {
+  const id = projectsStore.currentProjectId
+  if (!id) return 'Project'
+  const found = projectsStore.projects.find((p) => p.id === id)
+  return found?.name || 'Project'
+})
 
 const selectedProjectId = computed({
   get: () => projectsStore.currentProjectId || '',

@@ -71,8 +71,8 @@ export default {
     },
   },
   plugins: [
-    function (api: any) {
-      api.addUtilities({
+    function ({ addUtilities, theme }: any) {
+      addUtilities({
         '.etched-light': { boxShadow: 'inset 0 1px 0 rgba(0,0,0,0.04)' },
         '.etched-dark': { boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)' },
         '.bg-grain': {
@@ -85,7 +85,7 @@ export default {
           backgroundImage:
             'linear-gradient(120deg, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface-muted) / 0.76))',
           border: '1px solid rgba(255,255,255,0.08)',
-          boxShadow: '0 24px 80px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)',
+          boxShadow: `${theme('boxShadow.3')}, inset 0 1px 0 rgba(255,255,255,0.04)`,
           backdropFilter: 'blur(18px)',
           WebkitBackdropFilter: 'blur(18px)',
         },

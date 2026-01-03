@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-6">
+  <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
     <section class="rounded-2xl border border-border/70 bg-surface p-4 space-y-4">
       <header>
         <h2 class="text-lg font-semibold">Create Prompt</h2>
@@ -25,7 +25,7 @@
       </form>
     </section>
 
-    <section class="rounded-2xl border border-border/70 bg-surface p-4 space-y-3">
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 gap-3">
       <header class="flex items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Prompts</h2>
@@ -34,33 +34,35 @@
         <input v-model="search" placeholder="Filter by name or tag" class="rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm w-64" />
       </header>
 
-      <table class="w-full text-sm">
-        <thead class="text-subtle-foreground">
-          <tr>
-            <th class="text-left py-2">Name</th>
-            <th class="text-left py-2">Description</th>
-            <th class="text-left py-2">Tags</th>
-            <th class="text-left py-2">Created</th>
-            <th class="text-right py-2 pr-2">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="prompt in filteredPrompts" :key="prompt.id" class="border-t border-border/60">
-            <td class="py-2 font-medium">
-              <RouterLink :to="`/playground/prompts/${prompt.id}`" class="text-accent hover:underline">{{ prompt.name }}</RouterLink>
-            </td>
-            <td class="py-2 max-w-[280px] truncate">{{ prompt.description || '—' }}</td>
-            <td class="py-2">{{ prompt.tags?.join(', ') || '—' }}</td>
-            <td class="py-2 text-subtle-foreground">{{ formatDate(prompt.createdAt) }}</td>
-            <td class="py-2 pr-2 text-right">
-              <button class="rounded border border-danger/60 text-danger/60 px-2 py-1 text-xs"
-                @click="confirmDeletePrompt(prompt.id)">Delete</button>
-            </td>
-          </tr>
-          <tr v-if="store.promptsLoading"><td colspan="5" class="py-3 text-center text-subtle-foreground">Loading…</td></tr>
-          <tr v-else-if="filteredPrompts.length === 0"><td colspan="5" class="py-3 text-center text-subtle-foreground">No prompts found.</td></tr>
-        </tbody>
-      </table>
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain pr-1">
+        <table class="w-full text-sm">
+          <thead class="text-subtle-foreground">
+            <tr>
+              <th class="text-left py-2">Name</th>
+              <th class="text-left py-2">Description</th>
+              <th class="text-left py-2">Tags</th>
+              <th class="text-left py-2">Created</th>
+              <th class="text-right py-2 pr-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="prompt in filteredPrompts" :key="prompt.id" class="border-t border-border/60">
+              <td class="py-2 font-medium">
+                <RouterLink :to="`/playground/prompts/${prompt.id}`" class="text-accent hover:underline">{{ prompt.name }}</RouterLink>
+              </td>
+              <td class="py-2 max-w-[280px] truncate">{{ prompt.description || '—' }}</td>
+              <td class="py-2">{{ prompt.tags?.join(', ') || '—' }}</td>
+              <td class="py-2 text-subtle-foreground">{{ formatDate(prompt.createdAt) }}</td>
+              <td class="py-2 pr-2 text-right">
+                <button class="rounded border border-danger/60 text-danger/60 px-2 py-1 text-xs"
+                  @click="confirmDeletePrompt(prompt.id)">Delete</button>
+              </td>
+            </tr>
+            <tr v-if="store.promptsLoading"><td colspan="5" class="py-3 text-center text-subtle-foreground">Loading…</td></tr>
+            <tr v-else-if="filteredPrompts.length === 0"><td colspan="5" class="py-3 text-center text-subtle-foreground">No prompts found.</td></tr>
+          </tbody>
+        </table>
+      </div>
       <div v-if="store.promptsError" class="rounded border border-danger/60 bg-danger/10 px-3 py-2 text-danger-foreground text-sm">
         {{ store.promptsError }}
       </div>

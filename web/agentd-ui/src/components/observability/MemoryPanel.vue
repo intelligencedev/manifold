@@ -1,5 +1,7 @@
 <template>
-  <section class="ap-panel ap-hover flex h-full flex-col gap-4 rounded-5 bg-surface p-4">
+  <section
+    class="flex h-full flex-col gap-4 overflow-hidden rounded-2xl border border-border/70 bg-surface p-6 shadow-lg"
+  >
     <header class="flex flex-wrap items-center justify-between gap-3 shrink-0">
       <div>
         <h2 class="text-sm font-semibold text-foreground">Memory</h2>

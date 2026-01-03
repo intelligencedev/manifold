@@ -40,14 +40,6 @@
                 class="w-56 truncate"
               />
             </div>
-            <button
-              type="button"
-              class="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-surface/70 text-foreground transition hover:border-accent/40 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              :aria-label="`Current theme: ${themeStore.resolvedThemeId}. Switch theme.`"
-              @click="cycleTheme"
-            >
-              <component :is="currentAppearance === 'dark' ? MoonIcon : SunIcon" class="h-5 w-5" />
-            </button>
             <div class="ml-1">
               <AccountButton :username="user?.name || user?.email" />
             </div>
@@ -81,23 +73,14 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import AccountButton from '@/components/AccountButton.vue'
 import DropdownSelect from '@/components/DropdownSelect.vue'
-import ThemeToggle from '@/components/ThemeToggle.vue'
-import Pill from '@/components/ui/Pill.vue'
 import Topbar from '@/components/ui/Topbar.vue'
 import manifoldLogo from '@/assets/images/manifold_logo.png'
-import MoonIcon from '@/components/icons/Moon.vue'
-import SunIcon from '@/components/icons/Sun.vue'
 import { useProjectsStore } from '@/stores/projects'
 import { useThemeStore } from '@/stores/theme'
 
 const themeStore = useThemeStore()
 const route = useRoute()
-const currentAppearance = computed(() => themeStore.resolvedTheme.appearance)
 const isObsDash = computed(() => themeStore.resolvedThemeId === 'obsdash-dark')
-
-function cycleTheme() {
-  themeStore.cycleTheme()
-}
 
 const user = ref<{ name?: string; email?: string; picture?: string } | null>(null)
 onMounted(async () => {

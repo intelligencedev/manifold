@@ -58,6 +58,17 @@
               <label for="api-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">API Base URL</label>
               <input id="api-url" v-model="apiUrl" type="url" placeholder="https://localhost:32180/api" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
             </div>
+            <div class="space-y-1">
+              <label for="ui-theme" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Theme</label>
+              <DropdownSelect
+                id="ui-theme"
+                v-model="selectedThemeId"
+                :options="themeDropdownOptions"
+                size="sm"
+                class="w-full"
+                aria-label="Theme"
+              />
+            </div>
           </div>
         </fieldset>
         <fieldset class="space-y-4">
@@ -444,6 +455,30 @@ import { fetchAgentdSettings, updateAgentdSettings, type AgentdSettings } from '
 import { listMCPServers, createMCPServer, deleteMCPServer, startMCPOAuth } from '@/api/mcp'
 import type { MCPServer, CreateMCPServerRequest } from '@/types/mcp'
 import DropdownSelect from '@/components/DropdownSelect.vue'
+import { useThemeStore } from '@/stores/theme'
+import { defaultDarkTheme, type ThemeId } from '@/theme/themes'
+
+const themeStore = useThemeStore()
+
+const supportedThemeIds: ThemeId[] = ['obsdash-dark', defaultDarkTheme]
+
+const selectedThemeId = computed<ThemeId>({
+  get: () => {
+    const id = themeStore.resolvedThemeId
+    return supportedThemeIds.includes(id) ? id : defaultDarkTheme
+  },
+  set: (value) => {
+    themeStore.setTheme(value)
+  },
+})
+
+const themeDropdownOptions = computed(() =>
+  supportedThemeIds.map((id) => ({
+    id,
+    label: id === 'obsdash-dark' ? 'Observability (Dark)' : 'Aperture (Dark)',
+    value: id,
+  })),
+)
 
 const apiUrl = ref('')
 

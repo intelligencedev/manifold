@@ -41,6 +41,7 @@ import (
 	"manifold/internal/projects"
 	"manifold/internal/rag/embedder"
 	ragservice "manifold/internal/rag/service"
+	"manifold/internal/skills"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
@@ -503,6 +504,12 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 				return nil, fmt.Errorf("enable S3 project encryption: %w", err)
 			}
 			log.Info().Msg("projects_s3_backend_encryption_enabled")
+
+			// Configure the ephemeral workspace manager to use S3Service for decryption
+			if ephMgr, ok := app.workspaceManager.(*workspaces.EphemeralWorkspaceManager); ok {
+				ephMgr.SetDecrypter(s3Svc)
+				log.Info().Msg("ephemeral_workspace_decrypter_configured")
+			}
 		}
 		app.projectsService = s3Svc
 		log.Info().Msg("projects_s3_backend_initialized")
@@ -520,6 +527,31 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		app.projectsService = fsService
 		log.Info().Str("workdir", cfg.Workdir).Msg("projects_filesystem_backend_initialized")
 	}
+
+	// Initialize skills cache service with optional Redis backing
+	skillsCacheTTL := time.Hour
+	if cfg.Skills.RedisCacheTTLSeconds > 0 {
+		skillsCacheTTL = time.Duration(cfg.Skills.RedisCacheTTLSeconds) * time.Second
+	}
+	skillsCfg := skills.CacheServiceConfig{
+		RedisConfig: cfg.Projects.Redis,
+		RedisTTL:    skillsCacheTTL,
+	}
+	// Only use S3 loader if explicitly enabled (default true) and we have S3 backend
+	if (cfg.Skills.UseS3Loader || cfg.Skills.RedisCacheTTLSeconds == 0) && cfg.Projects.Backend == "s3" {
+		// Use adapter to convert projects.ProjectService to skills.SkillsProjectService
+		skillsCfg.ProjectSvc = NewProjectsServiceAdapter(app.projectsService)
+	}
+	if err := skills.InitCacheService(skillsCfg); err != nil {
+		log.Warn().Err(err).Msg("skills_cache_service_init_failed")
+	} else {
+		log.Info().
+			Bool("redis", cfg.Projects.Redis.Enabled).
+			Bool("s3Loader", skillsCfg.ProjectSvc != nil).
+			Msg("skills_cache_service_initialized")
+	}
+	// Register skills invalidator with workspaces package to break import cycle
+	workspaces.SetSkillsInvalidator(skills.InvalidateCacheForProject)
 
 	app.whisperModel = app.loadWhisperModel("models/ggml-small.en.bin")
 

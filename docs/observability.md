@@ -78,6 +78,59 @@ Token usage details:
 
 Use these metric names/attributes when configuring dashboards or querying telemetry backends.
 
+## Enterprise Observability Stack
+
+For production deployments, the enterprise configuration includes a complete observability stack:
+
+- **ClickHouse**: High-performance columnar database for traces, logs, and metrics
+- **OpenTelemetry Collector**: Receives, processes, and exports telemetry data
+
+### Deployment
+
+The observability stack is included in `docker-compose.enterprise.yml`:
+
+```bash
+docker-compose -f docker-compose.enterprise.yml up -d
+```
+
+### Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `configs/otel/collector.yaml` | OTEL Collector pipelines and exporters |
+| `configs/clickhouse/init-otel.sql` | ClickHouse schema for OTEL data |
+
+### Querying Traces
+
+```sql
+-- Recent slow spans (>1 second)
+SELECT 
+    ServiceName,
+    SpanName,
+    Duration / 1000000 AS duration_ms,
+    SpanAttributes
+FROM otel.traces
+WHERE Duration > 1000000000
+ORDER BY Timestamp DESC
+LIMIT 20;
+```
+
+### Querying Metrics
+
+```sql
+-- Token usage over time
+SELECT 
+    toStartOfHour(TimeUnix) AS hour,
+    Attributes['llm.model'] AS model,
+    sum(Value) AS tokens
+FROM otel.metrics_sum
+WHERE MetricName IN ('llm.prompt_tokens', 'llm.completion_tokens')
+GROUP BY hour, model
+ORDER BY hour DESC;
+```
+
+See [deployment.md](deployment.md#observability-stack) for complete setup instructions.
+
 ## Monitoring
 
 ### Health Checks

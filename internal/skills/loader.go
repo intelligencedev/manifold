@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,6 +28,36 @@ type Loader struct {
 	UserDir string
 	// AdminDir is an optional machine-wide skills root (e.g., /etc/codex/skills).
 	AdminDir string
+}
+
+// LoadFromDir directly loads skills from {dir}/.manifold/skills without walking up
+// the directory tree. This is the preferred method for project-scoped skills.
+func LoadFromDir(dir string) LoadOutcome {
+	var outcome LoadOutcome
+
+	if strings.TrimSpace(dir) == "" {
+		return outcome
+	}
+
+	skillsPath := filepath.Join(dir, skillsDirName)
+	log.Debug().Str("skillsPath", skillsPath).Msg("skills_load_from_dir")
+
+	info, err := os.Stat(skillsPath)
+	if err != nil || !info.IsDir() {
+		log.Debug().Str("skillsPath", skillsPath).Bool("exists", err == nil).Msg("skills_dir_not_found")
+		return outcome
+	}
+
+	for _, path := range discoverSkillFiles(skillsPath) {
+		md, err := parseSkill(path, ScopeRepo)
+		if err != nil {
+			outcome.Errors = append(outcome.Errors, Error{Path: path, Message: err.Error()})
+			continue
+		}
+		outcome.Skills = append(outcome.Skills, md)
+	}
+
+	return outcome
 }
 
 // Load returns discovered skills in precedence order (repo > user > admin) with deduplication by name.
@@ -78,19 +109,24 @@ func (l Loader) repoSkillsRoot() string {
 	dir := wd
 	for {
 		candidate := filepath.Join(dir, skillsDirName)
+		log.Debug().Str("checking", candidate).Msg("skills_loader_checking_path")
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			log.Debug().Str("found", candidate).Msg("skills_loader_found_skills_dir")
 			return candidate
 		}
 
 		parent := filepath.Dir(dir)
 		if parent == dir {
+			log.Debug().Str("dir", dir).Msg("skills_loader_reached_root")
 			break
 		}
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			log.Debug().Str("dir", dir).Msg("skills_loader_stopped_at_git")
 			break
 		}
 		dir = parent
 	}
+	log.Debug().Str("workdir", wd).Msg("skills_loader_no_skills_found")
 	return ""
 }
 

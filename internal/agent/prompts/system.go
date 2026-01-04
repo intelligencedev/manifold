@@ -1,13 +1,18 @@
 package prompts
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"manifold/internal/skills"
 )
+
+var skillsCache = skills.DefaultCache()
 
 const memoryInstructions = `
 
@@ -117,38 +122,69 @@ Web Search Workflow:
 Be cautious with destructive operations. If a command could modify files, consider listing files first.`, workdir)
 	}
 
-	// If workdir is empty, treat it as the current directory
-	wd := workdir
-	if strings.TrimSpace(wd) == "" {
-		wd = "."
-	}
-
-	// Append skills discovery section so the model can see available SKILL.md entries.
-	if skillsSection := renderSkillsSection(wd); skillsSection != "" {
-		base = base + "\n\n" + skillsSection
-	}
-
 	// Always append memory instructions at the end
 	return EnsureMemoryInstructions(base)
 }
 
-// renderSkillsSection builds a markdown "## Skills" section from SKILL.md files discovered
-// under .manifold/skills (repo, user, admin precedence). Only metadata is injected to keep context small.
-func renderSkillsSection(workdir string) string {
-	loader := skills.Loader{
-		Workdir:  workdir,
-		UserDir:  filepath.Join(userHomeDir(), ".manifold", "skills"),
-		AdminDir: filepath.Join(string(filepath.Separator), "etc", "codex", "skills"),
+// RenderSkillsForProject builds a markdown "## Skills" section from SKILL.md files
+// discovered directly under the project's .manifold/skills folder. Only metadata is
+// injected to keep context small. Returns empty string if no skills are found.
+func RenderSkillsForProject(projectDir string) string {
+	if strings.TrimSpace(projectDir) == "" {
+		return ""
 	}
-	outcome := loader.Load()
-	if len(outcome.Skills) == 0 {
+
+	projectID, gen, skillsGen := readGenerations(projectDir)
+	cacheKey := projectID
+	if cacheKey == "" {
+		cacheKey = projectDir
+	}
+
+	cached, err := skillsCache.GetOrLoad(cacheKey, gen, skillsGen, func() (*skills.CachedSkills, error) {
+		outcome := skills.LoadFromDir(projectDir)
+
+		log.Debug().
+			Str("projectDir", projectDir).
+			Int("skillsFound", len(outcome.Skills)).
+			Int("errors", len(outcome.Errors)).
+			Msg("skills_loader_result")
+
+		for _, e := range outcome.Errors {
+			log.Debug().Str("path", e.Path).Str("error", e.Message).Msg("skills_loader_error")
+		}
+
+		prompt := renderSkillsSection(outcome.Skills)
+		if prompt == "" {
+			return nil, nil
+		}
+
+		return &skills.CachedSkills{
+			Generation:       gen,
+			SkillsGeneration: skillsGen,
+			Skills:           outcome.Skills,
+			RenderedPrompt:   prompt,
+		}, nil
+	})
+
+	if err != nil || cached == nil {
+		if err != nil {
+			log.Debug().Err(err).Msg("skills_cache_load_failed")
+		}
+		return ""
+	}
+
+	return cached.RenderedPrompt
+}
+
+func renderSkillsSection(skillsList []skills.Metadata) string {
+	if len(skillsList) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
-	b.WriteString("These skills are discovered from local .manifold/skills folders. Each entry includes a name, description, and file path.\n")
-	for _, s := range outcome.Skills {
+	b.WriteString("These skills are discovered from the project's .manifold/skills folder. Each entry includes a name, description, and file path.\n")
+	for _, s := range skillsList {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {
 			desc = s.ShortDescription
@@ -163,10 +199,29 @@ func renderSkillsSection(workdir string) string {
 	return b.String()
 }
 
-// userHomeDir returns the user's home directory; falls back to current dir on error.
-func userHomeDir() string {
-	if h, err := os.UserHomeDir(); err == nil {
-		return h
+type projectGenerations struct {
+	ID               string `json:"id"`
+	Generation       int64  `json:"generation"`
+	SkillsGeneration int64  `json:"skillsGeneration"`
+}
+
+func readGenerations(projectDir string) (string, int64, int64) {
+	// Prefer sync-manifest (ephemeral workspaces) then project metadata (legacy).
+	paths := []string{
+		filepath.Join(projectDir, ".meta", "sync-manifest.json"),
+		filepath.Join(projectDir, ".meta", "project.json"),
 	}
-	return "."
+
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var meta projectGenerations
+		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+		return meta.ID, meta.Generation, meta.SkillsGeneration
+	}
+	return "", 0, 0
 }

@@ -76,6 +76,8 @@ type Config struct {
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
 	// Tokenization configures accurate token counting for summarization.
 	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
+	// Skills configures skill caching behavior.
+	Skills SkillsConfig `yaml:"skills" json:"skills"`
 }
 
 // TokenizationConfig controls how tokens are counted for summarization decisions.
@@ -113,6 +115,10 @@ type ProjectsConfig struct {
 	Workspace WorkspaceConfig `yaml:"workspace" json:"workspace"`
 	// S3 configures S3/MinIO-compatible object storage when Backend="s3".
 	S3 S3Config `yaml:"s3" json:"s3"`
+	// Redis configures optional generation cache, locks, and invalidation.
+	Redis RedisConfig `yaml:"redis" json:"redis"`
+	// Events configures optional Kafka publishing for project commits.
+	Events ProjectsKafkaConfig `yaml:"events" json:"events"`
 }
 
 // EncryptionConfig configures the key provider for project encryption.
@@ -176,6 +182,10 @@ type WorkspaceConfig struct {
 	// TTLSeconds is how long an ephemeral workspace may remain before cleanup.
 	// Default: 86400 (24 hours).
 	TTLSeconds int `yaml:"ttlSeconds" json:"ttlSeconds"`
+	// CacheDir is the encrypted cache root for enterprise mode.
+	CacheDir string `yaml:"cacheDir" json:"cacheDir"`
+	// TmpfsDir is the tmpfs/plaintext working set root for enterprise mode.
+	TmpfsDir string `yaml:"tmpfsDir" json:"tmpfsDir"`
 }
 
 // S3Config holds S3/MinIO connection settings for object storage backend.
@@ -206,6 +216,32 @@ type S3SSEConfig struct {
 	Mode string `yaml:"mode" json:"mode"`
 	// KMSKeyID is the KMS key ID for sse-kms mode.
 	KMSKeyID string `yaml:"kmsKeyID" json:"kmsKeyID"`
+}
+
+// RedisConfig enables Redis coordination/generation cache.
+type RedisConfig struct {
+	Enabled               bool   `yaml:"enabled" json:"enabled"`
+	Addr                  string `yaml:"addr" json:"addr"`
+	Password              string `yaml:"password" json:"password"`
+	DB                    int    `yaml:"db" json:"db"`
+	TLSInsecureSkipVerify bool   `yaml:"tlsInsecureSkipVerify" json:"tlsInsecureSkipVerify"`
+}
+
+// ProjectsKafkaConfig describes Kafka topics for project events.
+type ProjectsKafkaConfig struct {
+	Enabled bool   `yaml:"enabled" json:"enabled"`
+	Brokers string `yaml:"brokers" json:"brokers"`
+	Topic   string `yaml:"topic" json:"topic"`
+}
+
+// SkillsConfig controls skill caching and loading behavior.
+type SkillsConfig struct {
+	// RedisCacheTTLSeconds sets the TTL for Redis-cached skills prompts.
+	// Default: 3600 (1 hour). Set to 0 to disable Redis caching.
+	RedisCacheTTLSeconds int `yaml:"redisCacheTTLSeconds" json:"redisCacheTTLSeconds"`
+	// UseS3Loader enables direct S3 skills loading without full workspace hydration.
+	// Only applies when projects.backend="s3". Default: true.
+	UseS3Loader bool `yaml:"useS3Loader" json:"useS3Loader"`
 }
 
 // TTSConfig holds text-to-speech specific configuration.

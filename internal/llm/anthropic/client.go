@@ -197,11 +197,34 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	}
 
 	// Extract tool calls from the SDK's accumulated message.
-	// The SDK handles JSON accumulation correctly; we use our toolBuffers only as fallback.
 	msg := messageFromResponse(&acc)
 
-	// Emit tool calls - prefer SDK's accumulated data
-	if len(msg.ToolCalls) > 0 {
+	// Check if any toolBuffer received streaming deltas - if so, prefer our tracking
+	// because the SDK doesn't correctly accumulate partial JSON from InputJSONDelta events.
+	hasStreamedDeltas := false
+	for _, tb := range toolBuffers {
+		if tb != nil && tb.hasDeltas {
+			hasStreamedDeltas = true
+			break
+		}
+	}
+
+	// Emit tool calls - prefer our toolBuffers when streaming deltas were received
+	if len(toolBuffers) > 0 && hasStreamedDeltas {
+		// Use our own tracking since we received streaming partial JSON
+		log.Debug().Int("count", len(toolBuffers)).Msg("anthropic_using_tool_buffer_for_streamed_deltas")
+		indices := make([]int, 0, len(toolBuffers))
+		for i := range toolBuffers {
+			indices = append(indices, i)
+		}
+		sort.Ints(indices)
+		for _, idx := range indices {
+			if tb := toolBuffers[idx]; tb != nil && h != nil {
+				h.OnToolCall(tb.toToolCall())
+			}
+		}
+	} else if len(msg.ToolCalls) > 0 {
+		// Use SDK's accumulated data when no streaming deltas
 		for _, tc := range msg.ToolCalls {
 			if h != nil {
 				h.OnToolCall(tc)
@@ -437,22 +460,12 @@ func (tb *toolBuffer) appendPartial(partial string) {
 		return
 	}
 	// If this is the first delta, we need to prepare the buffer.
-	// The initial input is a valid (closed) JSON object (e.g. "{}").
-	// To append to it, we must remove the closing brace.
+	// The initial input from content_block_start is typically an empty object "{}"
+	// which is just a placeholder. When streaming deltas arrive, they contain
+	// the actual JSON content that should replace (not extend) the initial empty object.
 	if !tb.hasDeltas {
-		current := tb.buf.String()
-		trimmed := strings.TrimSpace(current)
-		if trimmed == "" {
-			// Start a fresh object if nothing has been buffered yet.
-			tb.buf.WriteString("{")
-		} else if strings.HasSuffix(trimmed, "}") {
-			// Find the last '}' and remove it so we can append into the object.
-			idx := strings.LastIndex(current, "}")
-			if idx != -1 {
-				tb.buf.Reset()
-				tb.buf.WriteString(current[:idx])
-			}
-		}
+		// Clear the buffer and start fresh with the incoming partial JSON
+		tb.buf.Reset()
 		tb.hasDeltas = true
 	}
 	tb.buf.WriteString(partial)

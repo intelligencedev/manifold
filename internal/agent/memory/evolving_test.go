@@ -2,7 +2,10 @@ package memory
 
 import (
 	"context"
+	"os"
 	"testing"
+
+	"github.com/joho/godotenv"
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -28,11 +31,22 @@ func (m *mockLLMProvider) ChatStream(ctx context.Context, messages []llm.Message
 func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 	ctx := context.Background()
 
-	// Create a mock embedding config (in practice, needs real embedding service)
+	// Load .env file (fallback to example.env) for embedding config
+	_ = godotenv.Load("../../../.env")
+	_ = godotenv.Load("../../../example.env")
+
+	// Create embedding config from environment
 	embedCfg := config.EmbeddingConfig{
-		BaseURL: "http://localhost:11434",
-		Path:    "/api/embeddings",
-		Model:   "nomic-embed-text",
+		BaseURL:   os.Getenv("EMBED_BASE_URL"),
+		Path:      os.Getenv("EMBED_PATH"),
+		Model:     os.Getenv("EMBED_MODEL"),
+		APIKey:    os.Getenv("EMBED_API_KEY"),
+		APIHeader: os.Getenv("EMBED_API_HEADER"),
+	}
+
+	// Skip if embedding service not configured
+	if embedCfg.BaseURL == "" || embedCfg.APIKey == "" {
+		t.Skip("Embedding service not configured (EMBED_BASE_URL or EMBED_API_KEY missing)")
 	}
 
 	mockLLM := &mockLLMProvider{response: "Key lesson: Always check inputs first."}
@@ -48,12 +62,7 @@ func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 	})
 
 	// Test Evolve (adding memories)
-	// Note: This test requires a running embedding service
-	// For unit tests, you'd need to mock embedding.EmbedText
 	t.Run("Evolve", func(t *testing.T) {
-		// Skip if no embedding service available
-		t.Skip("Requires live embedding service")
-
 		err := em.Evolve(ctx, "test task 1", "solution 1", "success")
 		if err != nil {
 			t.Fatalf("Evolve failed: %v", err)

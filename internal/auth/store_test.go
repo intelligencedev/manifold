@@ -6,12 +6,17 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 func TestStoreSchemaAndUser(t *testing.T) {
-	dsn := os.Getenv("TEST_PG_DSN")
+	// Load .env file (fallback to example.env) for DATABASE_URL
+	_ = godotenv.Load("../../.env")
+	_ = godotenv.Load("../../example.env")
+
+	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		t.Skip("TEST_PG_DSN not set")
+		t.Skip("DATABASE_URL not set")
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dsn)

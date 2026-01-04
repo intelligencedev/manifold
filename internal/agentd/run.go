@@ -454,13 +454,58 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Initialize projects service based on backend configuration (s3Store already initialized above)
 	app.s3Store = s3Store
+
+	// Initialize KeyProvider if encryption is enabled
+	var keyProvider projects.KeyProvider
+	if cfg.Projects.Encrypt {
+		var err error
+		kpCfg := projects.KeyProviderConfig{
+			Type: cfg.Projects.Encryption.Provider,
+			File: projects.FileKeyProviderConfig{
+				KeystorePath: cfg.Projects.Encryption.File.KeystorePath,
+			},
+			Vault: projects.VaultKeyProviderConfig{
+				Address:        cfg.Projects.Encryption.Vault.Address,
+				Token:          cfg.Projects.Encryption.Vault.Token,
+				KeyName:        cfg.Projects.Encryption.Vault.KeyName,
+				MountPath:      cfg.Projects.Encryption.Vault.MountPath,
+				Namespace:      cfg.Projects.Encryption.Vault.Namespace,
+				TLSSkipVerify:  cfg.Projects.Encryption.Vault.TLSSkipVerify,
+				TimeoutSeconds: cfg.Projects.Encryption.Vault.TimeoutSeconds,
+			},
+			AWSKMS: projects.AWSKMSKeyProviderConfig{
+				KeyID:           cfg.Projects.Encryption.AWSKMS.KeyID,
+				Region:          cfg.Projects.Encryption.AWSKMS.Region,
+				AccessKeyID:     cfg.Projects.Encryption.AWSKMS.AccessKeyID,
+				SecretAccessKey: cfg.Projects.Encryption.AWSKMS.SecretAccessKey,
+				Endpoint:        cfg.Projects.Encryption.AWSKMS.Endpoint,
+			},
+		}
+		keyProvider, err = projects.NewKeyProvider(cfg.Workdir, kpCfg)
+		if err != nil {
+			return nil, fmt.Errorf("create key provider: %w", err)
+		}
+		log.Info().Str("type", cfg.Projects.Encryption.Provider).Msg("key_provider_initialized")
+	}
+
 	switch cfg.Projects.Backend {
 	case "s3":
-		app.projectsService = projects.NewS3Service(s3Store, cfg.Projects.S3)
+		s3Svc := projects.NewS3Service(s3Store, cfg.Projects.S3)
+		if cfg.Projects.Encrypt && keyProvider != nil {
+			s3Svc.SetKeyProvider(keyProvider)
+			if err := s3Svc.EnableEncryption(true); err != nil {
+				return nil, fmt.Errorf("enable S3 project encryption: %w", err)
+			}
+			log.Info().Msg("projects_s3_backend_encryption_enabled")
+		}
+		app.projectsService = s3Svc
 		log.Info().Msg("projects_s3_backend_initialized")
 	default:
 		// Filesystem backend (default)
 		fsService := projects.NewService(cfg.Workdir)
+		if cfg.Projects.Encrypt && keyProvider != nil {
+			fsService.SetKeyProvider(keyProvider)
+		}
 		if cfg.Projects.Encrypt {
 			if err := fsService.EnableEncryption(true); err != nil {
 				return nil, fmt.Errorf("enable project encryption failed: %w", err)

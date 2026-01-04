@@ -3,6 +3,10 @@ package projects
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	crand "crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,6 +29,10 @@ type S3Service struct {
 	store     objectstore.ObjectStore
 	keyPrefix string
 
+	// Encryption controls
+	encrypt     bool
+	keyProvider KeyProvider
+
 	// Project metadata cache for fast listing
 	mu       sync.RWMutex
 	cache    map[int64][]Project // userID -> projects
@@ -45,6 +53,175 @@ func NewS3Service(store objectstore.ObjectStore, cfg config.S3Config) *S3Service
 		cacheTTL:  5 * time.Minute,
 		lastSync:  make(map[int64]time.Time),
 	}
+}
+
+// SetKeyProvider configures a KeyProvider for envelope encryption.
+func (s *S3Service) SetKeyProvider(kp KeyProvider) {
+	s.keyProvider = kp
+}
+
+// GetKeyProvider returns the configured KeyProvider, or nil if not set.
+func (s *S3Service) GetKeyProvider() KeyProvider {
+	return s.keyProvider
+}
+
+// EnableEncryption toggles at-rest encryption for project file I/O.
+// Requires a KeyProvider to be set first.
+func (s *S3Service) EnableEncryption(enable bool) error {
+	if enable && s.keyProvider == nil {
+		return fmt.Errorf("encryption requires a KeyProvider; call SetKeyProvider first")
+	}
+	s.encrypt = enable
+	if enable {
+		log.Info().Msg("s3_projects: application-level encryption enabled")
+	}
+	return nil
+}
+
+// encMetaKey returns the S3 key for a project's encryption metadata (enc.json).
+func (s *S3Service) encMetaKey(userID int64, projectID string) string {
+	return fmt.Sprintf("%s/.meta/enc.json", s.projectPrefix(userID, projectID))
+}
+
+// ensureProjectDEK creates a new DEK and stores enc.json in S3 if missing; returns the DEK.
+func (s *S3Service) ensureProjectDEK(ctx context.Context, userID int64, projectID string) ([]byte, error) {
+	encKey := s.encMetaKey(userID, projectID)
+
+	// Check if DEK already exists
+	if exists, _ := s.store.Exists(ctx, encKey); exists {
+		return s.getProjectDEK(ctx, userID, projectID)
+	}
+
+	// Generate new DEK
+	dek := make([]byte, 32)
+	if _, err := crand.Read(dek); err != nil {
+		return nil, fmt.Errorf("generate DEK: %w", err)
+	}
+
+	// Wrap with KeyProvider
+	wrapped, err := s.keyProvider.WrapDEK(ctx, projectID, dek)
+	if err != nil {
+		return nil, fmt.Errorf("wrap DEK: %w", err)
+	}
+
+	// Write enc.json to S3
+	env := encEnvelope{
+		Alg:          "envelope",
+		WrapVersion:  2,
+		ProviderType: s.keyProvider.ProviderType(),
+		WrappedB64:   base64.StdEncoding.EncodeToString(wrapped),
+	}
+	envBytes, err := json.MarshalIndent(env, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal enc.json: %w", err)
+	}
+
+	_, err = s.store.Put(ctx, encKey, bytes.NewReader(envBytes), objectstore.PutOptions{
+		ContentType: "application/json",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("put enc.json: %w", err)
+	}
+
+	log.Debug().Str("project", projectID).Msg("s3_projects: created project DEK")
+	return dek, nil
+}
+
+// getProjectDEK retrieves and unwraps the DEK for a project from S3.
+func (s *S3Service) getProjectDEK(ctx context.Context, userID int64, projectID string) ([]byte, error) {
+	encKey := s.encMetaKey(userID, projectID)
+
+	reader, _, err := s.store.Get(ctx, encKey)
+	if err != nil {
+		return nil, fmt.Errorf("get enc.json: %w", err)
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read enc.json: %w", err)
+	}
+
+	var env encEnvelope
+	if err := json.Unmarshal(data, &env); err != nil {
+		return nil, fmt.Errorf("unmarshal enc.json: %w", err)
+	}
+
+	if env.WrapVersion != 2 {
+		return nil, fmt.Errorf("unsupported wrap version: %d", env.WrapVersion)
+	}
+
+	wrapped, err := base64.StdEncoding.DecodeString(env.WrappedB64)
+	if err != nil {
+		return nil, fmt.Errorf("decode wrapped DEK: %w", err)
+	}
+
+	dek, err := s.keyProvider.UnwrapDEK(ctx, projectID, wrapped)
+	if err != nil {
+		return nil, fmt.Errorf("unwrap DEK: %w", err)
+	}
+
+	return dek, nil
+}
+
+// encryptData encrypts plaintext data using AES-GCM with the provided DEK.
+// Returns ciphertext with magic header, version, and nonce prepended.
+func (s *S3Service) encryptData(dek, plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(dek)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := crand.Read(nonce); err != nil {
+		return nil, err
+	}
+
+	ct := gcm.Seal(nil, nonce, plaintext, nil)
+
+	// Format: magic[4] + ver[1] + nonce[12] + ciphertext[...]
+	result := make([]byte, 0, 4+1+len(nonce)+len(ct))
+	result = append(result, fileMagic[:]...)
+	result = append(result, 1) // version
+	result = append(result, nonce...)
+	result = append(result, ct...)
+
+	return result, nil
+}
+
+// decryptData decrypts ciphertext that was encrypted with encryptData.
+func (s *S3Service) decryptData(dek, ciphertext []byte) ([]byte, error) {
+	if len(ciphertext) < 4+1+12 {
+		return nil, fmt.Errorf("ciphertext too short")
+	}
+	if !bytes.Equal(ciphertext[:4], fileMagic[:]) {
+		return nil, fmt.Errorf("bad magic")
+	}
+	if ciphertext[4] != 1 {
+		return nil, fmt.Errorf("unsupported version: %d", int(ciphertext[4]))
+	}
+
+	nonce := ciphertext[5:17]
+	ct := ciphertext[17:]
+
+	block, err := aes.NewCipher(dek)
+	if err != nil {
+		return nil, err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	pt, err := gcm.Open(nil, nonce, ct, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt failed: %w", err)
+	}
+
+	return pt, nil
 }
 
 // userPrefix returns the S3 key prefix for a user's projects.
@@ -429,7 +606,27 @@ func (s *S3Service) UploadFile(ctx context.Context, userID int64, projectID, fil
 	// Detect content type
 	contentType := detectContentType(name)
 
-	_, err := s.store.Put(ctx, key, r, objectstore.PutOptions{
+	// Read content for potential encryption
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return fmt.Errorf("read content: %w", err)
+	}
+
+	// Encrypt if enabled
+	if s.encrypt {
+		dek, err := s.ensureProjectDEK(ctx, userID, projectID)
+		if err != nil {
+			return fmt.Errorf("get DEK: %w", err)
+		}
+		data, err = s.encryptData(dek, data)
+		if err != nil {
+			return fmt.Errorf("encrypt: %w", err)
+		}
+		// Override content type for encrypted files
+		contentType = "application/octet-stream"
+	}
+
+	_, err = s.store.Put(ctx, key, bytes.NewReader(data), objectstore.PutOptions{
 		ContentType: contentType,
 	})
 	if err != nil {
@@ -619,15 +816,32 @@ func (s *S3Service) ReadFile(ctx context.Context, userID int64, projectID, fileP
 		return nil, fmt.Errorf("get file: %w", err)
 	}
 
-	return reader, nil
-}
+	// If encryption is enabled, check if file is encrypted and decrypt
+	if s.encrypt {
+		data, err := io.ReadAll(reader)
+		reader.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read file: %w", err)
+		}
 
-// EnableEncryption is not supported for S3 backend (use S3 SSE instead).
-func (s *S3Service) EnableEncryption(enable bool) error {
-	if enable {
-		log.Warn().Msg("s3_projects: application-level encryption not supported, use S3 SSE instead")
+		// Check if file has encryption magic header
+		if len(data) >= 5 && bytes.Equal(data[:4], fileMagic[:]) {
+			dek, err := s.getProjectDEK(ctx, userID, projectID)
+			if err != nil {
+				return nil, fmt.Errorf("get DEK: %w", err)
+			}
+			plaintext, err := s.decryptData(dek, data)
+			if err != nil {
+				return nil, fmt.Errorf("decrypt: %w", err)
+			}
+			return io.NopCloser(bytes.NewReader(plaintext)), nil
+		}
+
+		// File is not encrypted (migrated before encryption was enabled)
+		return io.NopCloser(bytes.NewReader(data)), nil
 	}
-	return nil
+
+	return reader, nil
 }
 
 // updateProjectTime updates the project's UpdatedAt timestamp.

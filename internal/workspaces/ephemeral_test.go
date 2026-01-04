@@ -178,6 +178,76 @@ func TestEphemeralWorkspaceManager_InvalidProjectID(t *testing.T) {
 	}
 }
 
+func TestEphemeralWorkspaceManager_InvalidSessionID(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "ephemeral-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	store := objectstore.NewMemoryStore()
+	cfg := &config.Config{
+		Workdir: tmpDir,
+		Projects: config.ProjectsConfig{
+			Workspace: config.WorkspaceConfig{
+				Mode: "ephemeral",
+				Root: filepath.Join(tmpDir, "sandboxes"),
+			},
+			S3: config.S3Config{
+				Prefix: "workspaces",
+			},
+		},
+	}
+	mgr := NewEphemeralManager(store, cfg)
+
+	testCases := []string{
+		"../escape",
+		"a/b",
+		"/absolute/path",
+		"..",
+		".",
+	}
+	for _, tc := range testCases {
+		t.Run(tc, func(t *testing.T) {
+			_, err := mgr.Checkout(context.Background(), 123, "project", tc)
+			assert.ErrorIs(t, err, ErrInvalidSessionID)
+		})
+	}
+}
+
+func TestEphemeralWorkspaceManager_HydrateRejectsTraversalObjectKey(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "ephemeral-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	store := objectstore.NewMemoryStore()
+	ctx := context.Background()
+
+	// Seed a malicious key that still matches the prefix.
+	_, err = store.Put(ctx, "workspaces/users/123/projects/test-project/files/../pwn.txt", bytes.NewReader([]byte("pwn")), objectstore.PutOptions{})
+	require.NoError(t, err)
+
+	cfg := &config.Config{
+		Workdir: tmpDir,
+		Projects: config.ProjectsConfig{
+			Backend: "s3",
+			Workspace: config.WorkspaceConfig{
+				Mode: "ephemeral",
+				Root: filepath.Join(tmpDir, "sandboxes"),
+			},
+			S3: config.S3Config{
+				Prefix: "workspaces",
+			},
+		},
+	}
+	mgr := NewEphemeralManager(store, cfg)
+
+	_, err = mgr.Checkout(ctx, 123, "test-project", "session-1")
+	assert.Error(t, err)
+}
+
 func TestEphemeralWorkspaceManager_SessionReuse(t *testing.T) {
 	t.Parallel()
 

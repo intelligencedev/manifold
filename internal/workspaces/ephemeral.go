@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -121,10 +122,15 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 	// Generate session ID if empty
 	if sessionID == "" {
 		sessionID = fmt.Sprintf("ses-%d", time.Now().UnixNano())
-		ws.SessionID = sessionID
 	}
 
-	key := sessionKey(userID, cleanPID, sessionID)
+	cleanSID, err := ValidateSessionID(sessionID)
+	if err != nil {
+		return Workspace{}, err
+	}
+	ws.SessionID = cleanSID
+
+	key := sessionKey(userID, cleanPID, cleanSID)
 
 	// Check if workspace is already active
 	m.mu.RLock()
@@ -135,7 +141,10 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 	m.mu.RUnlock()
 
 	// Create local workspace directory
-	localPath := m.workspacePath(userID, cleanPID, sessionID)
+	localPath := m.workspacePath(userID, cleanPID, cleanSID)
+	if err := ensurePathWithin(m.workdir, localPath); err != nil {
+		return Workspace{}, err
+	}
 	if err := os.MkdirAll(localPath, 0o755); err != nil {
 		return Workspace{}, fmt.Errorf("create workspace dir: %w", err)
 	}
@@ -145,8 +154,10 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 	// Download files from S3
 	manifest, err := m.hydrate(ctx, userID, cleanPID, localPath)
 	if err != nil {
-		// Clean up on failure
-		_ = os.RemoveAll(localPath)
+		// Clean up on failure (defense-in-depth: only delete if still under workdir)
+		if ensurePathWithin(m.workdir, localPath) == nil {
+			_ = os.RemoveAll(localPath)
+		}
 		return Workspace{}, fmt.Errorf("hydrate workspace: %w", err)
 	}
 
@@ -161,7 +172,7 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 	log.Info().
 		Int64("userID", userID).
 		Str("projectID", cleanPID).
-		Str("sessionID", sessionID).
+		Str("sessionID", cleanSID).
 		Str("baseDir", localPath).
 		Int("files", len(manifest.Files)).
 		Msg("workspace_checkout_complete")
@@ -177,6 +188,11 @@ func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, p
 		Version:      1,
 		CheckoutTime: time.Now().UTC(),
 		Files:        make(map[string]FileManifest),
+	}
+
+	absLocalPath, err := filepath.Abs(localPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolve localPath: %w", err)
 	}
 
 	// List all objects under the project prefix
@@ -203,12 +219,19 @@ func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, p
 			}
 
 			// Extract relative path from the key
-			relPath := strings.TrimPrefix(obj.Key, prefix+"/")
-			if relPath == "" || relPath == obj.Key {
+			relPathRaw := strings.TrimPrefix(obj.Key, prefix+"/")
+			if relPathRaw == "" || relPathRaw == obj.Key {
 				continue
 			}
+			relPath, err := sanitizeObjectRelPath(relPathRaw)
+			if err != nil {
+				return nil, fmt.Errorf("invalid object key %q: %w", obj.Key, err)
+			}
 
-			localFile := filepath.Join(localPath, filepath.FromSlash(relPath))
+			localFile, err := safeJoinUnder(absLocalPath, relPath)
+			if err != nil {
+				return nil, fmt.Errorf("invalid relPath %q: %w", relPath, err)
+			}
 
 			// Create parent directories
 			if err := os.MkdirAll(filepath.Dir(localFile), 0o755); err != nil {
@@ -268,6 +291,58 @@ func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, p
 	}
 
 	return manifest, nil
+}
+
+func ensurePathWithin(base, candidate string) error {
+	absBase, err := filepath.Abs(base)
+	if err != nil {
+		return fmt.Errorf("resolve base: %w", err)
+	}
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return fmt.Errorf("resolve candidate: %w", err)
+	}
+	rel, err := filepath.Rel(absBase, absCandidate)
+	if err != nil {
+		return fmt.Errorf("resolve relative: %w", err)
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("invalid path")
+	}
+	return nil
+}
+
+func sanitizeObjectRelPath(relPath string) (string, error) {
+	p := strings.TrimSpace(relPath)
+	if p == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	// Reject any backslashes to avoid platform-specific traversal surprises.
+	if strings.Contains(p, "\\") {
+		return "", fmt.Errorf("invalid path")
+	}
+	// Clean using slash semantics (S3 keys are slash-delimited).
+	clean := path.Clean(p)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+		return "", fmt.Errorf("invalid path")
+	}
+	return clean, nil
+}
+
+func safeJoinUnder(absRoot, relSlashPath string) (string, error) {
+	localFile := filepath.Join(absRoot, filepath.FromSlash(relSlashPath))
+	absLocalFile, err := filepath.Abs(localFile)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(absRoot, absLocalFile)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid path")
+	}
+	return absLocalFile, nil
 }
 
 // Commit uploads changed files from the workspace back to S3.

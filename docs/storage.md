@@ -288,7 +288,7 @@ To revert a project to filesystem storage:
 
 ## Encryption
 
-Manifold supports application-layer encryption for project files, independent of storage backend.
+Manifold supports application-layer encryption for project files, independent of storage backend. **Both filesystem and S3 backends support encryption.**
 
 ### Overview
 
@@ -298,6 +298,74 @@ Manifold supports application-layer encryption for project files, independent of
 | **File** | Local master key | Development, single-node |
 | **Vault** | HashiCorp Vault Transit | Production, enterprise |
 | **AWS KMS** | AWS Key Management Service | Production, AWS environments |
+
+### S3 + Encryption Quick Start
+
+To enable encrypted S3 storage with Vault:
+
+1. **Start required services:**
+   ```bash
+   docker-compose up -d minio vault
+   docker-compose up minio-init vault-init
+   ```
+
+2. **Configure environment (.env):**
+   ```bash
+   # S3 Backend
+   PROJECTS_BACKEND=s3
+   PROJECTS_S3_ENDPOINT=http://localhost:9002
+   PROJECTS_S3_BUCKET=manifold-workspaces
+   PROJECTS_S3_ACCESS_KEY=minioadmin
+   PROJECTS_S3_SECRET_KEY=minioadmin
+   PROJECTS_S3_USE_PATH_STYLE=true
+
+   # Encryption with Vault
+   PROJECTS_ENCRYPT=true
+   PROJECTS_ENCRYPTION_PROVIDER=vault
+   PROJECTS_ENCRYPTION_VAULT_ADDRESS=http://localhost:8200
+   PROJECTS_ENCRYPTION_VAULT_KEY_NAME=manifold-kek
+   VAULT_TOKEN=dev-only-token
+   ```
+
+3. **Or configure via config.yaml:**
+   ```yaml
+   projects:
+     backend: s3
+     encrypt: true
+     s3:
+       endpoint: "http://localhost:9002"
+       region: "us-east-1"
+       bucket: "manifold-workspaces"
+       prefix: "workspaces"
+       accessKey: "minioadmin"
+       secretKey: "minioadmin"
+     encryption:
+       provider: vault
+       vault:
+         address: "http://localhost:8200"
+         keyName: "manifold-kek"
+         mountPath: "transit"
+   ```
+
+4. **Verify encryption is working:**
+   ```bash
+   # Upload a test file
+   curl -X POST 'http://localhost:32180/api/projects/<project-id>/files?path=&name=test.txt' \
+     -H 'Content-Type: text/plain' \
+     --data-raw 'SECRET MESSAGE'
+
+   # Check raw content in S3 (should be ciphertext with MGCM header)
+   docker exec manifold_minio mc cat local/manifold-workspaces/workspaces/.../test.txt | xxd | head -5
+   # Expected: 4d47 434d 01... (MGCM magic header + encrypted bytes)
+
+   # Verify enc.json was created (wrapped DEK)
+   docker exec manifold_minio mc cat local/manifold-workspaces/workspaces/.../project-id/.meta/enc.json
+   # Expected: {"alg":"envelope","wrap_version":2,"wrapped_dek":"...","provider_type":"vault"}
+
+   # Read back through API (should return plaintext)
+   curl 'http://localhost:32180/api/projects/<project-id>/files?path=test.txt'
+   # Expected: SECRET MESSAGE
+   ```
 
 ### Encryption Architecture
 
@@ -321,6 +389,44 @@ Manifold supports application-layer encryption for project files, independent of
 
 - **DEK**: Random AES-256 key generated per project, stored wrapped in `.meta/enc.json`
 - **KEK**: Master key from KeyProvider that wraps/unwraps DEKs
+
+### Encrypted File Format
+
+Encrypted files use the following binary format:
+
+```
+┌──────────┬─────────┬──────────┬─────────────────┐
+│ Magic(4) │ Ver(1)  │ Nonce(12)│ Ciphertext(...) │
+│  MGCM    │   0x01  │  Random  │   AES-GCM       │
+└──────────┴─────────┴──────────┴─────────────────┘
+```
+
+- **Magic**: 4 bytes `MGCM` (0x4D 0x47 0x43 0x4D)
+- **Version**: 1 byte, currently `0x01`
+- **Nonce**: 12 bytes random IV for AES-GCM
+- **Ciphertext**: AES-256-GCM encrypted content with authentication tag
+
+Files without the `MGCM` header are treated as plaintext (for backward compatibility with files uploaded before encryption was enabled).
+
+### Per-Project DEK Storage
+
+Each encrypted project has a `.meta/enc.json` file containing the wrapped DEK:
+
+```json
+{
+  "alg": "envelope",
+  "wrap_version": 2,
+  "wrapped_dek": "dmF1bHQ6djE6...",
+  "provider_type": "vault"
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `alg` | Always `"envelope"` for KeyProvider-based encryption |
+| `wrap_version` | `2` for KeyProvider, `1` for legacy masterKey |
+| `wrapped_dek` | Base64-encoded wrapped DEK (opaque to Manifold) |
+| `provider_type` | `"vault"`, `"awskms"`, or `"file"` |
 
 ### Configuration
 
@@ -435,6 +541,25 @@ Rotate a project's DEK:
 ```
 
 This re-encrypts all project files with a new DEK.
+
+### Migrated Files and Encryption
+
+**Important:** Files migrated to S3 before encryption was enabled remain as plaintext. Encryption only applies to **new writes** after encryption is configured.
+
+To verify which files are encrypted:
+
+```bash
+# Check if file has MGCM header (encrypted)
+docker exec manifold_minio mc cat local/manifold-workspaces/.../file.txt | head -c 4 | xxd
+# Encrypted: 4d47 434d (MGCM)
+# Plaintext: Readable text
+
+# Check if project has enc.json (has DEK)
+docker exec manifold_minio mc ls local/manifold-workspaces/.../project-id/.meta/
+# Should show enc.json if any encrypted files exist
+```
+
+To encrypt existing plaintext files, re-upload them through the API after encryption is enabled.
 
 ### Defense in Depth
 
@@ -576,6 +701,12 @@ curl -H "X-Vault-Token: dev-only-token" http://localhost:8200/v1/transit/keys/ma
 # Test Vault encrypt/decrypt
 echo -n "test" | base64 | xargs -I {} curl -s -H "X-Vault-Token: dev-only-token" \
   -d '{"plaintext":"{}"}' http://localhost:8200/v1/transit/encrypt/manifold-kek
+
+# Verify file is encrypted in S3 (look for MGCM header)
+docker exec manifold_minio mc cat local/manifold-workspaces/.../file.txt | xxd | head -3
+
+# Check enc.json exists for project
+docker exec manifold_minio mc cat local/manifold-workspaces/.../project-id/.meta/enc.json
 ```
 
 ### Logs

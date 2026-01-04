@@ -1,8 +1,12 @@
 package agentd
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -13,6 +17,7 @@ import (
 
 	"manifold/internal/auth"
 	persist "manifold/internal/persistence"
+	"manifold/internal/workspaces"
 )
 
 func (a *app) projectsHandler() http.HandlerFunc {
@@ -101,6 +106,12 @@ func (a *app) projectDetailHandler() http.HandlerFunc {
 		}
 		parts := strings.Split(path, "/")
 		projectID := parts[0]
+		cleanPID, err := workspaces.ValidateProjectID(projectID)
+		if err != nil || cleanPID == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		projectID = cleanPID
 		if len(parts) == 1 {
 			switch r.Method {
 			case http.MethodDelete:
@@ -142,6 +153,13 @@ func (a *app) projectDetailHandler() http.HandlerFunc {
 			return
 		}
 		switch parts[1] {
+		case "archive":
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			a.streamProjectArchive(w, r, userID, projectID)
+			return
 		case "tree":
 			if r.Method != http.MethodGet {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -315,4 +333,114 @@ func (a *app) resolveProjectsUser(r *http.Request) (int64, bool, error) {
 	// RBAC: Admins are treated like regular users for projects; no cross-user access.
 	// Always scope to the current user's own projects, ignoring any userId overrides.
 	return u.ID, true, nil
+}
+
+// streamProjectArchive creates a tar.gz archive of all files in a project and streams it.
+func (a *app) streamProjectArchive(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	ctx := r.Context()
+
+	// Get project info for filename
+	projects, err := a.projectsService.ListProjects(ctx, userID)
+	if err != nil {
+		log.Error().Err(err).Str("project", projectID).Msg("archive_list_projects")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	projectName := projectID
+	for _, p := range projects {
+		if p.ID == projectID {
+			projectName = p.Name
+			break
+		}
+	}
+	// Sanitize project name for filename
+	safeName := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return '-'
+		}
+		return r
+	}, projectName)
+
+	// Set headers for download
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.tar.gz"`, safeName))
+
+	// Create gzip writer wrapping response
+	gzw := gzip.NewWriter(w)
+	defer gzw.Close()
+
+	// Create tar writer
+	tw := tar.NewWriter(gzw)
+	defer tw.Close()
+
+	// Recursively walk the project tree and add files
+	if err := a.archiveDir(ctx, tw, userID, projectID, ".", ""); err != nil {
+		log.Error().Err(err).Str("project", projectID).Msg("archive_project")
+		// Can't send error at this point since we've started writing
+		return
+	}
+}
+
+// archiveDir recursively adds all files and directories to the tar archive.
+func (a *app) archiveDir(ctx context.Context, tw *tar.Writer, userID int64, projectID, treePath, archivePath string) error {
+	entries, err := a.projectsService.ListTree(ctx, userID, projectID, treePath)
+	if err != nil {
+		return fmt.Errorf("list tree %s: %w", treePath, err)
+	}
+
+	for _, entry := range entries {
+		// Build the path within the archive
+		entryArchivePath := entry.Name
+		if archivePath != "" {
+			entryArchivePath = archivePath + "/" + entry.Name
+		}
+
+		if entry.Type == "dir" {
+			// Add directory header
+			hdr := &tar.Header{
+				Name:     entryArchivePath + "/",
+				Mode:     0755,
+				Typeflag: tar.TypeDir,
+				ModTime:  entry.ModTime,
+			}
+			if err := tw.WriteHeader(hdr); err != nil {
+				return fmt.Errorf("write dir header %s: %w", entryArchivePath, err)
+			}
+			// Recurse into subdirectory
+			if err := a.archiveDir(ctx, tw, userID, projectID, entry.Path, entryArchivePath); err != nil {
+				return err
+			}
+		} else {
+			// Read file content
+			rc, err := a.projectsService.ReadFile(ctx, userID, projectID, entry.Path)
+			if err != nil {
+				log.Warn().Err(err).Str("path", entry.Path).Msg("archive_skip_file")
+				continue // Skip files we can't read
+			}
+
+			// Read all content to get size (needed for tar header)
+			content, err := io.ReadAll(rc)
+			rc.Close()
+			if err != nil {
+				log.Warn().Err(err).Str("path", entry.Path).Msg("archive_read_file")
+				continue
+			}
+
+			// Add file header
+			hdr := &tar.Header{
+				Name:    entryArchivePath,
+				Mode:    0644,
+				Size:    int64(len(content)),
+				ModTime: entry.ModTime,
+			}
+			if err := tw.WriteHeader(hdr); err != nil {
+				return fmt.Errorf("write file header %s: %w", entryArchivePath, err)
+			}
+			// Write file content
+			if _, err := tw.Write(content); err != nil {
+				return fmt.Errorf("write file content %s: %w", entryArchivePath, err)
+			}
+		}
+	}
+	return nil
 }

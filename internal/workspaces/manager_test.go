@@ -184,6 +184,8 @@ func TestValidateProjectID(t *testing.T) {
 		{"simple id", "my-project", "my-project", nil},
 		{"uuid style", "abc123-def456", "abc123-def456", nil},
 		{"with numbers", "project123", "project123", nil},
+		{"path separators", "a/b", "", ErrInvalidProjectID},
+		{"windows separators", `a\\b`, "", ErrInvalidProjectID},
 		{"path traversal", "../escape", "", ErrInvalidProjectID},
 		{"absolute path", "/etc/passwd", "", ErrInvalidProjectID},
 		{"double dots", "..", "", ErrInvalidProjectID},
@@ -199,6 +201,37 @@ func TestValidateProjectID(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.want, got)
 			}
+		})
+	}
+}
+
+func TestValidateSessionID(t *testing.T) {
+	tests := []struct {
+		name      string
+		sessionID string
+		want      string
+		wantErr   error
+	}{
+		{"empty string", "", "", nil},
+		{"simple", "session-1", "session-1", nil},
+		{"generated style", "ses-123", "ses-123", nil},
+		{"path separators", "a/b", "", ErrInvalidSessionID},
+		{"windows separators", `a\\b`, "", ErrInvalidSessionID},
+		{"path traversal", "../escape", "", ErrInvalidSessionID},
+		{"absolute path", "/etc/passwd", "", ErrInvalidSessionID},
+		{"double dots", "..", "", ErrInvalidSessionID},
+		{"dot", ".", "", ErrInvalidSessionID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ValidateSessionID(tt.sessionID)
+			if tt.wantErr != nil {
+				assert.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

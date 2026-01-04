@@ -17,6 +17,9 @@ import (
 // ErrInvalidProjectID indicates the project_id value is malformed or attempts path traversal.
 var ErrInvalidProjectID = errors.New("invalid project_id")
 
+// ErrInvalidSessionID indicates the session_id value is malformed or attempts path traversal.
+var ErrInvalidSessionID = errors.New("invalid session_id")
+
 // ErrProjectNotFound indicates the requested project does not exist.
 var ErrProjectNotFound = errors.New("project not found")
 
@@ -144,13 +147,9 @@ func (m *LegacyWorkspaceManager) Checkout(ctx context.Context, userID int64, pro
 		return ws, nil
 	}
 
-	// Validate project ID format (no path traversal, not absolute)
-	cleanPID := filepath.Clean(projectID)
-	if cleanPID != projectID ||
-		strings.HasPrefix(cleanPID, "..") ||
-		strings.Contains(cleanPID, string(os.PathSeparator)+"..") ||
-		filepath.IsAbs(cleanPID) {
-		return Workspace{}, ErrInvalidProjectID
+	cleanPID, err := ValidateProjectID(projectID)
+	if err != nil {
+		return Workspace{}, err
 	}
 
 	// Build and validate the project path
@@ -200,6 +199,14 @@ func ValidateProjectID(projectID string) (string, error) {
 		return "", nil
 	}
 
+	// IDs must be a single path segment.
+	if projectID == "." || projectID == ".." {
+		return "", ErrInvalidProjectID
+	}
+	if strings.ContainsAny(projectID, `/\\`) {
+		return "", ErrInvalidProjectID
+	}
+
 	cleanPID := filepath.Clean(projectID)
 	if cleanPID != projectID ||
 		strings.HasPrefix(cleanPID, "..") ||
@@ -209,4 +216,28 @@ func ValidateProjectID(projectID string) (string, error) {
 	}
 
 	return cleanPID, nil
+}
+
+// ValidateSessionID checks if a session ID is safe for use as a single filesystem path segment.
+func ValidateSessionID(sessionID string) (string, error) {
+	if sessionID == "" {
+		return "", nil
+	}
+
+	if sessionID == "." || sessionID == ".." {
+		return "", ErrInvalidSessionID
+	}
+	if strings.ContainsAny(sessionID, `/\\`) {
+		return "", ErrInvalidSessionID
+	}
+
+	cleanSID := filepath.Clean(sessionID)
+	if cleanSID != sessionID ||
+		strings.HasPrefix(cleanSID, "..") ||
+		strings.Contains(cleanSID, string(os.PathSeparator)+"..") ||
+		filepath.IsAbs(cleanSID) {
+		return "", ErrInvalidSessionID
+	}
+
+	return cleanSID, nil
 }

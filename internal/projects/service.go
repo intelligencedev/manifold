@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"manifold/internal/sandbox"
+	"manifold/internal/workspaces"
 )
 
 // Project describes a per-user project stored on the filesystem.
@@ -94,8 +95,34 @@ func (s *Service) userRoot(userID int64) string {
 	return filepath.Join(s.workdir, "users", fmt.Sprint(userID), "projects")
 }
 
-func (s *Service) projectRoot(userID int64, projectID string) string {
-	return filepath.Join(s.userRoot(userID), projectID)
+func (s *Service) projectRoot(userID int64, projectID string) (string, error) {
+	cleanPID, err := workspaces.ValidateProjectID(projectID)
+	if err != nil {
+		return "", err
+	}
+	if cleanPID == "" {
+		return "", fmt.Errorf("invalid project id")
+	}
+	return resolveUnderRoot(s.userRoot(userID), cleanPID)
+}
+
+func resolveUnderRoot(absBase, rel string) (string, error) {
+	absRoot, err := filepath.Abs(absBase)
+	if err != nil {
+		return "", err
+	}
+	absPath, err := filepath.Abs(filepath.Join(absRoot, rel))
+	if err != nil {
+		return "", err
+	}
+	relToRoot, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return "", err
+	}
+	if relToRoot == "." || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid path")
+	}
+	return absPath, nil
 }
 
 type projectMeta struct {
@@ -139,7 +166,10 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 		name = "Untitled"
 	}
 	id := uuid.NewString()
-	root := s.projectRoot(userID, id)
+	root, err := s.projectRoot(userID, id)
+	if err != nil {
+		return Project{}, err
+	}
 	if err := ensureDir(root, 0o755); err != nil {
 		return Project{}, err
 	}
@@ -165,7 +195,10 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 
 // DeleteProject recursively deletes the project directory for a user.
 func (s *Service) DeleteProject(_ context.Context, userID int64, projectID string) error {
-	root := s.projectRoot(userID, projectID)
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(root); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -228,7 +261,10 @@ func (s *Service) readProject(root string) (Project, bool) {
 }
 
 func (s *Service) writeUpdatedAt(userID int64, projectID string, t time.Time) {
-	root := s.projectRoot(userID, projectID)
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return
+	}
 	b, err := os.ReadFile(s.metaPath(root))
 	if err != nil {
 		return
@@ -272,7 +308,10 @@ func (s *Service) computeUsage(root string) (int64, int) {
 
 // ListTree lists entries directly under path within a project.
 func (s *Service) ListTree(_ context.Context, userID int64, projectID, path string) ([]FileEntry, error) {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := os.Stat(base); err != nil {
 		return nil, err
 	}
@@ -331,7 +370,10 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 	if strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		return fmt.Errorf("invalid file name")
 	}
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return err
@@ -370,7 +412,10 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 // the directory is removed recursively (like rm -r). Symlinks are never
 // followed and will not be deleted.
 func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path string) error {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return err
@@ -408,7 +453,10 @@ func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path st
 // path must include the final filename (or directory name) and must not
 // already exist. Moving into a descendant of the source directory is refused.
 func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to string) error {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	srcRel, err := sanitizeUnder(base, from)
 	if err != nil {
 		return err
@@ -455,7 +503,10 @@ func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to 
 
 // CreateDir creates a directory (and parents) within a project.
 func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path string) error {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return err
@@ -471,7 +522,10 @@ func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path str
 // ReadFile opens a file for reading and returns a reader that yields plaintext
 // bytes when encryption is enabled; otherwise returns the raw file contents.
 func (s *Service) ReadFile(_ context.Context, userID int64, projectID, path string) (io.ReadCloser, error) {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return nil, err
@@ -506,7 +560,10 @@ func (s *Service) ReadFile(_ context.Context, userID int64, projectID, path stri
 // ensureProjectDEK creates a new DEK and writes enc.json if missing; returns the DEK.
 // Uses KeyProvider if configured, otherwise falls back to legacy masterKey.
 func (s *Service) ensureProjectDEK(userID int64, projectID string) ([]byte, error) {
-	root := s.projectRoot(userID, projectID)
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
 	encPath := s.encMetaPath(root)
 
 	// Check if DEK already exists
@@ -546,7 +603,10 @@ func (s *Service) ensureProjectDEK(userID int64, projectID string) ([]byte, erro
 // getProjectDEK retrieves and unwraps the DEK for a project.
 // Uses KeyProvider if configured, otherwise falls back to legacy masterKey.
 func (s *Service) getProjectDEK(userID int64, projectID string) ([]byte, error) {
-	root := s.projectRoot(userID, projectID)
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
 	encPath := s.encMetaPath(root)
 
 	// Read envelope
@@ -794,7 +854,10 @@ func (s *Service) RotateProjectDEK(ctx context.Context, userID int64, projectID 
 	if _, err := crand.Read(neu); err != nil {
 		return err
 	}
-	root := s.projectRoot(userID, projectID)
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	encPath := s.encMetaPath(root)
 
 	// Write enc.json with both keys (active=new)

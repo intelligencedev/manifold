@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, computed, watch } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
-import { projectFileUrl } from '@/api/client'
+import { projectFileUrl, projectArchiveUrl } from '@/api/client'
 import Panel from '@/components/ui/Panel.vue'
 import GlassCard from '@/components/ui/GlassCard.vue'
 import Pill from '@/components/ui/Pill.vue'
@@ -100,6 +100,18 @@ async function openDir(path: string) {
   selectedFile.value = ''
 }
 
+function downloadProject() {
+  if (!store.currentProjectId) return
+  const url = projectArchiveUrl(store.currentProjectId)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${current.value?.name || 'project'}.tar.gz`
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
 async function createProject() {
   const name = newProjectName.value.trim()
   if (!name) return
@@ -179,6 +191,14 @@ function onMoved(payload: { from: string; to: string }) {
             aria-label="Project"
             title="Current project"
           />
+          <button
+            v-if="store.currentProjectId"
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/50 px-3 text-sm font-semibold text-accent transition hover:bg-accent/10"
+            @click="downloadProject"
+            title="Download project as .tar.gz"
+          >
+            Download
+          </button>
           <button
             v-if="store.currentProjectId"
             class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-danger/50 px-3 text-sm font-semibold text-danger transition hover:bg-danger/10"

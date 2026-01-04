@@ -1,6 +1,7 @@
 package workspaces
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -45,6 +46,21 @@ type EphemeralWorkspaceManager struct {
 type workspaceState struct {
 	ws       Workspace
 	manifest *SyncManifest
+	// generation tracking for reuse
+	generation       int64
+	skillsGeneration int64
+	dirtyPaths       map[string]bool
+	lastChangedPaths []string
+}
+
+// activeState returns the active workspace state for the provided session key.
+// Callers must not mutate the returned state without holding the lock.
+func (m *EphemeralWorkspaceManager) activeState(userID int64, projectID, sessionID string) (*workspaceState, bool) {
+	key := sessionKey(userID, projectID, sessionID)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s, ok := m.active[key]
+	return s, ok
 }
 
 // SyncManifest tracks file state for change detection.
@@ -53,6 +69,10 @@ type SyncManifest struct {
 	Version int `json:"version"`
 	// CheckoutTime is when the workspace was last checked out from S3.
 	CheckoutTime time.Time `json:"checkoutTime"`
+	// Generation is the project generation captured at checkout.
+	Generation int64 `json:"generation"`
+	// SkillsGeneration is the skills subtree generation captured at checkout.
+	SkillsGeneration int64 `json:"skillsGeneration"`
 	// Files maps relative paths to file metadata.
 	Files map[string]FileManifest `json:"files"`
 }
@@ -149,6 +169,70 @@ func (m *EphemeralWorkspaceManager) s3KeyPrefix(userID int64, projectID string) 
 	return base
 }
 
+func (m *EphemeralWorkspaceManager) projectPrefix(userID int64, projectID string) string {
+	base := fmt.Sprintf("users/%d/projects/%s", userID, projectID)
+	if m.keyPrefix != "" {
+		return strings.TrimSuffix(m.keyPrefix, "/") + "/" + base
+	}
+	return base
+}
+
+func (m *EphemeralWorkspaceManager) metaKey(userID int64, projectID string) string {
+	return fmt.Sprintf("%s/.meta/project.json", m.projectPrefix(userID, projectID))
+}
+
+type projectMeta struct {
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Generation       int64     `json:"generation"`
+	SkillsGeneration int64     `json:"skillsGeneration"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+func (m *EphemeralWorkspaceManager) fetchProjectMeta(ctx context.Context, userID int64, projectID string) (projectMeta, error) {
+	metaKey := m.metaKey(userID, projectID)
+	reader, _, err := m.store.Get(ctx, metaKey)
+	if err != nil {
+		return projectMeta{}, err
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return projectMeta{}, err
+	}
+
+	var meta projectMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return projectMeta{}, err
+	}
+	return meta, nil
+}
+
+func (m *EphemeralWorkspaceManager) updateProjectMeta(ctx context.Context, userID int64, projectID string, bumpGeneration bool, bumpSkills bool) (projectMeta, error) {
+	meta, err := m.fetchProjectMeta(ctx, userID, projectID)
+	if err != nil {
+		return projectMeta{}, err
+	}
+
+	meta.UpdatedAt = time.Now().UTC()
+	if bumpGeneration {
+		meta.Generation++
+	}
+	if bumpSkills {
+		meta.SkillsGeneration++
+	}
+
+	buf, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return projectMeta{}, err
+	}
+
+	_, err = m.store.Put(ctx, m.metaKey(userID, projectID), bytes.NewReader(buf), objectstore.PutOptions{ContentType: "application/json"})
+	return meta, err
+}
+
 // Checkout creates an ephemeral workspace by downloading files from S3.
 func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, projectID, sessionID string) (Workspace, error) {
 	ws := Workspace{
@@ -183,13 +267,25 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 
 	key := sessionKey(userID, cleanPID, cleanSID)
 
+	remoteMeta, remoteErr := m.fetchProjectMeta(ctx, userID, cleanPID)
+
 	// Check if workspace is already active
 	m.mu.RLock()
-	if state, ok := m.active[key]; ok {
-		m.mu.RUnlock()
-		return state.ws, nil
-	}
+	state, ok := m.active[key]
 	m.mu.RUnlock()
+
+	if ok {
+		// Workspace already active - check if we can reuse it
+		if remoteErr != nil || state.manifest == nil {
+			// Cannot fetch remote metadata, optimistically reuse existing workspace
+			return state.ws, nil
+		}
+		// Check if cached workspace is still current
+		if state.manifest.Generation >= remoteMeta.Generation && state.manifest.SkillsGeneration >= remoteMeta.SkillsGeneration {
+			return state.ws, nil
+		}
+		// Workspace is stale, need to re-hydrate (fall through)
+	}
 
 	// Create local workspace directory with inline path containment validation.
 	// We use filepath.Rel to verify the path stays under workdir (CodeQL recognizes this pattern).
@@ -216,7 +312,7 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 	ws.BaseDir = safePath
 
 	// Download files from S3
-	manifest, err := m.hydrate(ctx, userID, cleanPID, safePath)
+	manifest, err := m.hydrate(ctx, userID, cleanPID, safePath, remoteMeta)
 	if err != nil {
 		// Clean up on failure using the validated safe path
 		_ = os.RemoveAll(safePath)
@@ -226,8 +322,10 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 	// Track active workspace
 	m.mu.Lock()
 	m.active[key] = &workspaceState{
-		ws:       ws,
-		manifest: manifest,
+		ws:               ws,
+		manifest:         manifest,
+		generation:       manifest.Generation,
+		skillsGeneration: manifest.SkillsGeneration,
 	}
 	m.mu.Unlock()
 
@@ -243,7 +341,7 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 }
 
 // hydrate downloads all project files from S3 to the local workspace.
-func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, projectID, localPath string) (*SyncManifest, error) {
+func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, projectID, localPath string, meta projectMeta) (*SyncManifest, error) {
 	// Inline path containment check using filepath.Rel (CodeQL recognizes this pattern).
 	absWorkdir, err := filepath.Abs(m.workdir)
 	if err != nil {
@@ -258,12 +356,21 @@ func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, p
 		return nil, fmt.Errorf("workspace path escapes workdir")
 	}
 
+	// If metadata was not provided (e.g., fetch failed), best-effort fetch now.
+	if meta.ID == "" {
+		if fetched, err := m.fetchProjectMeta(ctx, userID, projectID); err == nil {
+			meta = fetched
+		}
+	}
+
 	prefix := m.s3KeyPrefix(userID, projectID)
 
 	manifest := &SyncManifest{
-		Version:      1,
-		CheckoutTime: time.Now().UTC(),
-		Files:        make(map[string]FileManifest),
+		Version:          1,
+		CheckoutTime:     time.Now().UTC(),
+		Generation:       meta.Generation,
+		SkillsGeneration: meta.SkillsGeneration,
+		Files:            make(map[string]FileManifest),
 	}
 
 	// List all objects under the project prefix
@@ -411,6 +518,29 @@ func safeJoinUnder(absRoot, relSlashPath string) (string, error) {
 	return absLocalFile, nil
 }
 
+// MarkDirty records paths as dirty for a workspace session (best-effort tracking).
+func (m *EphemeralWorkspaceManager) MarkDirty(ws Workspace, paths []string) {
+	if ws.ProjectID == "" || ws.BaseDir == "" {
+		return
+	}
+	key := sessionKey(ws.UserID, ws.ProjectID, ws.SessionID)
+	m.mu.Lock()
+	state, ok := m.active[key]
+	if ok {
+		if state.dirtyPaths == nil {
+			state.dirtyPaths = make(map[string]bool)
+		}
+		for _, p := range paths {
+			clean := filepath.ToSlash(strings.TrimSpace(p))
+			if clean == "" || clean == "." || clean == "/" {
+				continue
+			}
+			state.dirtyPaths[clean] = true
+		}
+	}
+	m.mu.Unlock()
+}
+
 // Commit uploads changed files from the workspace back to S3.
 func (m *EphemeralWorkspaceManager) Commit(ctx context.Context, ws Workspace) error {
 	if ws.ProjectID == "" || ws.BaseDir == "" {
@@ -440,6 +570,8 @@ func (m *EphemeralWorkspaceManager) Commit(ctx context.Context, ws Workspace) er
 
 	// Track files seen during walk for deletion detection
 	seenFiles := make(map[string]bool)
+	changedPaths := make(map[string]bool)
+	changedList := make([]string, 0)
 
 	// Walk local workspace and upload changes
 	err := filepath.WalkDir(ws.BaseDir, func(path string, d fs.DirEntry, err error) error {
@@ -488,6 +620,9 @@ func (m *EphemeralWorkspaceManager) Commit(ctx context.Context, ws Workspace) er
 			return nil
 		}
 
+		changedPaths[relPath] = true
+		changedList = append(changedList, relPath)
+
 		// Upload to S3
 		f, err := os.Open(path)
 		if err != nil {
@@ -531,9 +666,30 @@ func (m *EphemeralWorkspaceManager) Commit(ctx context.Context, ws Workspace) er
 				log.Warn().Err(err).Str("key", s3Key).Msg("failed_to_delete_s3_object")
 			} else {
 				delete(manifest.Files, relPath)
+				changedPaths[relPath] = true
+				changedList = append(changedList, relPath)
 				log.Debug().Str("file", relPath).Msg("workspace_file_deleted")
 			}
 		}
+	}
+
+	// Incorporate any explicitly marked dirty paths
+	m.mu.RLock()
+	if state != nil {
+		for p := range state.dirtyPaths {
+			changedPaths[p] = true
+		}
+	}
+	m.mu.RUnlock()
+
+	if len(changedPaths) == 0 {
+		// No changes detected; clear dirty markers
+		m.mu.Lock()
+		if s, ok := m.active[key]; ok {
+			s.dirtyPaths = nil
+		}
+		m.mu.Unlock()
+		return nil
 	}
 
 	// Update manifest
@@ -547,10 +703,36 @@ func (m *EphemeralWorkspaceManager) Commit(ctx context.Context, ws Workspace) er
 		return fmt.Errorf("write manifest: %w", err)
 	}
 
+	// Update project metadata (generation counters)
+	bumpSkills := false
+	for p := range changedPaths {
+		if strings.HasPrefix(p, ".manifold/skills") || strings.HasPrefix(p, "manifold/skills") {
+			bumpSkills = true
+			break
+		}
+	}
+	meta, metaErr := m.updateProjectMeta(ctx, ws.UserID, ws.ProjectID, true, bumpSkills)
+	if metaErr != nil {
+		log.Warn().Err(metaErr).Msg("workspace_meta_update_failed")
+	}
+	if bumpSkills {
+		if globalSkillsInvalidator != nil {
+			globalSkillsInvalidator(ws.ProjectID)
+		}
+	}
+
 	// Update state
 	m.mu.Lock()
 	if s, ok := m.active[key]; ok {
 		s.manifest = manifest
+		if metaErr == nil {
+			s.generation = meta.Generation
+			s.skillsGeneration = meta.SkillsGeneration
+			s.manifest.Generation = meta.Generation
+			s.manifest.SkillsGeneration = meta.SkillsGeneration
+		}
+		s.dirtyPaths = nil
+		s.lastChangedPaths = changedList
 	}
 	m.mu.Unlock()
 
@@ -605,6 +787,22 @@ func (m *EphemeralWorkspaceManager) Cleanup(ctx context.Context, ws Workspace) e
 		Str("sessionID", ws.SessionID).
 		Msg("workspace_cleanup_complete")
 
+	return nil
+}
+
+// LastChangedPaths returns the last set of changed paths recorded for a workspace session.
+func (m *EphemeralWorkspaceManager) LastChangedPaths(ws Workspace) []string {
+	if ws.ProjectID == "" || ws.BaseDir == "" {
+		return nil
+	}
+	key := sessionKey(ws.UserID, ws.ProjectID, ws.SessionID)
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if s, ok := m.active[key]; ok {
+		out := make([]string, len(s.lastChangedPaths))
+		copy(out, s.lastChangedPaths)
+		return out
+	}
 	return nil
 }
 

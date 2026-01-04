@@ -1,13 +1,18 @@
 package prompts
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/skills"
 )
+
+var skillsCache = skills.DefaultCache()
 
 const memoryInstructions = `
 
@@ -129,27 +134,57 @@ func RenderSkillsForProject(projectDir string) string {
 		return ""
 	}
 
-	// Directly check the project's .manifold/skills folder - no tree walking
-	outcome := skills.LoadFromDir(projectDir)
-
-	log.Debug().
-		Str("projectDir", projectDir).
-		Int("skillsFound", len(outcome.Skills)).
-		Int("errors", len(outcome.Errors)).
-		Msg("skills_loader_result")
-
-	for _, e := range outcome.Errors {
-		log.Debug().Str("path", e.Path).Str("error", e.Message).Msg("skills_loader_error")
+	projectID, gen, skillsGen := readGenerations(projectDir)
+	cacheKey := projectID
+	if cacheKey == "" {
+		cacheKey = projectDir
 	}
 
-	if len(outcome.Skills) == 0 {
+	cached, err := skillsCache.GetOrLoad(cacheKey, gen, skillsGen, func() (*skills.CachedSkills, error) {
+		outcome := skills.LoadFromDir(projectDir)
+
+		log.Debug().
+			Str("projectDir", projectDir).
+			Int("skillsFound", len(outcome.Skills)).
+			Int("errors", len(outcome.Errors)).
+			Msg("skills_loader_result")
+
+		for _, e := range outcome.Errors {
+			log.Debug().Str("path", e.Path).Str("error", e.Message).Msg("skills_loader_error")
+		}
+
+		prompt := renderSkillsSection(outcome.Skills)
+		if prompt == "" {
+			return nil, nil
+		}
+
+		return &skills.CachedSkills{
+			Generation:       gen,
+			SkillsGeneration: skillsGen,
+			Skills:           outcome.Skills,
+			RenderedPrompt:   prompt,
+		}, nil
+	})
+
+	if err != nil || cached == nil {
+		if err != nil {
+			log.Debug().Err(err).Msg("skills_cache_load_failed")
+		}
+		return ""
+	}
+
+	return cached.RenderedPrompt
+}
+
+func renderSkillsSection(skillsList []skills.Metadata) string {
+	if len(skillsList) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
 	b.WriteString("These skills are discovered from the project's .manifold/skills folder. Each entry includes a name, description, and file path.\n")
-	for _, s := range outcome.Skills {
+	for _, s := range skillsList {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {
 			desc = s.ShortDescription
@@ -162,4 +197,31 @@ func RenderSkillsForProject(projectDir string) string {
 	b.WriteString("- Missing/blocked: If a named skill path cannot be read, say so briefly and continue with a fallback.\n")
 	b.WriteString("- Context hygiene: Keep context small—summarize long files, avoid bulk-loading references, and only load variant-specific files when relevant.\n")
 	return b.String()
+}
+
+type projectGenerations struct {
+	ID               string `json:"id"`
+	Generation       int64  `json:"generation"`
+	SkillsGeneration int64  `json:"skillsGeneration"`
+}
+
+func readGenerations(projectDir string) (string, int64, int64) {
+	// Prefer sync-manifest (ephemeral workspaces) then project metadata (legacy).
+	paths := []string{
+		filepath.Join(projectDir, ".meta", "sync-manifest.json"),
+		filepath.Join(projectDir, ".meta", "project.json"),
+	}
+
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		var meta projectGenerations
+		if err := json.Unmarshal(data, &meta); err != nil {
+			continue
+		}
+		return meta.ID, meta.Generation, meta.SkillsGeneration
+	}
+	return "", 0, 0
 }

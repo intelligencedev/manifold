@@ -279,10 +279,12 @@ func (s *S3Service) CreateProject(ctx context.Context, userID int64, name string
 	now := time.Now().UTC()
 
 	meta := projectMeta{
-		ID:        id,
-		Name:      name,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:               id,
+		Name:             name,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		Generation:       0,
+		SkillsGeneration: 0,
 	}
 
 	// Store project metadata
@@ -315,12 +317,14 @@ func (s *S3Service) CreateProject(ctx context.Context, userID int64, name string
 	s.mu.Unlock()
 
 	return Project{
-		ID:        id,
-		Name:      name,
-		CreatedAt: now,
-		UpdatedAt: now,
-		Bytes:     int64(len(readme)),
-		FileCount: 1,
+		ID:               id,
+		Name:             name,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		Bytes:            int64(len(readme)),
+		FileCount:        1,
+		Generation:       0,
+		SkillsGeneration: 0,
 	}, nil
 }
 
@@ -470,12 +474,14 @@ func (s *S3Service) loadProject(ctx context.Context, userID int64, projectID str
 	bytes, files := s.computeUsage(ctx, userID, projectID)
 
 	return Project{
-		ID:        meta.ID,
-		Name:      meta.Name,
-		CreatedAt: meta.CreatedAt,
-		UpdatedAt: meta.UpdatedAt,
-		Bytes:     bytes,
-		FileCount: files,
+		ID:               meta.ID,
+		Name:             meta.Name,
+		CreatedAt:        meta.CreatedAt,
+		UpdatedAt:        meta.UpdatedAt,
+		Bytes:            bytes,
+		FileCount:        files,
+		Generation:       meta.Generation,
+		SkillsGeneration: meta.SkillsGeneration,
 	}, nil
 }
 
@@ -658,8 +664,14 @@ func (s *S3Service) UploadFile(ctx context.Context, userID int64, projectID, fil
 		return fmt.Errorf("put file: %w", err)
 	}
 
-	// Update project metadata
-	s.updateProjectTime(ctx, userID, projectID)
+	// Update project metadata (bump generation, and skills_generation if under skills subtree)
+	fullRel := name
+	if filePath != "" {
+		fullRel = filePath + "/" + name
+	}
+	fullRel = path.Clean(fullRel)
+	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills") || strings.HasPrefix(fullRel, "manifold/skills")
+	s.updateProjectTime(ctx, userID, projectID, true, bumpSkills)
 
 	return nil
 }
@@ -718,7 +730,9 @@ func (s *S3Service) DeleteFile(ctx context.Context, userID int64, projectID, fil
 	}
 
 	// Update project metadata
-	s.updateProjectTime(ctx, userID, projectID)
+	fullRel := path.Clean(filePath)
+	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills") || strings.HasPrefix(fullRel, "manifold/skills")
+	s.updateProjectTime(ctx, userID, projectID, true, bumpSkills)
 
 	return nil
 }
@@ -798,7 +812,8 @@ func (s *S3Service) MovePath(ctx context.Context, userID int64, projectID, from,
 	}
 
 	// Update project metadata
-	s.updateProjectTime(ctx, userID, projectID)
+	bumpSkills := strings.HasPrefix(from, ".manifold/skills") || strings.HasPrefix(to, ".manifold/skills") || strings.HasPrefix(from, "manifold/skills") || strings.HasPrefix(to, "manifold/skills")
+	s.updateProjectTime(ctx, userID, projectID, true, bumpSkills)
 
 	return nil
 }
@@ -819,7 +834,8 @@ func (s *S3Service) CreateDir(ctx context.Context, userID int64, projectID, dirP
 	}
 
 	// Update project metadata
-	s.updateProjectTime(ctx, userID, projectID)
+	bumpSkills := strings.HasPrefix(dirPath, ".manifold/skills") || strings.HasPrefix(dirPath, "manifold/skills")
+	s.updateProjectTime(ctx, userID, projectID, true, bumpSkills)
 
 	return nil
 }
@@ -869,8 +885,8 @@ func (s *S3Service) ReadFile(ctx context.Context, userID int64, projectID, fileP
 	return reader, nil
 }
 
-// updateProjectTime updates the project's UpdatedAt timestamp.
-func (s *S3Service) updateProjectTime(ctx context.Context, userID int64, projectID string) {
+// updateProjectTime updates UpdatedAt and optionally bumps generation counters.
+func (s *S3Service) updateProjectTime(ctx context.Context, userID int64, projectID string, bumpGeneration bool, bumpSkills bool) {
 	metaKey := s.metaKey(userID, projectID)
 
 	// Read current metadata
@@ -890,8 +906,14 @@ func (s *S3Service) updateProjectTime(ctx context.Context, userID int64, project
 		return
 	}
 
-	// Update timestamp
+	// Update timestamp and generation counters
 	meta.UpdatedAt = time.Now().UTC()
+	if bumpGeneration {
+		meta.Generation++
+	}
+	if bumpSkills {
+		meta.SkillsGeneration++
+	}
 	newData, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
 		return

@@ -12,13 +12,14 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/objectstore"
+	"manifold/internal/validation"
 )
 
 // ErrInvalidProjectID indicates the project_id value is malformed or attempts path traversal.
-var ErrInvalidProjectID = errors.New("invalid project_id")
+var ErrInvalidProjectID = validation.ErrInvalidProjectID
 
 // ErrInvalidSessionID indicates the session_id value is malformed or attempts path traversal.
-var ErrInvalidSessionID = errors.New("invalid session_id")
+var ErrInvalidSessionID = validation.ErrInvalidSessionID
 
 // ErrProjectNotFound indicates the requested project does not exist.
 var ErrProjectNotFound = errors.New("project not found")
@@ -70,6 +71,8 @@ func NewManager(cfg *config.Config) WorkspaceManager {
 	}
 
 	switch mode {
+	case "enterprise":
+		return NewEnterpriseManager(cfg, nil)
 	case "ephemeral":
 		// Ephemeral mode requires S3 backend configuration
 		// The actual S3 store is created separately and injected via NewManagerWithStore
@@ -99,7 +102,12 @@ func NewManagerWithStore(cfg *config.Config, store objectstore.ObjectStore) Work
 			mode:    "legacy",
 		}
 	}
-	// Always use ephemeral mode when S3 store is provided
+
+	mode := cfg.Projects.Workspace.Mode
+	if mode == "enterprise" {
+		return NewEnterpriseManager(cfg, store)
+	}
+	// Default: ephemeral mode when S3 store is provided
 	return NewEphemeralManager(store, cfg)
 }
 
@@ -185,50 +193,13 @@ func (m *LegacyWorkspaceManager) Cleanup(ctx context.Context, ws Workspace) erro
 
 // ValidateProjectID checks if a project ID is safe for use in filesystem paths.
 // Returns cleaned project ID and error if validation fails.
+// Deprecated: Use validation.ProjectID directly for new code.
 func ValidateProjectID(projectID string) (string, error) {
-	if projectID == "" {
-		return "", nil
-	}
-
-	// IDs must be a single path segment.
-	if projectID == "." || projectID == ".." {
-		return "", ErrInvalidProjectID
-	}
-	if strings.ContainsAny(projectID, `/\\`) {
-		return "", ErrInvalidProjectID
-	}
-
-	cleanPID := filepath.Clean(projectID)
-	if cleanPID != projectID ||
-		strings.HasPrefix(cleanPID, "..") ||
-		strings.Contains(cleanPID, string(os.PathSeparator)+"..") ||
-		filepath.IsAbs(cleanPID) {
-		return "", ErrInvalidProjectID
-	}
-
-	return cleanPID, nil
+	return validation.ProjectID(projectID)
 }
 
 // ValidateSessionID checks if a session ID is safe for use as a single filesystem path segment.
+// Deprecated: Use validation.SessionID directly for new code.
 func ValidateSessionID(sessionID string) (string, error) {
-	if sessionID == "" {
-		return "", nil
-	}
-
-	if sessionID == "." || sessionID == ".." {
-		return "", ErrInvalidSessionID
-	}
-	if strings.ContainsAny(sessionID, `/\\`) {
-		return "", ErrInvalidSessionID
-	}
-
-	cleanSID := filepath.Clean(sessionID)
-	if cleanSID != sessionID ||
-		strings.HasPrefix(cleanSID, "..") ||
-		strings.Contains(cleanSID, string(os.PathSeparator)+"..") ||
-		filepath.IsAbs(cleanSID) {
-		return "", ErrInvalidSessionID
-	}
-
-	return cleanSID, nil
+	return validation.SessionID(sessionID)
 }

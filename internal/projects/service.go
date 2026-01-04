@@ -21,17 +21,19 @@ import (
 	"github.com/google/uuid"
 
 	"manifold/internal/sandbox"
-	"manifold/internal/workspaces"
+	"manifold/internal/validation"
 )
 
 // Project describes a per-user project stored on the filesystem.
 type Project struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
-	Bytes     int64     `json:"bytes"`
-	FileCount int       `json:"fileCount"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Generation       int64     `json:"generation"`
+	SkillsGeneration int64     `json:"skillsGeneration"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
+	Bytes            int64     `json:"bytes"`
+	FileCount        int       `json:"fileCount"`
 }
 
 // FileEntry represents a single file or directory under a project.
@@ -96,7 +98,7 @@ func (s *Service) userRoot(userID int64) string {
 }
 
 func (s *Service) projectRoot(userID int64, projectID string) (string, error) {
-	cleanPID, err := workspaces.ValidateProjectID(projectID)
+	cleanPID, err := validation.ProjectID(projectID)
 	if err != nil {
 		return "", err
 	}
@@ -126,10 +128,12 @@ func resolveUnderRoot(absBase, rel string) (string, error) {
 }
 
 type projectMeta struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Generation       int64     `json:"generation"`
+	SkillsGeneration int64     `json:"skillsGeneration"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 func (s *Service) metaPath(root string) string {
@@ -178,7 +182,7 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 		return Project{}, err
 	}
 	now := time.Now().UTC()
-	meta := projectMeta{ID: id, Name: name, CreatedAt: now, UpdatedAt: now}
+	meta := projectMeta{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Generation: 0, SkillsGeneration: 0}
 	if b, err := json.MarshalIndent(meta, "", "  "); err == nil {
 		_ = os.WriteFile(s.metaPath(root), b, 0o644)
 	}
@@ -190,7 +194,7 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 	}
 	// Seed helper files (best-effort)
 	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("# Project\n\nThis directory is managed by the platform.\n"), 0o644)
-	return Project{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Bytes: 0, FileCount: 0}, nil
+	return Project{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Bytes: 0, FileCount: 0, Generation: 0, SkillsGeneration: 0}, nil
 }
 
 // DeleteProject recursively deletes the project directory for a user.
@@ -257,10 +261,10 @@ func (s *Service) readProject(root string) (Project, bool) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Project{}, false
 	}
-	return Project{ID: m.ID, Name: m.Name, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt}, true
+	return Project{ID: m.ID, Name: m.Name, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, Generation: m.Generation, SkillsGeneration: m.SkillsGeneration}, true
 }
 
-func (s *Service) writeUpdatedAt(userID int64, projectID string, t time.Time) {
+func (s *Service) writeUpdatedAt(userID int64, projectID string, t time.Time, bumpGeneration bool, bumpSkills bool) {
 	root, err := s.projectRoot(userID, projectID)
 	if err != nil {
 		return
@@ -274,6 +278,12 @@ func (s *Service) writeUpdatedAt(userID int64, projectID string, t time.Time) {
 		return
 	}
 	m.UpdatedAt = t.UTC()
+	if bumpGeneration {
+		m.Generation++
+	}
+	if bumpSkills {
+		m.SkillsGeneration++
+	}
 	if nb, err := json.MarshalIndent(m, "", "  "); err == nil {
 		_ = os.WriteFile(s.metaPath(root), nb, 0o644)
 	}
@@ -402,7 +412,9 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 			return err
 		}
 	}
-	s.writeUpdatedAt(userID, projectID, time.Now().UTC())
+	fullRel := filepath.ToSlash(filepath.Join(rel, name))
+	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills/") || fullRel == ".manifold/skills" || fullRel == "manifold/skills"
+	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
 
@@ -445,7 +457,9 @@ func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path st
 			return err
 		}
 	}
-	s.writeUpdatedAt(userID, projectID, time.Now().UTC())
+	fullRel := filepath.ToSlash(rel)
+	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills/") || fullRel == ".manifold/skills" || fullRel == "manifold/skills"
+	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
 
@@ -497,7 +511,10 @@ func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to 
 	if err := os.Rename(srcAbs, dstAbs); err != nil {
 		return err
 	}
-	s.writeUpdatedAt(userID, projectID, time.Now().UTC())
+	fullSrc := filepath.ToSlash(srcRel)
+	fullDst := filepath.ToSlash(dstRel)
+	bumpSkills := strings.HasPrefix(fullSrc, ".manifold/skills/") || strings.HasPrefix(fullDst, ".manifold/skills/") || fullSrc == ".manifold/skills" || fullDst == ".manifold/skills" || strings.HasPrefix(fullSrc, "manifold/skills") || strings.HasPrefix(fullDst, "manifold/skills")
+	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
 
@@ -515,7 +532,9 @@ func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path str
 	if err := ensureDir(dir, 0o755); err != nil {
 		return err
 	}
-	s.writeUpdatedAt(userID, projectID, time.Now().UTC())
+	fullRel := filepath.ToSlash(rel)
+	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills/") || fullRel == ".manifold/skills" || strings.HasPrefix(fullRel, "manifold/skills")
+	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
 
@@ -916,7 +935,7 @@ func (s *Service) RotateProjectDEK(ctx context.Context, userID int64, projectID 
 			return err
 		}
 	}
-	s.writeUpdatedAt(userID, projectID, time.Now().UTC())
+	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, false)
 	return nil
 }
 

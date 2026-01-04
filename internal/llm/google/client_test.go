@@ -326,12 +326,16 @@ func TestChatImageInlineData(t *testing.T) {
 		t.Fatalf("unexpected image data %q", string(msg.Images[0].Data))
 	}
 	// ensure responseModalities/imageConfig were sent when image prompt is requested
-	if modes, ok := body["responseModalities"].([]any); !ok || len(modes) != 2 {
-		t.Fatalf("expected responseModalities with two entries, got %#v", body["responseModalities"])
+	if modes, ok := body["generationConfig"].(map[string]any); !ok || len(modes) == 0 {
+		t.Fatalf("expected generationConfig in request, got %#v", body)
 	}
-	imgCfg, ok := body["imageConfig"].(map[string]any)
+	generationConfig := body["generationConfig"].(map[string]any)
+	if modes, ok := generationConfig["responseModalities"].([]any); !ok || len(modes) != 2 {
+		t.Fatalf("expected responseModalities with two entries, got %#v", generationConfig["responseModalities"])
+	}
+	imgCfg, ok := generationConfig["imageConfig"].(map[string]any)
 	if !ok || imgCfg["imageSize"] != "1K" {
-		t.Fatalf("expected imageConfig with size 1K, got %#v", body["imageConfig"])
+		t.Fatalf("expected imageConfig with size 1K, got %#v", generationConfig["imageConfig"])
 	}
 }
 

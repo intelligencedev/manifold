@@ -7,14 +7,13 @@
 
     <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
       Tool
-      <select
+      <DropdownSelect
         v-model="toolName"
-        class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+        size="xs"
+        class="text-[11px]"
         :disabled="!isDesignMode || hydratingRef"
-      >
-        <option value="">— Select tool —</option>
-        <option v-for="t in toolOptions" :key="t.name" :value="t.name">{{ t.name }}</option>
-      </select>
+        :options="toolDropdownOptions"
+      />
     </label>
 
     <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -87,6 +86,7 @@
 import { computed, inject, ref, watch, type Ref } from 'vue'
 import { useVueFlow } from '@vue-flow/core'
 import ParameterFormField from '@/components/flow/ParameterFormField.vue'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 import type { StepNodeData } from '@/types/flow'
 import type { WarppStep, WarppTool } from '@/types/warpp'
 
@@ -109,6 +109,11 @@ const toolOptions = computed(() => {
   if (current && !options.some((t) => t.name === current)) options.push({ name: current })
   return options
 })
+
+const toolDropdownOptions = computed(() => [
+  { id: '', label: '— Select tool —', value: '' },
+  ...toolOptions.value.map((t) => ({ id: t.name, label: t.name, value: t.name })),
+])
 
 const stepText = ref('')
 const guardText = ref('')

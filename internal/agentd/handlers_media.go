@@ -63,7 +63,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
+		history, _, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)

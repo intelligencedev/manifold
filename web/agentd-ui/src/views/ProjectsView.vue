@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { onMounted, ref, computed, watch } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
-import { projectFileUrl } from '@/api/client'
+import { projectFileUrl, projectArchiveUrl } from '@/api/client'
+import Panel from '@/components/ui/Panel.vue'
+import GlassCard from '@/components/ui/GlassCard.vue'
+import Pill from '@/components/ui/Pill.vue'
 import FileTree from '@/components/FileTree.vue'
+import DropdownSelect from '@/components/DropdownSelect.vue'
+import type { DropdownOption } from '@/types/dropdown'
 
 const store = useProjectsStore()
 const newProjectName = ref('')
@@ -21,6 +26,21 @@ onMounted(() => {
 
 const current = computed(() => store.projects.find(p => p.id === store.currentProjectId) || null)
 const entries = computed(() => store.treeByPath[`${store.currentProjectId}:${cwd.value}`] || [])
+
+const projectOptions = computed<DropdownOption[]>(() =>
+  store.projects.map((p) => ({
+    id: p.id,
+    label: p.name,
+    value: p.id,
+  }))
+)
+
+const selectedProjectId = computed({
+  get: () => store.currentProjectId || '',
+  set: (v: string) => {
+    void store.setCurrent(v)
+  },
+})
 
 function pickUpload() {
   uploadInput.value?.click()
@@ -80,6 +100,18 @@ async function openDir(path: string) {
   selectedFile.value = ''
 }
 
+function downloadProject() {
+  if (!store.currentProjectId) return
+  const url = projectArchiveUrl(store.currentProjectId)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${current.value?.name || 'project'}.tar.gz`
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+}
+
 async function createProject() {
   const name = newProjectName.value.trim()
   if (!name) return
@@ -91,12 +123,6 @@ async function createProject() {
 
 function openFile(path: string) {
   selectedFile.value = path
-}
-
-function onProjectChange() {
-  cwd.value = '.'
-  selectedFile.value = ''
-  void store.ensureTree('.')
 }
 
 watch(
@@ -134,77 +160,103 @@ function onMoved(payload: { from: string; to: string }) {
 
 <template>
   <section class="flex min-h-0 flex-1 flex-col space-y-6">
-    <header class="ap-hairline-b flex items-center gap-4 pb-3">
-      <h1 class="text-xl font-semibold text-foreground">Projects</h1>
-      <div class="ml-auto flex items-center gap-3">
-        <div class="flex items-center gap-2">
+    <Panel
+      title="Projects"
+      description="Create projects, upload files, and preview artifacts in one place."
+      :padded="true"
+    >
+      <div class="flex flex-wrap items-center gap-3">
+        <div class="flex flex-wrap items-center gap-2">
           <label class="sr-only" for="new-project">New project name</label>
           <input
             id="new-project"
             v-model="newProjectName"
             placeholder="New project name"
-            class="h-10 w-64 px-4 rounded-4 border border-border bg-surface text-foreground placeholder:text-subtle-foreground focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom duration-150"
+            class="h-9 w-48 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground placeholder:text-subtle-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <button
-            class="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-4 border border-transparent bg-accent text-accent-foreground shadow-2 hover:bg-accent/90 active:shadow-1 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom duration-150"
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/60 bg-accent/90 px-3 text-sm font-semibold text-accent-foreground shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition hover:bg-accent"
             @click="createProject"
-          >Create</button>
-        </div>
-        <div class="flex items-center gap-2">
-          <label class="sr-only" for="project-select">Select project</label>
-          <select
-            id="project-select"
-            class="h-10 px-4 rounded-4 border border-border bg-surface text-foreground focus-visible:outline-none focus-visible:shadow-outline"
-            v-model="store.currentProjectId"
-            @change="onProjectChange"
           >
-            <option v-for="p in store.projects" :key="p.id" :value="p.id">{{ p.name }}</option>
-          </select>
+            Create
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+          <DropdownSelect
+            id="project-select"
+            v-model="selectedProjectId"
+            :options="projectOptions"
+            size="sm"
+            aria-label="Project"
+            title="Current project"
+          />
           <button
             v-if="store.currentProjectId"
-            class="inline-flex items-center justify-center gap-2 h-10 px-4 rounded-4 border border-danger/60 text-danger hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom duration-150"
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/50 px-3 text-sm font-semibold text-accent transition hover:bg-accent/10"
+            @click="downloadProject"
+            title="Download project as .tar.gz"
+          >
+            Download
+          </button>
+          <button
+            v-if="store.currentProjectId"
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-danger/50 px-3 text-sm font-semibold text-danger transition hover:bg-danger/10"
             @click="() => store.remove(store.currentProjectId)"
-          >Delete</button>
+          >
+            Delete
+          </button>
+        </div>
+
+        <div v-if="current" class="flex flex-wrap items-center gap-2 text-xs text-faint-foreground md:ml-auto">
+          <span>Created {{ new Date(current.createdAt).toLocaleDateString() }}</span>
+          <Pill tone="neutral" size="sm">{{ current.files }} files</Pill>
+          <Pill tone="neutral" size="sm">{{ (current.sizeBytes/1024).toFixed(1) }} KB</Pill>
         </div>
       </div>
-    </header>
+    </Panel>
 
-    <p v-if="current" class="text-sm text-faint-foreground">
-      Created {{ new Date(current.createdAt).toLocaleString() }} · {{ current.files }} files · {{ (current.sizeBytes/1024).toFixed(1) }} KB
-    </p>
-
-    <div v-if="store.currentProjectId" class="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0 flex-1">
-      <!-- Left: Tree Panel -->
-      <div class="ap-panel ap-hover rounded-5 bg-surface p-4 lg:p-6 flex min-h-0 flex-col">
-        <div class="flex items-center gap-3 mb-4 shrink-0">
+    <div v-if="store.currentProjectId" class="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-2">
+      <GlassCard class="flex min-h-0 flex-col p-4 lg:p-6">
+        <div class="mb-4 flex items-center gap-3">
           <button
-            class="h-9 px-3 rounded-4 border border-transparent text-subtle-foreground hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+            class="h-9 rounded-full border border-white/10 px-3 text-sm text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
             @click="() => openDir('.')"
-          >Root</button>
-          <div class="text-sm text-faint-foreground truncate">{{ cwd }}</div>
-          <div class="ml-auto flex items-center gap-2">
+          >
+            Root
+          </button>
+          <div class="truncate text-sm text-faint-foreground">{{ cwd }}</div>
+          <div class="ml-auto flex flex-wrap items-center gap-2">
             <button
-              class="h-9 px-3 rounded-4 border border-border text-foreground bg-surface hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="mkdir"
-            >New Folder</button>
+            >
+              New Folder
+            </button>
             <button
-              class="h-9 px-3 rounded-4 border border-border text-foreground bg-surface hover:bg-surface-muted focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="pickUpload"
-            >Upload</button>
+            >
+              Upload
+            </button>
             <button
-              class="h-9 px-3 rounded-4 border border-accent/60 text-accent disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent/10 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              class="h-9 rounded-full border border-accent/50 px-3 text-sm text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="!(treeRef?.checked && treeRef.checked.size > 0)"
               @click="bulkDownload"
-            >Download</button>
+            >
+              Download
+            </button>
             <button
-              class="h-9 px-3 rounded-4 border border-danger/60 text-danger disabled:opacity-50 disabled:cursor-not-allowed hover:bg-danger/10 focus-visible:outline-none focus-visible:shadow-outline transition ease-out-custom"
+              class="h-9 rounded-full border border-danger/60 px-3 text-sm text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
               :disabled="!(treeRef?.checked && treeRef.checked.size > 0)"
               @click="bulkDelete"
-            >Delete</button>
+            >
+              Delete
+            </button>
             <input ref="uploadInput" type="file" multiple class="sr-only" @change="onFiles" />
           </div>
         </div>
-        <div class="min-h-0 flex-1 overflow-auto">
+        <div class="scrollbar-inset min-h-0 flex-1 overflow-auto">
           <FileTree
             ref="treeRef"
             :selected="selectedFile"
@@ -214,15 +266,14 @@ function onMoved(payload: { from: string; to: string }) {
             @moved="onMoved"
           />
         </div>
-      </div>
+      </GlassCard>
 
-      <!-- Right: Preview Panel -->
-      <div class="ap-panel ap-hover rounded-5 bg-surface p-4 lg:p-6 flex min-h-0 flex-col">
-        <div class="flex items-center justify-between text-sm text-faint-foreground mb-3 shrink-0">
+      <GlassCard class="flex min-h-0 flex-col p-4 lg:p-6">
+        <div class="mb-3 flex items-center justify-between text-sm text-faint-foreground">
           <div class="uppercase tracking-wide">Preview</div>
-          <div class="truncate max-w-[70%] text-subtle-foreground" v-if="selectedFile">{{ selectedFile }}</div>
+          <div class="max-w-[70%] truncate text-subtle-foreground" v-if="selectedFile">{{ selectedFile }}</div>
         </div>
-        <div class="min-h-0 flex-1 overflow-auto">
+        <div class="scrollbar-inset min-h-0 flex-1 overflow-auto">
           <div v-if="!selectedFile" class="p-2 text-subtle-foreground">Select a file to preview</div>
           <template v-else>
             <div v-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)">
@@ -231,7 +282,7 @@ function onMoved(payload: { from: string; to: string }) {
             <iframe
               v-else-if="/\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(selectedFile)"
               :src="previewUrl"
-              class="w-full h-full rounded-4 border border-border"
+              class="h-full w-full rounded-4 border border-border"
             />
             <div v-else class="text-sm text-subtle-foreground">
               Preview not available.
@@ -239,14 +290,13 @@ function onMoved(payload: { from: string; to: string }) {
             </div>
           </template>
         </div>
-      </div>
+      </GlassCard>
     </div>
 
-    <div v-else class="rounded-5 border border-border bg-surface p-6 text-subtle-foreground">
+    <GlassCard v-else class="p-6 text-subtle-foreground">
       No project selected. Create one to get started.
-    </div>
+    </GlassCard>
   </section>
-  
 </template>
 
 <style scoped>

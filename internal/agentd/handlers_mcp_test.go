@@ -26,6 +26,7 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/mcpclient"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/tools"
@@ -55,7 +56,13 @@ func buildTestApp(t *testing.T, httpClient *http.Client, store persist.MCPStore)
 	cfg := &config.Config{}
 	cfg.Auth.RedirectURL = "http://localhost:32180/auth/callback" // simulate configured auth redirect path
 	// Auth.Enabled=false so requireUserID returns system user
-	a := &app{cfg: cfg, httpClient: httpClient, mcpStore: store, toolRegistry: stubRegistry{}}
+	a := &app{
+		cfg:          cfg,
+		httpClient:   httpClient,
+		mcpStore:     store,
+		toolRegistry: stubRegistry{},
+		mcpManager:   mcpclient.NewManager(),
+	}
 	return a
 }
 
@@ -162,7 +169,8 @@ func TestMCPOAuthStartDynamicRegistration(t *testing.T) {
 	if strings.Contains(redirect, "/auth/callback/api/mcp/oauth/callback") {
 		t.Fatalf("redirect URL not trimmed: %s", redirect)
 	}
-	if !strings.Contains(redirect, "/api/mcp/oauth/callback") {
+	// Check that redirect_uri parameter contains our callback path (URL encoded)
+	if !strings.Contains(redirect, url.QueryEscape("/api/mcp/oauth/callback")) {
 		t.Fatalf("redirect URL missing callback path: %s", redirect)
 	}
 	// Verify store updated

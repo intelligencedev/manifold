@@ -191,8 +191,9 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		userID:           cfg.UserID,
 	}
 
-	// If a store is provided and a non-zero userID is set, preload entries.
-	if em.store != nil && em.userID != 0 {
+	// If a store is provided, preload entries for the configured user.
+	// Note: systemUserID is 0 in agentd; we still want persistence for it.
+	if em.store != nil {
 		if entries, err := em.store.Load(context.Background(), em.userID); err == nil && len(entries) > 0 {
 			// Respect maxSize by keeping only the newest maxSize entries.
 			if len(entries) > em.maxSize {
@@ -422,7 +423,8 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	}
 
 	// Persist in the background if a store is configured.
-	if em.store != nil && em.userID != 0 {
+	// Note: systemUserID is 0 in agentd; we still want persistence for it.
+	if em.store != nil {
 		entriesCopy := make([]*MemoryEntry, len(em.entries))
 		copy(entriesCopy, em.entries)
 		go func(entries []*MemoryEntry, uid int64) {
@@ -714,7 +716,8 @@ func (em *EvolvingMemory) ApplyEdits(ctx context.Context, ops []MemoryEditOp) er
 	}
 
 	// Persist after applying edits if backed by a store.
-	if em.store != nil && em.userID != 0 {
+	// Note: systemUserID is 0 in agentd; we still want persistence for it.
+	if em.store != nil {
 		entriesCopy := make([]*MemoryEntry, len(em.entries))
 		copy(entriesCopy, em.entries)
 		go func(entries []*MemoryEntry, uid int64) {

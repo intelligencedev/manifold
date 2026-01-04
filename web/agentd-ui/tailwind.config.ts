@@ -71,10 +71,28 @@ export default {
     },
   },
   plugins: [
-  function (api: any) {
-      api.addUtilities({
+    function ({ addUtilities, theme }: any) {
+      addUtilities({
         '.etched-light': { boxShadow: 'inset 0 1px 0 rgba(0,0,0,0.04)' },
         '.etched-dark': { boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)' },
+        '.bg-grain': {
+          backgroundImage: 'url(/assets/noise.png)',
+          mixBlendMode: 'soft-light',
+          opacity: '0.35',
+        },
+        '.glass-surface': {
+          padding: '16px',
+          backgroundImage:
+            'linear-gradient(120deg, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface-muted) / 0.76))',
+          border: '1px solid rgba(255,255,255,0.08)',
+          boxShadow: `${theme('boxShadow.3')}, inset 0 1px 0 rgba(255,255,255,0.04)`,
+          backdropFilter: 'blur(18px)',
+          WebkitBackdropFilter: 'blur(18px)',
+        },
+        '.pill-glow': {
+          boxShadow:
+            '0 0 0 1px rgba(var(--color-accent), 0.35), 0 10px 34px rgba(var(--color-accent), 0.18), 0 1px 0 rgba(255,255,255,0.08)',
+        },
       })
     },
   ],

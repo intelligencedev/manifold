@@ -28,7 +28,11 @@ type applyState struct {
 }
 
 func newApplyState(workdir string) *applyState {
-	return &applyState{workdir: workdir, files: make(map[string]*pendingFile)}
+	abs, err := filepath.Abs(workdir)
+	if err != nil {
+		abs = filepath.Clean(workdir)
+	}
+	return &applyState{workdir: abs, files: make(map[string]*pendingFile)}
 }
 
 func (s *applyState) addFile(path, contents string) error {
@@ -132,7 +136,10 @@ func (s *applyState) ensureEntry(path string) (*pendingFile, error) {
 	if entry, ok := s.files[path]; ok {
 		return entry, nil
 	}
-	full := filepath.Join(s.workdir, path)
+	full, err := resolveUnderRoot(s.workdir, path)
+	if err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(full)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -191,8 +198,11 @@ func (s *applyState) removeFile(entry *pendingFile) error {
 		// Nothing to remove on disk.
 		return nil
 	}
-	target := filepath.Join(s.workdir, entry.Path)
-	err := os.Remove(target)
+	target, err := resolveUnderRoot(s.workdir, entry.Path)
+	if err != nil {
+		return err
+	}
+	err = os.Remove(target)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			if entry.OriginalExists {
@@ -206,7 +216,10 @@ func (s *applyState) removeFile(entry *pendingFile) error {
 }
 
 func (s *applyState) writeFile(entry *pendingFile) error {
-	target := filepath.Join(s.workdir, entry.Path)
+	target, err := resolveUnderRoot(s.workdir, entry.Path)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return fmt.Errorf("failed to create directories for %s: %w", entry.Path, err)
 	}
@@ -218,6 +231,47 @@ func (s *applyState) writeFile(entry *pendingFile) error {
 		return fmt.Errorf("failed to write %s: %w", entry.Path, err)
 	}
 	return nil
+}
+
+func resolveUnderRoot(absRoot, relPath string) (string, error) {
+	relPath = strings.TrimSpace(relPath)
+	if relPath == "" {
+		return "", fmt.Errorf("empty path")
+	}
+	if filepath.IsAbs(relPath) {
+		return "", fmt.Errorf("absolute paths are not allowed: %s", relPath)
+	}
+
+	cleanRel := filepath.Clean(relPath)
+	if cleanRel == "." {
+		return "", fmt.Errorf("path resolves to root")
+	}
+	if cleanRel == ".." || strings.HasPrefix(cleanRel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes root: %s", relPath)
+	}
+
+	// absRoot is expected to already be absolute, but enforce it defensively.
+	root, err := filepath.Abs(absRoot)
+	if err != nil {
+		root = filepath.Clean(absRoot)
+	}
+
+	candidate, err := filepath.Abs(filepath.Join(root, cleanRel))
+	if err != nil {
+		return "", fmt.Errorf("resolve path %s: %w", relPath, err)
+	}
+	relToRoot, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve path %s: %w", relPath, err)
+	}
+	if relToRoot == "." {
+		return "", fmt.Errorf("path resolves to root")
+	}
+	if relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes root: %s", relPath)
+	}
+
+	return candidate, nil
 }
 
 func (s *applyState) summarize() (added, modified, deleted []string, moves []moveSummary) {

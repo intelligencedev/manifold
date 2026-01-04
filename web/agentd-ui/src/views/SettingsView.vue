@@ -1,7 +1,7 @@
 <template>
-  <div class="flex h-full min-h-0 rounded-2xl border border-border/60 bg-surface overflow-hidden">
+  <div class="glass-surface flex h-full min-h-0 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12">
     <!-- Sidebar navigation -->
-  <aside class="w-56 shrink-0 border-r border-border/50 bg-surface/50 backdrop-blur-sm p-4 space-y-4 overflow-y-auto">
+  <aside class="w-60 shrink-0 border-r border-white/10 bg-surface/40 backdrop-blur-md p-4 space-y-4 overflow-y-auto">
       <h1 class="text-lg font-semibold text-foreground">Settings</h1>
       <nav class="space-y-1">
         <button
@@ -57,6 +57,17 @@
             <div class="space-y-1">
               <label for="api-url" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">API Base URL</label>
               <input id="api-url" v-model="apiUrl" type="url" placeholder="https://localhost:32180/api" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40" />
+            </div>
+            <div class="space-y-1">
+              <label for="ui-theme" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Theme</label>
+              <DropdownSelect
+                id="ui-theme"
+                v-model="selectedThemeId"
+                :options="themeDropdownOptions"
+                size="sm"
+                class="w-full"
+                aria-label="Theme"
+              />
             </div>
           </div>
         </fieldset>
@@ -221,9 +232,7 @@
             </div>
             <div class="space-y-1">
               <label for="log-level" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Level</label>
-              <select id="log-level" v-model="agentdSettings.logLevel" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm">
-                <option v-for="level in logLevelOptions" :key="level" :value="level">{{ level }}</option>
-              </select>
+              <DropdownSelect id="log-level" v-model="agentdSettings.logLevel" :options="logLevelDropdownOptions" class="w-full" />
             </div>
             <div class="space-y-1 flex items-center gap-2 lg:col-span-2">
               <input id="log-payloads" type="checkbox" class="h-4 w-4" v-model="agentdSettings.logPayloads" />
@@ -307,9 +316,7 @@
             </div>
             <div class="space-y-1">
               <label for="vector-metric" class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">Metric</label>
-              <select id="vector-metric" v-model="agentdSettings.vectorMetric" class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm">
-                <option v-for="metric in vectorMetricOptions" :key="metric" :value="metric">{{ metric }}</option>
-              </select>
+              <DropdownSelect id="vector-metric" v-model="agentdSettings.vectorMetric" :options="vectorMetricDropdownOptions" class="w-full" />
             </div>
           </div>
         </fieldset>
@@ -447,6 +454,31 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { fetchAgentdSettings, updateAgentdSettings, type AgentdSettings } from '@/api/client'
 import { listMCPServers, createMCPServer, deleteMCPServer, startMCPOAuth } from '@/api/mcp'
 import type { MCPServer, CreateMCPServerRequest } from '@/types/mcp'
+import DropdownSelect from '@/components/DropdownSelect.vue'
+import { useThemeStore } from '@/stores/theme'
+import { defaultDarkTheme, type ThemeId } from '@/theme/themes'
+
+const themeStore = useThemeStore()
+
+const supportedThemeIds: ThemeId[] = ['obsdash-dark', defaultDarkTheme]
+
+const selectedThemeId = computed<ThemeId>({
+  get: () => {
+    const id = themeStore.resolvedThemeId
+    return supportedThemeIds.includes(id) ? id : defaultDarkTheme
+  },
+  set: (value) => {
+    themeStore.setTheme(value)
+  },
+})
+
+const themeDropdownOptions = computed(() =>
+  supportedThemeIds.map((id) => ({
+    id,
+    label: id === 'obsdash-dark' ? 'Observability (Dark)' : 'Aperture (Dark)',
+    value: id,
+  })),
+)
 
 const apiUrl = ref('')
 
@@ -523,6 +555,9 @@ function removeEmbedHeader(key: string) {
 
 const logLevelOptions = ['trace', 'debug', 'info', 'warn', 'error']
 const vectorMetricOptions = ['cosine', 'dot', 'euclidean']
+
+const logLevelDropdownOptions = logLevelOptions.map((level) => ({ id: level, label: level, value: level }))
+const vectorMetricDropdownOptions = vectorMetricOptions.map((metric) => ({ id: metric, label: metric, value: metric }))
 
 type NumericSettingKey =
   | 'summaryThreshold'

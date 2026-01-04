@@ -10,6 +10,7 @@ export type ChatStreamEventType =
   | "tts_audio"
   | "image"
   | "error"
+  | "summary"
   | "agent_start"
   | "agent_delta"
   | "agent_final"
@@ -39,6 +40,11 @@ export interface ChatStreamEvent {
   role?: string;
   content?: string;
   error?: string;
+  // Summary event fields
+  input_tokens?: number;
+  token_budget?: number;
+  message_count?: number;
+  summarized_count?: number;
   [key: string]: unknown;
 }
 

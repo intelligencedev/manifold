@@ -30,6 +30,8 @@ type Message struct {
 	ToolCalls []ToolCall
 	// Images captures inline image payloads returned by the provider.
 	Images []GeneratedImage
+	// Compaction carries responses API compaction state when available.
+	Compaction *CompactionItem
 }
 
 type ToolSchema struct {

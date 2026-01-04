@@ -493,7 +493,9 @@ func (a *app) mcpOAuthCallbackHandler() http.HandlerFunc {
 			RedirectURL: redirectBase + "/api/mcp/oauth/callback",
 		}
 
-		token, err := conf.Exchange(r.Context(), code,
+		// Use a context with custom HTTP client so we can inject test doubles
+		ctx := context.WithValue(r.Context(), oauth2.HTTPClient, a.httpClient)
+		token, err := conf.Exchange(ctx, code,
 			oauth2.SetAuthURLParam("code_verifier", pkceCookie.Value),
 			oauth2.SetAuthURLParam("resource", targetURL),
 		)

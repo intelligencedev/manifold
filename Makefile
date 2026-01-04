@@ -38,6 +38,7 @@ WHISPER_BLAS_LIB_ABS := $(abspath $(WHISPER_BUILD_DIR)/ggml/src/ggml-blas)
 WHISPER_METAL_LIB_ABS := $(abspath $(WHISPER_BUILD_DIR)/ggml/src/ggml-metal)
 
 .PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean whisper-cpp whisper-go-bindings build-tui frontend
+.PHONY: sonar sonar-up sonar-down sonar-scan
 
 all: build
 
@@ -52,6 +53,10 @@ help:
 	@echo "  make vet                # run go vet"
 	@echo "  make lint               # run golangci-lint"
 	@echo "  make test               # run tests with -race and generate coverage.out"
+	@echo "  make sonar-up            # start local SonarQube (http://localhost:19000)"
+	@echo "  make sonar-scan          # run SonarScanner against local SonarQube"
+	@echo "  make sonar               # alias for sonar-scan"
+	@echo "  make sonar-down          # stop local SonarQube stack"
 	@echo "  make build              # build host platform binaries into $(DIST)/ (includes Whisper)"
 	@echo "  make build-agentd       # build only the agentd binary (skips Whisper)"
 	@echo "  make build-agent        # build only the agent binary (skips Whisper)"
@@ -125,9 +130,70 @@ lint:
 	fi
 	golangci-lint run --timeout=5m
 
-test:
+test: whisper-go-bindings
 	@echo "Running tests with race detector and coverage"
+	# Ensure cgo can find Whisper headers and link against static libs/frameworks
+	CGO_CFLAGS="-I$(WHISPER_CPP_ABS) -I$(WHISPER_INCLUDE_ABS) -I$(WHISPER_GGML_INCLUDE_ABS)" \
+	CGO_CPPFLAGS="-I$(WHISPER_CPP_ABS) -I$(WHISPER_INCLUDE_ABS) -I$(WHISPER_GGML_INCLUDE_ABS)" \
+	CPATH="$(WHISPER_CPP_ABS):$(WHISPER_INCLUDE_ABS):$(WHISPER_GGML_INCLUDE_ABS)" \
+	CGO_LDFLAGS="-L$(WHISPER_LIB_ABS) -L$(WHISPER_GGML_LIB_ABS) -L$(WHISPER_BLAS_LIB_ABS) -L$(WHISPER_METAL_LIB_ABS) -lwhisper -lggml -lggml-metal -lggml-blas -lggml-cpu -lggml-base -framework Foundation -framework Metal -framework MetalKit -framework Accelerate" \
 	go test -race -coverprofile=coverage.out ./...
+
+# Local SonarQube helpers (token created & revoked per scan)
+SONAR_COMPOSE_FILE := develop/sonarqube/docker-compose.yml
+SONAR_COMPOSE_PROJECT := manifold-sonar
+SONAR_ENV_FILE ?= .env
+
+SONAR_PROJECT_SETTINGS := develop/sonarqube/sonar-project.properties
+
+# Non-secret defaults
+SONAR_HOST_PORT ?= 19000
+SONAR_PROJECT_KEY ?= manifold
+
+sonar-up:
+	docker compose -f $(SONAR_COMPOSE_FILE) -p $(SONAR_COMPOSE_PROJECT) up -d
+
+sonar-down:
+	docker compose -f $(SONAR_COMPOSE_FILE) -p $(SONAR_COMPOSE_PROJECT) down
+
+sonar-scan: sonar-up
+	@set -euo pipefail; \
+	set -a; [ -f "$(SONAR_ENV_FILE)" ] && . "./$(SONAR_ENV_FILE)"; set +a; \
+	: "$${SONAR_ADMIN_USER:?Set SONAR_ADMIN_USER in $(SONAR_ENV_FILE)}"; \
+	: "$${SONAR_ADMIN_PASSWORD:?Set SONAR_ADMIN_PASSWORD in $(SONAR_ENV_FILE)}"; \
+	sonar_host_port="$${SONAR_HOST_PORT:-$(SONAR_HOST_PORT)}"; \
+	sonar_project_key="$${SONAR_PROJECT_KEY:-$(SONAR_PROJECT_KEY)}"; \
+	echo "Waiting for SonarQube status=UP on http://localhost:$${sonar_host_port} ..."; \
+	for i in $$(seq 1 90); do \
+		if curl -sf "http://localhost:$${sonar_host_port}/api/system/status" | grep -q '"status":"UP"'; then break; fi; \
+		sleep 2; \
+	done; \
+	if ! curl -sf "http://localhost:$${sonar_host_port}/api/system/status" | grep -q '"status":"UP"'; then \
+		echo "SonarQube did not reach status=UP in time."; \
+		echo "Try: make sonar-down && make sonar-up (and check Docker logs for manifold_sonarqube)."; \
+		exit 1; \
+	fi; \
+	token_name="manifold-local-scan-$$(date +%s)"; \
+	tmp_resp="$$(mktemp)"; \
+	cleanup() { rm -f "$$tmp_resp"; }; trap cleanup EXIT; \
+	http_code=$$(curl -sS -o "$$tmp_resp" -w "%{http_code}" -u "$${SONAR_ADMIN_USER}:$${SONAR_ADMIN_PASSWORD}" -X POST "http://localhost:$${sonar_host_port}/api/user_tokens/generate" --data-urlencode "name=$$token_name" || true); \
+	if [ "$$http_code" != "200" ]; then \
+		echo "Failed to generate Sonar token (HTTP $$http_code)."; \
+		echo "Check SONAR_ADMIN_USER / SONAR_ADMIN_PASSWORD in $(SONAR_ENV_FILE) and that SonarQube is healthy."; \
+		echo "Response:"; cat "$$tmp_resp"; \
+		exit 1; \
+	fi; \
+	sonar_token=$$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("token", ""))' "$$tmp_resp"); \
+	if [ -z "$$sonar_token" ]; then \
+		echo "Token generation succeeded but response did not include a token."; \
+		echo "Response:"; cat "$$tmp_resp"; \
+		exit 1; \
+	fi; \
+	docker run --rm --network $(SONAR_COMPOSE_PROJECT)_default -v "$$PWD:/usr/src" -w /usr/src sonarsource/sonar-scanner-cli:latest -Dproject.settings="$(SONAR_PROJECT_SETTINGS)" -Dsonar.host.url=http://sonarqube:9000 -Dsonar.login="$$sonar_token"; \
+	curl -sf -u "$${SONAR_ADMIN_USER}:$${SONAR_ADMIN_PASSWORD}" -X POST "http://localhost:$${sonar_host_port}/api/user_tokens/revoke" --data-urlencode "name=$$token_name" >/dev/null || true; \
+	echo "Scan submitted. Open http://localhost:$${sonar_host_port}/dashboard?id=$${sonar_project_key}"
+
+sonar: sonar-scan
 
 ci: fmt-check imports-check vet lint test
 	@echo "CI checks passed"

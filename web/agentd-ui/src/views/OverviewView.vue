@@ -1,155 +1,53 @@
 <template>
-  <section class="flex h-full min-h-0 flex-col gap-6 overflow-x-hidden overflow-y-auto">
-    <!-- Page header / key stats -->
-    <header class="flex flex-shrink-0 flex-wrap items-start justify-between gap-4 px-1 pt-6">
-      <div>
-        <h1 class="text-lg font-semibold text-foreground">Overview</h1>
-        <p class="text-sm text-subtle-foreground">
-          Live usage, traces, memory, Avg. Prompt Tokens, and agent activity across your
-          deployment.
-        </p>
-      </div>
-      <div class="flex flex-wrap items-center gap-3 text-xs text-faint-foreground">
-        <div class="rounded-3 border border-border/60 bg-surface px-3 py-2">
-          <p class="text-[11px] font-medium text-subtle-foreground">Active Agents</p>
-          <p class="mt-1 text-base font-semibold text-foreground tabular-nums">
-            {{ agents.length }}
-          </p>
-        </div>
-        <div class="rounded-3 border border-border/60 bg-surface px-3 py-2">
-          <p class="text-[11px] font-medium text-subtle-foreground">Runs Today</p>
-          <p class="mt-1 text-base font-semibold text-foreground tabular-nums">
-            {{ runsToday }}
-          </p>
-        </div>
+  <section class="flex h-full min-h-0 flex-col overflow-y-auto">
+    <Panel
+      title="Overview"
+      description="Live usage, traces, memory, prompt tokens, and agent activity across your deployment."
+    >
+      <template #actions>
         <button
+          type="button"
+          class="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
           @click="resetLayout"
-          class="rounded-3 border border-border/60 bg-surface px-3 py-2 text-xs text-subtle-foreground hover:bg-surface-muted transition-colors"
-          title="Reset dashboard layout"
         >
-          Reset Layout
+          Reset layout
         </button>
-      </div>
-    </header>
+      </template>
 
-    <!-- Draggable dashboard grid -->
-    <div class="min-h-0 flex-1 px-1 pb-6">
+      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Active Agents" :value="agents.length" secondary="Reporting status" />
+        <MetricCard label="Runs Today" :value="runsToday" :secondary="runsSummary" />
+        <MetricCard label="Recent Runs" :value="recentRuns.length" secondary="Past 24 hours" />
+        <MetricCard label="Specialists" :value="specialistCount" secondary="Available roles" />
+      </div>
+    </Panel>
+
+    <div class="min-h-0 flex-1 pb-6">
       <DashboardGrid
         ref="dashboardGridRef"
         :layout="dashboardLayout"
         storage-key="overview-dashboard-layout"
         @layout-change="onLayoutChange"
       >
-    >
-      <!-- Token Usage Panel -->
-      <template #item-tokens>
-        <TokenUsagePanel />
-      </template>
+        <template #item-tokens>
+          <TokenUsagePanel />
+        </template>
 
-      <!-- Traces Panel -->
-      <template #item-traces>
-        <TracesPanel />
-      </template>
+        <template #item-traces>
+          <TracesPanel />
+        </template>
 
-      <!-- Memory Panel -->
-      <template #item-memory>
-        <MemoryPanel />
-      </template>
+        <template #item-memory>
+          <MemoryPanel />
+        </template>
 
-      <!-- Agents Panel -->
-      <template #item-agents>
-        <section class="ap-panel ap-hover flex h-full flex-col rounded-2xl bg-surface p-4">
-          <header class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold text-foreground">Agents</h2>
-            <span class="text-[11px] text-faint-foreground">
-              {{ agents.length ? `${agents.length} total` : 'No agents' }}
-            </span>
-          </header>
+        <template #item-agents>
+          <AgentsPanel :agents="agents" />
+        </template>
 
-          <p v-if="!agents.length" class="mt-3 text-xs text-faint-foreground">
-            No agents reported from the backend yet.
-          </p>
-
-          <ul v-else class="mt-3 space-y-2 overflow-y-auto pr-1 text-xs">
-            <li
-              v-for="agent in agents"
-              :key="agent.id"
-              class="flex items-center justify-between gap-2 rounded-lg border border-border/50 bg-surface-muted/40 px-3 py-2"
-            >
-              <div class="min-w-0">
-                <p class="truncate text-xs font-medium text-foreground">
-                  {{ agent.name || agent.id }}
-                </p>
-                <p class="mt-0.5 truncate text-[11px] text-faint-foreground">
-                  {{ agent.model || 'Model not set' }}
-                </p>
-              </div>
-              <div class="flex flex-col items-end gap-1">
-                <span
-                  :class="[
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                    agent.state === 'online'
-                      ? 'bg-success/15 text-success'
-                      : agent.state === 'degraded'
-                        ? 'bg-warning/15 text-warning'
-                        : 'bg-border/50 text-subtle-foreground',
-                  ]"
-                >
-                  {{ agent.state }}
-                </span>
-                <span class="text-[10px] text-faint-foreground">
-                  {{ formatRelativeTime(agent.updatedAt) }}
-                </span>
-              </div>
-            </li>
-          </ul>
-        </section>
-      </template>
-
-      <!-- Recent Runs Panel -->
-      <template #item-runs>
-        <section class="ap-panel ap-hover flex h-full flex-col overflow-hidden rounded-2xl bg-surface p-4">
-          <header class="flex items-center justify-between gap-2">
-            <h2 class="text-sm font-semibold text-foreground">Recent Runs</h2>
-            <span class="text-[11px] text-faint-foreground">
-              {{ recentRuns.length ? `${recentRuns.length} shown` : 'None' }}
-            </span>
-          </header>
-
-          <p v-if="!recentRuns.length" class="mt-3 text-xs text-faint-foreground">
-            No recent runs in the last 24 hours.
-          </p>
-
-          <ul v-else class="mt-3 space-y-2 overflow-y-auto pr-1 text-xs">
-            <li
-              v-for="run in recentRuns"
-              :key="run.id"
-              class="rounded-lg border border-border/50 bg-surface-muted/40 px-3 py-2"
-            >
-              <p class="line-clamp-2 text-xs font-medium text-foreground">
-                {{ run.prompt || 'Untitled run' }}
-              </p>
-              <div
-                class="mt-1 flex items-center justify-between gap-2 text-[11px] text-faint-foreground"
-              >
-                <span
-                  :class="[
-                    'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                    run.status === 'completed'
-                      ? 'bg-success/15 text-success'
-                      : run.status === 'running'
-                        ? 'bg-accent/15 text-accent'
-                        : 'bg-danger/10 text-danger',
-                  ]"
-                >
-                  {{ run.status }}
-                </span>
-                <span>{{ formatRelativeTime(run.createdAt) }}</span>
-              </div>
-            </li>
-          </ul>
-        </section>
-      </template>
+        <template #item-runs>
+          <RecentRunsPanel :runs="recentRuns" />
+        </template>
       </DashboardGrid>
     </div>
   </section>
@@ -162,6 +60,10 @@ import DashboardGrid, { type GridItemConfig } from '@/components/DashboardGrid.v
 import TokenUsagePanel from '@/components/observability/TokenUsagePanel.vue'
 import TracesPanel from '@/components/observability/TracesPanel.vue'
 import MemoryPanel from '@/components/observability/MemoryPanel.vue'
+import AgentsPanel from '@/components/overview/AgentsPanel.vue'
+import RecentRunsPanel from '@/components/overview/RecentRunsPanel.vue'
+import Panel from '@/components/ui/Panel.vue'
+import MetricCard from '@/components/ui/MetricCard.vue'
 import { fetchAgentRuns, fetchAgentStatus, listSpecialists } from '@/api/client'
 
 const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>()
@@ -223,9 +125,13 @@ const agents = computed(() => {
 })
 const runs = computed(() => runsData.value ?? [])
 
+const specialistCount = computed(() => (specialistsData?.value ?? []).length)
+
 const runsToday = computed(
   () => runs.value.filter((run) => isToday(run.createdAt)).length,
 )
+
+const runsSummary = computed(() => `${runsToday.value} started today`)
 
 const recentRuns = computed(() =>
   runs.value
@@ -246,24 +152,6 @@ function isToday(value: string) {
     date.getMonth() === now.getMonth() &&
     date.getFullYear() === now.getFullYear()
   )
-}
-
-function formatRelativeTime(value: string) {
-  const date = new Date(value)
-  const now = new Date()
-  const diffSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-
-  if (!Number.isFinite(diffSeconds)) return ''
-  if (diffSeconds < 45) return 'just now'
-
-  const minutes = Math.floor(diffSeconds / 60)
-  if (minutes < 60) return `${minutes} min${minutes === 1 ? '' : 's'} ago`
-
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} h${hours === 1 ? '' : 's'} ago`
-
-  const days = Math.floor(hours / 24)
-  return `${days} d${days === 1 ? '' : 's'} ago`
 }
 
 function onLayoutChange(newLayout: GridItemConfig[]) {

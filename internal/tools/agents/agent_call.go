@@ -14,8 +14,7 @@ import (
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
-	"os"
-	"path/filepath"
+	"manifold/internal/workspaces"
 )
 
 // AgentCallTool invokes a named specialist (as a full agent) or the default agent engine
@@ -26,7 +25,7 @@ type AgentCallTool struct {
 	// overridden via specialists_tool.WithRegistry on the context in HTTP handlers.
 	reg        tools.Registry
 	specReg    *specialists.Registry
-	workdir    string
+	wsMgr      workspaces.WorkspaceManager
 	defaultSys string
 	// Max default steps if not provided in the call
 	defaultMaxSteps int
@@ -35,8 +34,8 @@ type AgentCallTool struct {
 	defaultTimeout time.Duration
 }
 
-func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry, workdir string) *AgentCallTool {
-	return &AgentCallTool{reg: reg, specReg: specReg, workdir: workdir, defaultSys: "You are a helpful assistant.", defaultMaxSteps: 8}
+func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) *AgentCallTool {
+	return &AgentCallTool{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant.", defaultMaxSteps: 8}
 }
 
 // SetDefaultTimeoutSeconds sets a default timeout applied when the parent context
@@ -121,21 +120,20 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 	}
 
 	dispatchCtx := ctx
-	if pid := strings.TrimSpace(args.ProjectID); pid != "" && strings.TrimSpace(t.workdir) != "" {
-		cleanPID := filepath.Clean(pid)
-		if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
-			return map[string]any{"ok": false, "error": "invalid project_id"}, nil
+	if pid := strings.TrimSpace(args.ProjectID); pid != "" && t.wsMgr != nil {
+		ws, err := t.wsMgr.Checkout(ctx, args.UserID, pid, "")
+		if err != nil {
+			if err == workspaces.ErrInvalidProjectID {
+				return map[string]any{"ok": false, "error": "invalid project_id"}, nil
+			}
+			if err == workspaces.ErrProjectNotFound {
+				return map[string]any{"ok": false, "error": "project not found (project_id must match the project directory/ID)"}, nil
+			}
+			return map[string]any{"ok": false, "error": fmt.Sprintf("workspace checkout failed: %v", err)}, nil
 		}
-		uid := args.UserID
-		baseRoot := filepath.Join(t.workdir, "users", fmt.Sprint(uid), "projects")
-		base := filepath.Join(baseRoot, cleanPID)
-		if !strings.HasPrefix(base, baseRoot+string(os.PathSeparator)) && base != baseRoot {
-			return map[string]any{"ok": false, "error": "invalid project_id"}, nil
+		if ws.BaseDir != "" {
+			dispatchCtx = sandbox.WithBaseDir(ctx, ws.BaseDir)
 		}
-		if st, err := os.Stat(base); err != nil || !st.IsDir() {
-			return map[string]any{"ok": false, "error": "project not found (project_id must match the project directory/ID)"}, nil
-		}
-		dispatchCtx = sandbox.WithBaseDir(ctx, base)
 	}
 
 	// Resolve provider and tool registry view
@@ -180,6 +178,7 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 		toolsReg = tools.NewRegistry()
 	}
 	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: prompts.EnsureMemoryInstructions(system)}
+	eng.AttachTokenizer(prov, nil)
 	runCtx := ctx
 	if args.TimeoutSeconds > 0 {
 		var cancel context.CancelFunc

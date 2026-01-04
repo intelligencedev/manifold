@@ -151,8 +151,11 @@ defineExpose({
   @apply opacity-40 transition-opacity;
   width: 20px !important;
   height: 20px !important;
-  bottom: 0 !important;
-  right: 0 !important;
+  bottom: 2px !important;
+  right: 2px !important;
+  /* Clip the grip so it doesn't overlap the rounded card corner */
+  border-bottom-right-radius: 1rem !important; /* matches Tailwind rounded-2xl */
+  overflow: hidden !important;
   background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M 20 0 L 20 20 L 0 20 Z" fill="%23888" opacity="0.3"/><path d="M 14 20 L 20 14 L 20 20 Z M 8 20 L 20 8 L 20 12 L 12 20 Z" fill="%23fff" opacity="0.8"/></svg>') !important;
   background-position: bottom right !important;
   background-repeat: no-repeat !important;

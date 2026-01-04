@@ -114,15 +114,19 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	// Inherit session_id from context if not explicitly provided by the LLM.
 	// This allows delegated agents to share the same conversation context.
 	sessionID := strings.TrimSpace(args.SessionID)
+	fromContext := false
 	if sessionID == "" {
 		if ctxSID, ok := sandbox.SessionIDFromContext(ctx); ok {
 			sessionID = ctxSID
+			fromContext = true
 		}
 	}
+
 	switch {
 	case sessionID == "":
 		sessionID = uuid.NewString()
-	default:
+	case !fromContext:
+		// Only convert non-UUID values that came from the LLM args, not from context
 		if _, err := uuid.Parse(sessionID); err != nil {
 			// Deterministically map non-UUID identifiers to a UUID so repeated
 			// values anchor to the same chat transcript.

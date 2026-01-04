@@ -11,6 +11,8 @@ var (
 	ErrNotFound = errors.New("persistence: not found")
 	// ErrForbidden indicates the caller is not authorized to access the record.
 	ErrForbidden = errors.New("persistence: forbidden")
+	// ErrRevisionConflict indicates optimistic concurrency failure (stale revision).
+	ErrRevisionConflict = errors.New("persistence: revision conflict")
 )
 
 // Store is a placeholder for transcripts/state persistence.
@@ -141,4 +143,83 @@ type MCPStore interface {
 	GetByName(ctx context.Context, userID int64, name string) (MCPServer, bool, error)
 	Upsert(ctx context.Context, userID int64, s MCPServer) (MCPServer, error)
 	Delete(ctx context.Context, userID int64, name string) error
+}
+
+// Project represents a project stored in the database.
+// This is the authoritative metadata record for projects stored in S3 or filesystem.
+type Project struct {
+	ID        string    `json:"id"`
+	UserID    int64     `json:"userId"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	// Revision is an optimistic concurrency control token.
+	// It must be passed to Update operations and is checked for conflicts.
+	Revision int64 `json:"revision"`
+	// Bytes is the total size of all files in the project (cached).
+	Bytes int64 `json:"bytes"`
+	// FileCount is the number of files in the project (cached).
+	FileCount int `json:"fileCount"`
+	// StorageBackend indicates where files are stored: "filesystem" or "s3".
+	StorageBackend string `json:"storageBackend,omitempty"`
+}
+
+// ProjectFile represents a file entry in the project_files index.
+// This enables fast directory listing without expensive S3 LIST operations.
+type ProjectFile struct {
+	ProjectID string    `json:"projectId"`
+	Path      string    `json:"path"`      // Full project-relative path (e.g., "src/main.go")
+	Name      string    `json:"name"`      // Basename only (e.g., "main.go")
+	IsDir     bool      `json:"isDir"`     // True if this is a directory entry
+	Size      int64     `json:"size"`      // File size in bytes (0 for directories)
+	ModTime   time.Time `json:"modTime"`   // Last modification time
+	ETag      string    `json:"etag"`      // S3 ETag or content hash for change detection
+	UpdatedAt time.Time `json:"updatedAt"` // When this index entry was last updated
+}
+
+// ProjectsStore persists project metadata and optional file index.
+type ProjectsStore interface {
+	// Init creates tables/indexes if they don't exist.
+	Init(ctx context.Context) error
+
+	// Create inserts a new project. Returns the created project with ID and revision set.
+	Create(ctx context.Context, userID int64, name string) (Project, error)
+
+	// Get retrieves a project by ID. Returns ErrNotFound if not found.
+	// Returns ErrForbidden if userID doesn't match the project owner.
+	Get(ctx context.Context, userID int64, projectID string) (Project, error)
+
+	// List returns all projects for a user, sorted by UpdatedAt desc, then Name asc.
+	List(ctx context.Context, userID int64) ([]Project, error)
+
+	// Update modifies project metadata. The project's Revision must match the current
+	// database revision; otherwise ErrRevisionConflict is returned.
+	// On success, the returned project has an incremented Revision.
+	Update(ctx context.Context, p Project) (Project, error)
+
+	// UpdateStats updates cached file count and byte totals.
+	// This is a partial update that doesn't require revision checking.
+	UpdateStats(ctx context.Context, projectID string, bytes int64, fileCount int) error
+
+	// Delete removes a project and all associated file index entries.
+	Delete(ctx context.Context, userID int64, projectID string) error
+
+	// --- File Index Operations (optional, for fast directory listing) ---
+
+	// IndexFile upserts a file entry in the project file index.
+	IndexFile(ctx context.Context, f ProjectFile) error
+
+	// RemoveFileIndex removes a file entry from the index.
+	RemoveFileIndex(ctx context.Context, projectID, path string) error
+
+	// RemoveFileIndexPrefix removes all file entries under a path prefix (for directory deletes).
+	RemoveFileIndexPrefix(ctx context.Context, projectID, pathPrefix string) error
+
+	// ListFiles returns file entries directly under the given path (non-recursive).
+	// If path is "." or "", returns root directory entries.
+	// Results are sorted: directories first, then by name.
+	ListFiles(ctx context.Context, projectID, path string) ([]ProjectFile, error)
+
+	// GetFile retrieves a single file index entry by exact path.
+	GetFile(ctx context.Context, projectID, path string) (ProjectFile, error)
 }

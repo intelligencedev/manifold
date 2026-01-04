@@ -65,6 +65,7 @@ type Manager struct {
 	Playground     *PlaygroundStore
 	Warpp          persistence.WarppWorkflowStore
 	MCP            persistence.MCPStore
+	Projects       persistence.ProjectsStore
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -88,6 +89,9 @@ func (m Manager) Close() {
 		c.Close()
 	}
 	if c, ok := any(m.MCP).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.Projects).(interface{ Close() }); ok {
 		c.Close()
 	}
 }

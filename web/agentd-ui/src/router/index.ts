@@ -29,11 +29,6 @@ const router = createRouter({
       component: () => import('@/views/FlowView.vue')
     },
     {
-      path: '/runs',
-      name: 'runs',
-      component: () => import('@/views/RunsView.vue')
-    },
-    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue')

@@ -178,6 +178,12 @@ export function projectFileUrl(id: string, path: string): string {
   return `${b}/projects/${encodeURIComponent(id)}/files?${qp}`
 }
 
+// Build a URL to download the entire project as a tar.gz archive.
+export function projectArchiveUrl(id: string): string {
+  const b = baseURL.replace(/\/$/, '')
+  return `${b}/projects/${encodeURIComponent(id)}/archive`
+}
+
 // Specialists CRUD
 export interface Specialist {
   id?: number

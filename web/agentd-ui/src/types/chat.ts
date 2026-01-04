@@ -40,6 +40,7 @@ export interface ChatSessionMeta {
   createdAt: string
   updatedAt: string
   lastMessagePreview?: string
+  messageCount?: number
   model?: string
 }
 

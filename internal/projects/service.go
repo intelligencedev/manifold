@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 
 	"manifold/internal/sandbox"
+	"manifold/internal/workspaces"
 )
 
 // Project describes a per-user project stored on the filesystem.
@@ -46,17 +47,38 @@ type FileEntry struct {
 type Service struct {
 	workdir string
 	// encryption controls
-	encrypt   bool
+	encrypt     bool
+	keyProvider KeyProvider
+	// Legacy: masterKey is kept for backward compatibility when no KeyProvider is set.
+	// New deployments should use KeyProvider instead.
 	masterKey []byte
 }
 
 // NewService creates a new filesystem-backed projects service.
 func NewService(workdir string) *Service { return &Service{workdir: workdir} }
 
-// EnableEncryption toggles at-rest encryption for project file I/O. When enabling,
-// a local keystore master key is created under ${WORKDIR}/.keystore/master.key if missing.
+// SetKeyProvider configures a KeyProvider for envelope encryption.
+// When set, this replaces the legacy masterKey-based encryption.
+func (s *Service) SetKeyProvider(kp KeyProvider) {
+	s.keyProvider = kp
+}
+
+// GetKeyProvider returns the configured KeyProvider, or nil if not set.
+func (s *Service) GetKeyProvider() KeyProvider {
+	return s.keyProvider
+}
+
+// EnableEncryption toggles at-rest encryption for project file I/O.
+// If a KeyProvider is configured, it will be used for key management.
+// Otherwise, falls back to legacy file-based master key under ${WORKDIR}/.keystore/master.key.
 func (s *Service) EnableEncryption(enable bool) error {
 	if enable {
+		// If KeyProvider is already set, use it
+		if s.keyProvider != nil {
+			s.encrypt = true
+			return nil
+		}
+		// Legacy fallback: use file-based master key
 		if len(s.masterKey) == 0 {
 			mk, err := loadOrCreateMasterKey(s.workdir)
 			if err != nil {
@@ -73,8 +95,34 @@ func (s *Service) userRoot(userID int64) string {
 	return filepath.Join(s.workdir, "users", fmt.Sprint(userID), "projects")
 }
 
-func (s *Service) projectRoot(userID int64, projectID string) string {
-	return filepath.Join(s.userRoot(userID), projectID)
+func (s *Service) projectRoot(userID int64, projectID string) (string, error) {
+	cleanPID, err := workspaces.ValidateProjectID(projectID)
+	if err != nil {
+		return "", err
+	}
+	if cleanPID == "" {
+		return "", fmt.Errorf("invalid project id")
+	}
+	return resolveUnderRoot(s.userRoot(userID), cleanPID)
+}
+
+func resolveUnderRoot(absBase, rel string) (string, error) {
+	absRoot, err := filepath.Abs(absBase)
+	if err != nil {
+		return "", err
+	}
+	absPath, err := filepath.Abs(filepath.Join(absRoot, rel))
+	if err != nil {
+		return "", err
+	}
+	relToRoot, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return "", err
+	}
+	if relToRoot == "." || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("invalid path")
+	}
+	return absPath, nil
 }
 
 type projectMeta struct {
@@ -118,7 +166,10 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 		name = "Untitled"
 	}
 	id := uuid.NewString()
-	root := s.projectRoot(userID, id)
+	root, err := s.projectRoot(userID, id)
+	if err != nil {
+		return Project{}, err
+	}
 	if err := ensureDir(root, 0o755); err != nil {
 		return Project{}, err
 	}
@@ -144,7 +195,10 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 
 // DeleteProject recursively deletes the project directory for a user.
 func (s *Service) DeleteProject(_ context.Context, userID int64, projectID string) error {
-	root := s.projectRoot(userID, projectID)
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(root); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -207,7 +261,10 @@ func (s *Service) readProject(root string) (Project, bool) {
 }
 
 func (s *Service) writeUpdatedAt(userID int64, projectID string, t time.Time) {
-	root := s.projectRoot(userID, projectID)
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return
+	}
 	b, err := os.ReadFile(s.metaPath(root))
 	if err != nil {
 		return
@@ -251,7 +308,10 @@ func (s *Service) computeUsage(root string) (int64, int) {
 
 // ListTree lists entries directly under path within a project.
 func (s *Service) ListTree(_ context.Context, userID int64, projectID, path string) ([]FileEntry, error) {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := os.Stat(base); err != nil {
 		return nil, err
 	}
@@ -310,7 +370,10 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 	if strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		return fmt.Errorf("invalid file name")
 	}
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return err
@@ -349,7 +412,10 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 // the directory is removed recursively (like rm -r). Symlinks are never
 // followed and will not be deleted.
 func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path string) error {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return err
@@ -387,7 +453,10 @@ func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path st
 // path must include the final filename (or directory name) and must not
 // already exist. Moving into a descendant of the source directory is refused.
 func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to string) error {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	srcRel, err := sanitizeUnder(base, from)
 	if err != nil {
 		return err
@@ -434,7 +503,10 @@ func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to 
 
 // CreateDir creates a directory (and parents) within a project.
 func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path string) error {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return err
@@ -450,7 +522,10 @@ func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path str
 // ReadFile opens a file for reading and returns a reader that yields plaintext
 // bytes when encryption is enabled; otherwise returns the raw file contents.
 func (s *Service) ReadFile(_ context.Context, userID int64, projectID, path string) (io.ReadCloser, error) {
-	base := s.projectRoot(userID, projectID)
+	base, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
 	rel, err := sanitizeUnder(base, path)
 	if err != nil {
 		return nil, err
@@ -483,18 +558,41 @@ func (s *Service) ReadFile(_ context.Context, userID int64, projectID, path stri
 // ----- Encryption helpers -----
 
 // ensureProjectDEK creates a new DEK and writes enc.json if missing; returns the DEK.
+// Uses KeyProvider if configured, otherwise falls back to legacy masterKey.
 func (s *Service) ensureProjectDEK(userID int64, projectID string) ([]byte, error) {
-	if len(s.masterKey) == 0 {
-		return nil, fmt.Errorf("encryption master key not initialized")
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
 	}
-	root := s.projectRoot(userID, projectID)
 	encPath := s.encMetaPath(root)
+
+	// Check if DEK already exists
 	if _, err := os.Stat(encPath); err == nil {
 		return s.getProjectDEK(userID, projectID)
 	}
+
+	// Generate new DEK
 	dek := make([]byte, 32)
 	if _, err := crand.Read(dek); err != nil {
 		return nil, err
+	}
+
+	// Use KeyProvider if configured
+	if s.keyProvider != nil {
+		ctx := context.Background()
+		wrapped, err := s.keyProvider.WrapDEK(ctx, projectID, dek)
+		if err != nil {
+			return nil, fmt.Errorf("wrap DEK: %w", err)
+		}
+		if err := writeWrappedDEKv2(encPath, s.keyProvider.ProviderType(), wrapped); err != nil {
+			return nil, err
+		}
+		return dek, nil
+	}
+
+	// Legacy: use masterKey
+	if len(s.masterKey) == 0 {
+		return nil, fmt.Errorf("encryption master key not initialized")
 	}
 	if err := writeWrappedDEK(encPath, s.masterKey, dek); err != nil {
 		return nil, err
@@ -502,12 +600,43 @@ func (s *Service) ensureProjectDEK(userID int64, projectID string) ([]byte, erro
 	return dek, nil
 }
 
+// getProjectDEK retrieves and unwraps the DEK for a project.
+// Uses KeyProvider if configured, otherwise falls back to legacy masterKey.
 func (s *Service) getProjectDEK(userID int64, projectID string) ([]byte, error) {
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
+		return nil, err
+	}
+	encPath := s.encMetaPath(root)
+
+	// Read envelope
+	b, err := os.ReadFile(encPath)
+	if err != nil {
+		return nil, err
+	}
+	var env encEnvelope
+	if err := json.Unmarshal(b, &env); err != nil {
+		return nil, err
+	}
+
+	// Check if this is a v2 envelope (KeyProvider-based)
+	if env.WrapVersion == 2 && s.keyProvider != nil {
+		wrapped, err := base64.StdEncoding.DecodeString(env.WrappedB64)
+		if err != nil {
+			return nil, fmt.Errorf("decode wrapped DEK: %w", err)
+		}
+		ctx := context.Background()
+		dek, err := s.keyProvider.UnwrapDEK(ctx, projectID, wrapped)
+		if err != nil {
+			return nil, fmt.Errorf("unwrap DEK: %w", err)
+		}
+		return dek, nil
+	}
+
+	// Legacy: use masterKey for v1 envelopes
 	if len(s.masterKey) == 0 {
 		return nil, fmt.Errorf("encryption master key not initialized")
 	}
-	root := s.projectRoot(userID, projectID)
-	encPath := s.encMetaPath(root)
 	return readWrappedDEK(encPath, s.masterKey)
 }
 
@@ -536,16 +665,40 @@ func loadOrCreateMasterKey(workdir string) ([]byte, error) {
 	return b, nil
 }
 
+// encEnvelope represents the encrypted DEK metadata stored in enc.json.
+// WrapVersion=1: Legacy local masterKey-based AES-GCM wrapping (nonce+ciphertext in envelope)
+// WrapVersion=2: KeyProvider-based wrapping (opaque wrapped bytes, provider type stored)
 type encEnvelope struct {
 	Alg         string `json:"alg"`
 	WrapVersion int    `json:"wrap_version"`
-	NonceB64    string `json:"nonce"`
+	NonceB64    string `json:"nonce,omitempty"` // v1 only
 	WrappedB64  string `json:"wrapped_dek"`
+	// ProviderType identifies the KeyProvider used (v2 only): "file", "vault", "awskms"
+	ProviderType string `json:"provider_type,omitempty"`
 	// Optional previous wrapped DEK to support in-progress rotation.
 	PrevWrappedB64 string `json:"prev_wrapped_dek,omitempty"`
 	Active         string `json:"active,omitempty"` // "new" (default) or "prev"
 }
 
+// writeWrappedDEKv2 writes a KeyProvider-wrapped DEK to enc.json.
+func writeWrappedDEKv2(path, providerType string, wrapped []byte) error {
+	env := encEnvelope{
+		Alg:          "envelope",
+		WrapVersion:  2,
+		ProviderType: providerType,
+		WrappedB64:   base64.StdEncoding.EncodeToString(wrapped),
+	}
+	b, err := json.MarshalIndent(env, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeWrappedDEK writes a legacy v1 masterKey-wrapped DEK to enc.json.
 func writeWrappedDEK(path string, master, dek []byte) error {
 	block, err := aes.NewCipher(master)
 	if err != nil {
@@ -687,7 +840,8 @@ func decryptStreamFromFile(src *os.File, dek []byte) (io.ReadCloser, error) {
 // RotateProjectDEK re-encrypts all files in the project with a new DEK.
 // It writes enc.json with both old and new wrapped keys while rotation is in progress,
 // and finalizes to only the new wrapped key when done.
-func (s *Service) RotateProjectDEK(_ context.Context, userID int64, projectID string) error {
+// Supports both KeyProvider-based and legacy masterKey-based encryption.
+func (s *Service) RotateProjectDEK(ctx context.Context, userID int64, projectID string) error {
 	if !s.encrypt {
 		return fmt.Errorf("encryption disabled")
 	}
@@ -700,12 +854,33 @@ func (s *Service) RotateProjectDEK(_ context.Context, userID int64, projectID st
 	if _, err := crand.Read(neu); err != nil {
 		return err
 	}
-	root := s.projectRoot(userID, projectID)
-	encPath := s.encMetaPath(root)
-	// write enc.json with both keys (active=new)
-	if err := writeDualWrapped(encPath, s.masterKey, old, neu); err != nil {
+	root, err := s.projectRoot(userID, projectID)
+	if err != nil {
 		return err
 	}
+	encPath := s.encMetaPath(root)
+
+	// Write enc.json with both keys (active=new)
+	if s.keyProvider != nil {
+		// KeyProvider-based rotation
+		wrappedNew, err := s.keyProvider.WrapDEK(ctx, projectID, neu)
+		if err != nil {
+			return fmt.Errorf("wrap new DEK: %w", err)
+		}
+		wrappedOld, err := s.keyProvider.WrapDEK(ctx, projectID, old)
+		if err != nil {
+			return fmt.Errorf("wrap old DEK: %w", err)
+		}
+		if err := writeDualWrappedv2(encPath, s.keyProvider.ProviderType(), wrappedOld, wrappedNew); err != nil {
+			return err
+		}
+	} else {
+		// Legacy masterKey-based rotation
+		if err := writeDualWrapped(encPath, s.masterKey, old, neu); err != nil {
+			return err
+		}
+	}
+
 	// re-encrypt files
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -726,14 +901,47 @@ func (s *Service) RotateProjectDEK(_ context.Context, userID int64, projectID st
 	if err != nil {
 		return err
 	}
+
 	// finalize: write enc.json with only new wrapped
-	if err := writeWrappedDEK(encPath, s.masterKey, neu); err != nil {
-		return err
+	if s.keyProvider != nil {
+		wrappedNew, err := s.keyProvider.WrapDEK(ctx, projectID, neu)
+		if err != nil {
+			return fmt.Errorf("wrap new DEK: %w", err)
+		}
+		if err := writeWrappedDEKv2(encPath, s.keyProvider.ProviderType(), wrappedNew); err != nil {
+			return err
+		}
+	} else {
+		if err := writeWrappedDEK(encPath, s.masterKey, neu); err != nil {
+			return err
+		}
 	}
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC())
 	return nil
 }
 
+// writeDualWrappedv2 writes a KeyProvider-wrapped dual-key envelope for rotation.
+func writeDualWrappedv2(path, providerType string, wrappedOld, wrappedNew []byte) error {
+	env := encEnvelope{
+		Alg:            "envelope",
+		WrapVersion:    2,
+		ProviderType:   providerType,
+		WrappedB64:     base64.StdEncoding.EncodeToString(wrappedNew),
+		PrevWrappedB64: base64.StdEncoding.EncodeToString(wrappedOld),
+		Active:         "new",
+	}
+	b, err := json.MarshalIndent(env, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// writeDualWrapped writes a legacy v1 dual-key envelope for rotation.
 func writeDualWrapped(path string, master, old, neu []byte) error {
 	block, err := aes.NewCipher(master)
 	if err != nil {

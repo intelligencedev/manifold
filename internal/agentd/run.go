@@ -25,6 +25,7 @@ import (
 	openaillm "manifold/internal/llm/openai"
 	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
+	"manifold/internal/objectstore"
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
@@ -57,6 +58,7 @@ import (
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
+	"manifold/internal/workspaces"
 )
 
 const systemUserID int64 = 0
@@ -81,7 +83,9 @@ type app struct {
 	chatMemory        *memory.Manager
 	runs              *runStore
 	playgroundHandler http.Handler
-	projectsService   *projects.Service
+	projectsService   projects.ProjectService
+	s3Store           *objectstore.S3Store // nil if filesystem backend
+	workspaceManager  workspaces.WorkspaceManager
 	whisperModel      whisper.Model
 	authStore         *auth.Store
 	authProvider      auth.Provider
@@ -197,7 +201,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(*cfg, httpClient))
 
-	// Kafka tool for publishing messages
+	// Register the Kafka tool for publishing messages.
 	if cfg.Kafka.Brokers != "" {
 		if producer, err := kafkatools.NewProducerFromBrokers(cfg.Kafka.Brokers); err == nil {
 			// NewSendMessageTool will auto-detect orchestrator commands topics by pattern matching
@@ -207,8 +211,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		}
 	}
 
-	// RAG tools backed by internal/rag Service
-	// Create a real embedder using the configured embedding service
+	// Register RAG tools backed by the internal rag service.
+	// Create a real embedder using the configured embedding service.
 	emb := embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
 	if err := emb.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
@@ -216,7 +220,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
 
-	// AlphaEvolve-inspired code evolution tool
+	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))
 
 	newProv := func(baseURL string) llmpkg.Provider {
@@ -231,11 +235,39 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
+	// Initialize S3 store early if S3 backend is configured (needed for workspace manager)
+	var s3Store *objectstore.S3Store
+	if cfg.Projects.Backend == "s3" {
+		var err error
+		s3Store, err = objectstore.NewS3Store(ctx, cfg.Projects.S3)
+		if err != nil {
+			return nil, fmt.Errorf("init s3 store: %w", err)
+		}
+		// Verify connectivity
+		if err := s3Store.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("s3 connectivity check failed: %w", err)
+		}
+		log.Info().
+			Str("bucket", cfg.Projects.S3.Bucket).
+			Str("prefix", cfg.Projects.S3.Prefix).
+			Str("endpoint", cfg.Projects.S3.Endpoint).
+			Msg("s3_store_initialized")
+	}
+
+	// Initialize workspace manager with optional S3 store for ephemeral workspaces
+	var wsMgr workspaces.WorkspaceManager
+	if s3Store != nil && cfg.Projects.Workspace.Mode == "ephemeral" {
+		wsMgr = workspaces.NewManagerWithStore(cfg, s3Store)
+	} else {
+		wsMgr = workspaces.NewManager(cfg)
+	}
+	log.Info().Str("mode", wsMgr.Mode()).Msg("workspace_manager_initialized")
+
 	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
 	specReg.SetWorkdir(cfg.Workdir)
 
-	// Phase 1: register simple team tools
-	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, cfg.Workdir)
+	// Register specialist routing tools.
+	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, wsMgr)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
@@ -270,7 +302,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
 
-	// Load from DB (System User)
+	// Load MCP servers from the system user store.
 	if mgr.MCP != nil {
 		if servers, err := mgr.MCP.List(ctxInit, systemUserID); err == nil {
 			for _, s := range servers {
@@ -298,6 +330,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		runs:             newRunStore(),
 		mcpStore:         mgr.MCP,
 		mcpManager:       mcpMgr,
+		workspaceManager: wsMgr,
 	}
 
 	systemPrompt := app.composeSystemPrompt()
@@ -319,15 +352,13 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		Model:                        cfg.OpenAI.Model,
 		ContextWindowTokens:          ctxSize,
 		SummaryEnabled:               cfg.SummaryEnabled,
-		SummaryThreshold:             cfg.SummaryThreshold,
-		SummaryKeepLast:              cfg.SummaryKeepLast,
-		SummaryMode:                  cfg.SummaryMode,
-		SummaryTargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
+		SummaryReserveBufferTokens:   cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
 	}
+	app.engine.AttachTokenizer(llm, nil)
 
-	delegator := agenttools.NewDelegator(toolRegistry, specReg, cfg.Workdir, cfg.MaxSteps)
+	delegator := agenttools.NewDelegator(toolRegistry, specReg, wsMgr, cfg.MaxSteps)
 	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
 	app.engine.Delegator = delegator
 
@@ -394,16 +425,16 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	// Derive a context window for the summary model (may differ from main model).
 	summaryCtxSize, _ := llmpkg.ContextSize(cfg.OpenAI.SummaryModel)
+	useResponsesCompaction := (cfg.LLMClient.Provider == "" || cfg.LLMClient.Provider == "openai") &&
+		strings.EqualFold(cfg.OpenAI.API, "responses")
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
-		Enabled:               cfg.SummaryEnabled,
-		Mode:                  memory.MemoryMode(cfg.SummaryMode),
-		Threshold:             cfg.SummaryThreshold,
-		KeepLast:              cfg.SummaryKeepLast,
-		TargetUtilizationPct:  cfg.SummaryTargetUtilizationPct,
-		MinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
-		MaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
-		ContextWindowTokens:   summaryCtxSize,
-		SummaryModel:          cfg.OpenAI.SummaryModel,
+		Enabled:                cfg.SummaryEnabled,
+		ReserveBufferTokens:    cfg.SummaryReserveBufferTokens,
+		MinKeepLastMessages:    cfg.SummaryMinKeepLastMessages,
+		MaxSummaryChunkTokens:  cfg.SummaryMaxSummaryChunkTokens,
+		ContextWindowTokens:    summaryCtxSize,
+		SummaryModel:           cfg.OpenAI.SummaryModel,
+		UseResponsesCompaction: useResponsesCompaction,
 	})
 
 	if mgr.Playground == nil {
@@ -421,11 +452,67 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
 	app.playgroundHandler = httpapi.NewServer(playgroundService)
 
-	app.projectsService = projects.NewService(cfg.Workdir)
+	// Initialize projects service based on backend configuration (s3Store already initialized above)
+	app.s3Store = s3Store
+
+	// Initialize KeyProvider if encryption is enabled
+	var keyProvider projects.KeyProvider
 	if cfg.Projects.Encrypt {
-		if err := app.projectsService.EnableEncryption(true); err != nil {
-			return nil, fmt.Errorf("enable project encryption failed: %w", err)
+		var err error
+		kpCfg := projects.KeyProviderConfig{
+			Type: cfg.Projects.Encryption.Provider,
+			File: projects.FileKeyProviderConfig{
+				KeystorePath: cfg.Projects.Encryption.File.KeystorePath,
+			},
+			Vault: projects.VaultKeyProviderConfig{
+				Address:        cfg.Projects.Encryption.Vault.Address,
+				Token:          cfg.Projects.Encryption.Vault.Token,
+				KeyName:        cfg.Projects.Encryption.Vault.KeyName,
+				MountPath:      cfg.Projects.Encryption.Vault.MountPath,
+				Namespace:      cfg.Projects.Encryption.Vault.Namespace,
+				TLSSkipVerify:  cfg.Projects.Encryption.Vault.TLSSkipVerify,
+				TimeoutSeconds: cfg.Projects.Encryption.Vault.TimeoutSeconds,
+			},
+			AWSKMS: projects.AWSKMSKeyProviderConfig{
+				KeyID:           cfg.Projects.Encryption.AWSKMS.KeyID,
+				Region:          cfg.Projects.Encryption.AWSKMS.Region,
+				AccessKeyID:     cfg.Projects.Encryption.AWSKMS.AccessKeyID,
+				SecretAccessKey: cfg.Projects.Encryption.AWSKMS.SecretAccessKey,
+				Endpoint:        cfg.Projects.Encryption.AWSKMS.Endpoint,
+			},
 		}
+		keyProvider, err = projects.NewKeyProvider(cfg.Workdir, kpCfg)
+		if err != nil {
+			return nil, fmt.Errorf("create key provider: %w", err)
+		}
+		log.Info().Str("type", cfg.Projects.Encryption.Provider).Msg("key_provider_initialized")
+	}
+
+	switch cfg.Projects.Backend {
+	case "s3":
+		s3Svc := projects.NewS3Service(s3Store, cfg.Projects.S3)
+		if cfg.Projects.Encrypt && keyProvider != nil {
+			s3Svc.SetKeyProvider(keyProvider)
+			if err := s3Svc.EnableEncryption(true); err != nil {
+				return nil, fmt.Errorf("enable S3 project encryption: %w", err)
+			}
+			log.Info().Msg("projects_s3_backend_encryption_enabled")
+		}
+		app.projectsService = s3Svc
+		log.Info().Msg("projects_s3_backend_initialized")
+	default:
+		// Filesystem backend (default)
+		fsService := projects.NewService(cfg.Workdir)
+		if cfg.Projects.Encrypt && keyProvider != nil {
+			fsService.SetKeyProvider(keyProvider)
+		}
+		if cfg.Projects.Encrypt {
+			if err := fsService.EnableEncryption(true); err != nil {
+				return nil, fmt.Errorf("enable project encryption failed: %w", err)
+			}
+		}
+		app.projectsService = fsService
+		log.Info().Str("workdir", cfg.Workdir).Msg("projects_filesystem_backend_initialized")
 	}
 
 	app.whisperModel = app.loadWhisperModel("models/ggml-small.en.bin")
@@ -467,7 +554,7 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 	var wfStore persist.WarppWorkflowStore
 
 	if a.cfg.Databases.DefaultDSN != "" {
-		if p, errPool := databasesTestPool(ctx, a.cfg.Databases.DefaultDSN); errPool == nil {
+		if p, errPool := databases.OpenPool(ctx, a.cfg.Databases.DefaultDSN); errPool == nil {
 			wfStore = persistdb.NewPostgresWarppStore(p)
 		}
 	}
@@ -501,7 +588,7 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 	a.warppRegistries = map[int64]*warpp.Registry{systemUserID: wfreg}
 	a.warppRunner = &warpp.Runner{Workflows: wfreg, Tools: toolRegistry}
 	a.warppStore = wfStore
-	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly
+	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly.
 	warpptool.RegisterAll(toolRegistry, a.warppRunner)
 	return nil
 }
@@ -525,7 +612,7 @@ func (a *app) initAuth(ctx context.Context) error {
 	if dsn == "" {
 		return fmt.Errorf("auth enabled but databases.defaultDSN is empty")
 	}
-	pool, err := databasesTestPool(ctx, dsn)
+	pool, err := databases.OpenPool(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("auth db connect failed: %w", err)
 	}
@@ -601,7 +688,7 @@ func (a *app) initAuth(ctx context.Context) error {
 func (a *app) initSpecialists(ctx context.Context) error {
 	var pg *pgxpool.Pool
 	if a.cfg.Databases.DefaultDSN != "" {
-		if p, err := databasesTestPool(ctx, a.cfg.Databases.DefaultDSN); err == nil {
+		if p, err := databases.OpenPool(ctx, a.cfg.Databases.DefaultDSN); err == nil {
 			pg = p
 		}
 	}
@@ -609,35 +696,21 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	_ = specStore.Init(ctx)
 	a.specStore = specStore
 
-	if list, err := specStore.List(ctx, systemUserID); err == nil {
-		existing := map[string]bool{}
-		for _, s := range list {
-			existing[s.Name] = true
-		}
-		for _, sc := range a.cfg.Specialists {
-			if sc.Name == "" || existing[sc.Name] {
-				continue
-			}
-			_, _ = specStore.Upsert(ctx, systemUserID, persist.Specialist{
-				Name: sc.Name, Provider: sc.Provider, Description: sc.Description, BaseURL: sc.BaseURL, APIKey: sc.APIKey, Model: sc.Model,
-				EnableTools: sc.EnableTools, Paused: sc.Paused, AllowTools: sc.AllowTools,
-				ReasoningEffort: sc.ReasoningEffort, System: sc.System,
-				ExtraHeaders: sc.ExtraHeaders, ExtraParams: sc.ExtraParams,
-			})
-		}
+	if err := specialists.SeedStore(ctx, specStore, systemUserID, a.cfg.Specialists); err != nil {
+		log.Warn().Err(err).Msg("seed specialists")
 	}
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
-		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialistsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
 	}
 	a.refreshEngineSystemPrompt()
 
-	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, "orchestrator"); ok {
+	if sp, ok, _ := specStore.GetByName(ctx, systemUserID, specialists.OrchestratorName); ok {
 		if err := a.applyOrchestratorUpdate(ctx, sp); err != nil {
 			log.Warn().Err(err).Msg("failed to apply orchestrator overlay")
 		}
 	} else {
-		a.cfg.SystemPrompt = "You are a helpful assistant with access to tools and specialists to help you complete objectives."
+		a.cfg.SystemPrompt = specialists.DefaultOrchestratorPrompt
 		a.refreshEngineSystemPrompt()
 	}
 

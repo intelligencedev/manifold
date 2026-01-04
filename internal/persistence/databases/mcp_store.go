@@ -22,8 +22,9 @@ func NewMCPStore(pool *pgxpool.Pool) persistence.MCPStore {
 }
 
 type memMCPStore struct {
-	mu sync.RWMutex
-	m  map[int64]map[string]persistence.MCPServer
+	mu     sync.RWMutex
+	m      map[int64]map[string]persistence.MCPServer
+	nextID int64
 }
 
 func (s *memMCPStore) Init(ctx context.Context) error { return nil }
@@ -68,6 +69,13 @@ func (s *memMCPStore) Upsert(ctx context.Context, userID int64, srv persistence.
 		s.m[userID] = map[string]persistence.MCPServer{}
 	}
 	srv.UserID = userID
+	// Assign a new ID if this is a new entry (ID not set or doesn't exist)
+	if existing, ok := s.m[userID][srv.Name]; ok {
+		srv.ID = existing.ID
+	} else {
+		s.nextID++
+		srv.ID = s.nextID
+	}
 	s.m[userID][srv.Name] = srv
 	return srv, nil
 }

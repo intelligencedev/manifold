@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
 	"manifold/internal/tools"
 )
 
@@ -181,8 +183,12 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 			}, nil
 		}
 
+		toolCallID := call.ToolCallID
+		if toolCallID == "" {
+			toolCallID = uuid.NewString()
+		}
 		wg.Add(1)
-		go func(i int, spec parallelCall, name string) {
+		go func(i int, spec parallelCall, name string, callID string) {
 			defer wg.Done()
 			select {
 			case sem <- struct{}{}:
@@ -191,7 +197,7 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 				results[i] = callResult{
 					RecipientName: spec.RecipientName,
 					ToolName:      name,
-					ToolCallID:    spec.ToolCallID,
+					ToolCallID:    callID,
 					Error:         errMsg,
 				}
 				mu.Lock()
@@ -215,7 +221,7 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 
 			// Emit a subtool start event for observability
 			if sink != nil {
-				sink(tools.SubtoolEvent{Phase: "start", Name: name, Args: argsPayload, ToolCallID: spec.ToolCallID})
+				sink(tools.SubtoolEvent{Phase: "start", Name: name, Args: argsPayload, ToolCallID: callID})
 			}
 
 			start := time.Now()
@@ -224,7 +230,7 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 			res := callResult{
 				RecipientName: spec.RecipientName,
 				ToolName:      name,
-				ToolCallID:    spec.ToolCallID,
+				ToolCallID:    callID,
 				DurationMS:    elapsed.Milliseconds(),
 			}
 			if err != nil {
@@ -252,11 +258,11 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 				if res.Payload != nil {
 					pay = []byte(res.Payload)
 				}
-				sink(tools.SubtoolEvent{Phase: "end", Name: name, Args: argsPayload, Payload: pay, Error: res.Error, DurationMS: res.DurationMS, ToolCallID: spec.ToolCallID})
+				sink(tools.SubtoolEvent{Phase: "end", Name: name, Args: argsPayload, Payload: pay, Error: res.Error, DurationMS: res.DurationMS, ToolCallID: callID})
 			}
 
 			results[i] = res
-		}(idx, call, toolName)
+		}(idx, call, toolName, toolCallID)
 	}
 
 	wg.Wait()

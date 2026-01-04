@@ -3,8 +3,6 @@ package agents
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"manifold/internal/agent"
@@ -14,6 +12,7 @@ import (
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	"manifold/internal/workspaces"
 )
 
 // Delegator bridges agent-to-agent calls directly through the agent engine
@@ -22,14 +21,14 @@ import (
 type Delegator struct {
 	reg            tools.Registry
 	specReg        *specialists.Registry
-	workdir        string
+	wsMgr          workspaces.WorkspaceManager
 	defaultSys     string
 	defaultMaxStep int
 	defaultTimeout time.Duration
 }
 
-func NewDelegator(reg tools.Registry, specReg *specialists.Registry, workdir string, defaultMaxSteps int) *Delegator {
-	return &Delegator{reg: reg, specReg: specReg, workdir: workdir, defaultSys: "You are a helpful assistant.", defaultMaxStep: defaultMaxSteps}
+func NewDelegator(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager, defaultMaxSteps int) *Delegator {
+	return &Delegator{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant.", defaultMaxStep: defaultMaxSteps}
 }
 
 func (d *Delegator) SetDefaultTimeout(seconds int) {
@@ -47,12 +46,14 @@ func (d *Delegator) SetRegistry(reg tools.Registry) {
 
 func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer agent.AgentTracer) (string, error) {
 	dispatchCtx := ctx
-	if pid := req.ProjectID; pid != "" && d.workdir != "" {
-		base := filepath.Join(d.workdir, "users", fmt.Sprint(req.UserID), "projects", pid)
-		if st, err := os.Stat(base); err != nil || !st.IsDir() {
-			return "", fmt.Errorf("project not found (project_id must match the project directory/ID)")
+	if pid := req.ProjectID; pid != "" && d.wsMgr != nil {
+		ws, err := d.wsMgr.Checkout(ctx, req.UserID, pid, "")
+		if err != nil {
+			return "", fmt.Errorf("workspace checkout failed: %w", err)
 		}
-		dispatchCtx = sandbox.WithBaseDir(dispatchCtx, base)
+		if ws.BaseDir != "" {
+			dispatchCtx = sandbox.WithBaseDir(dispatchCtx, ws.BaseDir)
+		}
 	}
 
 	var prov llm.Provider
@@ -122,6 +123,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		AgentTracer: tracer,
 		AgentDepth:  req.Depth,
 	}
+	eng.AttachTokenizer(prov, nil)
 
 	if tracer != nil {
 		eng.OnDelta = func(delta string) {
@@ -133,8 +135,8 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		eng.OnToolStart = func(name string, args []byte, toolID string) {
 			tracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), ToolID: toolID})
 		}
-		eng.OnTool = func(name string, args []byte, result []byte) {
-			tracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result)})
+		eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
+			tracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result), ToolID: toolID})
 		}
 	}
 

@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="ap-panel ap-hover hidden min-h-0 lg:flex flex-col gap-4 rounded-5 bg-transparent p-4 surface-noise"
+        class="glass-surface hidden h-full min-h-0 lg:flex flex-col gap-4 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
       >
         <header class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -78,14 +78,32 @@
             <div
               class="mt-2 flex items-center justify-between text-[10px] text-faint-foreground"
             >
-              <span>{{ formatTimestamp(session.updatedAt) }}</span>
-              <button
-                type="button"
-                class="rounded px-1 text-[10px] text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
-                @click.stop="deleteSession(session.id)"
-              >
-                Delete
-              </button>
+              <div class="flex items-center gap-2">
+                <span
+                  class="rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] text-subtle-foreground"
+                >
+                  {{ messageCountFor(session.id) }} msg{{ messageCountFor(session.id) === 1 ? '' : 's' }}
+                </span>
+                <span>{{ formatTimestamp(session.updatedAt) }}</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span
+                  v-if="sessionIsStreaming(session.id)"
+                  class="flex items-center gap-1 text-xs text-accent"
+                >
+                  <span
+                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                  ></span>
+                  Streaming
+                </span>
+                <button
+                  type="button"
+                  class="rounded px-1 text-[10px] text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
+                  @click.stop="deleteSession(session.id)"
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -93,7 +111,7 @@
 
       <!-- Chat pane -->
       <section
-        class="ap-panel ap-hover relative flex min-h-0 flex-col overflow-hidden rounded-5 bg-surface chat-pane"
+        class="glass-surface relative flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/80 chat-pane"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3"
@@ -104,12 +122,26 @@
             </h1>
           </div>
           <div class="flex items-center gap-2 text-xs text-subtle-foreground">
+            <!-- Summary triggered indicator -->
             <span
-              v-if="isStreaming"
-              class="flex items-center gap-1 text-accent"
+              v-if="activeSummaryEvent"
+              class="flex items-center gap-1.5 rounded-full bg-warning/10 dark:bg-warning/20 border border-warning/30 px-2.5 py-1 text-warning dark:text-warning-foreground transition-all duration-300"
+              :title="`Summarized ${activeSummaryEvent.summarizedCount} of ${activeSummaryEvent.messageCount} messages (${activeSummaryEvent.inputTokens.toLocaleString()} tokens exceeded ${activeSummaryEvent.tokenBudget.toLocaleString()} budget)`"
             >
-              <span class="h-2 w-2 animate-pulse rounded-full bg-accent"></span>
-              Streaming response…
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
+              </svg>
+              <span class="font-medium">Context summarized</span>
+              <button
+                type="button"
+                class="ml-0.5 rounded-full p-0.5 hover:bg-warning/20 dark:hover:bg-warning/30 transition"
+                title="Dismiss"
+                @click.stop="chat.clearSummaryEvent()"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                </svg>
+              </button>
             </span>
             <div class="flex items-center gap-2">
               <DropdownSelect
@@ -153,11 +185,8 @@
           <article
             v-for="message in chatMessages"
             :key="message.id"
-            class="ap-card relative max-w-[72ch] rounded-5 bg-surface p-5"
-            :class="[
-              message.role === 'assistant' ? 'bg-accent/5' : '',
-              message.role === 'user' ? 'ml-auto bg-success/10' : '',
-            ]"
+            class="relative max-w-[72ch] glass-surface rounded-[var(--radius,18px)] border border-white/12 p-5"
+            :class="message.role === 'user' ? 'ml-auto' : ''"
           >
             <header class="flex flex-wrap items-center gap-2">
               <template v-if="message.role === 'assistant'">
@@ -176,6 +205,22 @@
               <span class="text-xs text-faint-foreground">{{
                 formatTimestamp(message.createdAt)
               }}</span>
+              <span
+                v-if="shouldShowResponseTimer(message)"
+                class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
+                :class="
+                  message.streaming
+                    ? 'border-accent/30 bg-accent/10 text-accent'
+                    : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
+                "
+                :title="
+                  message.streaming
+                    ? 'Response time (running)'
+                    : 'Response time'
+                "
+              >
+                {{ formatDuration(responseElapsedMs(message.id)) }}
+              </span>
               <span
                 v-if="message.streaming"
                 class="flex items-center gap-1 text-xs text-accent"
@@ -309,7 +354,7 @@
               Select a project to run the agent. If you don't see any projects, contact an administrator.
             </p>
             <div
-              class="ap-input relative rounded-4 bg-surface-muted/70 p-3 etched-dark"
+              class="ap-input chat-prompt-input relative rounded-4 bg-surface-muted/70 p-3 etched-dark"
             >
               <textarea
                 ref="composer"
@@ -496,175 +541,181 @@
       </div>
 
       <!-- Context sidebar -->
-      <aside
-        class="ap-panel ap-hover hidden min-h-0 xl:flex relative flex-col gap-4 rounded-5 bg-transparent p-4 text-sm text-subtle-foreground surface-noise"
-      >
-        <header class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-foreground">Agent Collaborators</h2>
-        </header>
-        <div class="space-y-2 max-h-[34vh] overflow-y-auto pr-1">
-          <div
-            v-if="!agentThreads.length"
-            class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
-          >
-            No delegated agents yet
-          </div>
-          <article
-            v-for="thread in agentThreads"
-            :key="thread.callId"
-            class="overflow-hidden rounded-4 border border-border bg-gradient-to-br from-surface via-surface-muted/40 to-surface p-3 text-xs shadow-2 ring-1 ring-border/50"
-          >
-            <header class="flex items-start justify-between gap-2">
-              <div class="space-y-1 min-w-0">
-                <div class="flex items-center gap-2">
-                  <span class="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">{{ thread.agent || selectedSpecialist || 'Agent' }}</span>
-                  <span v-if="thread.model" class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">{{ thread.model }}</span>
-                  <span class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">depth {{ thread.depth }}</span>
-                </div>
-                <p class="truncate text-[11px] text-subtle-foreground" :title="thread.prompt">{{ thread.prompt || 'No prompt captured' }}</p>
-              </div>
-              <div class="flex items-center gap-2 text-[11px]">
-                <span
-                  :class="{
-                    'text-accent': thread.status === 'running',
-                    'text-muted-foreground': thread.status === 'done',
-                    'text-danger': thread.status === 'error',
-                  }"
-                  class="flex items-center gap-1 font-semibold"
-                >
-                  <span class="h-1.5 w-1.5 rounded-full" :class="{
-                    'bg-accent animate-pulse': thread.status === 'running',
-                    'bg-muted-foreground': thread.status === 'done',
-                    'bg-danger': thread.status === 'error',
-                  }"></span>
-                  {{ thread.status === 'running' ? 'running' : thread.status === 'done' ? 'done' : 'error' }}
-                </span>
-              </div>
+      <aside class="hidden h-full min-h-0 xl:flex flex-col gap-4 text-sm text-subtle-foreground">
+        <GlassCard :padded="false" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div class="flex min-h-0 flex-1 flex-col">
+            <header class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-foreground">Agent Collaborators</h2>
             </header>
-            <div class="mt-2 space-y-2">
-              <div v-if="thread.content" class="chat-markdown text-[13px] leading-relaxed" v-html="renderMarkdownOrHtml(thread.content)"></div>
-              <div v-if="thread.entries.length" class="space-y-1">
-                <div
-                  v-for="entry in thread.entries"
-                  :key="entry.id"
-                  class="rounded-4 border border-border/60 bg-surface-muted/60 px-2 py-1"
-                >
-                  <div class="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span class="font-semibold">{{ entry.title || (entry.type === 'tool' ? 'Tool' : 'Note') }}</span>
-                    <span v-if="entry.createdAt" class="text-faint-foreground">{{ formatTimestamp(entry.createdAt) }}</span>
+            <div class="mt-3 space-y-2 flex-1 min-h-0 overflow-y-auto pr-1">
+            <div
+              v-if="!agentThreads.length"
+              class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
+            >
+              No delegated agents yet
+            </div>
+            <article
+              v-for="thread in agentThreads"
+              :key="thread.callId"
+              class="overflow-hidden rounded-4 border border-border bg-gradient-to-br from-surface via-surface-muted/40 to-surface p-3 text-xs shadow-2 ring-1 ring-border/50"
+            >
+              <header class="flex items-start justify-between gap-2">
+                <div class="space-y-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <span class="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent">{{ thread.agent || selectedSpecialist || 'Agent' }}</span>
+                    <span v-if="thread.model" class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">{{ thread.model }}</span>
+                    <span class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground">depth {{ thread.depth }}</span>
                   </div>
-                  <div v-if="entry.args" class="mt-1 truncate text-[11px] text-faint-foreground">{{ entry.args }}</div>
-                  <div v-if="entry.data" class="chat-markdown mt-1 text-[12px]" v-html="renderMarkdownOrHtml(entry.data)"></div>
-                  <div v-if="entry.content && !entry.data" class="mt-1 text-[12px]" :class="entry.type === 'error' ? 'text-danger' : 'text-subtle-foreground'">{{ entry.content }}</div>
+                  <p class="truncate text-[11px] text-subtle-foreground" :title="thread.prompt">{{ thread.prompt || 'No prompt captured' }}</p>
                 </div>
+                <div class="flex items-center gap-2 text-[11px]">
+                  <span
+                    :class="{
+                      'text-accent': thread.status === 'running',
+                      'text-muted-foreground': thread.status === 'done',
+                      'text-danger': thread.status === 'error',
+                    }"
+                    class="flex items-center gap-1 font-semibold"
+                  >
+                    <span class="h-1.5 w-1.5 rounded-full" :class="{
+                      'bg-accent animate-pulse': thread.status === 'running',
+                      'bg-muted-foreground': thread.status === 'done',
+                      'bg-danger': thread.status === 'error',
+                    }"></span>
+                    {{ thread.status === 'running' ? 'running' : thread.status === 'done' ? 'done' : 'error' }}
+                  </span>
+                </div>
+              </header>
+              <div class="mt-2 space-y-2">
+                <div v-if="thread.content" class="chat-markdown text-[13px] leading-relaxed" v-html="renderMarkdownOrHtml(thread.content)"></div>
+                <div v-if="thread.entries.length" class="space-y-1">
+                  <div
+                    v-for="entry in thread.entries"
+                    :key="entry.id"
+                    class="rounded-4 border border-border/60 bg-surface-muted/60 px-2 py-1"
+                  >
+                    <div class="flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span class="font-semibold">{{ entry.title || (entry.type === 'tool' ? 'Tool' : 'Note') }}</span>
+                      <span v-if="entry.createdAt" class="text-faint-foreground">{{ formatTimestamp(entry.createdAt) }}</span>
+                    </div>
+                    <div v-if="entry.args" class="mt-1 truncate text-[11px] text-faint-foreground">{{ entry.args }}</div>
+                    <div v-if="entry.data" class="chat-markdown mt-1 text-[12px]" v-html="renderMarkdownOrHtml(entry.data)"></div>
+                    <div v-if="entry.content && !entry.data" class="mt-1 text-[12px]" :class="entry.type === 'error' ? 'text-danger' : 'text-subtle-foreground'">{{ entry.content }}</div>
+                  </div>
+                </div>
+              </div>
+            </article>
+            </div>
+          </div>
+        </GlassCard>
+
+        <GlassCard :padded="false" class="relative flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div class="flex min-h-0 flex-1 flex-col">
+            <header class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-foreground">Tool Activity</h2>
+            </header>
+            <div
+              ref="toolsPane"
+              class="mt-3 flex-1 min-h-0 space-y-2 overflow-y-auto pr-1"
+              @scroll="handleToolsScroll"
+              @click="handleMarkdownClick"
+            >
+              <div
+                v-if="!toolMessages.length"
+                class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
+              >
+                No tool activity yet
+              </div>
+              <article
+                v-for="tool in toolMessages"
+                :key="tool.id"
+                class="overflow-hidden rounded-4 border border-border bg-surface p-3 text-xs shadow-1"
+              >
+              <header class="flex items-center justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <span
+                    class="block max-w-full truncate rounded bg-surface-muted px-2 py-0.5 text-[11px] text-muted-foreground"
+                  >
+                    {{ tool.title || "Tool" }}
+                  </span>
+                </div>
+                <div
+                  class="flex shrink-0 items-center gap-2 text-[11px] text-faint-foreground"
+                >
+                  <span>{{ formatTimestamp(tool.createdAt) }}</span>
+                  <span
+                    v-if="tool.streaming"
+                    class="flex items-center gap-1 text-accent"
+                  >
+                    <span
+                      class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                    ></span>
+                    Running
+                  </span>
+                  <span
+                    v-if="tool.error"
+                    class="rounded bg-danger px-2 py-0.5 text-danger-foreground font-semibold"
+                  >
+                    {{ tool.error }}
+                  </span>
+                </div>
+              </header>
+              <details
+                class="group mt-2 overflow-hidden rounded-4 border border-border bg-surface"
+              >
+                <summary
+                  class="flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[11px] font-semibold text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:shadow-outline"
+                >
+                  <span>View details</span>
+                  <span
+                    class="text-xs text-faint-foreground transition-transform group-open:rotate-45"
+                    >+</span
+                  >
+                </summary>
+                <div class="space-y-2 px-2 pb-2 pt-1 text-subtle-foreground">
+                  <pre
+                    v-if="tool.toolArgs"
+                    class="max-w-full overflow-x-hidden whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-2 text-[11px] text-subtle-foreground"
+                    >{{ tool.toolArgs }}</pre
+                  >
+                  <div
+                    v-if="tool.content"
+                    class="chat-markdown mt-1 break-words"
+                    v-html="renderMarkdownOrHtml(tool.content)"
+                  ></div>
+                  <audio
+                    v-if="tool.audioUrl"
+                    :src="tool.audioUrl"
+                    controls
+                    class="mt-1 w-full"
+                  ></audio>
+                </div>
+              </details>
+            </article>
               </div>
             </div>
-          </article>
-        </div>
 
-        <header class="mt-2 flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-foreground">Tool Activity</h2>
-        </header>
-        <div
-          ref="toolsPane"
-          class="flex-1 h-full space-y-2 overflow-y-auto pr-1"
-          @scroll="handleToolsScroll"
-          @click="handleMarkdownClick"
-        >
-          <div
-            v-if="!toolMessages.length"
-            class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
+          <button
+            type="button"
+            class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transform transition-all duration-200"
+            :class="
+              showToolScrollToBottom
+                ? 'pointer-events-auto opacity-100 translate-y-0'
+                : 'pointer-events-none opacity-0 translate-y-2'
+            "
+            @click="handleScrollToolsToLatest"
           >
-            No tool activity yet
-          </div>
-          <article
-            v-for="tool in toolMessages"
-            :key="tool.id"
-            class="overflow-hidden rounded-4 border border-border bg-surface p-3 text-xs shadow-1"
-          >
-            <header class="flex items-center justify-between gap-2">
-              <div class="min-w-0 flex-1">
-                <span
-                  class="block max-w-full truncate rounded bg-surface-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-                >
-                  {{ tool.title || "Tool" }}
-                </span>
-              </div>
-              <div
-                class="flex shrink-0 items-center gap-2 text-[11px] text-faint-foreground"
-              >
-                <span>{{ formatTimestamp(tool.createdAt) }}</span>
-                <span
-                  v-if="tool.streaming"
-                  class="flex items-center gap-1 text-accent"
-                >
-                  <span
-                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
-                  ></span>
-                  Running
-                </span>
-                <span
-                  v-if="tool.error"
-                  class="rounded bg-danger px-2 py-0.5 text-danger-foreground font-semibold"
-                >
-                  {{ tool.error }}
-                </span>
-              </div>
-            </header>
-            <details
-              class="group mt-2 overflow-hidden rounded-4 border border-border bg-surface"
-            >
-              <summary
-                class="flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[11px] font-semibold text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:shadow-outline"
-              >
-                <span>View details</span>
-                <span
-                  class="text-xs text-faint-foreground transition-transform group-open:rotate-45"
-                  >+</span
-                >
-              </summary>
-              <div class="space-y-2 px-2 pb-2 pt-1 text-subtle-foreground">
-                <pre
-                  v-if="tool.toolArgs"
-                  class="max-w-full overflow-x-hidden whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-2 text-[11px] text-subtle-foreground"
-                  >{{ tool.toolArgs }}</pre
-                >
-                <div
-                  v-if="tool.content"
-                  class="chat-markdown mt-1 break-words"
-                  v-html="renderMarkdownOrHtml(tool.content)"
-                ></div>
-                <audio
-                  v-if="tool.audioUrl"
-                  :src="tool.audioUrl"
-                  controls
-                  class="mt-1 w-full"
-                ></audio>
-              </div>
-            </details>
-          </article>
-        </div>
-
-        <button
-          type="button"
-          class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transform transition-all duration-200"
-          :class="
-            showToolScrollToBottom
-              ? 'pointer-events-auto opacity-100 translate-y-0'
-              : 'pointer-events-none opacity-0 translate-y-2'
-          "
-          @click="handleScrollToolsToLatest"
-        >
-          <span class="h-2 w-2 rounded-full bg-accent"></span>
-          <span>Scroll to latest</span>
-        </button>
+            <span class="h-2 w-2 rounded-full bg-accent"></span>
+            <span>Scroll to latest</span>
+          </button>
+        </GlassCard>
       </aside>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import axios from "axios";
 import type {
@@ -683,6 +734,7 @@ import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
 import Camera from "@/components/icons/Camera.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import GlassCard from "@/components/ui/GlassCard.vue";
 import { useChatStore } from "@/stores/chat";
 import { useProjectsStore } from "@/stores/projects";
 import type { DropdownOption } from "@/types/dropdown";
@@ -690,10 +742,17 @@ import type { DropdownOption } from "@/types/dropdown";
 const router = useRouter();
 const isBrowser = typeof window !== "undefined";
 const SCROLL_LOCK_THRESHOLD = 80;
+let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
 const proj = useProjectsStore();
-onMounted(() => { void proj.refresh(); });
+onMounted(() => {
+  void proj.refresh();
+  if (isBrowser) {
+    previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+});
 const projects = computed(() => proj.projects);
 const selectedProjectId = computed({ get: () => proj.currentProjectId || '', set: (v: string) => (proj.currentProjectId = v) });
 const sessions = computed(() => chat.sessions);
@@ -914,6 +973,7 @@ const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
+const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
   parseAgentModelLabel(activeSession.value?.model || ""),
 );
@@ -923,6 +983,102 @@ const showScrollToBottom = computed(
 const showToolScrollToBottom = computed(
   () => !toolAutoScrollEnabled.value && toolMessages.value.length > 0,
 );
+const sessionMessageCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {};
+  for (const session of sessions.value) {
+    const local = messagesBySession.value[session.id];
+    const metaCount = session.messageCount ?? 0;
+    if (Array.isArray(local) && local.length) {
+      counts[session.id] = local.length;
+    } else {
+      counts[session.id] = metaCount;
+    }
+  }
+  return counts;
+});
+
+function messageCountFor(sessionId: string) {
+  return sessionMessageCounts.value[sessionId] ?? 0;
+}
+
+function sessionIsStreaming(sessionId: string) {
+  return chat.isSessionStreaming(sessionId);
+}
+
+// --- Response timer (elapsed while streaming; frozen when stream completes) ---
+// Note: historical messages loaded from the server won't have timing info; we only
+// show timers for messages created/streamed during this UI session.
+const responseStartMsByMessageId = new Map<string, number>();
+const responseElapsedMsByMessageId = ref<Record<string, number>>({});
+const responseIntervalByMessageId = new Map<string, number>();
+
+function safeParseIsoMs(iso: string) {
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function responseElapsedMs(messageId: string) {
+  return responseElapsedMsByMessageId.value[messageId] ?? 0;
+}
+
+function formatDuration(ms: number) {
+  const clamped = Math.max(0, ms);
+  const seconds = clamped / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function ensureResponseTimer(message: ChatMessage) {
+  const id = message.id;
+  if (!id) return;
+
+  if (!responseStartMsByMessageId.has(id)) {
+    const start = safeParseIsoMs(message.createdAt) ?? Date.now();
+    responseStartMsByMessageId.set(id, start);
+  }
+
+  const startMs = responseStartMsByMessageId.get(id);
+  if (!startMs) return;
+
+  responseElapsedMsByMessageId.value[id] = Math.max(0, Date.now() - startMs);
+
+  if (isBrowser && !responseIntervalByMessageId.has(id)) {
+    const handle = window.setInterval(() => {
+      const start = responseStartMsByMessageId.get(id);
+      if (!start) return;
+      responseElapsedMsByMessageId.value[id] = Math.max(0, Date.now() - start);
+    }, 100);
+    responseIntervalByMessageId.set(id, handle);
+  }
+}
+
+function stopResponseTimer(messageId: string) {
+  const start = responseStartMsByMessageId.get(messageId);
+  if (start) {
+    responseElapsedMsByMessageId.value[messageId] = Math.max(0, Date.now() - start);
+  }
+  const handle = responseIntervalByMessageId.get(messageId);
+  if (handle != null) {
+    if (isBrowser) window.clearInterval(handle);
+    responseIntervalByMessageId.delete(messageId);
+  }
+}
+
+function stopAllResponseTimers() {
+  // Iterate a snapshot since stopResponseTimer mutates the map.
+  for (const id of Array.from(responseIntervalByMessageId.keys())) {
+    stopResponseTimer(id);
+  }
+}
+
+function shouldShowResponseTimer(message: ChatMessage) {
+  if (message.role !== "assistant") return false;
+  if (message.streaming) return true;
+  return message.id in responseElapsedMsByMessageId.value;
+}
+
 const lastUser = computed(() =>
   findLast(activeMessages.value, (msg) => msg.role === "user"),
 );
@@ -943,6 +1099,28 @@ watch(
   { flush: "post" },
 );
 
+// Keep response timers in sync with streaming lifecycle.
+watch(
+  () => activeMessages.value.map((m) => `${m.id}:${m.role}:${m.streaming ? 1 : 0}`),
+  () => {
+    for (const msg of activeMessages.value) {
+      if (msg.role !== "assistant") continue;
+      if (msg.streaming) ensureResponseTimer(msg);
+      else if (msg.id in responseElapsedMsByMessageId.value) stopResponseTimer(msg.id);
+    }
+  },
+  { flush: "post" },
+);
+
+// Auto-dismiss summary event after 8 seconds
+watch(activeSummaryEvent, (event) => {
+  if (event) {
+    setTimeout(() => {
+      chat.clearSummaryEvent();
+    }, 8000);
+  }
+});
+
 // Tools pane: auto-scroll on content changes
 watch(
   () =>
@@ -957,6 +1135,8 @@ watch(activeSessionId, (sessionId) => {
   if (sessionId) {
     void loadMessagesFromServer(sessionId);
   }
+  // Switching sessions: ensure we don't leave any intervals running.
+  stopAllResponseTimers();
 });
 
 watch(renamingSessionId, (value) => {
@@ -974,6 +1154,13 @@ onMounted(() => {
     scrollMessagesToBottom({ force: true, behavior: "auto" });
     scrollToolsToBottom({ force: true, behavior: "auto" });
   });
+});
+
+onBeforeUnmount(() => {
+  stopAllResponseTimers();
+  if (isBrowser && previousBodyOverflow !== null) {
+    document.body.style.overflow = previousBodyOverflow;
+  }
 });
 
 watch(draft, () => autoSizeComposer());
@@ -1056,6 +1243,10 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   if (!projectSelected.value) return;
   if ((!content && !pendingAttachments.value.length) || isStreaming.value)
     return;
+
+  // New prompt: ensure any prior timer intervals are stopped before we start a new stream.
+  stopAllResponseTimers();
+
   autoScrollEnabled.value = true;
   draft.value = options.echoUser === false ? draft.value : "";
   try {
@@ -1456,6 +1647,27 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 </script>
 
 <style scoped>
+.chat-modern {
+  width: 100%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.chat-grid {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
+.chat-pane {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+}
+
 .chat-markdown {
   white-space: normal;
   overflow-wrap: anywhere; /* allow breaking long tokens */
@@ -1544,6 +1756,15 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 :deep(.chat-markdown h1) {
   font-size: 1.5rem;
+}
+
+.chat-modern .chat-prompt-input.ap-input {
+  border: 1px solid rgb(255 255 255 / 0.12);
+}
+
+.chat-modern .chat-prompt-input.ap-input:focus-within,
+.chat-modern .chat-prompt-input.ap-input:focus {
+  border-color: rgb(255 255 255 / 0.12);
 }
 
 :deep(.chat-markdown h2) {

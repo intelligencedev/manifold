@@ -14,24 +14,39 @@
         </label>
         <label class="text-sm">
           <span class="text-subtle-foreground mb-1">Dataset</span>
-          <select v-model="form.datasetId" required class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
-            <option value="" disabled>Select dataset</option>
-            <option v-for="dataset in store.datasets" :key="dataset.id" :value="dataset.id">{{ dataset.name }}</option>
-          </select>
+          <DropdownSelect
+            v-model="form.datasetId"
+            required
+            class="w-full"
+            :options="[
+              { id: '', label: 'Select dataset', value: '', disabled: true },
+              ...store.datasets.map((dataset) => ({ id: dataset.id, label: dataset.name, value: dataset.id })),
+            ]"
+          />
         </label>
         <label class="text-sm">
           <span class="text-subtle-foreground mb-1">Prompt</span>
-          <select v-model="form.promptId" required class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
-            <option value="" disabled>Select prompt</option>
-            <option v-for="prompt in store.prompts" :key="prompt.id" :value="prompt.id">{{ prompt.name }}</option>
-          </select>
+          <DropdownSelect
+            v-model="form.promptId"
+            required
+            class="w-full"
+            :options="[
+              { id: '', label: 'Select prompt', value: '', disabled: true },
+              ...store.prompts.map((prompt) => ({ id: prompt.id, label: prompt.name, value: prompt.id })),
+            ]"
+          />
         </label>
         <label class="text-sm">
           <span class="text-subtle-foreground mb-1">Prompt version</span>
-          <select v-model="form.promptVersionId" required class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2">
-            <option value="" disabled>Select version</option>
-            <option v-for="version in availableVersions" :key="version.id" :value="version.id">{{ version.semver || version.id }}</option>
-          </select>
+          <DropdownSelect
+            v-model="form.promptVersionId"
+            required
+            class="w-full"
+            :options="[
+              { id: '', label: 'Select version', value: '', disabled: true },
+              ...availableVersions.map((version) => ({ id: version.id, label: version.semver || version.id, value: version.id })),
+            ]"
+          />
         </label>
         <label class="text-sm">
           <span class="text-subtle-foreground mb-1">Model</span>
@@ -119,6 +134,7 @@
 import { RouterLink } from 'vue-router'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { usePlaygroundStore } from '@/stores/playground'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 
 const store = usePlaygroundStore()
 const form = reactive({

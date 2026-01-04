@@ -8,15 +8,12 @@
       <div class="flex flex-wrap items-center justify-end gap-3 text-xs text-faint-foreground">
         <label class="flex items-center gap-2 text-foreground">
           <span>Time Range</span>
-          <select
-            class="rounded-lg border border-border/60 bg-muted/10 px-3 py-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-            :value="selectedRange"
-            @change="onRangeChange"
-          >
-            <option v-for="option in TOKEN_METRIC_TIME_RANGES" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
+          <DropdownSelect
+            v-model="selectedRange"
+            size="sm"
+            class="text-xs"
+            :options="timeRangeDropdownOptions"
+          />
         </label>
       </div>
     </div>
@@ -79,13 +76,15 @@
 import { ref } from 'vue'
 import { TOKEN_METRIC_TIME_RANGES, type MetricsTimeRangeValue } from '@/composables/observability/useTokenMetrics'
 import { useTraceMetrics } from '@/composables/observability/useTraceMetrics'
+import DropdownSelect from '@/components/DropdownSelect.vue'
 
 const selectedRange = ref<MetricsTimeRangeValue>('24h')
 
-const { isLoading: tracesLoading, isError: tracesError, traceRows } = useTraceMetrics(selectedRange)
+const timeRangeDropdownOptions = TOKEN_METRIC_TIME_RANGES.map((option) => ({
+  id: option.value,
+  label: option.label,
+  value: option.value,
+}))
 
-function onRangeChange(event: Event) {
-  const { value } = event.target as HTMLSelectElement
-  selectedRange.value = value as MetricsTimeRangeValue
-}
+const { isLoading: tracesLoading, isError: tracesError, traceRows } = useTraceMetrics(selectedRange)
 </script>

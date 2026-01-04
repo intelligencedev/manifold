@@ -1,4 +1,4 @@
-export type ThemeId = 'aperture-dark' | 'aperture-light'
+export type ThemeId = 'aperture-dark' | 'aperture-light' | 'obsdash-dark'
 
 export type ThemeTokenName =
   | 'background'
@@ -39,6 +39,38 @@ export const defaultDarkTheme: ThemeId = 'aperture-dark'
 export const defaultLightTheme: ThemeId = 'aperture-light'
 
 export const themes: ThemeDefinition[] = [
+  // Observability — Dark Glass
+  {
+    id: 'obsdash-dark',
+    label: 'Observability (Dark)',
+    description: 'Glass dashboard aesthetic with grid glow, crisp strokes, and dual accents.',
+    appearance: 'dark',
+    tokens: {
+      background: '6 8 12',
+      surface: '14 18 26',
+      'surface-muted': '18 22 32',
+      border: '52 60 76',
+      input: '28 32 44',
+      ring: '118 182 255',
+      foreground: '232 238 247',
+      'muted-foreground': '166 176 196',
+      'subtle-foreground': '128 138 158',
+      'faint-foreground': '94 104 124',
+      muted: '14 18 26',
+      accent: '108 127 255',
+      'accent-foreground': '14 16 22',
+      destructive: '235 104 96',
+      'destructive-foreground': '14 16 22',
+      success: '72 214 172',
+      'success-foreground': '14 16 22',
+      info: '118 182 255',
+      'info-foreground': '14 16 22',
+      warning: '244 188 110',
+      'warning-foreground': '14 16 22',
+      danger: '235 104 96',
+      'danger-foreground': '14 16 22',
+    },
+  },
   // Aperture — Dark
   {
     id: 'aperture-dark',

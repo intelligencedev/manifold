@@ -16,6 +16,14 @@ import {
 
 type FilesByAttachment = Map<string, File>
 
+export interface SummaryEvent {
+  inputTokens: number
+  tokenBudget: number
+  messageCount: number
+  summarizedCount: number
+  timestamp: string
+}
+
 export const useChatStore = defineStore('chat', () => {
   const queryClient = useQueryClient()
 
@@ -36,6 +44,8 @@ export const useChatStore = defineStore('chat', () => {
   const toolMessageIndex = new Map<string, Map<string, string>>()
   const agentThreadsBySession = ref<Record<string, AgentThread[]>>({})
   const agentThreadIndex = new Map<string, Map<string, AgentThread>>()
+  // Track summary events per session - cleared after display
+  const summaryEventBySession = ref<Record<string, SummaryEvent | null>>({})
 
   const activeSession = computed(
     () => sessions.value.find((s) => s.id === activeSessionId.value) || null,
@@ -50,6 +60,14 @@ export const useChatStore = defineStore('chat', () => {
     activeMessages.value.filter((m) => m.role === 'tool'),
   )
   const agentThreads = computed(() => agentThreadsBySession.value[activeSessionId.value] || [])
+  const activeSummaryEvent = computed(() => summaryEventBySession.value[activeSessionId.value] || null)
+
+  function clearSummaryEvent(sessionId?: string) {
+    const id = sessionId || activeSessionId.value
+    if (id) {
+      summaryEventBySession.value = { ...summaryEventBySession.value, [id]: null }
+    }
+  }
 
   function isSessionStreaming(sessionId: string) {
     return Boolean(streamingStateBySession.value[sessionId])
@@ -107,8 +125,19 @@ export const useChatStore = defineStore('chat', () => {
     return thread
   }
 
+  function syncSessionMessageCount(sessionId: string, count: number) {
+    const idx = sessions.value.findIndex((s) => s.id === sessionId)
+    if (idx === -1) return
+    const current = sessions.value[idx].messageCount ?? 0
+    if (current === count) return
+    const clone = [...sessions.value]
+    clone.splice(idx, 1, { ...clone[idx], messageCount: count })
+    sessions.value = clone
+  }
+
   function setMessages(sessionId: string, messages: ChatMessage[]) {
     messagesBySession.value = { ...messagesBySession.value, [sessionId]: messages }
+    syncSessionMessageCount(sessionId, messages.length)
   }
 
   function appendMessage(sessionId: string, message: ChatMessage, updatePreview = true) {
@@ -153,7 +182,7 @@ export const useChatStore = defineStore('chat', () => {
   function ensureSession(): string {
     if (!activeSessionId.value) throw new Error('No active conversation')
     if (!(activeSessionId.value in messagesBySession.value)) {
-      messagesBySession.value = { ...messagesBySession.value, [activeSessionId.value]: [] }
+      setMessages(activeSessionId.value, [])
     }
     return activeSessionId.value
   }
@@ -162,6 +191,15 @@ export const useChatStore = defineStore('chat', () => {
     if (!content) return ''
     const trimmed = content.replace(/\s+/g, ' ').trim()
     return trimmed.length > 80 ? `${trimmed.slice(0, 77)}…` : trimmed
+  }
+
+  function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
+    const rawCount = (meta as any).messageCount ?? (meta as any).message_count
+    const messageCount =
+      typeof rawCount === 'number' && Number.isFinite(rawCount) && rawCount >= 0
+        ? rawCount
+        : 0
+    return { ...meta, messageCount }
   }
 
   const defaultSessionNames = new Set(['', 'new chat', 'conversation'])
@@ -179,8 +217,10 @@ export const useChatStore = defineStore('chat', () => {
   function upsertSessionMeta(meta: ChatSessionMeta) {
     const idx = sessions.value.findIndex((s) => s.id === meta.id)
     if (idx === -1) return
+    const existing = sessions.value[idx]
+    const merged = normalizeSessionMeta({ ...existing, ...meta })
     const clone = [...sessions.value]
-    clone.splice(idx, 1, { ...clone[idx], ...meta })
+    clone.splice(idx, 1, merged)
     sessions.value = clone
   }
 
@@ -203,14 +243,21 @@ export const useChatStore = defineStore('chat', () => {
     try {
       let remote = await listChatSessions()
       if (!remote) remote = []
+      remote = remote.map(normalizeSessionMeta)
       if (initial && remote.length === 0) {
         const created = await apiCreateChatSession('New Chat')
-        if (created) remote = [created]
+        if (created) remote = [normalizeSessionMeta(created)]
       }
       sessionsError.value = null
       sessions.value = remote
       const nextMessages: Record<string, ChatMessage[]> = {}
-      for (const s of remote) nextMessages[s.id] = messagesBySession.value[s.id] || []
+      for (const s of remote) {
+        const existing = messagesBySession.value[s.id] || []
+        nextMessages[s.id] = existing
+        const fallbackCount = typeof s.messageCount === 'number' ? s.messageCount : 0
+        const count = existing.length ? existing.length : fallbackCount
+        syncSessionMessageCount(s.id, count)
+      }
       messagesBySession.value = nextMessages
       fetchedMessageSessions.clear()
       if (!remote.length) {
@@ -238,7 +285,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const data = (await fetchChatMessages(sessionId)) ?? []
       fetchedMessageSessions.add(sessionId)
-      messagesBySession.value = { ...messagesBySession.value, [sessionId]: data }
+      setMessages(sessionId, data)
     } catch (error) {
       const status = httpStatus(error)
       if (status === 403) sessionsError.value = 'Access denied for this conversation.'
@@ -255,12 +302,13 @@ export const useChatStore = defineStore('chat', () => {
   async function createSession(name = 'New Chat') {
     const session = await apiCreateChatSession(name)
     if (!session) return
+    const normalized = normalizeSessionMeta(session)
     sessionsError.value = null
-    sessions.value = [session, ...sessions.value]
-    messagesBySession.value = { ...messagesBySession.value, [session.id]: [] }
-    fetchedMessageSessions.delete(session.id)
-    activeSessionId.value = session.id
-    await loadMessagesFromServer(session.id, { force: true })
+    sessions.value = [normalized, ...sessions.value]
+    setMessages(normalized.id, [])
+    fetchedMessageSessions.delete(normalized.id)
+    activeSessionId.value = normalized.id
+    await loadMessagesFromServer(normalized.id, { force: true })
   }
 
   async function deleteSession(sessionId: string) {
@@ -272,11 +320,12 @@ export const useChatStore = defineStore('chat', () => {
     fetchedMessageSessions.delete(sessionId)
     if (!nextSessions.length) {
       const fresh = await apiCreateChatSession('New Chat')
-      sessions.value = [fresh]
-      messagesBySession.value = { [fresh.id]: [] }
-      fetchedMessageSessions.delete(fresh.id)
-      activeSessionId.value = fresh.id
-      await loadMessagesFromServer(fresh.id, { force: true })
+      const normalizedFresh = normalizeSessionMeta(fresh)
+      sessions.value = [normalizedFresh]
+      setMessages(normalizedFresh.id, [])
+      fetchedMessageSessions.delete(normalizedFresh.id)
+      activeSessionId.value = normalizedFresh.id
+      await loadMessagesFromServer(normalizedFresh.id, { force: true })
       return
     }
     sessions.value = nextSessions
@@ -473,9 +522,12 @@ export const useChatStore = defineStore('chat', () => {
       }
       case 'tool_start': {
         const now = new Date().toISOString()
-        const key = typeof event.tool_id === 'string' ? event.tool_id : crypto.randomUUID()
+        const key =
+          typeof event.tool_id === 'string' && event.tool_id.trim()
+            ? event.tool_id
+            : null
         const messageId = crypto.randomUUID()
-        toolIndexFor(sessionId).set(key, messageId)
+        if (key) toolIndexFor(sessionId).set(key, messageId)
         appendMessage(
           sessionId,
           {
@@ -494,11 +546,19 @@ export const useChatStore = defineStore('chat', () => {
       case 'tool_result': {
         const now = new Date().toISOString()
         const result = typeof event.data === 'string' ? event.data : ''
-        const key = typeof event.tool_id === 'string' ? event.tool_id : null
+        const key =
+          typeof event.tool_id === 'string' && event.tool_id.trim()
+            ? event.tool_id
+            : null
         const toolIndex = toolIndexFor(sessionId)
         if (key && toolIndex.has(key)) {
           const messageId = toolIndex.get(key) as string
-          updateMessage(sessionId, messageId, (m) => ({ ...m, content: result, streaming: false }))
+          updateMessage(sessionId, messageId, (m) => ({
+            ...m,
+            title: m.title || event.title || 'Tool result',
+            content: m.content ? `${m.content}${result}` : result,
+            streaming: false,
+          }))
           toolIndex.delete(key)
         } else {
           // Fallback: attach to last streaming tool message
@@ -509,7 +569,7 @@ export const useChatStore = defineStore('chat', () => {
             updateMessage(sessionId, messageId, (m) => ({
               ...m,
               title: m.title || event.title || 'Tool result',
-              content: result,
+              content: m.content ? `${m.content}${result}` : result,
               streaming: false,
             }))
           } else {
@@ -572,6 +632,17 @@ export const useChatStore = defineStore('chat', () => {
             false,
           )
         }
+        break
+      }
+      case 'summary': {
+        const summaryEvt: SummaryEvent = {
+          inputTokens: typeof event.input_tokens === 'number' ? event.input_tokens : 0,
+          tokenBudget: typeof event.token_budget === 'number' ? event.token_budget : 0,
+          messageCount: typeof event.message_count === 'number' ? event.message_count : 0,
+          summarizedCount: typeof event.summarized_count === 'number' ? event.summarized_count : 0,
+          timestamp: new Date().toISOString(),
+        }
+        summaryEventBySession.value = { ...summaryEventBySession.value, [sessionId]: summaryEvt }
         break
       }
       case 'error': {
@@ -826,6 +897,8 @@ export const useChatStore = defineStore('chat', () => {
     chatMessages,
     toolMessages,
     agentThreads,
+    activeSummaryEvent,
+    isSessionStreaming,
     // actions
     init,
     refreshSessionsFromServer,
@@ -837,5 +910,6 @@ export const useChatStore = defineStore('chat', () => {
     sendPrompt,
     stopStreaming,
     regenerateAssistant,
+    clearSummaryEvent,
   }
 })

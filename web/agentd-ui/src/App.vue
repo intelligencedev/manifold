@@ -1,88 +1,87 @@
 <template>
-  <div class="aperture flex h-screen min-h-0 flex-col overflow-hidden bg-background text-foreground">
-    <header>
-      <!-- Use a 3-column grid so left is flush left, center is perfectly centered, and right is flush right -->
-  <div class="relative w-full grid grid-cols-[auto_1fr_auto] items-center px-4 py-2">
-      <!-- Left: logo + app name (flush left) -->
-      <div class="flex items-center gap-3" style="min-width:0;">
-        <img :src="manifoldLogo" alt="Manifold logo" class="h-10 w-10 rounded object-contain" />
-        <span class="text-lg font-semibold leading-none">Manifold</span>
+  <div :class="['relative h-screen overflow-hidden bg-background text-foreground', isObsDash ? 'theme-obsdash' : '']">
+    <div v-if="isObsDash" class="pointer-events-none absolute inset-0 opacity-90"></div>
+    <div v-if="isObsDash" class="pointer-events-none absolute inset-0 bg-grain mix-blend-soft-light opacity-35"></div>
+
+    <div class="relative z-10 flex h-full flex-col">
+      <div class="px-4 pt-4 md:px-8 md:pt-6">
+        <Topbar>
+          <template #logo>
+            <div class="flex items-center gap-3 min-w-0">
+              <img :src="manifoldLogo" alt="Manifold logo" class="h-10 w-10 rounded object-contain" />
+              <div class="min-w-0">
+                <p class="text-base font-semibold leading-none">Manifold</p>
+              </div>
+            </div>
+          </template>
+
+          <template #nav>
+            <RouterLink
+              v-for="item in navigation"
+              :key="item.to"
+              :to="item.to"
+              :class="navClass(item.to)"
+              :aria-current="isActive(item.to) ? 'page' : undefined"
+            >
+              {{ item.label }}
+            </RouterLink>
+          </template>
+
+          <template #actions>
+            <div class="hidden items-center gap-2 sm:flex">
+              <span class="text-[10px] font-semibold uppercase tracking-wide text-subtle-foreground">Project</span>
+              <DropdownSelect
+                v-model="selectedProjectId"
+                :options="projectOptions"
+                size="sm"
+                placeholder="Project"
+                :title="selectedProjectTitle"
+                aria-label="Project select"
+                class="w-56 truncate"
+              />
+            </div>
+            <div class="ml-1">
+              <AccountButton :username="user?.name || user?.email" />
+            </div>
+          </template>
+        </Topbar>
       </div>
 
-  <!-- Middle: centered nav (absolutely centered on md+ screens) -->
-  <nav aria-label="Primary" class="hidden md:absolute md:left-1/2 md:-translate-x-1/2 md:inset-y-0 md:flex items-center justify-center gap-2 text-sm font-medium overflow-hidden">
-        <RouterLink v-for="item in navigation" :key="item.to" :to="item.to"
-        class="inline-flex items-center justify-center min-w-[40px] min-h-[40px] rounded px-3 py-2 transition hover:bg-surface-muted/60"
-        :class="$route.path === item.to || $route.path.startsWith(item.to + '/') ? 'bg-surface-muted text-accent' : ''"
-        :aria-current="$route.path === item.to || $route.path.startsWith(item.to + '/') ? 'page' : undefined">
-        {{ item.label }}
-        </RouterLink>
-
-        <!-- More menu placeholder for overflow (implementation TBD) -->
-        <div class="relative">
-        <!-- will move low-priority items here when needed -->
-        </div>
-      </nav>
-
-      <!-- Right: utilities cluster (theme toggle, divider, project select, avatar) -->
-      <div class="flex items-center gap-3 justify-self-end">
-        <span class="hidden sm:block h-6 w-px bg-border/60" aria-hidden="true"></span>
-        <div class="hidden sm:flex items-center gap-2">
-          <DropdownSelect
-            v-model="selectedProjectId"
-            :options="projectOptions"
-            size="sm"
-            placeholder="Project"
-            title="Current project"
-            aria-label="Project select"
-          />
-        </div>
-        <!-- Theme toggle: immediately left of the account dropdown -->
-        <button
-          type="button"
-          class="ap-input flex items-center justify-center h-9 w-9 rounded-md transition-colors hover:bg-surface-muted/60 focus:outline-none"
-          :aria-label="currentAppearance === 'dark' ? 'Dark theme active – switch to light' : 'Light theme active – switch to dark'"
-          @click="toggleAperture"
-        >
-          <!-- Icon now reflects CURRENT state (moon = dark, sun = light) -->
-          <component :is="currentAppearance === 'dark' ? MoonIcon : SunIcon" class="h-5 w-5" />
-        </button>
-        <div class="ml-1">
-          <AccountButton :username="user?.name || user?.email" />
+      <div class="md:hidden px-4 pt-3 pb-1">
+        <div class="flex items-center gap-2 overflow-x-auto text-sm">
+          <RouterLink
+            v-for="item in navigation"
+            :key="item.to"
+            :to="item.to"
+            :class="navClass(item.to, true)"
+            :aria-current="isActive(item.to) ? 'page' : undefined"
+          >
+            {{ item.label }}
+          </RouterLink>
         </div>
       </div>
-      </div>
-    </header>
 
-    <main class="flex w-full flex-1 min-h-0 flex-col overflow-hidden px-4 py-4">
-      <RouterView />
-    </main>
+      <main class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 md:px-8">
+        <RouterView />
+      </main>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { RouterLink, RouterView, useRoute } from 'vue-router'
 import AccountButton from '@/components/AccountButton.vue'
 import DropdownSelect from '@/components/DropdownSelect.vue'
+import Topbar from '@/components/ui/Topbar.vue'
 import manifoldLogo from '@/assets/images/manifold_logo.png'
-
-import { ref, computed, onMounted } from 'vue'
 import { useProjectsStore } from '@/stores/projects'
 import { useThemeStore } from '@/stores/theme'
-import MoonIcon from '@/components/icons/Moon.vue'
-import SunIcon from '@/components/icons/Sun.vue'
 
-// Theme store provides resolved theme (includes system logic)
 const themeStore = useThemeStore()
-const currentAppearance = computed(() => themeStore.resolvedTheme.appearance)
+const route = useRoute()
+const isObsDash = computed(() => themeStore.resolvedThemeId === 'obsdash-dark')
 
-function toggleAperture() {
-  // Explicitly flip between aperture-dark and aperture-light, ignoring system & other themes.
-  const next = themeStore.resolvedThemeId === 'aperture-dark' ? 'aperture-light' : 'aperture-dark'
-  themeStore.setTheme(next)
-}
-
-// Load current user; fall back to global if present
 const user = ref<{ name?: string; email?: string; picture?: string } | null>(null)
 onMounted(async () => {
   try {
@@ -98,16 +97,6 @@ onMounted(async () => {
   }
 })
 
-// Legacy toggleTheme retained if referenced elsewhere (currently unused)
-function toggleTheme() {
-  toggleAperture()
-}
-
-function handleRefresh() {
-  // placeholder: trigger any refresh logic (e.g., refetch queries)
-  console.log('refresh clicked')
-}
-
 const navigation = [
   { label: 'Overview', to: '/' },
   { label: 'Projects', to: '/projects' },
@@ -115,20 +104,44 @@ const navigation = [
   { label: 'Chat', to: '/chat' },
   { label: 'Playground', to: '/playground' },
   { label: 'Flow', to: '/flow' },
-  { label: 'Runs', to: '/runs' },
   { label: 'Settings', to: '/settings' },
 ]
 
-// Projects dropdown (global project selection for all tools/views)
-const projectsStore = useProjectsStore()
-onMounted(() => { void projectsStore.refresh() })
+function isActive(path: string) {
+  return route.path === path || route.path.startsWith(`${path}/`)
+}
 
-const projectOptions = computed(() => {
-  return projectsStore.projects.map(p => ({ id: p.id, label: p.name, value: p.id }))
+function navClass(path: string, dense = false) {
+  const base = [
+    'inline-flex items-center justify-center rounded-full border transition-colors whitespace-nowrap',
+    dense ? 'px-3 py-2 text-xs' : 'px-3 py-2 text-sm min-h-[38px] min-w-[42px] gap-2',
+  ]
+  if (isActive(path)) {
+    base.push('border-white/12 bg-surface-muted/80 text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.30)]')
+  } else {
+    base.push('border-transparent text-subtle-foreground hover:border-white/10 hover:text-foreground hover:bg-surface-muted/60')
+  }
+  return base
+}
+
+const projectsStore = useProjectsStore()
+onMounted(() => {
+  void projectsStore.refresh()
+})
+
+const projectOptions = computed(() => projectsStore.projects.map((p) => ({ id: p.id, label: p.name, value: p.id })))
+
+const selectedProjectTitle = computed(() => {
+  const id = projectsStore.currentProjectId
+  if (!id) return 'Project'
+  const found = projectsStore.projects.find((p) => p.id === id)
+  return found?.name || 'Project'
 })
 
 const selectedProjectId = computed({
   get: () => projectsStore.currentProjectId || '',
-  set: (v: string) => { void projectsStore.setCurrent(v) },
+  set: (v: string) => {
+    void projectsStore.setCurrent(v)
+  },
 })
 </script>

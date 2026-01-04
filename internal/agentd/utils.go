@@ -11,12 +11,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/auth"
-	"manifold/internal/config"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 )
@@ -245,49 +242,6 @@ func (a *app) requireUserID(r *http.Request) (int64, error) {
 		return 0, errors.New("unauthorized")
 	}
 	return user.ID, nil
-}
-
-func databasesTestPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
-		return nil, err
-	}
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	cctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	if err := pool.Ping(cctx); err != nil {
-		pool.Close()
-		return nil, err
-	}
-	return pool, nil
-}
-
-func specialistsFromStore(list []persist.Specialist) []config.SpecialistConfig {
-	out := make([]config.SpecialistConfig, 0, len(list))
-	for _, s := range list {
-		if strings.EqualFold(strings.TrimSpace(s.Name), "orchestrator") {
-			continue
-		}
-		out = append(out, config.SpecialistConfig{
-			Name:            s.Name,
-			Description:     s.Description,
-			Provider:        s.Provider,
-			BaseURL:         s.BaseURL,
-			APIKey:          s.APIKey,
-			Model:           s.Model,
-			EnableTools:     s.EnableTools,
-			Paused:          s.Paused,
-			AllowTools:      s.AllowTools,
-			ReasoningEffort: s.ReasoningEffort,
-			System:          s.System,
-			ExtraHeaders:    s.ExtraHeaders,
-			ExtraParams:     s.ExtraParams,
-		})
-	}
-	return out
 }
 
 // wavFloat32 converts a little-endian uint32 representation to float32 without allocations.

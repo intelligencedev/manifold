@@ -37,18 +37,14 @@ type Engine struct {
 	// AgentDepth tracks nesting depth for trace events (0 for top-level orchestrator).
 	AgentDepth int
 	// ContextWindowTokens is the approximate context window for Model in tokens.
-	// summarization auto-mode will derive it using llm.ContextSize.
+	// If not set, will be derived using llm.ContextSize.
 	ContextWindowTokens int
-	// Rolling summarization configuration
-	// In fixed mode, Threshold/KeepLast are honored for backwards compatibility.
-	// In auto mode, summarization is driven by token budgets instead.
-	SummaryEnabled   bool
-	SummaryThreshold int    // fixed mode only
-	SummaryKeepLast  int    // fixed mode only
-	SummaryMode      string // "fixed" (default) or "auto"
-	// TargetUtilizationPct controls how much of the model context window we aim
-	// to fill with conversation history before summarizing, e.g. 0.7.
-	SummaryTargetUtilizationPct float64
+	// Rolling summarization configuration (token-based only)
+	SummaryEnabled bool
+	// SummaryReserveBufferTokens is the number of tokens to reserve for model output
+	// (including reasoning tokens). OpenAI recommends ~25,000 for reasoning models.
+	// Default: 25000.
+	SummaryReserveBufferTokens int
 	// MinKeepLastMessages is the minimum number of tail messages to always try to
 	// keep in raw form, even if the token budget is small.
 	SummaryMinKeepLastMessages int
@@ -64,8 +60,8 @@ type Engine struct {
 	OnAssistant func(llm.Message)
 	// OnDelta, if set, is called for streaming content deltas (for partial responses)
 	OnDelta func(string)
-	// OnTool, if set, is called after each tool execution with tool name, args, and result
-	OnTool func(toolName string, args []byte, result []byte)
+	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
+	OnTool func(toolName string, args []byte, result []byte, toolID string)
 	// OnToolStart, if set, is invoked immediately after the model emits a tool call
 	// but before the tool is executed. This allows UIs to display a pending tool
 	// invocation and later append the result when OnTool fires. Args are the raw
@@ -76,6 +72,79 @@ type Engine struct {
 	// during this turn (including intermediate assistant messages with tool calls
 	// and tool response messages). This enables full conversation history capture.
 	OnTurnMessage func(llm.Message)
+	// OnSummaryTriggered, if set, is invoked when conversation summarization is triggered
+	// due to the message history exceeding the token budget. Parameters include:
+	// inputTokens, tokenBudget, messageCount, and messagesBeingSummarized.
+	OnSummaryTriggered func(inputTokens, tokenBudget, messageCount, summarizedCount int)
+	// Tokenizer provides accurate token counting when available. If nil, the engine
+	// falls back to heuristic estimation (chars/4).
+	Tokenizer llm.Tokenizer
+	// TokenizationFallbackToHeuristic allows falling back to heuristic on tokenization errors.
+	TokenizationFallbackToHeuristic bool
+}
+
+// AttachTokenizer wires an accurate tokenizer into the engine when the provider exposes one.
+// Providers that support the OpenAI Responses or Anthropic count_tokens endpoints accept an
+// optional cache; we pass nil here because caching is optional and not yet configured.
+func (e *Engine) AttachTokenizer(provider any, cache *llm.TokenCache) {
+	if e == nil || provider == nil {
+		return
+	}
+
+	type tokenizableProvider interface {
+		Tokenizer(cache *llm.TokenCache) llm.Tokenizer
+	}
+
+	p, ok := provider.(tokenizableProvider)
+	if !ok {
+		return
+	}
+
+	if tok := p.Tokenizer(cache); tok != nil {
+		e.Tokenizer = tok
+		// Log when we have to fall back so we can spot API failures without breaking runs.
+		e.TokenizationFallbackToHeuristic = true
+	}
+}
+
+// countTokens returns the token count for text using the engine's tokenizer if available,
+// otherwise falls back to heuristic estimation.
+func (e *Engine) countTokens(ctx context.Context, text string) int {
+	if e.Tokenizer == nil {
+		return llm.EstimateTokens(text)
+	}
+	count, err := e.Tokenizer.CountTokens(ctx, text)
+	if err != nil {
+		if e.TokenizationFallbackToHeuristic {
+			observability.LoggerWithTrace(ctx).Debug().
+				Err(err).
+				Msg("tokenization_failed_using_heuristic")
+			return llm.EstimateTokens(text)
+		}
+		// Return heuristic anyway if we can't tokenize
+		return llm.EstimateTokens(text)
+	}
+	return count
+}
+
+// countMessagesTokens returns the token count for a slice of messages using the engine's
+// tokenizer if available, otherwise falls back to heuristic estimation.
+func (e *Engine) countMessagesTokens(ctx context.Context, msgs []llm.Message) int {
+	if e.Tokenizer == nil {
+		return llm.EstimateTokensForMessages(msgs)
+	}
+	count, err := e.Tokenizer.CountMessagesTokens(ctx, msgs)
+	if err != nil {
+		if e.TokenizationFallbackToHeuristic {
+			observability.LoggerWithTrace(ctx).Debug().
+				Err(err).
+				Msg("tokenization_failed_using_heuristic")
+			return llm.EstimateTokensForMessages(msgs)
+		}
+		// Return heuristic anyway if we can't tokenize
+		return llm.EstimateTokensForMessages(msgs)
+	}
+	return count
 }
 
 // Run executes the agent loop until the model produces a final answer.
@@ -339,7 +408,7 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 					meta := map[string]any{"event": "chunk", "bytes": len(chunk), "b64": base64.StdEncoding.EncodeToString(chunk)}
 					b, _ := json.Marshal(meta)
 					if e.OnTool != nil {
-						e.OnTool("text_to_speech_chunk", tc.Args, b)
+						e.OnTool("text_to_speech_chunk", tc.Args, b, tc.ID)
 					}
 				}
 				dispatchCtx = tts.WithStreamChunkCallback(dispatchCtx, cb)
@@ -349,18 +418,18 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 		if tc.Name == "multi_tool_use_parallel" && (e.OnToolStart != nil || e.OnTool != nil) {
 			sink := func(ev tools.SubtoolEvent) {
 				if ev.Phase == "start" && e.OnToolStart != nil {
-					e.OnToolStart(ev.Name, ev.Args, "")
+					e.OnToolStart(ev.Name, ev.Args, ev.ToolCallID)
 					return
 				}
 				if ev.Phase == "end" && e.OnTool != nil {
-					e.OnTool(ev.Name, ev.Args, ev.Payload)
+					e.OnTool(ev.Name, ev.Args, ev.Payload, ev.ToolCallID)
 					return
 				}
 			}
 			dispatchCtx = tools.WithSubtoolSink(dispatchCtx, sink)
 		}
 
-		if !isAgentCall(tc.Name) && e.OnToolStart != nil {
+		if e.OnToolStart != nil {
 			e.OnToolStart(tc.Name, tc.Args, tc.ID)
 		}
 
@@ -388,7 +457,7 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 	if e.Delegator != nil && isAgentCall(tc.Name) {
 		payload := e.runDelegatedAgent(ctx, tc)
 		if e.OnTool != nil {
-			e.OnTool(tc.Name, tc.Args, payload)
+			e.OnTool(tc.Name, tc.Args, payload, tc.ID)
 		}
 		return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 	}
@@ -399,7 +468,7 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 		payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
 	}
 	if e.OnTool != nil {
-		e.OnTool(tc.Name, tc.Args, payload)
+		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
 	}
 	return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 }
@@ -461,82 +530,37 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 	return []byte(result)
 }
 
-// maybeSummarize inspects msgs and, if the number of messages exceeds
-// e.SummaryThreshold, calls the LLM to produce a short summary of the
-// older portion of the conversation and returns a new messages slice
-// where the older messages have been replaced by a single summary
-// assistant message plus the most recent messages preserved.
+// maybeSummarize inspects msgs and, if the input tokens exceed the available
+// budget (context window minus reserve buffer), calls the LLM to produce a
+// short summary of older messages. Returns a new messages slice where older
+// messages have been replaced by a single summary assistant message plus the
+// most recent messages preserved.
+//
+// The pattern follows OpenAI's recommendation:
+// 1. Count input tokens (preflight)
+// 2. Compare against context_window - reserve_buffer
+// 3. If over threshold → summarize/compact older turns → retry
 func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.Message {
-	mode := strings.ToLower(strings.TrimSpace(e.SummaryMode))
-	if mode == "auto" {
-		return e.maybeSummarizeAuto(ctx, msgs)
-	}
-	return e.maybeSummarizeFixed(ctx, msgs)
-}
-
-// maybeSummarizeFixed preserves the original message-count based behavior for
-// backwards compatibility.
-func (e *Engine) maybeSummarizeFixed(ctx context.Context, msgs []llm.Message) []llm.Message {
-	// Ensure sensible defaults
-	threshold := e.SummaryThreshold
-	keep := e.SummaryKeepLast
-	if threshold <= 0 {
-		threshold = 40
-	}
-	if keep <= 0 {
-		keep = 12
-	}
-	if len(msgs) <= threshold {
-		return msgs
-	}
-
-	// Log that summarization will run and include relevant tuning params.
-	observability.LoggerWithTrace(ctx).Info().
-		Int("messages", len(msgs)).
-		Int("threshold", threshold).
-		Int("keep_last", keep).
-		Str("mode", "fixed").
-		Msg("summarization_triggered")
-
-	// Preserve leading system message if present
-	start := 0
-	var sysMsg *llm.Message
-	if len(msgs) > 0 && msgs[0].Role == "system" {
-		sysMsg = &msgs[0]
-		start = 1
-	}
-
-	if len(msgs)-start <= keep {
-		return msgs
-	}
-	cutIndex := len(msgs) - keep
-	toSummarize := msgs[start:cutIndex]
-	recent := msgs[cutIndex:]
-
-	return e.buildSummarizedMessages(ctx, sysMsg, toSummarize, recent, keep)
-}
-
-// maybeSummarizeAuto uses an estimated token budget based on the model's
-// context window and a target utilization percentage.
-func (e *Engine) maybeSummarizeAuto(ctx context.Context, msgs []llm.Message) []llm.Message {
 	if len(msgs) == 0 {
 		return msgs
 	}
 
+	// Determine context window size
 	ctxSize := e.ContextWindowTokens
 	if ctxSize <= 0 {
-		if sz, ok := llm.ContextSize(e.model()); sz > 0 {
+		if sz, _ := llm.ContextSize(e.model()); sz > 0 {
 			ctxSize = sz
-			_ = ok // we don't care if it's guessed here
 		}
 	}
 	if ctxSize <= 0 {
-		ctxSize = 32_000
+		ctxSize = 128_000 // Conservative default for modern models
 	}
 
-	util := e.SummaryTargetUtilizationPct
-	if util <= 0 || util > 1 {
-		util = 0.7
+	// Reserve buffer for output tokens (including reasoning tokens for reasoning models)
+	// OpenAI recommends ~25,000 when experimenting with reasoning models
+	reserveBuffer := e.SummaryReserveBufferTokens
+	if reserveBuffer <= 0 {
+		reserveBuffer = 25_000
 	}
 
 	minTail := e.SummaryMinKeepLastMessages
@@ -544,25 +568,29 @@ func (e *Engine) maybeSummarizeAuto(ctx context.Context, msgs []llm.Message) []l
 		minTail = 4
 	}
 
-	// Estimate token usage for the full history.
-	estTotal := estimateTokensForMessages(msgs)
-	tokenBudget := int(float64(ctxSize) * util)
-	if estTotal <= tokenBudget {
-		// No summarization needed; fits comfortably.
+	// Calculate available budget for input
+	tokenBudget := ctxSize - reserveBuffer
+	if tokenBudget <= 0 {
+		tokenBudget = ctxSize / 2 // Fallback if reserve is too large
+	}
+
+	// Count actual input tokens
+	inputTokens := e.countMessagesTokens(ctx, msgs)
+	if inputTokens <= tokenBudget {
+		// No summarization needed; fits within budget
 		return msgs
 	}
 
 	log := observability.LoggerWithTrace(ctx)
 	log.Info().
 		Int("messages", len(msgs)).
-		Int("estimated_tokens", estTotal).
+		Int("input_tokens", inputTokens).
 		Int("token_budget", tokenBudget).
 		Int("context_window", ctxSize).
-		Float64("target_utilization", util).
-		Str("mode", "auto").
+		Int("reserve_buffer", reserveBuffer).
 		Msg("summarization_triggered")
 
-	// Preserve leading system message if present.
+	// Preserve leading system message if present
 	start := 0
 	var sysMsg *llm.Message
 	if msgs[0].Role == "system" {
@@ -570,13 +598,12 @@ func (e *Engine) maybeSummarizeAuto(ctx context.Context, msgs []llm.Message) []l
 		start = 1
 	}
 
-	// Work backwards from the end of the conversation, keeping as many recent
-	// messages as will fit into ~half the budget (so we leave room for system
-	// prompt, tools, and summary itself). This is intentionally simple.
+	// Work backwards from the end, keeping as many recent messages as will fit
+	// in roughly half the budget (leaving room for system prompt, tools, and summary)
 	recent := make([]llm.Message, 0, len(msgs))
 	remaining := tokenBudget / 2
 	for i := len(msgs) - 1; i >= start; i-- {
-		msgTokens := estimateTokens(msgs[i].Content)
+		msgTokens := e.countTokens(ctx, msgs[i].Content)
 		if len(recent) >= minTail && remaining-msgTokens <= 0 {
 			break
 		}
@@ -586,13 +613,13 @@ func (e *Engine) maybeSummarizeAuto(ctx context.Context, msgs []llm.Message) []l
 			break
 		}
 	}
-	// We appended in reverse order; restore chronological order.
+
+	// Restore chronological order (we appended in reverse)
 	for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
 		recent[i], recent[j] = recent[j], recent[i]
 	}
 
-	// Everything between start and the beginning of the recent slice becomes the
-	// summary input.
+	// Everything between start and the beginning of recent becomes summary input
 	cutIndex := len(msgs) - len(recent)
 	if cutIndex < start {
 		cutIndex = start
@@ -600,6 +627,11 @@ func (e *Engine) maybeSummarizeAuto(ctx context.Context, msgs []llm.Message) []l
 	toSummarize := msgs[start:cutIndex]
 	if len(toSummarize) == 0 {
 		return msgs
+	}
+
+	// Notify callback that summarization is occurring
+	if e.OnSummaryTriggered != nil {
+		e.OnSummaryTriggered(inputTokens, tokenBudget, len(msgs), len(toSummarize))
 	}
 
 	return e.buildSummarizedMessages(ctx, sysMsg, toSummarize, recent, len(recent))
@@ -623,7 +655,7 @@ func (e *Engine) buildSummarizedMessages(
 	currentTokens := 0
 	for _, m := range toSummarize {
 		// Approximate token cost per message and cap at maxChunkTokens.
-		msgTokens := estimateTokens(m.Content) + 8 // overhead for role/formatting
+		msgTokens := e.countTokens(ctx, m.Content) + 8 // overhead for role/formatting
 		if currentTokens+msgTokens > maxChunkTokens {
 			break
 		}
@@ -665,26 +697,6 @@ func (e *Engine) buildSummarizedMessages(
 		Int("new_messages", len(newMsgs)).
 		Msg("history_summarized")
 	return newMsgs
-}
-
-// estimateTokensForMessages provides a very rough token estimate for a slice
-// of messages by summing estimateTokens over their content.
-func estimateTokensForMessages(msgs []llm.Message) int {
-	total := 0
-	for _, m := range msgs {
-		total += estimateTokens(m.Content)
-	}
-	return total
-}
-
-// estimateTokens is a chars/4 heuristic fallback; providers with proper
-// tokenizers can later plug in a more accurate implementation.
-func estimateTokens(s string) int {
-	if s == "" {
-		return 0
-	}
-	// Simple heuristic: 4 characters per token on average.
-	return len([]rune(s))/4 + 1
 }
 
 // augmentWithMemory appends evolving memory context to the system prompt (ExpRAG or ExpRecent).

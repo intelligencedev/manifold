@@ -44,6 +44,13 @@ Thumbs.db
 # Coverage reports
 coverage.out
 
+# SonarQube / SonarScanner
+.scannerwork/
+
+# Developer tooling local overrides
+develop/**/.env
+develop/**/.env.*
+
 # Misc
 *.tmp
 *.bak

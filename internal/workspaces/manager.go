@@ -88,28 +88,19 @@ func NewManager(cfg *config.Config) WorkspaceManager {
 
 // NewManagerWithStore creates a WorkspaceManager with an injected object store.
 // This is used for ephemeral workspaces backed by S3 storage.
+// When an object store is provided, ephemeral mode is always used regardless of
+// the configured workspace mode, since the legacy manager cannot verify projects
+// that exist only in S3.
 func NewManagerWithStore(cfg *config.Config, store objectstore.ObjectStore) WorkspaceManager {
-	mode := cfg.Projects.Workspace.Mode
-	if mode == "" {
-		mode = "legacy"
-	}
-
-	switch mode {
-	case "ephemeral":
-		if store == nil {
-			// Can't do ephemeral without a store, fall back to legacy
-			return &LegacyWorkspaceManager{
-				workdir: cfg.Workdir,
-				mode:    "legacy",
-			}
-		}
-		return NewEphemeralManager(store, cfg)
-	default:
+	if store == nil {
+		// Can't do ephemeral without a store, fall back to legacy
 		return &LegacyWorkspaceManager{
 			workdir: cfg.Workdir,
 			mode:    "legacy",
 		}
 	}
+	// Always use ephemeral mode when S3 store is provided
+	return NewEphemeralManager(store, cfg)
 }
 
 // LegacyWorkspaceManager implements WorkspaceManager using direct project directories.

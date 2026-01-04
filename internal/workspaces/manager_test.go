@@ -2,6 +2,7 @@ package workspaces
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,7 +11,39 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"manifold/internal/config"
+	"manifold/internal/objectstore"
 )
+
+// mockObjectStore implements objectstore.ObjectStore for testing.
+type mockObjectStore struct{}
+
+func (m *mockObjectStore) Get(ctx context.Context, key string) (io.ReadCloser, objectstore.ObjectAttrs, error) {
+	return nil, objectstore.ObjectAttrs{}, objectstore.ErrNotFound
+}
+
+func (m *mockObjectStore) Put(ctx context.Context, key string, r io.Reader, opts objectstore.PutOptions) (string, error) {
+	return "", nil
+}
+
+func (m *mockObjectStore) Delete(ctx context.Context, key string) error {
+	return nil
+}
+
+func (m *mockObjectStore) List(ctx context.Context, opts objectstore.ListOptions) (objectstore.ListResult, error) {
+	return objectstore.ListResult{}, nil
+}
+
+func (m *mockObjectStore) Head(ctx context.Context, key string) (objectstore.ObjectAttrs, error) {
+	return objectstore.ObjectAttrs{}, objectstore.ErrNotFound
+}
+
+func (m *mockObjectStore) Copy(ctx context.Context, srcKey, dstKey string) error {
+	return nil
+}
+
+func (m *mockObjectStore) Exists(ctx context.Context, key string) (bool, error) {
+	return false, nil
+}
 
 func TestNewManager_LegacyMode(t *testing.T) {
 	cfg := &config.Config{
@@ -58,6 +91,42 @@ func TestNewManager_EphemeralMode_FallsBackToLegacy(t *testing.T) {
 	assert.Equal(t, "legacy", mgr.Mode())
 }
 
+func TestNewManagerWithStore_NilStore_FallsBackToLegacy(t *testing.T) {
+	cfg := &config.Config{
+		Workdir: "/tmp/test-workdir",
+		Projects: config.ProjectsConfig{
+			Workspace: config.WorkspaceConfig{
+				Mode: "ephemeral",
+			},
+		},
+	}
+
+	mgr := NewManagerWithStore(cfg, nil)
+	assert.NotNil(t, mgr)
+	assert.Equal(t, "legacy", mgr.Mode())
+}
+
+func TestNewManagerWithStore_WithStore_AlwaysEphemeral(t *testing.T) {
+	// When an S3 store is provided, the workspace manager should always use
+	// ephemeral mode regardless of the configured workspace mode. This is
+	// because the legacy manager checks for local filesystem directories
+	// that don't exist when projects are stored in S3.
+	cfg := &config.Config{
+		Workdir: t.TempDir(),
+		Projects: config.ProjectsConfig{
+			Workspace: config.WorkspaceConfig{
+				Mode: "legacy", // explicitly set to legacy
+			},
+		},
+	}
+
+	// Use a mock store to simulate S3 being configured
+	store := &mockObjectStore{}
+
+	mgr := NewManagerWithStore(cfg, store)
+	assert.NotNil(t, mgr)
+	assert.Equal(t, "ephemeral", mgr.Mode(), "S3-backed workspace manager should always use ephemeral mode")
+}
 func TestLegacyWorkspaceManager_Checkout_EmptyProjectID(t *testing.T) {
 	mgr := NewLegacyManager("/tmp/test-workdir")
 

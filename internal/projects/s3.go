@@ -224,6 +224,31 @@ func (s *S3Service) decryptData(dek, ciphertext []byte) ([]byte, error) {
 	return pt, nil
 }
 
+// DecryptProjectFile decrypts a file's content for a specific project.
+// Returns the plaintext content or the original data if not encrypted.
+// This implements the workspaces.FileDecrypter interface for use by
+// EphemeralWorkspaceManager during workspace hydration.
+func (s *S3Service) DecryptProjectFile(ctx context.Context, userID int64, projectID string, data []byte) ([]byte, error) {
+	// If encryption is disabled or file has no magic header, return as-is
+	if !s.encrypt || len(data) < 5 || !bytes.Equal(data[:4], fileMagic[:]) {
+		return data, nil
+	}
+
+	// Get the project DEK
+	dek, err := s.getProjectDEK(ctx, userID, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("get DEK: %w", err)
+	}
+
+	// Decrypt the data
+	plaintext, err := s.decryptData(dek, data)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt: %w", err)
+	}
+
+	return plaintext, nil
+}
+
 // userPrefix returns the S3 key prefix for a user's projects.
 func (s *S3Service) userPrefix(userID int64) string {
 	return fmt.Sprintf("%s/users/%d/projects", s.keyPrefix, userID)

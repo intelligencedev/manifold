@@ -2,9 +2,9 @@ package prompts
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 
 	"manifold/internal/skills"
 )
@@ -117,37 +117,38 @@ Web Search Workflow:
 Be cautious with destructive operations. If a command could modify files, consider listing files first.`, workdir)
 	}
 
-	// If workdir is empty, treat it as the current directory
-	wd := workdir
-	if strings.TrimSpace(wd) == "" {
-		wd = "."
-	}
-
-	// Append skills discovery section so the model can see available SKILL.md entries.
-	if skillsSection := renderSkillsSection(wd); skillsSection != "" {
-		base = base + "\n\n" + skillsSection
-	}
-
 	// Always append memory instructions at the end
 	return EnsureMemoryInstructions(base)
 }
 
-// renderSkillsSection builds a markdown "## Skills" section from SKILL.md files discovered
-// under .manifold/skills (repo, user, admin precedence). Only metadata is injected to keep context small.
-func renderSkillsSection(workdir string) string {
-	loader := skills.Loader{
-		Workdir:  workdir,
-		UserDir:  filepath.Join(userHomeDir(), ".manifold", "skills"),
-		AdminDir: filepath.Join(string(filepath.Separator), "etc", "codex", "skills"),
+// RenderSkillsForProject builds a markdown "## Skills" section from SKILL.md files
+// discovered directly under the project's .manifold/skills folder. Only metadata is
+// injected to keep context small. Returns empty string if no skills are found.
+func RenderSkillsForProject(projectDir string) string {
+	if strings.TrimSpace(projectDir) == "" {
+		return ""
 	}
-	outcome := loader.Load()
+
+	// Directly check the project's .manifold/skills folder - no tree walking
+	outcome := skills.LoadFromDir(projectDir)
+
+	log.Debug().
+		Str("projectDir", projectDir).
+		Int("skillsFound", len(outcome.Skills)).
+		Int("errors", len(outcome.Errors)).
+		Msg("skills_loader_result")
+
+	for _, e := range outcome.Errors {
+		log.Debug().Str("path", e.Path).Str("error", e.Message).Msg("skills_loader_error")
+	}
+
 	if len(outcome.Skills) == 0 {
 		return ""
 	}
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
-	b.WriteString("These skills are discovered from local .manifold/skills folders. Each entry includes a name, description, and file path.\n")
+	b.WriteString("These skills are discovered from the project's .manifold/skills folder. Each entry includes a name, description, and file path.\n")
 	for _, s := range outcome.Skills {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {
@@ -161,12 +162,4 @@ func renderSkillsSection(workdir string) string {
 	b.WriteString("- Missing/blocked: If a named skill path cannot be read, say so briefly and continue with a fallback.\n")
 	b.WriteString("- Context hygiene: Keep context small—summarize long files, avoid bulk-loading references, and only load variant-specific files when relevant.\n")
 	return b.String()
-}
-
-// userHomeDir returns the user's home directory; falls back to current dir on error.
-func userHomeDir() string {
-	if h, err := os.UserHomeDir(); err == nil {
-		return h
-	}
-	return "."
 }

@@ -22,12 +22,22 @@ import (
 	"manifold/internal/objectstore"
 )
 
+// FileDecrypter provides decryption for project files.
+// It is used by EphemeralWorkspaceManager to decrypt files downloaded from S3
+// when project encryption is enabled.
+type FileDecrypter interface {
+	// DecryptProjectFile decrypts a file's content for a specific project.
+	// Returns the plaintext content or the original data if not encrypted.
+	DecryptProjectFile(ctx context.Context, userID int64, projectID string, data []byte) ([]byte, error)
+}
+
 // EphemeralWorkspaceManager implements WorkspaceManager using ephemeral local
 // directories that sync with S3 object storage.
 type EphemeralWorkspaceManager struct {
 	store     objectstore.ObjectStore
 	workdir   string // root for ephemeral workspace dirs
 	keyPrefix string // S3 key prefix for project files
+	decrypter FileDecrypter
 	mu        sync.RWMutex
 	active    map[string]*workspaceState // session -> state
 }
@@ -72,6 +82,12 @@ func NewEphemeralManager(store objectstore.ObjectStore, cfg *config.Config) *Eph
 		keyPrefix: cfg.Projects.S3.Prefix,
 		active:    make(map[string]*workspaceState),
 	}
+}
+
+// SetDecrypter sets the file decrypter for handling encrypted project files.
+// This should be called after creating the manager if encryption is enabled.
+func (m *EphemeralWorkspaceManager) SetDecrypter(d FileDecrypter) {
+	m.decrypter = d
 }
 
 // Mode returns "ephemeral".
@@ -299,16 +315,30 @@ func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, p
 				return nil, fmt.Errorf("get object %s: %w", obj.Key, err)
 			}
 
+			// Read all data first (needed for potential decryption)
+			data, err := io.ReadAll(reader)
+			reader.Close()
+			if err != nil {
+				return nil, fmt.Errorf("read object %s: %w", obj.Key, err)
+			}
+
+			// Decrypt if decrypter is available
+			if m.decrypter != nil {
+				data, err = m.decrypter.DecryptProjectFile(ctx, userID, projectID, data)
+				if err != nil {
+					return nil, fmt.Errorf("decrypt %s: %w", obj.Key, err)
+				}
+			}
+
+			// Write decrypted content to local file
 			f, err := os.Create(localFile)
 			if err != nil {
-				reader.Close()
 				return nil, fmt.Errorf("create local file %s: %w", localFile, err)
 			}
 
 			hash := sha256.New()
 			writer := io.MultiWriter(f, hash)
-			_, err = io.Copy(writer, reader)
-			reader.Close()
+			_, err = writer.Write(data)
 			f.Close()
 
 			if err != nil {

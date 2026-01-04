@@ -503,6 +503,12 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 				return nil, fmt.Errorf("enable S3 project encryption: %w", err)
 			}
 			log.Info().Msg("projects_s3_backend_encryption_enabled")
+
+			// Configure the ephemeral workspace manager to use S3Service for decryption
+			if ephMgr, ok := app.workspaceManager.(*workspaces.EphemeralWorkspaceManager); ok {
+				ephMgr.SetDecrypter(s3Svc)
+				log.Info().Msg("ephemeral_workspace_decrypter_configured")
+			}
 		}
 		app.projectsService = s3Svc
 		log.Info().Msg("projects_s3_backend_initialized")

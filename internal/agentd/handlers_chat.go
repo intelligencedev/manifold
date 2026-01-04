@@ -623,6 +623,20 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return
 		}
+
+		// Inject project-specific skills into the system prompt if a workspace is active.
+		if checkedOutWorkspace != nil && checkedOutWorkspace.BaseDir != "" {
+			skillsSection := prompts.RenderSkillsForProject(checkedOutWorkspace.BaseDir)
+			log.Debug().
+				Str("baseDir", checkedOutWorkspace.BaseDir).
+				Str("projectID", checkedOutWorkspace.ProjectID).
+				Bool("hasSkills", skillsSection != "").
+				Msg("skills_injection_check")
+			if skillsSection != "" {
+				eng.System = eng.System + "\n\n" + skillsSection
+			}
+		}
+
 		if r.Header.Get("Accept") == "text/event-stream" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")
@@ -991,6 +1005,14 @@ func (a *app) promptHandler() http.HandlerFunc {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return
 		}
+
+		// Inject project-specific skills into the system prompt if a workspace is active.
+		if checkedOutWorkspace != nil && checkedOutWorkspace.BaseDir != "" {
+			if skillsSection := prompts.RenderSkillsForProject(checkedOutWorkspace.BaseDir); skillsSection != "" {
+				eng.System = eng.System + "\n\n" + skillsSection
+			}
+		}
+
 		if r.Header.Get("Accept") == "text/event-stream" {
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.Header().Set("Cache-Control", "no-cache")

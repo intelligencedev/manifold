@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -467,6 +468,9 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
+		// Track workspace for commit after agent run completes.
+		var checkedOutWorkspace *workspaces.Workspace
+
 		// If a project_id was provided, checkout a workspace using the workspace manager.
 		// This abstracts the path computation and validation, preparing for future
 		// ephemeral workspace support.
@@ -493,6 +497,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			if ws.BaseDir != "" {
 				r = r.WithContext(sandbox.WithBaseDir(r.Context(), ws.BaseDir))
 				r = r.WithContext(sandbox.WithProjectID(r.Context(), pid))
+				checkedOutWorkspace = &ws
 			}
 		}
 
@@ -770,6 +775,8 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				}
 				fl.Flush()
 				a.runs.updateStatus(currentRun.ID, "failed", 0)
+				// Commit workspace changes even on error so partial work is preserved
+				a.commitWorkspace(r.Context(), checkedOutWorkspace)
 				return
 			}
 			if len(savedImages) > 0 {
@@ -783,6 +790,8 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
+			// Commit workspace changes to S3 after successful run
+			a.commitWorkspace(r.Context(), checkedOutWorkspace)
 			return
 		}
 
@@ -819,6 +828,8 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			log.Error().Err(err).Msg("agent run error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			a.runs.updateStatus(currentRun.ID, "failed", 0)
+			// Commit workspace changes even on error so partial work is preserved
+			a.commitWorkspace(r.Context(), checkedOutWorkspace)
 			return
 		}
 		if len(savedImages) > 0 {
@@ -830,6 +841,24 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
+		// Commit workspace changes to S3 after successful run
+		a.commitWorkspace(r.Context(), checkedOutWorkspace)
+	}
+}
+
+// commitWorkspace commits workspace changes back to durable storage (e.g., S3).
+// For ephemeral workspaces, this syncs any files created or modified by the agent.
+// For legacy workspaces, this is a no-op since changes are already on disk.
+func (a *app) commitWorkspace(ctx context.Context, ws *workspaces.Workspace) {
+	if ws == nil {
+		return
+	}
+	if err := a.workspaceManager.Commit(ctx, *ws); err != nil {
+		log.Error().
+			Err(err).
+			Str("project_id", ws.ProjectID).
+			Str("session_id", ws.SessionID).
+			Msg("workspace_commit_failed")
 	}
 }
 
@@ -885,6 +914,9 @@ func (a *app) promptHandler() http.HandlerFunc {
 		// Attach session ID to context so tools like ask_agent can inherit it.
 		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
 
+		// Track workspace for commit after agent run completes.
+		var checkedOutWorkspace *workspaces.Workspace
+
 		// If a project_id was provided, checkout a workspace using the workspace manager.
 		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
 			var uid int64
@@ -909,6 +941,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			if ws.BaseDir != "" {
 				r = r.WithContext(sandbox.WithBaseDir(r.Context(), ws.BaseDir))
 				r = r.WithContext(sandbox.WithProjectID(r.Context(), pid))
+				checkedOutWorkspace = &ws
 			}
 		}
 
@@ -1079,6 +1112,8 @@ func (a *app) promptHandler() http.HandlerFunc {
 				}
 				fl.Flush()
 				a.runs.updateStatus(prun.ID, "failed", 0)
+				// Commit workspace changes even on error so partial work is preserved
+				a.commitWorkspace(r.Context(), checkedOutWorkspace)
 				return
 			}
 			if len(savedImages) > 0 {
@@ -1092,6 +1127,8 @@ func (a *app) promptHandler() http.HandlerFunc {
 			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
+			// Commit workspace changes to S3 after successful run
+			a.commitWorkspace(r.Context(), checkedOutWorkspace)
 			return
 		}
 
@@ -1129,6 +1166,8 @@ func (a *app) promptHandler() http.HandlerFunc {
 			log.Error().Err(err).Msg("agent run error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			a.runs.updateStatus(prun.ID, "failed", 0)
+			// Commit workspace changes even on error so partial work is preserved
+			a.commitWorkspace(r.Context(), checkedOutWorkspace)
 			return
 		}
 		if len(savedImages) > 0 {
@@ -1140,6 +1179,8 @@ func (a *app) promptHandler() http.HandlerFunc {
 		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
+		// Commit workspace changes to S3 after successful run
+		a.commitWorkspace(r.Context(), checkedOutWorkspace)
 	}
 }
 

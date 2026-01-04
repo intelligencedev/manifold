@@ -1,10 +1,10 @@
 <template>
-  <div :class="['relative h-screen overflow-hidden bg-background text-foreground', isObsDash ? 'theme-obsdash' : '']">
+  <div :class="['relative h-screen min-w-[1280px] overflow-hidden bg-background text-foreground', isObsDash ? 'theme-obsdash' : '']">
     <div v-if="isObsDash" class="pointer-events-none absolute inset-0 opacity-90"></div>
     <div v-if="isObsDash" class="pointer-events-none absolute inset-0 bg-grain mix-blend-soft-light opacity-35"></div>
 
     <div class="relative z-10 flex h-full flex-col">
-      <div class="px-4 pt-4 md:px-8 md:pt-6">
+      <div class="px-1.5 pt-1.5 md:px-3 md:pt-2.5">
         <Topbar>
           <template #logo>
             <div class="flex items-center gap-3 min-w-0">
@@ -47,7 +47,7 @@
         </Topbar>
       </div>
 
-      <div class="md:hidden px-4 pt-3 pb-1">
+      <div class="md:hidden px-1.5 pt-1 pb-0.5">
         <div class="flex items-center gap-2 overflow-x-auto text-sm">
           <RouterLink
             v-for="item in navigation"
@@ -61,7 +61,7 @@
         </div>
       </div>
 
-      <main class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden px-4 pb-4 pt-4 md:px-8">
+      <main class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden px-1.5 pb-1.5 pt-1.5 md:px-3 md:pb-3 md:pt-2.5">
         <RouterView />
       </main>
     </div>

@@ -254,9 +254,15 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			Msg("s3_store_initialized")
 	}
 
-	// Initialize workspace manager with optional S3 store for ephemeral workspaces
+	// Initialize workspace manager with optional S3 store for ephemeral workspaces.
+	// When using S3 backend, ephemeral mode is required since the legacy workspace manager
+	// checks for local filesystem directories that don't exist when projects are stored in S3.
 	var wsMgr workspaces.WorkspaceManager
-	if s3Store != nil && cfg.Projects.Workspace.Mode == "ephemeral" {
+	if s3Store != nil {
+		// S3 backend requires ephemeral workspace mode to properly sync files
+		if cfg.Projects.Workspace.Mode != "ephemeral" {
+			log.Info().Msg("s3_backend_forcing_ephemeral_workspace_mode")
+		}
 		wsMgr = workspaces.NewManagerWithStore(cfg, s3Store)
 	} else {
 		wsMgr = workspaces.NewManager(cfg)

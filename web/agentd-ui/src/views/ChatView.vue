@@ -356,115 +356,117 @@
             <div
               class="ap-input chat-prompt-input relative rounded-4 bg-surface-muted/70 p-3 etched-dark"
             >
-              <textarea
-                ref="composer"
-                v-model="draft"
-                rows="1"
-                class="w-full resize-none bg-transparent text-sm text-foreground outline-none placeholder:text-faint-foreground pr-28"
-                :placeholder="
-                  projectSelected
-                    ? 'Message the agent...'
-                    : 'Select a project to enable the chat.'
-                "
-                :disabled="!projectSelected"
-                @keydown="handleComposerKeydown"
-                @input="autoSizeComposer"
-              ></textarea>
-
-              <!-- Inline actions inside the input box (right aligned) -->
-              <div class="absolute inset-y-2 right-2 flex items-end gap-1">
-                <!-- Hidden file input to trigger Attach -->
-                <input
-                  ref="fileInput"
-                  type="file"
-                  multiple
-                  class="hidden"
-                  accept="image/png,image/jpeg,text/plain,text/markdown,text/*"
-                  @change="handleFileInputChange"
-                />
-
-                <!-- Attach -->
-                <button
-                  type="button"
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
-                  title="Attach files"
-                  aria-label="Attach files"
+              <div class="flex flex-wrap items-center gap-2 sm:gap-3 sm:flex-nowrap">
+                <textarea
+                  ref="composer"
+                  v-model="draft"
+                  rows="1"
+                  class="flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-faint-foreground"
+                  :placeholder="
+                    projectSelected
+                      ? 'Message the agent...'
+                      : 'Select a project to enable the chat.'
+                  "
                   :disabled="!projectSelected"
-                  :class="
-                    !projectSelected
-                      ? 'opacity-50 cursor-not-allowed text-foreground/40'
-                      : 'text-foreground/80 hover:text-accent'
-                  "
-                  @click="projectSelected ? fileInput?.click() : undefined"
-                >
-                  <SolarPaperclip2Bold class="h-5 w-5" />
-                </button>
+                  @keydown="handleComposerKeydown"
+                  @input="autoSizeComposer"
+                ></textarea>
 
-                <!-- Record / Stop Recording -->
-                <button
-                  type="button"
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
-                  :class="[
-                    isRecording
-                      ? 'text-danger hover:text-danger/90'
-                      : 'text-foreground/80 hover:text-accent',
-                    isStreaming || !canUseMic || !projectSelected
-                      ? 'opacity-50 cursor-not-allowed'
-                      : '',
-                  ]"
-                  :disabled="isStreaming || !canUseMic || !projectSelected"
-                  :title="
-                    isRecording ? 'Stop recording' : 'Record voice prompt'
-                  "
-                  :aria-label="
-                    isRecording ? 'Stop recording' : 'Record voice prompt'
-                  "
-                  @click="isRecording ? stopRecording() : startRecording()"
-                >
-                  <SolarMicrophone3Bold class="h-5 w-5" />
-                </button>
+                <!-- Inline actions (right aligned) -->
+                <div class="flex items-end gap-1 shrink-0">
+                  <!-- Hidden file input to trigger Attach -->
+                  <input
+                    ref="fileInput"
+                    type="file"
+                    multiple
+                    class="hidden"
+                    accept="image/png,image/jpeg,text/plain,text/markdown,text/*"
+                    @change="handleFileInputChange"
+                  />
 
-                <!-- Toggle Image Generation -->
-                <button
-                  type="button"
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline transition"
-                  :class="[
-                    imagePrompt
-                      ? 'bg-accent/20 text-accent hover:bg-accent/30'
-                      : 'text-foreground/80 hover:text-accent',
-                    isStreaming || !projectSelected
-                      ? 'opacity-50 cursor-not-allowed'
-                      : '',
-                  ]"
-                  :disabled="isStreaming || !projectSelected"
-                  title="Generate image response"
-                  aria-label="Generate image response"
-                  @click="imagePrompt = !imagePrompt"
-                >
-                  <Camera class="h-5 w-5" />
-                </button>
+                  <!-- Attach -->
+                  <button
+                    type="button"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
+                    title="Attach files"
+                    aria-label="Attach files"
+                    :disabled="!projectSelected"
+                    :class="
+                      !projectSelected
+                        ? 'opacity-50 cursor-not-allowed text-foreground/40'
+                        : 'text-foreground/80 hover:text-accent'
+                    "
+                    @click="projectSelected ? fileInput?.click() : undefined"
+                  >
+                    <SolarPaperclip2Bold class="h-5 w-5" />
+                  </button>
 
-                <!-- Send / Stop Streaming -->
-                <button
-                  type="button"
-                  :class="[
-                    'inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline',
-                    isStreaming
-                      ? 'border border-danger/60 text-foreground/80 hover:text-danger'
-                      : 'bg-accent text-accent-foreground hover:bg-accent/90',
-                  ]"
-                  :title="isStreaming ? 'Stop generating' : 'Send message'"
-                  :aria-label="isStreaming ? 'Stop generating' : 'Send message'"
-                  @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
-                  :disabled="
-                    !isStreaming &&
-                    (!projectSelected ||
-                      (!draft.trim() && !pendingAttachments.length))
-                  "
-                >
-                  <SolarStopBold v-if="isStreaming" class="h-4 w-4" />
-                  <SolarArrowToTopLeftBold v-else class="h-4 w-4" />
-                </button>
+                  <!-- Record / Stop Recording -->
+                  <button
+                    type="button"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
+                    :class="[
+                      isRecording
+                        ? 'text-danger hover:text-danger/90'
+                        : 'text-foreground/80 hover:text-accent',
+                      isStreaming || !canUseMic || !projectSelected
+                        ? 'opacity-50 cursor-not-allowed'
+                        : '',
+                    ]"
+                    :disabled="isStreaming || !canUseMic || !projectSelected"
+                    :title="
+                      isRecording ? 'Stop recording' : 'Record voice prompt'
+                    "
+                    :aria-label="
+                      isRecording ? 'Stop recording' : 'Record voice prompt'
+                    "
+                    @click="isRecording ? stopRecording() : startRecording()"
+                  >
+                    <SolarMicrophone3Bold class="h-5 w-5" />
+                  </button>
+
+                  <!-- Toggle Image Generation -->
+                  <button
+                    type="button"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline transition"
+                    :class="[
+                      imagePrompt
+                        ? 'bg-accent/20 text-accent hover:bg-accent/30'
+                        : 'text-foreground/80 hover:text-accent',
+                      isStreaming || !projectSelected
+                        ? 'opacity-50 cursor-not-allowed'
+                        : '',
+                    ]"
+                    :disabled="isStreaming || !projectSelected"
+                    title="Generate image response"
+                    aria-label="Generate image response"
+                    @click="imagePrompt = !imagePrompt"
+                  >
+                    <Camera class="h-5 w-5" />
+                  </button>
+
+                  <!-- Send / Stop Streaming -->
+                  <button
+                    type="button"
+                    :class="[
+                      'inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline',
+                      isStreaming
+                        ? 'border border-danger/60 text-foreground/80 hover:text-danger'
+                        : 'bg-accent text-accent-foreground hover:bg-accent/90',
+                    ]"
+                    :title="isStreaming ? 'Stop generating' : 'Send message'"
+                    :aria-label="isStreaming ? 'Stop generating' : 'Send message'"
+                    @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
+                    :disabled="
+                      !isStreaming &&
+                      (!projectSelected ||
+                        (!draft.trim() && !pendingAttachments.length))
+                    "
+                  >
+                    <SolarStopBold v-if="isStreaming" class="h-4 w-4" />
+                    <SolarArrowToTopLeftBold v-else class="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
             <div v-if="pendingAttachments.length" class="space-y-2">

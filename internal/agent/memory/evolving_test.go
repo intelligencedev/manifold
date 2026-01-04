@@ -75,7 +75,8 @@ func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 
 	// Test ExpRecent
 	t.Run("ExpRecent", func(t *testing.T) {
-		// Manually add entries for testing
+		// Clear existing entries and add fresh test entries
+		em.entries = make([]*MemoryEntry, 0)
 		for i := 0; i < 5; i++ {
 			em.entries = append(em.entries, &MemoryEntry{
 				Input:    "task " + string(rune('A'+i)),
@@ -143,10 +144,22 @@ func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 func TestReMemController(t *testing.T) {
 	ctx := context.Background()
 
+	// Load .env file (fallback to example.env) for embedding config
+	_ = godotenv.Load("../../../.env")
+	_ = godotenv.Load("../../../example.env")
+
+	// Create embedding config from environment
 	embedCfg := config.EmbeddingConfig{
-		BaseURL: "http://localhost:11434",
-		Path:    "/api/embeddings",
-		Model:   "nomic-embed-text",
+		BaseURL:   os.Getenv("EMBED_BASE_URL"),
+		Path:      os.Getenv("EMBED_PATH"),
+		Model:     os.Getenv("EMBED_MODEL"),
+		APIKey:    os.Getenv("EMBED_API_KEY"),
+		APIHeader: os.Getenv("EMBED_API_HEADER"),
+	}
+
+	// Skip if embedding service not configured
+	if embedCfg.BaseURL == "" || embedCfg.APIKey == "" {
+		t.Skip("Embedding service not configured (EMBED_BASE_URL or EMBED_API_KEY missing)")
 	}
 
 	mockLLM := &mockLLMProvider{
@@ -171,9 +184,6 @@ func TestReMemController(t *testing.T) {
 	})
 
 	t.Run("Execute", func(t *testing.T) {
-		// Skip if no embedding service
-		t.Skip("Requires live embedding service")
-
 		finalContent, trace, err := rc.Execute(ctx, "What is the answer?", nil)
 		if err != nil {
 			t.Fatalf("Execute failed: %v", err)

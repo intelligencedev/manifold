@@ -85,8 +85,43 @@ func sessionKey(userID int64, projectID, sessionID string) string {
 }
 
 // workspacePath builds the local ephemeral workspace path.
+// It ensures that the resulting path is confined within m.workdir.
 func (m *EphemeralWorkspaceManager) workspacePath(userID int64, projectID, sessionID string) string {
-	return filepath.Join(m.workdir, "users", fmt.Sprint(userID), "projects", projectID, "sessions", sessionID)
+	// Normalize the configured workdir to an absolute path.
+	absRoot, err := filepath.Abs(filepath.Clean(m.workdir))
+	if err != nil {
+		// On unexpected failure, fall back to the raw workdir.
+		absRoot = m.workdir
+	}
+
+	// Build the base directory for this user's project sessions.
+	baseRoot := filepath.Join(absRoot, "users", fmt.Sprint(userID), "projects", projectID, "sessions")
+
+	// Append the sessionID as the final path element.
+	wsPath := filepath.Join(baseRoot, sessionID)
+
+	// Resolve the workspace path to an absolute path and ensure it stays under absRoot.
+	absWS, err := filepath.Abs(wsPath)
+	if err != nil {
+		// On error, return the root to avoid pointing outside the workspace tree.
+		return absRoot
+	}
+
+	rootWithSep := absRoot
+	if !strings.HasSuffix(rootWithSep, string(os.PathSeparator)) {
+		rootWithSep += string(os.PathSeparator)
+	}
+
+	if !strings.HasPrefix(absWS, rootWithSep) && absWS != absRoot {
+		// If, despite prior validation, the path escapes the root, log and fall back.
+		log.Error().
+			Str("workspacePath", absWS).
+			Str("workdir", absRoot).
+			Msg("workspacePath computed path outside workdir; falling back to workdir")
+		return absRoot
+	}
+
+	return absWS
 }
 
 // s3KeyPrefix returns the S3 key prefix for a project's files.
@@ -182,6 +217,11 @@ func (m *EphemeralWorkspaceManager) Checkout(ctx context.Context, userID int64, 
 
 // hydrate downloads all project files from S3 to the local workspace.
 func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, projectID, localPath string) (*SyncManifest, error) {
+	// Defense-in-depth: ensure the provided localPath is within the configured workdir
+	if err := ensurePathWithin(m.workdir, localPath); err != nil {
+		return nil, fmt.Errorf("invalid workspace path: %w", err)
+	}
+
 	prefix := m.s3KeyPrefix(userID, projectID)
 
 	manifest := &SyncManifest{
@@ -275,8 +315,8 @@ func (m *EphemeralWorkspaceManager) hydrate(ctx context.Context, userID int64, p
 		continuationToken = result.NextContinuationToken
 	}
 
-	// Write manifest to workspace
-	manifestPath := filepath.Join(localPath, ".meta", "sync-manifest.json")
+	// Write manifest to workspace (use absLocalPath for normalized path)
+	manifestPath := filepath.Join(absLocalPath, ".meta", "sync-manifest.json")
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
 		return nil, fmt.Errorf("create .meta dir: %w", err)
 	}
@@ -509,6 +549,16 @@ func (m *EphemeralWorkspaceManager) Cleanup(ctx context.Context, ws Workspace) e
 	m.mu.Lock()
 	delete(m.active, key)
 	m.mu.Unlock()
+
+	// Defense-in-depth: only remove if path is within workdir
+	if err := ensurePathWithin(m.workdir, ws.BaseDir); err != nil {
+		log.Error().
+			Err(err).
+			Str("baseDir", ws.BaseDir).
+			Str("workdir", m.workdir).
+			Msg("cleanup_path_outside_workdir")
+		return fmt.Errorf("invalid workspace path: %w", err)
+	}
 
 	// Remove the workspace directory
 	if err := os.RemoveAll(ws.BaseDir); err != nil && !os.IsNotExist(err) {

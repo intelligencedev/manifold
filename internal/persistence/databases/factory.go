@@ -195,6 +195,23 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 	}
 	m.MCP = mcpStore
 
+	// Projects Store
+	// Use default DSN if available, otherwise memory
+	var projectsStore persistence.ProjectsStore
+	if cfg.DefaultDSN != "" {
+		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
+			projectsStore = NewPostgresProjectsStore(p)
+		} else {
+			projectsStore = NewPostgresProjectsStore(nil)
+		}
+	} else {
+		projectsStore = NewPostgresProjectsStore(nil)
+	}
+	if err := projectsStore.Init(ctx); err != nil {
+		return Manager{}, fmt.Errorf("init projects store: %w", err)
+	}
+	m.Projects = projectsStore
+
 	return m, nil
 }
 

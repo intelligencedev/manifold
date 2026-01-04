@@ -99,11 +99,113 @@ type KafkaConfig struct {
 	ResponsesTopic string `yaml:"responsesTopic" json:"responsesTopic"`
 }
 
-// ProjectsConfig controls filesystem-backed projects behavior.
+// ProjectsConfig controls project storage and workspace behavior.
 type ProjectsConfig struct {
+	// Backend selects the storage backend: "filesystem" (default) or "s3".
+	Backend string `yaml:"backend" json:"backend"`
 	// Encrypt enables at-rest encryption for project files using an envelope
-	// scheme with a locally stored master key (under ${WORKDIR}/.keystore).
+	// scheme. When enabled, requires a KeyProvider configuration.
 	Encrypt bool `yaml:"encrypt" json:"encrypt"`
+	// Encryption configures the key provider for envelope encryption.
+	// Supports "file" (legacy), "vault" (HashiCorp Vault Transit), and "awskms" (AWS KMS).
+	Encryption EncryptionConfig `yaml:"encryption" json:"encryption"`
+	// Workspace configures ephemeral workspace behavior for agent runs.
+	Workspace WorkspaceConfig `yaml:"workspace" json:"workspace"`
+	// S3 configures S3/MinIO-compatible object storage when Backend="s3".
+	S3 S3Config `yaml:"s3" json:"s3"`
+}
+
+// EncryptionConfig configures the key provider for project encryption.
+type EncryptionConfig struct {
+	// Provider selects the key provider: "file" (default/legacy), "vault", or "awskms".
+	Provider string `yaml:"provider" json:"provider"`
+	// File configures the file-based key provider (legacy mode).
+	File FileKeyProviderConfig `yaml:"file" json:"file"`
+	// Vault configures HashiCorp Vault Transit secrets engine.
+	Vault VaultKeyProviderConfig `yaml:"vault" json:"vault"`
+	// AWSKMS configures AWS Key Management Service.
+	AWSKMS AWSKMSKeyProviderConfig `yaml:"awskms" json:"awskms"`
+}
+
+// FileKeyProviderConfig configures the file-based key provider.
+type FileKeyProviderConfig struct {
+	// KeystorePath is the directory containing the master.key file.
+	// Defaults to ${WORKDIR}/.keystore if empty.
+	KeystorePath string `yaml:"keystorePath" json:"keystorePath"`
+}
+
+// VaultKeyProviderConfig configures the Vault Transit secrets engine provider.
+type VaultKeyProviderConfig struct {
+	// Address is the Vault server URL (e.g., "https://vault.example.com:8200").
+	Address string `yaml:"address" json:"address"`
+	// Token is the Vault authentication token. Prefer VAULT_TOKEN env var.
+	Token string `yaml:"token" json:"token"`
+	// KeyName is the name of the transit key in Vault (e.g., "manifold-kek").
+	KeyName string `yaml:"keyName" json:"keyName"`
+	// MountPath is the mount path for the transit engine (default: "transit").
+	MountPath string `yaml:"mountPath" json:"mountPath"`
+	// Namespace is the Vault namespace for enterprise deployments.
+	Namespace string `yaml:"namespace" json:"namespace"`
+	// TLSSkipVerify disables TLS certificate verification (dev only).
+	TLSSkipVerify bool `yaml:"tlsSkipVerify" json:"tlsSkipVerify"`
+	// TimeoutSeconds is the HTTP request timeout (default: 30).
+	TimeoutSeconds int `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+}
+
+// AWSKMSKeyProviderConfig configures the AWS KMS provider.
+type AWSKMSKeyProviderConfig struct {
+	// KeyID is the AWS KMS key ID or ARN.
+	KeyID string `yaml:"keyID" json:"keyID"`
+	// Region is the AWS region (e.g., "us-east-1").
+	Region string `yaml:"region" json:"region"`
+	// AccessKeyID is the AWS access key (prefer IAM roles or env vars).
+	AccessKeyID string `yaml:"accessKeyID" json:"accessKeyID"`
+	// SecretAccessKey is the AWS secret key (prefer IAM roles or env vars).
+	SecretAccessKey string `yaml:"secretAccessKey" json:"secretAccessKey"`
+	// Endpoint is an optional custom endpoint for KMS (e.g., LocalStack).
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+}
+
+// WorkspaceConfig controls ephemeral workspace behavior for agent tool execution.
+type WorkspaceConfig struct {
+	// Mode selects workspace isolation strategy: "legacy" (use project dir directly)
+	// or "ephemeral" (create per-session working copies). Default: "legacy".
+	Mode string `yaml:"mode" json:"mode"`
+	// Root is the base directory for ephemeral workspaces. Default: "${WORKDIR}/sandboxes".
+	Root string `yaml:"root" json:"root"`
+	// TTLSeconds is how long an ephemeral workspace may remain before cleanup.
+	// Default: 86400 (24 hours).
+	TTLSeconds int `yaml:"ttlSeconds" json:"ttlSeconds"`
+}
+
+// S3Config holds S3/MinIO connection settings for object storage backend.
+type S3Config struct {
+	// Endpoint is the S3 API endpoint URL (e.g., "http://minio:9000" for MinIO).
+	Endpoint string `yaml:"endpoint" json:"endpoint"`
+	// Region is the AWS region or MinIO region hint.
+	Region string `yaml:"region" json:"region"`
+	// Bucket is the S3 bucket name for project storage.
+	Bucket string `yaml:"bucket" json:"bucket"`
+	// Prefix is the key prefix within the bucket for all project data.
+	Prefix string `yaml:"prefix" json:"prefix"`
+	// AccessKey is the S3 access key ID (prefer env var for production).
+	AccessKey string `yaml:"accessKey" json:"accessKey"`
+	// SecretKey is the S3 secret access key (prefer env var for production).
+	SecretKey string `yaml:"secretKey" json:"secretKey"`
+	// UsePathStyle enables path-style addressing (required for MinIO).
+	UsePathStyle bool `yaml:"usePathStyle" json:"usePathStyle"`
+	// TLSInsecureSkipVerify disables TLS certificate verification (dev only).
+	TLSInsecureSkipVerify bool `yaml:"tlsInsecureSkipVerify" json:"tlsInsecureSkipVerify"`
+	// SSE configures server-side encryption.
+	SSE S3SSEConfig `yaml:"sse" json:"sse"`
+}
+
+// S3SSEConfig configures S3 server-side encryption.
+type S3SSEConfig struct {
+	// Mode selects SSE mode: "none", "sse-s3", or "sse-kms". Default: "none".
+	Mode string `yaml:"mode" json:"mode"`
+	// KMSKeyID is the KMS key ID for sse-kms mode.
+	KMSKeyID string `yaml:"kmsKeyID" json:"kmsKeyID"`
 }
 
 // TTSConfig holds text-to-speech specific configuration.

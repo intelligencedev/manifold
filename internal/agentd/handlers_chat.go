@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +21,7 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	"manifold/internal/warpp"
+	"manifold/internal/workspaces"
 )
 
 type agentStreamTracer struct {
@@ -468,39 +467,33 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
-		// If a project_id was provided, ensure the sandbox path exists. Otherwise tools
-		// like run_cli will fail with permission errors because the base directory is
-		// missing.
+		// If a project_id was provided, checkout a workspace using the workspace manager.
+		// This abstracts the path computation and validation, preparing for future
+		// ephemeral workspace support.
 		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
-			cleanPID := filepath.Clean(pid)
-			if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
-				http.Error(w, "invalid project_id", http.StatusBadRequest)
-				return
-			}
 			var uid int64
 			if userID != nil {
 				uid = *userID
 			}
-			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects")
-			base := filepath.Join(baseRoot, cleanPID)
-			absBaseRoot, err1 := filepath.Abs(baseRoot)
-			absBase, err2 := filepath.Abs(base)
-			if err1 != nil || err2 != nil {
+			ws, err := a.workspaceManager.Checkout(r.Context(), uid, pid, req.SessionID)
+			if err != nil {
+				if errors.Is(err, workspaces.ErrInvalidProjectID) {
+					http.Error(w, "invalid project_id", http.StatusBadRequest)
+					return
+				}
+				if errors.Is(err, workspaces.ErrProjectNotFound) {
+					log.Error().Err(err).Str("project_id", pid).Msg("project_dir_missing")
+					http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
+					return
+				}
+				log.Error().Err(err).Str("project_id", pid).Msg("workspace_checkout_failed")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			relBase, errRel := filepath.Rel(absBaseRoot, absBase)
-			if errRel != nil || relBase == "." || strings.HasPrefix(relBase, ".."+string(os.PathSeparator)) || relBase == ".." {
-				http.Error(w, "invalid project_id", http.StatusBadRequest)
-				return
+			if ws.BaseDir != "" {
+				r = r.WithContext(sandbox.WithBaseDir(r.Context(), ws.BaseDir))
+				r = r.WithContext(sandbox.WithProjectID(r.Context(), pid))
 			}
-			if st, err := os.Stat(absBase); err != nil || !st.IsDir() {
-				log.Error().Err(err).Str("project_id", cleanPID).Str("base", absBase).Msg("project_dir_missing")
-				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
-				return
-			}
-			r = r.WithContext(sandbox.WithBaseDir(r.Context(), absBase))
-			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanPID))
 		}
 
 		currentRun := a.runs.create(req.Prompt)
@@ -892,29 +885,31 @@ func (a *app) promptHandler() http.HandlerFunc {
 		// Attach session ID to context so tools like ask_agent can inherit it.
 		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
 
+		// If a project_id was provided, checkout a workspace using the workspace manager.
 		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
-			cleanPID := filepath.Clean(pid)
-			if cleanPID != pid || strings.HasPrefix(cleanPID, "..") || strings.Contains(cleanPID, string(os.PathSeparator)+"..") || filepath.IsAbs(cleanPID) {
-				http.Error(w, "invalid project_id", http.StatusBadRequest)
-				return
-			}
 			var uid int64
 			if userID != nil {
 				uid = *userID
 			}
-			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(uid), "projects")
-			base := filepath.Join(baseRoot, cleanPID)
-			if !strings.HasPrefix(base, baseRoot+string(os.PathSeparator)) && base != baseRoot {
-				http.Error(w, "invalid project_id", http.StatusBadRequest)
+			ws, err := a.workspaceManager.Checkout(r.Context(), uid, pid, req.SessionID)
+			if err != nil {
+				if errors.Is(err, workspaces.ErrInvalidProjectID) {
+					http.Error(w, "invalid project_id", http.StatusBadRequest)
+					return
+				}
+				if errors.Is(err, workspaces.ErrProjectNotFound) {
+					log.Error().Err(err).Str("project_id", pid).Msg("project_dir_missing")
+					http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
+					return
+				}
+				log.Error().Err(err).Str("project_id", pid).Msg("workspace_checkout_failed")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			if st, err := os.Stat(base); err != nil || !st.IsDir() {
-				log.Error().Err(err).Str("project_id", cleanPID).Str("base", base).Msg("project_dir_missing")
-				http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
-				return
+			if ws.BaseDir != "" {
+				r = r.WithContext(sandbox.WithBaseDir(r.Context(), ws.BaseDir))
+				r = r.WithContext(sandbox.WithProjectID(r.Context(), pid))
 			}
-			r = r.WithContext(sandbox.WithBaseDir(r.Context(), base))
-			r = r.WithContext(sandbox.WithProjectID(r.Context(), cleanPID))
 		}
 
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {

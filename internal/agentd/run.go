@@ -25,6 +25,7 @@ import (
 	openaillm "manifold/internal/llm/openai"
 	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
+	"manifold/internal/objectstore"
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
@@ -57,6 +58,7 @@ import (
 	"manifold/internal/tools/web"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
+	"manifold/internal/workspaces"
 )
 
 const systemUserID int64 = 0
@@ -81,7 +83,9 @@ type app struct {
 	chatMemory        *memory.Manager
 	runs              *runStore
 	playgroundHandler http.Handler
-	projectsService   *projects.Service
+	projectsService   projects.ProjectService
+	s3Store           *objectstore.S3Store // nil if filesystem backend
+	workspaceManager  workspaces.WorkspaceManager
 	whisperModel      whisper.Model
 	authStore         *auth.Store
 	authProvider      auth.Provider
@@ -231,11 +235,39 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
+	// Initialize S3 store early if S3 backend is configured (needed for workspace manager)
+	var s3Store *objectstore.S3Store
+	if cfg.Projects.Backend == "s3" {
+		var err error
+		s3Store, err = objectstore.NewS3Store(ctx, cfg.Projects.S3)
+		if err != nil {
+			return nil, fmt.Errorf("init s3 store: %w", err)
+		}
+		// Verify connectivity
+		if err := s3Store.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("s3 connectivity check failed: %w", err)
+		}
+		log.Info().
+			Str("bucket", cfg.Projects.S3.Bucket).
+			Str("prefix", cfg.Projects.S3.Prefix).
+			Str("endpoint", cfg.Projects.S3.Endpoint).
+			Msg("s3_store_initialized")
+	}
+
+	// Initialize workspace manager with optional S3 store for ephemeral workspaces
+	var wsMgr workspaces.WorkspaceManager
+	if s3Store != nil && cfg.Projects.Workspace.Mode == "ephemeral" {
+		wsMgr = workspaces.NewManagerWithStore(cfg, s3Store)
+	} else {
+		wsMgr = workspaces.NewManager(cfg)
+	}
+	log.Info().Str("mode", wsMgr.Mode()).Msg("workspace_manager_initialized")
+
 	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
 	specReg.SetWorkdir(cfg.Workdir)
 
 	// Register specialist routing tools.
-	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, cfg.Workdir)
+	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, wsMgr)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
@@ -298,6 +330,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		runs:             newRunStore(),
 		mcpStore:         mgr.MCP,
 		mcpManager:       mcpMgr,
+		workspaceManager: wsMgr,
 	}
 
 	systemPrompt := app.composeSystemPrompt()
@@ -325,7 +358,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	app.engine.AttachTokenizer(llm, nil)
 
-	delegator := agenttools.NewDelegator(toolRegistry, specReg, cfg.Workdir, cfg.MaxSteps)
+	delegator := agenttools.NewDelegator(toolRegistry, specReg, wsMgr, cfg.MaxSteps)
 	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
 	app.engine.Delegator = delegator
 
@@ -419,11 +452,22 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
 	app.playgroundHandler = httpapi.NewServer(playgroundService)
 
-	app.projectsService = projects.NewService(cfg.Workdir)
-	if cfg.Projects.Encrypt {
-		if err := app.projectsService.EnableEncryption(true); err != nil {
-			return nil, fmt.Errorf("enable project encryption failed: %w", err)
+	// Initialize projects service based on backend configuration (s3Store already initialized above)
+	app.s3Store = s3Store
+	switch cfg.Projects.Backend {
+	case "s3":
+		app.projectsService = projects.NewS3Service(s3Store, cfg.Projects.S3)
+		log.Info().Msg("projects_s3_backend_initialized")
+	default:
+		// Filesystem backend (default)
+		fsService := projects.NewService(cfg.Workdir)
+		if cfg.Projects.Encrypt {
+			if err := fsService.EnableEncryption(true); err != nil {
+				return nil, fmt.Errorf("enable project encryption failed: %w", err)
+			}
 		}
+		app.projectsService = fsService
+		log.Info().Str("workdir", cfg.Workdir).Msg("projects_filesystem_backend_initialized")
 	}
 
 	app.whisperModel = app.loadWhisperModel("models/ggml-small.en.bin")

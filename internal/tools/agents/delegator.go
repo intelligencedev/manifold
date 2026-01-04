@@ -3,8 +3,6 @@ package agents
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"manifold/internal/agent"
@@ -14,6 +12,7 @@ import (
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	"manifold/internal/workspaces"
 )
 
 // Delegator bridges agent-to-agent calls directly through the agent engine
@@ -22,14 +21,14 @@ import (
 type Delegator struct {
 	reg            tools.Registry
 	specReg        *specialists.Registry
-	workdir        string
+	wsMgr          workspaces.WorkspaceManager
 	defaultSys     string
 	defaultMaxStep int
 	defaultTimeout time.Duration
 }
 
-func NewDelegator(reg tools.Registry, specReg *specialists.Registry, workdir string, defaultMaxSteps int) *Delegator {
-	return &Delegator{reg: reg, specReg: specReg, workdir: workdir, defaultSys: "You are a helpful assistant.", defaultMaxStep: defaultMaxSteps}
+func NewDelegator(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager, defaultMaxSteps int) *Delegator {
+	return &Delegator{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant.", defaultMaxStep: defaultMaxSteps}
 }
 
 func (d *Delegator) SetDefaultTimeout(seconds int) {
@@ -47,12 +46,14 @@ func (d *Delegator) SetRegistry(reg tools.Registry) {
 
 func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer agent.AgentTracer) (string, error) {
 	dispatchCtx := ctx
-	if pid := req.ProjectID; pid != "" && d.workdir != "" {
-		base := filepath.Join(d.workdir, "users", fmt.Sprint(req.UserID), "projects", pid)
-		if st, err := os.Stat(base); err != nil || !st.IsDir() {
-			return "", fmt.Errorf("project not found (project_id must match the project directory/ID)")
+	if pid := req.ProjectID; pid != "" && d.wsMgr != nil {
+		ws, err := d.wsMgr.Checkout(ctx, req.UserID, pid, "")
+		if err != nil {
+			return "", fmt.Errorf("workspace checkout failed: %w", err)
 		}
-		dispatchCtx = sandbox.WithBaseDir(dispatchCtx, base)
+		if ws.BaseDir != "" {
+			dispatchCtx = sandbox.WithBaseDir(dispatchCtx, ws.BaseDir)
+		}
 	}
 
 	var prov llm.Provider

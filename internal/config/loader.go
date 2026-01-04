@@ -280,6 +280,103 @@ func Load() (Config, error) {
 		}
 	}
 
+	// Projects configuration via environment variables
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_BACKEND")); v != "" {
+		cfg.Projects.Backend = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPT")); v != "" {
+		cfg.Projects.Encrypt = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+	// Encryption key provider configuration
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_PROVIDER")); v != "" {
+		cfg.Projects.Encryption.Provider = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_FILE_KEYSTORE_PATH")); v != "" {
+		cfg.Projects.Encryption.File.KeystorePath = v
+	}
+	// Vault Transit configuration
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_ADDRESS")); v != "" {
+		cfg.Projects.Encryption.Vault.Address = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_TOKEN")); v != "" {
+		cfg.Projects.Encryption.Vault.Token = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_KEY_NAME")); v != "" {
+		cfg.Projects.Encryption.Vault.KeyName = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_MOUNT_PATH")); v != "" {
+		cfg.Projects.Encryption.Vault.MountPath = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_NAMESPACE")); v != "" {
+		cfg.Projects.Encryption.Vault.Namespace = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_TLS_SKIP_VERIFY")); v != "" {
+		cfg.Projects.Encryption.Vault.TLSSkipVerify = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_TIMEOUT_SECONDS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Projects.Encryption.Vault.TimeoutSeconds = n
+		}
+	}
+	// AWS KMS configuration
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_KEY_ID")); v != "" {
+		cfg.Projects.Encryption.AWSKMS.KeyID = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_REGION")); v != "" {
+		cfg.Projects.Encryption.AWSKMS.Region = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_ACCESS_KEY_ID")); v != "" {
+		cfg.Projects.Encryption.AWSKMS.AccessKeyID = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_SECRET_ACCESS_KEY")); v != "" {
+		cfg.Projects.Encryption.AWSKMS.SecretAccessKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_ENDPOINT")); v != "" {
+		cfg.Projects.Encryption.AWSKMS.Endpoint = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_WORKSPACE_MODE")); v != "" {
+		cfg.Projects.Workspace.Mode = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_WORKSPACE_ROOT")); v != "" {
+		cfg.Projects.Workspace.Root = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_WORKSPACE_TTL_SECONDS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Projects.Workspace.TTLSeconds = n
+		}
+	}
+	// S3/MinIO configuration for projects storage
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_ENDPOINT")); v != "" {
+		cfg.Projects.S3.Endpoint = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_REGION")); v != "" {
+		cfg.Projects.S3.Region = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_BUCKET")); v != "" {
+		cfg.Projects.S3.Bucket = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_PREFIX")); v != "" {
+		cfg.Projects.S3.Prefix = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_ACCESS_KEY")); v != "" {
+		cfg.Projects.S3.AccessKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_SECRET_KEY")); v != "" {
+		cfg.Projects.S3.SecretKey = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_USE_PATH_STYLE")); v != "" {
+		cfg.Projects.S3.UsePathStyle = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_TLS_INSECURE")); v != "" {
+		cfg.Projects.S3.TLSInsecureSkipVerify = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_SSE_MODE")); v != "" {
+		cfg.Projects.S3.SSE.Mode = v
+	}
+	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_SSE_KMS_KEY_ID")); v != "" {
+		cfg.Projects.S3.SSE.KMSKeyID = v
+	}
+
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
 		return Config{}, err
@@ -449,6 +546,26 @@ func Load() (Config, error) {
 		cfg.Auth.Provider = "oidc"
 	}
 
+	// Apply projects defaults
+	if cfg.Projects.Backend == "" {
+		cfg.Projects.Backend = "filesystem"
+	}
+	if cfg.Projects.Workspace.Mode == "" {
+		cfg.Projects.Workspace.Mode = "legacy"
+	}
+	if cfg.Projects.Workspace.TTLSeconds == 0 {
+		cfg.Projects.Workspace.TTLSeconds = 86400 // 24 hours
+	}
+	if cfg.Projects.S3.Region == "" {
+		cfg.Projects.S3.Region = "us-east-1"
+	}
+	if cfg.Projects.S3.Prefix == "" {
+		cfg.Projects.S3.Prefix = "workspaces"
+	}
+	if cfg.Projects.S3.SSE.Mode == "" {
+		cfg.Projects.S3.SSE.Mode = "none"
+	}
+
 	if cfg.OpenAI.APIKey == "" {
 		return Config{}, errors.New("OPENAI_API_KEY is required for llm_client.openai (set in .env or environment)")
 	}
@@ -473,6 +590,12 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
 	}
 	cfg.Workdir = absWD
+
+	// Apply workspace root default after WORKDIR is resolved
+	if cfg.Projects.Workspace.Root == "" {
+		cfg.Projects.Workspace.Root = filepath.Join(absWD, "sandboxes")
+	}
+
 	// Keep LLMClient.OpenAI in sync with the effective OpenAI config.
 	cfg.LLMClient.OpenAI = cfg.OpenAI
 
@@ -679,6 +802,32 @@ func loadSpecialists(cfg *Config) error {
 		Voice   string `yaml:"voice"`
 		Format  string `yaml:"format"`
 	}
+	type s3SSEConfigYAML struct {
+		Mode     string `yaml:"mode"`
+		KMSKeyID string `yaml:"kmsKeyID"`
+	}
+	type s3ConfigYAML struct {
+		Endpoint              string          `yaml:"endpoint"`
+		Region                string          `yaml:"region"`
+		Bucket                string          `yaml:"bucket"`
+		Prefix                string          `yaml:"prefix"`
+		AccessKey             string          `yaml:"accessKey"`
+		SecretKey             string          `yaml:"secretKey"`
+		UsePathStyle          bool            `yaml:"usePathStyle"`
+		TLSInsecureSkipVerify bool            `yaml:"tlsInsecureSkipVerify"`
+		SSE                   s3SSEConfigYAML `yaml:"sse"`
+	}
+	type workspaceConfigYAML struct {
+		Mode       string `yaml:"mode"`
+		Root       string `yaml:"root"`
+		TTLSeconds int    `yaml:"ttlSeconds"`
+	}
+	type projectsYAML struct {
+		Backend   string              `yaml:"backend"`
+		Encrypt   bool                `yaml:"encrypt"`
+		Workspace workspaceConfigYAML `yaml:"workspace"`
+		S3        s3ConfigYAML        `yaml:"s3"`
+	}
 	type oauth2YAML struct {
 		AuthURL             string   `yaml:"authURL"`
 		TokenURL            string   `yaml:"tokenURL"`
@@ -728,6 +877,7 @@ func loadSpecialists(cfg *Config) error {
 		Embedding      embeddingYAML      `yaml:"embedding"`
 		EvolvingMemory evolvingMemoryYAML `yaml:"evolvingMemory"`
 		TTS            ttsYAML            `yaml:"tts"`
+		Projects       projectsYAML       `yaml:"projects"`
 		EnableTools    *bool              `yaml:"enableTools"`
 		// AllowTools is a top-level allow-list for tools exposed to the main agent.
 		// If present, it should map into cfg.ToolAllowList.
@@ -1113,6 +1263,52 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Auth.OAuth2.RolesField == "" && strings.TrimSpace(w.Auth.OAuth2.RolesField) != "" {
 			cfg.Auth.OAuth2.RolesField = strings.TrimSpace(w.Auth.OAuth2.RolesField)
+		}
+		// Projects: merge YAML config if env not set
+		if cfg.Projects.Backend == "" && strings.TrimSpace(w.Projects.Backend) != "" {
+			cfg.Projects.Backend = strings.TrimSpace(w.Projects.Backend)
+		}
+		if w.Projects.Encrypt {
+			cfg.Projects.Encrypt = true
+		}
+		if cfg.Projects.Workspace.Mode == "" && strings.TrimSpace(w.Projects.Workspace.Mode) != "" {
+			cfg.Projects.Workspace.Mode = strings.TrimSpace(w.Projects.Workspace.Mode)
+		}
+		if cfg.Projects.Workspace.Root == "" && strings.TrimSpace(w.Projects.Workspace.Root) != "" {
+			cfg.Projects.Workspace.Root = strings.TrimSpace(w.Projects.Workspace.Root)
+		}
+		if cfg.Projects.Workspace.TTLSeconds == 0 && w.Projects.Workspace.TTLSeconds > 0 {
+			cfg.Projects.Workspace.TTLSeconds = w.Projects.Workspace.TTLSeconds
+		}
+		if cfg.Projects.S3.Endpoint == "" && strings.TrimSpace(w.Projects.S3.Endpoint) != "" {
+			cfg.Projects.S3.Endpoint = strings.TrimSpace(w.Projects.S3.Endpoint)
+		}
+		if cfg.Projects.S3.Region == "" && strings.TrimSpace(w.Projects.S3.Region) != "" {
+			cfg.Projects.S3.Region = strings.TrimSpace(w.Projects.S3.Region)
+		}
+		if cfg.Projects.S3.Bucket == "" && strings.TrimSpace(w.Projects.S3.Bucket) != "" {
+			cfg.Projects.S3.Bucket = strings.TrimSpace(w.Projects.S3.Bucket)
+		}
+		if cfg.Projects.S3.Prefix == "" && strings.TrimSpace(w.Projects.S3.Prefix) != "" {
+			cfg.Projects.S3.Prefix = strings.TrimSpace(w.Projects.S3.Prefix)
+		}
+		if cfg.Projects.S3.AccessKey == "" && strings.TrimSpace(w.Projects.S3.AccessKey) != "" {
+			cfg.Projects.S3.AccessKey = strings.TrimSpace(w.Projects.S3.AccessKey)
+		}
+		if cfg.Projects.S3.SecretKey == "" && strings.TrimSpace(w.Projects.S3.SecretKey) != "" {
+			cfg.Projects.S3.SecretKey = strings.TrimSpace(w.Projects.S3.SecretKey)
+		}
+		if w.Projects.S3.UsePathStyle {
+			cfg.Projects.S3.UsePathStyle = true
+		}
+		if w.Projects.S3.TLSInsecureSkipVerify {
+			cfg.Projects.S3.TLSInsecureSkipVerify = true
+		}
+		if cfg.Projects.S3.SSE.Mode == "" && strings.TrimSpace(w.Projects.S3.SSE.Mode) != "" {
+			cfg.Projects.S3.SSE.Mode = strings.TrimSpace(w.Projects.S3.SSE.Mode)
+		}
+		if cfg.Projects.S3.SSE.KMSKeyID == "" && strings.TrimSpace(w.Projects.S3.SSE.KMSKeyID) != "" {
+			cfg.Projects.S3.SSE.KMSKeyID = strings.TrimSpace(w.Projects.S3.SSE.KMSKeyID)
 		}
 		return nil
 	}

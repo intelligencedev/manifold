@@ -350,7 +350,39 @@ PROJECTS_ENCRYPTION_VAULT_KEY_NAME=manifold-kek
 VAULT_TOKEN=hvs.xxxxx
 ```
 
-**Vault Setup:**
+**Local Development with Vault (docker-compose):**
+
+1. Start Vault dev server:
+   ```bash
+   docker-compose up -d vault
+   ```
+
+2. Initialize Transit engine and create encryption key:
+   ```bash
+   docker-compose up vault-init
+   ```
+
+3. Configure environment:
+   ```bash
+   # .env
+   PROJECTS_ENCRYPT=true
+   PROJECTS_ENCRYPTION_PROVIDER=vault
+   PROJECTS_ENCRYPTION_VAULT_ADDRESS=http://localhost:8200
+   VAULT_TOKEN=dev-only-token
+   ```
+
+4. Access Vault UI (optional):
+   - Open http://localhost:8200
+   - Token: `dev-only-token`
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| `vault` | 8200 | Vault API and UI |
+| `vault-init` | — | One-shot Transit setup |
+
+> **Note:** The dev server uses in-memory storage. Data is lost on restart. For persistent dev testing, use a production Vault setup.
+
+**Production Vault Setup:**
 
 ```bash
 # Enable Transit secrets engine
@@ -485,6 +517,41 @@ SELECT id, name, storage_backend FROM projects WHERE user_id = <uid>;
 -- If storage_backend is 'filesystem', migration didn't complete
 ```
 
+#### Vault "permission denied" Error
+
+**Cause:** Invalid token or missing Transit policy.
+
+**Solution:**
+```bash
+# Verify token is valid
+curl -H "X-Vault-Token: $VAULT_TOKEN" http://localhost:8200/v1/sys/health
+
+# Check Transit engine is enabled
+curl -H "X-Vault-Token: $VAULT_TOKEN" http://localhost:8200/v1/sys/mounts | jq '.["transit/"]'
+
+# Verify key exists
+curl -H "X-Vault-Token: $VAULT_TOKEN" http://localhost:8200/v1/transit/keys/manifold-kek
+```
+
+#### Vault "connection refused" Error
+
+**Cause:** Vault container not running.
+
+**Solution:**
+```bash
+docker-compose up -d vault
+docker ps | grep vault
+```
+
+#### Cannot Decrypt Files After Switching KeyProvider
+
+**Cause:** Files encrypted with one KeyProvider cannot be decrypted with another.
+
+**Solution:**
+- Projects encrypted with File provider require File provider to decrypt
+- Projects encrypted with Vault require Vault to decrypt
+- To switch providers, you must re-encrypt all project files (migration tool needed)
+
 ### Diagnostic Commands
 
 ```bash
@@ -499,6 +566,16 @@ psql $DATABASE_URL -c "SELECT id, name, storage_backend FROM projects"
 
 # Test S3 connectivity from agentd
 curl -v http://localhost:9002/manifold-workspaces/
+
+# Check Vault health
+curl http://localhost:8200/v1/sys/health
+
+# Verify Vault Transit key exists
+curl -H "X-Vault-Token: dev-only-token" http://localhost:8200/v1/transit/keys/manifold-kek
+
+# Test Vault encrypt/decrypt
+echo -n "test" | base64 | xargs -I {} curl -s -H "X-Vault-Token: dev-only-token" \
+  -d '{"plaintext":"{}"}' http://localhost:8200/v1/transit/encrypt/manifold-kek
 ```
 
 ### Logs

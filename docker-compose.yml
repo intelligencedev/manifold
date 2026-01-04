@@ -171,6 +171,52 @@ services:
       MINIO_BUCKET: ${PROJECTS_S3_BUCKET:-manifold-workspaces}
 
 ###############################################################################
+# Secrets Management - HashiCorp Vault for encryption key management
+# Not required for default file-based encryption. Enable with PROJECTS_ENCRYPTION_PROVIDER=vault
+###############################################################################
+
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: manifold_vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+      VAULT_ADDR: "http://127.0.0.1:8200"
+    ports:
+      - "8200:8200"
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # One-shot container to enable Transit secrets engine and create encryption key
+  vault-init:
+    image: hashicorp/vault:1.15
+    container_name: manifold_vault_init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for Vault...';
+      sleep 2;
+      echo 'Enabling Transit secrets engine...';
+      vault secrets enable transit 2>/dev/null || echo 'Transit already enabled';
+      echo 'Creating encryption key...';
+      vault write -f transit/keys/$${VAULT_KEY_NAME:-manifold-kek} 2>/dev/null || echo 'Key already exists';
+      echo 'Vault initialized with Transit key: $${VAULT_KEY_NAME:-manifold-kek}';
+      exit 0;
+      "
+
+###############################################################################
 # Authentication - Not required, disable auth in config.yaml to run without it
 ###############################################################################
 
@@ -227,3 +273,4 @@ volumes:
   clickhouse_data:
   clickhouse_logs:
   minio_data:
+  vault_data:

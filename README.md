@@ -11,65 +11,43 @@ Disclaimer: As an experimental frontier AI platform, we do not recommend Manifol
 ## Features
 
 ### **Agent Chat**
-Use a traditional chat view to instructs agents to work on objectives.
+Use a traditional chat view to instruct specialists (agents) to work on objectives.
 
-![chat](docs/img/manifold_chat.jpg)
+![chat](docs/img/chat.webp)
+
+_Specialists can collaborate in multi-turn objectives. Manifold is designed to take advantage of the long horizon capabilities of frontier models and can work on complex objectives for hours._
 
 ### Image Generation
 
 Manifold supports OpenAI and Google image generation models as well as local image generation using a custom ComfyUI MCP client.
 
-![chat](docs/img/manifold_img_gen.jpg)
+![image generation](docs/img/imggen.webp)
+_Example ComfyUI generated image with a custom workflow_
 
 ### **Specialist Registry**
 Define and configure AI agents (specialists) and build your team of experts.
 
-![specialists](docs/img/manifold_specialists.jpg)
+![specialists](docs/img/specialists.webp)
 
 ### **Projects**
 Configure projects as agent workspaces.
 
-![specialists](docs/img/manifold_projects.jpg)
+![projects](docs/img/projects.webp)
 
 ### **Integrated tools and MCP Support**
 Manifold implements internal tools for agent workflows as well as MCP support to extend the capabilities of your agents. Configure as many MCP servers as you wish. Enable tools individually to easily manage model context limits.
 
-![specialists](docs/img/manifold_mcp_config.jpg)
-
-![specialists](docs/img/manifold_mcp.jpg)
-
-### Skills (SKILL.md)
-
-Manifold supports a lightweight "skills" mechanism for discoverable, reusable workflows.
-
-- Create skills under your repo at: `.manifold/skills/<skill-name>/SKILL.md`
-- The agent surfaces available skills in its system prompt as a `## Skills` section
-  (name + description + file path) so the model can decide which to use.
-- Only skill *metadata* is injected; the model should open the listed `SKILL.md` on-demand
-  (progressive disclosure) rather than loading all skill bodies up front.
-
-`SKILL.md` must start with YAML frontmatter:
-
-```yaml
----
-name: my-skill
-description: One sentence describing what this skill does.
-metadata:
-  short-description: Optional shorter description for listings.
----
-```
+![specialists](docs/img/mcp.webp)
 
 ### **Workflow Editor**
 Design agent workflows using a visual flow editor.
 
-![specialists](docs/img/manifold_flow_02.jpg)
-
-![specialists](docs/img/manifold_code_wiki.jpg)
+![specialists](docs/img/flow.webp)
 
 ### **Prompts, Datasets and Experiments Playground**
 Create, iterate and version custom prompts that can be assigned to your agents. Configure datasets and run experiments to understand how prompts affect agent behaviors.
 
-![specialists](docs/img/manifold_playground.jpg)
+![specialists](docs/img/playground.webp)
 
 ## Quick Start
 

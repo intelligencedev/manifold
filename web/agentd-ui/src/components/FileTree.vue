@@ -1,175 +1,180 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref, watch } from 'vue'
-import { useProjectsStore } from '@/stores/projects'
-import FileTreeNode from './FileTreeNode.vue'
+import { computed, onMounted, provide, ref, watch } from "vue";
+import { useProjectsStore } from "@/stores/projects";
+import FileTreeNode from "./FileTreeNode.vue";
 
 const props = defineProps<{
-  selected?: string
-  cwd?: string
-  rootPath?: string
-}>()
+  selected?: string;
+  cwd?: string;
+  rootPath?: string;
+}>();
 
 const emit = defineEmits<{
-  (e: 'select', path: string): void
-  (e: 'open-dir', path: string): void
-  (e: 'moved', payload: { from: string; to: string }): void
-}>()
+  (e: "select", path: string): void;
+  (e: "open-dir", path: string): void;
+  (e: "moved", payload: { from: string; to: string }): void;
+}>();
 
-const store = useProjectsStore()
-const rootPath = computed(() => props.rootPath ?? '.')
+const store = useProjectsStore();
+const rootPath = computed(() => props.rootPath ?? ".");
 
 // Track expanded folders
-const expanded = ref<Set<string>>(new Set([rootPath.value]))
+const expanded = ref<Set<string>>(new Set([rootPath.value]));
 // Track checked items
-const checked = ref<Set<string>>(new Set())
+const checked = ref<Set<string>>(new Set());
 
 // Track current drag item globally for the tree so dragover can read it reliably
-type DragKind = 'file' | 'dir'
-const dragging = ref<{ path: string; kind: DragKind } | null>(null)
-provide('filetreeDrag', dragging)
+type DragKind = "file" | "dir";
+const dragging = ref<{ path: string; kind: DragKind } | null>(null);
+provide("filetreeDrag", dragging);
 
 // Track which destination directory will receive the drop; used for highlight cues
-const dropTargetDir = ref<string | null>(null)
-provide('filetreeDropTargetDir', dropTargetDir)
+const dropTargetDir = ref<string | null>(null);
+provide("filetreeDropTargetDir", dropTargetDir);
 
 async function ensure(path: string) {
-  await store.ensureTree(path || '.')
+  await store.ensureTree(path || ".");
 }
 
 function isExpanded(path: string) {
-  return expanded.value.has(path || '.')
+  return expanded.value.has(path || ".");
 }
 
 async function toggle(path: string) {
-  const p = path || '.'
+  const p = path || ".";
   if (expanded.value.has(p)) {
-    expanded.value.delete(p)
+    expanded.value.delete(p);
   } else {
-    expanded.value.add(p)
-    await ensure(p)
+    expanded.value.add(p);
+    await ensure(p);
   }
 }
 
 function selectFile(path: string) {
-  emit('select', path)
+  emit("select", path);
 }
 
 function openDir(path: string) {
-  emit('open-dir', path || '.')
+  emit("open-dir", path || ".");
 }
 
 function isChecked(path: string) {
-  return checked.value.has(path)
+  return checked.value.has(path);
 }
 function toggleCheck(path: string) {
-  const next = new Set(checked.value)
-  if (next.has(path)) next.delete(path)
-  else next.add(path)
-  checked.value = next
+  const next = new Set(checked.value);
+  if (next.has(path)) next.delete(path);
+  else next.add(path);
+  checked.value = next;
 }
 function clearChecks() {
-  checked.value = new Set()
+  checked.value = new Set();
 }
 defineExpose({
   isChecked,
   toggleCheck,
   clearChecks,
   checked,
-})
+});
 
 // dragData via dataTransfer isn't reliable during dragover in some browsers; prefer shared state
 function currentDrag() {
-  return dragging.value
+  return dragging.value;
 }
 
 function baseName(path: string) {
-  const clean = path.replace(/^\.\/+/, '').replace(/\/+$/, '')
-  const parts = clean.split('/').filter(Boolean)
-  return parts.pop() || clean
+  const clean = path.replace(/^\.\/+/, "").replace(/\/+$/, "");
+  const parts = clean.split("/").filter(Boolean);
+  return parts.pop() || clean;
 }
 
 function normalizeDir(dir: string) {
-  if (!dir || dir === '.') return '.'
-  const withoutLeading = dir.replace(/^\.\/+/, '')
-  const withoutTrailing = withoutLeading.replace(/\/+$/, '')
-  return withoutTrailing || '.'
+  if (!dir || dir === ".") return ".";
+  const withoutLeading = dir.replace(/^\.\/+/, "");
+  const withoutTrailing = withoutLeading.replace(/\/+$/, "");
+  return withoutTrailing || ".";
 }
 
 function buildDestination(dir: string, name: string) {
-  const normalizedDir = normalizeDir(dir)
-  if (!name) return normalizedDir === '.' ? '' : normalizedDir
-  if (!normalizedDir || normalizedDir === '.') return name
-  return `${normalizedDir}/${name}`
+  const normalizedDir = normalizeDir(dir);
+  if (!name) return normalizedDir === "." ? "" : normalizedDir;
+  if (!normalizedDir || normalizedDir === ".") return name;
+  return `${normalizedDir}/${name}`;
 }
 
 function canAcceptMove(src: string, dest: string, kind: DragKind) {
-  if (!src || !dest) return false
-  if (src === dest) return false
-  if (kind === 'dir' && (dest === src || dest.startsWith(`${src}/`))) {
-    return false
+  if (!src || !dest) return false;
+  if (src === dest) return false;
+  if (kind === "dir" && (dest === src || dest.startsWith(`${src}/`))) {
+    return false;
   }
-  return true
+  return true;
 }
 
 function onRootDragOver(event: DragEvent) {
-  const d = currentDrag()
+  const d = currentDrag();
   if (!d) {
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
-    dropTargetDir.value = null
-    return
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+    dropTargetDir.value = null;
+    return;
   }
-  const dest = buildDestination(rootPath.value, baseName(d.path))
+  const dest = buildDestination(rootPath.value, baseName(d.path));
   if (!canAcceptMove(d.path, dest, d.kind)) {
-    if (event.dataTransfer) event.dataTransfer.dropEffect = 'none'
-    dropTargetDir.value = null
-    return
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "none";
+    dropTargetDir.value = null;
+    return;
   }
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-  dropTargetDir.value = normalizeDir(rootPath.value)
+  if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  dropTargetDir.value = normalizeDir(rootPath.value);
 }
 
 async function onRootDrop(event: DragEvent) {
-  const d = currentDrag()
-  if (!d) return
-  const base = baseName(d.path)
-  const dest = buildDestination(rootPath.value, base)
-  if (!canAcceptMove(d.path, dest, d.kind)) return
+  const d = currentDrag();
+  if (!d) return;
+  const base = baseName(d.path);
+  const dest = buildDestination(rootPath.value, base);
+  if (!canAcceptMove(d.path, dest, d.kind)) return;
   try {
-    await store.movePath(d.path, dest)
-    emit('moved', { from: d.path, to: dest })
+    await store.movePath(d.path, dest);
+    emit("moved", { from: d.path, to: dest });
   } catch (err) {
-    console.error('move failed', err)
+    console.error("move failed", err);
   } finally {
-    dragging.value = null
-    dropTargetDir.value = null
+    dragging.value = null;
+    dropTargetDir.value = null;
   }
 }
 
 function onRootDragLeave() {
-  dropTargetDir.value = null
+  dropTargetDir.value = null;
 }
 
 onMounted(async () => {
   if (store.currentProjectId) {
-    await ensure(rootPath.value)
+    await ensure(rootPath.value);
   }
-})
+});
 
 watch(
   () => store.currentProjectId,
   async () => {
-    expanded.value = new Set([rootPath.value])
-    checked.value.clear()
-    if (store.currentProjectId) await ensure(rootPath.value)
+    expanded.value = new Set([rootPath.value]);
+    checked.value.clear();
+    if (store.currentProjectId) await ensure(rootPath.value);
   },
-)
+);
 </script>
 
 <template>
-  <div class="rounded-4 border border-border/70 overflow-hidden flex min-h-0 flex-col">
+  <div
+    class="rounded-4 border border-border/70 overflow-hidden flex min-h-0 flex-col"
+  >
     <div
       class="flex items-center gap-2 h-9 pl-3 pr-2 bg-surface-muted text-subtle-foreground shrink-0"
-      :class="{ 'ring-2 ring-accent/50 ring-offset-0 bg-accent/10': dropTargetDir === normalizeDir(rootPath) }"
+      :class="{
+        'ring-2 ring-accent/50 ring-offset-0 bg-accent/10':
+          dropTargetDir === normalizeDir(rootPath),
+      }"
       @dragover.prevent="onRootDragOver"
       @drop.prevent="onRootDrop"
       @dragleave.prevent="onRootDragLeave"

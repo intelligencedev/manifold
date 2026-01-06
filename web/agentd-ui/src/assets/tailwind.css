@@ -1,4 +1,4 @@
-@import url('https://rsms.me/inter/inter.css');
+@import url("https://rsms.me/inter/inter.css");
 
 @tailwind base;
 @tailwind components;
@@ -6,7 +6,11 @@
 
 @layer base {
   :root {
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
     --radius: 18px;
     --radius-lg: 26px;
     /* Default to system/store-driven tokens. These initial values are for SSR fallback only. */
@@ -42,7 +46,7 @@
 
   code,
   pre {
-    font-family: 'Inter', 'Inter var', ui-monospace, SFMono-Regular, monospace;
+    font-family: "Inter", "Inter var", ui-monospace, SFMono-Regular, monospace;
   }
 
   /* Global scrollbar styling (thin, accent-colored, no visible rail) */
@@ -127,10 +131,14 @@
     border: 2px solid transparent;
     background-clip: padding-box;
   }
-  .etched-light { box-shadow: inset 0 1px 0 rgba(0,0,0,0.04); }
-  .etched-dark { box-shadow: inset 0 1px 0 rgba(255,255,255,0.03); }
+  .etched-light {
+    box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.04);
+  }
+  .etched-dark {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
   .surface-noise {
-    background-image: radial-gradient(rgba(0,0,0,0.03) 1px, transparent 1px);
+    background-image: radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
     background-size: 3px 3px;
     background-blend-mode: multiply;
   }

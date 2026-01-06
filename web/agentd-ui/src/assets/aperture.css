@@ -23,7 +23,7 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  
+
   /* Typography scale */
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
@@ -44,17 +44,45 @@
   /* Surface gradient tokens (vertical for symmetry) */
   /* Using low-contrast stops to avoid banding while adding depth. */
   /* Contrast tuned: widened stop deltas for clearer hierarchy (panel < card < input < muted) */
-  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 0.70), rgb(var(--color-surface) / 0.58));
-  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 0.88), rgb(var(--color-surface) / 0.70));
-  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.60), rgb(var(--color-surface-muted) / 0.44));
-  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.42), rgb(var(--color-surface-muted) / 0.28));
-  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.90));
+  --grad-panel: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface) / 0.7),
+    rgb(var(--color-surface) / 0.58)
+  );
+  --grad-card: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface) / 0.88),
+    rgb(var(--color-surface) / 0.7)
+  );
+  --grad-muted: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface-muted) / 0.6),
+    rgb(var(--color-surface-muted) / 0.44)
+  );
+  --grad-input: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface-muted) / 0.42),
+    rgb(var(--color-surface-muted) / 0.28)
+  );
+  --grad-bg: linear-gradient(
+    to bottom,
+    rgb(var(--color-background) / 1),
+    rgb(var(--color-background) / 0.9)
+  );
 
   background: var(--grad-bg);
 
   /* Accent sprinkles: ultra-light overlay and selection */
-  --accent-sprinkle: linear-gradient(to bottom, rgb(var(--color-accent) / 0.06), transparent 30%);
-  --accent-underline: linear-gradient(to right, rgb(var(--color-accent) / 0.6), rgb(var(--color-accent) / 0.2));
+  --accent-sprinkle: linear-gradient(
+    to bottom,
+    rgb(var(--color-accent) / 0.06),
+    transparent 30%
+  );
+  --accent-underline: linear-gradient(
+    to right,
+    rgb(var(--color-accent) / 0.6),
+    rgb(var(--color-accent) / 0.2)
+  );
 }
 [data-theme="aperture-dark"] .aperture ::selection {
   background: rgb(var(--color-accent) / 0.25);
@@ -87,9 +115,15 @@
 }
 
 /* Generic surface containers - no borders, rely on background differentiation */
-[data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-2xl.bg-surface,
-[data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-xl.bg-surface,
-[data-theme="aperture-dark"] .aperture :is(section,div,article).rounded-5.bg-surface {
+[data-theme="aperture-dark"]
+  .aperture
+  :is(section, div, article).rounded-2xl.bg-surface,
+[data-theme="aperture-dark"]
+  .aperture
+  :is(section, div, article).rounded-xl.bg-surface,
+[data-theme="aperture-dark"]
+  .aperture
+  :is(section, div, article).rounded-5.bg-surface {
   border: none !important;
   box-shadow: none !important;
   background: var(--grad-panel);
@@ -119,13 +153,17 @@
 
 [data-theme="aperture-dark"] .aperture .ap-input:focus-within,
 [data-theme="aperture-dark"] .aperture .ap-input:focus {
-  background: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.46), rgb(var(--color-surface-muted) / 0.38));
-  border-color: rgb(var(--color-accent) / 0.60);
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface-muted) / 0.46),
+    rgb(var(--color-surface-muted) / 0.38)
+  );
+  border-color: rgb(var(--color-accent) / 0.6);
   outline: none;
 }
 
 /* Buttons - no shadows, rely on background and hover states */
-[data-theme="aperture-dark"] .aperture button[class*='shadow-'] {
+[data-theme="aperture-dark"] .aperture button[class*="shadow-"] {
   box-shadow: none !important;
 }
 
@@ -137,44 +175,44 @@
 
 /* Rings - minimal, subtle */
 [data-theme="aperture-dark"] .aperture .ap-ring {
-  border: 1px solid rgb(var(--color-border) / 0.20);
+  border: 1px solid rgb(var(--color-border) / 0.2);
   box-shadow: none;
 }
 
 /* Typography overrides for consistency */
-[data-theme="aperture-dark"] .aperture h1 { 
-  font-size: var(--font-size-xl); 
-  font-weight: 600; 
+[data-theme="aperture-dark"] .aperture h1 {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
 
-[data-theme="aperture-dark"] .aperture h2 { 
-  font-size: var(--font-size-lg); 
-  font-weight: 600; 
+[data-theme="aperture-dark"] .aperture h2 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.3;
 }
 
-[data-theme="aperture-dark"] .aperture h3 { 
-  font-size: var(--font-size-base); 
-  font-weight: 600; 
+[data-theme="aperture-dark"] .aperture h3 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
   line-height: 1.4;
 }
 
 [data-theme="aperture-dark"] .aperture p,
-[data-theme="aperture-dark"] .aperture .text-base { 
-  font-size: var(--font-size-base); 
+[data-theme="aperture-dark"] .aperture .text-base {
+  font-size: var(--font-size-base);
   line-height: 1.6;
 }
 
-[data-theme="aperture-dark"] .aperture .text-sm { 
-  font-size: var(--font-size-sm); 
+[data-theme="aperture-dark"] .aperture .text-sm {
+  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
-[data-theme="aperture-dark"] .aperture .text-xs { 
-  font-size: var(--font-size-xs); 
+[data-theme="aperture-dark"] .aperture .text-xs {
+  font-size: var(--font-size-xs);
   line-height: 1.4;
 }
 
@@ -187,12 +225,12 @@
 [data-theme="aperture-light"] .aperture {
   /* Explicit light palette tokens to increase separation and readability */
   --color-background: 248 249 251; /* page bg */
-  --color-surface: 255 255 255;     /* panels/cards */
+  --color-surface: 255 255 255; /* panels/cards */
   --color-surface-muted: 245 247 250; /* chips/inputs */
-  --color-border: 210 216 222;      /* hairlines */
+  --color-border: 210 216 222; /* hairlines */
   --color-input: 241 244 248;
-  --color-ring: 112 109 230;        /* keep accent ring */
-  --color-foreground: 23 27 34;     /* primary text */
+  --color-ring: 112 109 230; /* keep accent ring */
+  --color-foreground: 23 27 34; /* primary text */
   --color-muted-foreground: 73 84 96;
   --color-subtle-foreground: 95 106 118;
   --color-faint-foreground: 124 135 148;
@@ -210,7 +248,7 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  
+
   --font-size-xs: 0.75rem;
   --font-size-sm: 0.875rem;
   --font-size-base: 0.9375rem;
@@ -228,20 +266,48 @@
 
   /* Light surface gradient tokens — stronger separation */
   /* Contrast tuned for light theme: widened gradients & deeper page bg */
-  --grad-panel: linear-gradient(to bottom, rgb(var(--color-surface) / 1), rgb(var(--color-surface) / 0.92));
-  --grad-card: linear-gradient(to bottom, rgb(var(--color-surface) / 1), rgb(var(--color-surface) / 0.985));
-  --grad-muted: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.70), rgb(var(--color-surface-muted) / 0.54));
-  --grad-input: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.52), rgb(var(--color-surface-muted) / 0.38));
-  --grad-bg: linear-gradient(to bottom, rgb(var(--color-background) / 1), rgb(var(--color-background) / 0.94));
+  --grad-panel: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface) / 1),
+    rgb(var(--color-surface) / 0.92)
+  );
+  --grad-card: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface) / 1),
+    rgb(var(--color-surface) / 0.985)
+  );
+  --grad-muted: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface-muted) / 0.7),
+    rgb(var(--color-surface-muted) / 0.54)
+  );
+  --grad-input: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface-muted) / 0.52),
+    rgb(var(--color-surface-muted) / 0.38)
+  );
+  --grad-bg: linear-gradient(
+    to bottom,
+    rgb(var(--color-background) / 1),
+    rgb(var(--color-background) / 0.94)
+  );
 
   background: var(--grad-bg);
 
   /* Accent sprinkles for light theme */
-  --accent-sprinkle: linear-gradient(to bottom, rgb(var(--color-accent) / 0.04), transparent 30%);
-  --accent-underline: linear-gradient(to right, rgb(var(--color-accent) / 0.7), rgb(var(--color-accent) / 0.25));
+  --accent-sprinkle: linear-gradient(
+    to bottom,
+    rgb(var(--color-accent) / 0.04),
+    transparent 30%
+  );
+  --accent-underline: linear-gradient(
+    to right,
+    rgb(var(--color-accent) / 0.7),
+    rgb(var(--color-accent) / 0.25)
+  );
 }
 [data-theme="aperture-light"] .aperture ::selection {
-  background: rgb(var(--color-accent) / 0.20);
+  background: rgb(var(--color-accent) / 0.2);
   color: rgb(var(--color-accent-foreground));
 }
 
@@ -269,9 +335,15 @@
 }
 
 /* Generic surface containers - balanced opacity */
-[data-theme="aperture-light"] .aperture :is(section,div,article).rounded-2xl.bg-surface,
-[data-theme="aperture-light"] .aperture :is(section,div,article).rounded-xl.bg-surface,
-[data-theme="aperture-light"] .aperture :is(section,div,article).rounded-5.bg-surface {
+[data-theme="aperture-light"]
+  .aperture
+  :is(section, div, article).rounded-2xl.bg-surface,
+[data-theme="aperture-light"]
+  .aperture
+  :is(section, div, article).rounded-xl.bg-surface,
+[data-theme="aperture-light"]
+  .aperture
+  :is(section, div, article).rounded-5.bg-surface {
   border: 1px solid rgb(var(--color-border) / 0.18) !important; /* reinforce container separation */
   box-shadow: none !important;
   background: var(--grad-panel);
@@ -301,13 +373,17 @@
 
 [data-theme="aperture-light"] .aperture .ap-input:focus-within,
 [data-theme="aperture-light"] .aperture .ap-input:focus {
-  background: linear-gradient(to bottom, rgb(var(--color-surface-muted) / 0.50), rgb(var(--color-surface-muted) / 0.42));
-  border-color: rgb(var(--color-accent) / 0.60);
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--color-surface-muted) / 0.5),
+    rgb(var(--color-surface-muted) / 0.42)
+  );
+  border-color: rgb(var(--color-accent) / 0.6);
   outline: none;
 }
 
 /* Buttons */
-[data-theme="aperture-light"] .aperture button[class*='shadow-'] {
+[data-theme="aperture-light"] .aperture button[class*="shadow-"] {
   box-shadow: none !important;
 }
 
@@ -324,39 +400,38 @@
 }
 
 /* Typography - same as dark for consistency */
-[data-theme="aperture-light"] .aperture h1 { 
-  font-size: var(--font-size-xl); 
-  font-weight: 600; 
+[data-theme="aperture-light"] .aperture h1 {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
 
-[data-theme="aperture-light"] .aperture h2 { 
-  font-size: var(--font-size-lg); 
-  font-weight: 600; 
+[data-theme="aperture-light"] .aperture h2 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.3;
 }
 
-[data-theme="aperture-light"] .aperture h3 { 
-  font-size: var(--font-size-base); 
-  font-weight: 600; 
+[data-theme="aperture-light"] .aperture h3 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
   line-height: 1.4;
 }
 
 [data-theme="aperture-light"] .aperture p,
-[data-theme="aperture-light"] .aperture .text-base { 
-  font-size: var(--font-size-base); 
+[data-theme="aperture-light"] .aperture .text-base {
+  font-size: var(--font-size-base);
   line-height: 1.6;
 }
 
-[data-theme="aperture-light"] .aperture .text-sm { 
-  font-size: var(--font-size-sm); 
+[data-theme="aperture-light"] .aperture .text-sm {
+  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
-[data-theme="aperture-light"] .aperture .text-xs { 
-  font-size: var(--font-size-xs); 
+[data-theme="aperture-light"] .aperture .text-xs {
+  font-size: var(--font-size-xs);
   line-height: 1.4;
 }
-

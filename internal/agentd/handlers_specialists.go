@@ -223,6 +223,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 			}
 			if name == specialists.OrchestratorName {
 				// Allow non-system users to update their per-user orchestrator overlay
+				// without mutating the global engine/config.
 				if userID == systemUserID {
 					if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
 						http.Error(w, err.Error(), http.StatusInternalServerError)

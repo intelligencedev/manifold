@@ -32,87 +32,91 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
-import { GridLayout, GridItem } from 'vue3-grid-layout-next'
-import 'vue3-grid-layout-next/dist/style.css'
+import { ref, watch, onMounted } from "vue";
+import { GridLayout, GridItem } from "vue3-grid-layout-next";
+import "vue3-grid-layout-next/dist/style.css";
 
 export interface GridItemConfig {
-  i: string
-  x: number
-  y: number
-  w: number
-  h: number
-  minW?: number
-  minH?: number
-  static?: boolean
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  minW?: number;
+  minH?: number;
+  static?: boolean;
 }
 
 interface Props {
-  layout: GridItemConfig[]
-  storageKey?: string
+  layout: GridItemConfig[];
+  storageKey?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  storageKey: 'dashboard-layout',
-})
+  storageKey: "dashboard-layout",
+});
 
 const emit = defineEmits<{
-  'layout-change': [layout: GridItemConfig[]]
-}>()
+  "layout-change": [layout: GridItemConfig[]];
+}>();
 
-const currentLayout = ref<GridItemConfig[]>([...props.layout])
+const currentLayout = ref<GridItemConfig[]>([...props.layout]);
 
 // Load saved layout from localStorage
 onMounted(() => {
   if (props.storageKey) {
-    const saved = localStorage.getItem(props.storageKey)
+    const saved = localStorage.getItem(props.storageKey);
     if (saved) {
       try {
-        const savedLayout = JSON.parse(saved) as GridItemConfig[]
+        const savedLayout = JSON.parse(saved) as GridItemConfig[];
         // Merge saved layout with default props, preserving IDs from props
         const merged = props.layout.map((item) => {
-          const savedItem = savedLayout.find((s) => s.i === item.i)
-          return savedItem ? { ...item, ...savedItem } : item
-        })
-        currentLayout.value = merged
+          const savedItem = savedLayout.find((s) => s.i === item.i);
+          return savedItem ? { ...item, ...savedItem } : item;
+        });
+        currentLayout.value = merged;
       } catch (e) {
-        console.warn('Failed to load saved layout:', e)
+        console.warn("Failed to load saved layout:", e);
       }
     }
   }
-})
+});
 
 function onLayoutUpdated(newLayout: GridItemConfig[]) {
-  currentLayout.value = newLayout
-  emit('layout-change', newLayout)
-  
+  currentLayout.value = newLayout;
+  emit("layout-change", newLayout);
+
   // Save to localStorage
   if (props.storageKey) {
     try {
-      localStorage.setItem(props.storageKey, JSON.stringify(newLayout))
+      localStorage.setItem(props.storageKey, JSON.stringify(newLayout));
     } catch (e) {
-      console.warn('Failed to save layout:', e)
+      console.warn("Failed to save layout:", e);
     }
   }
 }
 
 // Watch for external layout changes
-watch(() => props.layout, (newLayout) => {
-  // Only update if the structure (number of items) has changed
-  if (newLayout.length !== currentLayout.value.length) {
-    currentLayout.value = [...newLayout]
-  }
-}, { deep: true })
+watch(
+  () => props.layout,
+  (newLayout) => {
+    // Only update if the structure (number of items) has changed
+    if (newLayout.length !== currentLayout.value.length) {
+      currentLayout.value = [...newLayout];
+    }
+  },
+  { deep: true },
+);
 
 // Expose method to reset layout
 defineExpose({
   resetLayout: () => {
-    currentLayout.value = [...props.layout]
+    currentLayout.value = [...props.layout];
     if (props.storageKey) {
-      localStorage.removeItem(props.storageKey)
+      localStorage.removeItem(props.storageKey);
     }
   },
-})
+});
 </script>
 
 <style scoped>

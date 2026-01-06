@@ -127,19 +127,32 @@ const visionEndpoint = `${baseURL}/agent/vision`;
 export async function streamAgentRun(
   options: StreamAgentRunOptions,
 ): Promise<void> {
-  const { prompt, sessionId, fetchImpl, signal, onEvent, specialist, projectId } = options;
+  const {
+    prompt,
+    sessionId,
+    fetchImpl,
+    signal,
+    onEvent,
+    specialist,
+    projectId,
+  } = options;
   const fetchFn = fetchImpl ?? fetch;
   const payload: Record<string, any> = { prompt, session_id: sessionId };
   if (projectId && projectId.trim()) payload.project_id = projectId.trim();
   if (options.image) payload.image = true;
-  if (options.imageSize && options.imageSize.trim()) payload.image_size = options.imageSize.trim();
+  if (options.imageSize && options.imageSize.trim())
+    payload.image_size = options.imageSize.trim();
   const decoder = new TextDecoder();
 
   let response: Response;
 
   // Build endpoint with optional specialist override as a query param.
   let url = runEndpoint;
-  if (specialist && specialist.trim() && specialist.trim().toLowerCase() !== 'orchestrator') {
+  if (
+    specialist &&
+    specialist.trim() &&
+    specialist.trim().toLowerCase() !== "orchestrator"
+  ) {
     const qp = `specialist=${encodeURIComponent(specialist.trim())}`;
     url = `${url}?${qp}`;
   }
@@ -194,13 +207,13 @@ export async function streamAgentRun(
         break;
       }
       const chunk = decoder.decode(value, { stream: true });
-      console.log('[SSE chunk]', JSON.stringify(chunk));
+      console.log("[SSE chunk]", JSON.stringify(chunk));
       buffer += chunk;
       buffer = processBuffer(buffer, onEvent);
     }
     // flush remaining buffered data
     if (buffer.trim().length > 0) {
-      console.log('[SSE flush]', JSON.stringify(buffer));
+      console.log("[SSE flush]", JSON.stringify(buffer));
       processBuffer(buffer, onEvent, true);
     }
   } finally {
@@ -214,7 +227,7 @@ function processBuffer(
   flush = false,
 ): string {
   const parts = buffer.split(/\n\n|\r\n\r\n/);
-  const leftover = flush ? "" : parts.pop() ?? "";
+  const leftover = flush ? "" : (parts.pop() ?? "");
 
   for (const part of parts) {
     const payload = extractEventPayload(part);
@@ -266,7 +279,16 @@ export async function streamAgentVisionRun(
     files: File[];
   },
 ): Promise<void> {
-  const { prompt, sessionId, files, fetchImpl, signal, onEvent, specialist, projectId } = options;
+  const {
+    prompt,
+    sessionId,
+    files,
+    fetchImpl,
+    signal,
+    onEvent,
+    specialist,
+    projectId,
+  } = options;
   const fetchFn = fetchImpl ?? fetch;
   const form = new FormData();
   form.set("prompt", prompt);
@@ -280,7 +302,11 @@ export async function streamAgentVisionRun(
   const decoder = new TextDecoder();
   // Build endpoint with optional specialist override as a query param.
   let url = visionEndpoint;
-  if (specialist && specialist.trim() && specialist.trim().toLowerCase() !== 'orchestrator') {
+  if (
+    specialist &&
+    specialist.trim() &&
+    specialist.trim().toLowerCase() !== "orchestrator"
+  ) {
     const qp = `specialist=${encodeURIComponent(specialist.trim())}`;
     url = `${url}?${qp}`;
   }

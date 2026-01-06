@@ -1,9 +1,14 @@
 <template>
   <div class="space-y-2">
     <template v-if="isObject">
-      <div v-if="fieldLabel" class="text-[11px] font-semibold text-muted-foreground">
+      <div
+        v-if="fieldLabel"
+        class="text-[11px] font-semibold text-muted-foreground"
+      >
         {{ fieldLabel }}
-        <span v-if="required" class="ml-1 text-[10px] text-danger-foreground">*</span>
+        <span v-if="required" class="ml-1 text-[10px] text-danger-foreground"
+          >*</span
+        >
       </div>
       <p v-if="schema.description" class="text-[10px] text-faint-foreground">
         {{ schema.description }}
@@ -22,9 +27,14 @@
       </div>
     </template>
     <template v-else-if="isArray">
-      <div v-if="fieldLabel" class="text-[11px] font-semibold text-muted-foreground">
+      <div
+        v-if="fieldLabel"
+        class="text-[11px] font-semibold text-muted-foreground"
+      >
         {{ fieldLabel }}
-        <span v-if="required" class="ml-1 text-[10px] text-danger-foreground">*</span>
+        <span v-if="required" class="ml-1 text-[10px] text-danger-foreground"
+          >*</span
+        >
       </div>
       <p v-if="schema.description" class="text-[10px] text-faint-foreground">
         {{ schema.description }}
@@ -85,14 +95,16 @@
       <div
         class="rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[10px] text-warning-foreground"
       >
-        Unsupported schema type for {{ fieldLabel || 'field' }}.
+        Unsupported schema type for {{ fieldLabel || "field" }}.
       </div>
     </template>
     <template v-else>
       <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
         <span class="flex items-center gap-1">
           {{ fieldLabel }}
-          <span v-if="required" class="text-[10px] text-danger-foreground">*</span>
+          <span v-if="required" class="text-[10px] text-danger-foreground"
+            >*</span
+          >
         </span>
         <DropdownSelect
           v-if="hasEnum"
@@ -128,7 +140,7 @@
             class="accent-accent"
             @change="onBooleanChange"
           />
-          <span>{{ schema.description ?? 'Enabled' }}</span>
+          <span>{{ schema.description ?? "Enabled" }}</span>
         </label>
         <input
           v-else
@@ -138,7 +150,10 @@
           @input="onStringInput"
         />
       </label>
-      <p v-if="schema.description && !isBoolean" class="text-[10px] text-faint-foreground">
+      <p
+        v-if="schema.description && !isBoolean"
+        class="text-[10px] text-faint-foreground"
+      >
         {{ schema.description }}
       </p>
     </template>
@@ -146,51 +161,55 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import DropdownSelect from '@/components/DropdownSelect.vue'
+import { computed } from "vue";
+import DropdownSelect from "@/components/DropdownSelect.vue";
 
-defineOptions({ name: 'ParameterFormField' })
+defineOptions({ name: "ParameterFormField" });
 
 const props = defineProps<{
-  schema: Record<string, any>
-  modelValue: unknown
-  label?: string
-  required?: boolean
-  name?: string
-}>()
+  schema: Record<string, any>;
+  modelValue: unknown;
+  label?: string;
+  required?: boolean;
+  name?: string;
+}>();
 
 const emit = defineEmits<{
-  (event: 'update:model-value', value: unknown): void
-}>()
+  (event: "update:model-value", value: unknown): void;
+}>();
 
-function schemaType(schema: Record<string, any> | undefined): string | undefined {
-  if (!schema) return undefined
+function schemaType(
+  schema: Record<string, any> | undefined,
+): string | undefined {
+  if (!schema) return undefined;
   if (schema.type) {
     if (Array.isArray(schema.type)) {
-      return schema.type[0]
+      return schema.type[0];
     }
-    return schema.type
+    return schema.type;
   }
   if (schema.properties) {
-    return 'object'
+    return "object";
   }
   if (schema.items) {
-    return 'array'
+    return "array";
   }
   if (schema.enum) {
-    return 'string'
+    return "string";
   }
-  return undefined
+  return undefined;
 }
 
-const type = computed(() => schemaType(props.schema))
+const type = computed(() => schemaType(props.schema));
 
-const fieldLabel = computed(() => props.label ?? props.schema.title ?? 'Field')
+const fieldLabel = computed(() => props.label ?? props.schema.title ?? "Field");
 
-const isObject = computed(() => type.value === 'object')
-const isArray = computed(() => type.value === 'array')
-const isBoolean = computed(() => type.value === 'boolean')
-const isNumeric = computed(() => type.value === 'number' || type.value === 'integer')
+const isObject = computed(() => type.value === "object");
+const isArray = computed(() => type.value === "array");
+const isBoolean = computed(() => type.value === "boolean");
+const isNumeric = computed(
+  () => type.value === "number" || type.value === "integer",
+);
 const isUnsupported = computed(
   () =>
     !isObject.value &&
@@ -198,236 +217,294 @@ const isUnsupported = computed(
     !isBoolean.value &&
     !isNumeric.value &&
     !hasEnum.value &&
-    type.value !== 'string',
-)
+    type.value !== "string",
+);
 
-const enumOptions = computed(() => (Array.isArray(props.schema.enum) ? props.schema.enum : []))
-const hasEnum = computed(() => enumOptions.value.length > 0)
+const enumOptions = computed(() =>
+  Array.isArray(props.schema.enum) ? props.schema.enum : [],
+);
+const hasEnum = computed(() => enumOptions.value.length > 0);
 
 const enumDropdownOptions = computed(() => {
-  const options = [] as { id: string; label: string; value: string }[]
+  const options = [] as { id: string; label: string; value: string }[];
   if (!props.required) {
-    options.push({ id: '', label: '(unset)', value: '' })
+    options.push({ id: "", label: "(unset)", value: "" });
   }
   for (const option of enumOptions.value) {
-    options.push({ id: String(optionKey(option)), label: optionLabel(option), value: String(option) })
+    options.push({
+      id: String(optionKey(option)),
+      label: optionLabel(option),
+      value: String(option),
+    });
   }
-  return options
-})
+  return options;
+});
 
 const childRequired = computed(
-  () => new Set<string>(Array.isArray(props.schema.required) ? props.schema.required : []),
-)
+  () =>
+    new Set<string>(
+      Array.isArray(props.schema.required) ? props.schema.required : [],
+    ),
+);
 const childEntries = computed<[string, Record<string, any>][]>(
-  () => Object.entries(props.schema.properties ?? {}) as [string, Record<string, any>][]
-)
+  () =>
+    Object.entries(props.schema.properties ?? {}) as [
+      string,
+      Record<string, any>,
+    ][],
+);
 const childLabels = computed(() => {
-  const out: Record<string, string> = {}
+  const out: Record<string, string> = {};
   childEntries.value.forEach(([key, schema]) => {
-    out[key] = (schema as any)?.title ?? key
-  })
-  return out
-})
+    out[key] = (schema as any)?.title ?? key;
+  });
+  return out;
+});
 
 function childValue(key: string) {
   if (
     props.modelValue &&
-    typeof props.modelValue === 'object' &&
+    typeof props.modelValue === "object" &&
     !Array.isArray(props.modelValue)
   ) {
-    return (props.modelValue as Record<string, unknown>)[key]
+    return (props.modelValue as Record<string, unknown>)[key];
   }
-  return undefined
+  return undefined;
 }
 
 function updateChild(key: string, value: unknown) {
   const base: Record<string, unknown> =
-    props.modelValue && typeof props.modelValue === 'object' && !Array.isArray(props.modelValue)
+    props.modelValue &&
+    typeof props.modelValue === "object" &&
+    !Array.isArray(props.modelValue)
       ? { ...(props.modelValue as Record<string, unknown>) }
-      : {}
+      : {};
 
-  if (value === undefined || (value === '' && !childRequired.value.has(key))) {
-    delete base[key]
+  if (value === undefined || (value === "" && !childRequired.value.has(key))) {
+    delete base[key];
   } else {
-    base[key] = value
+    base[key] = value;
   }
-  emit('update:model-value', base)
+  emit("update:model-value", base);
 }
 
-const stringValue = computed(() => (typeof props.modelValue === 'string' ? props.modelValue : ''))
+const stringValue = computed(() =>
+  typeof props.modelValue === "string" ? props.modelValue : "",
+);
 
 function onStringInput(event: Event) {
-  const target = event.target as HTMLInputElement | HTMLTextAreaElement
-  const value = target.value
-  emit('update:model-value', value === '' && !props.required ? undefined : value)
+  const target = event.target as HTMLInputElement | HTMLTextAreaElement;
+  const value = target.value;
+  emit(
+    "update:model-value",
+    value === "" && !props.required ? undefined : value,
+  );
 }
 
 const numberInput = computed(() => {
-  if (typeof props.modelValue === 'number') {
-    return Number.isFinite(props.modelValue) ? String(props.modelValue) : ''
+  if (typeof props.modelValue === "number") {
+    return Number.isFinite(props.modelValue) ? String(props.modelValue) : "";
   }
-  if (typeof props.modelValue === 'string' && props.modelValue.trim() !== '') {
-    return props.modelValue
+  if (typeof props.modelValue === "string" && props.modelValue.trim() !== "") {
+    return props.modelValue;
   }
-  return ''
-})
+  return "";
+});
 
-const numberStep = computed(() => (type.value === 'integer' ? 1 : 'any'))
+const numberStep = computed(() => (type.value === "integer" ? 1 : "any"));
 
 function onNumberInput(event: Event) {
-  const target = event.target as HTMLInputElement
-  const raw = target.value
-  if (raw === '') {
-    emit('update:model-value', undefined)
-    return
+  const target = event.target as HTMLInputElement;
+  const raw = target.value;
+  if (raw === "") {
+    emit("update:model-value", undefined);
+    return;
   }
-  const parsed = type.value === 'integer' ? parseInt(raw, 10) : parseFloat(raw)
+  const parsed = type.value === "integer" ? parseInt(raw, 10) : parseFloat(raw);
   if (Number.isNaN(parsed)) {
-    return
+    return;
   }
-  emit('update:model-value', parsed)
+  emit("update:model-value", parsed);
 }
 
-const booleanValue = computed(() => Boolean(props.modelValue))
+const booleanValue = computed(() => Boolean(props.modelValue));
 
 function onBooleanChange(event: Event) {
-  const target = event.target as HTMLInputElement
-  emit('update:model-value', target.checked)
+  const target = event.target as HTMLInputElement;
+  emit("update:model-value", target.checked);
 }
 
 const selectValue = computed(() => {
   if (props.modelValue === undefined || props.modelValue === null) {
-    return ''
+    return "";
   }
-  return String(props.modelValue)
-})
+  return String(props.modelValue);
+});
 
 function onSelectChange(value: unknown) {
-  const raw = value === undefined || value === null ? '' : String(value)
-  if (raw === '') {
-    emit('update:model-value', undefined)
-    return
+  const raw = value === undefined || value === null ? "" : String(value);
+  if (raw === "") {
+    emit("update:model-value", undefined);
+    return;
   }
-  if (type.value === 'number' || type.value === 'integer') {
-    const parsed = type.value === 'integer' ? parseInt(raw, 10) : parseFloat(raw)
-    emit('update:model-value', Number.isNaN(parsed) ? undefined : parsed)
-    return
+  if (type.value === "number" || type.value === "integer") {
+    const parsed =
+      type.value === "integer" ? parseInt(raw, 10) : parseFloat(raw);
+    emit("update:model-value", Number.isNaN(parsed) ? undefined : parsed);
+    return;
   }
-  emit('update:model-value', raw)
+  emit("update:model-value", raw);
 }
 
 function optionKey(option: unknown) {
-  if (typeof option === 'object') {
-    return JSON.stringify(option)
+  if (typeof option === "object") {
+    return JSON.stringify(option);
   }
-  return String(option)
+  return String(option);
 }
 
 function optionLabel(option: unknown) {
-  if (typeof option === 'object') {
-    return JSON.stringify(option)
+  if (typeof option === "object") {
+    return JSON.stringify(option);
   }
-  return String(option)
+  return String(option);
 }
 
 // Multiline string heuristics and styles
-const isString = computed(() => type.value === 'string' && !hasEnum.value && !isBoolean.value && !isNumeric.value)
+const isString = computed(
+  () =>
+    type.value === "string" &&
+    !hasEnum.value &&
+    !isBoolean.value &&
+    !isNumeric.value,
+);
 
 function includesWord(hay: string | undefined, re: RegExp): boolean {
-  if (!hay) return false
-  return re.test(hay.toLowerCase())
+  if (!hay) return false;
+  return re.test(hay.toLowerCase());
 }
 
 const isMultilineString = computed(() => {
-  if (!isString.value) return false
-  const s = props.schema || {}
+  if (!isString.value) return false;
+  const s = props.schema || {};
   // Explicit schema hints
-  if (s.format && typeof s.format === 'string' && s.format.toLowerCase() === 'textarea') return true
-  if (s['x-ui'] && String(s['x-ui']).toLowerCase() === 'textarea') return true
-  if ((s as any)['x-multiline'] === true) return true
-  if (typeof (s as any).contentMediaType === 'string' && (s as any).contentMediaType.startsWith('text/')) return true
+  if (
+    s.format &&
+    typeof s.format === "string" &&
+    s.format.toLowerCase() === "textarea"
+  )
+    return true;
+  if (s["x-ui"] && String(s["x-ui"]).toLowerCase() === "textarea") return true;
+  if ((s as any)["x-multiline"] === true) return true;
+  if (
+    typeof (s as any).contentMediaType === "string" &&
+    (s as any).contentMediaType.startsWith("text/")
+  )
+    return true;
 
   // Heuristics based on field name/label
-  const name = (props.name || (props.label ?? (s as any).title) || '').toString().toLowerCase()
-  if (includesWord(name, /(patch|diff|body|content|script|message|notes|description|text)/)) return true
+  const name = (props.name || (props.label ?? (s as any).title) || "")
+    .toString()
+    .toLowerCase();
+  if (
+    includesWord(
+      name,
+      /(patch|diff|body|content|script|message|notes|description|text)/,
+    )
+  )
+    return true;
 
-  return false
-})
+  return false;
+});
 
 const isMonospace = computed(() => {
-  const s = props.schema || {}
-  if ((s as any)['x-monospace'] === true) return true
-  if (typeof (s as any).format === 'string' && /^(code|diff|textarea-code)$/.test((s as any).format.toLowerCase())) return true
-  const name = (props.name || (props.label ?? (s as any).title) || '').toString().toLowerCase()
-  return includesWord(name, /(patch|diff|code|script|json|yaml)/)
-})
+  const s = props.schema || {};
+  if ((s as any)["x-monospace"] === true) return true;
+  if (
+    typeof (s as any).format === "string" &&
+    /^(code|diff|textarea-code)$/.test((s as any).format.toLowerCase())
+  )
+    return true;
+  const name = (props.name || (props.label ?? (s as any).title) || "")
+    .toString()
+    .toLowerCase();
+  return includesWord(name, /(patch|diff|code|script|json|yaml)/);
+});
 
-const multilineRows = computed(() => (includesWord((props.name || props.label || '').toString(), /(patch|diff)/i) ? 8 : 4))
+const multilineRows = computed(() =>
+  includesWord((props.name || props.label || "").toString(), /(patch|diff)/i)
+    ? 8
+    : 4,
+);
 
-const textareaClass = computed(() => [
-  'rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto',
-  isMonospace.value ? 'font-mono' : '',
-].join(' '))
+const textareaClass = computed(() =>
+  [
+    "rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto",
+    isMonospace.value ? "font-mono" : "",
+  ].join(" "),
+);
 
 // Array handling
 const itemSchema = computed(() => {
-  const it = (props.schema as any)?.items
-  if (Array.isArray(it)) return it[0] ?? { type: 'string' }
-  return it ?? { type: 'string' }
-})
+  const it = (props.schema as any)?.items;
+  if (Array.isArray(it)) return it[0] ?? { type: "string" };
+  return it ?? { type: "string" };
+});
 
-const arrayValue = computed<unknown[]>(() => (Array.isArray(props.modelValue) ? props.modelValue : []))
+const arrayValue = computed<unknown[]>(() =>
+  Array.isArray(props.modelValue) ? props.modelValue : [],
+);
 
 function defaultForSchema(s: any): unknown {
-  const t = schemaType(s)
+  const t = schemaType(s);
   switch (t) {
-    case 'object':
-      return {}
-    case 'number':
-    case 'integer':
-      return 0
-    case 'boolean':
-      return false
-    case 'array':
-      return []
-    case 'string':
+    case "object":
+      return {};
+    case "number":
+    case "integer":
+      return 0;
+    case "boolean":
+      return false;
+    case "array":
+      return [];
+    case "string":
     default:
-      return ''
+      return "";
   }
 }
 
 function addArrayItem() {
-  const next = arrayValue.value.slice()
-  next.push(defaultForSchema(itemSchema.value))
-  emit('update:model-value', next)
+  const next = arrayValue.value.slice();
+  next.push(defaultForSchema(itemSchema.value));
+  emit("update:model-value", next);
 }
 
 function updateArrayItem(index: number, value: unknown) {
-  const next = arrayValue.value.slice()
+  const next = arrayValue.value.slice();
   if (value === undefined) {
-    next.splice(index, 1)
+    next.splice(index, 1);
   } else {
-    next[index] = value
+    next[index] = value;
   }
-  emit('update:model-value', next)
+  emit("update:model-value", next);
 }
 
 function removeArrayItem(index: number) {
-  const next = arrayValue.value.slice()
-  next.splice(index, 1)
-  emit('update:model-value', next.length ? next : undefined)
+  const next = arrayValue.value.slice();
+  next.splice(index, 1);
+  emit("update:model-value", next.length ? next : undefined);
 }
 
 function moveItem(index: number, delta: number) {
-  const next = arrayValue.value.slice()
-  const newIndex = index + delta
-  if (newIndex < 0 || newIndex >= next.length) return
-  const [item] = next.splice(index, 1)
-  next.splice(newIndex, 0, item)
-  emit('update:model-value', next)
+  const next = arrayValue.value.slice();
+  const newIndex = index + delta;
+  if (newIndex < 0 || newIndex >= next.length) return;
+  const [item] = next.splice(index, 1);
+  next.splice(newIndex, 0, item);
+  emit("update:model-value", next);
 }
 
 function itemLabel(index: number) {
-  return `${props.schema?.items?.title || 'Item'} #${index + 1}`
+  return `${props.schema?.items?.title || "Item"} #${index + 1}`;
 }
 </script>

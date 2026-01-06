@@ -1,4 +1,4 @@
-declare module 'markdown-it' {
-  const MarkdownIt: any
-  export default MarkdownIt
+declare module "markdown-it" {
+  const MarkdownIt: any;
+  export default MarkdownIt;
 }

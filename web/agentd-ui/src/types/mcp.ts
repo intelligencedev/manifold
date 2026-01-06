@@ -11,8 +11,8 @@ export interface MCPServer {
   keepAliveSeconds?: number;
   disabled: boolean;
   oauthClientId?: string;
-  source: 'config' | 'db';
-  status: 'connected' | 'error' | 'needs_auth' | 'disabled';
+  source: "config" | "db";
+  status: "connected" | "error" | "needs_auth" | "disabled";
   hasToken: boolean;
 }
 

@@ -1,11 +1,17 @@
 <template>
-  <div class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex h-full flex-col overflow-hidden">
+  <div
+    class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex h-full flex-col overflow-hidden"
+  >
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
         <h2 class="text-lg font-semibold text-foreground">Traces</h2>
-        <p class="text-xs text-faint-foreground">Recent LLM spans in the selected window</p>
+        <p class="text-xs text-faint-foreground">
+          Recent LLM spans in the selected window
+        </p>
       </div>
-      <div class="flex flex-wrap items-center justify-end gap-3 text-xs text-faint-foreground">
+      <div
+        class="flex flex-wrap items-center justify-end gap-3 text-xs text-faint-foreground"
+      >
         <label class="flex items-center gap-2 text-foreground">
           <span>Time Range</span>
           <DropdownSelect
@@ -49,23 +55,37 @@
                 <span
                   :class="[
                     'mt-1 h-2.5 w-2.5 rounded-full',
-                    trace.status === 'error' ? 'bg-danger-foreground' : 'bg-emerald-400',
+                    trace.status === 'error'
+                      ? 'bg-danger-foreground'
+                      : 'bg-emerald-400',
                   ]"
                 ></span>
                 <div>
-                  <p class="text-sm font-semibold text-foreground">{{ trace.name }}</p>
-                  <p class="text-xs text-faint-foreground">{{ trace.modelLabel }} · {{ trace.timeLabel }}</p>
+                  <p class="text-sm font-semibold text-foreground">
+                    {{ trace.name }}
+                  </p>
+                  <p class="text-xs text-faint-foreground">
+                    {{ trace.modelLabel }} · {{ trace.timeLabel }}
+                  </p>
                 </div>
               </div>
               <div class="text-right">
-                <p class="text-sm font-semibold text-foreground">{{ trace.durationLabel }}</p>
-                <p class="text-xs text-faint-foreground">{{ trace.tokenLabel }}</p>
+                <p class="text-sm font-semibold text-foreground">
+                  {{ trace.durationLabel }}
+                </p>
+                <p class="text-xs text-faint-foreground">
+                  {{ trace.tokenLabel }}
+                </p>
               </div>
             </div>
           </div>
         </div>
         <p class="mt-3 text-xs text-faint-foreground">
-          Showing up to {{ traceRows.length }} trace<span v-if="traceRows.length !== 1">s</span> for this window.
+          Showing up to {{ traceRows.length }} trace<span
+            v-if="traceRows.length !== 1"
+            >s</span
+          >
+          for this window.
         </p>
       </div>
     </div>
@@ -73,18 +93,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { TOKEN_METRIC_TIME_RANGES, type MetricsTimeRangeValue } from '@/composables/observability/useTokenMetrics'
-import { useTraceMetrics } from '@/composables/observability/useTraceMetrics'
-import DropdownSelect from '@/components/DropdownSelect.vue'
+import { ref } from "vue";
+import {
+  TOKEN_METRIC_TIME_RANGES,
+  type MetricsTimeRangeValue,
+} from "@/composables/observability/useTokenMetrics";
+import { useTraceMetrics } from "@/composables/observability/useTraceMetrics";
+import DropdownSelect from "@/components/DropdownSelect.vue";
 
-const selectedRange = ref<MetricsTimeRangeValue>('24h')
+const selectedRange = ref<MetricsTimeRangeValue>("24h");
 
 const timeRangeDropdownOptions = TOKEN_METRIC_TIME_RANGES.map((option) => ({
   id: option.value,
   label: option.label,
   value: option.value,
-}))
+}));
 
-const { isLoading: tracesLoading, isError: tracesError, traceRows } = useTraceMetrics(selectedRange)
+const {
+  isLoading: tracesLoading,
+  isError: tracesError,
+  traceRows,
+} = useTraceMetrics(selectedRange);
 </script>

@@ -6,7 +6,7 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
-  "allowImportingTsExtensions": true,
+    "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "strict": true,
     "jsx": "preserve",

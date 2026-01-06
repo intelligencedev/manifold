@@ -130,6 +130,16 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 		return nil
 	}
 
+	// Ensure the specialists catalog in the system prompt is user-scoped.
+	// The base engine prompt is composed with the system (user=0) specialists
+	// registry; without this override, non-system users can see system specialists.
+	//
+	// Do this before applying any per-user orchestrator overlay so we can build a
+	// base prompt with the correct catalog.
+	if a.cfg.Auth.Enabled && userID != systemUserID {
+		eng.System = a.composeSystemPromptForUser(ctx, userID)
+	}
+
 	// For system user or when auth is disabled, use the shared engine config
 	if !a.cfg.Auth.Enabled || userID == systemUserID {
 		return eng
@@ -151,16 +161,10 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 		eng.Tools = a.baseToolRegistry // all tools
 	}
 
-	// Apply user's system prompt if set
+	// Apply user's system prompt if set.
+	// This should preserve the user-scoped specialists catalog.
 	if sp.System != "" {
-		eng.System = sp.System
-	}
-
-	// Ensure the specialists catalog in the system prompt is user-scoped.
-	// The base engine prompt is composed with the system (user=0) specialists
-	// registry; without this override, non-system users can see system specialists.
-	if eng.System == a.engine.System {
-		eng.System = a.composeSystemPromptForUser(ctx, userID)
+		eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
 	}
 
 	return eng

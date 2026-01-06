@@ -22,7 +22,11 @@ func (a *app) composeSystemPrompt() string {
 // IMPORTANT: specialists are scoped per user. Non-system users must not receive
 // the system (user=0) specialists catalog.
 func (a *app) composeSystemPromptForUser(ctx context.Context, userID int64) string {
-	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
+	return a.composeSystemPromptForUserWithOverride(ctx, userID, a.cfg.SystemPrompt)
+}
+
+func (a *app) composeSystemPromptForUserWithOverride(ctx context.Context, userID int64, systemPrompt string) string {
+	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, systemPrompt)
 	reg, err := a.specialistsRegistryForUser(ctx, userID)
 	if err != nil || reg == nil {
 		return base

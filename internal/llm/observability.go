@@ -52,6 +52,35 @@ func userIDFromContext(ctx context.Context) (int64, bool) {
 // authenticated user. This aligns with OpenTelemetry semantic conventions.
 const endUserIDAttr = "enduser.id"
 
+// RecordTokenMetricsFromContext records token usage and attributes it to the
+// user in ctx (if present). This enables per-user token aggregation in
+// backends like ClickHouse.
+func RecordTokenMetricsFromContext(ctx context.Context, model string, promptTokens, completionTokens int) {
+	if model == "" || (promptTokens == 0 && completionTokens == 0) {
+		return
+	}
+	// Always update in-process totals (deployment-wide).
+	recordTokenMetrics(model, promptTokens, completionTokens, timeNow())
+
+	uid, ok := userIDFromContext(ctx)
+	if !ok || uid == 0 {
+		return
+	}
+
+	// Also emit OTel metrics tagged with enduser.id.
+	ensureTokenInstruments()
+	attrs := []attribute.KeyValue{
+		attribute.String("llm.model", model),
+		attribute.String(endUserIDAttr, fmt.Sprint(uid)),
+	}
+	if promptCounter != nil && promptTokens > 0 {
+		promptCounter.Add(ctx, int64(promptTokens), otelmetric.WithAttributes(attrs...))
+	}
+	if completionCounter != nil && completionTokens > 0 {
+		completionCounter.Add(ctx, int64(completionTokens), otelmetric.WithAttributes(attrs...))
+	}
+}
+
 // --- Token metrics aggregation (exposed to web UI) ---------------------------
 var (
 	tokenOnce         sync.Once

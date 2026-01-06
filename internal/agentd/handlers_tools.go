@@ -31,6 +31,7 @@ type traceMetricsResponse struct {
 
 func (a *app) metricsTokensHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var uid int64 = systemUserID
 		if a.cfg.Auth.Enabled {
 			u, ok := auth.CurrentUser(r.Context())
 			if !ok {
@@ -38,12 +39,7 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			// Metrics should be scoped per user: only admins can see deployment-wide
-			// observability data.
-			if !auth.HasRole(u, "admin") {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
+			uid = u.ID
 		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method != http.MethodGet {
@@ -64,6 +60,10 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 		}
 
 		processModels, processWindow := llmpkg.TokenTotalsForWindow(window)
+		if a.cfg.Auth.Enabled {
+			processModels = nil
+			processWindow = 0
+		}
 		resp := tokenMetricsResponse{
 			Timestamp: time.Now().Unix(),
 			Source:    "process",
@@ -71,7 +71,17 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 		}
 		appliedWindow := processWindow
 		if a.tokenMetrics != nil {
-			if totals, chWindow, err := a.tokenMetrics.TokenTotals(r.Context(), window); err != nil {
+			var (
+				totals   []llmpkg.TokenTotal
+				chWindow time.Duration
+				err      error
+			)
+			if a.cfg.Auth.Enabled {
+				totals, chWindow, err = a.tokenMetrics.TokenTotalsForUser(r.Context(), uid, window)
+			} else {
+				totals, chWindow, err = a.tokenMetrics.TokenTotals(r.Context(), window)
+			}
+			if err != nil {
 				log.Warn().Err(err).Msg("token metrics query failed")
 			} else {
 				// Prefer ClickHouse when configured so metrics persist across restarts.
@@ -95,6 +105,7 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 
 func (a *app) metricsTracesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var uid int64 = systemUserID
 		if a.cfg.Auth.Enabled {
 			u, ok := auth.CurrentUser(r.Context())
 			if !ok {
@@ -102,12 +113,7 @@ func (a *app) metricsTracesHandler() http.HandlerFunc {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			// Traces should be scoped per user: only admins can see deployment-wide
-			// observability data.
-			if !auth.HasRole(u, "admin") {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
+			uid = u.ID
 		}
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method != http.MethodGet {
@@ -125,8 +131,22 @@ func (a *app) metricsTracesHandler() http.HandlerFunc {
 
 		traces, applied := llmpkg.TracesForWindow(window, limit)
 		source := "process"
+		if a.cfg.Auth.Enabled {
+			traces = nil
+			applied = 0
+		}
 		if a.traceMetrics != nil {
-			if chTraces, chWindow, err := a.traceMetrics.Traces(r.Context(), window, limit); err != nil {
+			var (
+				chTraces []llmpkg.TraceSnapshot
+				chWindow time.Duration
+				err      error
+			)
+			if a.cfg.Auth.Enabled {
+				chTraces, chWindow, err = a.traceMetrics.TracesForUser(r.Context(), uid, window, limit)
+			} else {
+				chTraces, chWindow, err = a.traceMetrics.Traces(r.Context(), window, limit)
+			}
+			if err != nil {
 				log.Warn().Err(err).Msg("trace metrics query failed")
 			} else if len(chTraces) > 0 {
 				traces = chTraces

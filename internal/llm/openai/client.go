@@ -478,11 +478,11 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		totalTokens := promptTokens + completionTokens
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		// Use OpenAI provided usage
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
@@ -607,10 +607,10 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		totalTokens := promptTokens + completionTokens
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
@@ -824,7 +824,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 		if promptTokens > 0 || completionTokens > 0 {
-			llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+			llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 		}
 		base.Debug().Msg("chat_stream_ok")
 	}
@@ -1018,7 +1018,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 		totalTokens := promptTokens + completionTokens
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		if promptTokens > 0 || completionTokens > 0 {
-			llm.RecordTokenMetrics(firstNonEmpty(model, c.model), promptTokens, completionTokens)
+			llm.RecordTokenMetricsFromContext(ctx, firstNonEmpty(model, c.model), promptTokens, completionTokens)
 		}
 		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 	}
@@ -1220,10 +1220,10 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, promptTokens+completionTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	gemini := isGemini3Model(firstNonEmpty(model, c.model))
 	for _, tc := range msg.ToolCalls {
@@ -1342,10 +1342,10 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, promptTokens+completionTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	gemini := isGemini3Model(string(params.Model))
 	for _, tc := range msg.ToolCalls {
@@ -1596,10 +1596,10 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 		p := c.tokenizeCount(ctx, buildPromptText(msgs))
 		a := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, p, a, p+a)
-		llm.RecordTokenMetrics(string(params.Model), p, a)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), p, a)
 	} else {
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	}
 	llm.LogRedactedResponse(ctx, map[string]any{"output_text_len": len(out.Content), "tool_calls": len(out.ToolCalls)})
 
@@ -1770,13 +1770,13 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 			a := c.tokenizeCount(ctx, assistantContent.String())
 			llm.RecordTokenAttributes(span, p, a, p+a)
 			if p > 0 || a > 0 {
-				llm.RecordTokenMetrics(string(params.Model), p, a)
+				llm.RecordTokenMetricsFromContext(ctx, string(params.Model), p, a)
 			}
 			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": p, "completion_tokens": a, "total_tokens": p + a})
 		} else {
 			llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 			if promptTokens > 0 || completionTokens > 0 {
-				llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+				llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 			}
 			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 		}

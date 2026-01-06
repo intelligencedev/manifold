@@ -95,7 +95,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	totalTokens := promptTokens + completionTokens
 
 	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-	llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+	llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 
 	log.Debug().
 		Str("model", string(params.Model)).
@@ -252,7 +252,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	completionTokens := int(usage.OutputTokens)
 	totalTokens := promptTokens + completionTokens
 	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-	llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+	llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	llm.LogRedactedResponse(ctx, acc)
 
 	log.Debug().

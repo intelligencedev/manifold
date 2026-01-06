@@ -4,6 +4,5 @@
 </template>
 
 <script setup lang="ts">
-import FlowLayout from './FlowLayout.vue'
+import FlowLayout from "./FlowLayout.vue";
 </script>
-

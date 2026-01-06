@@ -1,6 +1,8 @@
 <template>
   <section class="space-y-10">
-    <header class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <header
+      class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+    >
       <div>
         <h1 class="text-2xl font-semibold text-foreground">Runs</h1>
         <p class="text-sm text-subtle-foreground">
@@ -29,25 +31,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
-import { fetchAgentRuns } from '@/api/client'
-import RunTable from '@/components/RunTable.vue'
+import { computed, ref } from "vue";
+import { useQuery } from "@tanstack/vue-query";
+import { fetchAgentRuns } from "@/api/client";
+import RunTable from "@/components/RunTable.vue";
 
-const search = ref('')
+const search = ref("");
 
 const { data } = useQuery({
-  queryKey: ['agent-runs'],
+  queryKey: ["agent-runs"],
   queryFn: fetchAgentRuns,
   staleTime: 15_000,
-})
+});
 
 const filteredRuns = computed(() => {
-  const runs = data.value ?? []
-  const term = search.value.trim().toLowerCase()
-  if (!term) return runs
+  const runs = data.value ?? [];
+  const term = search.value.trim().toLowerCase();
+  if (!term) return runs;
   return runs.filter((run) =>
-    [run.id, run.prompt, run.status].some((value) => value.toLowerCase().includes(term)),
-  )
-})
+    [run.id, run.prompt, run.status].some((value) =>
+      value.toLowerCase().includes(term),
+    ),
+  );
+});
 </script>

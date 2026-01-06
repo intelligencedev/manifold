@@ -1,11 +1,16 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 flex-col gap-2">
-    <div v-if="showToolbar" class="flex flex-wrap items-center justify-between gap-2">
+    <div
+      v-if="showToolbar"
+      class="flex flex-wrap items-center justify-between gap-2"
+    >
       <div class="text-xs text-subtle-foreground">
         <slot name="left" />
       </div>
       <div class="flex items-center gap-2">
-        <label class="inline-flex items-center gap-2 text-xs text-subtle-foreground">
+        <label
+          class="inline-flex items-center gap-2 text-xs text-subtle-foreground"
+        >
           <input v-model="wrap" type="checkbox" class="h-4 w-4" />
           <span>Wrap</span>
         </label>
@@ -34,23 +39,29 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch } from "vue";
 
 const props = withDefaults(
-  defineProps<{ id?: string; placeholder?: string; showToolbar?: boolean; defaultWrap?: boolean; formatAction?: null | (() => void) }>(),
+  defineProps<{
+    id?: string;
+    placeholder?: string;
+    showToolbar?: boolean;
+    defaultWrap?: boolean;
+    formatAction?: null | (() => void);
+  }>(),
   { showToolbar: true, defaultWrap: true, formatAction: null },
-)
+);
 
-defineEmits<{ blur: [] }>()
+defineEmits<{ blur: [] }>();
 
-const model = defineModel<string>({ required: true })
+const model = defineModel<string>({ required: true });
 
-const wrap = ref(!!props.defaultWrap)
+const wrap = ref(!!props.defaultWrap);
 
 watch(
   () => props.defaultWrap,
   (v) => {
-    wrap.value = !!v
+    wrap.value = !!v;
   },
-)
+);
 </script>

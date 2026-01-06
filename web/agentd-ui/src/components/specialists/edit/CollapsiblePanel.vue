@@ -8,9 +8,15 @@
     >
       <div class="min-w-0">
         <p class="text-sm font-semibold text-foreground">{{ title }}</p>
-        <p v-if="helper" class="mt-0.5 text-xs text-subtle-foreground">{{ helper }}</p>
+        <p v-if="helper" class="mt-0.5 text-xs text-subtle-foreground">
+          {{ helper }}
+        </p>
       </div>
-      <svg viewBox="0 0 20 20" class="h-4 w-4 shrink-0 text-subtle-foreground" aria-hidden="true">
+      <svg
+        viewBox="0 0 20 20"
+        class="h-4 w-4 shrink-0 text-subtle-foreground"
+        aria-hidden="true"
+      >
         <path
           d="M6 8l4 4 4-4"
           fill="none"
@@ -29,23 +35,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted } from "vue";
 
-const props = withDefaults(defineProps<{ title: string; helper?: string; defaultOpen?: boolean }>(), {
-  defaultOpen: false,
-})
+const props = withDefaults(
+  defineProps<{ title: string; helper?: string; defaultOpen?: boolean }>(),
+  {
+    defaultOpen: false,
+  },
+);
 
-const model = defineModel<boolean>({ default: false })
+const model = defineModel<boolean>({ default: false });
 
 onMounted(() => {
   if (props.defaultOpen) {
-    model.value = true
+    model.value = true;
   }
-})
+});
 
-const open = computed(() => model.value)
+const open = computed(() => model.value);
 
 function toggle() {
-  model.value = !model.value
+  model.value = !model.value;
 }
 </script>

@@ -22,8 +22,10 @@
           <GlassCard
             v-for="s in specialists"
             :key="s.name"
-            class="flex flex-col"
+            class="flex flex-col transition-all duration-200 cursor-pointer"
+            :class="{ 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface': isCurrentlyEditing(s.name) }"
             interactive
+            @click="edit(s)"
           >
             <div class="flex items-start justify-between gap-3">
               <div>
@@ -31,9 +33,17 @@
                 <p class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground">Model</p>
                 <p class="text-sm text-muted-foreground">{{ s.model || '—' }}</p>
               </div>
-              <Pill :tone="s.paused ? 'danger' : 'success'" size="sm" :glow="!s.paused">
-                {{ s.paused ? 'Paused' : 'Active' }}
-              </Pill>
+              <div class="flex items-center gap-2">
+                <span
+                  v-if="isCurrentlyEditing(s.name)"
+                  class="rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
+                >
+                  Editing
+                </span>
+                <Pill :tone="s.paused ? 'danger' : 'success'" size="sm" :glow="!s.paused">
+                  {{ s.paused ? 'Paused' : 'Active' }}
+                </Pill>
+              </div>
             </div>
 
             <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
@@ -52,7 +62,7 @@
               </span>
             </div>
 
-            <div class="mt-4 flex flex-wrap gap-2">
+            <div class="mt-4 flex flex-wrap gap-2" @click.stop>
               <button
                 type="button"
                 @click="edit(s)"
@@ -95,6 +105,7 @@
       <div class="xl:w-1/2 min-w-0 min-h-0">
         <GlassCard v-if="editing" class="h-full min-h-0 overflow-hidden">
           <EditSpecialistRoot
+            :key="editorInitial?.name || 'new'"
             class="h-full"
             :initial="editorInitial!"
             :lockName="editorLockName"
@@ -165,6 +176,14 @@ const editorInitial = ref<Specialist | null>(null)
 const editorLockName = ref(false)
 const editorCredentialConfigured = ref(false)
 const actionError = ref<string | null>(null)
+
+// Track which specialist is currently being edited for visual feedback
+const currentEditingName = computed(() => editing.value ? editorInitial.value?.name || null : null)
+
+function isCurrentlyEditing(name: string): boolean {
+  return editing.value && editorInitial.value?.name === name
+}
+
 function statusBadgeClass(paused: boolean): string {
   return paused
     ? 'inline-flex items-center rounded-full border border-border/60 bg-border/20 px-2 py-1 text-xs font-semibold text-subtle-foreground'
@@ -205,6 +224,10 @@ function startCreate() {
   editing.value = true
 }
 function edit(s: Specialist) {
+  // If already editing the same specialist, do nothing
+  if (editing.value && editorInitial.value?.name === s.name) {
+    return
+  }
   editorInitial.value = { ...s, provider: s.provider || providerOptions.value[0] || 'openai', description: s.description ?? '', apiKey: '' }
   editorLockName.value = true
   editorCredentialConfigured.value = !!s.apiKey
@@ -247,8 +270,20 @@ function closeEditor() {
   editorCredentialConfigured.value = false
 }
 
-function onSaved() {
+function onSaved(saved: Specialist) {
+  // Clear any previous errors
   actionError.value = null
+  
+  // Update the editor state to reflect the saved specialist
+  // This keeps the editor showing the saved specialist with updated state
+  editorInitial.value = {
+    ...saved,
+    provider: saved.provider || providerOptions.value[0] || 'openai',
+    description: saved.description ?? '',
+    apiKey: '', // Never keep the secret in memory
+  }
+  editorLockName.value = true
+  editorCredentialConfigured.value = !!saved.apiKey
 }
 async function togglePause(s: Specialist) {
   try {

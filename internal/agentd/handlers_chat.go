@@ -618,7 +618,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.cloneEngine()
+		eng := a.cloneEngineForUser(r.Context(), specOwner)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return
@@ -1000,7 +1000,12 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.cloneEngine()
+		// Determine user ID for per-user orchestrator config
+		var orchUserID int64 = systemUserID
+		if userID != nil {
+			orchUserID = *userID
+		}
+		eng := a.cloneEngineForUser(r.Context(), orchUserID)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return

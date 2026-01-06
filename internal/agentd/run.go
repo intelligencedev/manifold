@@ -121,6 +121,44 @@ func (a *app) cloneEngine() *agent.Engine {
 	return &clone
 }
 
+// cloneEngineForUser returns a shallow copy of the base engine with user-specific
+// orchestrator settings applied (particularly the tool allowlist). This enables
+// per-user orchestrator configurations.
+func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engine {
+	eng := a.cloneEngine()
+	if eng == nil {
+		return nil
+	}
+
+	// For system user or when auth is disabled, use the shared engine config
+	if !a.cfg.Auth.Enabled || userID == systemUserID {
+		return eng
+	}
+
+	// Look up user's orchestrator overlay
+	sp, ok, err := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName)
+	if err != nil || !ok {
+		// No per-user orchestrator config; use defaults
+		return eng
+	}
+
+	// Apply user's tool configuration
+	if !sp.EnableTools {
+		eng.Tools = tools.NewRegistry() // empty registry
+	} else if len(sp.AllowTools) > 0 {
+		eng.Tools = tools.NewFilteredRegistry(a.baseToolRegistry, sp.AllowTools)
+	} else {
+		eng.Tools = a.baseToolRegistry // all tools
+	}
+
+	// Apply user's system prompt if set
+	if sp.System != "" {
+		eng.System = sp.System
+	}
+
+	return eng
+}
+
 // Run initialises the agentd server and starts the HTTP listener.
 func Run() {
 	if err := loadEnv(); err != nil {

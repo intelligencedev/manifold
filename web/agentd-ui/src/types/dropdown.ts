@@ -3,44 +3,44 @@
  */
 export interface DropdownOption {
   /** Unique identifier for the option */
-  id: string | number
+  id: string | number;
   /** Display label for the option */
-  label: string
+  label: string;
   /** Optional description or subtitle */
-  description?: string
+  description?: string;
   /** Whether this option is disabled */
-  disabled?: boolean
+  disabled?: boolean;
   /** Optional value that differs from id */
-  value?: any
+  value?: any;
 }
 
 /**
  * Size variants for dropdown components
  */
-export type DropdownSize = 'xs' | 'sm' | 'md' | 'lg'
+export type DropdownSize = "xs" | "sm" | "md" | "lg";
 
 /**
  * Props interface for DropdownSelect component
  */
 export interface DropdownSelectProps {
   /** Array of options to display */
-  options: DropdownOption[]
+  options: DropdownOption[];
   /** Currently selected value */
-  modelValue?: any
+  modelValue?: any;
   /** Placeholder text when no option is selected */
-  placeholder?: string
+  placeholder?: string;
   /** Size variant */
-  size?: DropdownSize
+  size?: DropdownSize;
   /** Whether the dropdown is disabled */
-  disabled?: boolean
+  disabled?: boolean;
   /** Whether the dropdown is required */
-  required?: boolean
+  required?: boolean;
   /** Additional CSS classes */
-  class?: string
+  class?: string;
   /** HTML id attribute */
-  id?: string
+  id?: string;
   /** ARIA label for accessibility */
-  ariaLabel?: string
+  ariaLabel?: string;
   /** Title attribute for tooltip */
-  title?: string
+  title?: string;
 }

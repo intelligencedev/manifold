@@ -1,5 +1,7 @@
 <template>
-  <section class="flex min-h-0 flex-col rounded-[14px] border border-border/60 bg-surface p-4">
+  <section
+    class="flex min-h-0 flex-col rounded-[14px] border border-border/60 bg-surface p-4"
+  >
     <div class="shrink-0">
       <h3 class="text-sm font-semibold text-foreground">{{ title }}</h3>
       <p v-if="helper" class="text-xs text-subtle-foreground">{{ helper }}</p>
@@ -11,5 +13,5 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{ title: string; helper?: string }>()
+defineProps<{ title: string; helper?: string }>();
 </script>

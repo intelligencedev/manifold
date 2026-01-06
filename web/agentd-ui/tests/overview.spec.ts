@@ -1,51 +1,51 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { flushPromises } from '@vue/test-utils'
-import { mount } from '@vue/test-utils'
-import { VueQueryPlugin, QueryClient } from '@tanstack/vue-query'
-import OverviewView from '@/views/OverviewView.vue'
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { flushPromises } from "@vue/test-utils";
+import { mount } from "@vue/test-utils";
+import { VueQueryPlugin, QueryClient } from "@tanstack/vue-query";
+import OverviewView from "@/views/OverviewView.vue";
 
-vi.mock('@/api/client', () => ({
+vi.mock("@/api/client", () => ({
   fetchAgentStatus: () =>
     Promise.resolve([
       {
-        id: 'agent-1',
-        name: 'Primary Agent',
-        state: 'online',
-        model: 'gpt-5',
-        updatedAt: new Date().toISOString()
-      }
+        id: "agent-1",
+        name: "Primary Agent",
+        state: "online",
+        model: "gpt-5",
+        updatedAt: new Date().toISOString(),
+      },
     ]),
   fetchAgentRuns: () =>
     Promise.resolve([
       {
-        id: 'run-123',
-        prompt: 'status',
+        id: "run-123",
+        prompt: "status",
         createdAt: new Date().toISOString(),
-        status: 'completed',
-        tokens: 120
-      }
-    ])
-}))
+        status: "completed",
+        tokens: 120,
+      },
+    ]),
+}));
 
-describe('OverviewView', () => {
-  let queryClient: QueryClient
+describe("OverviewView", () => {
+  let queryClient: QueryClient;
 
   beforeEach(() => {
-    queryClient = new QueryClient()
-  })
+    queryClient = new QueryClient();
+  });
 
-  it('renders stats once data resolves', async () => {
+  it("renders stats once data resolves", async () => {
     const wrapper = mount(OverviewView, {
       global: {
-        plugins: [[VueQueryPlugin, { queryClient }]]
-      }
-    })
+        plugins: [[VueQueryPlugin, { queryClient }]],
+      },
+    });
 
-    await flushPromises()
+    await flushPromises();
 
-    expect(wrapper.text()).toContain('Active Agents')
-    expect(wrapper.text()).toContain('Runs Today')
-    expect(wrapper.text()).toContain('Avg. Prompt Tokens')
-    expect(wrapper.text()).toContain('Primary Agent')
-  })
-})
+    expect(wrapper.text()).toContain("Active Agents");
+    expect(wrapper.text()).toContain("Runs Today");
+    expect(wrapper.text()).toContain("Avg. Prompt Tokens");
+    expect(wrapper.text()).toContain("Primary Agent");
+  });
+});

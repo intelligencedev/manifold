@@ -1,160 +1,164 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue'
-import { useProjectsStore } from '@/stores/projects'
-import { projectFileUrl, projectArchiveUrl } from '@/api/client'
-import Panel from '@/components/ui/Panel.vue'
-import GlassCard from '@/components/ui/GlassCard.vue'
-import Pill from '@/components/ui/Pill.vue'
-import FileTree from '@/components/FileTree.vue'
-import DropdownSelect from '@/components/DropdownSelect.vue'
-import type { DropdownOption } from '@/types/dropdown'
+import { onMounted, ref, computed, watch } from "vue";
+import { useProjectsStore } from "@/stores/projects";
+import { projectFileUrl, projectArchiveUrl } from "@/api/client";
+import Panel from "@/components/ui/Panel.vue";
+import GlassCard from "@/components/ui/GlassCard.vue";
+import Pill from "@/components/ui/Pill.vue";
+import FileTree from "@/components/FileTree.vue";
+import DropdownSelect from "@/components/DropdownSelect.vue";
+import type { DropdownOption } from "@/types/dropdown";
 
-const store = useProjectsStore()
-const newProjectName = ref('')
-const uploadInput = ref<HTMLInputElement | null>(null)
-const treeRef = ref<InstanceType<typeof FileTree> | null>(null)
-const cwd = ref('.')
-const selectedFile = ref<string>('')
+const store = useProjectsStore();
+const newProjectName = ref("");
+const uploadInput = ref<HTMLInputElement | null>(null);
+const treeRef = ref<InstanceType<typeof FileTree> | null>(null);
+const cwd = ref(".");
+const selectedFile = ref<string>("");
 const previewUrl = computed(() => {
-  if (!store.currentProjectId || !selectedFile.value) return ''
-  return projectFileUrl(store.currentProjectId, selectedFile.value)
-})
+  if (!store.currentProjectId || !selectedFile.value) return "";
+  return projectFileUrl(store.currentProjectId, selectedFile.value);
+});
 
 onMounted(() => {
-  void store.refresh().then(() => store.ensureTree(cwd.value))
-})
+  void store.refresh().then(() => store.ensureTree(cwd.value));
+});
 
-const current = computed(() => store.projects.find(p => p.id === store.currentProjectId) || null)
-const entries = computed(() => store.treeByPath[`${store.currentProjectId}:${cwd.value}`] || [])
+const current = computed(
+  () => store.projects.find((p) => p.id === store.currentProjectId) || null,
+);
+const entries = computed(
+  () => store.treeByPath[`${store.currentProjectId}:${cwd.value}`] || [],
+);
 
 const projectOptions = computed<DropdownOption[]>(() =>
   store.projects.map((p) => ({
     id: p.id,
     label: p.name,
     value: p.id,
-  }))
-)
+  })),
+);
 
 const selectedProjectId = computed({
-  get: () => store.currentProjectId || '',
+  get: () => store.currentProjectId || "",
   set: (v: string) => {
-    void store.setCurrent(v)
+    void store.setCurrent(v);
   },
-})
+});
 
 function pickUpload() {
-  uploadInput.value?.click()
+  uploadInput.value?.click();
 }
 
 async function onFiles(e: Event) {
-  const input = e.target as HTMLInputElement
-  const files = input.files
-  if (!files || !files.length) return
+  const input = e.target as HTMLInputElement;
+  const files = input.files;
+  if (!files || !files.length) return;
   for (const f of Array.from(files)) {
-    await store.upload(cwd.value, f)
+    await store.upload(cwd.value, f);
   }
-  input.value = ''
+  input.value = "";
 }
 
 async function mkdir() {
-  const name = prompt('Folder name?')
-  if (!name) return
-  const path = (cwd.value === '.' ? '' : cwd.value + '/') + name
-  await store.makeDir(path)
-  await store.ensureTree(cwd.value)
+  const name = prompt("Folder name?");
+  if (!name) return;
+  const path = (cwd.value === "." ? "" : cwd.value + "/") + name;
+  await store.makeDir(path);
+  await store.ensureTree(cwd.value);
 }
 
 async function bulkDownload() {
-  const ids = Array.from(treeRef.value?.checked ?? new Set<string>())
-  if (!ids.length || !store.currentProjectId) return
-  
+  const ids = Array.from(treeRef.value?.checked ?? new Set<string>());
+  if (!ids.length || !store.currentProjectId) return;
+
   for (const path of ids) {
-    const url = projectFileUrl(store.currentProjectId, path)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = path.split('/').pop() || 'download'
-    a.style.display = 'none'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    const url = projectFileUrl(store.currentProjectId, path);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = path.split("/").pop() || "download";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     // Small delay between downloads to avoid browser blocking
-    await new Promise(resolve => setTimeout(resolve, 100))
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
 
 async function bulkDelete() {
-  const ids = Array.from(treeRef.value?.checked ?? new Set<string>())
-  if (!ids.length) return
-  if (!confirm(`Delete ${ids.length} item(s)? This cannot be undone.`)) return
+  const ids = Array.from(treeRef.value?.checked ?? new Set<string>());
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} item(s)? This cannot be undone.`)) return;
   for (const p of ids) {
-    await store.removePath(p)
-    if (selectedFile.value === p) selectedFile.value = ''
+    await store.removePath(p);
+    if (selectedFile.value === p) selectedFile.value = "";
   }
-  treeRef.value?.clearChecks()
-  await store.ensureTree(cwd.value)
+  treeRef.value?.clearChecks();
+  await store.ensureTree(cwd.value);
 }
 
 async function openDir(path: string) {
-  cwd.value = path || '.'
-  await store.ensureTree(cwd.value)
-  selectedFile.value = ''
+  cwd.value = path || ".";
+  await store.ensureTree(cwd.value);
+  selectedFile.value = "";
 }
 
 function downloadProject() {
-  if (!store.currentProjectId) return
-  const url = projectArchiveUrl(store.currentProjectId)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `${current.value?.name || 'project'}.tar.gz`
-  a.style.display = 'none'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+  if (!store.currentProjectId) return;
+  const url = projectArchiveUrl(store.currentProjectId);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${current.value?.name || "project"}.tar.gz`;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 async function createProject() {
-  const name = newProjectName.value.trim()
-  if (!name) return
-  await store.create(name)
-  newProjectName.value = ''
-  cwd.value = '.'
-  await store.ensureTree('.')
+  const name = newProjectName.value.trim();
+  if (!name) return;
+  await store.create(name);
+  newProjectName.value = "";
+  cwd.value = ".";
+  await store.ensureTree(".");
 }
 
 function openFile(path: string) {
-  selectedFile.value = path
+  selectedFile.value = path;
 }
 
 watch(
   () => store.currentProjectId,
   () => {
-    cwd.value = '.'
-    selectedFile.value = ''
-    void store.ensureTree('.')
+    cwd.value = ".";
+    selectedFile.value = "";
+    void store.ensureTree(".");
   },
-)
+);
 
 function rebasePath(current: string, from: string, to: string) {
-  if (!current || current === '.') return current
-  if (current === from) return to
+  if (!current || current === ".") return current;
+  if (current === from) return to;
   if (current.startsWith(`${from}/`)) {
-    const suffix = current.slice(from.length + 1)
-    return suffix ? `${to}/${suffix}` : to
+    const suffix = current.slice(from.length + 1);
+    return suffix ? `${to}/${suffix}` : to;
   }
-  return current
+  return current;
 }
 
 function onMoved(payload: { from: string; to: string }) {
-  const nextSelected = rebasePath(selectedFile.value, payload.from, payload.to)
+  const nextSelected = rebasePath(selectedFile.value, payload.from, payload.to);
   if (nextSelected !== selectedFile.value) {
-    selectedFile.value = nextSelected
+    selectedFile.value = nextSelected;
   }
-  const nextCwd = rebasePath(cwd.value, payload.from, payload.to)
+  const nextCwd = rebasePath(cwd.value, payload.from, payload.to);
   if (nextCwd !== cwd.value) {
-    cwd.value = nextCwd
+    cwd.value = nextCwd;
   }
   // Ensure current directory reflects latest tree after a move.
-  void store.ensureTree(cwd.value)
+  void store.ensureTree(cwd.value);
 }
 </script>
 
@@ -208,15 +212,26 @@ function onMoved(payload: { from: string; to: string }) {
           </button>
         </div>
 
-        <div v-if="current" class="flex flex-wrap items-center gap-2 text-xs text-faint-foreground md:ml-auto">
-          <span>Created {{ new Date(current.createdAt).toLocaleDateString() }}</span>
+        <div
+          v-if="current"
+          class="flex flex-wrap items-center gap-2 text-xs text-faint-foreground md:ml-auto"
+        >
+          <span
+            >Created
+            {{ new Date(current.createdAt).toLocaleDateString() }}</span
+          >
           <Pill tone="neutral" size="sm">{{ current.files }} files</Pill>
-          <Pill tone="neutral" size="sm">{{ (current.sizeBytes/1024).toFixed(1) }} KB</Pill>
+          <Pill tone="neutral" size="sm"
+            >{{ (current.sizeBytes / 1024).toFixed(1) }} KB</Pill
+          >
         </div>
       </div>
     </Panel>
 
-    <div v-if="store.currentProjectId" class="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-2">
+    <div
+      v-if="store.currentProjectId"
+      class="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-2"
+    >
       <GlassCard class="flex min-h-0 flex-col p-4 lg:p-6">
         <div class="mb-4 flex items-center gap-3">
           <button
@@ -253,7 +268,13 @@ function onMoved(payload: { from: string; to: string }) {
             >
               Delete
             </button>
-            <input ref="uploadInput" type="file" multiple class="sr-only" @change="onFiles" />
+            <input
+              ref="uploadInput"
+              type="file"
+              multiple
+              class="sr-only"
+              @change="onFiles"
+            />
           </div>
         </div>
         <div class="scrollbar-inset min-h-0 flex-1 overflow-auto">
@@ -269,24 +290,46 @@ function onMoved(payload: { from: string; to: string }) {
       </GlassCard>
 
       <GlassCard class="flex min-h-0 flex-col p-4 lg:p-6">
-        <div class="mb-3 flex items-center justify-between text-sm text-faint-foreground">
+        <div
+          class="mb-3 flex items-center justify-between text-sm text-faint-foreground"
+        >
           <div class="uppercase tracking-wide">Preview</div>
-          <div class="max-w-[70%] truncate text-subtle-foreground" v-if="selectedFile">{{ selectedFile }}</div>
+          <div
+            class="max-w-[70%] truncate text-subtle-foreground"
+            v-if="selectedFile"
+          >
+            {{ selectedFile }}
+          </div>
         </div>
         <div class="scrollbar-inset min-h-0 flex-1 overflow-auto">
-          <div v-if="!selectedFile" class="p-2 text-subtle-foreground">Select a file to preview</div>
+          <div v-if="!selectedFile" class="p-2 text-subtle-foreground">
+            Select a file to preview
+          </div>
           <template v-else>
             <div v-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)">
-              <img :src="previewUrl" alt="preview" class="max-w-full rounded-4 border border-border" />
+              <img
+                :src="previewUrl"
+                alt="preview"
+                class="max-w-full rounded-4 border border-border"
+              />
             </div>
             <iframe
-              v-else-if="/\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(selectedFile)"
+              v-else-if="
+                /\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(
+                  selectedFile,
+                )
+              "
               :src="previewUrl"
               class="h-full w-full rounded-4 border border-border"
             />
             <div v-else class="text-sm text-subtle-foreground">
               Preview not available.
-              <a :href="previewUrl" target="_blank" class="text-accent hover:underline">Open</a>
+              <a
+                :href="previewUrl"
+                target="_blank"
+                class="text-accent hover:underline"
+                >Open</a
+              >
             </div>
           </template>
         </div>

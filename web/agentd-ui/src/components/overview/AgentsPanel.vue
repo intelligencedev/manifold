@@ -1,11 +1,17 @@
 <template>
-  <div class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex h-full flex-col overflow-hidden">
+  <div
+    class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex h-full flex-col overflow-hidden"
+  >
     <header class="flex items-center justify-between gap-2">
       <div>
-        <p class="text-xs uppercase tracking-wide text-subtle-foreground">Agents</p>
+        <p class="text-xs uppercase tracking-wide text-subtle-foreground">
+          Agents
+        </p>
         <h2 class="text-base font-semibold text-foreground">Status</h2>
       </div>
-      <Pill tone="neutral" size="sm">{{ agents.length ? `${agents.length} total` : 'None' }}</Pill>
+      <Pill tone="neutral" size="sm">{{
+        agents.length ? `${agents.length} total` : "None"
+      }}</Pill>
     </header>
 
     <p v-if="!agents.length" class="mt-4 text-xs text-faint-foreground">
@@ -23,11 +29,13 @@
             {{ agent.name || agent.id }}
           </p>
           <p class="mt-0.5 truncate text-[11px] text-faint-foreground">
-            {{ agent.model || 'Model not set' }}
+            {{ agent.model || "Model not set" }}
           </p>
         </div>
         <div class="flex flex-col items-end gap-1">
-          <Pill :tone="agentTone(agent.state)" size="sm">{{ agent.state || 'unknown' }}</Pill>
+          <Pill :tone="agentTone(agent.state)" size="sm">{{
+            agent.state || "unknown"
+          }}</Pill>
           <span class="text-[10px] text-faint-foreground">
             {{ formatRelativeTime(agent.updatedAt) }}
           </span>
@@ -38,43 +46,43 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import Pill from '@/components/ui/Pill.vue'
+import { computed } from "vue";
+import Pill from "@/components/ui/Pill.vue";
 
 type Agent = {
-  id: string | number
-  name?: string
-  model?: string
-  state?: string
-  updatedAt?: string
-}
+  id: string | number;
+  name?: string;
+  model?: string;
+  state?: string;
+  updatedAt?: string;
+};
 
-const props = defineProps<{ agents: Agent[] }>()
-const agents = computed(() => props.agents ?? [])
+const props = defineProps<{ agents: Agent[] }>();
+const agents = computed(() => props.agents ?? []);
 
 const agentTone = (state?: string) => {
-  if (state === 'online') return 'success'
-  if (state === 'degraded') return 'warning'
-  if (state === 'offline') return 'danger'
-  return 'neutral'
-}
+  if (state === "online") return "success";
+  if (state === "degraded") return "warning";
+  if (state === "offline") return "danger";
+  return "neutral";
+};
 
 const formatRelativeTime = (value?: string) => {
-  if (!value) return ''
-  const date = new Date(value)
-  const now = new Date()
-  const diffSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
+  if (!value) return "";
+  const date = new Date(value);
+  const now = new Date();
+  const diffSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-  if (!Number.isFinite(diffSeconds)) return ''
-  if (diffSeconds < 45) return 'just now'
+  if (!Number.isFinite(diffSeconds)) return "";
+  if (diffSeconds < 45) return "just now";
 
-  const minutes = Math.floor(diffSeconds / 60)
-  if (minutes < 60) return `${minutes} min${minutes === 1 ? '' : 's'} ago`
+  const minutes = Math.floor(diffSeconds / 60);
+  if (minutes < 60) return `${minutes} min${minutes === 1 ? "" : "s"} ago`;
 
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours} h${hours === 1 ? '' : 's'} ago`
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} h${hours === 1 ? "" : "s"} ago`;
 
-  const days = Math.floor(hours / 24)
-  return `${days} d${days === 1 ? '' : 's'} ago`
-}
+  const days = Math.floor(hours / 24);
+  return `${days} d${days === 1 ? "" : "s"} ago`;
+};
 </script>

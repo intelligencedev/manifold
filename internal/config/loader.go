@@ -755,6 +755,7 @@ func loadSpecialists(cfg *Config) error {
 		Args             []string          `yaml:"args"`
 		Env              map[string]string `yaml:"env"`
 		KeepAliveSeconds int               `yaml:"keepAliveSeconds"`
+		PathDependent    bool              `yaml:"pathDependent"`
 		URL              string            `yaml:"url"`
 		Headers          map[string]string `yaml:"headers"`
 		BearerToken      string            `yaml:"bearerToken"`
@@ -887,7 +888,15 @@ func loadSpecialists(cfg *Config) error {
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
 	data = []byte(os.ExpandEnv(string(data)))
-	if err := yaml.Unmarshal(data, &w); err == nil {
+	if err := yaml.Unmarshal(data, &w); err != nil {
+		// Fallback: try list at root
+		var list []SpecialistConfig
+		if err2 := yaml.Unmarshal(data, &list); err2 == nil {
+			cfg.Specialists = list
+			return nil
+		}
+		return fmt.Errorf("%s: could not parse specialists configuration: %w", chosen, err)
+	} else {
 		// Specialists and routes
 		if len(w.Specialists) > 0 {
 			cfg.Specialists = w.Specialists
@@ -1154,6 +1163,7 @@ func loadSpecialists(cfg *Config) error {
 					Args:             append([]string{}, s.Args...),
 					Env:              s.Env,
 					KeepAliveSeconds: s.KeepAliveSeconds,
+					PathDependent:    s.PathDependent,
 					URL:              strings.TrimSpace(s.URL),
 					Headers:          s.Headers,
 					BearerToken:      strings.TrimSpace(s.BearerToken),
@@ -1312,13 +1322,6 @@ func loadSpecialists(cfg *Config) error {
 		}
 		return nil
 	}
-	// Fallback: try list at root
-	var list []SpecialistConfig
-	if err := yaml.Unmarshal(data, &list); err == nil && len(list) > 0 {
-		cfg.Specialists = list
-		return nil
-	}
-	return fmt.Errorf("%s: could not parse specialists configuration", chosen)
 }
 
 func firstNonEmpty(vals ...string) string {

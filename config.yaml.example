@@ -132,8 +132,23 @@ databases:
     backend: postgres   # memory | postgres
     dsn: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
 
+# MCP (Model Context Protocol) Server Configuration
+# 
+# Servers can be:
+# - Stdio-based: Local processes spawned by Manifold (command + args)
+# - Remote HTTP: Streamable HTTP endpoints (url)
+#
+# Path-Dependent Servers (Enterprise Mode):
+# In enterprise deployments with S3-backed workspaces, servers marked with
+# `pathDependent: true` will be instantiated per-user with {{PROJECT_DIR}}
+# expanded to the user's active project workspace path.
+# NOTE: Use {{PROJECT_DIR}} NOT ${PROJECT_DIR} - the config loader runs os.ExpandEnv
+# which would expand ${...} syntax prematurely.
+# In simple deployments (no auth, filesystem backend), pathDependent is ignored
+# and all servers run as shared singletons with static paths.
 mcp:
   servers:
+  # Stateless server - shared globally (default behavior)
   - name: sequentialthinking
     command: docker
     args:
@@ -142,6 +157,7 @@ mcp:
     - --rm
     - mcp/sequentialthinking
 
+  # Stateless server - shared globally
   - name: duckduckgo
     command: docker
     args:
@@ -150,7 +166,35 @@ mcp:
       - --rm
       - mcp/duckduckgo
 
-  # Remote HTTP streamable example
+  # Path-dependent server - per-user instances in enterprise mode
+  # The {{PROJECT_DIR}} placeholder is expanded to user's workspace path
+  # - name: filesystem
+  #   pathDependent: true
+  #   command: docker
+  #   args:
+  #     - run
+  #     - -i
+  #     - --rm
+  #     - -v
+  #     - "{{PROJECT_DIR}}:/app/files"
+  #     - mcp/filesystem
+  #     - /app/files
+
+  # Path-dependent server with env var placeholder
+  # - name: ast_grep
+  #   pathDependent: true
+  #   command: docker
+  #   args:
+  #     - run
+  #     - -i
+  #     - --rm
+  #     - -v
+  #     - "${PROJECT_DIR}:/src"
+  #     - mcp/ast-grep
+  #   env:
+  #     WORKSPACE_ROOT: "${PROJECT_DIR}"
+
+  # Remote HTTP streamable example - always shared (no filesystem access)
   - name: acme
     url: https://mcp.acme.com/mcp
     origin: https://manifold.local

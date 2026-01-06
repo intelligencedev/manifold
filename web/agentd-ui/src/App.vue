@@ -125,8 +125,10 @@ function navClass(path: string, dense = false) {
 }
 
 const projectsStore = useProjectsStore()
-onMounted(() => {
-  void projectsStore.refresh()
+onMounted(async () => {
+  await projectsStore.refresh()
+  // Restore last active project from user preferences
+  await projectsStore.initFromPreferences()
 })
 
 const projectOptions = computed(() => projectsStore.projects.map((p) => ({ id: p.id, label: p.name, value: p.id })))

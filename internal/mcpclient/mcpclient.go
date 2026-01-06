@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	mcppkg "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"manifold/internal/config"
@@ -44,8 +46,16 @@ func (m *Manager) Close() {
 // RegisterFromConfig connects to configured MCP servers, lists their tools, and
 // registers wrappers into the provided registry. Tools are registered with names
 // in the form "<server>_<tool>" to avoid collisions.
+// Path-dependent servers (those with PathDependent=true) are skipped since they
+// require per-user/project context that isn't available at startup.
 func (m *Manager) RegisterFromConfig(ctx context.Context, reg tools.Registry, mcpCfg config.MCPConfig) error {
 	for _, srv := range mcpCfg.Servers {
+		// Skip path-dependent servers - they need per-user project context
+		// and are managed by MCPServerPool instead
+		if srv.PathDependent {
+			log.Debug().Str("server", srv.Name).Msg("skipping_path_dependent_mcp_server")
+			continue
+		}
 		if err := m.RegisterOne(ctx, reg, srv); err != nil {
 			// Don't fail entire setup; just skip this server.
 			continue
@@ -88,6 +98,11 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 			}
 			cmd.Env = env
 		}
+		log.Debug().
+			Str("server", srv.Name).
+			Str("command", cleanCmd).
+			Strs("args", srv.Args).
+			Msg("mcp_connecting_stdio")
 		// Connect via stdio transport (SDK v1)
 		session, err = client.Connect(ctx, &mcppkg.CommandTransport{Command: cmd}, nil)
 	} else if strings.TrimSpace(srv.URL) != "" {
@@ -99,15 +114,19 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 		return fmt.Errorf("invalid config: neither command nor url provided")
 	}
 	if err != nil {
+		log.Debug().Err(err).Str("server", srv.Name).Msg("mcp_connect_failed")
 		return err
 	}
+	log.Debug().Str("server", srv.Name).Msg("mcp_connected_successfully")
 	m.sessions[srv.Name] = session
 
 	// List all tools and register wrappers
 	// Use iterator to fetch all pages.
+	log.Debug().Str("server", srv.Name).Msg("mcp_listing_tools")
 	var tNames []string
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
+			log.Debug().Err(err).Str("server", srv.Name).Msg("mcp_tool_iteration_error")
 			break
 		}
 		t := &mcpTool{server: srv.Name, session: session, tool: tool}

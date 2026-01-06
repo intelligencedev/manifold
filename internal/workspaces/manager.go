@@ -24,6 +24,26 @@ var ErrInvalidSessionID = validation.ErrInvalidSessionID
 // ErrProjectNotFound indicates the requested project does not exist.
 var ErrProjectNotFound = errors.New("project not found")
 
+// CheckoutCallback is called after a workspace is successfully checked out.
+// This allows external systems (like MCP session management) to react to workspace changes.
+type CheckoutCallback func(ctx context.Context, userID int64, projectID, workspacePath string)
+
+// globalCheckoutCallback is set by external packages to receive checkout notifications.
+var globalCheckoutCallback CheckoutCallback
+
+// SetCheckoutCallback registers a callback to be invoked after successful workspace checkouts.
+// This is used by the MCP server pool to set up per-user sessions when workspaces are checked out.
+func SetCheckoutCallback(cb CheckoutCallback) {
+	globalCheckoutCallback = cb
+}
+
+// notifyCheckout invokes the global checkout callback if one is registered.
+func notifyCheckout(ctx context.Context, ws Workspace) {
+	if globalCheckoutCallback != nil && ws.ProjectID != "" && ws.BaseDir != "" {
+		globalCheckoutCallback(ctx, ws.UserID, ws.ProjectID, ws.BaseDir)
+	}
+}
+
 // Workspace represents a checked-out working directory for an agent run.
 type Workspace struct {
 	// UserID is the owning user's identifier.
@@ -178,6 +198,10 @@ func (m *LegacyWorkspaceManager) Checkout(ctx context.Context, userID int64, pro
 	}
 
 	ws.BaseDir = absBase
+
+	// Notify MCP pool of workspace checkout
+	notifyCheckout(ctx, ws)
+
 	return ws, nil
 }
 

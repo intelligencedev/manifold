@@ -216,6 +216,8 @@ func (a *app) warppToolsHandler() http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
+		// Use baseToolRegistry to show ALL available tools (not filtered by allowList)
+		// This allows the UI to configure tool allow lists for specialists
 		schemas := a.baseToolRegistry.Schemas()
 		out := make([]map[string]any, 0, len(schemas))
 		for _, s := range schemas {

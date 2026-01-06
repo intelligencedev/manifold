@@ -156,6 +156,13 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 		eng.System = sp.System
 	}
 
+	// Ensure the specialists catalog in the system prompt is user-scoped.
+	// The base engine prompt is composed with the system (user=0) specialists
+	// registry; without this override, non-system users can see system specialists.
+	if eng.System == a.engine.System {
+		eng.System = a.composeSystemPromptForUser(ctx, userID)
+	}
+
 	return eng
 }
 

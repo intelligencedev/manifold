@@ -61,3 +61,32 @@ func TestInvalidateSpecialistsCacheRefreshesSystemPrompt(t *testing.T) {
 		t.Fatalf("expected system prompt to include catalog header, got %q", got)
 	}
 }
+
+func TestComposeSystemPromptForUserScopesCatalog(t *testing.T) {
+	cfg := config.Config{
+		SystemPrompt: "base prompt",
+		Workdir:      ".",
+		LLMClient:    config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{Model: "m"}},
+	}
+	baseTools := tools.NewRegistry()
+	// System registry includes a system-only specialist.
+	systemReg := specialists.NewRegistry(cfg.LLMClient, []config.SpecialistConfig{{Name: "sys", Description: "sys desc", Model: "m"}}, nil, baseTools)
+
+	app := &app{
+		cfg:              &cfg,
+		specRegistry:     systemReg,
+		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: systemReg},
+		baseToolRegistry: baseTools,
+		httpClient:       nil,
+		specStore:        &stubSpecialistsStore{list: []persistence.Specialist{{UserID: 123, Name: "user", Description: "user desc", Model: "m"}}},
+	}
+
+	// Non-system users should see only their catalog.
+	prompt := app.composeSystemPromptForUser(context.Background(), 123)
+	if strings.Contains(prompt, "sys: sys desc") {
+		t.Fatalf("expected non-system prompt to exclude system catalog, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "user: user desc") {
+		t.Fatalf("expected non-system prompt to include user catalog, got %q", prompt)
+	}
+}

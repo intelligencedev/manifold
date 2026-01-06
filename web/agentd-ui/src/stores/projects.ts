@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { ProjectSummary, FileEntry } from '@/api/client'
-import { listProjects, createProject, deleteProject, listProjectTree, uploadFile, deletePath, createDir, moveProjectPath } from '@/api/client'
+import { listProjects, createProject, deleteProject, listProjectTree, uploadFile, deletePath, createDir, moveProjectPath, setActiveProject, getUserPreferences } from '@/api/client'
 
 export const useProjectsStore = defineStore('projects', () => {
   const projects = ref<ProjectSummary[]>([])
@@ -28,6 +28,30 @@ export const useProjectsStore = defineStore('projects', () => {
 
   async function setCurrent(id: string) {
     currentProjectId.value = id
+    // Persist to backend (triggers MCP session setup in enterprise mode)
+    try {
+      await setActiveProject(id)
+    } catch (e) {
+      // Non-fatal - local state is still updated
+      console.warn('Failed to persist active project preference:', e)
+    }
+  }
+
+  // Initialize from user preferences (called on app mount)
+  async function initFromPreferences() {
+    try {
+      const prefs = await getUserPreferences()
+      if (prefs?.activeProjectId) {
+        // Only set if the project exists in our list
+        const exists = projects.value.find(p => p.id === prefs.activeProjectId)
+        if (exists) {
+          currentProjectId.value = prefs.activeProjectId
+        }
+      }
+    } catch (e) {
+      // Non-fatal - will use default project selection
+      console.warn('Failed to load user preferences:', e)
+    }
   }
 
   async function ensureTree(path = '.') {
@@ -104,13 +128,21 @@ export const useProjectsStore = defineStore('projects', () => {
   async function create(name: string) {
     const p = await createProject(name)
     projects.value = [p, ...projects.value]
-    currentProjectId.value = p.id
+    // Set as current and persist preference
+    await setCurrent(p.id)
   }
 
   async function remove(id: string) {
     await deleteProject(id)
     projects.value = projects.value.filter(p => p.id !== id)
-    if (currentProjectId.value === id) currentProjectId.value = projects.value[0]?.id || ''
+    if (currentProjectId.value === id) {
+      const nextProject = projects.value[0]?.id || ''
+      if (nextProject) {
+        await setCurrent(nextProject)
+      } else {
+        currentProjectId.value = ''
+      }
+    }
   }
 
   return {
@@ -130,5 +162,6 @@ export const useProjectsStore = defineStore('projects', () => {
     upload,
     create,
     remove,
+    initFromPreferences,
   }
 })

@@ -212,6 +212,23 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 	}
 	m.Projects = projectsStore
 
+	// User Preferences Store
+	// Use default DSN if available, otherwise memory
+	var userPrefsStore persistence.UserPreferencesStore
+	if cfg.DefaultDSN != "" {
+		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
+			userPrefsStore = NewUserPreferencesStore(p)
+		} else {
+			userPrefsStore = NewUserPreferencesStore(nil)
+		}
+	} else {
+		userPrefsStore = NewUserPreferencesStore(nil)
+	}
+	if err := userPrefsStore.Init(ctx); err != nil {
+		return Manager{}, fmt.Errorf("init user preferences store: %w", err)
+	}
+	m.UserPreferences = userPrefsStore
+
 	return m, nil
 }
 

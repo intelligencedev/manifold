@@ -18,6 +18,23 @@ var (
 // Store is a placeholder for transcripts/state persistence.
 type Store interface{}
 
+// UserPreferences represents a user's persistent settings.
+type UserPreferences struct {
+	UserID          int64     `json:"userId"`
+	ActiveProjectID string    `json:"activeProjectId,omitempty"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+}
+
+// UserPreferencesStore persists user-specific preferences (e.g., active project).
+type UserPreferencesStore interface {
+	// Init creates the table if it doesn't exist.
+	Init(ctx context.Context) error
+	// Get retrieves preferences for a user. Returns zero-value if not found.
+	Get(ctx context.Context, userID int64) (UserPreferences, error)
+	// SetActiveProject updates the user's active project selection.
+	SetActiveProject(ctx context.Context, userID int64, projectID string) error
+}
+
 // Specialist represents a stored specialist configuration for CRUD.
 type Specialist struct {
 	ID              int64             `json:"id"`

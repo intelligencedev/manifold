@@ -92,7 +92,9 @@ type app struct {
 	authProvider      auth.Provider
 	specStore         persist.SpecialistsStore
 	mcpStore          persist.MCPStore
+	userPrefsStore    persist.UserPreferencesStore
 	mcpManager        *mcpclient.Manager
+	mcpPool           *mcpclient.MCPServerPool
 	tokenMetrics      tokenMetricsProvider
 	traceMetrics      *clickhouseTraceMetrics
 	runMetrics        *clickhouseRunMetrics
@@ -309,20 +311,87 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
 
+	requiresPerUserMCP := cfg.Auth.Enabled &&
+		cfg.Projects.Backend == "s3" &&
+		(cfg.Projects.Workspace.Mode == "enterprise" || cfg.Projects.Workspace.Mode == "ephemeral")
+
 	// Load MCP servers from the system user store.
 	if mgr.MCP != nil {
 		if servers, err := mgr.MCP.List(ctxInit, systemUserID); err == nil {
+			// In enterprise mode we must NOT start path-dependent servers as shared singletons,
+			// since they require a real project workspace path. Those are managed by MCPServerPool.
+			pathDependentNames := map[string]bool{}
+			for _, s := range cfg.MCP.Servers {
+				if s.PathDependent {
+					pathDependentNames[s.Name] = true
+				}
+			}
+
 			for _, s := range servers {
 				if s.Disabled {
 					continue
 				}
-				_ = mcpMgr.RegisterOne(ctxInit, toolRegistry, convertToConfig(s))
+				cfgSrv := convertToConfig(s)
+				// Skip persisted servers that are path-dependent in current config, or that still
+				// contain {{PROJECT_DIR}} placeholders (older records won't have PathDependent set).
+				if requiresPerUserMCP {
+					if pathDependentNames[s.Name] {
+						log.Debug().Str("server", s.Name).Msg("skipping_path_dependent_mcp_server_from_db")
+						continue
+					}
+					isPlaceholder := false
+					for _, arg := range cfgSrv.Args {
+						if strings.Contains(arg, "{{PROJECT_DIR}}") {
+							isPlaceholder = true
+							break
+						}
+					}
+					if !isPlaceholder {
+						for _, v := range cfgSrv.Env {
+							if strings.Contains(v, "{{PROJECT_DIR}}") {
+								isPlaceholder = true
+								break
+							}
+						}
+					}
+					if isPlaceholder {
+						log.Debug().Str("server", s.Name).Msg("skipping_placeholder_mcp_server_from_db")
+						continue
+					}
+				}
+				_ = mcpMgr.RegisterOne(ctxInit, toolRegistry, cfgSrv)
 			}
 		} else {
 			log.Warn().Err(err).Msg("failed to load mcp servers from db")
 		}
 	}
 	cancelInit()
+
+	// Create MCP Server Pool for managing shared and per-user MCP sessions
+	mcpPool := mcpclient.NewMCPServerPool(cfg, wsMgr, mgr.UserPreferences)
+	mcpPool.SetToolRegistry(toolRegistry)
+
+	// Wire workspace checkout callback to initialize MCP sessions on checkout
+	workspaces.SetCheckoutCallback(mcpPool.OnWorkspaceCheckout)
+
+	// Register non-path-dependent servers to the pool (shared)
+	// Path-dependent servers in enterprise mode are registered per-user on project switch
+	ctxPool, cancelPool := context.WithTimeout(ctx, 20*time.Second)
+	if err := mcpPool.RegisterFromConfig(ctxPool, toolRegistry); err != nil {
+		log.Warn().Err(err).Msg("mcp_pool_registration_failed")
+	}
+
+	// Discover and register tools from path-dependent MCP servers for UI display
+	// This temporarily starts servers with a temp directory just to enumerate tools
+	if mcpPool.RequiresPerUserMCP() {
+		mcpPool.RegisterPathDependentToolsForDiscovery(ctxPool, toolRegistry)
+	}
+	cancelPool()
+
+	// Start idle session reaper for enterprise mode (15 min check interval, 1 hour max idle)
+	if mcpPool.RequiresPerUserMCP() {
+		mcpPool.StartReaper(ctx, toolRegistry, 15*time.Minute, 1*time.Hour)
+	}
 
 	app := &app{
 		cfg:              cfg,
@@ -336,7 +405,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:             newRunStore(),
 		mcpStore:         mgr.MCP,
+		userPrefsStore:   mgr.UserPreferences,
 		mcpManager:       mcpMgr,
+		mcpPool:          mcpPool,
 		workspaceManager: wsMgr,
 	}
 

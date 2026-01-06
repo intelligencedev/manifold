@@ -466,6 +466,12 @@ type MCPServerConfig struct {
 	Env map[string]string `yaml:"env" json:"env"`
 	// KeepAliveSeconds configures client ping interval; 0 disables keepalive.
 	KeepAliveSeconds int `yaml:"keepAliveSeconds" json:"keepAliveSeconds"`
+	// PathDependent marks this server as requiring per-user instances with project
+	// path injection. Only applies when enterprise workspace mode is enabled.
+	// When true, placeholders like {{PROJECT_DIR}} in Args and Env will be expanded
+	// to the user's active project workspace path. Note: We use {{...}} syntax instead
+	// of ${...} because the config loader runs os.ExpandEnv which expands ${...}.
+	PathDependent bool `yaml:"pathDependent" json:"pathDependent"`
 
 	// URL is the remote MCP endpoint (HTTP streamable transport), e.g., https://example.com/mcp
 	URL string `yaml:"url" json:"url"`

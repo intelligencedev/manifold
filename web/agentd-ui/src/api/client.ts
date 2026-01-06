@@ -184,6 +184,29 @@ export function projectArchiveUrl(id: string): string {
   return `${b}/projects/${encodeURIComponent(id)}/archive`
 }
 
+// User Preferences API -------------------------------------------------------
+
+export interface UserPreferences {
+  userId: number
+  activeProjectId?: string
+  updatedAt: string
+}
+
+export async function getUserPreferences(): Promise<UserPreferences | null> {
+  try {
+    const { data } = await apiClient.get<UserPreferences>('/me/preferences')
+    return data
+  } catch (e: any) {
+    // If 404 or not found, return null (no preferences set yet)
+    if (e?.response?.status === 404) return null
+    throw e
+  }
+}
+
+export async function setActiveProject(projectId: string): Promise<void> {
+  await apiClient.post('/me/preferences/project', { projectId })
+}
+
 // Specialists CRUD
 export interface Specialist {
   id?: number

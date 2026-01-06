@@ -20,6 +20,10 @@ func newRouter(a *app) *http.ServeMux {
 		mux.HandleFunc("/api/me", a.meHandler())
 	}
 
+	// User preferences endpoints (available with or without auth)
+	mux.HandleFunc("/api/me/preferences", a.userPreferencesHandler())
+	mux.HandleFunc("/api/me/preferences/project", a.setActiveProjectHandler())
+
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})

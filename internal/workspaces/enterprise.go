@@ -201,6 +201,8 @@ func (m *EnterpriseWorkspaceManager) Checkout(ctx context.Context, userID int64,
 					_ = m.genCache.SetGenerations(ctx, tenant, cleanPID, manifest.Generation, manifest.SkillsGeneration)
 				}
 				m.ensureInvalidationSubscription(ctx, tenant, cleanPID)
+				// Notify MCP pool of workspace checkout
+				notifyCheckout(ctx, ws)
 				return ws, nil
 			}
 		}
@@ -229,6 +231,8 @@ func (m *EnterpriseWorkspaceManager) Checkout(ctx context.Context, userID int64,
 			m.ensureInvalidationSubscription(ctx, tenant, cleanPID)
 		}
 	}
+	// Notify MCP pool of workspace checkout
+	notifyCheckout(ctx, ws)
 	return ws, nil
 }
 

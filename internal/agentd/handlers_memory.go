@@ -303,6 +303,21 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Evolving memory is currently only attached to the shared engine instance.
+	// When auth is enabled, do not expose system-level evolving memory to
+	// non-admin users.
+	if a.cfg.Auth.Enabled {
+		u, ok := auth.CurrentUser(r.Context())
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if !auth.HasRole(u, "admin") {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
 	// Base snapshot
 	entries := eng.EvolvingMemory.ExportMemories()
 	resp := debugMemoryEvolvingResponse{

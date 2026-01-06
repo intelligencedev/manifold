@@ -32,9 +32,16 @@ type traceMetricsResponse struct {
 func (a *app) metricsTokensHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// Metrics should be scoped per user: only admins can see deployment-wide
+			// observability data.
+			if !auth.HasRole(u, "admin") {
+				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 		}
@@ -89,9 +96,16 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 func (a *app) metricsTracesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.Auth.Enabled {
-			if _, ok := auth.CurrentUser(r.Context()); !ok {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
 				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// Traces should be scoped per user: only admins can see deployment-wide
+			// observability data.
+			if !auth.HasRole(u, "admin") {
+				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 		}

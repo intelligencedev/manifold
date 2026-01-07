@@ -1432,6 +1432,25 @@ func adaptResponsesTools(schemas []llm.ToolSchema) []rs.ToolUnionParam {
 
 // adaptResponsesInput builds the Responses Input item list and returns any combined instructions.
 func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instructions string) {
+	// The Responses API requires each function_call_output item to correspond to a
+	// function_call item with the same call_id in the provided input.
+	//
+	// In practice, chat history may contain persisted tool outputs without the
+	// original tool call message (e.g., due to compaction, legacy persistence, or
+	// partial history windows). Filter these "orphan" tool outputs to avoid 400s.
+	validToolCallIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" {
+				continue
+			}
+			validToolCallIDs[tc.ID] = struct{}{}
+		}
+	}
+
 	items = make([]rs.ResponseInputItemUnionParam, 0, len(msgs))
 	var sys []string
 	for _, m := range msgs {
@@ -1466,11 +1485,18 @@ func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instr
 			// We generally omit plain assistant text as an input message for Responses API.
 		case "tool":
 			// Map tool outputs to function_call_output items
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				continue
+			}
+			if _, ok := validToolCallIDs[toolID]; !ok {
+				continue
+			}
 			out := strings.TrimSpace(m.Content)
 			if out == "" {
 				out = "{}"
 			}
-			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(m.ToolID, out))
+			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 		}
 	}
 	if len(sys) > 0 {
@@ -1873,15 +1899,23 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 				Role:    "user",
 			}})
 		case "assistant":
-			content := strings.TrimSpace(m.Content)
-			if content == "" {
-				continue
+			// If the assistant provided tool calls, include those so tool outputs can reference them.
+			if len(m.ToolCalls) > 0 {
+				for _, tc := range m.ToolCalls {
+					callID := tc.ID
+					args := string(tc.Args)
+					items = append(items, rs.ResponseInputItemParamOfFunctionCall(args, callID, tc.Name))
+				}
 			}
-			msgID := fmt.Sprintf("msg_%d", assistantIndex+1)
-			assistantIndex++
-			text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
-			contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
-			items = append(items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
+			// Also emit text content if present
+			content := strings.TrimSpace(m.Content)
+			if content != "" {
+				msgID := fmt.Sprintf("msg_%d", assistantIndex+1)
+				assistantIndex++
+				text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
+				contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
+				items = append(items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
+			}
 		case "tool":
 			out := strings.TrimSpace(m.Content)
 			if out == "" {

@@ -9,6 +9,13 @@ type Config struct {
 	SystemPrompt string
 	// Rolling summarization config: enable and tuning knobs (token-based only)
 	SummaryEnabled bool
+	// SummaryContextWindowTokens sets the context window size (in tokens) used for
+	// chat-memory budgeting and summarization triggering.
+	//
+	// If 0, agentd will derive this from the configured summary model, but will
+	// cap it to a moderate default to avoid sending very large raw chat histories
+	// even when the underlying model supports huge context windows.
+	SummaryContextWindowTokens int `yaml:"summaryContextWindowTokens" json:"summaryContextWindowTokens"`
 	// SummaryReserveBufferTokens is the number of tokens to reserve for model output
 	// (including reasoning tokens for reasoning models). OpenAI recommends ~25,000
 	// when experimenting with reasoning models. Default: 25000.
@@ -16,6 +23,13 @@ type Config struct {
 	// SummaryMinKeepLastMessages is the minimum number of recent messages to preserve
 	// in raw form, even if the token budget is small. Default: 4.
 	SummaryMinKeepLastMessages int `yaml:"summaryMinKeepLastMessages" json:"summaryMinKeepLastMessages"`
+	// SummaryMaxKeepLastMessages caps the number of recent messages preserved in raw
+	// form. When the chat exceeds this many messages, earlier messages will be
+	// summarized even if they still fit within the model context budget.
+	//
+	// This helps keep the orchestrator focused on the latest user turn, while still
+	// retaining prior context via a rolling summary.
+	SummaryMaxKeepLastMessages int `yaml:"summaryMaxKeepLastMessages" json:"summaryMaxKeepLastMessages"`
 	// SummaryMaxSummaryChunkTokens caps the size of the summary prompt in tokens.
 	SummaryMaxSummaryChunkTokens int `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
 	OutputTruncateByte           int

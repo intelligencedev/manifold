@@ -144,6 +144,19 @@ func (t *ResponsesTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm
 
 // buildInputItems converts llm.Message slice to Responses API input format.
 func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string) {
+	validToolCallIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" {
+				continue
+			}
+			validToolCallIDs[tc.ID] = struct{}{}
+		}
+	}
+
 	items := make([]any, 0, len(msgs))
 	var instructions string
 
@@ -203,9 +216,16 @@ func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string)
 			}
 		case "tool":
 			// Tool response
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				continue
+			}
+			if _, ok := validToolCallIDs[toolID]; !ok {
+				continue
+			}
 			items = append(items, map[string]any{
 				"type":    "function_call_output",
-				"call_id": m.ToolID,
+				"call_id": toolID,
 				"output":  m.Content,
 			})
 		}

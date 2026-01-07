@@ -339,3 +339,57 @@ func TestSummarizeChunkFormatsToolMessages(t *testing.T) {
 		t.Fatalf("expected head and tail content in prompt, got %q", prompt)
 	}
 }
+
+func TestManagerBuildContextForcesSummaryWhenTailTooLong(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+
+	if _, err := store.EnsureSession(ctx, nil, "sess", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	now := time.Now().UTC()
+	// Keep messages short so we don't hit token-budget summarization.
+	for i := 0; i < 6; i++ {
+		messages := []persistence.ChatMessage{
+			{Role: "user", Content: "u", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
+			{Role: "assistant", Content: "a", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
+		}
+		if err := store.AppendMessages(ctx, nil, "sess", messages, "a", "model"); err != nil {
+			t.Fatalf("AppendMessages: %v", err)
+		}
+	}
+
+	manager := NewManager(store, &stubLLM{response: "summary"}, Config{
+		Enabled:             true,
+		ReserveBufferTokens: 1,
+		MinKeepLastMessages: 2,
+		MaxKeepLastMessages: 4,
+		ContextWindowTokens: 50_000,
+		SummaryModel:        "stub",
+	})
+
+	history, summaryResult, err := manager.BuildContext(ctx, nil, "sess")
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+	if summaryResult == nil || !summaryResult.Triggered {
+		t.Fatalf("expected summaryResult.Triggered to be true")
+	}
+	// Expect: 1 system summary + last 4 messages (raw).
+	if len(history) != 5 {
+		t.Fatalf("expected 5 messages (summary + 4 tail), got %d", len(history))
+	}
+	if history[0].Role != "system" {
+		t.Fatalf("expected system summary message, got %#v", history[0])
+	}
+
+	session, err := store.GetSession(ctx, nil, "sess")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.SummarizedCount != 8 {
+		// total messages = 12, keep tail 4 => summarizedCount should advance to 8
+		t.Fatalf("expected summarized count 8, got %d", session.SummarizedCount)
+	}
+}

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	yaml "gopkg.in/yaml.v3"
 )
 
 // agentdSettings mirrors the frontend AgentdSettings shape.
@@ -289,15 +291,194 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		a.cfg.Databases.Graph.DSN = payload.GraphDSN
 	}
 
-	// Persist to .env file to survive restarts.
-	if err := persistToDotEnv(payload); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Errorf("persist .env: %w", err))
+	// Persist to config.yaml to survive restarts.
+	if err := persistToConfigYAML(payload); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("persist config.yaml: %w", err))
 		return
 	}
 
 	// Indicate that a restart is required for some changes to fully apply.
 	w.Header().Set("X-Needs-Restart", "true")
 	writeJSON(w, http.StatusOK, payload)
+}
+
+func persistToConfigYAML(s agentdSettings) error {
+	path := findConfigYAMLPath()
+
+	root := map[string]any{}
+	if b, err := os.ReadFile(path); err == nil {
+		_ = yaml.Unmarshal(b, &root)
+	}
+
+	setPath := func(m map[string]any, path []string, value any) {
+		if len(path) == 0 {
+			return
+		}
+		cur := m
+		for i := 0; i < len(path)-1; i++ {
+			k := path[i]
+			nxt, ok := cur[k]
+			if ok {
+				if mm, ok := nxt.(map[string]any); ok {
+					cur = mm
+					continue
+				}
+			}
+			mm := map[string]any{}
+			cur[k] = mm
+			cur = mm
+		}
+		cur[path[len(path)-1]] = value
+	}
+
+	// Summary (token-based)
+	setPath(root, []string{"summaryEnabled"}, s.SummaryEnabled)
+	if s.SummaryReserveBufferTokens != 0 {
+		setPath(root, []string{"summaryReserveBufferTokens"}, s.SummaryReserveBufferTokens)
+	}
+
+	// OpenAI summary overrides (for OpenAI-compatible providers)
+	if s.OpenAISummaryModel != "" {
+		setPath(root, []string{"llm_client", "openai", "summaryModel"}, s.OpenAISummaryModel)
+	}
+	if s.OpenAISummaryURL != "" {
+		setPath(root, []string{"llm_client", "openai", "summaryBaseURL"}, s.OpenAISummaryURL)
+	}
+
+	// Embedding
+	if s.EmbedBaseURL != "" {
+		setPath(root, []string{"embedding", "baseURL"}, s.EmbedBaseURL)
+	}
+	if s.EmbedModel != "" {
+		setPath(root, []string{"embedding", "model"}, s.EmbedModel)
+	}
+	if s.EmbedAPIKey != "" {
+		setPath(root, []string{"embedding", "apiKey"}, s.EmbedAPIKey)
+	}
+	if s.EmbedAPIHeader != "" {
+		setPath(root, []string{"embedding", "apiHeader"}, s.EmbedAPIHeader)
+	}
+	if s.EmbedPath != "" {
+		setPath(root, []string{"embedding", "path"}, s.EmbedPath)
+	}
+	if s.EmbedAPIHeaders != nil && len(s.EmbedAPIHeaders) > 0 {
+		setPath(root, []string{"embedding", "headers"}, s.EmbedAPIHeaders)
+	}
+
+	// Runtime timeouts
+	if s.AgentRunTimeoutSeconds != 0 {
+		setPath(root, []string{"agentRunTimeoutSeconds"}, s.AgentRunTimeoutSeconds)
+	}
+	if s.StreamRunTimeoutSeconds != 0 {
+		setPath(root, []string{"streamRunTimeoutSeconds"}, s.StreamRunTimeoutSeconds)
+	}
+	if s.WorkflowTimeoutSeconds != 0 {
+		setPath(root, []string{"workflowTimeoutSeconds"}, s.WorkflowTimeoutSeconds)
+	}
+
+	// Exec
+	if strings.TrimSpace(s.BlockBinaries) != "" {
+		parts := strings.Split(s.BlockBinaries, ",")
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				out = append(out, p)
+			}
+		}
+		setPath(root, []string{"exec", "blockBinaries"}, out)
+	}
+	if s.MaxCommandSeconds != 0 {
+		setPath(root, []string{"exec", "maxCommandSeconds"}, s.MaxCommandSeconds)
+	}
+	if s.OutputTruncateBytes != 0 {
+		setPath(root, []string{"outputTruncateBytes"}, s.OutputTruncateBytes)
+	}
+
+	// Observability
+	if s.OTELServiceName != "" {
+		setPath(root, []string{"obs", "serviceName"}, s.OTELServiceName)
+	}
+	if s.ServiceVersion != "" {
+		setPath(root, []string{"obs", "serviceVersion"}, s.ServiceVersion)
+	}
+	if s.Environment != "" {
+		setPath(root, []string{"obs", "environment"}, s.Environment)
+	}
+	if s.OTLPEndpoint != "" {
+		setPath(root, []string{"obs", "otlp"}, s.OTLPEndpoint)
+	}
+
+	// Logging
+	setPath(root, []string{"logPayloads"}, s.LogPayloads)
+	if s.LogPath != "" {
+		setPath(root, []string{"logPath"}, s.LogPath)
+	}
+	if s.LogLevel != "" {
+		setPath(root, []string{"logLevel"}, s.LogLevel)
+	}
+
+	// Web
+	if s.SearXNGURL != "" {
+		setPath(root, []string{"web", "searXNGURL"}, s.SearXNGURL)
+	} else if s.WebSearXNGURL != "" {
+		setPath(root, []string{"web", "searXNGURL"}, s.WebSearXNGURL)
+	}
+
+	// Databases
+	if s.DatabaseURL != "" {
+		setPath(root, []string{"databases", "defaultDSN"}, s.DatabaseURL)
+	} else if s.DBURL != "" {
+		setPath(root, []string{"databases", "defaultDSN"}, s.DBURL)
+	} else if s.PostgresDSN != "" {
+		setPath(root, []string{"databases", "defaultDSN"}, s.PostgresDSN)
+	}
+	if s.SearchBackend != "" {
+		setPath(root, []string{"databases", "search", "backend"}, s.SearchBackend)
+	}
+	if s.SearchDSN != "" {
+		setPath(root, []string{"databases", "search", "dsn"}, s.SearchDSN)
+	}
+	if s.SearchIndex != "" {
+		setPath(root, []string{"databases", "search", "index"}, s.SearchIndex)
+	}
+	if s.VectorBackend != "" {
+		setPath(root, []string{"databases", "vector", "backend"}, s.VectorBackend)
+	}
+	if s.VectorDSN != "" {
+		setPath(root, []string{"databases", "vector", "dsn"}, s.VectorDSN)
+	}
+	if s.VectorIndex != "" {
+		setPath(root, []string{"databases", "vector", "index"}, s.VectorIndex)
+	}
+	if s.VectorDims != 0 {
+		setPath(root, []string{"databases", "vector", "dimensions"}, s.VectorDims)
+	}
+	if s.VectorMetric != "" {
+		setPath(root, []string{"databases", "vector", "metric"}, s.VectorMetric)
+	}
+	if s.GraphBackend != "" {
+		setPath(root, []string{"databases", "graph", "backend"}, s.GraphBackend)
+	}
+	if s.GraphDSN != "" {
+		setPath(root, []string{"databases", "graph", "dsn"}, s.GraphDSN)
+	}
+
+	b, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0o644)
+}
+
+func findConfigYAMLPath() string {
+	if _, err := os.Stat("config.yaml"); err == nil {
+		return "config.yaml"
+	}
+	if _, err := os.Stat("config.yml"); err == nil {
+		return "config.yml"
+	}
+	return "config.yaml"
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

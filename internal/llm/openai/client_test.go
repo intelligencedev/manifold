@@ -131,6 +131,26 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestAdaptResponsesInputFiltersOrphanToolOutputs(t *testing.T) {
+	input, _ := adaptResponsesInput([]llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "fetch", Args: []byte(`{"url":"https://example.com"}`)}}},
+		{Role: "tool", ToolID: "call_1", Content: `{"ok":true}`},
+		{Role: "tool", ToolID: "call_orphan", Content: `{"ok":false}`},
+	})
+
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, "call_1") {
+		t.Fatalf("expected input to include call_1, got: %s", s)
+	}
+	if strings.Contains(s, "call_orphan") {
+		t.Fatalf("expected input to omit orphan tool output, got: %s", s)
+	}
+}
+
 // TestSelfHostedSSEHeaderInjection verifies that streaming requests to self-hosted
 // mlx_lm.server backends receive the Accept: text/event-stream header.
 func TestSelfHostedSSEHeaderInjection(t *testing.T) {

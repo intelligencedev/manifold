@@ -84,11 +84,19 @@ export async function fetchMemoryPlan(
 
 export async function fetchEvolvingMemory(
   query?: string,
+  sessionId?: string,
 ): Promise<EvolvingMemoryDebug> {
+  const params: Record<string, string> = {};
+  if (query) {
+    params.query = query;
+  }
+  if (sessionId) {
+    params.session_id = sessionId;
+  }
   const { data } = await apiClient.get<EvolvingMemoryDebug>(
     "/debug/memory/evolving",
     {
-      params: query ? { query } : undefined,
+      params: Object.keys(params).length ? params : undefined,
     },
   );
   return data;

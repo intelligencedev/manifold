@@ -618,7 +618,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.cloneEngineForUser(r.Context(), specOwner)
+		eng := a.cloneEngineForUser(r.Context(), specOwner, req.SessionID)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return
@@ -1006,7 +1006,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 		if userID != nil {
 			orchUserID = *userID
 		}
-		eng := a.cloneEngineForUser(r.Context(), orchUserID)
+		eng := a.cloneEngineForUser(r.Context(), orchUserID, req.SessionID)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return

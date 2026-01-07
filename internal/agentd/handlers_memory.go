@@ -297,53 +297,42 @@ func (a *app) deriveMemoryPlan(sess any, msgs []llm.Message) memoryPlanResponse 
 }
 
 func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) {
-	eng := a.engine
-	if eng == nil || eng.EvolvingMemory == nil {
+	var userID int64 = systemUserID
+	if a.cfg.Auth.Enabled {
+		uid, err := a.requireUserID(r)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID = uid
+	}
+
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
+	if em == nil {
 		writeJSON(w, http.StatusOK, debugMemoryEvolvingResponse{Enabled: false})
 		return
 	}
 
-	// Evolving memory is currently only attached to the shared engine instance.
-	// When auth is enabled, do not expose system-level evolving memory to
-	// non-admin users.
-	if a.cfg.Auth.Enabled {
-		u, ok := auth.CurrentUser(r.Context())
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if a.authStore != nil {
-			okRole, err := a.authStore.HasRole(r.Context(), u.ID, "admin")
-			if err != nil {
-				log.Error().Err(err).Int64("userId", u.ID).Msg("check_admin_role")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if !okRole {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-		} else {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-	}
-
 	// Base snapshot
-	entries := eng.EvolvingMemory.ExportMemories()
+	entries := em.ExportMemories()
 	resp := debugMemoryEvolvingResponse{
 		Enabled:      true,
 		TotalEntries: len(entries),
-		TopK:         eng.EvolvingMemory.TopK(),
-		MaxSize:      eng.EvolvingMemory.MaxSize(),
-		WindowSize:   eng.EvolvingMemory.WindowSize(),
-		RecentWindow: eng.EvolvingMemory.GetRecentWindow(),
+		TopK:         em.TopK(),
+		MaxSize:      em.MaxSize(),
+		WindowSize:   em.WindowSize(),
+		RecentWindow: em.GetRecentWindow(),
 	}
 
 	q := strings.TrimSpace(r.URL.Query().Get("query"))
 	if q != "" {
 		resp.LastQuery = q
-		if scored, err := eng.EvolvingMemory.SearchWithScores(r.Context(), q); err == nil {
+		if scored, err := em.SearchWithScores(r.Context(), q); err == nil {
 			resp.Retrieved = scored
 		}
 	}

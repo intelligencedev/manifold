@@ -42,6 +42,7 @@ func (s *pgEvolvingMemoryStore) Init(ctx context.Context) error {
 CREATE TABLE IF NOT EXISTS evolving_memories (
     id UUID PRIMARY KEY,
     user_id BIGINT NOT NULL,
+    session_id TEXT NOT NULL DEFAULT 'default',
     input TEXT NOT NULL,
     output TEXT NOT NULL,
     feedback TEXT NOT NULL,
@@ -54,20 +55,30 @@ CREATE TABLE IF NOT EXISTS evolving_memories (
 
 CREATE INDEX IF NOT EXISTS evolving_memories_user_created_idx
     ON evolving_memories(user_id, created_at DESC);
+
+ALTER TABLE evolving_memories
+    ADD COLUMN IF NOT EXISTS session_id TEXT NOT NULL DEFAULT 'default';
+
+CREATE INDEX IF NOT EXISTS evolving_memories_user_session_created_idx
+    ON evolving_memories(user_id, session_id, created_at DESC);
 `)
 	return err
 }
 
-// Load returns all memory entries for a given user ordered by creation time.
-func (s *pgEvolvingMemoryStore) Load(ctx context.Context, userID int64) ([]*memory.MemoryEntry, error) {
+// Load returns all memory entries for a given user/session ordered by creation time.
+func (s *pgEvolvingMemoryStore) Load(ctx context.Context, userID int64, sessionID string) ([]*memory.MemoryEntry, error) {
 	if s.pool == nil {
 		return nil, errors.New("postgres evolving memory store requires pool")
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = "default"
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT id, input, output, feedback, summary, raw_trace, embedding, metadata, created_at
 FROM evolving_memories
-WHERE user_id = $1
-ORDER BY created_at ASC, id ASC`, userID)
+WHERE user_id = $1 AND session_id = $2
+ORDER BY created_at ASC, id ASC`, userID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -120,11 +131,15 @@ ORDER BY created_at ASC, id ASC`, userID)
 	return out, rows.Err()
 }
 
-// Save replaces all memory entries for the given user in a single transaction.
+// Save replaces all memory entries for the given user/session in a single transaction.
 // This keeps the database representation aligned with the in-memory slice.
-func (s *pgEvolvingMemoryStore) Save(ctx context.Context, userID int64, entries []*memory.MemoryEntry) error {
+func (s *pgEvolvingMemoryStore) Save(ctx context.Context, userID int64, sessionID string, entries []*memory.MemoryEntry) error {
 	if s.pool == nil {
 		return errors.New("postgres evolving memory store requires pool")
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = "default"
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -135,7 +150,7 @@ func (s *pgEvolvingMemoryStore) Save(ctx context.Context, userID int64, entries 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, `DELETE FROM evolving_memories WHERE user_id = $1`, userID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM evolving_memories WHERE user_id = $1 AND session_id = $2`, userID, sessionID); err != nil {
 		return err
 	}
 
@@ -154,9 +169,9 @@ func (s *pgEvolvingMemoryStore) Save(ctx context.Context, userID int64, entries 
 		metaBytes, _ := json.Marshal(e.Metadata)
 		embBytes, _ := json.Marshal(e.Embedding)
 		if _, err := tx.Exec(ctx, `
-INSERT INTO evolving_memories (id, user_id, input, output, feedback, summary, raw_trace, embedding, metadata, created_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-			id, userID, e.Input, e.Output, e.Feedback, e.Summary, e.RawTrace, embBytes, metaBytes, createdAt); err != nil {
+INSERT INTO evolving_memories (id, user_id, session_id, input, output, feedback, summary, raw_trace, embedding, metadata, created_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			id, userID, sessionID, e.Input, e.Output, e.Feedback, e.Summary, e.RawTrace, embBytes, metaBytes, createdAt); err != nil {
 			return err
 		}
 	}

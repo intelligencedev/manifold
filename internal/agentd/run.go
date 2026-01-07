@@ -80,7 +80,7 @@ type app struct {
 	warppRegistries    map[int64]*warpp.Registry
 	warppStore         persist.WarppWorkflowStore
 	evolvingMu         sync.RWMutex
-	userEvolving       map[int64]*memory.EvolvingMemory
+	userEvolving       map[int64]map[string]*memory.EvolvingMemory
 	evolvingCfg        memory.EvolvingMemoryConfig
 	rememMaxInnerSteps int
 	engine             *agent.Engine
@@ -129,7 +129,7 @@ func (a *app) cloneEngine() *agent.Engine {
 // cloneEngineForUser returns a shallow copy of the base engine with user-specific
 // orchestrator settings applied (particularly the tool allowlist). This enables
 // per-user orchestrator configurations.
-func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engine {
+func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID string) *agent.Engine {
 	eng := a.cloneEngine()
 	if eng == nil {
 		return nil
@@ -145,15 +145,10 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 		eng.System = a.composeSystemPromptForUser(ctx, userID)
 	}
 
-	// For system user or when auth is disabled, use the shared engine config
-	if !a.cfg.Auth.Enabled || userID == systemUserID {
-		return eng
-	}
-
-	// Attach user-scoped evolving memory/ReMem when configured.
-	// This avoids using a shared system-level memory store when auth is enabled.
-	if a.evolvingCfg.Store != nil && a.evolvingCfg.LLM != nil {
-		em := a.getOrCreateEvolvingMemoryForUser(userID)
+	// Attach session-scoped evolving memory/ReMem when configured.
+	// This avoids using a shared system-level memory store across sessions.
+	if a.evolvingCfg.LLM != nil {
+		em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
 		if em != nil {
 			eng.EvolvingMemory = em
 			if a.engine != nil && a.engine.ReMemEnabled {
@@ -166,6 +161,11 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 				})
 			}
 		}
+	}
+
+	// For system user or when auth is disabled, use the shared engine config
+	if !a.cfg.Auth.Enabled || userID == systemUserID {
+		return eng
 	}
 
 	// Look up user's orchestrator overlay
@@ -193,19 +193,19 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 	return eng
 }
 
-func (a *app) getOrCreateEvolvingMemoryForUser(userID int64) *memory.EvolvingMemory {
-	if userID == systemUserID {
-		if a.engine == nil {
-			return nil
-		}
-		return a.engine.EvolvingMemory
+func (a *app) getOrCreateEvolvingMemoryForSession(userID int64, sessionID string) *memory.EvolvingMemory {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = "default"
 	}
 
 	a.evolvingMu.RLock()
 	if a.userEvolving != nil {
-		if em := a.userEvolving[userID]; em != nil {
-			a.evolvingMu.RUnlock()
-			return em
+		if sessions := a.userEvolving[userID]; sessions != nil {
+			if em := sessions[sessionID]; em != nil {
+				a.evolvingMu.RUnlock()
+				return em
+			}
 		}
 	}
 	a.evolvingMu.RUnlock()
@@ -213,18 +213,22 @@ func (a *app) getOrCreateEvolvingMemoryForUser(userID int64) *memory.EvolvingMem
 	a.evolvingMu.Lock()
 	defer a.evolvingMu.Unlock()
 	if a.userEvolving == nil {
-		a.userEvolving = make(map[int64]*memory.EvolvingMemory)
+		a.userEvolving = make(map[int64]map[string]*memory.EvolvingMemory)
 	}
-	if em := a.userEvolving[userID]; em != nil {
+	if a.userEvolving[userID] == nil {
+		a.userEvolving[userID] = make(map[string]*memory.EvolvingMemory)
+	}
+	if em := a.userEvolving[userID][sessionID]; em != nil {
 		return em
 	}
-	if a.evolvingCfg.Store == nil || a.evolvingCfg.LLM == nil {
+	if a.evolvingCfg.LLM == nil {
 		return nil
 	}
 	cfg := a.evolvingCfg
 	cfg.UserID = userID
+	cfg.SessionID = sessionID
 	em := memory.NewEvolvingMemory(cfg)
-	a.userEvolving[userID] = em
+	a.userEvolving[userID][sessionID] = em
 	return em
 }
 

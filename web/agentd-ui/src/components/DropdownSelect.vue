@@ -11,6 +11,8 @@
       :aria-label="ariaLabel"
       :title="title"
       :class="[baseClasses, sizeClasses, stateClasses, $attrs.class]"
+      @mousedown.stop
+      @pointerdown.stop
       @change="handleChange"
     >
       <option v-if="placeholder && !modelValue" value="" disabled>

@@ -1879,9 +1879,30 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 		items = append(items, payload)
 	}
 
+	toolCallIDs := make(map[string]struct{}, 8)
+	toolOutputIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				callID := strings.TrimSpace(tc.ID)
+				if callID == "" {
+					continue
+				}
+				toolCallIDs[callID] = struct{}{}
+			}
+			continue
+		}
+		if m.Role == "tool" {
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				continue
+			}
+			toolOutputIDs[toolID] = struct{}{}
+		}
+	}
+
 	var sys []string
 	assistantIndex := 0
-	toolIndex := 0
 	for _, m := range msgs {
 		switch m.Role {
 		case "system":
@@ -1902,7 +1923,13 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 			// If the assistant provided tool calls, include those so tool outputs can reference them.
 			if len(m.ToolCalls) > 0 {
 				for _, tc := range m.ToolCalls {
-					callID := tc.ID
+					callID := strings.TrimSpace(tc.ID)
+					if callID == "" {
+						continue
+					}
+					if _, ok := toolOutputIDs[callID]; !ok {
+						continue
+					}
 					args := string(tc.Args)
 					items = append(items, rs.ResponseInputItemParamOfFunctionCall(args, callID, tc.Name))
 				}
@@ -1923,8 +1950,10 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 			}
 			toolID := strings.TrimSpace(m.ToolID)
 			if toolID == "" {
-				toolIndex++
-				toolID = fmt.Sprintf("call_%d", toolIndex)
+				continue
+			}
+			if _, ok := toolCallIDs[toolID]; !ok {
+				continue
 			}
 			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 		}

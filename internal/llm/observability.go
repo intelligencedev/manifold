@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +24,62 @@ var (
 	enablePayloadLogging = false
 	truncateBytes        = 0 // 0 means no truncation
 )
+
+type userIDKey struct{}
+
+// WithUserID returns a derived context that tags subsequent LLM spans/metrics
+// with the given user ID. This is used to scope observability data per user.
+func WithUserID(ctx context.Context, userID int64) context.Context {
+	if userID == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, userIDKey{}, userID)
+}
+
+func userIDFromContext(ctx context.Context) (int64, bool) {
+	if ctx == nil {
+		return 0, false
+	}
+	v := ctx.Value(userIDKey{})
+	if v == nil {
+		return 0, false
+	}
+	id, ok := v.(int64)
+	return id, ok
+}
+
+// endUserIDAttr is the OTel attribute key used to tag spans with the
+// authenticated user. This aligns with OpenTelemetry semantic conventions.
+const endUserIDAttr = "enduser.id"
+
+// RecordTokenMetricsFromContext records token usage and attributes it to the
+// user in ctx (if present). This enables per-user token aggregation in
+// backends like ClickHouse.
+func RecordTokenMetricsFromContext(ctx context.Context, model string, promptTokens, completionTokens int) {
+	if model == "" || (promptTokens == 0 && completionTokens == 0) {
+		return
+	}
+	// Always update in-process totals (deployment-wide).
+	recordTokenMetrics(model, promptTokens, completionTokens, timeNow())
+
+	uid, ok := userIDFromContext(ctx)
+	if !ok || uid == 0 {
+		return
+	}
+
+	// Also emit OTel metrics tagged with enduser.id.
+	ensureTokenInstruments()
+	attrs := []attribute.KeyValue{
+		attribute.String("llm.model", model),
+		attribute.String(endUserIDAttr, fmt.Sprint(uid)),
+	}
+	if promptCounter != nil && promptTokens > 0 {
+		promptCounter.Add(ctx, int64(promptTokens), otelmetric.WithAttributes(attrs...))
+	}
+	if completionCounter != nil && completionTokens > 0 {
+		completionCounter.Add(ctx, int64(completionTokens), otelmetric.WithAttributes(attrs...))
+	}
+}
 
 // --- Token metrics aggregation (exposed to web UI) ---------------------------
 var (
@@ -276,7 +333,15 @@ func ConfigureLogging(enable bool, truncate int) {
 func StartRequestSpan(ctx context.Context, operation string, model string, tools int, messages int) (context.Context, trace.Span) {
 	ensureTraceProcessor()
 	ctx, span := otel.Tracer(llmTracerName).Start(ctx, operation)
-	span.SetAttributes(attribute.String("llm.model", model), attribute.Int("llm.tools", tools), attribute.Int("llm.messages", messages))
+	attrs := []attribute.KeyValue{
+		attribute.String("llm.model", model),
+		attribute.Int("llm.tools", tools),
+		attribute.Int("llm.messages", messages),
+	}
+	if uid, ok := userIDFromContext(ctx); ok {
+		attrs = append(attrs, attribute.String(endUserIDAttr, fmt.Sprint(uid)))
+	}
+	span.SetAttributes(attrs...)
 	return ctx, span
 }
 

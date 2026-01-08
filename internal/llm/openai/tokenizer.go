@@ -144,6 +144,19 @@ func (t *ResponsesTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm
 
 // buildInputItems converts llm.Message slice to Responses API input format.
 func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string) {
+	validToolCallIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" {
+				continue
+			}
+			validToolCallIDs[tc.ID] = struct{}{}
+		}
+	}
+
 	items := make([]any, 0, len(msgs))
 	var instructions string
 
@@ -153,11 +166,15 @@ func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string)
 			// System messages become instructions in Responses API
 			instructions = m.Content
 		case "user":
+			content := strings.TrimSpace(m.Content)
+			if content == "" {
+				content = " "
+			}
 			items = append(items, map[string]any{
 				"type": "message",
 				"role": "user",
 				"content": []map[string]any{
-					{"type": "input_text", "text": m.Content},
+					{"type": "input_text", "text": content},
 				},
 			})
 		case "assistant":
@@ -168,18 +185,18 @@ func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string)
 					"encrypted_content": m.Compaction.EncryptedContent,
 				})
 			} else if len(m.ToolCalls) > 0 {
-				// Assistant message with tool calls
-				item := map[string]any{
-					"type":   "message",
-					"role":   "assistant",
-					"status": "completed",
+				// Assistant message with tool calls (emit text only when present)
+				content := strings.TrimSpace(m.Content)
+				if content != "" {
+					items = append(items, map[string]any{
+						"type":   "message",
+						"role":   "assistant",
+						"status": "completed",
+						"content": []map[string]any{
+							{"type": "output_text", "text": content},
+						},
+					})
 				}
-				if m.Content != "" {
-					item["content"] = []map[string]any{
-						{"type": "output_text", "text": m.Content},
-					}
-				}
-				items = append(items, item)
 
 				// Add function calls
 				for _, tc := range m.ToolCalls {
@@ -192,21 +209,36 @@ func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string)
 				}
 			} else {
 				// Plain assistant message
+				content := strings.TrimSpace(m.Content)
+				if content == "" {
+					continue
+				}
 				items = append(items, map[string]any{
 					"type":   "message",
 					"role":   "assistant",
 					"status": "completed",
 					"content": []map[string]any{
-						{"type": "output_text", "text": m.Content},
+						{"type": "output_text", "text": content},
 					},
 				})
 			}
 		case "tool":
 			// Tool response
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				continue
+			}
+			if _, ok := validToolCallIDs[toolID]; !ok {
+				continue
+			}
+			output := strings.TrimSpace(m.Content)
+			if output == "" {
+				output = "{}"
+			}
 			items = append(items, map[string]any{
 				"type":    "function_call_output",
-				"call_id": m.ToolID,
-				"output":  m.Content,
+				"call_id": toolID,
+				"output":  output,
 			})
 		}
 	}

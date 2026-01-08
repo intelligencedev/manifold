@@ -56,8 +56,8 @@
           v-else-if="sessionDebug"
           class="flex flex-col gap-3 rounded-4 border border-border bg-surface-muted/40 p-3 text-xs"
         >
-          <p class="whitespace-pre-wrap text-foreground">
-            {{ sessionDebug.summary || "No summary yet." }}
+          <p class="text-foreground">
+            {{ preview(sessionDebug.summary || "No summary yet.", 240) }}
           </p>
           <p class="text-[11px] text-faint-foreground">
             Summarized {{ sessionDebug.summarizedCount }} messages; tail size
@@ -100,7 +100,13 @@
           Evolving memory
         </h3>
         <div
-          v-if="evolvingLoading"
+          v-if="!selectedSessionId"
+          class="rounded-4 border border-dashed border-border bg-surface-muted/40 px-3 py-2 text-xs text-subtle-foreground"
+        >
+          Select a session to inspect its evolving memory.
+        </div>
+        <div
+          v-else-if="evolvingLoading"
           class="rounded-4 border border-border bg-surface-muted/40 px-3 py-2 text-xs text-subtle-foreground"
         >
           Loading evolving memory…
@@ -249,10 +255,16 @@ async function refreshSessionDebug() {
 
 async function refreshEvolving() {
   evolvingError.value = "";
+  if (!selectedSessionId.value) {
+    evolvingDebug.value = null;
+    evolvingLoading.value = false;
+    return;
+  }
   evolvingLoading.value = true;
   try {
     evolvingDebug.value = await fetchEvolvingMemory(
       evolvingQuery.value.trim() || undefined,
+      selectedSessionId.value,
     );
   } catch (err: any) {
     evolvingError.value = err?.message || "Failed to load evolving memory";
@@ -268,6 +280,7 @@ onMounted(async () => {
 
 watch(selectedSessionId, () => {
   void refreshSessionDebug();
+  void refreshEvolving();
 });
 
 const preview = (text?: string, limit = 120) => {

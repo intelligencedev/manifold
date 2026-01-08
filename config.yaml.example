@@ -62,11 +62,21 @@ maxToolParallelism: 0          # Tool concurrency (0=unbounded, 1=sequential, >1
 # Chat summarization configuration (token-based only)
 # All summarization uses a reserve buffer pattern to protect output tokens
 summaryEnabled: true
+# Optional: cap the context window used for chat-memory budgeting.
+# This keeps the raw transcript short even when the underlying model supports
+# very large context windows.
+# Env override: SUMMARY_CONTEXT_WINDOW_TOKENS
+summaryContextWindowTokens: 32000
 # Reserve buffer for output tokens (including reasoning tokens for reasoning models)
 # Standard chat: 8,000-16,000 | Reasoning models (o1/o3): ~25,000 | Code generation: 16,000-32,000
 summaryReserveBufferTokens: 25000
 # Minimum number of recent messages to keep in raw form when summarizing
 summaryMinKeepLastMessages: 4
+# Maximum number of recent messages to keep in raw form.
+# If the chat grows beyond this, older turns are rolled into the session summary
+# even if they still fit in the context window.
+# Env override: SUMMARY_MAX_KEEP_LAST_MESSAGES
+summaryMaxKeepLastMessages: 12
 # Maximum tokens per summary chunk when building multi-turn summaries
 summaryMaxSummaryChunkTokens: 4096
 

@@ -52,7 +52,7 @@ func (t *Tool) Name() string { return "apply_patch" }
 func (t *Tool) JSONSchema() map[string]any {
 	return map[string]any{
 		"name":        t.Name(),
-		"description": "Apply one or more unified diff patches to files under the locked WORKDIR. Supports add, delete, update, and move semantics.",
+		"description": "OpenAI models only. Apply one or more unified diff patches to files under the locked WORKDIR. Supports add, delete, update, and move semantics.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{

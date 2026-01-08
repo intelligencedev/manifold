@@ -65,43 +65,48 @@ import (
 const systemUserID int64 = 0
 
 type app struct {
-	cfg               *config.Config
-	httpClient        *http.Client
-	mgr               *databases.Manager
-	llm               llmpkg.Provider
-	baseToolRegistry  tools.Registry
-	toolRegistry      tools.Registry
-	specRegistry      *specialists.Registry
-	specRegMu         sync.RWMutex
-	userSpecRegs      map[int64]*specialists.Registry
-	summaryLLM        llmpkg.Provider
-	warppMu           sync.RWMutex
-	warppRunner       *warpp.Runner
-	warppRegistries   map[int64]*warpp.Registry
-	warppStore        persist.WarppWorkflowStore
-	engine            *agent.Engine
-	chatStore         persist.ChatStore
-	chatMemory        *memory.Manager
-	runs              *runStore
-	playgroundHandler http.Handler
-	projectsService   projects.ProjectService
-	s3Store           *objectstore.S3Store // nil if filesystem backend
-	workspaceManager  workspaces.WorkspaceManager
-	whisperModel      whisper.Model
-	authStore         *auth.Store
-	authProvider      auth.Provider
-	specStore         persist.SpecialistsStore
-	mcpStore          persist.MCPStore
-	userPrefsStore    persist.UserPreferencesStore
-	mcpManager        *mcpclient.Manager
-	mcpPool           *mcpclient.MCPServerPool
-	tokenMetrics      tokenMetricsProvider
-	traceMetrics      *clickhouseTraceMetrics
-	runMetrics        *clickhouseRunMetrics
+	cfg                *config.Config
+	httpClient         *http.Client
+	mgr                *databases.Manager
+	llm                llmpkg.Provider
+	baseToolRegistry   tools.Registry
+	toolRegistry       tools.Registry
+	specRegistry       *specialists.Registry
+	specRegMu          sync.RWMutex
+	userSpecRegs       map[int64]*specialists.Registry
+	summaryLLM         llmpkg.Provider
+	warppMu            sync.RWMutex
+	warppRunner        *warpp.Runner
+	warppRegistries    map[int64]*warpp.Registry
+	warppStore         persist.WarppWorkflowStore
+	evolvingMu         sync.RWMutex
+	userEvolving       map[int64]map[string]*memory.EvolvingMemory
+	evolvingCfg        memory.EvolvingMemoryConfig
+	rememMaxInnerSteps int
+	engine             *agent.Engine
+	chatStore          persist.ChatStore
+	chatMemory         *memory.Manager
+	runs               *runStore
+	playgroundHandler  http.Handler
+	projectsService    projects.ProjectService
+	s3Store            *objectstore.S3Store // nil if filesystem backend
+	workspaceManager   workspaces.WorkspaceManager
+	whisperModel       whisper.Model
+	authStore          *auth.Store
+	authProvider       auth.Provider
+	specStore          persist.SpecialistsStore
+	mcpStore           persist.MCPStore
+	userPrefsStore     persist.UserPreferencesStore
+	mcpManager         *mcpclient.Manager
+	mcpPool            *mcpclient.MCPServerPool
+	tokenMetrics       tokenMetricsProvider
+	traceMetrics       *clickhouseTraceMetrics
+	runMetrics         *clickhouseRunMetrics
 }
 
 type tokenMetricsProvider interface {
 	TokenTotals(ctx context.Context, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
+	TokenTotalsForUser(ctx context.Context, userID int64, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
 	Source() string
 }
 
@@ -124,7 +129,7 @@ func (a *app) cloneEngine() *agent.Engine {
 // cloneEngineForUser returns a shallow copy of the base engine with user-specific
 // orchestrator settings applied (particularly the tool allowlist). This enables
 // per-user orchestrator configurations.
-func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engine {
+func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID string) *agent.Engine {
 	eng := a.cloneEngine()
 	if eng == nil {
 		return nil
@@ -138,6 +143,24 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 	// base prompt with the correct catalog.
 	if a.cfg.Auth.Enabled && userID != systemUserID {
 		eng.System = a.composeSystemPromptForUser(ctx, userID)
+	}
+
+	// Attach session-scoped evolving memory/ReMem when configured.
+	// This avoids using a shared system-level memory store across sessions.
+	if a.evolvingCfg.LLM != nil {
+		em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
+		if em != nil {
+			eng.EvolvingMemory = em
+			if a.engine != nil && a.engine.ReMemEnabled {
+				eng.ReMemEnabled = true
+				eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
+					LLM:           a.evolvingCfg.LLM,
+					Model:         a.evolvingCfg.Model,
+					Memory:        em,
+					MaxInnerSteps: a.rememMaxInnerSteps,
+				})
+			}
+		}
 	}
 
 	// For system user or when auth is disabled, use the shared engine config
@@ -168,6 +191,45 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64) *agent.Engin
 	}
 
 	return eng
+}
+
+func (a *app) getOrCreateEvolvingMemoryForSession(userID int64, sessionID string) *memory.EvolvingMemory {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	a.evolvingMu.RLock()
+	if a.userEvolving != nil {
+		if sessions := a.userEvolving[userID]; sessions != nil {
+			if em := sessions[sessionID]; em != nil {
+				a.evolvingMu.RUnlock()
+				return em
+			}
+		}
+	}
+	a.evolvingMu.RUnlock()
+
+	a.evolvingMu.Lock()
+	defer a.evolvingMu.Unlock()
+	if a.userEvolving == nil {
+		a.userEvolving = make(map[int64]map[string]*memory.EvolvingMemory)
+	}
+	if a.userEvolving[userID] == nil {
+		a.userEvolving[userID] = make(map[string]*memory.EvolvingMemory)
+	}
+	if em := a.userEvolving[userID][sessionID]; em != nil {
+		return em
+	}
+	if a.evolvingCfg.LLM == nil {
+		return nil
+	}
+	cfg := a.evolvingCfg
+	cfg.UserID = userID
+	cfg.SessionID = sessionID
+	em := memory.NewEvolvingMemory(cfg)
+	a.userEvolving[userID][sessionID] = em
+	return em
 }
 
 // Run initialises the agentd server and starts the HTTP listener.
@@ -358,7 +420,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
-	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
+	_ = mcpMgr.RegisterFromConfig(ctxInit, baseToolRegistry, cfg.MCP)
 
 	requiresPerUserMCP := cfg.Auth.Enabled &&
 		cfg.Projects.Backend == "s3" &&
@@ -408,7 +470,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 						continue
 					}
 				}
-				_ = mcpMgr.RegisterOne(ctxInit, toolRegistry, cfgSrv)
+				_ = mcpMgr.RegisterOne(ctxInit, baseToolRegistry, cfgSrv)
 			}
 		} else {
 			log.Warn().Err(err).Msg("failed to load mcp servers from db")
@@ -418,7 +480,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Create MCP Server Pool for managing shared and per-user MCP sessions
 	mcpPool := mcpclient.NewMCPServerPool(cfg, wsMgr, mgr.UserPreferences)
-	mcpPool.SetToolRegistry(toolRegistry)
+	mcpPool.SetToolRegistry(baseToolRegistry)
 
 	// Wire workspace checkout callback to initialize MCP sessions on checkout
 	workspaces.SetCheckoutCallback(mcpPool.OnWorkspaceCheckout)
@@ -426,20 +488,20 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// Register non-path-dependent servers to the pool (shared)
 	// Path-dependent servers in enterprise mode are registered per-user on project switch
 	ctxPool, cancelPool := context.WithTimeout(ctx, 20*time.Second)
-	if err := mcpPool.RegisterFromConfig(ctxPool, toolRegistry); err != nil {
+	if err := mcpPool.RegisterFromConfig(ctxPool, baseToolRegistry); err != nil {
 		log.Warn().Err(err).Msg("mcp_pool_registration_failed")
 	}
 
 	// Discover and register tools from path-dependent MCP servers for UI display
 	// This temporarily starts servers with a temp directory just to enumerate tools
 	if mcpPool.RequiresPerUserMCP() {
-		mcpPool.RegisterPathDependentToolsForDiscovery(ctxPool, toolRegistry)
+		mcpPool.RegisterPathDependentToolsForDiscovery(ctxPool, baseToolRegistry)
 	}
 	cancelPool()
 
 	// Start idle session reaper for enterprise mode (15 min check interval, 1 hour max idle)
 	if mcpPool.RequiresPerUserMCP() {
-		mcpPool.StartReaper(ctx, toolRegistry, 15*time.Minute, 1*time.Hour)
+		mcpPool.StartReaper(ctx, baseToolRegistry, 15*time.Minute, 1*time.Hour)
 	}
 
 	app := &app{
@@ -507,6 +569,23 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			}
 		}
 
+		app.evolvingCfg = memory.EvolvingMemoryConfig{
+			EmbeddingConfig:  cfg.Embedding,
+			LLM:              memLLM,
+			Model:            memModel,
+			MaxSize:          cfg.EvolvingMemory.MaxSize,
+			TopK:             cfg.EvolvingMemory.TopK,
+			WindowSize:       cfg.EvolvingMemory.WindowSize,
+			EnableRAG:        cfg.EvolvingMemory.EnableRAG,
+			EnableSmartPrune: cfg.EvolvingMemory.EnableSmartPrune,
+			PruneThreshold:   cfg.EvolvingMemory.PruneThreshold,
+			RelevanceDecay:   cfg.EvolvingMemory.RelevanceDecay,
+			MinRelevance:     cfg.EvolvingMemory.MinRelevance,
+			Store:            evStore,
+			UserID:           systemUserID,
+		}
+		app.rememMaxInnerSteps = cfg.EvolvingMemory.MaxInnerSteps
+
 		app.engine.EvolvingMemory = memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
 			EmbeddingConfig:  cfg.Embedding,
 			LLM:              memLLM,
@@ -550,14 +629,26 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if app.chatStore == nil {
 		return nil, fmt.Errorf("chat store not initialized")
 	}
-	// Derive a context window for the summary model (may differ from main model).
+	// Derive a context window for chat-memory budgeting.
+	// Even if the underlying model supports very large context windows (e.g. GPT-5),
+	// we intentionally cap the default budgeting window so the orchestrator doesn't
+	// receive an excessively long raw transcript every turn.
 	summaryCtxSize, _ := llmpkg.ContextSize(cfg.OpenAI.SummaryModel)
+	if cfg.SummaryContextWindowTokens > 0 {
+		summaryCtxSize = cfg.SummaryContextWindowTokens
+	} else {
+		const defaultSummaryContextWindowCap = 32_000
+		if summaryCtxSize <= 0 || summaryCtxSize > defaultSummaryContextWindowCap {
+			summaryCtxSize = defaultSummaryContextWindowCap
+		}
+	}
 	useResponsesCompaction := (cfg.LLMClient.Provider == "" || cfg.LLMClient.Provider == "openai") &&
 		strings.EqualFold(cfg.OpenAI.API, "responses")
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
 		Enabled:                cfg.SummaryEnabled,
 		ReserveBufferTokens:    cfg.SummaryReserveBufferTokens,
 		MinKeepLastMessages:    cfg.SummaryMinKeepLastMessages,
+		MaxKeepLastMessages:    cfg.SummaryMaxKeepLastMessages,
 		MaxSummaryChunkTokens:  cfg.SummaryMaxSummaryChunkTokens,
 		ContextWindowTokens:    summaryCtxSize,
 		SummaryModel:           cfg.OpenAI.SummaryModel,

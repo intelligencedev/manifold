@@ -42,6 +42,7 @@ type Config struct {
 	// for reasoning models). OpenAI recommends ~25,000 for reasoning models.
 	ReserveBufferTokens   int `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
 	MinKeepLastMessages   int `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
+	MaxKeepLastMessages   int `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
 	MaxSummaryChunkTokens int `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
 	// ContextWindowTokens can be pre-computed by the caller; if 0, ContextSize
 	// is used as a fallback.
@@ -64,6 +65,7 @@ type Manager struct {
 	// Token-based summarization fields
 	reserveBufferTokens    int
 	minKeepLastMessages    int
+	maxKeepLastMessages    int
 	maxSummaryChunkTokens  int
 	contextWindowTokens    int
 	useResponsesCompaction bool
@@ -95,6 +97,7 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 		enabled:                cfg.Enabled && provider != nil,
 		reserveBufferTokens:    cfg.ReserveBufferTokens,
 		minKeepLastMessages:    cfg.MinKeepLastMessages,
+		maxKeepLastMessages:    cfg.MaxKeepLastMessages,
 		maxSummaryChunkTokens:  cfg.MaxSummaryChunkTokens,
 		contextWindowTokens:    cfg.ContextWindowTokens,
 		useResponsesCompaction: cfg.UseResponsesCompaction,
@@ -104,6 +107,12 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 	}
 	if m.minKeepLastMessages <= 0 {
 		m.minKeepLastMessages = 4
+	}
+	if m.maxKeepLastMessages <= 0 {
+		m.maxKeepLastMessages = 12
+	}
+	if m.maxKeepLastMessages < m.minKeepLastMessages {
+		m.maxKeepLastMessages = m.minKeepLastMessages
 	}
 	if m.maxSummaryChunkTokens <= 0 {
 		m.maxSummaryChunkTokens = maxSummarizeChunkSize
@@ -167,7 +176,7 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 		// (context window minus reserve buffer).
 		ctxSize := m.contextWindowTokens
 		if ctxSize <= 0 {
-			ctxSize = 128_000 // Conservative default for modern models
+			ctxSize = 32_000 // Conservative default for memory budgeting
 		}
 		reserveBuffer := m.reserveBufferTokens
 		if reserveBuffer <= 0 {
@@ -208,6 +217,15 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 		// Never include messages that have already been summarized.
 		if tailStart < summarizedCount {
 			tailStart = summarizedCount
+		}
+		// Cap the raw tail to avoid sending an excessively long transcript even
+		// when it fits within the model context budget.
+		maxTail := m.maxKeepLastMessages
+		if maxTail > 0 && total-tailStart > maxTail {
+			tailStart = total - maxTail
+			if tailStart < summarizedCount {
+				tailStart = summarizedCount
+			}
 		}
 
 		// If summarization failed we fall back to sending the full history.
@@ -296,7 +314,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		}
 	}
 	if ctxSize <= 0 {
-		ctxSize = 128_000 // Conservative default for modern models
+		ctxSize = 32_000 // Conservative default for memory budgeting
 	}
 
 	reserveBuffer := m.reserveBufferTokens
@@ -309,11 +327,19 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		budget = ctxSize / 2
 	}
 
+	// Force summarization once the chat exceeds the configured max tail size.
+	// This keeps the raw transcript short even for very large-context models.
+	maxTail := m.maxKeepLastMessages
+	if maxTail < m.minKeepLastMessages {
+		maxTail = m.minKeepLastMessages
+	}
+	forceByCount := maxTail > 0 && total > maxTail
+
 	estimated := 0
 	for _, msg := range messages {
 		estimated += len([]rune(strings.TrimSpace(msg.Content)))/4 + 1
 	}
-	if estimated <= budget {
+	if !forceByCount && estimated <= budget {
 		return session.Summary, session.SummarizedCount, nil
 	}
 
@@ -322,6 +348,9 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	minTail := m.minKeepLastMessages
 	if minTail <= 0 {
 		minTail = 4
+	}
+	if forceByCount {
+		minTail = maxTail
 	}
 	if total <= minTail {
 		return session.Summary, session.SummarizedCount, nil

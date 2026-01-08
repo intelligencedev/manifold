@@ -478,11 +478,11 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		totalTokens := promptTokens + completionTokens
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		// Use OpenAI provided usage
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
@@ -607,10 +607,10 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		totalTokens := promptTokens + completionTokens
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	if len(comp.Choices) == 0 {
 		return llm.Message{}, nil
@@ -824,7 +824,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 		if promptTokens > 0 || completionTokens > 0 {
-			llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+			llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 		}
 		base.Debug().Msg("chat_stream_ok")
 	}
@@ -1018,7 +1018,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 		totalTokens := promptTokens + completionTokens
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		if promptTokens > 0 || completionTokens > 0 {
-			llm.RecordTokenMetrics(firstNonEmpty(model, c.model), promptTokens, completionTokens)
+			llm.RecordTokenMetricsFromContext(ctx, firstNonEmpty(model, c.model), promptTokens, completionTokens)
 		}
 		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 	}
@@ -1220,10 +1220,10 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, promptTokens+completionTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	gemini := isGemini3Model(firstNonEmpty(model, c.model))
 	for _, tc := range msg.ToolCalls {
@@ -1342,10 +1342,10 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, promptTokens+completionTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
 		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetrics(string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
 	}
 	gemini := isGemini3Model(string(params.Model))
 	for _, tc := range msg.ToolCalls {
@@ -1432,6 +1432,25 @@ func adaptResponsesTools(schemas []llm.ToolSchema) []rs.ToolUnionParam {
 
 // adaptResponsesInput builds the Responses Input item list and returns any combined instructions.
 func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instructions string) {
+	// The Responses API requires each function_call_output item to correspond to a
+	// function_call item with the same call_id in the provided input.
+	//
+	// In practice, chat history may contain persisted tool outputs without the
+	// original tool call message (e.g., due to compaction, legacy persistence, or
+	// partial history windows). Filter these "orphan" tool outputs to avoid 400s.
+	validToolCallIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" {
+				continue
+			}
+			validToolCallIDs[tc.ID] = struct{}{}
+		}
+	}
+
 	items = make([]rs.ResponseInputItemUnionParam, 0, len(msgs))
 	var sys []string
 	for _, m := range msgs {
@@ -1466,11 +1485,18 @@ func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instr
 			// We generally omit plain assistant text as an input message for Responses API.
 		case "tool":
 			// Map tool outputs to function_call_output items
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				continue
+			}
+			if _, ok := validToolCallIDs[toolID]; !ok {
+				continue
+			}
 			out := strings.TrimSpace(m.Content)
 			if out == "" {
 				out = "{}"
 			}
-			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(m.ToolID, out))
+			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 		}
 	}
 	if len(sys) > 0 {
@@ -1596,10 +1622,10 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 		p := c.tokenizeCount(ctx, buildPromptText(msgs))
 		a := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, p, a, p+a)
-		llm.RecordTokenMetrics(string(params.Model), p, a)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), p, a)
 	} else {
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	}
 	llm.LogRedactedResponse(ctx, map[string]any{"output_text_len": len(out.Content), "tool_calls": len(out.ToolCalls)})
 
@@ -1770,13 +1796,13 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 			a := c.tokenizeCount(ctx, assistantContent.String())
 			llm.RecordTokenAttributes(span, p, a, p+a)
 			if p > 0 || a > 0 {
-				llm.RecordTokenMetrics(string(params.Model), p, a)
+				llm.RecordTokenMetricsFromContext(ctx, string(params.Model), p, a)
 			}
 			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": p, "completion_tokens": a, "total_tokens": p + a})
 		} else {
 			llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 			if promptTokens > 0 || completionTokens > 0 {
-				llm.RecordTokenMetrics(string(params.Model), promptTokens, completionTokens)
+				llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 			}
 			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 		}
@@ -1853,9 +1879,30 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 		items = append(items, payload)
 	}
 
+	toolCallIDs := make(map[string]struct{}, 8)
+	toolOutputIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			for _, tc := range m.ToolCalls {
+				callID := strings.TrimSpace(tc.ID)
+				if callID == "" {
+					continue
+				}
+				toolCallIDs[callID] = struct{}{}
+			}
+			continue
+		}
+		if m.Role == "tool" {
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				continue
+			}
+			toolOutputIDs[toolID] = struct{}{}
+		}
+	}
+
 	var sys []string
 	assistantIndex := 0
-	toolIndex := 0
 	for _, m := range msgs {
 		switch m.Role {
 		case "system":
@@ -1873,15 +1920,29 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 				Role:    "user",
 			}})
 		case "assistant":
-			content := strings.TrimSpace(m.Content)
-			if content == "" {
-				continue
+			// If the assistant provided tool calls, include those so tool outputs can reference them.
+			if len(m.ToolCalls) > 0 {
+				for _, tc := range m.ToolCalls {
+					callID := strings.TrimSpace(tc.ID)
+					if callID == "" {
+						continue
+					}
+					if _, ok := toolOutputIDs[callID]; !ok {
+						continue
+					}
+					args := string(tc.Args)
+					items = append(items, rs.ResponseInputItemParamOfFunctionCall(args, callID, tc.Name))
+				}
 			}
-			msgID := fmt.Sprintf("msg_%d", assistantIndex+1)
-			assistantIndex++
-			text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
-			contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
-			items = append(items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
+			// Also emit text content if present
+			content := strings.TrimSpace(m.Content)
+			if content != "" {
+				msgID := fmt.Sprintf("msg_%d", assistantIndex+1)
+				assistantIndex++
+				text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
+				contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
+				items = append(items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
+			}
 		case "tool":
 			out := strings.TrimSpace(m.Content)
 			if out == "" {
@@ -1889,8 +1950,10 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 			}
 			toolID := strings.TrimSpace(m.ToolID)
 			if toolID == "" {
-				toolIndex++
-				toolID = fmt.Sprintf("call_%d", toolIndex)
+				continue
+			}
+			if _, ok := toolCallIDs[toolID]; !ok {
+				continue
 			}
 			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 		}

@@ -618,11 +618,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 
-		eng := a.cloneEngineForUser(r.Context(), specOwner)
+		eng := a.cloneEngineForUser(r.Context(), specOwner, req.SessionID)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		ctx := llm.WithUserID(r.Context(), specOwner)
 
 		// Inject project-specific skills into the system prompt if a workspace is active.
 		if checkedOutWorkspace != nil && checkedOutWorkspace.BaseDir != "" {
@@ -666,7 +667,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			if seconds <= 0 {
 				seconds = a.cfg.AgentRunTimeoutSeconds
 			}
-			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+			ctx, cancel, dur := withMaybeTimeout(ctx, seconds)
 			defer cancel()
 
 			if req.Image {
@@ -790,7 +791,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				fl.Flush()
 				a.runs.updateStatus(currentRun.ID, "failed", 0)
 				// Commit workspace changes even on error so partial work is preserved
-				a.commitWorkspace(r.Context(), checkedOutWorkspace)
+				a.commitWorkspace(ctx, checkedOutWorkspace)
 				return
 			}
 			if len(savedImages) > 0 {
@@ -805,12 +806,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			// Commit workspace changes to S3 after successful run
-			a.commitWorkspace(r.Context(), checkedOutWorkspace)
+			a.commitWorkspace(ctx, checkedOutWorkspace)
 			return
 		}
 
 		seconds := a.cfg.AgentRunTimeoutSeconds
-		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+		ctx, cancel, dur := withMaybeTimeout(ctx, seconds)
 		defer cancel()
 
 		if req.Image {
@@ -843,7 +844,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			a.runs.updateStatus(currentRun.ID, "failed", 0)
 			// Commit workspace changes even on error so partial work is preserved
-			a.commitWorkspace(r.Context(), checkedOutWorkspace)
+			a.commitWorkspace(ctx, checkedOutWorkspace)
 			return
 		}
 		if len(savedImages) > 0 {
@@ -856,7 +857,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 		// Commit workspace changes to S3 after successful run
-		a.commitWorkspace(r.Context(), checkedOutWorkspace)
+		a.commitWorkspace(ctx, checkedOutWorkspace)
 	}
 }
 
@@ -1005,11 +1006,12 @@ func (a *app) promptHandler() http.HandlerFunc {
 		if userID != nil {
 			orchUserID = *userID
 		}
-		eng := a.cloneEngineForUser(r.Context(), orchUserID)
+		eng := a.cloneEngineForUser(r.Context(), orchUserID, req.SessionID)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return
 		}
+		ctx := llm.WithUserID(r.Context(), orchUserID)
 
 		// Inject project-specific skills into the system prompt if a workspace is active.
 		if checkedOutWorkspace != nil && checkedOutWorkspace.BaseDir != "" {
@@ -1031,7 +1033,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			if seconds <= 0 {
 				seconds = a.cfg.AgentRunTimeoutSeconds
 			}
-			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+			ctx, cancel, dur := withMaybeTimeout(ctx, seconds)
 			defer cancel()
 
 			if req.Image {
@@ -1140,7 +1142,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 				fl.Flush()
 				a.runs.updateStatus(prun.ID, "failed", 0)
 				// Commit workspace changes even on error so partial work is preserved
-				a.commitWorkspace(r.Context(), checkedOutWorkspace)
+				a.commitWorkspace(ctx, checkedOutWorkspace)
 				return
 			}
 			if len(savedImages) > 0 {
@@ -1155,12 +1157,12 @@ func (a *app) promptHandler() http.HandlerFunc {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			// Commit workspace changes to S3 after successful run
-			a.commitWorkspace(r.Context(), checkedOutWorkspace)
+			a.commitWorkspace(ctx, checkedOutWorkspace)
 			return
 		}
 
 		seconds := a.cfg.AgentRunTimeoutSeconds
-		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+		ctx, cancel, dur := withMaybeTimeout(ctx, seconds)
 		defer cancel()
 
 		if req.Image {
@@ -1194,7 +1196,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			// Commit workspace changes even on error so partial work is preserved
-			a.commitWorkspace(r.Context(), checkedOutWorkspace)
+			a.commitWorkspace(ctx, checkedOutWorkspace)
 			return
 		}
 		if len(savedImages) > 0 {
@@ -1207,7 +1209,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 		// Commit workspace changes to S3 after successful run
-		a.commitWorkspace(r.Context(), checkedOutWorkspace)
+		a.commitWorkspace(ctx, checkedOutWorkspace)
 	}
 }
 

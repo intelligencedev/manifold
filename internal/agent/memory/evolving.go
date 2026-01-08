@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,8 +81,8 @@ type ScoredMemoryEntry struct {
 // EvolvingMemoryStore defines a persistence backend for evolving memory.
 // Implementations should be safe for concurrent use.
 type EvolvingMemoryStore interface {
-	Load(ctx context.Context, userID int64) ([]*MemoryEntry, error)
-	Save(ctx context.Context, userID int64, entries []*MemoryEntry) error
+	Load(ctx context.Context, userID int64, sessionID string) ([]*MemoryEntry, error)
+	Save(ctx context.Context, userID int64, sessionID string, entries []*MemoryEntry) error
 }
 
 // EvolvingMemory implements the Search → Synthesis → Evolve loop from the paper.
@@ -108,8 +109,9 @@ type EvolvingMemory struct {
 
 	// Optional persistent backing store; when set, entries are loaded on
 	// construction and persisted after each mutation.
-	store  EvolvingMemoryStore
-	userID int64
+	store     EvolvingMemoryStore
+	userID    int64
+	sessionID string
 }
 
 // Introspection helpers for debug APIs.
@@ -141,8 +143,9 @@ type EvolvingMemoryConfig struct {
 
 	// Optional persistent store. When non-nil, NewEvolvingMemory will load
 	// existing entries for the given userID and persist updates.
-	Store  EvolvingMemoryStore
-	UserID int64
+	Store     EvolvingMemoryStore
+	UserID    int64
+	SessionID string
 }
 
 // NewEvolvingMemory creates a new evolving memory system.
@@ -174,6 +177,11 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		minRelevance = 0.1
 	}
 
+	sessionID := strings.TrimSpace(cfg.SessionID)
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
 	em := &EvolvingMemory{
 		entries:          make([]*MemoryEntry, 0),
 		embedCfg:         cfg.EmbeddingConfig,
@@ -189,12 +197,13 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		enableSmartPrune: cfg.EnableSmartPrune,
 		store:            cfg.Store,
 		userID:           cfg.UserID,
+		sessionID:        sessionID,
 	}
 
 	// If a store is provided, preload entries for the configured user.
 	// Note: systemUserID is 0 in agentd; we still want persistence for it.
 	if em.store != nil {
-		if entries, err := em.store.Load(context.Background(), em.userID); err == nil && len(entries) > 0 {
+		if entries, err := em.store.Load(context.Background(), em.userID, em.sessionID); err == nil && len(entries) > 0 {
 			// Respect maxSize by keeping only the newest maxSize entries.
 			if len(entries) > em.maxSize {
 				entries = entries[len(entries)-em.maxSize:]
@@ -427,13 +436,13 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	if em.store != nil {
 		entriesCopy := make([]*MemoryEntry, len(em.entries))
 		copy(entriesCopy, em.entries)
-		go func(entries []*MemoryEntry, uid int64) {
+		go func(entries []*MemoryEntry, uid int64, sid string) {
 			bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := em.store.Save(bgctx, uid, entries); err != nil {
+			if err := em.store.Save(bgctx, uid, sid, entries); err != nil {
 				observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_persist_failed")
 			}
-		}(entriesCopy, em.userID)
+		}(entriesCopy, em.userID, em.sessionID)
 	}
 
 	log.Info().
@@ -720,13 +729,13 @@ func (em *EvolvingMemory) ApplyEdits(ctx context.Context, ops []MemoryEditOp) er
 	if em.store != nil {
 		entriesCopy := make([]*MemoryEntry, len(em.entries))
 		copy(entriesCopy, em.entries)
-		go func(entries []*MemoryEntry, uid int64) {
+		go func(entries []*MemoryEntry, uid int64, sid string) {
 			bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := em.store.Save(bgctx, uid, entries); err != nil {
+			if err := em.store.Save(bgctx, uid, sid, entries); err != nil {
 				observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_persist_failed")
 			}
-		}(entriesCopy, em.userID)
+		}(entriesCopy, em.userID, em.sessionID)
 	}
 
 	return nil

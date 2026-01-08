@@ -176,6 +176,113 @@ LIMIT ?
 	return out, window, nil
 }
 
+func (c *clickhouseTraceMetrics) TracesForUser(ctx context.Context, userID int64, window time.Duration, limit int) ([]llmpkg.TraceSnapshot, time.Duration, error) {
+	if userID == systemUserID {
+		return c.Traces(ctx, window, limit)
+	}
+	if c == nil || c.conn == nil {
+		return nil, 0, errors.New("clickhouse connection is nil")
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	if window < 0 {
+		window = 24 * time.Hour
+	}
+
+	start := time.Now().Add(-window)
+	query := fmt.Sprintf(`
+SELECT
+  TraceId,
+  SpanName,
+  SpanAttributes['llm.model'] AS model,
+  StatusCode,
+  Duration,
+  Timestamp,
+  SpanAttributes['llm.prompt_tokens'] AS prompt_tokens,
+  SpanAttributes['llm.completion_tokens'] AS completion_tokens,
+  SpanAttributes['llm.total_tokens'] AS total_tokens
+FROM %s
+WHERE Timestamp >= ?
+  AND SpanAttributes['enduser.id'] = ?
+  AND ResourceAttributes['service.instance.id'] = 'manifold'
+  AND (SpanAttributes['llm.model'] != '' OR SpanName LIKE '%%Chat%%')
+ORDER BY Timestamp DESC
+LIMIT ?
+`, c.table)
+
+	execCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	rows, err := c.conn.Query(execCtx, query, start, fmt.Sprint(userID), limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var out []llmpkg.TraceSnapshot
+	for rows.Next() {
+		var (
+			traceID    string
+			spanName   string
+			model      string
+			statusCode string
+			durationNS int64
+			ts         time.Time
+			promptStr  string
+			compStr    string
+			totalStr   string
+		)
+		if err := rows.Scan(
+			&traceID,
+			&spanName,
+			&model,
+			&statusCode,
+			&durationNS,
+			&ts,
+			&promptStr,
+			&compStr,
+			&totalStr,
+		); err != nil {
+			return nil, 0, err
+		}
+		promptTokens := parseInt64Loose(promptStr)
+		completionTokens := parseInt64Loose(compStr)
+		totalTokens := parseInt64Loose(totalStr)
+		if totalTokens == 0 {
+			totalTokens = promptTokens + completionTokens
+		}
+		status := "ok"
+		if strings.Contains(strings.ToUpper(statusCode), "ERROR") {
+			status = "error"
+		}
+		durationMS := int64(0)
+		if durationNS > 0 {
+			durationMS = time.Duration(durationNS).Milliseconds()
+		}
+		name := strings.TrimSpace(spanName)
+		endTS := ts
+		if durationNS > 0 {
+			endTS = ts.Add(time.Duration(durationNS))
+		}
+
+		out = append(out, llmpkg.TraceSnapshot{
+			TraceID:          strings.TrimSpace(traceID),
+			Name:             name,
+			Model:            strings.TrimSpace(model),
+			Status:           status,
+			DurationMillis:   durationMS,
+			Timestamp:        endTS.Unix(),
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return out, window, nil
+}
+
 // clickhouseRunMetrics derives recent "runs" from ClickHouse traces.
 // A run is modeled as an LLM span (a completed request).
 type clickhouseRunMetrics struct {

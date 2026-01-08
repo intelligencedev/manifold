@@ -165,7 +165,7 @@ func (a *app) handleCreateMCPServer(w http.ResponseWriter, r *http.Request, user
 	}
 
 	// Trigger connection
-	if err := a.mcpManager.RegisterOne(r.Context(), a.toolRegistry, convertToConfig(saved)); err != nil {
+	if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, convertToConfig(saved)); err != nil {
 		// Log error but don't fail the request? Or fail?
 		// If we fail, we should probably delete from DB or warn user.
 		// For now, let's return 201 but with error in body or just log it.
@@ -195,7 +195,7 @@ func (a *app) handleUpdateMCPServer(w http.ResponseWriter, r *http.Request, user
 	}
 
 	// Reconnect
-	if err := a.mcpManager.RegisterOne(r.Context(), a.toolRegistry, convertToConfig(saved)); err != nil {
+	if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, convertToConfig(saved)); err != nil {
 		fmt.Printf("failed to reconnect updated MCP server: %v\n", err)
 	}
 
@@ -209,7 +209,7 @@ func (a *app) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 	// Disconnect
-	a.mcpManager.RemoveOne(name, a.toolRegistry)
+	a.mcpManager.RemoveOne(name, a.baseToolRegistry)
 
 	w.WriteHeader(http.StatusNoContent)
 }

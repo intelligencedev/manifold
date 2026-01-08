@@ -76,3 +76,4 @@ internal/webui/dist/
 playground-artifacts
 .github/chatmodes/ManifoldAgent.chatmode.md
 TODO
+RBAC_Analysis.md

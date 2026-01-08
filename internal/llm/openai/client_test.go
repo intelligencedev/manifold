@@ -89,8 +89,8 @@ func TestCompactResponses(t *testing.T) {
 
 	item, err := cli.Compact(ctx, []llm.Message{
 		{Role: "user", Content: "hello"},
-		{Role: "assistant", Content: "hi there"},
-		{Role: "tool", Content: "result"},
+		{Role: "assistant", Content: "hi there", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "run", Args: json.RawMessage(`{"cmd":"ls"}`)}}},
+		{Role: "tool", Content: "result", ToolID: "call_1"},
 	}, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -101,8 +101,8 @@ func TestCompactResponses(t *testing.T) {
 	if gotModel != "m" {
 		t.Fatalf("expected model m, got %q", gotModel)
 	}
-	if len(gotInput) != 3 {
-		t.Fatalf("expected 3 input items, got %d", len(gotInput))
+	if len(gotInput) != 4 {
+		t.Fatalf("expected 4 input items, got %d", len(gotInput))
 	}
 	first, ok := gotInput[0].(map[string]any)
 	if !ok {
@@ -128,6 +128,40 @@ func TestCompactResponses(t *testing.T) {
 func TestFirstNonEmpty(t *testing.T) {
 	if firstNonEmpty("", "a", "b") != "a" {
 		t.Fatalf("unexpected firstNonEmpty")
+	}
+}
+
+func TestAdaptResponsesInputFiltersOrphanToolOutputs(t *testing.T) {
+	input, _ := adaptResponsesInput([]llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "fetch", Args: []byte(`{"url":"https://example.com"}`)}}},
+		{Role: "tool", ToolID: "call_1", Content: `{"ok":true}`},
+		{Role: "tool", ToolID: "call_orphan", Content: `{"ok":false}`},
+	})
+
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, "call_1") {
+		t.Fatalf("expected input to include call_1, got: %s", s)
+	}
+	if strings.Contains(s, "call_orphan") {
+		t.Fatalf("expected input to omit orphan tool output, got: %s", s)
+	}
+}
+
+func TestBuildCompactionInputFiltersMissingToolOutputs(t *testing.T) {
+	items, _ := buildCompactionInput([]llm.Message{
+		{Role: "assistant", Content: "hi", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "run", Args: []byte(`{"cmd":"ls"}`)}}},
+	}, nil)
+
+	raw, err := json.Marshal(items)
+	if err != nil {
+		t.Fatalf("marshal compaction input: %v", err)
+	}
+	if strings.Contains(string(raw), "call_1") {
+		t.Fatalf("expected compaction input to omit call_1 without output, got: %s", string(raw))
 	}
 }
 

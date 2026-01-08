@@ -148,6 +148,11 @@ func Load() (Config, error) {
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_ENABLED")); v != "" {
 		cfg.SummaryEnabled = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
 	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_CONTEXT_WINDOW_TOKENS")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryContextWindowTokens = n
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_RESERVE_BUFFER_TOKENS")); v != "" {
 		if n, err := parseInt(v); err == nil {
 			cfg.SummaryReserveBufferTokens = n
@@ -156,6 +161,11 @@ func Load() (Config, error) {
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_MIN_KEEP_LAST_MESSAGES")); v != "" {
 		if n, err := parseInt(v); err == nil {
 			cfg.SummaryMinKeepLastMessages = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("SUMMARY_MAX_KEEP_LAST_MESSAGES")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.SummaryMaxKeepLastMessages = n
 		}
 	}
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_MAX_SUMMARY_CHUNK_TOKENS")); v != "" {
@@ -634,6 +644,21 @@ func loadSpecialists(cfg *Config) error {
 	openAISummaryURLFromEnv := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_URL")) != ""
 	openAISummaryModelFromEnv := strings.TrimSpace(os.Getenv("OPENAI_SUMMARY_MODEL")) != ""
 	openAIAPIChoiceFromEnv := strings.TrimSpace(os.Getenv("OPENAI_API")) != ""
+	workdirFromEnv := strings.TrimSpace(os.Getenv("WORKDIR")) != ""
+	logPathFromEnv := strings.TrimSpace(os.Getenv("LOG_PATH")) != ""
+	logLevelFromEnv := strings.TrimSpace(os.Getenv("LOG_LEVEL")) != ""
+	logPayloadsFromEnv := strings.TrimSpace(os.Getenv("LOG_PAYLOADS")) != ""
+	maxStepsFromEnv := strings.TrimSpace(os.Getenv("MAX_STEPS")) != ""
+	maxToolParallelismFromEnv := strings.TrimSpace(os.Getenv("MAX_TOOL_PARALLELISM")) != ""
+	agentRunTimeoutFromEnv := strings.TrimSpace(os.Getenv("AGENT_RUN_TIMEOUT_SECONDS")) != ""
+	streamRunTimeoutFromEnv := strings.TrimSpace(os.Getenv("STREAM_RUN_TIMEOUT_SECONDS")) != ""
+	workflowTimeoutFromEnv := strings.TrimSpace(os.Getenv("WORKFLOW_TIMEOUT_SECONDS")) != ""
+	summaryContextWindowTokensFromEnv := strings.TrimSpace(os.Getenv("SUMMARY_CONTEXT_WINDOW_TOKENS")) != ""
+	summaryReserveBufferTokensFromEnv := strings.TrimSpace(os.Getenv("SUMMARY_RESERVE_BUFFER_TOKENS")) != ""
+	summaryMinKeepLastFromEnv := strings.TrimSpace(os.Getenv("SUMMARY_MIN_KEEP_LAST_MESSAGES")) != ""
+	summaryMaxKeepLastFromEnv := strings.TrimSpace(os.Getenv("SUMMARY_MAX_KEEP_LAST_MESSAGES")) != ""
+	summaryMaxSummaryChunkTokensFromEnv := strings.TrimSpace(os.Getenv("SUMMARY_MAX_SUMMARY_CHUNK_TOKENS")) != ""
+	outputTruncateBytesFromEnv := strings.TrimSpace(os.Getenv("OUTPUT_TRUNCATE_BYTES")) != ""
 	anthropicAPIKeyFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY")) != ""
 	anthropicModelFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_MODEL")) != ""
 	anthropicBaseURLFromEnv := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL")) != ""
@@ -697,6 +722,11 @@ func loadSpecialists(cfg *Config) error {
 	type execYAML struct {
 		BlockBinaries     []string `yaml:"blockBinaries"`
 		MaxCommandSeconds int      `yaml:"maxCommandSeconds"`
+	}
+	type kafkaYAML struct {
+		Brokers        string `yaml:"brokers"`
+		CommandsTopic  string `yaml:"commandsTopic"`
+		ResponsesTopic string `yaml:"responsesTopic"`
 	}
 	type obsClickhouseYAML struct {
 		DSN                  string `yaml:"dsn"`
@@ -803,6 +833,53 @@ func loadSpecialists(cfg *Config) error {
 		Voice   string `yaml:"voice"`
 		Format  string `yaml:"format"`
 	}
+	type fileKeyProviderYAML struct {
+		KeystorePath string `yaml:"keystorePath"`
+	}
+	type vaultKeyProviderYAML struct {
+		Address        string `yaml:"address"`
+		Token          string `yaml:"token"`
+		KeyName        string `yaml:"keyName"`
+		MountPath      string `yaml:"mountPath"`
+		Namespace      string `yaml:"namespace"`
+		TLSSkipVerify  bool   `yaml:"tlsSkipVerify"`
+		TimeoutSeconds int    `yaml:"timeoutSeconds"`
+	}
+	type awsKMSKeyProviderYAML struct {
+		KeyID           string `yaml:"keyID"`
+		Region          string `yaml:"region"`
+		AccessKeyID     string `yaml:"accessKeyID"`
+		SecretAccessKey string `yaml:"secretAccessKey"`
+		Endpoint        string `yaml:"endpoint"`
+	}
+	type encryptionYAML struct {
+		Provider string                `yaml:"provider"`
+		File     fileKeyProviderYAML   `yaml:"file"`
+		Vault    vaultKeyProviderYAML  `yaml:"vault"`
+		AWSKMS   awsKMSKeyProviderYAML `yaml:"awskms"`
+	}
+	type redisYAML struct {
+		Enabled               bool   `yaml:"enabled"`
+		Addr                  string `yaml:"addr"`
+		Password              string `yaml:"password"`
+		DB                    int    `yaml:"db"`
+		TLSInsecureSkipVerify bool   `yaml:"tlsInsecureSkipVerify"`
+	}
+	type projectsKafkaYAML struct {
+		Enabled bool   `yaml:"enabled"`
+		Brokers string `yaml:"brokers"`
+		Topic   string `yaml:"topic"`
+	}
+	type skillsYAML struct {
+		RedisCacheTTLSeconds int  `yaml:"redisCacheTTLSeconds"`
+		UseS3Loader          bool `yaml:"useS3Loader"`
+	}
+	type tokenizationYAML struct {
+		Enabled             bool  `yaml:"enabled"`
+		CacheSize           int   `yaml:"cacheSize"`
+		CacheTTLSeconds     int   `yaml:"cacheTTLSeconds"`
+		FallbackToHeuristic *bool `yaml:"fallbackToHeuristic"`
+	}
 	type s3SSEConfigYAML struct {
 		Mode     string `yaml:"mode"`
 		KMSKeyID string `yaml:"kmsKeyID"`
@@ -822,12 +899,17 @@ func loadSpecialists(cfg *Config) error {
 		Mode       string `yaml:"mode"`
 		Root       string `yaml:"root"`
 		TTLSeconds int    `yaml:"ttlSeconds"`
+		CacheDir   string `yaml:"cacheDir"`
+		TmpfsDir   string `yaml:"tmpfsDir"`
 	}
 	type projectsYAML struct {
-		Backend   string              `yaml:"backend"`
-		Encrypt   bool                `yaml:"encrypt"`
-		Workspace workspaceConfigYAML `yaml:"workspace"`
-		S3        s3ConfigYAML        `yaml:"s3"`
+		Backend    string              `yaml:"backend"`
+		Encrypt    bool                `yaml:"encrypt"`
+		Encryption encryptionYAML      `yaml:"encryption"`
+		Workspace  workspaceConfigYAML `yaml:"workspace"`
+		S3         s3ConfigYAML        `yaml:"s3"`
+		Redis      redisYAML           `yaml:"redis"`
+		Events     projectsKafkaYAML   `yaml:"events"`
 	}
 	type oauth2YAML struct {
 		AuthURL             string   `yaml:"authURL"`
@@ -862,28 +944,45 @@ func loadSpecialists(cfg *Config) error {
 	type wrap struct {
 		// SystemPrompt is an optional top-level YAML field to override the
 		// default system prompt used by the agent.
-		SystemPrompt   string             `yaml:"systemPrompt"`
-		Specialists    []SpecialistConfig `yaml:"specialists"`
-		Routes         []SpecialistRoute  `yaml:"routes"`
-		LLMClient      llmClientYAML      `yaml:"llm_client"`
-		OpenAI         openAIYAML         `yaml:"openai"`
-		Workdir        string             `yaml:"workdir"`
-		OutputTrunc    int                `yaml:"outputTruncateBytes"`
-		SummaryEnabled bool               `yaml:"summaryEnabled"`
-		Exec           execYAML           `yaml:"exec"`
-		Obs            obsYAML            `yaml:"obs"`
-		Web            webYAML            `yaml:"web"`
-		Databases      databasesYAML      `yaml:"databases"`
-		MCP            mcpYAML            `yaml:"mcp"`
-		Embedding      embeddingYAML      `yaml:"embedding"`
-		EvolvingMemory evolvingMemoryYAML `yaml:"evolvingMemory"`
-		TTS            ttsYAML            `yaml:"tts"`
-		Projects       projectsYAML       `yaml:"projects"`
-		EnableTools    *bool              `yaml:"enableTools"`
+		SystemPrompt                 string             `yaml:"systemPrompt"`
+		Specialists                  []SpecialistConfig `yaml:"specialists"`
+		Routes                       []SpecialistRoute  `yaml:"routes"`
+		LLMClient                    llmClientYAML      `yaml:"llm_client"`
+		OpenAI                       openAIYAML         `yaml:"openai"`
+		Workdir                      string             `yaml:"workdir"`
+		LogPath                      string             `yaml:"logPath"`
+		LogLevel                     string             `yaml:"logLevel"`
+		LogPayloads                  *bool              `yaml:"logPayloads"`
+		OutputTruncB                 int                `yaml:"outputTruncateBytes"`
+		OutputTrunc                  int                `yaml:"outputTruncateByte"`
+		SummaryEnabled               bool               `yaml:"summaryEnabled"`
+		SummaryContextWindowTokens   int                `yaml:"summaryContextWindowTokens"`
+		SummaryReserveBufferTokens   int                `yaml:"summaryReserveBufferTokens"`
+		SummaryMinKeepLastMessages   int                `yaml:"summaryMinKeepLastMessages"`
+		SummaryMaxKeepLastMessages   int                `yaml:"summaryMaxKeepLastMessages"`
+		SummaryMaxSummaryChunkTokens int                `yaml:"summaryMaxSummaryChunkTokens"`
+		MaxSteps                     int                `yaml:"maxSteps"`
+		MaxToolParallelism           int                `yaml:"maxToolParallelism"`
+		Exec                         execYAML           `yaml:"exec"`
+		Kafka                        kafkaYAML          `yaml:"kafka"`
+		Obs                          obsYAML            `yaml:"obs"`
+		Web                          webYAML            `yaml:"web"`
+		Databases                    databasesYAML      `yaml:"databases"`
+		MCP                          mcpYAML            `yaml:"mcp"`
+		Embedding                    embeddingYAML      `yaml:"embedding"`
+		EvolvingMemory               evolvingMemoryYAML `yaml:"evolvingMemory"`
+		TTS                          ttsYAML            `yaml:"tts"`
+		Projects                     projectsYAML       `yaml:"projects"`
+		Skills                       skillsYAML         `yaml:"skills"`
+		Tokenization                 tokenizationYAML   `yaml:"tokenization"`
+		EnableTools                  *bool              `yaml:"enableTools"`
 		// AllowTools is a top-level allow-list for tools exposed to the main agent.
 		// If present, it should map into cfg.ToolAllowList.
-		AllowTools []string `yaml:"allowTools"`
-		Auth       authYAML `yaml:"auth"`
+		AllowTools              []string `yaml:"allowTools"`
+		Auth                    authYAML `yaml:"auth"`
+		AgentRunTimeoutSeconds  int      `yaml:"agentRunTimeoutSeconds"`
+		StreamRunTimeoutSeconds int      `yaml:"streamRunTimeoutSeconds"`
+		WorkflowTimeoutSeconds  int      `yaml:"workflowTimeoutSeconds"`
 	}
 	var w wrap
 	// Expand ${VAR} with environment variables before parsing.
@@ -983,8 +1082,18 @@ func loadSpecialists(cfg *Config) error {
 			cfg.LLMClient.Google.BaseURL = strings.TrimSpace(w.LLMClient.Google.BaseURL)
 		}
 		// Workdir and others only if empty
-		if cfg.Workdir == "" && strings.TrimSpace(w.Workdir) != "" {
+		if cfg.Workdir == "" && strings.TrimSpace(w.Workdir) != "" && !workdirFromEnv {
 			cfg.Workdir = strings.TrimSpace(w.Workdir)
+		}
+		if cfg.LogPath == "" && strings.TrimSpace(w.LogPath) != "" && !logPathFromEnv {
+			cfg.LogPath = strings.TrimSpace(w.LogPath)
+		}
+		if cfg.LogLevel == "" && strings.TrimSpace(w.LogLevel) != "" && !logLevelFromEnv {
+			cfg.LogLevel = strings.TrimSpace(w.LogLevel)
+		}
+		if w.LogPayloads != nil && !logPayloadsFromEnv {
+			cfg.LogPayloads = *w.LogPayloads
+			cfg.OpenAI.LogPayloads = *w.LogPayloads
 		}
 		// YAML-provided system prompt is applied only if env did not already
 		// provide an override.
@@ -992,12 +1101,55 @@ func loadSpecialists(cfg *Config) error {
 			cfg.SystemPrompt = w.SystemPrompt
 		}
 
-		if cfg.OutputTruncateByte == 0 && w.OutputTrunc > 0 {
-			cfg.OutputTruncateByte = w.OutputTrunc
+		outputTruncate := w.OutputTruncB
+		if outputTruncate == 0 {
+			outputTruncate = w.OutputTrunc
+		}
+		if cfg.OutputTruncateByte == 0 && outputTruncate > 0 && !outputTruncateBytesFromEnv {
+			cfg.OutputTruncateByte = outputTruncate
 		}
 		// Summary config from YAML if not provided via env
 		if !cfg.SummaryEnabled && w.SummaryEnabled {
 			cfg.SummaryEnabled = true
+		}
+		if cfg.SummaryContextWindowTokens == 0 && w.SummaryContextWindowTokens > 0 && !summaryContextWindowTokensFromEnv {
+			cfg.SummaryContextWindowTokens = w.SummaryContextWindowTokens
+		}
+		if cfg.SummaryReserveBufferTokens == 0 && w.SummaryReserveBufferTokens > 0 && !summaryReserveBufferTokensFromEnv {
+			cfg.SummaryReserveBufferTokens = w.SummaryReserveBufferTokens
+		}
+		if cfg.SummaryMinKeepLastMessages == 0 && w.SummaryMinKeepLastMessages > 0 && !summaryMinKeepLastFromEnv {
+			cfg.SummaryMinKeepLastMessages = w.SummaryMinKeepLastMessages
+		}
+		if cfg.SummaryMaxKeepLastMessages == 0 && w.SummaryMaxKeepLastMessages > 0 && !summaryMaxKeepLastFromEnv {
+			cfg.SummaryMaxKeepLastMessages = w.SummaryMaxKeepLastMessages
+		}
+		if cfg.SummaryMaxSummaryChunkTokens == 0 && w.SummaryMaxSummaryChunkTokens > 0 && !summaryMaxSummaryChunkTokensFromEnv {
+			cfg.SummaryMaxSummaryChunkTokens = w.SummaryMaxSummaryChunkTokens
+		}
+		if cfg.MaxSteps == 0 && w.MaxSteps > 0 && !maxStepsFromEnv {
+			cfg.MaxSteps = w.MaxSteps
+		}
+		if cfg.MaxToolParallelism == 0 && w.MaxToolParallelism != 0 && !maxToolParallelismFromEnv {
+			cfg.MaxToolParallelism = w.MaxToolParallelism
+		}
+		if cfg.AgentRunTimeoutSeconds == 0 && w.AgentRunTimeoutSeconds != 0 && !agentRunTimeoutFromEnv {
+			cfg.AgentRunTimeoutSeconds = w.AgentRunTimeoutSeconds
+		}
+		if cfg.StreamRunTimeoutSeconds == 0 && w.StreamRunTimeoutSeconds != 0 && !streamRunTimeoutFromEnv {
+			cfg.StreamRunTimeoutSeconds = w.StreamRunTimeoutSeconds
+		}
+		if cfg.WorkflowTimeoutSeconds == 0 && w.WorkflowTimeoutSeconds != 0 && !workflowTimeoutFromEnv {
+			cfg.WorkflowTimeoutSeconds = w.WorkflowTimeoutSeconds
+		}
+		if cfg.Kafka.Brokers == "" && strings.TrimSpace(w.Kafka.Brokers) != "" {
+			cfg.Kafka.Brokers = strings.TrimSpace(w.Kafka.Brokers)
+		}
+		if cfg.Kafka.CommandsTopic == "" && strings.TrimSpace(w.Kafka.CommandsTopic) != "" {
+			cfg.Kafka.CommandsTopic = strings.TrimSpace(w.Kafka.CommandsTopic)
+		}
+		if cfg.Kafka.ResponsesTopic == "" && strings.TrimSpace(w.Kafka.ResponsesTopic) != "" {
+			cfg.Kafka.ResponsesTopic = strings.TrimSpace(w.Kafka.ResponsesTopic)
 		}
 		if cfg.Exec.MaxCommandSeconds == 0 && w.Exec.MaxCommandSeconds > 0 {
 			cfg.Exec.MaxCommandSeconds = w.Exec.MaxCommandSeconds
@@ -1281,6 +1433,48 @@ func loadSpecialists(cfg *Config) error {
 		if w.Projects.Encrypt {
 			cfg.Projects.Encrypt = true
 		}
+		if cfg.Projects.Encryption.Provider == "" && strings.TrimSpace(w.Projects.Encryption.Provider) != "" {
+			cfg.Projects.Encryption.Provider = strings.TrimSpace(w.Projects.Encryption.Provider)
+		}
+		if cfg.Projects.Encryption.File.KeystorePath == "" && strings.TrimSpace(w.Projects.Encryption.File.KeystorePath) != "" {
+			cfg.Projects.Encryption.File.KeystorePath = strings.TrimSpace(w.Projects.Encryption.File.KeystorePath)
+		}
+		if cfg.Projects.Encryption.Vault.Address == "" && strings.TrimSpace(w.Projects.Encryption.Vault.Address) != "" {
+			cfg.Projects.Encryption.Vault.Address = strings.TrimSpace(w.Projects.Encryption.Vault.Address)
+		}
+		if cfg.Projects.Encryption.Vault.Token == "" && strings.TrimSpace(w.Projects.Encryption.Vault.Token) != "" {
+			cfg.Projects.Encryption.Vault.Token = strings.TrimSpace(w.Projects.Encryption.Vault.Token)
+		}
+		if cfg.Projects.Encryption.Vault.KeyName == "" && strings.TrimSpace(w.Projects.Encryption.Vault.KeyName) != "" {
+			cfg.Projects.Encryption.Vault.KeyName = strings.TrimSpace(w.Projects.Encryption.Vault.KeyName)
+		}
+		if cfg.Projects.Encryption.Vault.MountPath == "" && strings.TrimSpace(w.Projects.Encryption.Vault.MountPath) != "" {
+			cfg.Projects.Encryption.Vault.MountPath = strings.TrimSpace(w.Projects.Encryption.Vault.MountPath)
+		}
+		if cfg.Projects.Encryption.Vault.Namespace == "" && strings.TrimSpace(w.Projects.Encryption.Vault.Namespace) != "" {
+			cfg.Projects.Encryption.Vault.Namespace = strings.TrimSpace(w.Projects.Encryption.Vault.Namespace)
+		}
+		if !cfg.Projects.Encryption.Vault.TLSSkipVerify && w.Projects.Encryption.Vault.TLSSkipVerify {
+			cfg.Projects.Encryption.Vault.TLSSkipVerify = true
+		}
+		if cfg.Projects.Encryption.Vault.TimeoutSeconds == 0 && w.Projects.Encryption.Vault.TimeoutSeconds > 0 {
+			cfg.Projects.Encryption.Vault.TimeoutSeconds = w.Projects.Encryption.Vault.TimeoutSeconds
+		}
+		if cfg.Projects.Encryption.AWSKMS.KeyID == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.KeyID) != "" {
+			cfg.Projects.Encryption.AWSKMS.KeyID = strings.TrimSpace(w.Projects.Encryption.AWSKMS.KeyID)
+		}
+		if cfg.Projects.Encryption.AWSKMS.Region == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.Region) != "" {
+			cfg.Projects.Encryption.AWSKMS.Region = strings.TrimSpace(w.Projects.Encryption.AWSKMS.Region)
+		}
+		if cfg.Projects.Encryption.AWSKMS.AccessKeyID == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.AccessKeyID) != "" {
+			cfg.Projects.Encryption.AWSKMS.AccessKeyID = strings.TrimSpace(w.Projects.Encryption.AWSKMS.AccessKeyID)
+		}
+		if cfg.Projects.Encryption.AWSKMS.SecretAccessKey == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.SecretAccessKey) != "" {
+			cfg.Projects.Encryption.AWSKMS.SecretAccessKey = strings.TrimSpace(w.Projects.Encryption.AWSKMS.SecretAccessKey)
+		}
+		if cfg.Projects.Encryption.AWSKMS.Endpoint == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.Endpoint) != "" {
+			cfg.Projects.Encryption.AWSKMS.Endpoint = strings.TrimSpace(w.Projects.Encryption.AWSKMS.Endpoint)
+		}
 		if cfg.Projects.Workspace.Mode == "" && strings.TrimSpace(w.Projects.Workspace.Mode) != "" {
 			cfg.Projects.Workspace.Mode = strings.TrimSpace(w.Projects.Workspace.Mode)
 		}
@@ -1289,6 +1483,12 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Projects.Workspace.TTLSeconds == 0 && w.Projects.Workspace.TTLSeconds > 0 {
 			cfg.Projects.Workspace.TTLSeconds = w.Projects.Workspace.TTLSeconds
+		}
+		if cfg.Projects.Workspace.CacheDir == "" && strings.TrimSpace(w.Projects.Workspace.CacheDir) != "" {
+			cfg.Projects.Workspace.CacheDir = strings.TrimSpace(w.Projects.Workspace.CacheDir)
+		}
+		if cfg.Projects.Workspace.TmpfsDir == "" && strings.TrimSpace(w.Projects.Workspace.TmpfsDir) != "" {
+			cfg.Projects.Workspace.TmpfsDir = strings.TrimSpace(w.Projects.Workspace.TmpfsDir)
 		}
 		if cfg.Projects.S3.Endpoint == "" && strings.TrimSpace(w.Projects.S3.Endpoint) != "" {
 			cfg.Projects.S3.Endpoint = strings.TrimSpace(w.Projects.S3.Endpoint)
@@ -1319,6 +1519,48 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Projects.S3.SSE.KMSKeyID == "" && strings.TrimSpace(w.Projects.S3.SSE.KMSKeyID) != "" {
 			cfg.Projects.S3.SSE.KMSKeyID = strings.TrimSpace(w.Projects.S3.SSE.KMSKeyID)
+		}
+		if !cfg.Projects.Redis.Enabled && w.Projects.Redis.Enabled {
+			cfg.Projects.Redis.Enabled = true
+		}
+		if cfg.Projects.Redis.Addr == "" && strings.TrimSpace(w.Projects.Redis.Addr) != "" {
+			cfg.Projects.Redis.Addr = strings.TrimSpace(w.Projects.Redis.Addr)
+		}
+		if cfg.Projects.Redis.Password == "" && strings.TrimSpace(w.Projects.Redis.Password) != "" {
+			cfg.Projects.Redis.Password = strings.TrimSpace(w.Projects.Redis.Password)
+		}
+		if cfg.Projects.Redis.DB == 0 && w.Projects.Redis.DB != 0 {
+			cfg.Projects.Redis.DB = w.Projects.Redis.DB
+		}
+		if !cfg.Projects.Redis.TLSInsecureSkipVerify && w.Projects.Redis.TLSInsecureSkipVerify {
+			cfg.Projects.Redis.TLSInsecureSkipVerify = true
+		}
+		if !cfg.Projects.Events.Enabled && w.Projects.Events.Enabled {
+			cfg.Projects.Events.Enabled = true
+		}
+		if cfg.Projects.Events.Brokers == "" && strings.TrimSpace(w.Projects.Events.Brokers) != "" {
+			cfg.Projects.Events.Brokers = strings.TrimSpace(w.Projects.Events.Brokers)
+		}
+		if cfg.Projects.Events.Topic == "" && strings.TrimSpace(w.Projects.Events.Topic) != "" {
+			cfg.Projects.Events.Topic = strings.TrimSpace(w.Projects.Events.Topic)
+		}
+		if cfg.Skills.RedisCacheTTLSeconds == 0 && w.Skills.RedisCacheTTLSeconds > 0 {
+			cfg.Skills.RedisCacheTTLSeconds = w.Skills.RedisCacheTTLSeconds
+		}
+		if !cfg.Skills.UseS3Loader && w.Skills.UseS3Loader {
+			cfg.Skills.UseS3Loader = true
+		}
+		if !cfg.Tokenization.Enabled && w.Tokenization.Enabled {
+			cfg.Tokenization.Enabled = true
+		}
+		if cfg.Tokenization.CacheSize == 0 && w.Tokenization.CacheSize > 0 {
+			cfg.Tokenization.CacheSize = w.Tokenization.CacheSize
+		}
+		if cfg.Tokenization.CacheTTLSeconds == 0 && w.Tokenization.CacheTTLSeconds > 0 {
+			cfg.Tokenization.CacheTTLSeconds = w.Tokenization.CacheTTLSeconds
+		}
+		if w.Tokenization.FallbackToHeuristic != nil {
+			cfg.Tokenization.FallbackToHeuristic = *w.Tokenization.FallbackToHeuristic
 		}
 		return nil
 	}

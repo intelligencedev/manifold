@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full flex-1 min-h-0 overflow-hidden gap-3 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full flex-1 min-h-0 overflow-hidden gap-3 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
@@ -261,6 +261,30 @@
             <div
               class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
             >
+              <div
+                v-if="shouldShowResponseStatus(message)"
+                class="response-status"
+                :class="responseStatusClasses"
+              >
+                <div class="response-status__dot"></div>
+                <div class="response-status__body">
+                  <p class="response-status__title">
+                    {{ responseStatus?.title }}
+                  </p>
+                  <p
+                    v-if="responseStatus?.detail"
+                    class="response-status__detail"
+                  >
+                    {{ responseStatus.detail }}
+                  </p>
+                </div>
+                <span
+                  class="response-status__pill"
+                  :class="responseStatusPillClasses"
+                >
+                  {{ responseStatus?.stateLabel }}
+                </span>
+              </div>
               <p v-if="message.title" class="font-semibold text-foreground">
                 {{ message.title }}
               </p>
@@ -569,247 +593,6 @@
         </div>
       </div>
 
-      <!-- Context sidebar -->
-      <aside
-        class="hidden h-full min-h-0 xl:flex flex-col gap-3 text-sm text-subtle-foreground"
-      >
-        <GlassCard
-          :padded="false"
-          class="flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          <div class="flex min-h-0 flex-1 flex-col">
-            <header class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-foreground">
-                Agent Collaborators
-              </h2>
-            </header>
-            <div class="mt-3 space-y-2 flex-1 min-h-0 overflow-y-auto pr-1">
-              <div
-                v-if="!agentThreads.length"
-                class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
-              >
-                No delegated agents yet
-              </div>
-              <article
-                v-for="thread in agentThreads"
-                :key="thread.callId"
-                class="overflow-hidden rounded-4 border border-border bg-gradient-to-br from-surface via-surface-muted/40 to-surface p-3 text-xs shadow-2 ring-1 ring-border/50"
-              >
-                <header class="flex items-start justify-between gap-2">
-                  <div class="space-y-1 min-w-0">
-                    <div class="flex items-center gap-2">
-                      <span
-                        class="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent"
-                        >{{
-                          thread.agent || selectedSpecialist || "Agent"
-                        }}</span
-                      >
-                      <span
-                        v-if="thread.model"
-                        class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-                        >{{ thread.model }}</span
-                      >
-                      <span
-                        class="rounded-full bg-surface-muted px-2 py-0.5 text-[10px] text-muted-foreground"
-                        >depth {{ thread.depth }}</span
-                      >
-                    </div>
-                    <p
-                      class="truncate text-[11px] text-subtle-foreground"
-                      :title="thread.prompt"
-                    >
-                      {{ thread.prompt || "No prompt captured" }}
-                    </p>
-                  </div>
-                  <div class="flex items-center gap-2 text-[11px]">
-                    <span
-                      :class="{
-                        'text-accent': thread.status === 'running',
-                        'text-muted-foreground': thread.status === 'done',
-                        'text-danger': thread.status === 'error',
-                      }"
-                      class="flex items-center gap-1 font-semibold"
-                    >
-                      <span
-                        class="h-1.5 w-1.5 rounded-full"
-                        :class="{
-                          'bg-accent animate-pulse':
-                            thread.status === 'running',
-                          'bg-muted-foreground': thread.status === 'done',
-                          'bg-danger': thread.status === 'error',
-                        }"
-                      ></span>
-                      {{
-                        thread.status === "running"
-                          ? "running"
-                          : thread.status === "done"
-                            ? "done"
-                            : "error"
-                      }}
-                    </span>
-                  </div>
-                </header>
-                <div class="mt-2 space-y-2">
-                  <div
-                    v-if="thread.content"
-                    class="chat-markdown text-[13px] leading-relaxed"
-                    v-html="renderMarkdownOrHtml(thread.content)"
-                  ></div>
-                  <div v-if="thread.entries.length" class="space-y-1">
-                    <div
-                      v-for="entry in thread.entries"
-                      :key="entry.id"
-                      class="rounded-4 border border-border/60 bg-surface-muted/60 px-2 py-1"
-                    >
-                      <div
-                        class="flex items-center justify-between text-[11px] text-muted-foreground"
-                      >
-                        <span class="font-semibold">{{
-                          entry.title ||
-                          (entry.type === "tool" ? "Tool" : "Note")
-                        }}</span>
-                        <span
-                          v-if="entry.createdAt"
-                          class="text-faint-foreground"
-                          >{{ formatTimestamp(entry.createdAt) }}</span
-                        >
-                      </div>
-                      <div
-                        v-if="entry.args"
-                        class="mt-1 truncate text-[11px] text-faint-foreground"
-                      >
-                        {{ entry.args }}
-                      </div>
-                      <div
-                        v-if="entry.data"
-                        class="chat-markdown mt-1 text-[12px]"
-                        v-html="renderMarkdownOrHtml(entry.data)"
-                      ></div>
-                      <div
-                        v-if="entry.content && !entry.data"
-                        class="mt-1 text-[12px]"
-                        :class="
-                          entry.type === 'error'
-                            ? 'text-danger'
-                            : 'text-subtle-foreground'
-                        "
-                      >
-                        {{ entry.content }}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </div>
-        </GlassCard>
-
-        <GlassCard
-          :padded="false"
-          class="relative flex min-h-0 flex-1 flex-col overflow-hidden"
-        >
-          <div class="flex min-h-0 flex-1 flex-col">
-            <header class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-foreground">
-                Tool Activity
-              </h2>
-            </header>
-            <div
-              ref="toolsPane"
-              class="mt-3 flex-1 min-h-0 space-y-2 overflow-y-auto pr-1"
-              @scroll="handleToolsScroll"
-              @click="handleMarkdownClick"
-            >
-              <div
-                v-if="!toolMessages.length"
-                class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
-              >
-                No tool activity yet
-              </div>
-              <article
-                v-for="tool in toolMessages"
-                :key="tool.id"
-                class="overflow-hidden rounded-4 border border-border bg-surface p-3 text-xs shadow-1"
-              >
-                <header class="flex items-center justify-between gap-2">
-                  <div class="min-w-0 flex-1">
-                    <span
-                      class="block max-w-full truncate rounded bg-surface-muted px-2 py-0.5 text-[11px] text-muted-foreground"
-                    >
-                      {{ tool.title || "Tool" }}
-                    </span>
-                  </div>
-                  <div
-                    class="flex shrink-0 items-center gap-2 text-[11px] text-faint-foreground"
-                  >
-                    <span>{{ formatTimestamp(tool.createdAt) }}</span>
-                    <span
-                      v-if="tool.streaming"
-                      class="flex items-center gap-1 text-accent"
-                    >
-                      <span
-                        class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
-                      ></span>
-                      Running
-                    </span>
-                    <span
-                      v-if="tool.error"
-                      class="rounded bg-danger px-2 py-0.5 text-danger-foreground font-semibold"
-                    >
-                      {{ tool.error }}
-                    </span>
-                  </div>
-                </header>
-                <details
-                  class="group mt-2 overflow-hidden rounded-4 border border-border bg-surface"
-                >
-                  <summary
-                    class="flex cursor-pointer items-center justify-between gap-2 px-2 py-1 text-[11px] font-semibold text-subtle-foreground hover:text-foreground focus-visible:outline-none focus-visible:shadow-outline"
-                  >
-                    <span>View details</span>
-                    <span
-                      class="text-xs text-faint-foreground transition-transform group-open:rotate-45"
-                      >+</span
-                    >
-                  </summary>
-                  <div class="space-y-2 px-2 pb-2 pt-1 text-subtle-foreground">
-                    <pre
-                      v-if="tool.toolArgs"
-                      class="max-w-full overflow-x-hidden whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-2 text-[11px] text-subtle-foreground"
-                      >{{ tool.toolArgs }}</pre
-                    >
-                    <div
-                      v-if="tool.content"
-                      class="chat-markdown mt-1 break-words"
-                      v-html="renderMarkdownOrHtml(tool.content)"
-                    ></div>
-                    <audio
-                      v-if="tool.audioUrl"
-                      :src="tool.audioUrl"
-                      controls
-                      class="mt-1 w-full"
-                    ></audio>
-                  </div>
-                </details>
-              </article>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            class="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transform transition-all duration-200"
-            :class="
-              showToolScrollToBottom
-                ? 'pointer-events-auto opacity-100 translate-y-0'
-                : 'pointer-events-none opacity-0 translate-y-2'
-            "
-            @click="handleScrollToolsToLatest"
-          >
-            <span class="h-2 w-2 rounded-full bg-accent"></span>
-            <span>Scroll to latest</span>
-          </button>
-        </GlassCard>
-      </aside>
     </section>
   </div>
 </template>
@@ -826,6 +609,7 @@ import {
 import { useRouter } from "vue-router";
 import axios from "axios";
 import type {
+  AgentThread,
   ChatAttachment,
   ChatMessage,
   ChatSessionMeta,
@@ -841,7 +625,6 @@ import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
 import Camera from "@/components/icons/Camera.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
-import GlassCard from "@/components/ui/GlassCard.vue";
 import { useChatStore } from "@/stores/chat";
 import { useProjectsStore } from "@/stores/projects";
 import type { DropdownOption } from "@/types/dropdown";
@@ -884,9 +667,6 @@ const messagesPane = ref<HTMLDivElement | null>(null);
 const composer = ref<HTMLTextAreaElement | null>(null);
 const copiedMessageId = ref<string | null>(null);
 const autoScrollEnabled = ref(true);
-// Tools pane scrolling state
-const toolsPane = ref<HTMLDivElement | null>(null);
-const toolAutoScrollEnabled = ref(true);
 // Attachments state for composer
 const fileInput = ref<HTMLInputElement | null>(null);
 const pendingAttachments = ref<ChatAttachment[]>([]);
@@ -1089,15 +869,13 @@ const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
+const toolActivityMsById = ref<Record<string, number>>({});
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
   parseAgentModelLabel(activeSession.value?.model || ""),
 );
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
-);
-const showToolScrollToBottom = computed(
-  () => !toolAutoScrollEnabled.value && toolMessages.value.length > 0,
 );
 const sessionMessageCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {};
@@ -1198,6 +976,14 @@ function shouldShowResponseTimer(message: ChatMessage) {
   return message.id in responseElapsedMsByMessageId.value;
 }
 
+type ResponseStatusState = "running" | "done" | "error";
+type ResponseStatus = {
+  title: string;
+  detail: string;
+  state: ResponseStatusState;
+  stateLabel: string;
+};
+
 const lastUser = computed(() =>
   findLast(activeMessages.value, (msg) => msg.role === "user"),
 );
@@ -1207,6 +993,185 @@ const lastAssistant = computed(() =>
 const lastAssistantId = computed(() => lastAssistant.value?.id || "");
 const canRegenerate = computed(() =>
   Boolean(!isStreaming.value && lastUser.value && lastAssistant.value),
+);
+
+function safeTimestampMs(value?: string) {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function agentThreadTimestamp(thread: AgentThread) {
+  const lastEntry = thread.entries[thread.entries.length - 1];
+  const stamp = lastEntry?.createdAt || thread.finishedAt || thread.startedAt;
+  return safeTimestampMs(stamp);
+}
+
+function responseStateLabel(state: ResponseStatusState) {
+  switch (state) {
+    case "running":
+      return "Running";
+    case "done":
+      return "Complete";
+    case "error":
+      return "Error";
+    default:
+      return "Running";
+  }
+}
+
+function statusFromTool(tool: ChatMessage): ResponseStatus {
+  const state: ResponseStatusState = tool.error
+    ? "error"
+    : tool.streaming
+      ? "running"
+      : "done";
+  const name = (tool.title || "Tool").trim() || "Tool";
+  const title =
+    state === "running"
+      ? `Using ${name}...`
+      : state === "done"
+        ? `Used ${name}`
+        : `${name} failed`;
+  const argDetail = tool.toolArgs ? snippet(tool.toolArgs) : "";
+  return {
+    title,
+    detail: argDetail ? `Args: ${argDetail}` : "Tool call",
+    state,
+    stateLabel: responseStateLabel(state),
+  };
+}
+
+function statusFromThread(thread: AgentThread): ResponseStatus {
+  const state = thread.status;
+  const name = (thread.agent || "Delegated agent").trim() || "Delegated agent";
+  const title =
+    state === "running"
+      ? `Delegating to ${name}...`
+      : state === "done"
+        ? `${name} responded`
+        : `${name} error`;
+  const detail = thread.model ? `Model ${thread.model}` : "Delegation";
+  return {
+    title,
+    detail,
+    state,
+    stateLabel: responseStateLabel(state),
+  };
+}
+
+const latestToolMessage = computed(() => {
+  const assistant = lastAssistant.value;
+  if (!assistant) return null;
+  const cutoff = safeTimestampMs(assistant.createdAt);
+  let latest: ChatMessage | null = null;
+  let latestStamp = 0;
+  for (const tool of toolMessages.value) {
+    const createdStamp = safeTimestampMs(tool.createdAt);
+    if (createdStamp < cutoff) continue;
+    const activityStamp =
+      toolActivityMsById.value[tool.id] || createdStamp || 0;
+    if (!latest || activityStamp >= latestStamp) {
+      latest = tool;
+      latestStamp = activityStamp;
+    }
+  }
+  return latest;
+});
+
+const latestAgentThread = computed(() => {
+  if (!agentThreads.value.length) return null;
+  return agentThreads.value.reduce((latest, thread) =>
+    agentThreadTimestamp(thread) >= agentThreadTimestamp(latest)
+      ? thread
+      : latest,
+  );
+});
+
+const responseStatus = computed<ResponseStatus | null>(() => {
+  const assistant = lastAssistant.value;
+  if (!assistant || !assistant.streaming) return null;
+
+  const tool = latestToolMessage.value;
+  const thread = latestAgentThread.value;
+  const toolTs = tool
+    ? toolActivityMsById.value[tool.id] || safeTimestampMs(tool.createdAt)
+    : 0;
+  const threadTs = thread ? agentThreadTimestamp(thread) : 0;
+  const toolRunning = tool?.streaming ?? false;
+  const threadRunning = thread?.status === "running";
+
+  if (tool && toolRunning && !threadRunning) return statusFromTool(tool);
+  if (thread && threadRunning && !toolRunning) return statusFromThread(thread);
+  if (toolTs || threadTs) {
+    if (tool && toolTs >= threadTs) return statusFromTool(tool);
+    if (thread) return statusFromThread(thread);
+  }
+
+  return {
+    title: "Drafting response",
+    detail: "Synthesizing output",
+    state: "running",
+    stateLabel: "Working",
+  };
+});
+
+const responseStatusClasses = computed(() => {
+  const state = responseStatus.value?.state || "running";
+  return {
+    "response-status--running": state === "running",
+    "response-status--done": state === "done",
+    "response-status--error": state === "error",
+  };
+});
+
+const responseStatusPillClasses = computed(() => {
+  const state = responseStatus.value?.state || "running";
+  return {
+    "response-status__pill--running": state === "running",
+    "response-status__pill--done": state === "done",
+    "response-status__pill--error": state === "error",
+  };
+});
+
+function shouldShowResponseStatus(message: ChatMessage) {
+  return (
+    message.role === "assistant" &&
+    message.id === lastAssistantId.value &&
+    message.streaming &&
+    Boolean(responseStatus.value)
+  );
+}
+
+watch(
+  () =>
+    toolMessages.value.map((msg) => ({
+      id: msg.id,
+      signature: `${msg.content.length}:${msg.streaming ? 1 : 0}:${
+        msg.error ? 1 : 0
+      }`,
+      createdAt: msg.createdAt,
+    })),
+  (next, prev) => {
+    const now = Date.now();
+    const prevMap = new Map<string, string>();
+    (prev || []).forEach((item) => prevMap.set(item.id, item.signature));
+    const updated: Record<string, number> = {};
+
+    for (const item of next) {
+      const priorSig = prevMap.get(item.id);
+      if (!priorSig || priorSig !== item.signature) {
+        updated[item.id] = now;
+      } else {
+        const baseStamp = safeTimestampMs(item.createdAt);
+        updated[item.id] =
+          toolActivityMsById.value[item.id] ?? (baseStamp || now);
+      }
+    }
+
+    toolActivityMsById.value = updated;
+  },
+  { flush: "post" },
 );
 
 watch(
@@ -1242,16 +1207,6 @@ watch(activeSummaryEvent, (event) => {
   }
 });
 
-// Tools pane: auto-scroll on content changes
-watch(
-  () =>
-    toolMessages.value.map(
-      (msg) => `${msg.id}:${msg.content.length}:${msg.streaming ? 1 : 0}`,
-    ),
-  () => scrollToolsToBottom(),
-  { flush: "post" },
-);
-
 watch(activeSessionId, (sessionId) => {
   if (sessionId) {
     void loadMessagesFromServer(sessionId);
@@ -1273,7 +1228,6 @@ onMounted(() => {
   nextTick(() => {
     autoSizeComposer();
     scrollMessagesToBottom({ force: true, behavior: "auto" });
-    scrollToolsToBottom({ force: true, behavior: "auto" });
   });
 });
 
@@ -1293,9 +1247,7 @@ function setRenameInput(el: HTMLInputElement | null) {
 function selectSession(sessionId: string) {
   chat.selectSession(sessionId);
   autoScrollEnabled.value = true;
-  toolAutoScrollEnabled.value = true;
   nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
-  nextTick(() => scrollToolsToBottom({ force: true, behavior: "auto" }));
 }
 
 async function createSession(name = "New Chat") {
@@ -1307,9 +1259,7 @@ async function createSession(name = "New Chat") {
       renamingName.value = session.name;
     }
     autoScrollEnabled.value = true;
-    toolAutoScrollEnabled.value = true;
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
-    nextTick(() => scrollToolsToBottom({ force: true, behavior: "auto" }));
   } catch (error) {
     const status = httpStatus(error);
     if (status === 403) {
@@ -1322,9 +1272,7 @@ async function deleteSession(sessionId: string) {
   try {
     await chat.deleteSession(sessionId);
     autoScrollEnabled.value = true;
-    toolAutoScrollEnabled.value = true;
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
-    nextTick(() => scrollToolsToBottom({ force: true, behavior: "auto" }));
   } catch (error) {
     // ignore
   }
@@ -1558,25 +1506,6 @@ function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
   });
 }
 
-function scrollToolsToBottom(options: ScrollToBottomOptions = {}) {
-  nextTick(() => {
-    const container = toolsPane.value;
-    if (!container) return;
-
-    if (!options.force && !toolAutoScrollEnabled.value) {
-      return;
-    }
-
-    const behavior = options.behavior ?? (options.force ? "smooth" : "auto");
-    const target = Math.max(container.scrollHeight - container.clientHeight, 0);
-    container.scrollTo({ top: target, behavior });
-
-    if (options.force) {
-      toolAutoScrollEnabled.value = true;
-    }
-  });
-}
-
 function isNearBottom(container: HTMLElement) {
   const distance =
     container.scrollHeight - (container.scrollTop + container.clientHeight);
@@ -1591,16 +1520,6 @@ function handleMessagesScroll(event: Event) {
 
 function handleScrollToLatest() {
   scrollMessagesToBottom({ force: true, behavior: "smooth" });
-}
-
-function handleToolsScroll(event: Event) {
-  const container = event.target as HTMLElement | null;
-  if (!container) return;
-  toolAutoScrollEnabled.value = isNearBottom(container);
-}
-
-function handleScrollToolsToLatest() {
-  scrollToolsToBottom({ force: true, behavior: "smooth" });
 }
 
 function findLast<T>(items: T[], predicate: (item: T) => boolean): T | null {
@@ -1797,6 +1716,120 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   min-height: 0;
   height: 100%;
   max-height: 100%;
+}
+
+.response-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgb(var(--color-border) / 0.6);
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-surface-muted) / 0.9),
+    rgb(var(--color-surface) / 0.95)
+  );
+  box-shadow: 0 14px 32px -24px rgb(0 0 0 / 0.6);
+}
+
+.response-status__dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: rgb(var(--color-accent));
+}
+
+.response-status__body {
+  min-width: 0;
+  flex: 1;
+}
+
+.response-status__title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: rgb(var(--color-foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.response-status__detail {
+  margin-top: 0.1rem;
+  font-size: 0.75rem;
+  color: rgb(var(--color-subtle-foreground));
+}
+
+.response-status__pill {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.response-status--running {
+  border-color: rgb(var(--color-accent) / 0.35);
+}
+
+.response-status--running .response-status__dot {
+  background: rgb(var(--color-accent));
+  box-shadow: 0 0 0 6px rgb(var(--color-accent) / 0.18);
+  animation: statusPulse 1.8s ease-in-out infinite;
+}
+
+.response-status__pill--running {
+  border-color: rgb(var(--color-accent) / 0.4);
+  color: rgb(var(--color-accent));
+  background: rgb(var(--color-accent) / 0.12);
+}
+
+.response-status--done {
+  border-color: rgb(var(--color-success) / 0.35);
+}
+
+.response-status--done .response-status__dot {
+  background: rgb(var(--color-success));
+  box-shadow: 0 0 0 6px rgb(var(--color-success) / 0.18);
+}
+
+.response-status__pill--done {
+  border-color: rgb(var(--color-success) / 0.35);
+  color: rgb(var(--color-success));
+  background: rgb(var(--color-success) / 0.12);
+}
+
+.response-status--error {
+  border-color: rgb(var(--color-danger) / 0.35);
+}
+
+.response-status--error .response-status__dot {
+  background: rgb(var(--color-danger));
+  box-shadow: 0 0 0 6px rgb(var(--color-danger) / 0.2);
+}
+
+.response-status__pill--error {
+  border-color: rgb(var(--color-danger) / 0.4);
+  color: rgb(var(--color-danger));
+  background: rgb(var(--color-danger) / 0.12);
+}
+
+@keyframes statusPulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.85);
+    opacity: 0.6;
+  }
 }
 
 .chat-markdown {

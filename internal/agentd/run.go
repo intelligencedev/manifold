@@ -420,7 +420,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
-	_ = mcpMgr.RegisterFromConfig(ctxInit, toolRegistry, cfg.MCP)
+	_ = mcpMgr.RegisterFromConfig(ctxInit, baseToolRegistry, cfg.MCP)
 
 	requiresPerUserMCP := cfg.Auth.Enabled &&
 		cfg.Projects.Backend == "s3" &&
@@ -470,7 +470,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 						continue
 					}
 				}
-				_ = mcpMgr.RegisterOne(ctxInit, toolRegistry, cfgSrv)
+				_ = mcpMgr.RegisterOne(ctxInit, baseToolRegistry, cfgSrv)
 			}
 		} else {
 			log.Warn().Err(err).Msg("failed to load mcp servers from db")
@@ -480,7 +480,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Create MCP Server Pool for managing shared and per-user MCP sessions
 	mcpPool := mcpclient.NewMCPServerPool(cfg, wsMgr, mgr.UserPreferences)
-	mcpPool.SetToolRegistry(toolRegistry)
+	mcpPool.SetToolRegistry(baseToolRegistry)
 
 	// Wire workspace checkout callback to initialize MCP sessions on checkout
 	workspaces.SetCheckoutCallback(mcpPool.OnWorkspaceCheckout)
@@ -488,20 +488,20 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// Register non-path-dependent servers to the pool (shared)
 	// Path-dependent servers in enterprise mode are registered per-user on project switch
 	ctxPool, cancelPool := context.WithTimeout(ctx, 20*time.Second)
-	if err := mcpPool.RegisterFromConfig(ctxPool, toolRegistry); err != nil {
+	if err := mcpPool.RegisterFromConfig(ctxPool, baseToolRegistry); err != nil {
 		log.Warn().Err(err).Msg("mcp_pool_registration_failed")
 	}
 
 	// Discover and register tools from path-dependent MCP servers for UI display
 	// This temporarily starts servers with a temp directory just to enumerate tools
 	if mcpPool.RequiresPerUserMCP() {
-		mcpPool.RegisterPathDependentToolsForDiscovery(ctxPool, toolRegistry)
+		mcpPool.RegisterPathDependentToolsForDiscovery(ctxPool, baseToolRegistry)
 	}
 	cancelPool()
 
 	// Start idle session reaper for enterprise mode (15 min check interval, 1 hour max idle)
 	if mcpPool.RequiresPerUserMCP() {
-		mcpPool.StartReaper(ctx, toolRegistry, 15*time.Minute, 1*time.Hour)
+		mcpPool.StartReaper(ctx, baseToolRegistry, 15*time.Minute, 1*time.Hour)
 	}
 
 	app := &app{

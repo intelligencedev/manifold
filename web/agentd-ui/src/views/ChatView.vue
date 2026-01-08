@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full flex-1 min-h-0 overflow-hidden gap-6 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full flex-1 min-h-0 overflow-hidden gap-3 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="glass-surface hidden h-full min-h-0 lg:flex flex-col gap-4 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
+        class="glass-surface hidden h-full min-h-0 lg:flex flex-col gap-3 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
       >
         <header class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -571,7 +571,7 @@
 
       <!-- Context sidebar -->
       <aside
-        class="hidden h-full min-h-0 xl:flex flex-col gap-4 text-sm text-subtle-foreground"
+        class="hidden h-full min-h-0 xl:flex flex-col gap-3 text-sm text-subtle-foreground"
       >
         <GlassCard
           :padded="false"

@@ -88,7 +88,7 @@ func (a *app) handleSetPreferences(w http.ResponseWriter, r *http.Request, userI
 		if err != nil {
 			log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ActiveProjectID).Msg("workspace_checkout_for_mcp_failed")
 		} else if ws.BaseDir != "" {
-			if err := a.mcpPool.EnsureUserSession(r.Context(), a.toolRegistry, userID, req.ActiveProjectID, ws.BaseDir); err != nil {
+			if err := a.mcpPool.EnsureUserSession(r.Context(), a.baseToolRegistry, userID, req.ActiveProjectID, ws.BaseDir); err != nil {
 				log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ActiveProjectID).Msg("mcp_session_setup_failed")
 			}
 		}
@@ -168,7 +168,7 @@ func (a *app) setActiveProjectHandler() http.HandlerFunc {
 				log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ProjectID).Msg("workspace_checkout_for_mcp_failed")
 				// Non-fatal - preference is saved but MCP session not set up
 			} else if ws.BaseDir != "" {
-				if err := a.mcpPool.EnsureUserSession(r.Context(), a.toolRegistry, userID, req.ProjectID, ws.BaseDir); err != nil {
+				if err := a.mcpPool.EnsureUserSession(r.Context(), a.baseToolRegistry, userID, req.ProjectID, ws.BaseDir); err != nil {
 					log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ProjectID).Msg("mcp_session_setup_failed")
 					// Non-fatal - agent can still work without path-dependent MCP tools
 				}

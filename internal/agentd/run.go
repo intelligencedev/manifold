@@ -190,6 +190,18 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID st
 		eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
 	}
 
+	// Create a per-request delegator so ask_agent/agent_call uses the
+	// user-specific specialists registry (including tool allowlists).
+	reg := a.specRegistry
+	if a.cfg.Auth.Enabled && userID != systemUserID {
+		if userReg, err := a.specialistsRegistryForUser(ctx, userID); err == nil && userReg != nil {
+			reg = userReg
+		}
+	}
+	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.cfg.MaxSteps)
+	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	eng.Delegator = delegator
+
 	return eng
 }
 

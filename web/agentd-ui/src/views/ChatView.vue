@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full flex-1 min-h-0 overflow-hidden gap-3 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr] chat-grid"
+      class="grid h-full flex-1 min-h-0 overflow-hidden gap-3 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
@@ -593,6 +593,97 @@
         </div>
       </div>
 
+      <!-- Participants sidebar -->
+      <aside
+        class="hidden h-full min-h-0 xl:flex flex-col gap-3 text-sm text-subtle-foreground chat-side"
+      >
+        <GlassCard :padded="false" class="overflow-hidden">
+          <div>
+            <header class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-foreground">
+                Active specialist
+              </h2>
+              <span class="text-[11px] text-faint-foreground">Live view</span>
+            </header>
+            <div class="mt-2">
+              <div
+                class="active-specialist-card"
+                :class="activeSpecialistCardClasses"
+              >
+                <div class="active-specialist-avatar">
+                  <span>{{ activeSpecialistInitials }}</span>
+                </div>
+                <div class="active-specialist-body">
+                  <p class="active-specialist-name">
+                    {{ activeSpecialistName }}
+                  </p>
+                  <p class="active-specialist-model">
+                    {{
+                      activeSpecialistModel
+                        ? `Model ${activeSpecialistModel}`
+                        : "Model pending"
+                    }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </GlassCard>
+
+        <GlassCard
+          :padded="false"
+          class="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <div class="flex min-h-0 flex-1 flex-col">
+            <header class="flex items-center justify-between">
+              <h2 class="text-sm font-semibold text-foreground">
+                Participants
+              </h2>
+              <span class="text-[11px] text-faint-foreground">
+                {{ participantList.length }} available
+              </span>
+            </header>
+            <div class="mt-2 flex-1 min-h-0 overflow-y-auto">
+              <div
+                v-if="!participantList.length"
+                class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
+              >
+                No specialists available
+              </div>
+              <ul v-else class="participant-list">
+                <li
+                  v-for="participant in participantList"
+                  :key="participant.name"
+                  class="participant-row"
+                  :class="participantRowClasses(participant.name)"
+                >
+                  <span
+                    class="participant-dot"
+                    :class="participantDotClasses(participant.name)"
+                  ></span>
+                  <div class="participant-body">
+                    <p class="participant-name">{{ participant.name }}</p>
+                    <p class="participant-model">
+                      {{
+                        participant.model
+                          ? `Model ${participant.model}`
+                          : "Model pending"
+                      }}
+                    </p>
+                  </div>
+                  <span
+                    class="participant-pill"
+                    :class="participantPillClasses(participant.name)"
+                  >
+                    {{ participantStatusLabel(participant.name) }}
+                  </span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </GlassCard>
+      </aside>
+
     </section>
   </div>
 </template>
@@ -625,6 +716,7 @@ import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
 import Camera from "@/components/icons/Camera.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import GlassCard from "@/components/ui/GlassCard.vue";
 import { useChatStore } from "@/stores/chat";
 import { useProjectsStore } from "@/stores/projects";
 import type { DropdownOption } from "@/types/dropdown";
@@ -983,6 +1075,10 @@ type ResponseStatus = {
   state: ResponseStatusState;
   stateLabel: string;
 };
+type Participant = {
+  name: string;
+  model: string;
+};
 
 const lastUser = computed(() =>
   findLast(activeMessages.value, (msg) => msg.role === "user"),
@@ -1088,6 +1184,18 @@ const latestAgentThread = computed(() => {
   );
 });
 
+const latestRunningAgentThread = computed(() => {
+  const running = agentThreads.value.filter(
+    (thread) => thread.status === "running",
+  );
+  if (!running.length) return null;
+  return running.reduce((latest, thread) =>
+    agentThreadTimestamp(thread) >= agentThreadTimestamp(latest)
+      ? thread
+      : latest,
+  );
+});
+
 const responseStatus = computed<ResponseStatus | null>(() => {
   const assistant = lastAssistant.value;
   if (!assistant || !assistant.streaming) return null;
@@ -1141,6 +1249,98 @@ function shouldShowResponseStatus(message: ChatMessage) {
     message.streaming &&
     Boolean(responseStatus.value)
   );
+}
+
+const participantList = computed<Participant[]>(() => {
+  const list: Participant[] = [];
+  const seen = new Set<string>();
+  const add = (name: string, model?: string) => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    list.push({ name: trimmed, model: (model || "").trim() });
+  };
+  const orchestratorModel =
+    specialistsByName.value.get("orchestrator")?.model?.trim() ||
+    sessionAgentDefaults.value.model ||
+    "";
+  add("orchestrator", orchestratorModel);
+  const extras = (specialistsData?.value || [])
+    .map((spec: Specialist) => ({
+      name: (spec.name || "").trim(),
+      model: (spec.model || "").trim(),
+    }))
+    .filter((spec) => spec.name && spec.name.toLowerCase() !== "orchestrator")
+    .sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    );
+  extras.forEach((spec) => add(spec.name, spec.model));
+  return list;
+});
+
+const activeSpecialistName = computed(() => {
+  const running = latestRunningAgentThread.value;
+  if (running?.agent) return running.agent.trim();
+  const selected = (selectedSpecialist.value || "orchestrator").trim();
+  return selected || "orchestrator";
+});
+
+const activeSpecialistModel = computed(() => {
+  const running = latestRunningAgentThread.value;
+  if (running?.model) return running.model.trim();
+  const key = activeSpecialistName.value.toLowerCase();
+  const spec = specialistsByName.value.get(key);
+  if (spec?.model) return spec.model.trim();
+  if (key === "orchestrator") return sessionAgentDefaults.value.model || "";
+  return "";
+});
+
+const activeSpecialistInitials = computed(() => {
+  const name = activeSpecialistName.value || "Agent";
+  const parts = name.split(/[\s_-]+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+});
+
+const activeSpecialistCardClasses = computed(() => ({
+  "active-specialist-card--live": isStreaming.value,
+  "active-specialist-card--delegated": Boolean(latestRunningAgentThread.value),
+}));
+
+function participantIsActive(name: string) {
+  return name.trim().toLowerCase() === activeSpecialistName.value.toLowerCase();
+}
+
+function participantStatusLabel(name: string) {
+  if (!isStreaming.value) return "Idle";
+  return participantIsActive(name) ? "Live" : "Ready";
+}
+
+function participantRowClasses(name: string) {
+  return {
+    "participant-row--active": participantIsActive(name),
+  };
+}
+
+function participantDotClasses(name: string) {
+  const active = participantIsActive(name);
+  return {
+    "participant-dot--live": active && isStreaming.value,
+    "participant-dot--ready": !active && isStreaming.value,
+    "participant-dot--idle": !isStreaming.value,
+  };
+}
+
+function participantPillClasses(name: string) {
+  const active = participantIsActive(name);
+  return {
+    "participant-pill--live": active && isStreaming.value,
+    "participant-pill--ready": !active && isStreaming.value,
+    "participant-pill--idle": !isStreaming.value,
+  };
 }
 
 watch(
@@ -1716,6 +1916,164 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   min-height: 0;
   height: 100%;
   max-height: 100%;
+}
+
+.chat-side {
+  min-height: 0;
+}
+
+.active-specialist-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 0.9rem;
+  border: 1px solid rgb(var(--color-border) / 0.6);
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-surface-muted) / 0.92),
+    rgb(var(--color-surface) / 0.96)
+  );
+  box-shadow: 0 18px 35px -30px rgb(0 0 0 / 0.6);
+}
+
+.active-specialist-card--live {
+  border-color: rgb(var(--color-accent) / 0.4);
+  box-shadow: 0 20px 40px -28px rgb(var(--color-accent) / 0.35);
+}
+
+.active-specialist-card--delegated {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-accent) / 0.12),
+    rgb(var(--color-surface) / 0.96)
+  );
+}
+
+.active-specialist-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgb(var(--color-foreground));
+  background: linear-gradient(
+    145deg,
+    rgb(var(--color-accent) / 0.35),
+    rgb(var(--color-surface-muted) / 0.85)
+  );
+  border: 1px solid rgb(var(--color-border) / 0.6);
+}
+
+.active-specialist-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.active-specialist-name {
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+  white-space: normal;
+  word-break: break-word;
+}
+
+.active-specialist-model {
+  margin-top: 0.15rem;
+  font-size: 0.75rem;
+  color: rgb(var(--color-subtle-foreground));
+  white-space: normal;
+}
+
+.participant-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.participant-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.4);
+}
+
+.participant-row:last-child {
+  border-bottom: none;
+}
+
+.participant-row--active {
+  border-color: rgb(var(--color-accent) / 0.4);
+}
+
+.participant-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: rgb(var(--color-border));
+}
+
+.participant-dot--live {
+  background: rgb(var(--color-accent));
+  box-shadow: 0 0 0 4px rgb(var(--color-accent) / 0.2);
+}
+
+.participant-dot--ready {
+  background: rgb(var(--color-warning));
+  box-shadow: 0 0 0 4px rgb(var(--color-warning) / 0.18);
+}
+
+.participant-dot--idle {
+  background: rgb(var(--color-border));
+}
+
+.participant-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.participant-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+  white-space: normal;
+  word-break: break-word;
+}
+
+.participant-model {
+  margin-top: 0.1rem;
+  font-size: 0.7rem;
+  color: rgb(var(--color-subtle-foreground));
+  white-space: normal;
+}
+
+.participant-pill {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: rgb(var(--color-surface-muted) / 0.8);
+  color: rgb(var(--color-subtle-foreground));
+}
+
+.participant-pill--live {
+  border-color: rgb(var(--color-accent) / 0.4);
+  color: rgb(var(--color-accent));
+  background: rgb(var(--color-accent) / 0.12);
+}
+
+.participant-pill--ready {
+  border-color: rgb(var(--color-warning) / 0.35);
+  color: rgb(var(--color-warning));
+  background: rgb(var(--color-warning) / 0.12);
+}
+
+.participant-pill--idle {
+  border-color: rgb(var(--color-border) / 0.6);
 }
 
 .response-status {

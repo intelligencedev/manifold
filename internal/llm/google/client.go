@@ -8,11 +8,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	genai "google.golang.org/genai"
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/observability"
 )
 
 type Client struct {
@@ -53,44 +55,95 @@ func New(cfg config.GoogleConfig, httpClient *http.Client) (*Client, error) {
 }
 
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	effectiveModel := c.pickModel(model)
+
+	// Add observability like OpenAI/Anthropic clients
+	ctx, span := llm.StartRequestSpan(ctx, "Google Chat", effectiveModel, len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+	log := observability.LoggerWithTrace(ctx)
+
 	contents, toolMap, err := toContents(msgs)
 	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Msg("google_chat_toContents_error")
 		return llm.Message{}, err
 	}
 
 	toolDecls, toolCfg, err := adaptTools(tools, toolMap)
 	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Msg("google_chat_adaptTools_error")
 		return llm.Message{}, err
 	}
 
-	resp, err := c.client.Models.GenerateContent(ctx, c.pickModel(model), contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
+	start := time.Now()
+	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
+	dur := time.Since(start)
 	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Str("model", effectiveModel).Dur("duration", dur).Msg("google_chat_error")
 		return llm.Message{}, err
 	}
-	return messageFromResponse(resp)
+
+	msg, err := messageFromResponse(resp)
+	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Dur("duration", dur).Msg("google_chat_response_parse_error")
+		return llm.Message{}, err
+	}
+
+	llm.LogRedactedResponse(ctx, resp)
+	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Dur("duration", dur).Int("tool_calls", len(msg.ToolCalls)).Msg("google_chat_ok")
+
+	return msg, nil
 }
 
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	effectiveModel := c.pickModel(model)
+
+	// Add observability like OpenAI/Anthropic clients
+	ctx, span := llm.StartRequestSpan(ctx, "Google ChatStream", effectiveModel, len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+	log := observability.LoggerWithTrace(ctx)
+
 	contents, toolMap, err := toContents(msgs)
 	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Msg("google_stream_toContents_error")
 		return err
 	}
 
 	toolDecls, toolCfg, err := adaptTools(tools, toolMap)
 	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Msg("google_stream_adaptTools_error")
 		return err
 	}
 
-	stream := c.client.Models.GenerateContentStream(ctx, c.pickModel(model), contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
+	start := time.Now()
+	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Int("msgs", len(msgs)).Msg("google_stream_start")
 
+	stream := c.client.Models.GenerateContentStream(ctx, effectiveModel, contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
+
+	hasContent := false
+	var toolCallCount int
 	for resp, err := range stream {
 		if err != nil {
+			dur := time.Since(start)
+			span.RecordError(err)
+			log.Error().Err(err).Dur("duration", dur).Msg("google_stream_error")
 			return err
 		}
 		msg, err := messageFromResponse(resp)
 		if err != nil {
+			dur := time.Since(start)
+			span.RecordError(err)
+			log.Error().Err(err).Dur("duration", dur).Msg("google_stream_response_parse_error")
 			return err
 		}
+		hasContent = true
 		if h != nil {
 			if msg.Content != "" {
 				h.OnDelta(msg.Content)
@@ -100,11 +153,20 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 			}
 		}
 		for _, tc := range msg.ToolCalls {
+			toolCallCount++
 			if h != nil {
 				h.OnToolCall(tc)
 			}
 		}
 	}
+
+	dur := time.Since(start)
+	if !hasContent {
+		log.Warn().Dur("duration", dur).Msg("google_stream_empty_response")
+	} else {
+		log.Debug().Dur("duration", dur).Int("tool_calls", toolCallCount).Msg("google_stream_ok")
+	}
+
 	return nil
 }
 

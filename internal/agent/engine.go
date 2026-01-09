@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"manifold/internal/agent/memory"
@@ -81,6 +82,7 @@ type Engine struct {
 	Tokenizer llm.Tokenizer
 	// TokenizationFallbackToHeuristic allows falling back to heuristic on tokenization errors.
 	TokenizationFallbackToHeuristic bool
+	toolCallSeq                     uint64
 }
 
 // AttachTokenizer wires an accurate tokenizer into the engine when the provider exposes one.
@@ -272,6 +274,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 			return "", err
 		}
 
+		msg.ToolCalls = e.ensureToolCallIDs(msgs, msg.ToolCalls)
 		msgs = append(msgs, msg)
 		if e.OnAssistant != nil {
 			e.OnAssistant(msg)
@@ -341,6 +344,7 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 			return "", err
 		}
 
+		accumulatedToolCalls = e.ensureToolCallIDs(msgs, accumulatedToolCalls)
 		msg := llm.Message{
 			Role:      "assistant",
 			Content:   accumulatedContent,
@@ -371,6 +375,43 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 	}
 
 	return final, nil
+}
+
+func (e *Engine) ensureToolCallIDs(msgs []llm.Message, toolCalls []llm.ToolCall) []llm.ToolCall {
+	used := make(map[string]struct{}, len(toolCalls))
+	for _, msg := range msgs {
+		if msg.Role != "assistant" {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			if id := strings.TrimSpace(tc.ID); id != "" {
+				used[id] = struct{}{}
+			}
+		}
+	}
+	for i := range toolCalls {
+		id := strings.TrimSpace(toolCalls[i].ID)
+		if id == "" {
+			id = e.nextToolCallID()
+		}
+		if _, ok := used[id]; ok {
+			id = e.nextToolCallID()
+		}
+		for {
+			if _, ok := used[id]; !ok {
+				break
+			}
+			id = e.nextToolCallID()
+		}
+		toolCalls[i].ID = id
+		used[id] = struct{}{}
+	}
+	return toolCalls
+}
+
+func (e *Engine) nextToolCallID() string {
+	seq := atomic.AddUint64(&e.toolCallSeq, 1)
+	return fmt.Sprintf("engine-call-%d", seq)
 }
 
 // dispatchTools executes a batch of tool calls, appending their tool messages to msgs

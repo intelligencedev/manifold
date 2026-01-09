@@ -136,6 +136,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	llm.LogRedactedPrompt(ctx, msgs)
 	log := observability.LoggerWithTrace(ctx)
 
+	start := time.Now()
+	log.Debug().Str("model", string(params.Model)).Int("tools", len(tools)).Int("msgs", len(msgs)).Msg("anthropic_stream_start")
+
 	stream := c.sdk.Messages.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
@@ -191,8 +194,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	}
 
 	if err := stream.Err(); err != nil {
+		dur := time.Since(start)
 		span.RecordError(err)
-		log.Error().Err(err).Str("model", string(params.Model)).Msg("anthropic_stream_error")
+		log.Error().Err(err).Str("model", string(params.Model)).Dur("duration", dur).Msg("anthropic_stream_error")
 		return err
 	}
 
@@ -255,9 +259,11 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	llm.LogRedactedResponse(ctx, acc)
 
+	dur := time.Since(start)
 	log.Debug().
 		Str("model", string(params.Model)).
 		Int("tools", len(tools)).
+		Dur("duration", dur).
 		Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens).

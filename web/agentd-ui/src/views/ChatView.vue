@@ -164,13 +164,6 @@
               </button>
             </span>
             <div class="flex items-center gap-2">
-              <DropdownSelect
-                v-model="selectedSpecialist"
-                :options="specialistOptions"
-                size="xs"
-                title="Choose specialist for this chat"
-                aria-label="Specialist override"
-              />
               <!-- Project selection is global in the header; moved to App.vue -->
               <DropdownSelect
                 v-model="renderMode"
@@ -402,6 +395,38 @@
               class="ap-input chat-prompt-input relative rounded-4 bg-surface-muted/70 p-3 etched-dark"
             >
               <div
+                v-if="mentionMenuOpen"
+                class="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface shadow-3 ring-1 ring-border/50 z-20"
+              >
+                <div class="max-h-60 overflow-y-auto py-1">
+                  <button
+                    v-for="(cand, i) in mentionCandidates"
+                    :key="cand.name"
+                    type="button"
+                    class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition"
+                    :class="
+                      i === mentionActiveIndex
+                        ? 'bg-surface-muted/60 text-foreground'
+                        : 'text-subtle-foreground hover:bg-surface-muted/40 hover:text-foreground'
+                    "
+                    @mousedown.prevent="selectMentionCandidate(cand.name)"
+                  >
+                    <span class="truncate font-medium">@{{ cand.name }}</span>
+                    <span class="shrink-0 text-[10px] text-faint-foreground">
+                      {{ cand.model ? `Model ${cand.model}` : '' }}
+                    </span>
+                  </button>
+
+                  <div
+                    v-if="!mentionCandidates.length"
+                    class="px-3 py-2 text-xs text-faint-foreground"
+                  >
+                    No matching specialists
+                  </div>
+                </div>
+              </div>
+
+              <div
                 class="flex flex-wrap items-center gap-2 sm:gap-3 sm:flex-nowrap"
               >
                 <textarea
@@ -416,7 +441,9 @@
                   "
                   :disabled="!projectSelected"
                   @keydown="handleComposerKeydown"
-                  @input="autoSizeComposer"
+                  @input="handleComposerInput"
+                  @keyup="handleComposerKeyup"
+                  @click="updateMentionState"
                 ></textarea>
 
                 <!-- Inline actions (right aligned) -->
@@ -796,24 +823,6 @@ const specialistsByName = computed(() => {
   });
   return map;
 });
-const specialistNames = computed(() =>
-  (specialistsData?.value || [])
-    .map((s: Specialist) => s.name)
-    .filter((n: string) => n && n.trim().toLowerCase() !== "orchestrator")
-    .sort((a: string, b: string) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    ),
-);
-
-// Transform specialists data for dropdown
-const specialistOptions = computed<DropdownOption[]>(() => [
-  { id: "orchestrator", label: "orchestrator", value: "orchestrator" },
-  ...specialistNames.value.map((name: string) => ({
-    id: name,
-    label: name,
-    value: name,
-  })),
-]);
 
 // Transform projects data for dropdown
 const projectOptions = computed<DropdownOption[]>(() => {
@@ -843,6 +852,102 @@ const renderModeOptions = computed<DropdownOption[]>(() => [
 ]);
 
 const selectedSpecialist = ref<string>("orchestrator");
+
+// --- @mention specialist picker (Slack-like) ---
+const mentionQuery = ref("");
+const mentionTokenStart = ref<number | null>(null);
+const mentionTokenEnd = ref<number | null>(null);
+const mentionActiveIndex = ref(0);
+
+const mentionCandidates = computed<Participant[]>(() => {
+  const q = (mentionQuery.value || "").trim().toLowerCase();
+  const base = participantList.value;
+  if (!q) return base;
+  return base.filter((p) => p.name.toLowerCase().includes(q));
+});
+
+const mentionMenuOpen = computed(() => {
+  if (!projectSelected.value) return false;
+  return mentionTokenStart.value != null && mentionTokenEnd.value != null;
+});
+
+function closeMentionMenu() {
+  mentionQuery.value = "";
+  mentionTokenStart.value = null;
+  mentionTokenEnd.value = null;
+  mentionActiveIndex.value = 0;
+}
+
+function updateMentionState() {
+  const el = composer.value;
+  if (!el) return;
+
+  const value = draft.value || "";
+  const cursor =
+    typeof el.selectionStart === "number" ? el.selectionStart : value.length;
+
+  const before = value.slice(0, cursor);
+  const lastBoundary = Math.max(
+    before.lastIndexOf(" "),
+    before.lastIndexOf("\n"),
+    before.lastIndexOf("\t"),
+  );
+  const tokenStart = lastBoundary + 1;
+  const token = before.slice(tokenStart);
+
+  if (!token.startsWith("@")) {
+    closeMentionMenu();
+    return;
+  }
+
+  // If the token contains another @ later, treat only the last one as mention start.
+  const lastAt = token.lastIndexOf("@");
+  const start = tokenStart + lastAt;
+  const query = before.slice(start + 1);
+
+  // If the mention contains spaces, it's no longer an active mention.
+  if (/\s/.test(query)) {
+    closeMentionMenu();
+    return;
+  }
+
+  const prevStart = mentionTokenStart.value;
+  const prevQuery = mentionQuery.value;
+
+  mentionTokenStart.value = start;
+  mentionTokenEnd.value = cursor;
+  mentionQuery.value = query;
+
+  // Only reset active index if the mention token changed (not just cursor movement)
+  if (prevStart !== start || prevQuery !== query) {
+    mentionActiveIndex.value = 0;
+  }
+}
+
+function selectMentionCandidate(name: string) {
+  const start = mentionTokenStart.value;
+  const end = mentionTokenEnd.value;
+  if (start == null || end == null) return;
+
+  const value = draft.value || "";
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const insert = `@${name} `;
+
+  selectedSpecialist.value = name.trim() || "orchestrator";
+
+  draft.value = `${before}${insert}${after}`;
+  closeMentionMenu();
+
+  nextTick(() => {
+    const el = composer.value;
+    if (!el) return;
+    el.focus();
+    const pos = (before + insert).length;
+    el.setSelectionRange(pos, pos);
+    autoSizeComposer();
+  });
+}
 const projectSelected = computed(() => Boolean(selectedProjectId.value));
 const requiresProjectSelection = computed(() => !projectSelected.value);
 
@@ -1663,10 +1768,59 @@ function snippet(content: string) {
 }
 
 function handleComposerKeydown(event: KeyboardEvent) {
+  if (mentionMenuOpen.value) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMentionMenu();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (mentionCandidates.value.length) {
+        mentionActiveIndex.value =
+          (mentionActiveIndex.value + 1) % mentionCandidates.value.length;
+      }
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (mentionCandidates.value.length) {
+        mentionActiveIndex.value =
+          (mentionActiveIndex.value - 1 + mentionCandidates.value.length) %
+          mentionCandidates.value.length;
+      }
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      const cand = mentionCandidates.value[mentionActiveIndex.value];
+      if (cand) selectMentionCandidate(cand.name);
+      return;
+    }
+    if (event.key === "Tab") {
+      const cand = mentionCandidates.value[mentionActiveIndex.value];
+      if (cand) {
+        event.preventDefault();
+        selectMentionCandidate(cand.name);
+      }
+      return;
+    }
+  }
+
   if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     sendCurrentPrompt();
   }
+}
+
+function handleComposerInput() {
+  autoSizeComposer();
+  updateMentionState();
+}
+
+function handleComposerKeyup() {
+  // Cursor movement without input (e.g., arrows) should update mention detection.
+  updateMentionState();
 }
 
 function autoSizeComposer() {
@@ -1995,7 +2149,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  padding: 0.5rem 0;
+  padding: 0.5rem 0.75rem;
   border-bottom: 1px solid rgb(var(--color-border) / 0.4);
 }
 
@@ -2037,8 +2191,9 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 0.82rem;
   font-weight: 600;
   color: rgb(var(--color-foreground));
-  white-space: normal;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .participant-model {

@@ -47,6 +47,7 @@ import (
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
 	codeevolvetool "manifold/internal/tools/codeevolve"
+	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
 	"manifold/internal/tools/multitool"
@@ -323,6 +324,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(web.NewScreenshotTool())
 	toolRegistry.Register(web.NewFetchTool(mgr.Search))
 	toolRegistry.Register(patchtool.New(cfg.Workdir))
+	allowedRoots := []string{cfg.Workdir, cfg.Projects.Workspace.Root, cfg.Projects.Workspace.TmpfsDir}
+	toolRegistry.Register(filetool.NewReadTool(allowedRoots, cfg.OutputTruncateByte))
+	toolRegistry.Register(filetool.NewWriteTool(allowedRoots, 0))
+	toolRegistry.Register(filetool.NewPatchTool(allowedRoots, 0))
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(*cfg, httpClient))

@@ -2,6 +2,7 @@ package google
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -34,6 +35,10 @@ func New(cfg config.GoogleConfig, httpClient *http.Client) (*Client, error) {
 	}
 
 	httpOpts := genai.HTTPOptions{}
+	if cfg.Timeout > 0 {
+		t := time.Duration(cfg.Timeout) * time.Second
+		httpOpts.Timeout = &t
+	}
 	if base := strings.TrimSpace(cfg.BaseURL); base != "" {
 		httpOpts.BaseURL = strings.TrimSuffix(base, "/") + "/"
 	}
@@ -77,9 +82,14 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		return llm.Message{}, err
 	}
 
+	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Int("contents", len(contents)).Msg("google_chat_api_call_start")
+
 	start := time.Now()
 	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
 	dur := time.Since(start)
+
+	log.Debug().Dur("duration", dur).Bool("has_response", resp != nil).Bool("has_error", err != nil).Msg("google_chat_api_call_complete")
+
 	if err != nil {
 		span.RecordError(err)
 		log.Error().Err(err).Str("model", effectiveModel).Dur("duration", dur).Msg("google_chat_error")
@@ -136,12 +146,18 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 			log.Error().Err(err).Dur("duration", dur).Msg("google_stream_error")
 			return err
 		}
-		msg, err := messageFromResponse(resp)
+		// Use streaming-aware response parser that tolerates intermediate chunks
+		// with empty candidates or nil content (normal in streaming).
+		msg, skip, err := messageFromStreamResponse(resp)
 		if err != nil {
 			dur := time.Since(start)
 			span.RecordError(err)
 			log.Error().Err(err).Dur("duration", dur).Msg("google_stream_response_parse_error")
 			return err
+		}
+		if skip {
+			// Intermediate chunk with no actionable content - continue streaming
+			continue
 		}
 		hasContent = true
 		if h != nil {
@@ -202,10 +218,27 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 		return nil, nil, fmt.Errorf("messages required")
 	}
 
+	decodeThoughtSignature := func(sig string) ([]byte, bool) {
+		s := strings.TrimSpace(sig)
+		if s == "" {
+			return nil, false
+		}
+		// If this contains Unicode replacement characters, it almost certainly
+		// round-tripped through a UTF-8-only path (e.g., JSON) and is corrupted.
+		if strings.ContainsRune(s, '\uFFFD') {
+			return nil, false
+		}
+		// Preferred path: signatures are stored as base64 so they survive JSON.
+		if b, err := base64.StdEncoding.DecodeString(s); err == nil {
+			return b, true
+		}
+		// Backward-compatible fallback: treat as raw bytes.
+		return []byte(s), true
+	}
+
 	toolNamesByID := make(map[string]string)
 	thoughtSigByID := make(map[string]string)
 	var lastFuncName string
-	var lastThoughtSig string
 	contents := make([]*genai.Content, 0, len(msgs))
 	for _, m := range msgs {
 		role := strings.ToLower(strings.TrimSpace(m.Role))
@@ -223,7 +256,6 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 				}
 				if strings.TrimSpace(tc.Name) != "" {
 					lastFuncName = tc.Name
-					lastThoughtSig = tc.ThoughtSignature
 				}
 			}
 		case "tool":
@@ -236,9 +268,6 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 				}
 			}
 			sig := thoughtSigByID[m.ToolID]
-			if sig == "" {
-				sig = lastThoughtSig
-			}
 			respMap := map[string]any{}
 			if trimmed := strings.TrimSpace(m.Content); trimmed != "" {
 				if err := json.Unmarshal([]byte(trimmed), &respMap); err != nil {
@@ -247,8 +276,8 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 			}
 			part := genai.NewPartFromFunctionResponse(name, respMap)
 			part.FunctionResponse.ID = m.ToolID
-			if strings.TrimSpace(sig) != "" {
-				part.ThoughtSignature = []byte(sig)
+			if sigBytes, ok := decodeThoughtSignature(sig); ok {
+				part.ThoughtSignature = sigBytes
 			}
 			contents = append(contents, genai.NewContentFromParts([]*genai.Part{part}, genai.RoleUser))
 			continue
@@ -261,7 +290,16 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 		}
 		parts := []*genai.Part{}
 		if strings.TrimSpace(text) != "" {
-			parts = append(parts, &genai.Part{Text: text})
+			textPart := &genai.Part{Text: text}
+			// For assistant (model) messages, attach the thought signature to the text part
+			// if one was captured. Per Gemini 3 docs: "Always send the thought_signature
+			// back to the model inside its original Part."
+			if role == genai.RoleModel {
+				if sigBytes, ok := decodeThoughtSignature(m.ThoughtSignature); ok {
+					textPart.ThoughtSignature = sigBytes
+				}
+			}
+			parts = append(parts, textPart)
 		}
 		if role == genai.RoleModel {
 			for _, tc := range m.ToolCalls {
@@ -273,8 +311,8 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 					args = map[string]any{"input": string(tc.Args)}
 				}
 				p := genai.NewPartFromFunctionCall(tc.Name, args)
-				if strings.TrimSpace(tc.ThoughtSignature) != "" {
-					p.ThoughtSignature = []byte(tc.ThoughtSignature)
+				if sigBytes, ok := decodeThoughtSignature(tc.ThoughtSignature); ok {
+					p.ThoughtSignature = sigBytes
 				}
 				parts = append(parts, p)
 			}
@@ -290,18 +328,63 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 	return contents, toolNamesByID, nil
 }
 
-func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, error) {
-	if resp == nil || len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
-		return llm.Message{}, fmt.Errorf("empty response from google provider")
+// messageFromStreamResponse parses a streaming response chunk. It returns:
+// - (msg, false, nil) when the chunk contains actionable content
+// - (empty, true, nil) when the chunk should be skipped (empty/intermediate)
+// - (empty, false, err) when the chunk contains an error condition (safety block, etc.)
+//
+// This is more lenient than messageFromResponse because streaming can produce
+// intermediate chunks with empty candidates or nil content, which is normal.
+func messageFromStreamResponse(resp *genai.GenerateContentResponse) (llm.Message, bool, error) {
+	if resp == nil {
+		// Nil response in streaming is typically end-of-stream, skip it
+		return llm.Message{}, true, nil
 	}
-	content := resp.Candidates[0].Content
+
+	// Check for blocked response due to safety or other reasons
+	if resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != "" {
+		return llm.Message{}, false, fmt.Errorf("request blocked by google: %s", resp.PromptFeedback.BlockReason)
+	}
+
+	// Empty candidates in streaming is normal for intermediate chunks
+	if len(resp.Candidates) == 0 {
+		return llm.Message{}, true, nil
+	}
+
+	candidate := resp.Candidates[0]
+
+	// Check finish reason for errors (safety, recitation, etc.)
+	switch candidate.FinishReason {
+	case genai.FinishReasonSafety:
+		return llm.Message{}, false, fmt.Errorf("response blocked by safety filters")
+	case genai.FinishReasonRecitation:
+		return llm.Message{}, false, fmt.Errorf("response blocked due to recitation")
+	case genai.FinishReasonMalformedFunctionCall:
+		return llm.Message{}, false, fmt.Errorf("malformed function call generated by model")
+	}
+
+	// Content can be nil in streaming intermediate chunks - skip rather than error
+	if candidate.Content == nil {
+		return llm.Message{}, true, nil
+	}
+
+	content := candidate.Content
 	var sb strings.Builder
 	var tcs []llm.ToolCall
 	var images []llm.GeneratedImage
+	// Gemini 3 may return thought signatures on ANY part type (text, thought, etc.)
+	// We capture the first signature we see from non-function-call parts so it can be
+	// echoed back on subsequent turns.
+	var textThoughtSig string
 	callIdx := 0
 	for _, part := range content.Parts {
 		if part == nil {
 			continue
+		}
+		// Capture thought signature from text/thought parts (non-function-call parts)
+		// Per Gemini 3 docs: "Gemini 3 models may return thought signatures for all types of parts"
+		if part.FunctionCall == nil && len(part.ThoughtSignature) > 0 && textThoughtSig == "" {
+			textThoughtSig = base64.StdEncoding.EncodeToString(part.ThoughtSignature)
 		}
 		if part.InlineData != nil {
 			images = append(images, llm.GeneratedImage{
@@ -319,11 +402,119 @@ func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, erro
 			if strings.TrimSpace(id) == "" {
 				id = "call-" + strconv.Itoa(callIdx)
 			}
+			var sig string
+			if len(part.ThoughtSignature) > 0 {
+				sig = base64.StdEncoding.EncodeToString(part.ThoughtSignature)
+			}
 			tcs = append(tcs, llm.ToolCall{
 				Name:             part.FunctionCall.Name,
 				Args:             args,
 				ID:               id,
-				ThoughtSignature: string(part.ThoughtSignature),
+				ThoughtSignature: sig,
+			})
+		}
+	}
+
+	// If we have no actual content/calls/images, skip this chunk
+	if sb.Len() == 0 && len(tcs) == 0 && len(images) == 0 {
+		return llm.Message{}, true, nil
+	}
+
+	return llm.Message{
+		Role:    "assistant",
+		Content: sb.String(),
+		ToolCalls: func() []llm.ToolCall {
+			if len(tcs) == 0 {
+				return nil
+			}
+			return tcs
+		}(),
+		Images: func() []llm.GeneratedImage {
+			if len(images) == 0 {
+				return nil
+			}
+			return images
+		}(),
+		ThoughtSignature: textThoughtSig,
+	}, false, nil
+}
+
+func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, error) {
+	if resp == nil {
+		return llm.Message{}, fmt.Errorf("nil response from google provider")
+	}
+
+	// Check for blocked response due to safety or other reasons
+	if resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != "" {
+		return llm.Message{}, fmt.Errorf("request blocked by google: %s", resp.PromptFeedback.BlockReason)
+	}
+
+	// Handle empty candidates - may happen with safety filters or other issues
+	if len(resp.Candidates) == 0 {
+		return llm.Message{}, fmt.Errorf("no candidates in google response")
+	}
+
+	candidate := resp.Candidates[0]
+
+	// Check finish reason for errors (safety, recitation, etc.)
+	switch candidate.FinishReason {
+	case genai.FinishReasonSafety:
+		return llm.Message{}, fmt.Errorf("response blocked by safety filters")
+	case genai.FinishReasonRecitation:
+		return llm.Message{}, fmt.Errorf("response blocked due to recitation")
+	case genai.FinishReasonMalformedFunctionCall:
+		return llm.Message{}, fmt.Errorf("malformed function call generated by model")
+	}
+
+	// Content can be nil in some cases (e.g., streaming intermediate chunks)
+	// Return an empty message rather than an error
+	if candidate.Content == nil {
+		return llm.Message{Role: "assistant"}, nil
+	}
+
+	content := candidate.Content
+	var sb strings.Builder
+	var tcs []llm.ToolCall
+	var images []llm.GeneratedImage
+	// Gemini 3 may return thought signatures on ANY part type (text, thought, etc.)
+	// We capture the first signature we see from non-function-call parts so it can be
+	// echoed back on subsequent turns.
+	var textThoughtSig string
+	callIdx := 0
+	for _, part := range content.Parts {
+		if part == nil {
+			continue
+		}
+		// Capture thought signature from text/thought parts (non-function-call parts)
+		// Per Gemini 3 docs: "Gemini 3 models may return thought signatures for all types of parts"
+		if part.FunctionCall == nil && len(part.ThoughtSignature) > 0 && textThoughtSig == "" {
+			textThoughtSig = base64.StdEncoding.EncodeToString(part.ThoughtSignature)
+		}
+		if part.InlineData != nil {
+			images = append(images, llm.GeneratedImage{
+				Data:     part.InlineData.Data,
+				MIMEType: part.InlineData.MIMEType,
+			})
+		}
+		if part.Text != "" {
+			sb.WriteString(part.Text)
+		}
+		if part.FunctionCall != nil {
+			args, _ := json.Marshal(part.FunctionCall.Args)
+			callIdx++
+			id := part.FunctionCall.ID
+			if strings.TrimSpace(id) == "" {
+				id = "call-" + strconv.Itoa(callIdx)
+			}
+			var sig string
+			if len(part.ThoughtSignature) > 0 {
+				sig = base64.StdEncoding.EncodeToString(part.ThoughtSignature)
+			}
+			tcs = append(tcs, llm.ToolCall{
+				Name:             part.FunctionCall.Name,
+				Args:             args,
+				ID:               id,
+				ThoughtSignature: sig,
 			})
 		}
 	}
@@ -343,6 +534,7 @@ func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, erro
 			}
 			return images
 		}(),
+		ThoughtSignature: textThoughtSig,
 	}, nil
 }
 

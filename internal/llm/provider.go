@@ -11,6 +11,10 @@ type ToolCall struct {
 	ID   string
 	// ThoughtSignature carries provider-specific context (Gemini 3) that must be
 	// echoed back on subsequent turns to keep function calling valid.
+	//
+	// IMPORTANT: this value is treated as opaque bytes by Gemini. We store it as a
+	// base64-encoded string so it can safely round-trip through JSON, DB storage,
+	// logging, and summarization without UTF-8 corruption.
 	ThoughtSignature string
 }
 
@@ -32,6 +36,10 @@ type Message struct {
 	Images []GeneratedImage
 	// Compaction carries responses API compaction state when available.
 	Compaction *CompactionItem
+	// ThoughtSignature carries provider-specific thought signatures (Gemini 3)
+	// for text/thought parts that must be echoed back on subsequent turns.
+	// Like ToolCall.ThoughtSignature, stored as base64 to survive JSON round-trips.
+	ThoughtSignature string
 }
 
 type ToolSchema struct {

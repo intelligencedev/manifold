@@ -391,17 +391,20 @@ func (e *Engine) ensureToolCallIDs(msgs []llm.Message, toolCalls []llm.ToolCall)
 	}
 	for i := range toolCalls {
 		id := strings.TrimSpace(toolCalls[i].ID)
+		hasSig := strings.TrimSpace(toolCalls[i].ThoughtSignature) != ""
 		if id == "" {
 			id = e.nextToolCallID()
 		}
-		if _, ok := used[id]; ok {
-			id = e.nextToolCallID()
-		}
-		for {
-			if _, ok := used[id]; !ok {
-				break
+		if !hasSig {
+			if _, ok := used[id]; ok {
+				id = e.nextToolCallID()
 			}
-			id = e.nextToolCallID()
+			for {
+				if _, ok := used[id]; !ok {
+					break
+				}
+				id = e.nextToolCallID()
+			}
 		}
 		toolCalls[i].ID = id
 		used[id] = struct{}{}
@@ -665,6 +668,12 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 	if cutIndex < start {
 		cutIndex = start
 	}
+	cutIndex = e.adjustCutIndexForToolDeps(msgs, start, cutIndex)
+	if cutIndex < start {
+		cutIndex = start
+	}
+	// If we adjusted the cut index, expand the recent tail to keep message order.
+	recent = msgs[cutIndex:]
 	toSummarize := msgs[start:cutIndex]
 	if len(toSummarize) == 0 {
 		return msgs
@@ -676,6 +685,56 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 	}
 
 	return e.buildSummarizedMessages(ctx, sysMsg, toSummarize, recent, len(recent))
+}
+
+// adjustCutIndexForToolDeps ensures that if the kept "recent" tail includes any
+// tool response messages, it also includes the preceding assistant message(s)
+// that contain the corresponding ToolCalls.
+//
+// This matters for providers like Gemini 3 where tool responses may need to
+// echo provider-specific metadata (e.g., thought signatures) that are carried on
+// the original ToolCall message. Summarization must not split that chain.
+func (e *Engine) adjustCutIndexForToolDeps(msgs []llm.Message, start, cutIndex int) int {
+	if cutIndex <= start || cutIndex >= len(msgs) {
+		return cutIndex
+	}
+
+	required := make(map[string]struct{})
+	for i := cutIndex; i < len(msgs); i++ {
+		if msgs[i].Role == "tool" {
+			id := strings.TrimSpace(msgs[i].ToolID)
+			if id != "" {
+				required[id] = struct{}{}
+			}
+		}
+	}
+	if len(required) == 0 {
+		return cutIndex
+	}
+
+	earliestNeeded := cutIndex
+	for toolID := range required {
+		foundIdx := -1
+		for i := cutIndex - 1; i >= start; i-- {
+			if msgs[i].Role != "assistant" {
+				continue
+			}
+			for _, tc := range msgs[i].ToolCalls {
+				if strings.TrimSpace(tc.ID) == toolID {
+					foundIdx = i
+					break
+				}
+			}
+			if foundIdx != -1 {
+				break
+			}
+		}
+		if foundIdx != -1 && foundIdx < earliestNeeded {
+			earliestNeeded = foundIdx
+		}
+	}
+
+	return earliestNeeded
 }
 
 // buildSummarizedMessages constructs a summary prompt, calls the LLM, and

@@ -212,18 +212,10 @@ func TestToolResponseIsForwarded(t *testing.T) {
 }
 
 func TestStreamEmitsToolCalls(t *testing.T) {
+	// ChatStream now uses streaming even when tools are provided.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		flusher, _ := w.(http.Flusher)
-		chunks := []string{
-			`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"lookup","id":"c1","args":{"x":2}},"thoughtSignature":"YWJj"}]}}]}`,
-		}
-		for _, c := range chunks {
-			_, _ = w.Write([]byte("data: " + c + "\n\n"))
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
+		_, _ = w.Write([]byte(`data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"lookup","id":"c1","args":{"x":2}},"thoughtSignature":"YWJj"}]}}]}` + "\n\n"))
 	}))
 	t.Cleanup(srv.Close)
 
@@ -242,7 +234,7 @@ func TestStreamEmitsToolCalls(t *testing.T) {
 	if len(rec.calls) != 1 || rec.calls[0].Name != "lookup" {
 		t.Fatalf("expected tool call lookup, got %+v", rec.calls)
 	}
-	if rec.calls[0].ThoughtSignature != "abc" {
+	if rec.calls[0].ThoughtSignature != "YWJj" {
 		t.Fatalf("expected thought signature propagated, got %q", rec.calls[0].ThoughtSignature)
 	}
 	if rec.calls[0].ID == "" {
@@ -366,5 +358,115 @@ func TestChatStreamEmitsImages(t *testing.T) {
 	}
 	if string(rec.images[0].Data) != "b" {
 		t.Fatalf("unexpected image data %q", string(rec.images[0].Data))
+	}
+}
+
+func TestChatHandlesSafetyBlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Response blocked by safety filter
+		_, _ = w.Write([]byte(`{"candidates":[{"finishReason":"SAFETY","content":null}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = client.Chat(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "")
+	if err == nil {
+		t.Fatal("expected error for safety blocked response")
+	}
+	if !strings.Contains(err.Error(), "safety") {
+		t.Fatalf("expected safety error, got: %v", err)
+	}
+}
+
+func TestChatHandlesPromptBlocked(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Prompt blocked due to safety
+		_, _ = w.Write([]byte(`{"promptFeedback":{"blockReason":"SAFETY"},"candidates":[]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = client.Chat(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "")
+	if err == nil {
+		t.Fatal("expected error for prompt blocked response")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("expected blocked error, got: %v", err)
+	}
+}
+
+func TestChatHandlesEmptyContent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Response with nil content (can happen in streaming intermediate chunks)
+		_, _ = w.Write([]byte(`{"candidates":[{"content":null,"finishReason":"STOP"}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	msg, err := client.Chat(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned unexpected error: %v", err)
+	}
+	// Empty content should not be an error - just return empty message
+	if msg.Role != "assistant" {
+		t.Fatalf("expected assistant role, got: %s", msg.Role)
+	}
+}
+
+// TestStreamHandlesIntermediateEmptyChunks verifies that ChatStream tolerates
+// streaming responses that include intermediate chunks with empty candidates
+// or nil content, which is normal behavior when Gemini responds after tool calls.
+func TestStreamHandlesIntermediateEmptyChunks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		chunks := []string{
+			// Intermediate chunk with empty candidates (happens between tool response and final answer)
+			`{"candidates":[]}`,
+			// Intermediate chunk with nil content
+			`{"candidates":[{"content":null}]}`,
+			// Intermediate chunk with empty parts
+			`{"candidates":[{"content":{"role":"model","parts":[]}}]}`,
+			// Final response with actual content
+			`{"candidates":[{"content":{"role":"model","parts":[{"text":"Here is your answer!"}]},"finishReason":"STOP"}]}`,
+		}
+		for _, c := range chunks {
+			_, _ = w.Write([]byte("data: " + c + "\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	rec := &streamRecorder{}
+	err = client.ChatStream(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "", rec)
+	if err != nil {
+		t.Fatalf("ChatStream returned unexpected error: %v", err)
+	}
+
+	got := strings.Join(rec.deltas, "")
+	if got != "Here is your answer!" {
+		t.Fatalf("expected final content, got %q", got)
 	}
 }

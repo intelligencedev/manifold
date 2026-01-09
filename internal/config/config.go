@@ -311,6 +311,7 @@ type GoogleConfig struct {
 	APIKey  string `yaml:"apiKey" json:"apiKey"`
 	Model   string `yaml:"model" json:"model"`
 	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	Timeout int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
 }
 
 // SpecialistConfig describes a single specialist agent bound to a specific

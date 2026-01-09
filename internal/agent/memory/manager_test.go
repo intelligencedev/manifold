@@ -259,11 +259,14 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
-	if len(history) != 3 {
-		t.Fatalf("expected 3 messages (compaction + 2 turns), got %d", len(history))
+	if len(history) != 2 {
+		t.Fatalf("expected 2 messages (system rule + compaction), got %d", len(history))
 	}
-	if history[0].Compaction == nil || history[0].Compaction.EncryptedContent != "enc" {
-		t.Fatalf("expected compaction item in history, got %#v", history[0])
+	if history[0].Role != "system" {
+		t.Fatalf("expected system continuation rule message, got %#v", history[0])
+	}
+	if history[1].Compaction == nil || history[1].Compaction.EncryptedContent != "enc" {
+		t.Fatalf("expected compaction item in history, got %#v", history[1])
 	}
 	if summaryResult == nil || !summaryResult.Triggered {
 		t.Fatalf("expected summaryResult.Triggered to be true")
@@ -276,8 +279,8 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	if session.Summary == "" {
 		t.Fatalf("expected summary to be stored")
 	}
-	if session.SummarizedCount != 4 {
-		t.Fatalf("expected summarized count 4, got %d", session.SummarizedCount)
+	if session.SummarizedCount != 6 {
+		t.Fatalf("expected summarized count 6, got %d", session.SummarizedCount)
 	}
 	if compactor.calls == 0 {
 		t.Fatalf("expected compaction provider to be called")

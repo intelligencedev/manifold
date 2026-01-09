@@ -16,7 +16,14 @@ const (
 	defaultReserveBuffer  = 25000
 	maxSummarizeChunkSize = 4096
 	compactionSummaryType = "compaction"
+
+	// Compaction best-practice knobs. We avoid compacting every single turn unless
+	// we must (budget overflow), and we treat tool-heavy phases as milestones.
+	compactionMinDeltaMessages     = 6
+	compactionToolMilestoneOutputs = 2
 )
+
+const compactionContinuationRule = "When continuing from prior context (including compacted context), do not restate prior final answers unless the user asks. Only provide new information, the next steps, or the requested delta."
 
 // SummaryResult contains metadata about summarization that occurred during BuildContext.
 // Callers can use this to notify users (e.g., via SSE events) when summarization happens.
@@ -242,6 +249,9 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 	}
 
 	history := make([]llm.Message, 0, (total-tailStart)+1)
+	if m.useResponsesCompaction {
+		history = append(history, llm.Message{Role: "system", Content: compactionContinuationRule})
+	}
 	if summary != "" {
 		if m.useResponsesCompaction {
 			if item, ok := decodeCompactionSummary(summary); ok {
@@ -333,24 +343,48 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	if maxTail < m.minKeepLastMessages {
 		maxTail = m.minKeepLastMessages
 	}
-	forceByCount := maxTail > 0 && total > maxTail
+	forceByCount := !m.useResponsesCompaction && maxTail > 0 && total > maxTail
 
 	estimated := 0
 	for _, msg := range messages {
 		estimated += len([]rune(strings.TrimSpace(msg.Content)))/4 + 1
 	}
 	if !forceByCount && estimated <= budget {
+		// Compaction mode: compact after milestones, not every turn.
+		if m.useResponsesCompaction {
+			delta := total - session.SummarizedCount
+			if delta <= 0 {
+				return session.Summary, session.SummarizedCount, nil
+			}
+			toolOutputs := 0
+			if session.SummarizedCount >= 0 && session.SummarizedCount < total {
+				for _, msg := range messages[session.SummarizedCount:] {
+					if msg.Role == "tool" {
+						toolOutputs++
+					}
+				}
+			}
+			if delta < compactionMinDeltaMessages && toolOutputs < compactionToolMilestoneOutputs {
+				return session.Summary, session.SummarizedCount, nil
+			}
+		}
 		return session.Summary, session.SummarizedCount, nil
 	}
 
-	// Decide how many early messages to include in the next summary chunk so we
-	// keep at least a small tail in raw form.
+	// Decide how many early messages to include in the next summary chunk.
+	// For classic summarization we keep a small raw tail; for Responses compaction
+	// we prefer to compact the full eligible delta so the compaction blob fully
+	// represents prior state.
 	minTail := m.minKeepLastMessages
-	if minTail <= 0 {
-		minTail = 4
-	}
-	if forceByCount {
-		minTail = maxTail
+	if m.useResponsesCompaction {
+		minTail = 0
+	} else {
+		if minTail <= 0 {
+			minTail = 4
+		}
+		if forceByCount {
+			minTail = maxTail
+		}
 	}
 	if total <= minTail {
 		return session.Summary, session.SummarizedCount, nil
@@ -635,6 +669,19 @@ func decodePersistedChatMessage(msg persistence.ChatMessage) llm.Message {
 	return llm.Message{Role: msg.Role, Content: msg.Content}
 }
 
+func estimateMessagesTokens(msgs []llm.Message) int {
+	est := 0
+	for _, m := range msgs {
+		c := strings.TrimSpace(m.Content)
+		if c == "" {
+			est++
+			continue
+		}
+		est += len([]rune(c))/4 + 1
+	}
+	return est
+}
+
 func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chunk []persistence.ChatMessage) (string, error) {
 	compactor, ok := m.summary.(llm.CompactionProvider)
 	if !ok {
@@ -653,6 +700,51 @@ func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chun
 	}
 	for _, msg := range chunk {
 		msgs = append(msgs, decodePersistedChatMessage(msg))
+	}
+
+	// Preflight: the compaction request itself must fit in the model context
+	// window. Treat compaction items as opaque; we only trim inputs we send.
+	// This is best-effort because we may not have an exact tokenizer here.
+	ctxSize := m.contextWindowTokens
+	if ctxSize <= 0 && m.summaryModel != "" {
+		if size, _ := llm.ContextSize(m.summaryModel); size > 0 {
+			ctxSize = size
+		}
+	}
+	if ctxSize <= 0 {
+		ctxSize = 32_000
+	}
+	// Keep a smaller reserve for the compact request; it doesn't need a huge
+	// reasoning/output budget, but we still want headroom.
+	reserve := m.reserveBufferTokens
+	if reserve <= 0 {
+		reserve = defaultReserveBuffer
+	}
+	if reserve > ctxSize/2 {
+		reserve = ctxSize / 2
+	}
+	inputBudget := ctxSize - reserve
+	if inputBudget <= 0 {
+		inputBudget = ctxSize / 2
+	}
+
+	// First, truncate individual message contents to avoid pathological tool logs.
+	// Use the same limit knob as summary chunks (token-ish, via chars backstop).
+	perMsgLimit := maxSummarizeChunkSize
+	if m.maxSummaryChunkTokens > 0 {
+		perMsgLimit = m.maxSummaryChunkTokens
+	}
+	for i := range msgs {
+		if strings.TrimSpace(msgs[i].Content) == "" {
+			continue
+		}
+		msgs[i].Content = truncateForSummary(msgs[i].Content, perMsgLimit)
+	}
+
+	// If we still exceed the input budget, drop oldest delta messages (keeping the
+	// most recent context) and rely on previous compaction state.
+	for estimateMessagesTokens(msgs) > inputBudget && len(msgs) > 1 {
+		msgs = msgs[1:]
 	}
 
 	item, err := compactor.Compact(ctx, msgs, m.summaryModel, prev)

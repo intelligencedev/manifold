@@ -222,6 +222,63 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 	}
 }
 
+func TestBuildContextForProvider_DoesNotOrphanToolMessagesInTail(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+
+	if _, err := store.EnsureSession(ctx, nil, "sess", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	// Persist an assistant tool call and its tool response. The manager tail-selection
+	// logic can cap to the last message and accidentally start the returned history
+	// on the tool message, which breaks providers like Anthropic.
+	call := llm.ToolCall{Name: "lookup", ID: "call-1", Args: json.RawMessage(`{"q":"x"}`)}
+	assistantPayload, _ := json.Marshal(map[string]any{
+		"content":    "",
+		"tool_calls": []llm.ToolCall{call},
+	})
+	toolPayload, _ := json.Marshal(map[string]any{
+		"content": "{\"ok\":true}",
+		"tool_id": "call-1",
+	})
+
+	now := time.Now().UTC()
+	msgs := []persistence.ChatMessage{
+		{Role: "assistant", Content: string(assistantPayload), CreatedAt: now},
+		{Role: "tool", Content: string(toolPayload), CreatedAt: now.Add(time.Second)},
+	}
+	if err := store.AppendMessages(ctx, nil, "sess", msgs, "", "model"); err != nil {
+		t.Fatalf("AppendMessages: %v", err)
+	}
+
+	manager := NewManager(store, &stubLLM{response: "unused"}, Config{
+		Enabled:             true,
+		MinKeepLastMessages: 1,
+		MaxKeepLastMessages: 1,
+		ContextWindowTokens: 4096,
+		ReserveBufferTokens: 32,
+		SummaryModel:        "stub",
+	})
+
+	history, _, err := manager.BuildContextForProvider(ctx, nil, "sess", false)
+	if err != nil {
+		t.Fatalf("BuildContextForProvider: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 messages (assistant tool call + tool result), got %d: %#v", len(history), history)
+	}
+	if history[0].Role == "tool" {
+		t.Fatalf("unexpected orphaned tool message at start of history: %#v", history[0])
+	}
+	if history[0].Role != "assistant" || len(history[0].ToolCalls) != 1 || history[0].ToolCalls[0].ID != "call-1" {
+		t.Fatalf("expected assistant tool call to be preserved, got %#v", history[0])
+	}
+	if history[1].Role != "tool" || strings.TrimSpace(history[1].ToolID) != "call-1" {
+		t.Fatalf("expected tool message with matching ToolID, got %#v", history[1])
+	}
+}
+
 func TestManagerBuildContextWithCompaction(t *testing.T) {
 	ctx := context.Background()
 	store := newStubChatStore()
@@ -259,11 +316,14 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
-	if len(history) != 3 {
-		t.Fatalf("expected 3 messages (compaction + 2 turns), got %d", len(history))
+	if len(history) != 2 {
+		t.Fatalf("expected 2 messages (system rule + compaction), got %d", len(history))
 	}
-	if history[0].Compaction == nil || history[0].Compaction.EncryptedContent != "enc" {
-		t.Fatalf("expected compaction item in history, got %#v", history[0])
+	if history[0].Role != "system" {
+		t.Fatalf("expected system continuation rule message, got %#v", history[0])
+	}
+	if history[1].Compaction == nil || history[1].Compaction.EncryptedContent != "enc" {
+		t.Fatalf("expected compaction item in history, got %#v", history[1])
 	}
 	if summaryResult == nil || !summaryResult.Triggered {
 		t.Fatalf("expected summaryResult.Triggered to be true")
@@ -276,8 +336,8 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	if session.Summary == "" {
 		t.Fatalf("expected summary to be stored")
 	}
-	if session.SummarizedCount != 4 {
-		t.Fatalf("expected summarized count 4, got %d", session.SummarizedCount)
+	if session.SummarizedCount != 6 {
+		t.Fatalf("expected summarized count 6, got %d", session.SummarizedCount)
 	}
 	if compactor.calls == 0 {
 		t.Fatalf("expected compaction provider to be called")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"manifold/internal/agent/memory"
@@ -60,6 +61,8 @@ type Engine struct {
 	OnAssistant func(llm.Message)
 	// OnDelta, if set, is called for streaming content deltas (for partial responses)
 	OnDelta func(string)
+	// OnThoughtSummary, if set, is called for streamed reasoning summaries.
+	OnThoughtSummary func(string)
 	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
 	OnTool func(toolName string, args []byte, result []byte, toolID string)
 	// OnToolStart, if set, is invoked immediately after the model emits a tool call
@@ -81,6 +84,7 @@ type Engine struct {
 	Tokenizer llm.Tokenizer
 	// TokenizationFallbackToHeuristic allows falling back to heuristic on tokenization errors.
 	TokenizationFallbackToHeuristic bool
+	toolCallSeq                     uint64
 }
 
 // AttachTokenizer wires an accurate tokenizer into the engine when the provider exposes one.
@@ -224,9 +228,10 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 
 // streamHandler implements llm.StreamHandler
 type streamHandler struct {
-	onDelta    func(string)
-	onToolCall func(llm.ToolCall)
-	onImage    func(llm.GeneratedImage)
+	onDelta          func(string)
+	onThoughtSummary func(string)
+	onToolCall       func(llm.ToolCall)
+	onImage          func(llm.GeneratedImage)
 }
 
 func (h *streamHandler) OnDelta(content string) {
@@ -247,6 +252,12 @@ func (h *streamHandler) OnImage(img llm.GeneratedImage) {
 	}
 }
 
+func (h *streamHandler) OnThoughtSummary(summary string) {
+	if h.onThoughtSummary != nil {
+		h.onThoughtSummary(summary)
+	}
+}
+
 func (e *Engine) model() string { return e.Model }
 
 // runLoop contains the core non-streaming agent step loop shared by Run.
@@ -257,6 +268,11 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 
 	for step := 0; step < e.MaxSteps; step++ {
 		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_step_start")
+
+		// Re-summarize if context has grown too large during tool execution
+		if e.SummaryEnabled && step > 0 {
+			msgs = e.maybeSummarize(ctx, msgs)
+		}
 
 		// Capture tool schemas once per step so we can log what the model sees.
 		schemas := e.Tools.Schemas()
@@ -272,6 +288,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 			return "", err
 		}
 
+		msg.ToolCalls = e.ensureToolCallIDs(msgs, msg.ToolCalls)
 		msgs = append(msgs, msg)
 		if e.OnAssistant != nil {
 			e.OnAssistant(msg)
@@ -304,6 +321,11 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 	var final string
 
 	for step := 0; step < e.MaxSteps; step++ {
+		// Re-summarize if context has grown too large during tool execution
+		if e.SummaryEnabled && step > 0 {
+			msgs = e.maybeSummarize(ctx, msgs)
+		}
+
 		// Accumulate streaming content and tool calls for this step
 		var (
 			accumulatedContent   string
@@ -316,6 +338,11 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 				accumulatedContent += content
 				if e.OnDelta != nil {
 					e.OnDelta(content)
+				}
+			},
+			onThoughtSummary: func(summary string) {
+				if e.OnThoughtSummary != nil {
+					e.OnThoughtSummary(summary)
 				}
 			},
 			onToolCall: func(tc llm.ToolCall) {
@@ -341,6 +368,7 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 			return "", err
 		}
 
+		accumulatedToolCalls = e.ensureToolCallIDs(msgs, accumulatedToolCalls)
 		msg := llm.Message{
 			Role:      "assistant",
 			Content:   accumulatedContent,
@@ -371,6 +399,46 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 	}
 
 	return final, nil
+}
+
+func (e *Engine) ensureToolCallIDs(msgs []llm.Message, toolCalls []llm.ToolCall) []llm.ToolCall {
+	used := make(map[string]struct{}, len(toolCalls))
+	for _, msg := range msgs {
+		if msg.Role != "assistant" {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			if id := strings.TrimSpace(tc.ID); id != "" {
+				used[id] = struct{}{}
+			}
+		}
+	}
+	for i := range toolCalls {
+		id := strings.TrimSpace(toolCalls[i].ID)
+		hasSig := strings.TrimSpace(toolCalls[i].ThoughtSignature) != ""
+		if id == "" {
+			id = e.nextToolCallID()
+		}
+		if !hasSig {
+			if _, ok := used[id]; ok {
+				id = e.nextToolCallID()
+			}
+			for {
+				if _, ok := used[id]; !ok {
+					break
+				}
+				id = e.nextToolCallID()
+			}
+		}
+		toolCalls[i].ID = id
+		used[id] = struct{}{}
+	}
+	return toolCalls
+}
+
+func (e *Engine) nextToolCallID() string {
+	seq := atomic.AddUint64(&e.toolCallSeq, 1)
+	return fmt.Sprintf("engine-call-%d", seq)
 }
 
 // dispatchTools executes a batch of tool calls, appending their tool messages to msgs
@@ -413,20 +481,6 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 				}
 				dispatchCtx = tts.WithStreamChunkCallback(dispatchCtx, cb)
 			}
-		}
-
-		if tc.Name == "multi_tool_use_parallel" && (e.OnToolStart != nil || e.OnTool != nil) {
-			sink := func(ev tools.SubtoolEvent) {
-				if ev.Phase == "start" && e.OnToolStart != nil {
-					e.OnToolStart(ev.Name, ev.Args, ev.ToolCallID)
-					return
-				}
-				if ev.Phase == "end" && e.OnTool != nil {
-					e.OnTool(ev.Name, ev.Args, ev.Payload, ev.ToolCallID)
-					return
-				}
-			}
-			dispatchCtx = tools.WithSubtoolSink(dispatchCtx, sink)
 		}
 
 		if e.OnToolStart != nil {
@@ -624,6 +678,12 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 	if cutIndex < start {
 		cutIndex = start
 	}
+	cutIndex = e.adjustCutIndexForToolDeps(msgs, start, cutIndex)
+	if cutIndex < start {
+		cutIndex = start
+	}
+	// If we adjusted the cut index, expand the recent tail to keep message order.
+	recent = msgs[cutIndex:]
 	toSummarize := msgs[start:cutIndex]
 	if len(toSummarize) == 0 {
 		return msgs
@@ -635,6 +695,56 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 	}
 
 	return e.buildSummarizedMessages(ctx, sysMsg, toSummarize, recent, len(recent))
+}
+
+// adjustCutIndexForToolDeps ensures that if the kept "recent" tail includes any
+// tool response messages, it also includes the preceding assistant message(s)
+// that contain the corresponding ToolCalls.
+//
+// This matters for providers like Gemini 3 where tool responses may need to
+// echo provider-specific metadata (e.g., thought signatures) that are carried on
+// the original ToolCall message. Summarization must not split that chain.
+func (e *Engine) adjustCutIndexForToolDeps(msgs []llm.Message, start, cutIndex int) int {
+	if cutIndex <= start || cutIndex >= len(msgs) {
+		return cutIndex
+	}
+
+	required := make(map[string]struct{})
+	for i := cutIndex; i < len(msgs); i++ {
+		if msgs[i].Role == "tool" {
+			id := strings.TrimSpace(msgs[i].ToolID)
+			if id != "" {
+				required[id] = struct{}{}
+			}
+		}
+	}
+	if len(required) == 0 {
+		return cutIndex
+	}
+
+	earliestNeeded := cutIndex
+	for toolID := range required {
+		foundIdx := -1
+		for i := cutIndex - 1; i >= start; i-- {
+			if msgs[i].Role != "assistant" {
+				continue
+			}
+			for _, tc := range msgs[i].ToolCalls {
+				if strings.TrimSpace(tc.ID) == toolID {
+					foundIdx = i
+					break
+				}
+			}
+			if foundIdx != -1 {
+				break
+			}
+		}
+		if foundIdx != -1 && foundIdx < earliestNeeded {
+			earliestNeeded = foundIdx
+		}
+	}
+
+	return earliestNeeded
 }
 
 // buildSummarizedMessages constructs a summary prompt, calls the LLM, and

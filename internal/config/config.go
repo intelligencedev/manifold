@@ -304,6 +304,26 @@ type AnthropicConfig struct {
 	APIKey  string `yaml:"apiKey" json:"apiKey"`
 	Model   string `yaml:"model" json:"model"`
 	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	// PromptCache enables Anthropic prompt caching via cache_control on supported blocks.
+	// When enabled, Manifold will attach ephemeral cache_control directives to
+	// selected request parts (system prompt, tool schema, and/or message blocks).
+	PromptCache AnthropicPromptCacheConfig `yaml:"promptCache" json:"promptCache"`
+}
+
+// AnthropicPromptCacheConfig controls Anthropic prompt caching (cache_control).
+//
+// Anthropic currently supports ephemeral prompt caching with a fixed TTL value.
+// We expose knobs for where Manifold should apply cache_control.
+type AnthropicPromptCacheConfig struct {
+	// Enabled turns on prompt caching directives in outgoing requests.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// CacheSystem applies cache_control to system prompt blocks.
+	CacheSystem bool `yaml:"cacheSystem" json:"cacheSystem"`
+	// CacheTools applies cache_control to tool definitions (schema).
+	CacheTools bool `yaml:"cacheTools" json:"cacheTools"`
+	// CacheMessages applies cache_control to message text blocks.
+	// This is usually only useful when sending large, static context content.
+	CacheMessages bool `yaml:"cacheMessages" json:"cacheMessages"`
 }
 
 // GoogleConfig holds Google Gemini provider settings.
@@ -311,6 +331,7 @@ type GoogleConfig struct {
 	APIKey  string `yaml:"apiKey" json:"apiKey"`
 	Model   string `yaml:"model" json:"model"`
 	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	Timeout int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
 }
 
 // SpecialistConfig describes a single specialist agent bound to a specific

@@ -518,7 +518,10 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, memorySummaryResult, err := a.chatMemory.BuildContext(r.Context(), userID, req.SessionID)
+		// Check if the main LLM provider supports compaction (OpenAI Responses API).
+		// Non-OpenAI providers cannot use encrypted compaction summaries.
+		targetSupportsCompaction := providerSupportsCompaction(a.llm)
+		history, memorySummaryResult, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, req.SessionID, targetSupportsCompaction)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -657,6 +660,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					"summarized_count": memorySummaryResult.SummarizedCount,
 				}
 				b, _ := json.Marshal(payload)
+				log.Debug().
+					Int("input_tokens", memorySummaryResult.EstimatedTokens).
+					Int("token_budget", memorySummaryResult.TokenBudget).
+					Int("message_count", memorySummaryResult.MessageCount).
+					Int("summarized_count", memorySummaryResult.SummarizedCount).
+					Msg("emitting_summary_sse_event")
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 			}
@@ -685,6 +694,13 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 
 			eng.OnDelta = func(d string) {
 				payload := map[string]string{"type": "delta", "data": d}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+			eng.OnThoughtSummary = func(summary string) {
+				log.Debug().Int("summary_len", len(summary)).Msg("http_handler_thought_summary")
+				payload := map[string]string{"type": "thought_summary", "data": summary}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
@@ -969,7 +985,10 @@ func (a *app) promptHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, _, err := a.chatMemory.BuildContext(r.Context(), userID, req.SessionID)
+		// Check if the main LLM provider supports compaction (OpenAI Responses API).
+		// Non-OpenAI providers cannot use encrypted compaction summaries.
+		targetSupportsCompaction := providerSupportsCompaction(a.llm)
+		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, req.SessionID, targetSupportsCompaction)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -1242,13 +1261,26 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		toolReg = tools.NewRegistry()
 	}
 
+	skillsSection := ""
+	if baseDir, ok := sandbox.BaseDirFromContext(r.Context()); ok {
+		skillsSection = prompts.RenderSkillsForProject(baseDir)
+	}
+
 	buildEngine := func() *agent.Engine {
+		systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
+		if skillsSection != "" {
+			systemPrompt = systemPrompt + "\n\n" + skillsSection
+		}
 		eng := &agent.Engine{
-			LLM:      prov,
-			Tools:    toolReg,
-			MaxSteps: a.cfg.MaxSteps,
-			System:   prompts.EnsureMemoryInstructions(sp.System),
-			Model:    sp.Model,
+			LLM:                          prov,
+			Tools:                        toolReg,
+			MaxSteps:                     a.cfg.MaxSteps,
+			System:                       systemPrompt,
+			Model:                        sp.Model,
+			SummaryEnabled:               a.cfg.SummaryEnabled,
+			SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
+			SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
+			SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 		}
 		eng.AttachTokenizer(prov, nil)
 		return eng
@@ -1364,6 +1396,18 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 			}
+		}
+		eng.OnSummaryTriggered = func(inputTokens, tokenBudget, messageCount, summarizedCount int) {
+			payload := map[string]any{
+				"type":             "summary",
+				"input_tokens":     inputTokens,
+				"token_budget":     tokenBudget,
+				"message_count":    messageCount,
+				"summarized_count": summarizedCount,
+			}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
 		}
 
 		res, err := eng.RunStream(ctx, prompt, history)

@@ -67,7 +67,7 @@
   - Workflow definitions: loader, guards, runner, personalization, tool gating, and StepPublisher wiring. Used by agent CLI (WARPP mode), agentd, and orchestrator.
 
 - **./internal/tools**
-  - Registry plus concrete tool implementations under subpackages (`cli`, `web`, `patchtool`, `rag`, `llmtool`, `specialists`, `imagetool`, `kafka`, `multitool`, `tts`, `utility`, `textsplitter`, `warpptool`, etc.). Tools expose JSON schemas, get registered per-process, and are dispatched via the engine.
+- Registry plus concrete tool implementations under subpackages (`cli`, `web`, `patchtool`, `rag`, `llmtool`, `specialists`, `imagetool`, `kafka`, `tts`, `utility`, `textsplitter`, `warpptool`, etc.). Tools expose JSON schemas, get registered per-process, and are dispatched via the engine.
 
 - **./internal/llm**
   - Provider abstraction, OpenAI/Anthropic/Google clients, streaming hooks, observability glue, and provider factory. Supplies consistent APIs for chat (sync + stream) and tool call handling.
@@ -118,7 +118,7 @@
 
 - **./cmd/agentd/main.go → internal/agentd.Run()**
   1. Load `.env`/`config.yaml`, start logger/OTel, and construct the shared HTTP client and LLM provider (plus summary provider).
-  2. Build a base tool registry (CLI, web search/fetch/screenshot, patch, textsplitter, textbox, TTS, Kafka, RAG ingest/retrieve, llm_transform, image describe, specialists, agent-call, ask_agent, multi_tool_use) and filter it per `enableTools` and allow lists.
+  2. Build a base tool registry (CLI, web search/fetch/screenshot, patch, textsplitter, textbox, TTS, Kafka, RAG ingest/retrieve, llm_transform, image describe, specialists, agent-call, ask_agent) and filter it per `enableTools` and allow lists.
   3. Initialize MCP manager and register configured (and DB-stored) servers, WARPP workflows (filesystem or DB), and specialized stores (chat, playground, projects, auth, specialists, MCP, WARPP) via `databases.Manager`.
   4. Construct `agent.Engine`, memory summarizer, playground service (prompts/datasets/experiments), projects service, optional whisper model for STT, auth provider, specialists cache overlay, token metrics reporter.
   5. Register HTTP routes (`router.go`) tying handlers to services (chat, tools, projects, config, specialists, WARPP, MCP OAuth, audio/STT, agent run/vision, metrics, auth endpoints) and wire the SPA frontend (with optional dev proxy + auth gate).
@@ -140,7 +140,7 @@
 1. **`README.md` & `QUICKSTART.md`** – understand the product pitch, feature list, and basic deployment expectations.
 2. **`internal/config/config.go`** – see every configuration knob; this clarifies how binaries are parameterized (LLM provider choice, tool toggles, MCP servers, DB backends, auth, etc.).
 3. **`cmd/agent/main.go` + `internal/agent/engine.go`** – learn the core agent loop, how tool schemas are built, and how the engine coordinates LLM/tool interactions.
-4. **`internal/tools/` registry + key tool packages** – understand the concrete affordances an agent has (CLI, web, RAG, specialists, parallel wrapper) and how to add new tools.
+4. **`internal/tools/` registry + key tool packages** – understand the concrete affordances an agent has (CLI, web, RAG, specialists) and how to add new tools.
 5. **`internal/agentd/run.go` & handler files** – see how the server composes the engine with HTTP APIs, memory summarization, playground, projects, STT, MCP OAuth, and authentication.
 6. **`internal/orchestrator/handler.go` & `cmd/orchestrator/main.go`** – if you need Kafka-driven automation, study the message envelopes, dedupe logic, and WARPP adapter.
 7. **`internal/warpp` + `docs/warpp.md` + `examples/workflows/*`** – to extend deterministic workflows, read how intents, guards, and tool references are structured.

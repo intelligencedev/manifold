@@ -18,6 +18,7 @@ func (f *fakeHandler) OnToolCall(tc ToolCall) { f.calls = append(f.calls, tc) }
 func (f *fakeHandler) OnImage(img GeneratedImage) {
 	f.images = append(f.images, img)
 }
+func (f *fakeHandler) OnThoughtSummary(string) {}
 
 // fake provider implementing Provider interface
 type fakeProvider struct {

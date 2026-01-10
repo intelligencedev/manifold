@@ -158,7 +158,9 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Rebuild the LLM context for this session using the same logic as /agent/run
-	ctxMsgs, _, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
+	// Check if the main LLM provider supports compaction (OpenAI Responses API).
+	targetSupportsCompaction := providerSupportsCompaction(a.llm)
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -238,7 +240,9 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxMsgs, _, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
+	// Check if the main LLM provider supports compaction (OpenAI Responses API).
+	targetSupportsCompaction := providerSupportsCompaction(a.llm)
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)

@@ -48,6 +48,7 @@ export const useChatStore = defineStore("chat", () => {
     return Boolean(streamingStateBySession.value[sessionId]);
   });
   const toolMessageIndex = new Map<string, Map<string, string>>();
+  const thoughtSummariesBySession = ref<Record<string, string[]>>({});
   const agentThreadsBySession = ref<Record<string, AgentThread[]>>({});
   const agentThreadIndex = new Map<string, Map<string, AgentThread>>();
   // Track summary events per session - cleared after display
@@ -71,6 +72,9 @@ export const useChatStore = defineStore("chat", () => {
   const activeSummaryEvent = computed(
     () => summaryEventBySession.value[activeSessionId.value] || null,
   );
+  const activeThoughtSummaries = computed(
+    () => thoughtSummariesBySession.value[activeSessionId.value] || [],
+  );
 
   function clearSummaryEvent(sessionId?: string) {
     const id = sessionId || activeSessionId.value;
@@ -80,6 +84,38 @@ export const useChatStore = defineStore("chat", () => {
         [id]: null,
       };
     }
+  }
+
+  function clearThoughtSummaries(sessionId?: string) {
+    const id = sessionId || activeSessionId.value;
+    if (!id) return;
+    thoughtSummariesBySession.value = {
+      ...thoughtSummariesBySession.value,
+      [id]: [],
+    };
+  }
+
+  function appendThoughtSummary(sessionId: string, summary: string) {
+    const text = (summary || "").trim();
+    if (!text) return;
+    const existing = thoughtSummariesBySession.value[sessionId] || [];
+    const last = existing[existing.length - 1];
+    if (last) {
+      if (text === last) return;
+      if (text.length > last.length && text.startsWith(last)) {
+        const next = [...existing];
+        next[next.length - 1] = text;
+        thoughtSummariesBySession.value = {
+          ...thoughtSummariesBySession.value,
+          [sessionId]: next,
+        };
+        return;
+      }
+    }
+    thoughtSummariesBySession.value = {
+      ...thoughtSummariesBySession.value,
+      [sessionId]: [...existing, text],
+    };
   }
 
   function isSessionStreaming(sessionId: string) {
@@ -125,6 +161,13 @@ export const useChatStore = defineStore("chat", () => {
     const next = { ...agentThreadsBySession.value, [sessionId]: [] };
     agentThreadsBySession.value = next;
     agentThreadIndex.delete(sessionId);
+  }
+
+  function resetThoughtSummaries(sessionId: string) {
+    thoughtSummariesBySession.value = {
+      ...thoughtSummariesBySession.value,
+      [sessionId]: [],
+    };
   }
 
   function upsertAgentThread(
@@ -412,6 +455,7 @@ export const useChatStore = defineStore("chat", () => {
     const agentModel = (options.agentModel || "").trim();
 
     resetAgentThreads(sessionId);
+    resetThoughtSummaries(sessionId);
 
     if (content) {
       void maybeAutoTitle(sessionId, content);
@@ -563,6 +607,12 @@ export const useChatStore = defineStore("chat", () => {
     assistantId: string,
   ) {
     switch (event.type) {
+      case "thought_summary": {
+        if (typeof event.data === "string" && event.data.trim()) {
+          appendThoughtSummary(sessionId, event.data);
+        }
+        break;
+      }
       case "delta": {
         if (typeof event.data === "string" && event.data) {
           updateMessage(sessionId, assistantId, (m) => ({
@@ -1031,6 +1081,7 @@ export const useChatStore = defineStore("chat", () => {
     toolMessages,
     agentThreads,
     activeSummaryEvent,
+    activeThoughtSummaries,
     isSessionStreaming,
     // actions
     init,
@@ -1044,5 +1095,6 @@ export const useChatStore = defineStore("chat", () => {
     stopStreaming,
     regenerateAssistant,
     clearSummaryEvent,
+    clearThoughtSummaries,
   };
 });

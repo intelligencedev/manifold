@@ -131,6 +131,23 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestExtractReasoningSummary_TopLevelSummaryAliasRemoved(t *testing.T) {
+	extra := map[string]any{"summary": "auto", "temperature": 0.2}
+	got, ok := extractReasoningSummary(extra)
+	if !ok {
+		t.Fatalf("expected ok")
+	}
+	if got != shared.ReasoningSummary("auto") {
+		t.Fatalf("expected auto, got %q", got)
+	}
+	if _, exists := extra["summary"]; exists {
+		t.Fatalf("expected summary to be removed from extra")
+	}
+	if _, exists := extra["temperature"]; !exists {
+		t.Fatalf("expected unrelated extra keys to remain")
+	}
+}
+
 func TestAdaptResponsesInputFiltersOrphanToolOutputs(t *testing.T) {
 	input, _ := adaptResponsesInput([]llm.Message{
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "fetch", Args: []byte(`{"url":"https://example.com"}`)}}},
@@ -245,6 +262,9 @@ func (h *testStreamHandler) OnToolCall(tc llm.ToolCall) {
 }
 
 func (h *testStreamHandler) OnImage(llm.GeneratedImage) {
+}
+
+func (h *testStreamHandler) OnThoughtSummary(string) {
 }
 
 func TestChatImageGeneration(t *testing.T) {

@@ -342,6 +342,73 @@ func extractReasoningEffort(extra map[string]any) (shared.ReasoningEffort, bool)
 	return shared.ReasoningEffort(s), true
 }
 
+func extractReasoningSummary(extra map[string]any) (shared.ReasoningSummary, bool) {
+	if extra == nil {
+		return "", false
+	}
+	// Back-compat: some configs used a top-level "summary" parameter. The Responses API
+	// does not accept this; map it into reasoning.summary and ensure it is not sent
+	// as an extra field.
+	if raw, ok := extra["summary"]; ok {
+		delete(extra, "summary")
+		if s, ok := raw.(string); ok {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				return shared.ReasoningSummary(trimmed), true
+			}
+		}
+		return "", false
+	}
+	raw, ok := extra["reasoning_summary"]
+	if !ok {
+		raw, ok = extra["reasoningSummary"]
+	}
+	if ok {
+		delete(extra, "reasoning_summary")
+		delete(extra, "reasoningSummary")
+		if s, ok := raw.(string); ok {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				return shared.ReasoningSummary(trimmed), true
+			}
+		}
+		return "", false
+	}
+	raw, ok = extra["reasoning"]
+	if !ok {
+		return "", false
+	}
+	rm, ok := raw.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	val, ok := rm["summary"]
+	if !ok {
+		return "", false
+	}
+	delete(rm, "summary")
+	if len(rm) == 0 {
+		delete(extra, "reasoning")
+	} else {
+		extra["reasoning"] = rm
+	}
+	if s, ok := val.(string); ok {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			return shared.ReasoningSummary(trimmed), true
+		}
+	}
+	return "", false
+}
+
+func shouldDefaultReasoningSummary(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	if strings.HasPrefix(m, "gpt-5") {
+		return true
+	}
+	return strings.HasPrefix(m, "o1") || strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4")
+}
+
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
 	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
@@ -1545,14 +1612,17 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 		}
 	}
 	// Merge extra params
+	merged := map[string]any{}
 	if len(c.extra) > 0 || len(extra) > 0 {
-		merged := make(map[string]any, len(c.extra)+len(extra))
+		merged = make(map[string]any, len(c.extra)+len(extra))
 		for k, v := range c.extra {
 			merged[k] = v
 		}
 		for k, v := range extra {
 			merged[k] = v
 		}
+	}
+	if len(merged) > 0 {
 		// Remove tool-specific flags when no tools are present
 		if len(tools) == 0 {
 			delete(merged, "parallel_tool_calls")
@@ -1561,6 +1631,13 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 		if effort, ok := extractReasoningEffort(merged); ok {
 			params.Reasoning.Effort = effort
 		}
+	}
+	if summary, ok := extractReasoningSummary(merged); ok {
+		params.Reasoning.Summary = summary
+	} else if params.Reasoning.Summary == "" && !c.isSelfHosted() && shouldDefaultReasoningSummary(string(params.Model)) {
+		params.Reasoning.Summary = shared.ReasoningSummaryAuto
+	}
+	if len(merged) > 0 {
 		params.SetExtraFields(merged)
 	}
 
@@ -1655,17 +1732,27 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 			params.Tools = adaptResponsesTools(tools)
 		}
 	}
+	merged := map[string]any{}
 	if len(c.extra) > 0 {
-		merged := make(map[string]any, len(c.extra))
+		merged = make(map[string]any, len(c.extra))
 		for k, v := range c.extra {
 			merged[k] = v
 		}
+	}
+	if len(merged) > 0 {
 		if len(tools) == 0 {
 			delete(merged, "parallel_tool_calls")
 		}
 		if effort, ok := extractReasoningEffort(merged); ok {
 			params.Reasoning.Effort = effort
 		}
+	}
+	if summary, ok := extractReasoningSummary(merged); ok {
+		params.Reasoning.Summary = summary
+	} else if params.Reasoning.Summary == "" && !c.isSelfHosted() && shouldDefaultReasoningSummary(string(params.Model)) {
+		params.Reasoning.Summary = shared.ReasoningSummaryAuto
+	}
+	if len(merged) > 0 {
 		params.SetExtraFields(merged)
 	}
 
@@ -1686,6 +1773,9 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 	var promptTokens, completionTokens, totalTokens int
 	// Assistant content for self-hosted tokenization
 	var assistantContent strings.Builder
+	// Reasoning summary accumulation (by latest summary index)
+	var summaryIndex int64 = -1
+	var summaryText strings.Builder
 
 	for stream.Next() {
 		ev := stream.Current()
@@ -1694,6 +1784,24 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 			if v.Delta != "" {
 				h.OnDelta(v.Delta)
 				assistantContent.WriteString(v.Delta)
+			}
+		case rs.ResponseReasoningSummaryTextDeltaEvent:
+			if summaryIndex != v.SummaryIndex {
+				summaryIndex = v.SummaryIndex
+				summaryText.Reset()
+			}
+			if v.Delta != "" {
+				summaryText.WriteString(v.Delta)
+				h.OnThoughtSummary(summaryText.String())
+			}
+		case rs.ResponseReasoningSummaryTextDoneEvent:
+			if summaryIndex != v.SummaryIndex {
+				summaryIndex = v.SummaryIndex
+			}
+			summaryText.Reset()
+			if v.Text != "" {
+				summaryText.WriteString(v.Text)
+				h.OnThoughtSummary(summaryText.String())
 			}
 		case rs.ResponseOutputItemAddedEvent:
 			// Only capture tool call metadata if the item type indicates a function/tool call.

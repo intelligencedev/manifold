@@ -24,6 +24,8 @@ export interface ChatMessage {
   streaming?: boolean;
   title?: string;
   error?: string;
+  // Deprecated: thought summaries are now streamed into the Active Specialist panel.
+  // Kept for backward compatibility with persisted sessions.
   thoughtSummary?: string;
   thoughtSummaryFading?: boolean;
   toolArgs?: string;

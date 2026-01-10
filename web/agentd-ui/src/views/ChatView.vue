@@ -286,18 +286,7 @@
                 class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
                 >{{ message.toolArgs }}</pre
               >
-              <div
-                v-if="message.role === 'assistant' && message.thoughtSummary"
-                class="thought-summary"
-                :class="{
-                  'thought-summary--fading': message.thoughtSummaryFading,
-                }"
-              >
-                <span class="thought-summary__label">Thought summary</span>
-                <p class="thought-summary__text">
-                  {{ message.thoughtSummary }}
-                </p>
-              </div>
+              <!-- Thought summaries are streamed into the Active Specialist panel. -->
               <div
                 v-if="message.content"
                 class="chat-markdown"
@@ -663,6 +652,44 @@
                         : "Model pending"
                     }}
                   </p>
+                </div>
+              </div>
+
+              <div class="mt-3">
+                <header class="flex items-center justify-between">
+                  <h3 class="text-[11px] font-semibold text-subtle-foreground">
+                    Thought stream
+                  </h3>
+                  <button
+                    v-if="activeThoughtSummaries.length"
+                    type="button"
+                    class="text-[11px] text-faint-foreground hover:text-foreground"
+                    @click="chat.clearThoughtSummaries()"
+                  >
+                    Clear
+                  </button>
+                </header>
+
+                <div
+                  ref="thoughtStreamPane"
+                  class="mt-2 max-h-40 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
+                >
+                  <div
+                    v-if="!activeThoughtSummaries.length"
+                    class="text-[11px] text-faint-foreground"
+                  >
+                    No thought summaries yet.
+                  </div>
+                  <ul v-else class="space-y-1 text-[12px] text-foreground">
+                    <li
+                      v-for="(summary, idx) in activeThoughtSummaries"
+                      :key="`${idx}:${summary}`"
+                      class="flex gap-2"
+                    >
+                      <span aria-hidden="true">💭</span>
+                      <span class="break-words">{{ summary }}</span>
+                    </li>
+                  </ul>
                 </div>
               </div>
             </div>
@@ -1078,6 +1105,7 @@ const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
+const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
 const toolActivityMsById = ref<Record<string, number>>({});
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
@@ -1497,6 +1525,19 @@ watch(
       (msg) => `${msg.id}:${msg.content.length}:${msg.streaming ? 1 : 0}`,
     ),
   () => scrollMessagesToBottom(),
+  { flush: "post" },
+);
+
+const thoughtStreamPane = ref<HTMLElement | null>(null);
+
+watch(
+  () => activeThoughtSummaries.value.length,
+  () => {
+    nextTick(() => {
+      if (!thoughtStreamPane.value) return;
+      thoughtStreamPane.value.scrollTop = thoughtStreamPane.value.scrollHeight;
+    });
+  },
   { flush: "post" },
 );
 
@@ -2342,42 +2383,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   background: rgb(var(--color-danger) / 0.12);
 }
 
-.thought-summary {
-  border-radius: 0.9rem;
-  border: 1px dashed rgb(var(--color-border) / 0.7);
-  background: linear-gradient(
-    130deg,
-    rgb(var(--color-surface-muted) / 0.95),
-    rgb(var(--color-surface) / 0.85)
-  );
-  padding: 0.7rem 0.85rem;
-  color: rgb(var(--color-subtle-foreground));
-  transition:
-    opacity 0.35s ease,
-    transform 0.35s ease;
-}
-
-.thought-summary__label {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.58rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgb(var(--color-accent));
-}
-
-.thought-summary__text {
-  margin-top: 0.35rem;
-  font-size: 0.85rem;
-  color: rgb(var(--color-foreground));
-}
-
-.thought-summary--fading {
-  opacity: 0;
-  transform: translateY(4px);
-}
 
 @keyframes statusPulse {
   0% {

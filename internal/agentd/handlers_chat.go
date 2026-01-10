@@ -1251,11 +1251,15 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 
 	buildEngine := func() *agent.Engine {
 		eng := &agent.Engine{
-			LLM:      prov,
-			Tools:    toolReg,
-			MaxSteps: a.cfg.MaxSteps,
-			System:   prompts.EnsureMemoryInstructions(sp.System),
-			Model:    sp.Model,
+			LLM:                          prov,
+			Tools:                        toolReg,
+			MaxSteps:                     a.cfg.MaxSteps,
+			System:                       prompts.EnsureMemoryInstructions(sp.System),
+			Model:                        sp.Model,
+			SummaryEnabled:               a.cfg.SummaryEnabled,
+			SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
+			SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
+			SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 		}
 		eng.AttachTokenizer(prov, nil)
 		return eng

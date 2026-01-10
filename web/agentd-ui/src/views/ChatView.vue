@@ -659,7 +659,7 @@
                   <p class="active-specialist-model">
                     {{
                       activeSpecialistModel
-                        ? `Model ${activeSpecialistModel}`
+                        ? `${activeSpecialistModel}`
                         : "Model pending"
                     }}
                   </p>
@@ -705,7 +705,7 @@
                     <p class="participant-model">
                       {{
                         participant.model
-                          ? `Model ${participant.model}`
+                          ? `${participant.model}`
                           : "Model pending"
                       }}
                     </p>

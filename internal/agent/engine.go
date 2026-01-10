@@ -269,6 +269,11 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 	for step := 0; step < e.MaxSteps; step++ {
 		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_step_start")
 
+		// Re-summarize if context has grown too large during tool execution
+		if e.SummaryEnabled && step > 0 {
+			msgs = e.maybeSummarize(ctx, msgs)
+		}
+
 		// Capture tool schemas once per step so we can log what the model sees.
 		schemas := e.Tools.Schemas()
 		toolNames := make([]string, len(schemas))
@@ -316,6 +321,11 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 	var final string
 
 	for step := 0; step < e.MaxSteps; step++ {
+		// Re-summarize if context has grown too large during tool execution
+		if e.SummaryEnabled && step > 0 {
+			msgs = e.maybeSummarize(ctx, msgs)
+		}
+
 		// Accumulate streaming content and tool calls for this step
 		var (
 			accumulatedContent   string

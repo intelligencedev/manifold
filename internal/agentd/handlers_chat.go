@@ -1261,12 +1261,21 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		toolReg = tools.NewRegistry()
 	}
 
+	skillsSection := ""
+	if baseDir, ok := sandbox.BaseDirFromContext(r.Context()); ok {
+		skillsSection = prompts.RenderSkillsForProject(baseDir)
+	}
+
 	buildEngine := func() *agent.Engine {
+		systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
+		if skillsSection != "" {
+			systemPrompt = systemPrompt + "\n\n" + skillsSection
+		}
 		eng := &agent.Engine{
 			LLM:                          prov,
 			Tools:                        toolReg,
 			MaxSteps:                     a.cfg.MaxSteps,
-			System:                       prompts.EnsureMemoryInstructions(sp.System),
+			System:                       systemPrompt,
 			Model:                        sp.Model,
 			SummaryEnabled:               a.cfg.SummaryEnabled,
 			SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,

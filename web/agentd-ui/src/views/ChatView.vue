@@ -666,9 +666,6 @@
 
                   <div class="mt-3">
                     <header class="flex items-center justify-between">
-                      <h3 class="text-[11px] font-semibold text-subtle-foreground">
-                        Thought stream
-                      </h3>
                       <button
                         v-if="activeThoughtSummaries.length"
                         type="button"
@@ -2368,8 +2365,9 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .active-specialist-name {
   font-weight: 600;
   color: rgb(var(--color-foreground));
-  white-space: normal;
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .active-specialist-model {

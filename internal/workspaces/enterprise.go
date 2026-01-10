@@ -208,12 +208,19 @@ func (m *EnterpriseWorkspaceManager) Checkout(ctx context.Context, userID int64,
 		}
 	}
 
-	// Fast-path reuse using Redis generation cache to avoid S3 metadata fetch.
+	// Fast-path reuse using Redis generation cache, with S3 verification to catch out-of-band changes.
 	if m.genCache != nil && cleanPID != "" {
 		gen, errGen := m.genCache.GetGeneration(ctx, tenant, cleanPID)
 		skillsGen, errSkills := m.genCache.GetSkillsGeneration(ctx, tenant, cleanPID)
 		if errGen == nil && errSkills == nil {
 			if state, ok := m.ephem.activeState(userID, cleanPID, cleanSID); ok && state.manifest != nil {
+				if state.manifest.Generation >= gen && state.manifest.SkillsGeneration >= skillsGen {
+					if meta, err := m.ephem.fetchProjectMeta(ctx, userID, cleanPID); err == nil {
+						gen = meta.Generation
+						skillsGen = meta.SkillsGeneration
+						_ = m.genCache.SetGenerations(ctx, tenant, cleanPID, gen, skillsGen)
+					}
+				}
 				if state.manifest.Generation >= gen && state.manifest.SkillsGeneration >= skillsGen {
 					return state.ws, nil
 				}

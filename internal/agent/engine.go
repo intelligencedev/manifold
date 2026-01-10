@@ -61,6 +61,8 @@ type Engine struct {
 	OnAssistant func(llm.Message)
 	// OnDelta, if set, is called for streaming content deltas (for partial responses)
 	OnDelta func(string)
+	// OnThoughtSummary, if set, is called for streamed reasoning summaries.
+	OnThoughtSummary func(string)
 	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
 	OnTool func(toolName string, args []byte, result []byte, toolID string)
 	// OnToolStart, if set, is invoked immediately after the model emits a tool call
@@ -226,9 +228,10 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 
 // streamHandler implements llm.StreamHandler
 type streamHandler struct {
-	onDelta    func(string)
-	onToolCall func(llm.ToolCall)
-	onImage    func(llm.GeneratedImage)
+	onDelta          func(string)
+	onThoughtSummary func(string)
+	onToolCall       func(llm.ToolCall)
+	onImage          func(llm.GeneratedImage)
 }
 
 func (h *streamHandler) OnDelta(content string) {
@@ -246,6 +249,12 @@ func (h *streamHandler) OnToolCall(tc llm.ToolCall) {
 func (h *streamHandler) OnImage(img llm.GeneratedImage) {
 	if h.onImage != nil {
 		h.onImage(img)
+	}
+}
+
+func (h *streamHandler) OnThoughtSummary(summary string) {
+	if h.onThoughtSummary != nil {
+		h.onThoughtSummary(summary)
 	}
 }
 
@@ -319,6 +328,11 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 				accumulatedContent += content
 				if e.OnDelta != nil {
 					e.OnDelta(content)
+				}
+			},
+			onThoughtSummary: func(summary string) {
+				if e.OnThoughtSummary != nil {
+					e.OnThoughtSummary(summary)
 				}
 			},
 			onToolCall: func(tc llm.ToolCall) {

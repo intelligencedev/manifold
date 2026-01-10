@@ -689,6 +689,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				fmt.Fprintf(w, "data: %s\n\n", b)
 				fl.Flush()
 			}
+			eng.OnThoughtSummary = func(summary string) {
+				payload := map[string]string{"type": "thought_summary", "data": summary}
+				b, _ := json.Marshal(payload)
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
 			eng.OnToolStart = func(name string, args []byte, toolID string) {
 				payload := map[string]any{"type": "tool_start", "title": "Tool: " + name, "tool_id": toolID, "args": string(args)}
 				// Hint UI to group agent-related tool calls under a team panel

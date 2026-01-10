@@ -48,6 +48,8 @@ export const useChatStore = defineStore("chat", () => {
     return Boolean(streamingStateBySession.value[sessionId]);
   });
   const toolMessageIndex = new Map<string, Map<string, string>>();
+  const thoughtSummaryTimers = new Map<string, number>();
+  const THOUGHT_SUMMARY_FADE_MS = 360;
   const agentThreadsBySession = ref<Record<string, AgentThread[]>>({});
   const agentThreadIndex = new Map<string, Map<string, AgentThread>>();
   // Track summary events per session - cleared after display
@@ -80,6 +82,46 @@ export const useChatStore = defineStore("chat", () => {
         [id]: null,
       };
     }
+  }
+
+  function setThoughtSummary(
+    sessionId: string,
+    messageId: string,
+    summary: string,
+  ) {
+    if (!summary.trim()) return;
+    const timer = thoughtSummaryTimers.get(messageId);
+    if (timer) {
+      window.clearTimeout(timer);
+      thoughtSummaryTimers.delete(messageId);
+    }
+    updateMessage(sessionId, messageId, (m) => {
+      if (m.thoughtSummaryFading) return m;
+      return {
+        ...m,
+        thoughtSummary: summary,
+        thoughtSummaryFading: false,
+      };
+    });
+  }
+
+  function startThoughtSummaryFade(sessionId: string, messageId: string) {
+    let shouldFade = false;
+    updateMessage(sessionId, messageId, (m) => {
+      if (!m.thoughtSummary || m.thoughtSummaryFading) return m;
+      shouldFade = true;
+      return { ...m, thoughtSummaryFading: true };
+    });
+    if (!shouldFade || thoughtSummaryTimers.has(messageId)) return;
+    const timer = window.setTimeout(() => {
+      updateMessage(sessionId, messageId, (m) => ({
+        ...m,
+        thoughtSummary: undefined,
+        thoughtSummaryFading: false,
+      }));
+      thoughtSummaryTimers.delete(messageId);
+    }, THOUGHT_SUMMARY_FADE_MS);
+    thoughtSummaryTimers.set(messageId, timer);
   }
 
   function isSessionStreaming(sessionId: string) {
@@ -563,8 +605,15 @@ export const useChatStore = defineStore("chat", () => {
     assistantId: string,
   ) {
     switch (event.type) {
+      case "thought_summary": {
+        if (typeof event.data === "string" && event.data.trim()) {
+          setThoughtSummary(sessionId, assistantId, event.data);
+        }
+        break;
+      }
       case "delta": {
         if (typeof event.data === "string" && event.data) {
+          startThoughtSummaryFade(sessionId, assistantId);
           updateMessage(sessionId, assistantId, (m) => ({
             ...m,
             content: m.content + event.data,
@@ -574,6 +623,7 @@ export const useChatStore = defineStore("chat", () => {
       }
       case "final": {
         const text = typeof event.data === "string" ? event.data : "";
+        startThoughtSummaryFade(sessionId, assistantId);
         updateMessage(sessionId, assistantId, (m) => ({
           ...m,
           content: text || m.content,
@@ -737,6 +787,7 @@ export const useChatStore = defineStore("chat", () => {
       case "error": {
         const message =
           typeof event.data === "string" ? event.data : "Agent error";
+        startThoughtSummaryFade(sessionId, assistantId);
         updateMessage(sessionId, assistantId, (existing) => ({
           ...existing,
           streaming: false,

@@ -52,6 +52,8 @@ type StreamHandler interface {
 	OnDelta(content string)
 	OnToolCall(tc ToolCall)
 	OnImage(img GeneratedImage)
+	// OnThoughtSummary receives model reasoning summaries when available.
+	OnThoughtSummary(summary string)
 }
 
 type Provider interface {

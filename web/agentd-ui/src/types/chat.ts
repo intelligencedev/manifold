@@ -24,6 +24,8 @@ export interface ChatMessage {
   streaming?: boolean;
   title?: string;
   error?: string;
+  thoughtSummary?: string;
+  thoughtSummaryFading?: boolean;
   toolArgs?: string;
   audioUrl?: string;
   audioFilePath?: string;

@@ -24,6 +24,7 @@ type streamRecorder struct {
 func (s *streamRecorder) OnDelta(content string)     { s.deltas = append(s.deltas, content) }
 func (s *streamRecorder) OnToolCall(tc llm.ToolCall) { s.calls = append(s.calls, tc) }
 func (s *streamRecorder) OnImage(llm.GeneratedImage) {}
+func (s *streamRecorder) OnThoughtSummary(string)    {}
 
 func TestChatReturnsText(t *testing.T) {
 	var gotPath string

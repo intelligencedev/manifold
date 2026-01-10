@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import type { ChatMessage, ChatSessionMeta } from "@/types/chat";
 
 export type ChatStreamEventType =
+  | "thought_summary"
   | "delta"
   | "final"
   | "tool_start"

@@ -287,6 +287,18 @@
                 >{{ message.toolArgs }}</pre
               >
               <div
+                v-if="message.role === 'assistant' && message.thoughtSummary"
+                class="thought-summary"
+                :class="{
+                  'thought-summary--fading': message.thoughtSummaryFading,
+                }"
+              >
+                <span class="thought-summary__label">Thought summary</span>
+                <p class="thought-summary__text">
+                  {{ message.thoughtSummary }}
+                </p>
+              </div>
+              <div
                 v-if="message.content"
                 class="chat-markdown"
                 v-html="renderMarkdownOrHtml(message.content)"
@@ -2328,6 +2340,43 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   border-color: rgb(var(--color-danger) / 0.4);
   color: rgb(var(--color-danger));
   background: rgb(var(--color-danger) / 0.12);
+}
+
+.thought-summary {
+  border-radius: 0.9rem;
+  border: 1px dashed rgb(var(--color-border) / 0.7);
+  background: linear-gradient(
+    130deg,
+    rgb(var(--color-surface-muted) / 0.95),
+    rgb(var(--color-surface) / 0.85)
+  );
+  padding: 0.7rem 0.85rem;
+  color: rgb(var(--color-subtle-foreground));
+  transition:
+    opacity 0.35s ease,
+    transform 0.35s ease;
+}
+
+.thought-summary__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgb(var(--color-accent));
+}
+
+.thought-summary__text {
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+  color: rgb(var(--color-foreground));
+}
+
+.thought-summary--fading {
+  opacity: 0;
+  transform: translateY(4px);
 }
 
 @keyframes statusPulse {

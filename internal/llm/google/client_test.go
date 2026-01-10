@@ -25,6 +25,7 @@ func (s *streamRecorder) OnToolCall(tc llm.ToolCall) {
 func (s *streamRecorder) OnImage(img llm.GeneratedImage) {
 	s.images = append(s.images, img)
 }
+func (s *streamRecorder) OnThoughtSummary(string) {}
 
 func TestChatSuccess(t *testing.T) {
 	var gotPath string

@@ -247,6 +247,9 @@ func (h *testStreamHandler) OnToolCall(tc llm.ToolCall) {
 func (h *testStreamHandler) OnImage(llm.GeneratedImage) {
 }
 
+func (h *testStreamHandler) OnThoughtSummary(string) {
+}
+
 func TestChatImageGeneration(t *testing.T) {
 	t.Parallel()
 	var gotPath string

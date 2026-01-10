@@ -346,6 +346,18 @@ func extractReasoningSummary(extra map[string]any) (shared.ReasoningSummary, boo
 	if extra == nil {
 		return "", false
 	}
+	// Back-compat: some configs used a top-level "summary" parameter. The Responses API
+	// does not accept this; map it into reasoning.summary and ensure it is not sent
+	// as an extra field.
+	if raw, ok := extra["summary"]; ok {
+		delete(extra, "summary")
+		if s, ok := raw.(string); ok {
+			if trimmed := strings.TrimSpace(s); trimmed != "" {
+				return shared.ReasoningSummary(trimmed), true
+			}
+		}
+		return "", false
+	}
 	raw, ok := extra["reasoning_summary"]
 	if !ok {
 		raw, ok = extra["reasoningSummary"]

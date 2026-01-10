@@ -47,6 +47,13 @@ llm_client:
   #   apiKey: ""
   #   model: ""
   #   baseURL: ""
+  #   promptCache:
+  #     enabled: false
+  #     # When enabled, Manifold attaches Anthropic cache_control directives.
+  #     # If enabled with no scope set, defaults to cacheSystem+cacheTools.
+  #     cacheSystem: true
+  #     cacheTools: true
+  #     cacheMessages: false
   # google:
   #   apiKey: ""
   #   model: "gemini-1.5-flash"

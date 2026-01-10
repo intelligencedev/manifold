@@ -104,6 +104,79 @@ func TestChatToolCall(t *testing.T) {
 	}
 }
 
+func TestChatPromptCacheAddsCacheControlToSystemAndTools(t *testing.T) {
+	var reqBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		w.Header().Set("Content-Type", "application/json")
+		resp := sdk.Message{
+			ID:           "msg_cache",
+			Type:         constant.Message("message"),
+			Role:         constant.Assistant("assistant"),
+			Model:        sdk.ModelClaude3_7SonnetLatest,
+			StopReason:   sdk.StopReasonEndTurn,
+			StopSequence: "",
+			Content:      []sdk.ContentBlockUnion{{Type: "text", Text: "ok"}},
+			Usage:        minimalUsage(),
+		}
+		b, _ := json.Marshal(resp)
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := config.AnthropicConfig{
+		APIKey:  "k",
+		BaseURL: srv.URL,
+		PromptCache: config.AnthropicPromptCacheConfig{
+			Enabled: true,
+			// Intentionally leave CacheSystem/CacheTools unset to verify defaults.
+		},
+	}
+	client := New(cfg, srv.Client())
+	_, err := client.Chat(
+		context.Background(),
+		[]llm.Message{{Role: "system", Content: "static system"}, {Role: "user", Content: "hi"}},
+		[]llm.ToolSchema{{Name: "lookup", Parameters: map[string]any{"type": "object"}}},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	sysAny, ok := reqBody["system"]
+	if !ok {
+		t.Fatalf("expected system in request, got %#v", reqBody)
+	}
+	sysList, ok := sysAny.([]any)
+	if !ok || len(sysList) == 0 {
+		t.Fatalf("expected system blocks array, got %#v", sysAny)
+	}
+	sys0, ok := sysList[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected system block object, got %#v", sysList[0])
+	}
+	if _, ok := sys0["cache_control"]; !ok {
+		t.Fatalf("expected system cache_control, got %#v", sys0)
+	}
+
+	toolsAny, ok := reqBody["tools"]
+	if !ok {
+		t.Fatalf("expected tools in request, got %#v", reqBody)
+	}
+	toolsList, ok := toolsAny.([]any)
+	if !ok || len(toolsList) == 0 {
+		t.Fatalf("expected tools array, got %#v", toolsAny)
+	}
+	tool0, ok := toolsList[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected tool object, got %#v", toolsList[0])
+	}
+	if _, ok := tool0["cache_control"]; !ok {
+		t.Fatalf("expected tool cache_control, got %#v", tool0)
+	}
+}
+
 func TestChatStreamText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

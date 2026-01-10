@@ -63,7 +63,10 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		history, _, err := a.chatMemory.BuildContext(r.Context(), userID, sessionID)
+		// Check if the main LLM provider supports compaction (OpenAI Responses API).
+		// Non-OpenAI providers cannot use encrypted compaction summaries.
+		targetSupportsCompaction := providerSupportsCompaction(a.llm)
+		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)

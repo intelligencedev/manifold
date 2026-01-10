@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"manifold/internal/llm"
 	"manifold/internal/observability"
@@ -24,6 +25,52 @@ const (
 )
 
 const compactionContinuationRule = "When continuing from prior context (including compacted context), do not restate prior final answers unless the user asks. Only provide new information, the next steps, or the requested delta."
+
+// dualSummary stores both compaction (OpenAI-specific) and plain text summaries.
+// This allows sessions to switch between OpenAI and non-OpenAI models seamlessly.
+type dualSummary struct {
+	Compaction string `json:"compaction,omitempty"` // OpenAI Responses API compaction (encrypted)
+	Plain      string `json:"plain,omitempty"`      // Plain text summary for non-OpenAI models
+}
+
+// encodeDualSummary encodes a dual summary to JSON for storage.
+func encodeDualSummary(ds dualSummary) string {
+	if ds.Compaction == "" && ds.Plain == "" {
+		return ""
+	}
+	raw, err := json.Marshal(ds)
+	if err != nil {
+		return ds.Plain // Fallback to plain if encoding fails
+	}
+	return string(raw)
+}
+
+// decodeDualSummary decodes a stored summary. It handles both the new dual format
+// and legacy single-summary formats (plain text or compaction JSON).
+func decodeDualSummary(summary string) dualSummary {
+	trimmed := strings.TrimSpace(summary)
+	if trimmed == "" {
+		return dualSummary{}
+	}
+
+	// Try to decode as dual summary first
+	var ds dualSummary
+	if strings.HasPrefix(trimmed, "{") {
+		if err := json.Unmarshal([]byte(trimmed), &ds); err == nil {
+			// Check if it looks like a dual summary (has "plain" or "compaction" keys)
+			if ds.Compaction != "" || ds.Plain != "" {
+				return ds
+			}
+		}
+		// Check if it's a legacy compaction summary
+		if _, ok := decodeCompactionSummary(trimmed); ok {
+			return dualSummary{Compaction: trimmed}
+		}
+	}
+
+	// Treat as plain text summary (legacy format)
+	return dualSummary{Plain: trimmed}
+}
 
 // SummaryResult contains metadata about summarization that occurred during BuildContext.
 // Callers can use this to notify users (e.g., via SSE events) when summarization happens.
@@ -135,7 +182,23 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 // BuildContext assembles the conversation history that should be sent to the orchestrator
 // by combining a persisted summary (if any) with the most recent chat turns.
 // Returns the messages and a SummaryResult indicating if summarization was triggered.
+//
+// Deprecated: Use BuildContextForProvider instead, which properly handles compaction
+// compatibility with the target LLM provider.
 func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID string) ([]llm.Message, *SummaryResult, error) {
+	// Default to compaction support based on the manager's global setting.
+	// This maintains backward compatibility but callers should migrate to
+	// BuildContextForProvider for proper cross-provider support.
+	return m.BuildContextForProvider(ctx, userID, sessionID, m.useResponsesCompaction)
+}
+
+// BuildContextForProvider assembles the conversation history that should be sent to the
+// orchestrator by combining a persisted summary (if any) with the most recent chat turns.
+// The targetSupportsCompaction parameter indicates whether the target LLM provider supports
+// OpenAI Responses API compaction. If false and the stored summary uses compaction format
+// (encrypted_content), the summary will be treated as unavailable for this request.
+// Returns the messages and a SummaryResult indicating if summarization was triggered.
+func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, sessionID string, targetSupportsCompaction bool) ([]llm.Message, *SummaryResult, error) {
 	log := observability.LoggerWithTrace(ctx)
 	if sessionID == "" {
 		return nil, nil, nil
@@ -248,25 +311,65 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 		tailStart = total
 	}
 
+	// IMPORTANT: Never start the returned history on a tool response message.
+	// Many providers (notably Anthropic) require a tool_result block to have a
+	// corresponding tool_use block in a previous assistant message.
+	// Our tail selection is token/count based and can cut between these, so we
+	// adjust the tail start to include any required assistant tool call messages.
+	if total > 0 {
+		minIdx := summarizedCount
+		if minIdx < 0 {
+			minIdx = 0
+		}
+		adjusted := adjustIndexForToolDeps(messages, 0, tailStart)
+		if adjusted < tailStart {
+			if adjusted < minIdx {
+				log.Warn().
+					Str("session_id", sessionID).
+					Int("summarized_count", summarizedCount).
+					Int("tail_start", tailStart).
+					Int("adjusted_tail_start", adjusted).
+					Msg("tail_start_crosses_tool_chain_including_pre_summarized_tool_calls")
+			}
+			tailStart = adjusted
+		}
+	}
+
 	history := make([]llm.Message, 0, (total-tailStart)+1)
-	if m.useResponsesCompaction {
+	// Only add compaction continuation rule if target supports compaction
+	if targetSupportsCompaction {
 		history = append(history, llm.Message{Role: "system", Content: compactionContinuationRule})
 	}
 	if summary != "" {
-		if m.useResponsesCompaction {
-			if item, ok := decodeCompactionSummary(summary); ok {
+		// Decode the stored summary (handles both dual format and legacy formats)
+		ds := decodeDualSummary(summary)
+
+		if targetSupportsCompaction && ds.Compaction != "" {
+			// Target supports compaction and we have compaction data
+			if item, ok := decodeCompactionSummary(ds.Compaction); ok {
 				history = append(history, llm.Message{Role: "assistant", Compaction: &item})
 			} else {
-				history = append(history, llm.Message{
-					Role:    "system",
-					Content: "Conversation summary (for context only):\n" + summary,
-				})
+				// Compaction decode failed, fall back to plain if available
+				if ds.Plain != "" {
+					history = append(history, llm.Message{
+						Role:    "system",
+						Content: "Conversation summary (for context only):\n" + ds.Plain,
+					})
+				}
 			}
-		} else {
+		} else if ds.Plain != "" {
+			// Target doesn't support compaction or no compaction data - use plain text
 			history = append(history, llm.Message{
 				Role:    "system",
-				Content: "Conversation summary (for context only):\n" + summary,
+				Content: "Conversation summary (for context only):\n" + ds.Plain,
 			})
+		} else if ds.Compaction != "" && !targetSupportsCompaction {
+			// We only have compaction data but target doesn't support it
+			// Log warning and reset tailStart to include more raw messages
+			log.Warn().
+				Str("session_id", sessionID).
+				Msg("compaction_summary_incompatible_with_target_provider_no_plain_fallback")
+			tailStart = 0
 		}
 	}
 	for i, msg := range messages[tailStart:] {
@@ -303,6 +406,88 @@ func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID str
 		history = append(history, llm.Message{Role: msg.Role, Content: msg.Content})
 	}
 	return history, summaryResult, nil
+}
+
+// adjustIndexForToolDeps ensures that if the kept tail includes any tool response
+// messages, it also includes the preceding assistant message(s) that contain the
+// corresponding ToolCalls.
+//
+// This prevents provider-specific request validation failures (e.g., Anthropic
+// requires tool_result to reference a prior tool_use) and avoids losing metadata
+// chains required by some providers (e.g., Gemini thought signatures).
+//
+// The returned index is always <= cutIndex.
+func adjustIndexForToolDeps(msgs []persistence.ChatMessage, start, cutIndex int) int {
+	if cutIndex <= start || cutIndex >= len(msgs) {
+		return cutIndex
+	}
+
+	extractToolID := func(m persistence.ChatMessage) string {
+		if id := strings.TrimSpace(m.ToolID); id != "" {
+			return id
+		}
+		trimmed := strings.TrimSpace(m.Content)
+		if strings.HasPrefix(trimmed, "{") {
+			var data struct {
+				ToolID string `json:"tool_id"`
+			}
+			if err := json.Unmarshal([]byte(trimmed), &data); err == nil {
+				return strings.TrimSpace(data.ToolID)
+			}
+		}
+		return ""
+	}
+
+	required := make(map[string]struct{})
+	for i := cutIndex; i < len(msgs); i++ {
+		if msgs[i].Role != "tool" {
+			continue
+		}
+		if id := extractToolID(msgs[i]); id != "" {
+			required[id] = struct{}{}
+		}
+	}
+	if len(required) == 0 {
+		return cutIndex
+	}
+
+	containsToolCallID := func(m persistence.ChatMessage, toolID string) bool {
+		trimmed := strings.TrimSpace(m.Content)
+		if !strings.HasPrefix(trimmed, "{") {
+			return false
+		}
+		var data struct {
+			ToolCalls []llm.ToolCall `json:"tool_calls"`
+		}
+		if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
+			return false
+		}
+		for _, tc := range data.ToolCalls {
+			if strings.TrimSpace(tc.ID) == toolID {
+				return true
+			}
+		}
+		return false
+	}
+
+	earliestNeeded := cutIndex
+	for toolID := range required {
+		foundIdx := -1
+		for i := cutIndex - 1; i >= start; i-- {
+			if msgs[i].Role != "assistant" {
+				continue
+			}
+			if containsToolCallID(msgs[i], toolID) {
+				foundIdx = i
+				break
+			}
+		}
+		if foundIdx != -1 && foundIdx < earliestNeeded {
+			earliestNeeded = foundIdx
+		}
+	}
+
+	return earliestNeeded
 }
 
 func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session persistence.ChatSession, messages []persistence.ChatMessage) (string, int, *SummaryResult) {
@@ -409,6 +594,19 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		start = 0
 	}
 
+	// Never cut between an assistant tool call and its tool response.
+	// If the tail includes tool responses, ensure the boundary keeps the
+	// corresponding assistant ToolCalls in the raw tail too.
+	if target > start {
+		adjustedTarget := adjustIndexForToolDeps(messages, start, target)
+		if adjustedTarget < target {
+			target = adjustedTarget
+			if target <= start {
+				return session.Summary, summarizedCount, nil
+			}
+		}
+	}
+
 	chunk := messages[start:target]
 	if len(chunk) == 0 {
 		return session.Summary, summarizedCount, nil
@@ -454,17 +652,88 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 	if m.summary == nil {
 		return existingSummary, fmt.Errorf("llm provider unavailable")
 	}
+
+	// Decode existing summary to get both compaction and plain components
+	existing := decodeDualSummary(existingSummary)
+	log := observability.LoggerWithTrace(ctx)
+
 	if m.useResponsesCompaction {
-		return m.compactChunk(ctx, existingSummary, chunk)
+		// Run both compaction and plain text summarization in parallel.
+		// This ensures we have a plain text fallback if the user switches to a non-OpenAI model.
+		var (
+			wg            sync.WaitGroup
+			compactionErr error
+			plainErr      error
+			compactionRes string
+			plainRes      string
+		)
+
+		wg.Add(2)
+
+		// Goroutine 1: Compaction summarization (OpenAI Responses API)
+		go func() {
+			defer wg.Done()
+			res, err := m.compactChunk(ctx, existing.Compaction, chunk)
+			if err != nil {
+				compactionErr = err
+				log.Warn().Err(err).Msg("compaction_summarization_failed")
+				return
+			}
+			compactionRes = res
+		}()
+
+		// Goroutine 2: Plain text summarization (for non-OpenAI model fallback)
+		go func() {
+			defer wg.Done()
+			res, err := m.plainSummarize(ctx, existing.Plain, chunk)
+			if err != nil {
+				plainErr = err
+				log.Warn().Err(err).Msg("plain_summarization_failed")
+				return
+			}
+			plainRes = res
+		}()
+
+		wg.Wait()
+
+		// Build dual summary with whatever succeeded
+		ds := dualSummary{
+			Compaction: compactionRes,
+			Plain:      plainRes,
+		}
+
+		// If compaction failed but plain succeeded, use plain only
+		if compactionErr != nil && plainErr == nil {
+			return ds.Plain, nil
+		}
+		// If both failed, return error
+		if compactionErr != nil && plainErr != nil {
+			return existingSummary, fmt.Errorf("both summarization methods failed: compaction: %v, plain: %v", compactionErr, plainErr)
+		}
+		// If plain failed but compaction succeeded, still return dual (plain will be empty)
+		// Future requests to non-OpenAI models will get no summary, which is safer than garbage
+
+		return encodeDualSummary(ds), nil
 	}
 
+	// Non-compaction mode: just do plain text summarization
+	plainRes, err := m.plainSummarize(ctx, existing.Plain, chunk)
+	if err != nil {
+		return existingSummary, err
+	}
+	return plainRes, nil
+}
+
+// plainSummarize generates a plain text summary of the conversation chunk.
+// This is used for non-OpenAI models and as a fallback when compaction is enabled.
+func (m *Manager) plainSummarize(ctx context.Context, existingPlainSummary string, chunk []persistence.ChatMessage) (string, error) {
 	var userPrompt strings.Builder
 	userPrompt.WriteString("Update the running summary of this chat. Keep it concise but information-dense.\n")
 	userPrompt.WriteString("Preserve user goals, preferences, decisions, key facts, identifiers (files, URLs, IDs), tool results/errors, and open questions.\n")
 	userPrompt.WriteString("If content includes [TRUNCATED], assume important details may be missing.\n")
-	if strings.TrimSpace(existingSummary) != "" {
+	if strings.TrimSpace(existingPlainSummary) != "" {
 		userPrompt.WriteString("\nExisting summary:\n")
-		userPrompt.WriteString(strings.TrimSpace(existingSummary))
+		userPrompt.WriteString(strings.TrimSpace(existingPlainSummary))
 		userPrompt.WriteString("\n\n")
 	}
 	userPrompt.WriteString("New conversation turns:\n")
@@ -508,12 +777,12 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 
 	resp, err := m.summary.Chat(ctx, msgs, nil, m.summaryModel)
 	if err != nil {
-		return existingSummary, fmt.Errorf("summarize chat: %w", err)
+		return existingPlainSummary, fmt.Errorf("summarize chat: %w", err)
 	}
 
 	summary := strings.TrimSpace(resp.Content)
 	if summary == "" {
-		return existingSummary, fmt.Errorf("empty summary returned")
+		return existingPlainSummary, fmt.Errorf("empty summary returned")
 	}
 	return summary, nil
 }

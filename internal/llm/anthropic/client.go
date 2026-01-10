@@ -24,6 +24,7 @@ type Client struct {
 	sdk       anthropic.Client
 	model     string
 	maxTokens int64
+	cacheCfg  config.AnthropicPromptCacheConfig
 }
 
 func New(cfg config.AnthropicConfig, httpClient *http.Client) *Client {
@@ -43,15 +44,23 @@ func New(cfg config.AnthropicConfig, httpClient *http.Client) *Client {
 		model = string(anthropic.ModelClaude3_7SonnetLatest)
 	}
 
+	cacheCfg := cfg.PromptCache
+	if cacheCfg.Enabled && !cacheCfg.CacheSystem && !cacheCfg.CacheTools && !cacheCfg.CacheMessages {
+		// Sensible defaults when the feature is enabled but no scope is specified.
+		cacheCfg.CacheSystem = true
+		cacheCfg.CacheTools = true
+	}
+
 	return &Client{
 		sdk:       anthropic.NewClient(opts...),
 		model:     model,
 		maxTokens: defaultMaxTokens,
+		cacheCfg:  cacheCfg,
 	}
 }
 
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
-	sys, converted, err := adaptMessages(msgs)
+	sys, converted, err := adaptMessages(msgs, c.cacheCfg)
 	if err != nil {
 		return llm.Message{}, err
 	}
@@ -59,7 +68,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	// NOTE: do not enforce model-specific token limits here; summarization and
 	// context budgeting are handled centrally in the agent engine using llm.ContextSize
 	// and per-model config. This avoids duplicating hard-coded thresholds here.
-	toolDefs, err := adaptTools(tools)
+	toolDefs, err := adaptTools(tools, c.cacheCfg)
 	if err != nil {
 		return llm.Message{}, err
 	}
@@ -110,7 +119,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 }
 
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
-	sys, converted, err := adaptMessages(msgs)
+	sys, converted, err := adaptMessages(msgs, c.cacheCfg)
 	if err != nil {
 		return err
 	}
@@ -118,7 +127,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	// NOTE: do not enforce model-specific token limits here; summarization and
 	// context budgeting are handled centrally in the agent engine using llm.ContextSize
 	// and per-model config. This avoids duplicating hard-coded thresholds here.
-	toolDefs, err := adaptTools(tools)
+	toolDefs, err := adaptTools(tools, c.cacheCfg)
 	if err != nil {
 		return err
 	}
@@ -279,11 +288,13 @@ func (c *Client) pickModel(model string) string {
 	return c.model
 }
 
-func adaptTools(tools []llm.ToolSchema) ([]anthropic.ToolUnionParam, error) {
+func adaptTools(tools []llm.ToolSchema, cacheCfg config.AnthropicPromptCacheConfig) ([]anthropic.ToolUnionParam, error) {
 	if len(tools) == 0 {
 		return nil, nil
 	}
 	out := make([]anthropic.ToolUnionParam, 0, len(tools))
+	cacheTools := cacheCfg.Enabled && cacheCfg.CacheTools
+	cacheControl := anthropic.CacheControlEphemeralParam{TTL: anthropic.CacheControlEphemeralTTLTTL5m}
 	for _, t := range tools {
 		name := strings.TrimSpace(t.Name)
 		if name == "" {
@@ -322,6 +333,9 @@ func adaptTools(tools []llm.ToolSchema) ([]anthropic.ToolUnionParam, error) {
 			Name:        name,
 			InputSchema: schema,
 		}
+		if cacheTools {
+			param.CacheControl = cacheControl
+		}
 		if desc := strings.TrimSpace(t.Description); desc != "" {
 			param.Description = anthropic.String(desc)
 		}
@@ -330,25 +344,38 @@ func adaptTools(tools []llm.ToolSchema) ([]anthropic.ToolUnionParam, error) {
 	return out, nil
 }
 
-func adaptMessages(msgs []llm.Message) ([]anthropic.TextBlockParam, []anthropic.MessageParam, error) {
+func adaptMessages(msgs []llm.Message, cacheCfg config.AnthropicPromptCacheConfig) ([]anthropic.TextBlockParam, []anthropic.MessageParam, error) {
 	if len(msgs) == 0 {
 		return nil, nil, fmt.Errorf("messages required")
 	}
 	var system []anthropic.TextBlockParam
 	out := make([]anthropic.MessageParam, 0, len(msgs))
 	toolResultCount := 0
+	cacheSystem := cacheCfg.Enabled && cacheCfg.CacheSystem
+	cacheMessages := cacheCfg.Enabled && cacheCfg.CacheMessages
+	cacheControl := anthropic.CacheControlEphemeralParam{TTL: anthropic.CacheControlEphemeralTTLTTL5m}
+	newTextBlock := func(text string) anthropic.ContentBlockParamUnion {
+		if !cacheMessages {
+			return anthropic.NewTextBlock(text)
+		}
+		return anthropic.ContentBlockParamUnion{OfText: &anthropic.TextBlockParam{Text: text, CacheControl: cacheControl}}
+	}
 
 	for _, m := range msgs {
 		role := strings.ToLower(strings.TrimSpace(m.Role))
 		switch role {
 		case "system":
 			if strings.TrimSpace(m.Content) != "" {
-				system = append(system, anthropic.TextBlockParam{Text: m.Content})
+				if cacheSystem {
+					system = append(system, anthropic.TextBlockParam{Text: m.Content, CacheControl: cacheControl})
+				} else {
+					system = append(system, anthropic.TextBlockParam{Text: m.Content})
+				}
 			}
 		case "user":
 			blocks := []anthropic.ContentBlockParamUnion{}
 			if strings.TrimSpace(m.Content) != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+				blocks = append(blocks, newTextBlock(m.Content))
 			}
 			if len(blocks) > 0 {
 				out = append(out, anthropic.NewUserMessage(blocks...))
@@ -356,7 +383,7 @@ func adaptMessages(msgs []llm.Message) ([]anthropic.TextBlockParam, []anthropic.
 		case "assistant":
 			blocks := []anthropic.ContentBlockParamUnion{}
 			if strings.TrimSpace(m.Content) != "" {
-				blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+				blocks = append(blocks, newTextBlock(m.Content))
 			}
 			for i, tc := range m.ToolCalls {
 				id := strings.TrimSpace(tc.ID)

@@ -623,131 +623,157 @@
 
       <!-- Participants sidebar -->
       <aside
-        class="hidden h-full min-h-0 xl:flex flex-col gap-3 text-sm text-subtle-foreground chat-side"
+        class="hidden h-full min-h-0 xl:flex flex-col text-sm text-subtle-foreground chat-side"
       >
-        <GlassCard :padded="false" class="overflow-hidden">
-          <div>
-            <header class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-foreground">
-                Active specialist
-              </h2>
-              <span class="text-[11px] text-faint-foreground">Live view</span>
-            </header>
-            <div class="mt-2">
-              <div
-                class="active-specialist-card"
-                :class="activeSpecialistCardClasses"
-              >
-                <div class="active-specialist-avatar">
-                  <span>{{ activeSpecialistInitials }}</span>
-                </div>
-                <div class="active-specialist-body">
-                  <p class="active-specialist-name">
-                    {{ activeSpecialistName }}
-                  </p>
-                  <p class="active-specialist-model">
-                    {{
-                      activeSpecialistModel
-                        ? `${activeSpecialistModel}`
-                        : "Model pending"
-                    }}
-                  </p>
-                </div>
-              </div>
-
-              <div class="mt-3">
-                <header class="flex items-center justify-between">
-                  <h3 class="text-[11px] font-semibold text-subtle-foreground">
-                    Thought stream
-                  </h3>
-                  <button
-                    v-if="activeThoughtSummaries.length"
-                    type="button"
-                    class="text-[11px] text-faint-foreground hover:text-foreground"
-                    @click="chat.clearThoughtSummaries()"
-                  >
-                    Clear
-                  </button>
-                </header>
-
-                <div
-                  ref="thoughtStreamPane"
-                  class="mt-2 max-h-40 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
-                >
-                  <div
-                    v-if="!activeThoughtSummaries.length"
-                    class="text-[11px] text-faint-foreground"
-                  >
-                    No thought summaries yet.
-                  </div>
-                  <ul v-else class="space-y-1 text-[12px] text-foreground">
-                    <li
-                      v-for="(summary, idx) in activeThoughtSummaries"
-                      :key="`${idx}:${summary}`"
-                      class="flex gap-2"
-                    >
-                      <span aria-hidden="true">💭</span>
-                      <span class="break-words">{{ summary }}</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
-        </GlassCard>
-
-        <GlassCard
-          :padded="false"
-          class="flex min-h-0 flex-1 flex-col overflow-hidden"
+        <div
+          ref="sidePanelsPane"
+          class="flex min-h-0 flex-1 flex-col"
         >
-          <div class="flex min-h-0 flex-1 flex-col">
-            <header class="flex items-center justify-between">
-              <h2 class="text-sm font-semibold text-foreground">
-                Participants
-              </h2>
-              <span class="text-[11px] text-faint-foreground">
-                {{ participantList.length }} available
-              </span>
-            </header>
-            <div class="mt-2 flex-1 min-h-0 overflow-y-auto">
-              <div
-                v-if="!participantList.length"
-                class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
-              >
-                No specialists available
-              </div>
-              <ul v-else class="participant-list">
-                <li
-                  v-for="participant in participantList"
-                  :key="participant.name"
-                  class="participant-row"
-                  :class="participantRowClasses(participant.name)"
-                >
-                  <span
-                    class="participant-dot"
-                    :class="participantDotClasses(participant.name)"
-                  ></span>
-                  <div class="participant-body">
-                    <p class="participant-name">{{ participant.name }}</p>
-                    <p class="participant-model">
-                      {{
-                        participant.model
-                          ? `${participant.model}`
-                          : "Model pending"
-                      }}
-                    </p>
-                  </div>
-                  <span
-                    class="participant-pill"
-                    :class="participantPillClasses(participant.name)"
+          <div
+            ref="activeSpecialistPane"
+            class="min-h-0"
+            :style="activeSpecialistPaneStyle"
+          >
+            <GlassCard :padded="false" class="flex h-full flex-col overflow-hidden">
+              <div>
+                <header class="flex items-center justify-between">
+                  <h2 class="text-sm font-semibold text-foreground">
+                    Active specialist
+                  </h2>
+                  <span class="text-[11px] text-faint-foreground">Live view</span>
+                </header>
+                <div class="mt-2">
+                  <div
+                    class="active-specialist-card"
+                    :class="activeSpecialistCardClasses"
                   >
-                    {{ participantStatusLabel(participant.name) }}
-                  </span>
-                </li>
-              </ul>
-            </div>
+                    <div class="active-specialist-avatar">
+                      <span>{{ activeSpecialistInitials }}</span>
+                    </div>
+                    <div class="active-specialist-body">
+                      <p class="active-specialist-name">
+                        {{ activeSpecialistName }}
+                      </p>
+                      <p class="active-specialist-model">
+                        {{
+                          activeSpecialistModel
+                            ? `${activeSpecialistModel}`
+                            : "Model pending"
+                        }}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="mt-3">
+                    <header class="flex items-center justify-between">
+                      <h3 class="text-[11px] font-semibold text-subtle-foreground">
+                        Thought stream
+                      </h3>
+                      <button
+                        v-if="activeThoughtSummaries.length"
+                        type="button"
+                        class="text-[11px] text-faint-foreground hover:text-foreground"
+                        @click="chat.clearThoughtSummaries()"
+                      >
+                        Clear
+                      </button>
+                    </header>
+
+                    <div
+                      ref="thoughtStreamPane"
+                      class="mt-2 max-h-40 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
+                    >
+                      <div
+                        v-if="!activeThoughtSummaries.length"
+                        class="text-[11px] text-faint-foreground"
+                      >
+                        No thought summaries yet.
+                      </div>
+                      <ul v-else class="space-y-1 text-[12px] text-foreground">
+                        <li
+                          v-for="(summary, idx) in activeThoughtSummaries"
+                          :key="`${idx}:${summary}`"
+                          class="flex gap-2"
+                        >
+                          <span aria-hidden="true">💭</span>
+                          <div
+                            class="chat-markdown break-words"
+                            v-html="renderMarkdownOrHtml(summary)"
+                          ></div>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </GlassCard>
           </div>
-        </GlassCard>
+
+          <div
+            ref="panelSplitter"
+            class="panel-splitter"
+            :class="{ 'panel-splitter--dragging': isPanelSplitterDragging }"
+            role="separator"
+            aria-orientation="horizontal"
+            @pointerdown="handlePanelSplitterPointerDown"
+          >
+            <span class="panel-splitter__line"></span>
+          </div>
+
+          <GlassCard
+            :padded="false"
+            class="flex min-h-0 flex-1 flex-col overflow-hidden"
+            :style="participantsPaneStyle"
+          >
+            <div class="flex min-h-0 flex-1 flex-col">
+              <header class="flex items-center justify-between">
+                <h2 class="text-sm font-semibold text-foreground">
+                  Participants
+                </h2>
+                <span class="text-[11px] text-faint-foreground">
+                  {{ participantList.length }} available
+                </span>
+              </header>
+              <div class="mt-2 flex-1 min-h-0 overflow-y-auto">
+                <div
+                  v-if="!participantList.length"
+                  class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
+                >
+                  No specialists available
+                </div>
+                <ul v-else class="participant-list">
+                  <li
+                    v-for="participant in participantList"
+                    :key="participant.name"
+                    class="participant-row"
+                    :class="participantRowClasses(participant.name)"
+                  >
+                    <span
+                      class="participant-dot"
+                      :class="participantDotClasses(participant.name)"
+                    ></span>
+                    <div class="participant-body">
+                      <p class="participant-name">{{ participant.name }}</p>
+                      <p class="participant-model">
+                        {{
+                          participant.model
+                            ? `${participant.model}`
+                            : "Model pending"
+                        }}
+                      </p>
+                    </div>
+                    <span
+                      class="participant-pill"
+                      :class="participantPillClasses(participant.name)"
+                    >
+                      {{ participantStatusLabel(participant.name) }}
+                    </span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </GlassCard>
+        </div>
       </aside>
 
     </section>
@@ -847,6 +873,20 @@ const modalImageSrc = computed(() => {
   if (!img) return "";
   return img.previewUrl || img.path || "";
 });
+const sidePanelsPane = ref<HTMLElement | null>(null);
+const activeSpecialistPane = ref<HTMLElement | null>(null);
+const panelSplitter = ref<HTMLElement | null>(null);
+const activeSpecialistPaneHeight = ref<number | null>(null);
+const isPanelSplitterDragging = ref(false);
+const PANEL_MIN_HEIGHT = 160;
+const panelContainerHeight = ref(0);
+const panelSplitterHeight = ref(12);
+let panelDragStartY = 0;
+let panelDragStartHeight = 0;
+let panelPointerId: number | null = null;
+let previousBodyCursor: string | null = null;
+let previousBodyUserSelect: string | null = null;
+let panelResizeObserver: ResizeObserver | null = null;
 
 // Specialists dropdown state
 const { data: specialistsData } = useQuery({
@@ -1114,6 +1154,19 @@ const sessionAgentDefaults = computed(() =>
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
 );
+const activeSpecialistPaneStyle = computed(() => {
+  const style: Record<string, string> = {
+    minHeight: `${PANEL_MIN_HEIGHT}px`,
+  };
+  if (activeSpecialistPaneHeight.value !== null) {
+    style.height = `${activeSpecialistPaneHeight.value}px`;
+    style.flex = "0 0 auto";
+  }
+  return style;
+});
+const participantsPaneStyle = computed(() => ({
+  minHeight: `${PANEL_MIN_HEIGHT}px`,
+}));
 const sessionMessageCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {};
   for (const session of sessions.value) {
@@ -1530,6 +1583,74 @@ watch(
 
 const thoughtStreamPane = ref<HTMLElement | null>(null);
 
+function updateSidePanelMetrics() {
+  const container = sidePanelsPane.value;
+  if (!container) return;
+  panelContainerHeight.value = container.getBoundingClientRect().height;
+  const splitterEl = panelSplitter.value;
+  if (splitterEl) {
+    const measured = splitterEl.getBoundingClientRect().height;
+    if (measured) panelSplitterHeight.value = measured;
+  }
+}
+
+function clampActiveSpecialistPaneHeight(height: number) {
+  const containerHeight = panelContainerHeight.value;
+  const splitterHeight = panelSplitterHeight.value;
+  if (!containerHeight) return height;
+  const maxHeight = Math.max(
+    PANEL_MIN_HEIGHT,
+    containerHeight - splitterHeight - PANEL_MIN_HEIGHT,
+  );
+  return Math.min(Math.max(height, PANEL_MIN_HEIGHT), maxHeight);
+}
+
+function stopPanelSplitterDrag() {
+  if (!isPanelSplitterDragging.value || !isBrowser) return;
+  isPanelSplitterDragging.value = false;
+  if (panelPointerId !== null && panelSplitter.value?.releasePointerCapture) {
+    panelSplitter.value.releasePointerCapture(panelPointerId);
+  }
+  panelPointerId = null;
+  document.body.style.cursor = previousBodyCursor || "";
+  document.body.style.userSelect = previousBodyUserSelect || "";
+  window.removeEventListener("pointermove", handlePanelSplitterPointerMove);
+  window.removeEventListener("pointerup", handlePanelSplitterPointerUp);
+  window.removeEventListener("pointercancel", handlePanelSplitterPointerUp);
+}
+
+function handlePanelSplitterPointerDown(event: PointerEvent) {
+  if (event.button !== 0) return;
+  if (!isBrowser || !sidePanelsPane.value || !activeSpecialistPane.value) return;
+  event.preventDefault();
+  updateSidePanelMetrics();
+  isPanelSplitterDragging.value = true;
+  panelDragStartY = event.clientY;
+  panelDragStartHeight =
+    activeSpecialistPane.value.getBoundingClientRect().height;
+  panelPointerId = event.pointerId;
+  panelSplitter.value?.setPointerCapture?.(event.pointerId);
+  previousBodyCursor = document.body.style.cursor;
+  previousBodyUserSelect = document.body.style.userSelect;
+  document.body.style.cursor = "row-resize";
+  document.body.style.userSelect = "none";
+  window.addEventListener("pointermove", handlePanelSplitterPointerMove);
+  window.addEventListener("pointerup", handlePanelSplitterPointerUp);
+  window.addEventListener("pointercancel", handlePanelSplitterPointerUp);
+}
+
+function handlePanelSplitterPointerMove(event: PointerEvent) {
+  if (!isPanelSplitterDragging.value) return;
+  const delta = event.clientY - panelDragStartY;
+  activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
+    panelDragStartHeight + delta,
+  );
+}
+
+function handlePanelSplitterPointerUp() {
+  stopPanelSplitterDrag();
+}
+
 watch(
   () =>
     activeThoughtSummaries.value
@@ -1589,10 +1710,48 @@ onMounted(() => {
   nextTick(() => {
     autoSizeComposer();
     scrollMessagesToBottom({ force: true, behavior: "auto" });
+    updateSidePanelMetrics();
+    if (activeSpecialistPane.value && activeSpecialistPaneHeight.value === null) {
+      const initialHeight =
+        activeSpecialistPane.value.getBoundingClientRect().height;
+      if (initialHeight > 0) {
+        activeSpecialistPaneHeight.value =
+          clampActiveSpecialistPaneHeight(initialHeight);
+      }
+    }
+    if (isBrowser && "ResizeObserver" in window && sidePanelsPane.value) {
+      panelResizeObserver = new ResizeObserver(() => {
+        updateSidePanelMetrics();
+        if (activeSpecialistPaneHeight.value !== null) {
+          if (activeSpecialistPaneHeight.value <= 0 && activeSpecialistPane.value) {
+            const measured =
+              activeSpecialistPane.value.getBoundingClientRect().height;
+            if (measured > 0) {
+              activeSpecialistPaneHeight.value =
+                clampActiveSpecialistPaneHeight(measured);
+              return;
+            }
+          }
+          activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
+            activeSpecialistPaneHeight.value,
+          );
+        } else if (activeSpecialistPane.value) {
+          const measured =
+            activeSpecialistPane.value.getBoundingClientRect().height;
+          if (measured > 0) {
+            activeSpecialistPaneHeight.value =
+              clampActiveSpecialistPaneHeight(measured);
+          }
+        }
+      });
+      panelResizeObserver.observe(sidePanelsPane.value);
+    }
   });
 });
 
 onBeforeUnmount(() => {
+  stopPanelSplitterDrag();
+  panelResizeObserver?.disconnect();
   stopAllResponseTimers();
   if (isBrowser && previousBodyOverflow !== null) {
     document.body.style.overflow = previousBodyOverflow;
@@ -2130,6 +2289,30 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .chat-side {
   min-height: 0;
+}
+
+.panel-splitter {
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-splitter__line {
+  width: 100%;
+  height: 1px;
+  border-radius: 999px;
+  background: rgb(var(--color-border) / 0.6);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.panel-splitter:hover .panel-splitter__line,
+.panel-splitter--dragging .panel-splitter__line {
+  background: rgb(var(--color-accent) / 0.6);
+  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.18);
 }
 
 .active-specialist-card {

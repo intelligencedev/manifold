@@ -1531,7 +1531,10 @@ watch(
 const thoughtStreamPane = ref<HTMLElement | null>(null);
 
 watch(
-  () => activeThoughtSummaries.value.length,
+  () =>
+    activeThoughtSummaries.value
+      .map((summary) => summary.length)
+      .join(":"),
   () => {
     nextTick(() => {
       if (!thoughtStreamPane.value) return;

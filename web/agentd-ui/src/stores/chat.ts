@@ -99,6 +99,19 @@ export const useChatStore = defineStore("chat", () => {
     const text = (summary || "").trim();
     if (!text) return;
     const existing = thoughtSummariesBySession.value[sessionId] || [];
+    const last = existing[existing.length - 1];
+    if (last) {
+      if (text === last) return;
+      if (text.length > last.length && text.startsWith(last)) {
+        const next = [...existing];
+        next[next.length - 1] = text;
+        thoughtSummariesBySession.value = {
+          ...thoughtSummariesBySession.value,
+          [sessionId]: next,
+        };
+        return;
+      }
+    }
     thoughtSummariesBySession.value = {
       ...thoughtSummariesBySession.value,
       [sessionId]: [...existing, text],

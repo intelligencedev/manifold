@@ -473,20 +473,6 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 			}
 		}
 
-		if tc.Name == "multi_tool_use_parallel" && (e.OnToolStart != nil || e.OnTool != nil) {
-			sink := func(ev tools.SubtoolEvent) {
-				if ev.Phase == "start" && e.OnToolStart != nil {
-					e.OnToolStart(ev.Name, ev.Args, ev.ToolCallID)
-					return
-				}
-				if ev.Phase == "end" && e.OnTool != nil {
-					e.OnTool(ev.Name, ev.Args, ev.Payload, ev.ToolCallID)
-					return
-				}
-			}
-			dispatchCtx = tools.WithSubtoolSink(dispatchCtx, sink)
-		}
-
 		if e.OnToolStart != nil {
 			e.OnToolStart(tc.Name, tc.Args, tc.ID)
 		}

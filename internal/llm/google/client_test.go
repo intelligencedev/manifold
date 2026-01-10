@@ -13,9 +13,10 @@ import (
 )
 
 type streamRecorder struct {
-	deltas []string
-	calls  []llm.ToolCall
-	images []llm.GeneratedImage
+	deltas    []string
+	calls     []llm.ToolCall
+	images    []llm.GeneratedImage
+	summaries []string
 }
 
 func (s *streamRecorder) OnDelta(content string) { s.deltas = append(s.deltas, content) }
@@ -25,7 +26,9 @@ func (s *streamRecorder) OnToolCall(tc llm.ToolCall) {
 func (s *streamRecorder) OnImage(img llm.GeneratedImage) {
 	s.images = append(s.images, img)
 }
-func (s *streamRecorder) OnThoughtSummary(string) {}
+func (s *streamRecorder) OnThoughtSummary(summary string) {
+	s.summaries = append(s.summaries, summary)
+}
 
 func TestChatSuccess(t *testing.T) {
 	var gotPath string
@@ -102,6 +105,126 @@ func TestChatStream(t *testing.T) {
 	got := strings.Join(rec.deltas, "")
 	if got != "hello world" {
 		t.Fatalf("unexpected deltas %q", got)
+	}
+}
+
+func TestShouldIncludeThoughtSummaries(t *testing.T) {
+	cases := map[string]bool{
+		"":                      false,
+		"gemini-1.5-pro":        false,
+		"gemini-2.5-pro":        true,
+		"gemini-3-pro-preview":  true,
+		"models/gemini-2.5-pro": true,
+		"projects/p/locations/l/models/gemini-3-pro":    true,
+		"publishers/google/models/gemini-2.5-flash":     true,
+		"publishers/google/models/gemini-1.5-pro":       false,
+		"projects/p/locations/l/models/custom-model":    false,
+		"projects/p/locations/l/models/gemini-2.5-test": true,
+	}
+	for model, want := range cases {
+		if got := shouldIncludeThoughtSummaries(model); got != want {
+			t.Fatalf("shouldIncludeThoughtSummaries(%q) = %v, want %v", model, got, want)
+		}
+	}
+}
+
+func TestChatStreamThoughtSummary(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, ":streamGenerateContent") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		chunks := []string{
+			`{"candidates":[{"content":{"role":"model","parts":[{"text":"Reasoning step","thought":true}]}}]}`,
+			`{"candidates":[{"content":{"role":"model","parts":[{"text":"Answer"}]}}]}`,
+		}
+		for _, c := range chunks {
+			_, _ = w.Write([]byte("data: " + c + "\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := config.GoogleConfig{
+		APIKey:  "k",
+		Model:   "gemini-3-pro-preview",
+		BaseURL: srv.URL,
+	}
+	client, err := New(cfg, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	rec := &streamRecorder{}
+	err = client.ChatStream(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "", rec)
+	if err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+	if len(rec.summaries) == 0 {
+		t.Fatalf("expected thought summary events")
+	}
+	if rec.summaries[len(rec.summaries)-1] != "Reasoning step" {
+		t.Fatalf("unexpected summary %q", rec.summaries[len(rec.summaries)-1])
+	}
+}
+
+// TestChatStreamIncrementalThoughts verifies that multiple incremental thought
+// chunks are accumulated correctly (rolling summaries as per Gemini docs).
+func TestChatStreamIncrementalThoughts(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.Path, ":streamGenerateContent") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		// Simulate incremental thought summaries followed by answer
+		chunks := []string{
+			`{"candidates":[{"content":{"role":"model","parts":[{"text":"Step 1: ","thought":true}]}}]}`,
+			`{"candidates":[{"content":{"role":"model","parts":[{"text":"analyze","thought":true}]}}]}`,
+			`{"candidates":[{"content":{"role":"model","parts":[{"text":"Final answer"}]}}]}`,
+		}
+		for _, c := range chunks {
+			_, _ = w.Write([]byte("data: " + c + "\n\n"))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := config.GoogleConfig{
+		APIKey:  "k",
+		Model:   "gemini-2.5-pro",
+		BaseURL: srv.URL,
+	}
+	client, err := New(cfg, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	rec := &streamRecorder{}
+	err = client.ChatStream(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "", rec)
+	if err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+
+	// Should have received 2 thought summary events (one per thought chunk)
+	if len(rec.summaries) != 2 {
+		t.Fatalf("expected 2 thought summary events, got %d: %v", len(rec.summaries), rec.summaries)
+	}
+	// Each summary should be cumulative (rolling)
+	if rec.summaries[0] != "Step 1: " {
+		t.Fatalf("expected first summary 'Step 1: ', got %q", rec.summaries[0])
+	}
+	if rec.summaries[1] != "Step 1: analyze" {
+		t.Fatalf("expected second summary 'Step 1: analyze', got %q", rec.summaries[1])
+	}
+	// Should have received the final answer
+	if strings.Join(rec.deltas, "") != "Final answer" {
+		t.Fatalf("expected delta 'Final answer', got %q", strings.Join(rec.deltas, ""))
 	}
 }
 

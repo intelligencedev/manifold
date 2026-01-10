@@ -50,7 +50,6 @@ import (
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
 	kafkatools "manifold/internal/tools/kafka"
-	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
 	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/tools/textsplitter"
@@ -409,23 +408,15 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
 
-	parallelTool := multitool.NewParallel(toolRegistry)
-	toolRegistry.Register(parallelTool)
-
 	if !cfg.EnableTools {
 		toolRegistry = tools.NewRegistry()
 	} else if len(cfg.ToolAllowList) > 0 {
 		allowList := make([]string, 0, len(cfg.ToolAllowList))
 		for _, name := range cfg.ToolAllowList {
-			if name == "multi_tool_use.parallel" {
-				name = multitool.ToolName
-			}
 			allowList = append(allowList, name)
 		}
 		toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, allowList)
 	}
-
-	parallelTool.SetRegistry(toolRegistry)
 
 	{
 		names := make([]string, 0, len(toolRegistry.Schemas()))

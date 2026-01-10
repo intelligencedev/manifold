@@ -68,14 +68,14 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	llm.LogRedactedPrompt(ctx, msgs)
 	log := observability.LoggerWithTrace(ctx)
 
-	contents, toolMap, err := toContents(msgs)
+	contents, err := toContents(msgs)
 	if err != nil {
 		span.RecordError(err)
 		log.Error().Err(err).Msg("google_chat_toContents_error")
 		return llm.Message{}, err
 	}
 
-	toolDecls, toolCfg, err := adaptTools(tools, toolMap)
+	toolDecls, toolCfg, err := adaptTools(tools)
 	if err != nil {
 		span.RecordError(err)
 		log.Error().Err(err).Msg("google_chat_adaptTools_error")
@@ -85,7 +85,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Int("contents", len(contents)).Msg("google_chat_api_call_start")
 
 	start := time.Now()
-	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
+	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, toolDecls, toolCfg))
 	dur := time.Since(start)
 
 	log.Debug().Dur("duration", dur).Bool("has_response", resp != nil).Bool("has_error", err != nil).Msg("google_chat_api_call_complete")
@@ -118,14 +118,14 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	llm.LogRedactedPrompt(ctx, msgs)
 	log := observability.LoggerWithTrace(ctx)
 
-	contents, toolMap, err := toContents(msgs)
+	contents, err := toContents(msgs)
 	if err != nil {
 		span.RecordError(err)
 		log.Error().Err(err).Msg("google_stream_toContents_error")
 		return err
 	}
 
-	toolDecls, toolCfg, err := adaptTools(tools, toolMap)
+	toolDecls, toolCfg, err := adaptTools(tools)
 	if err != nil {
 		span.RecordError(err)
 		log.Error().Err(err).Msg("google_stream_adaptTools_error")
@@ -135,10 +135,12 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	start := time.Now()
 	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Int("msgs", len(msgs)).Msg("google_stream_start")
 
-	stream := c.client.Models.GenerateContentStream(ctx, effectiveModel, contents, c.buildContentConfig(ctx, toolDecls, toolCfg))
+	stream := c.client.Models.GenerateContentStream(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, toolDecls, toolCfg))
 
 	hasContent := false
 	var toolCallCount int
+	var thoughtSummaryCount int
+	var thoughtSummary strings.Builder
 	for resp, err := range stream {
 		if err != nil {
 			dur := time.Since(start)
@@ -148,12 +150,18 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		}
 		// Use streaming-aware response parser that tolerates intermediate chunks
 		// with empty candidates or nil content (normal in streaming).
-		msg, skip, err := messageFromStreamResponse(resp)
+		msg, summaryDelta, skip, err := messageFromStreamResponse(resp)
 		if err != nil {
 			dur := time.Since(start)
 			span.RecordError(err)
 			log.Error().Err(err).Dur("duration", dur).Msg("google_stream_response_parse_error")
 			return err
+		}
+		if summaryDelta != "" && h != nil {
+			thoughtSummaryCount++
+			thoughtSummary.WriteString(summaryDelta)
+			log.Debug().Int("thought_count", thoughtSummaryCount).Int("summary_len", thoughtSummary.Len()).Msg("google_stream_thought_summary")
+			h.OnThoughtSummary(thoughtSummary.String())
 		}
 		if skip {
 			// Intermediate chunk with no actionable content - continue streaming
@@ -178,9 +186,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 
 	dur := time.Since(start)
 	if !hasContent {
-		log.Warn().Dur("duration", dur).Msg("google_stream_empty_response")
+		log.Warn().Dur("duration", dur).Int("thought_summaries", thoughtSummaryCount).Msg("google_stream_empty_response")
 	} else {
-		log.Debug().Dur("duration", dur).Int("tool_calls", toolCallCount).Msg("google_stream_ok")
+		log.Debug().Dur("duration", dur).Int("tool_calls", toolCallCount).Int("thought_summaries", thoughtSummaryCount).Msg("google_stream_ok")
 	}
 
 	return nil
@@ -194,11 +202,14 @@ func (c *Client) pickModel(model string) string {
 	return m
 }
 
-func (c *Client) buildContentConfig(ctx context.Context, tools []*genai.Tool, toolCfg *genai.ToolConfig) *genai.GenerateContentConfig {
+func (c *Client) buildContentConfig(ctx context.Context, model string, tools []*genai.Tool, toolCfg *genai.ToolConfig) *genai.GenerateContentConfig {
 	cfg := &genai.GenerateContentConfig{
 		HTTPOptions: &c.httpOptions,
 		Tools:       tools,
 		ToolConfig:  toolCfg,
+	}
+	if shouldIncludeThoughtSummaries(model) {
+		cfg.ThinkingConfig = &genai.ThinkingConfig{IncludeThoughts: true}
 	}
 	if opts, ok := llm.ImagePromptFromContext(ctx); ok {
 		size := strings.TrimSpace(opts.Size)
@@ -213,9 +224,20 @@ func (c *Client) buildContentConfig(ctx context.Context, tools []*genai.Tool, to
 	return cfg
 }
 
-func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error) {
+func shouldIncludeThoughtSummaries(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	if idx := strings.LastIndex(m, "/"); idx != -1 {
+		m = m[idx+1:]
+	}
+	return strings.Contains(m, "gemini-2.5") || strings.Contains(m, "gemini-3")
+}
+
+func toContents(msgs []llm.Message) ([]*genai.Content, error) {
 	if len(msgs) == 0 {
-		return nil, nil, fmt.Errorf("messages required")
+		return nil, fmt.Errorf("messages required")
 	}
 
 	decodeThoughtSignature := func(sig string) ([]byte, bool) {
@@ -282,7 +304,7 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 			contents = append(contents, genai.NewContentFromParts([]*genai.Part{part}, genai.RoleUser))
 			continue
 		default:
-			return nil, nil, fmt.Errorf("unsupported role for google provider: %s", m.Role)
+			return nil, fmt.Errorf("unsupported role for google provider: %s", m.Role)
 		}
 		text := m.Content
 		if role == genai.RoleUser && strings.ToLower(strings.TrimSpace(m.Role)) == "system" {
@@ -325,7 +347,7 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 			Parts: parts,
 		})
 	}
-	return contents, toolNamesByID, nil
+	return contents, nil
 }
 
 // messageFromStreamResponse parses a streaming response chunk. It returns:
@@ -335,20 +357,20 @@ func toContents(msgs []llm.Message) ([]*genai.Content, map[string]string, error)
 //
 // This is more lenient than messageFromResponse because streaming can produce
 // intermediate chunks with empty candidates or nil content, which is normal.
-func messageFromStreamResponse(resp *genai.GenerateContentResponse) (llm.Message, bool, error) {
+func messageFromStreamResponse(resp *genai.GenerateContentResponse) (llm.Message, string, bool, error) {
 	if resp == nil {
 		// Nil response in streaming is typically end-of-stream, skip it
-		return llm.Message{}, true, nil
+		return llm.Message{}, "", true, nil
 	}
 
 	// Check for blocked response due to safety or other reasons
 	if resp.PromptFeedback != nil && resp.PromptFeedback.BlockReason != "" {
-		return llm.Message{}, false, fmt.Errorf("request blocked by google: %s", resp.PromptFeedback.BlockReason)
+		return llm.Message{}, "", false, fmt.Errorf("request blocked by google: %s", resp.PromptFeedback.BlockReason)
 	}
 
 	// Empty candidates in streaming is normal for intermediate chunks
 	if len(resp.Candidates) == 0 {
-		return llm.Message{}, true, nil
+		return llm.Message{}, "", true, nil
 	}
 
 	candidate := resp.Candidates[0]
@@ -356,20 +378,21 @@ func messageFromStreamResponse(resp *genai.GenerateContentResponse) (llm.Message
 	// Check finish reason for errors (safety, recitation, etc.)
 	switch candidate.FinishReason {
 	case genai.FinishReasonSafety:
-		return llm.Message{}, false, fmt.Errorf("response blocked by safety filters")
+		return llm.Message{}, "", false, fmt.Errorf("response blocked by safety filters")
 	case genai.FinishReasonRecitation:
-		return llm.Message{}, false, fmt.Errorf("response blocked due to recitation")
+		return llm.Message{}, "", false, fmt.Errorf("response blocked due to recitation")
 	case genai.FinishReasonMalformedFunctionCall:
-		return llm.Message{}, false, fmt.Errorf("malformed function call generated by model")
+		return llm.Message{}, "", false, fmt.Errorf("malformed function call generated by model")
 	}
 
 	// Content can be nil in streaming intermediate chunks - skip rather than error
 	if candidate.Content == nil {
-		return llm.Message{}, true, nil
+		return llm.Message{}, "", true, nil
 	}
 
 	content := candidate.Content
 	var sb strings.Builder
+	var summary strings.Builder
 	var tcs []llm.ToolCall
 	var images []llm.GeneratedImage
 	// Gemini 3 may return thought signatures on ANY part type (text, thought, etc.)
@@ -391,6 +414,12 @@ func messageFromStreamResponse(resp *genai.GenerateContentResponse) (llm.Message
 				Data:     part.InlineData.Data,
 				MIMEType: part.InlineData.MIMEType,
 			})
+		}
+		if part.Thought {
+			if part.Text != "" {
+				summary.WriteString(part.Text)
+			}
+			continue
 		}
 		if part.Text != "" {
 			sb.WriteString(part.Text)
@@ -417,7 +446,7 @@ func messageFromStreamResponse(resp *genai.GenerateContentResponse) (llm.Message
 
 	// If we have no actual content/calls/images, skip this chunk
 	if sb.Len() == 0 && len(tcs) == 0 && len(images) == 0 {
-		return llm.Message{}, true, nil
+		return llm.Message{}, summary.String(), true, nil
 	}
 
 	return llm.Message{
@@ -436,7 +465,7 @@ func messageFromStreamResponse(resp *genai.GenerateContentResponse) (llm.Message
 			return images
 		}(),
 		ThoughtSignature: textThoughtSig,
-	}, false, nil
+	}, summary.String(), false, nil
 }
 
 func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, error) {
@@ -496,6 +525,9 @@ func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, erro
 				MIMEType: part.InlineData.MIMEType,
 			})
 		}
+		if part.Thought {
+			continue
+		}
 		if part.Text != "" {
 			sb.WriteString(part.Text)
 		}
@@ -538,7 +570,7 @@ func messageFromResponse(resp *genai.GenerateContentResponse) (llm.Message, erro
 	}, nil
 }
 
-func adaptTools(schemas []llm.ToolSchema, toolNames map[string]string) ([]*genai.Tool, *genai.ToolConfig, error) {
+func adaptTools(schemas []llm.ToolSchema) ([]*genai.Tool, *genai.ToolConfig, error) {
 	if len(schemas) == 0 {
 		return nil, nil, nil
 	}

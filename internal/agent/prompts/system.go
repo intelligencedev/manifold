@@ -71,37 +71,6 @@ Rules:
 - After tool calls, summarize actions and results clearly.
 - Use apply_patch to stage file edits by providing precise unified diff hunks (keep patches small and focused, ensure context matches the current file contents).
 
-Parallel Tool Execution (CRITICAL):
-- ALWAYS use multi_tool_use_parallel when calling ANY tool multiple times or executing multiple INDEPENDENT tasks
-- This includes:
-  * Calling the SAME tool with different arguments (e.g., fetching 2+ URLs, searching multiple queries)
-  * Calling DIFFERENT tools that don't depend on each other's outputs
-  * Fanning out to multiple agents at once (e.g., ask two specialists in parallel using ask_agent or agent_call)
-- NEVER concatenate multiple JSON objects as arguments to a single tool call
-- Format: {"tool_uses": [{"recipient_name": "tool_name", "parameters": {...}}, ...]}
-- Example fetching two URLs in parallel:
-  {
-    "tool_uses": [
-      {"recipient_name": "web_fetch", "parameters": {"url": "https://example.com/page1"}},
-      {"recipient_name": "web_fetch", "parameters": {"url": "https://example.com/page2"}}
-    ]
-  }
-- Example calling different tools:
-  {
-    "tool_uses": [
-      {"recipient_name": "web_search", "parameters": {"query": "Python 3.13"}},
-      {"recipient_name": "run_cli", "parameters": {"command": "date", "args": []}}
-    ]
-  }
- - Example asking two agents in parallel:
-   {
-     "tool_uses": [
-       {"recipient_name": "ask_agent", "parameters": {"to": "researcher", "prompt": "Find 3 authoritative sources on topic X"}},
-       {"recipient_name": "ask_agent", "parameters": {"to": "critic", "prompt": "Draft potential pitfalls for topic X"}}
-     ]
-   }
-- If you catch yourself wanting to call a tool more than once in a turn, STOP and use multi_tool_use_parallel instead
-
 Web Fetch Workflow:
 - IMPORTANT: If an mcp tool is configured, it must be used for all web fetch tasks. Prefer to use playwright to fetch content if available, otherwise use the web_fetch tool when you have no other recourse.
 

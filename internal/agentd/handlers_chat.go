@@ -690,6 +690,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				fl.Flush()
 			}
 			eng.OnThoughtSummary = func(summary string) {
+				log.Debug().Int("summary_len", len(summary)).Msg("http_handler_thought_summary")
 				payload := map[string]string{"type": "thought_summary", "data": summary}
 				b, _ := json.Marshal(payload)
 				fmt.Fprintf(w, "data: %s\n\n", b)

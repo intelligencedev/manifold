@@ -80,6 +80,13 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		Tools:     toolDefs,
 		MaxTokens: c.maxTokens,
 	}
+	if shouldIncludeThoughtSummaries(string(params.Model)) {
+		// Enable extended thinking so we can stream thinking deltas and surface them
+		// as thought summaries in the UI.
+		//
+		// Anthropic enforces budget_tokens >= 1024.
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(1024)
+	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic Chat", string(params.Model), len(tools), len(msgs))
 	defer span.End()
@@ -139,6 +146,13 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		Tools:     toolDefs,
 		MaxTokens: c.maxTokens,
 	}
+	if shouldIncludeThoughtSummaries(string(params.Model)) {
+		// Enable extended thinking so we can stream thinking deltas and surface them
+		// as thought summaries in the UI.
+		//
+		// Anthropic enforces budget_tokens >= 1024.
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(1024)
+	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatStream", string(params.Model), len(tools), len(msgs))
 	defer span.End()
@@ -154,6 +168,8 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	var acc anthropic.Message
 	var usage anthropic.MessageDeltaUsage
 	toolBuffers := map[int]*toolBuffer{}
+	thinkingBlocks := map[int64]*strings.Builder{}
+	var thinkingCount int
 	hasDelta := false
 
 	for stream.Next() {
@@ -170,6 +186,16 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		switch ev := event.AsAny().(type) {
 		case anthropic.ContentBlockStartEvent:
 			switch block := ev.ContentBlock.AsAny().(type) {
+			case anthropic.ThinkingBlock:
+				if h != nil {
+					b := &strings.Builder{}
+					b.WriteString(block.Thinking)
+					thinkingBlocks[ev.Index] = b
+					thinkingCount++
+					if b.Len() > 0 {
+						h.OnThoughtSummary(b.String())
+					}
+				}
 			case anthropic.ToolUseBlock:
 				id := strings.TrimSpace(block.ID)
 				if id == "" {
@@ -195,6 +221,17 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 				log.Debug().Int("index", int(ev.Index)).Str("partial", delta.PartialJSON).Msg("anthropic_tool_delta")
 				if tb := toolBuffers[int(ev.Index)]; tb != nil {
 					tb.appendPartial(delta.PartialJSON)
+				}
+			case anthropic.ThinkingDelta:
+				if h != nil && delta.Thinking != "" {
+					b := thinkingBlocks[ev.Index]
+					if b == nil {
+						b = &strings.Builder{}
+						thinkingBlocks[ev.Index] = b
+						thinkingCount++
+					}
+					b.WriteString(delta.Thinking)
+					h.OnThoughtSummary(b.String())
 				}
 			}
 		case anthropic.MessageDeltaEvent:
@@ -276,6 +313,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens).
+		Int("thought_summaries", thinkingCount).
 		Msg("anthropic_stream_ok")
 
 	return nil
@@ -286,6 +324,34 @@ func (c *Client) pickModel(model string) string {
 		return m
 	}
 	return c.model
+}
+
+func shouldIncludeThoughtSummaries(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	if idx := strings.LastIndex(m, "/"); idx != -1 {
+		m = m[idx+1:]
+	}
+	// Extended thinking is not available on all Claude models. Be conservative to
+	// avoid 400 errors from older/non-thinking models.
+	supports := []string{
+		"claude-3-7",
+		"claude-3.7",
+		"claude-4-5",
+		"claude-4.5",
+		"claude-sonnet-4",
+		"claude-opus-4",
+		"claude-haiku-4",
+		"claude-4",
+	}
+	for _, s := range supports {
+		if strings.Contains(m, s) {
+			return true
+		}
+	}
+	return false
 }
 
 func adaptTools(tools []llm.ToolSchema, cacheCfg config.AnthropicPromptCacheConfig) ([]anthropic.ToolUnionParam, error) {

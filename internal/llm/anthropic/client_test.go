@@ -19,12 +19,15 @@ import (
 type streamRecorder struct {
 	deltas []string
 	calls  []llm.ToolCall
+	summaries []string
 }
 
 func (s *streamRecorder) OnDelta(content string)     { s.deltas = append(s.deltas, content) }
 func (s *streamRecorder) OnToolCall(tc llm.ToolCall) { s.calls = append(s.calls, tc) }
 func (s *streamRecorder) OnImage(llm.GeneratedImage) {}
-func (s *streamRecorder) OnThoughtSummary(string)    {}
+func (s *streamRecorder) OnThoughtSummary(summary string) {
+	s.summaries = append(s.summaries, summary)
+}
 
 func TestChatReturnsText(t *testing.T) {
 	var gotPath string
@@ -204,7 +207,7 @@ func TestChatStreamText(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := New(config.AnthropicConfig{APIKey: "k", BaseURL: srv.URL}, srv.Client())
+	client := New(config.AnthropicConfig{APIKey: "k", Model: "claude-3-7-sonnet-latest", BaseURL: srv.URL}, srv.Client())
 	rec := &streamRecorder{}
 	if err := client.ChatStream(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "", rec); err != nil {
 		t.Fatalf("ChatStream returned error: %v", err)
@@ -212,6 +215,44 @@ func TestChatStreamText(t *testing.T) {
 	got := strings.Join(rec.deltas, "")
 	if got != "hello world" {
 		t.Fatalf("unexpected delta content %q", got)
+	}
+}
+
+func TestChatStreamThoughtSummaries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		writeEvent(w, flusher, "message_start", map[string]any{"message": minimalMessage()})
+		writeEvent(w, flusher, "content_block_start", map[string]any{
+			"index": 0,
+			"content_block": map[string]any{"type": "thinking", "thinking": ""},
+		})
+		writeEvent(w, flusher, "content_block_delta", map[string]any{
+			"index": 0,
+			"delta": map[string]any{"type": "thinking_delta", "thinking": "first"},
+		})
+		writeEvent(w, flusher, "content_block_delta", map[string]any{
+			"index": 0,
+			"delta": map[string]any{"type": "thinking_delta", "thinking": " second"},
+		})
+		writeEvent(w, flusher, "message_delta", map[string]any{
+			"delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": ""},
+			"usage": minimalDeltaUsage(),
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.AnthropicConfig{APIKey: "k", Model: "claude-3-7-sonnet-latest", BaseURL: srv.URL}, srv.Client())
+	rec := &streamRecorder{}
+	if err := client.ChatStream(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "", rec); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+	if len(rec.summaries) < 2 {
+		t.Fatalf("expected at least 2 thought summary updates, got %d: %#v", len(rec.summaries), rec.summaries)
+	}
+	if rec.summaries[len(rec.summaries)-1] != "first second" {
+		t.Fatalf("unexpected final thought summary: %q", rec.summaries[len(rec.summaries)-1])
 	}
 }
 

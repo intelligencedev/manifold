@@ -228,10 +228,11 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 
 // streamHandler implements llm.StreamHandler
 type streamHandler struct {
-	onDelta          func(string)
-	onThoughtSummary func(string)
-	onToolCall       func(llm.ToolCall)
-	onImage          func(llm.GeneratedImage)
+	onDelta            func(string)
+	onThoughtSummary   func(string)
+	onThoughtSignature func(string)
+	onToolCall         func(llm.ToolCall)
+	onImage            func(llm.GeneratedImage)
 }
 
 func (h *streamHandler) OnDelta(content string) {
@@ -255,6 +256,12 @@ func (h *streamHandler) OnImage(img llm.GeneratedImage) {
 func (h *streamHandler) OnThoughtSummary(summary string) {
 	if h.onThoughtSummary != nil {
 		h.onThoughtSummary(summary)
+	}
+}
+
+func (h *streamHandler) OnThoughtSignature(sig string) {
+	if h.onThoughtSignature != nil {
+		h.onThoughtSignature(sig)
 	}
 }
 
@@ -328,9 +335,10 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 
 		// Accumulate streaming content and tool calls for this step
 		var (
-			accumulatedContent   string
-			accumulatedToolCalls []llm.ToolCall
-			accumulatedImages    []llm.GeneratedImage
+			accumulatedContent    string
+			accumulatedToolCalls  []llm.ToolCall
+			accumulatedImages     []llm.GeneratedImage
+			accumulatedThoughtSig string
 		)
 
 		handler := &streamHandler{
@@ -344,6 +352,9 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 				if e.OnThoughtSummary != nil {
 					e.OnThoughtSummary(summary)
 				}
+			},
+			onThoughtSignature: func(sig string) {
+				accumulatedThoughtSig = sig
 			},
 			onToolCall: func(tc llm.ToolCall) {
 				accumulatedToolCalls = append(accumulatedToolCalls, tc)
@@ -370,10 +381,11 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 
 		accumulatedToolCalls = e.ensureToolCallIDs(msgs, accumulatedToolCalls)
 		msg := llm.Message{
-			Role:      "assistant",
-			Content:   accumulatedContent,
-			ToolCalls: accumulatedToolCalls,
-			Images:    accumulatedImages,
+			Role:             "assistant",
+			Content:          accumulatedContent,
+			ToolCalls:        accumulatedToolCalls,
+			Images:           accumulatedImages,
+			ThoughtSignature: accumulatedThoughtSig,
 		}
 
 		msgs = append(msgs, msg)

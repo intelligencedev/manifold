@@ -29,6 +29,7 @@ func (s *streamRecorder) OnImage(img llm.GeneratedImage) {
 func (s *streamRecorder) OnThoughtSummary(summary string) {
 	s.summaries = append(s.summaries, summary)
 }
+func (s *streamRecorder) OnThoughtSignature(string) {}
 
 func TestChatSuccess(t *testing.T) {
 	var gotPath string
@@ -329,10 +330,10 @@ func TestToolResponseIsForwarded(t *testing.T) {
 	if thoughtSig == nil {
 		t.Fatalf("expected thoughtSignature on functionCall part")
 	}
-	// tool response should carry the same signature on its part for safety
-	if sigBytes, ok := parts[0].(map[string]any)["thoughtSignature"]; !ok || sigBytes == nil {
-		t.Fatalf("expected thoughtSignature on tool response part")
-	}
+	// Tool responses should NOT echo thought signatures back; Google guidance is to
+	// include thought signatures only on their original parts (typically model text
+	// and/or functionCall parts). Attaching them to tool responses can cause API
+	// instability.
 }
 
 func TestStreamEmitsToolCalls(t *testing.T) {

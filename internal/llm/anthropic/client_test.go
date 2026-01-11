@@ -17,14 +17,21 @@ import (
 )
 
 type streamRecorder struct {
-	deltas []string
-	calls  []llm.ToolCall
+	deltas     []string
+	calls      []llm.ToolCall
+	summaries  []string
+	signatures []string
 }
 
 func (s *streamRecorder) OnDelta(content string)     { s.deltas = append(s.deltas, content) }
 func (s *streamRecorder) OnToolCall(tc llm.ToolCall) { s.calls = append(s.calls, tc) }
 func (s *streamRecorder) OnImage(llm.GeneratedImage) {}
-func (s *streamRecorder) OnThoughtSummary(string)    {}
+func (s *streamRecorder) OnThoughtSummary(summary string) {
+	s.summaries = append(s.summaries, summary)
+}
+func (s *streamRecorder) OnThoughtSignature(sig string) {
+	s.signatures = append(s.signatures, sig)
+}
 
 func TestChatReturnsText(t *testing.T) {
 	var gotPath string
@@ -204,7 +211,7 @@ func TestChatStreamText(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := New(config.AnthropicConfig{APIKey: "k", BaseURL: srv.URL}, srv.Client())
+	client := New(config.AnthropicConfig{APIKey: "k", Model: "claude-3-7-sonnet-latest", BaseURL: srv.URL}, srv.Client())
 	rec := &streamRecorder{}
 	if err := client.ChatStream(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "", rec); err != nil {
 		t.Fatalf("ChatStream returned error: %v", err)
@@ -212,6 +219,44 @@ func TestChatStreamText(t *testing.T) {
 	got := strings.Join(rec.deltas, "")
 	if got != "hello world" {
 		t.Fatalf("unexpected delta content %q", got)
+	}
+}
+
+func TestChatStreamThoughtSummaries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		writeEvent(w, flusher, "message_start", map[string]any{"message": minimalMessage()})
+		writeEvent(w, flusher, "content_block_start", map[string]any{
+			"index":         0,
+			"content_block": map[string]any{"type": "thinking", "thinking": ""},
+		})
+		writeEvent(w, flusher, "content_block_delta", map[string]any{
+			"index": 0,
+			"delta": map[string]any{"type": "thinking_delta", "thinking": "first"},
+		})
+		writeEvent(w, flusher, "content_block_delta", map[string]any{
+			"index": 0,
+			"delta": map[string]any{"type": "thinking_delta", "thinking": " second"},
+		})
+		writeEvent(w, flusher, "message_delta", map[string]any{
+			"delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": ""},
+			"usage": minimalDeltaUsage(),
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.AnthropicConfig{APIKey: "k", Model: "claude-3-7-sonnet-latest", BaseURL: srv.URL}, srv.Client())
+	rec := &streamRecorder{}
+	if err := client.ChatStream(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "", rec); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+	if len(rec.summaries) < 2 {
+		t.Fatalf("expected at least 2 thought summary updates, got %d: %#v", len(rec.summaries), rec.summaries)
+	}
+	if rec.summaries[len(rec.summaries)-1] != "first second" {
+		t.Fatalf("unexpected final thought summary: %q", rec.summaries[len(rec.summaries)-1])
 	}
 }
 
@@ -307,5 +352,153 @@ func minimalDeltaUsage() map[string]any {
 		"input_tokens":                0,
 		"output_tokens":               0,
 		"server_tool_use":             map[string]any{"web_search_requests": 0},
+	}
+}
+
+func TestThinkingBlockPreservation(t *testing.T) {
+	// Test that thinking blocks are captured from responses and included in subsequent requests
+	var reqBodies []map[string]any
+	reqCount := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		reqBodies = append(reqBodies, body)
+		reqCount++
+
+		w.Header().Set("Content-Type", "application/json")
+		resp := sdk.Message{
+			ID:           fmt.Sprintf("msg_%d", reqCount),
+			Type:         constant.Message("message"),
+			Role:         constant.Assistant("assistant"),
+			Model:        sdk.ModelClaude3_7SonnetLatest,
+			StopReason:   sdk.StopReasonEndTurn,
+			StopSequence: "",
+			Content: []sdk.ContentBlockUnion{
+				{Type: "thinking", Thinking: "Let me think about this...", Signature: "sig_abc123"},
+				{Type: "text", Text: "Here's my response"},
+			},
+			Usage: minimalUsage(),
+		}
+		b, _ := json.Marshal(resp)
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.AnthropicConfig{APIKey: "k", Model: "claude-sonnet-4-5-latest", BaseURL: srv.URL}, srv.Client())
+
+	// First turn - just user message
+	msg1, err := client.Chat(context.Background(), []llm.Message{
+		{Role: "user", Content: "First question"},
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("First Chat returned error: %v", err)
+	}
+
+	// Verify thinking was captured in ThoughtSignature
+	if msg1.ThoughtSignature == "" {
+		t.Fatal("expected ThoughtSignature to be set after first response")
+	}
+
+	// Parse the thought signature to verify structure
+	var thinking []thinkingData
+	if err := json.Unmarshal([]byte(msg1.ThoughtSignature), &thinking); err != nil {
+		t.Fatalf("failed to parse ThoughtSignature: %v", err)
+	}
+	if len(thinking) != 1 || thinking[0].Signature != "sig_abc123" {
+		t.Fatalf("unexpected thinking data: %+v", thinking)
+	}
+
+	// Second turn - include assistant response with thinking
+	_, err = client.Chat(context.Background(), []llm.Message{
+		{Role: "user", Content: "First question"},
+		{Role: "assistant", Content: "Here's my response", ThoughtSignature: msg1.ThoughtSignature},
+		{Role: "user", Content: "Follow up question"},
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("Second Chat returned error: %v", err)
+	}
+
+	// Verify the second request included thinking blocks
+	if len(reqBodies) < 2 {
+		t.Fatal("expected at least 2 requests")
+	}
+
+	messages, ok := reqBodies[1]["messages"].([]any)
+	if !ok {
+		t.Fatalf("expected messages array in request, got %#v", reqBodies[1])
+	}
+
+	// Find the assistant message and check for thinking block
+	for _, m := range messages {
+		msg, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		if msg["role"] == "assistant" {
+			content, ok := msg["content"].([]any)
+			if !ok {
+				t.Fatalf("expected content array in assistant message, got %#v", msg["content"])
+			}
+			// Check first block is thinking
+			if len(content) > 0 {
+				firstBlock, ok := content[0].(map[string]any)
+				if !ok {
+					t.Fatalf("expected content block object, got %#v", content[0])
+				}
+				if firstBlock["type"] != "thinking" {
+					t.Fatalf("expected first block to be thinking, got %q", firstBlock["type"])
+				}
+				if firstBlock["signature"] != "sig_abc123" {
+					t.Fatalf("expected signature sig_abc123, got %q", firstBlock["signature"])
+				}
+			}
+			break
+		}
+	}
+}
+
+func TestAdaptMessagesWithThinking(t *testing.T) {
+	// Test that adaptMessages correctly includes thinking blocks from ThoughtSignature
+	thinking := []thinkingData{
+		{Signature: "sig_test", Thinking: "My reasoning"},
+	}
+	thinkingJSON, _ := json.Marshal(thinking)
+
+	msgs := []llm.Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Response", ThoughtSignature: string(thinkingJSON)},
+		{Role: "user", Content: "Follow up"},
+	}
+
+	_, converted, err := adaptMessages(msgs, config.AnthropicPromptCacheConfig{})
+	if err != nil {
+		t.Fatalf("adaptMessages error: %v", err)
+	}
+
+	if len(converted) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(converted))
+	}
+
+	// Check assistant message has thinking block first
+	assistantMsg := converted[1]
+	if assistantMsg.Role != "assistant" {
+		t.Fatalf("expected assistant role, got %s", assistantMsg.Role)
+	}
+
+	// The content should have thinking block before text
+	if len(assistantMsg.Content) < 2 {
+		t.Fatalf("expected at least 2 content blocks, got %d", len(assistantMsg.Content))
+	}
+
+	// Marshal to check structure
+	contentJSON, _ := json.Marshal(assistantMsg.Content)
+	contentStr := string(contentJSON)
+	if !strings.Contains(contentStr, "thinking") {
+		t.Fatalf("expected thinking block in content, got %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "sig_test") {
+		t.Fatalf("expected signature in content, got %s", contentStr)
 	}
 }

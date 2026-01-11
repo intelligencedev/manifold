@@ -186,12 +186,8 @@
             v-if="!chatMessages.length"
             class="ap-card flex h-full flex-col items-center justify-center gap-2 rounded-5 border border-dashed border-border bg-surface p-8 text-center text-sm text-subtle-foreground"
           >
-            <p class="text-base font-medium text-foreground">
-              Start a new conversation
-            </p>
-            <p>
-              Ask the agent anything about your operations, tooling, or recent
-              runs.
+            <p class="text-xl font-medium text-foreground">
+              Hello {{ displayUsername }}. Ready to dive in?
             </p>
           </div>
 
@@ -635,14 +631,14 @@
             :style="activeSpecialistPaneStyle"
           >
             <GlassCard :padded="false" class="flex h-full flex-col overflow-hidden">
-              <div>
+              <div class="flex min-h-0 flex-1 flex-col">
                 <header class="flex items-center justify-between">
                   <h2 class="text-sm font-semibold text-foreground">
                     Active specialist
                   </h2>
                   <span class="text-[11px] text-faint-foreground">Live view</span>
                 </header>
-                <div class="mt-2">
+                <div class="mt-2 flex min-h-0 flex-1 flex-col">
                   <div
                     class="active-specialist-card"
                     :class="activeSpecialistCardClasses"
@@ -664,7 +660,7 @@
                     </div>
                   </div>
 
-                  <div class="mt-3">
+                  <div class="mt-3 flex min-h-0 flex-1 flex-col">
                     <header class="flex items-center justify-between">
                       <button
                         v-if="activeThoughtSummaries.length"
@@ -678,7 +674,7 @@
 
                     <div
                       ref="thoughtStreamPane"
-                      class="mt-2 max-h-40 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
+                      class="mt-2 flex-1 min-h-0 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
                     >
                       <div
                         v-if="!activeThoughtSummaries.length"
@@ -817,7 +813,40 @@ let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
 const proj = useProjectsStore();
+
+type CurrentUser = { name?: string; email?: string; picture?: string };
+const currentUser = ref<CurrentUser | null>(null);
+
+async function loadCurrentUser() {
+  try {
+    const res = await fetch("/api/me", { credentials: "include" });
+    if (res.ok) {
+      currentUser.value = await res.json();
+      return;
+    }
+  } catch (_) {
+    // ignore
+  }
+
+  const g = (window as any).__MANIFOLD_USER__;
+  if (g) currentUser.value = g;
+}
+
+function usernameFromUser(user: CurrentUser | null): string | null {
+  const name = user?.name?.trim();
+  if (name) return name;
+
+  const email = user?.email?.trim();
+  if (!email) return null;
+
+  const at = email.indexOf("@");
+  return at > 0 ? email.slice(0, at) : email;
+}
+
+const displayUsername = computed(() => usernameFromUser(currentUser.value) || "there");
+
 onMounted(() => {
+  void loadCurrentUser();
   void proj.refresh();
   if (isBrowser) {
     previousBodyOverflow = document.body.style.overflow;

@@ -163,7 +163,7 @@ function onMoved(payload: { from: string; to: string }) {
 </script>
 
 <template>
-  <section class="flex min-h-0 flex-1 flex-col space-y-6">
+  <section class="flex min-h-0 flex-1 flex-col space-y-3">
     <Panel
       title="Projects"
       description="Create projects, upload files, and preview artifacts in one place."
@@ -230,7 +230,7 @@ function onMoved(payload: { from: string; to: string }) {
 
     <div
       v-if="store.currentProjectId"
-      class="grid min-h-0 flex-1 grid-cols-1 gap-6 lg:grid-cols-2"
+      class="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-2"
     >
       <GlassCard class="flex min-h-0 flex-col p-4 lg:p-6">
         <div class="mb-4 flex items-center gap-3">

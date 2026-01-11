@@ -20,6 +20,14 @@ import (
 
 const defaultMaxTokens int64 = 1024
 
+// thinkingData stores Anthropic thinking block information for multi-turn conversations.
+// When extended thinking is enabled, Anthropic requires assistant messages to include
+// thinking blocks from previous turns.
+type thinkingData struct {
+	Signature string `json:"signature"`
+	Thinking  string `json:"thinking"`
+}
+
 type Client struct {
 	sdk       anthropic.Client
 	model     string
@@ -84,8 +92,12 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		// Enable extended thinking so we can stream thinking deltas and surface them
 		// as thought summaries in the UI.
 		//
-		// Anthropic enforces budget_tokens >= 1024.
-		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(1024)
+		// Anthropic enforces budget_tokens >= 1024 AND max_tokens > budget_tokens.
+		const thinkingBudget int64 = 1024
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
+		if params.MaxTokens <= thinkingBudget {
+			params.MaxTokens = thinkingBudget + 1024
+		}
 	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic Chat", string(params.Model), len(tools), len(msgs))
@@ -150,8 +162,12 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		// Enable extended thinking so we can stream thinking deltas and surface them
 		// as thought summaries in the UI.
 		//
-		// Anthropic enforces budget_tokens >= 1024.
-		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(1024)
+		// Anthropic enforces budget_tokens >= 1024 AND max_tokens > budget_tokens.
+		const thinkingBudget int64 = 1024
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
+		if params.MaxTokens <= thinkingBudget {
+			params.MaxTokens = thinkingBudget + 1024
+		}
 	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatStream", string(params.Model), len(tools), len(msgs))
@@ -298,6 +314,29 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		h.OnDelta(msg.Content)
 	}
 
+	// Emit thought signature for multi-turn preservation if we captured thinking blocks.
+	// This allows the engine to store and replay thinking blocks on subsequent turns.
+	if h != nil && len(thinkingBlocks) > 0 {
+		var thinkingData []thinkingData
+		// Extract signatures from accumulated message content blocks
+		for _, block := range acc.Content {
+			if tb, ok := block.AsAny().(anthropic.ThinkingBlock); ok {
+				thinkingData = append(thinkingData, struct {
+					Signature string `json:"signature"`
+					Thinking  string `json:"thinking"`
+				}{
+					Signature: tb.Signature,
+					Thinking:  tb.Thinking,
+				})
+			}
+		}
+		if len(thinkingData) > 0 {
+			if encoded, err := json.Marshal(thinkingData); err == nil {
+				h.OnThoughtSignature(string(encoded))
+			}
+		}
+	}
+
 	promptTokens := usagePromptTokens(usage.CacheCreationInputTokens, usage.CacheReadInputTokens, usage.InputTokens)
 	completionTokens := int(usage.OutputTokens)
 	totalTokens := promptTokens + completionTokens
@@ -337,14 +376,9 @@ func shouldIncludeThoughtSummaries(model string) bool {
 	// Extended thinking is not available on all Claude models. Be conservative to
 	// avoid 400 errors from older/non-thinking models.
 	supports := []string{
-		"claude-3-7",
-		"claude-3.7",
-		"claude-4-5",
-		"claude-4.5",
-		"claude-sonnet-4",
-		"claude-opus-4",
-		"claude-haiku-4",
-		"claude-4",
+		"claude-sonnet-4-5",
+		"claude-haiku-4-5",
+		"claude-opus-4-5",
 	}
 	for _, s := range supports {
 		if strings.Contains(m, s) {
@@ -448,6 +482,16 @@ func adaptMessages(msgs []llm.Message, cacheCfg config.AnthropicPromptCacheConfi
 			}
 		case "assistant":
 			blocks := []anthropic.ContentBlockParamUnion{}
+			// Prepend thinking blocks if present. Anthropic requires assistant messages
+			// to start with thinking blocks when extended thinking is enabled.
+			if m.ThoughtSignature != "" {
+				var savedThinking []thinkingData
+				if err := json.Unmarshal([]byte(m.ThoughtSignature), &savedThinking); err == nil {
+					for _, td := range savedThinking {
+						blocks = append(blocks, anthropic.NewThinkingBlock(td.Signature, td.Thinking))
+					}
+				}
+			}
 			if strings.TrimSpace(m.Content) != "" {
 				blocks = append(blocks, newTextBlock(m.Content))
 			}
@@ -494,10 +538,19 @@ func messageFromResponse(resp *anthropic.Message) llm.Message {
 	}
 	var sb strings.Builder
 	var calls []llm.ToolCall
+	var thinkingBlocks []thinkingData
 	callIdx := 0
 
 	for _, block := range resp.Content {
 		switch v := block.AsAny().(type) {
+		case anthropic.ThinkingBlock:
+			// Capture thinking blocks to preserve across conversation turns.
+			// Anthropic requires these to be included in assistant messages when
+			// extended thinking is enabled.
+			thinkingBlocks = append(thinkingBlocks, thinkingData{
+				Signature: v.Signature,
+				Thinking:  v.Thinking,
+			})
 		case anthropic.TextBlock:
 			sb.WriteString(v.Text)
 		case anthropic.ToolUseBlock:
@@ -520,6 +573,14 @@ func messageFromResponse(resp *anthropic.Message) llm.Message {
 		}
 	}
 
+	// Encode thinking blocks as JSON in ThoughtSignature for multi-turn preservation.
+	var thoughtSig string
+	if len(thinkingBlocks) > 0 {
+		if encoded, err := json.Marshal(thinkingBlocks); err == nil {
+			thoughtSig = string(encoded)
+		}
+	}
+
 	return llm.Message{
 		Role:    "assistant",
 		Content: sb.String(),
@@ -529,6 +590,7 @@ func messageFromResponse(resp *anthropic.Message) llm.Message {
 			}
 			return calls
 		}(),
+		ThoughtSignature: thoughtSig,
 	}
 }
 

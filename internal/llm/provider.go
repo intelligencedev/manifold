@@ -54,6 +54,9 @@ type StreamHandler interface {
 	OnImage(img GeneratedImage)
 	// OnThoughtSummary receives model reasoning summaries when available.
 	OnThoughtSummary(summary string)
+	// OnThoughtSignature receives provider-specific thought signatures that must be
+	// preserved across conversation turns (e.g., Anthropic thinking blocks, Gemini thoughts).
+	OnThoughtSignature(sig string)
 }
 
 type Provider interface {

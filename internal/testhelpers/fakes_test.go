@@ -15,6 +15,7 @@ func (c *collectHandler) OnDelta(s string)           { c.Deltas = append(c.Delta
 func (c *collectHandler) OnToolCall(tc llm.ToolCall) {}
 func (c *collectHandler) OnImage(llm.GeneratedImage) {}
 func (c *collectHandler) OnThoughtSummary(string)    {}
+func (c *collectHandler) OnThoughtSignature(string)  {}
 
 func TestFakeProvider_Chat(t *testing.T) {
 	fp := &FakeProvider{Resp: llm.Message{Role: "assistant", Content: "ok"}}

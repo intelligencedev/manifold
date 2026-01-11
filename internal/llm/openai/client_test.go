@@ -267,6 +267,9 @@ func (h *testStreamHandler) OnImage(llm.GeneratedImage) {
 func (h *testStreamHandler) OnThoughtSummary(string) {
 }
 
+func (h *testStreamHandler) OnThoughtSignature(string) {
+}
+
 func TestChatImageGeneration(t *testing.T) {
 	t.Parallel()
 	var gotPath string

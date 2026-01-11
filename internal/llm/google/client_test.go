@@ -29,6 +29,7 @@ func (s *streamRecorder) OnImage(img llm.GeneratedImage) {
 func (s *streamRecorder) OnThoughtSummary(summary string) {
 	s.summaries = append(s.summaries, summary)
 }
+func (s *streamRecorder) OnThoughtSignature(string) {}
 
 func TestChatSuccess(t *testing.T) {
 	var gotPath string

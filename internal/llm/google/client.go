@@ -259,7 +259,6 @@ func toContents(msgs []llm.Message) ([]*genai.Content, error) {
 	}
 
 	toolNamesByID := make(map[string]string)
-	thoughtSigByID := make(map[string]string)
 	var lastFuncName string
 	contents := make([]*genai.Content, 0, len(msgs))
 	for _, m := range msgs {
@@ -272,9 +271,6 @@ func toContents(msgs []llm.Message) ([]*genai.Content, error) {
 			for _, tc := range m.ToolCalls {
 				if tc.ID != "" && tc.Name != "" {
 					toolNamesByID[tc.ID] = tc.Name
-					if tc.ThoughtSignature != "" {
-						thoughtSigByID[tc.ID] = tc.ThoughtSignature
-					}
 				}
 				if strings.TrimSpace(tc.Name) != "" {
 					lastFuncName = tc.Name
@@ -289,7 +285,6 @@ func toContents(msgs []llm.Message) ([]*genai.Content, error) {
 					name = "tool_response"
 				}
 			}
-			sig := thoughtSigByID[m.ToolID]
 			respMap := map[string]any{}
 			if trimmed := strings.TrimSpace(m.Content); trimmed != "" {
 				if err := json.Unmarshal([]byte(trimmed), &respMap); err != nil {
@@ -298,9 +293,11 @@ func toContents(msgs []llm.Message) ([]*genai.Content, error) {
 			}
 			part := genai.NewPartFromFunctionResponse(name, respMap)
 			part.FunctionResponse.ID = m.ToolID
-			if sigBytes, ok := decodeThoughtSignature(sig); ok {
-				part.ThoughtSignature = sigBytes
-			}
+			// IMPORTANT:
+			// Do not attach ThoughtSignature to FunctionResponse parts.
+			// Gemini's guidance is to echo the thought_signature back inside its original
+			// Part; tool responses are user-authored function responses and attaching a
+			// signature here has been observed to trigger 5xx errors from the API.
 			contents = append(contents, genai.NewContentFromParts([]*genai.Part{part}, genai.RoleUser))
 			continue
 		default:

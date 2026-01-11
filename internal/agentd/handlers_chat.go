@@ -1324,6 +1324,15 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 		}
+		eng.OnThoughtSummary = func(summary string) {
+			if summary == "" {
+				return
+			}
+			payload := map[string]string{"type": "thought_summary", "data": summary}
+			b, _ := json.Marshal(payload)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
 		eng.OnToolStart = func(toolName string, args []byte, toolID string) {
 			payload := map[string]any{"type": "tool_start", "title": "Tool: " + toolName, "tool_id": toolID, "args": string(args)}
 			if toolName == "agent_call" || toolName == "ask_agent" {

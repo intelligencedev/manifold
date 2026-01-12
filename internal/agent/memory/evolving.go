@@ -18,6 +18,42 @@ import (
 	"github.com/google/uuid"
 )
 
+// PhaseType represents the phases of the Search → Synthesis → Evolve loop.
+// It is used for callbacks/observability.
+type PhaseType string
+
+const (
+	PhaseSearch    PhaseType = "search"    // Retrieve relevant memories
+	PhaseSynthesis PhaseType = "synthesis" // Construct context from memories
+	PhaseEvolve    PhaseType = "evolve"    // Store new experiences
+)
+
+// MemoryEvent is emitted for observability hooks around memory operations.
+// It is designed to be stable and cheap to populate (no large payloads).
+type MemoryEvent struct {
+	Phase         PhaseType
+	Timestamp     time.Time
+	Input         string
+	RetrievedIDs  []string
+	OutputSize    int
+	Error         error
+	DurationMs    int64
+	MemorySize    int
+	RelevanceInfo map[string]float64 // memory_id -> similarity score (if available)
+}
+
+// MemoryCallbacks allow embedding the memory system into higher-level
+// observability pipelines (tracing, logging, UI debugging, etc).
+type MemoryCallbacks struct {
+	OnSearch      func(*MemoryEvent)
+	OnSynthesized func(*MemoryEvent)
+	OnEvolve      func(*MemoryEvent)
+}
+
+// EmbedFunc is an injectable embedding function used by EvolvingMemory.
+// In production it defaults to embedding.EmbedText; in tests it can be stubbed.
+type EmbedFunc func(ctx context.Context, cfg config.EmbeddingConfig, texts []string) ([][]float32, error)
+
 // FeedbackType represents structured feedback categories from the paper.
 type FeedbackType string
 
@@ -94,6 +130,7 @@ type EvolvingMemory struct {
 	mu        sync.RWMutex
 	entries   []*MemoryEntry
 	embedCfg  config.EmbeddingConfig
+	embedFn   EmbedFunc
 	llm       llm.Provider
 	model     string
 	maxSize   int // max number of entries to keep
@@ -112,6 +149,8 @@ type EvolvingMemory struct {
 	store     EvolvingMemoryStore
 	userID    int64
 	sessionID string
+
+	callbacks *MemoryCallbacks
 }
 
 // Introspection helpers for debug APIs.
@@ -128,6 +167,7 @@ func (em *EvolvingMemory) WindowSize() int { return em.windowSz }
 // EvolvingMemoryConfig configures the evolving memory system.
 type EvolvingMemoryConfig struct {
 	EmbeddingConfig config.EmbeddingConfig
+	EmbedFn         EmbedFunc
 	LLM             llm.Provider
 	Model           string
 	MaxSize         int  // 0 = unlimited
@@ -146,6 +186,8 @@ type EvolvingMemoryConfig struct {
 	Store     EvolvingMemoryStore
 	UserID    int64
 	SessionID string
+
+	Callbacks *MemoryCallbacks
 }
 
 // NewEvolvingMemory creates a new evolving memory system.
@@ -182,9 +224,15 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		sessionID = "default"
 	}
 
+	embedFn := cfg.EmbedFn
+	if embedFn == nil {
+		embedFn = embedding.EmbedText
+	}
+
 	em := &EvolvingMemory{
 		entries:          make([]*MemoryEntry, 0),
 		embedCfg:         cfg.EmbeddingConfig,
+		embedFn:          embedFn,
 		llm:              cfg.LLM,
 		model:            cfg.Model,
 		maxSize:          maxSz,
@@ -198,6 +246,7 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		store:            cfg.Store,
 		userID:           cfg.UserID,
 		sessionID:        sessionID,
+		callbacks:        cfg.Callbacks,
 	}
 
 	// If a store is provided, preload entries for the configured user.
@@ -213,6 +262,14 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 	}
 
 	return em
+}
+
+// SetCallbacks sets (or clears) callbacks for observability.
+// Safe to call concurrently with Search/Evolve operations.
+func (em *EvolvingMemory) SetCallbacks(cb *MemoryCallbacks) {
+	em.mu.Lock()
+	defer em.mu.Unlock()
+	em.callbacks = cb
 }
 
 // Search implements R(M_t, x_t): retrieve top-k similar experiences via cosine similarity.
@@ -232,21 +289,42 @@ func (em *EvolvingMemory) Search(ctx context.Context, query string) ([]*MemoryEn
 // each retrieved memory entry. This is used by debug/observability surfaces to
 // explain *why* a particular memory was selected for a given query.
 func (em *EvolvingMemory) SearchWithScores(ctx context.Context, query string) ([]ScoredMemoryEntry, error) {
+	start := time.Now()
 	em.mu.RLock()
 	entries := make([]*MemoryEntry, len(em.entries))
 	copy(entries, em.entries)
+	cb := em.callbacks
 	em.mu.RUnlock()
 
 	if len(entries) == 0 {
+		if cb != nil && cb.OnSearch != nil {
+			cb.OnSearch(&MemoryEvent{
+				Phase:      PhaseSearch,
+				Timestamp:  start,
+				Input:      query,
+				MemorySize: 0,
+				DurationMs: time.Since(start).Milliseconds(),
+			})
+		}
 		return nil, nil
 	}
 
 	log := observability.LoggerWithTrace(ctx)
 
 	// Embed the query
-	vecs, err := embedding.EmbedText(ctx, em.embedCfg, []string{query})
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{query})
 	if err != nil {
 		log.Error().Err(err).Msg("evolving_memory_embed_query_failed")
+		if cb != nil && cb.OnSearch != nil {
+			cb.OnSearch(&MemoryEvent{
+				Phase:      PhaseSearch,
+				Timestamp:  start,
+				Input:      query,
+				Error:      err,
+				MemorySize: len(entries),
+				DurationMs: time.Since(start).Milliseconds(),
+			})
+		}
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
 	queryVec := vecs[0]
@@ -285,6 +363,24 @@ func (em *EvolvingMemory) SearchWithScores(ctx context.Context, query string) ([
 	// Update access metrics for retrieved entries (async to not block search)
 	go em.updateAccessMetrics(retrievedIDs)
 
+	if cb != nil && cb.OnSearch != nil {
+		relevance := make(map[string]float64, len(out))
+		for _, o := range out {
+			if o.Entry != nil {
+				relevance[o.Entry.ID] = o.Score
+			}
+		}
+		cb.OnSearch(&MemoryEvent{
+			Phase:         PhaseSearch,
+			Timestamp:     start,
+			Input:         query,
+			RetrievedIDs:  retrievedIDs,
+			MemorySize:    len(entries),
+			DurationMs:    time.Since(start).Milliseconds(),
+			RelevanceInfo: relevance,
+		})
+	}
+
 	log.Debug().Int("candidates", len(entries)).Int("top_k", k).Msg("evolving_memory_search")
 	return out, nil
 }
@@ -311,7 +407,21 @@ func (em *EvolvingMemory) updateAccessMetrics(ids []string) {
 // Synthesize implements C(x_t, R_t): build context from current task + retrieved memories.
 // Returns a formatted string suitable for injection into the system prompt or context.
 func (em *EvolvingMemory) Synthesize(ctx context.Context, currentTask string, retrieved []*MemoryEntry) string {
+	start := time.Now()
+	em.mu.RLock()
+	cb := em.callbacks
+	em.mu.RUnlock()
+
 	if len(retrieved) == 0 {
+		if cb != nil && cb.OnSynthesized != nil {
+			cb.OnSynthesized(&MemoryEvent{
+				Phase:      PhaseSynthesis,
+				Timestamp:  start,
+				Input:      currentTask,
+				OutputSize: 0,
+				DurationMs: time.Since(start).Milliseconds(),
+			})
+		}
 		return ""
 	}
 
@@ -326,6 +436,23 @@ func (em *EvolvingMemory) Synthesize(ctx context.Context, currentTask string, re
 
 	result += "## Current Task\n"
 	result += currentTask + "\n"
+
+	if cb != nil && cb.OnSynthesized != nil {
+		retrievedIDs := make([]string, 0, len(retrieved))
+		for _, r := range retrieved {
+			if r != nil {
+				retrievedIDs = append(retrievedIDs, r.ID)
+			}
+		}
+		cb.OnSynthesized(&MemoryEvent{
+			Phase:        PhaseSynthesis,
+			Timestamp:    start,
+			Input:        currentTask,
+			RetrievedIDs: retrievedIDs,
+			OutputSize:   len(result),
+			DurationMs:   time.Since(start).Milliseconds(),
+		})
+	}
 
 	return result
 }
@@ -366,8 +493,10 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	reasoningTrace []string,
 	strategyCard string,
 ) error {
+	start := time.Now()
 	log := observability.LoggerWithTrace(ctx)
 	em.mu.Lock()
+	cb := em.callbacks
 	defer em.mu.Unlock()
 
 	// Generate summary via LLM
@@ -378,9 +507,19 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	}
 
 	// Embed the input for retrieval
-	vecs, err := embedding.EmbedText(ctx, em.embedCfg, []string{input})
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{input})
 	if err != nil {
 		log.Error().Err(err).Msg("evolving_memory_embed_failed")
+		if cb != nil && cb.OnEvolve != nil {
+			cb.OnEvolve(&MemoryEvent{
+				Phase:      PhaseEvolve,
+				Timestamp:  start,
+				Input:      input,
+				Error:      err,
+				MemorySize: len(em.entries),
+				DurationMs: time.Since(start).Milliseconds(),
+			})
+		}
 		return fmt.Errorf("embed input: %w", err)
 	}
 
@@ -429,6 +568,17 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		// Fallback to FIFO pruning
 		em.entries = em.entries[len(em.entries)-em.maxSize:]
 		log.Info().Int("pruned_to", em.maxSize).Msg("evolving_memory_fifo_pruned")
+	}
+
+	if cb != nil && cb.OnEvolve != nil {
+		cb.OnEvolve(&MemoryEvent{
+			Phase:      PhaseEvolve,
+			Timestamp:  start,
+			Input:      input,
+			OutputSize: len(output),
+			MemorySize: len(em.entries),
+			DurationMs: time.Since(start).Milliseconds(),
+		})
 	}
 
 	// Persist in the background if a store is configured.
@@ -792,7 +942,7 @@ func (em *EvolvingMemory) mergeEntries(ctx context.Context, ids []string, newSum
 	}
 
 	// Re-embed the merged summary
-	vecs, err := embedding.EmbedText(ctx, em.embedCfg, []string{newSummary})
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{newSummary})
 	if err != nil {
 		return fmt.Errorf("embed merged entry: %w", err)
 	}

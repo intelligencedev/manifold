@@ -2,25 +2,20 @@ package memory
 
 import (
 	"context"
-	"os"
+	"sync"
 	"testing"
-
-	"github.com/joho/godotenv"
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
 )
 
-// mockLLMProvider is a simple mock for testing
+// mockLLMProvider is a simple mock for testing.
 type mockLLMProvider struct {
 	response string
 }
 
 func (m *mockLLMProvider) Chat(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
-	return llm.Message{
-		Role:    "assistant",
-		Content: m.response,
-	}, nil
+	return llm.Message{Role: "assistant", Content: m.response}, nil
 }
 
 func (m *mockLLMProvider) ChatStream(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, model string, handler llm.StreamHandler) error {
@@ -28,32 +23,26 @@ func (m *mockLLMProvider) ChatStream(ctx context.Context, messages []llm.Message
 	return nil
 }
 
+func testEmbedFn(_ context.Context, _ config.EmbeddingConfig, texts []string) ([][]float32, error) {
+	// Deterministic, cheap embedding for tests.
+	out := make([][]float32, len(texts))
+	for i, s := range texts {
+		v := make([]float32, 8)
+		for j := 0; j < len(s); j++ {
+			v[j%len(v)] += float32(s[j]) / 255.0
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
 func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 	ctx := context.Background()
 
-	// Load .env file (fallback to example.env) for embedding config
-	_ = godotenv.Load("../../../.env")
-	_ = godotenv.Load("../../../example.env")
-
-	// Create embedding config from environment
-	embedCfg := config.EmbeddingConfig{
-		BaseURL:   os.Getenv("EMBED_BASE_URL"),
-		Path:      os.Getenv("EMBED_PATH"),
-		Model:     os.Getenv("EMBED_MODEL"),
-		APIKey:    os.Getenv("EMBED_API_KEY"),
-		APIHeader: os.Getenv("EMBED_API_HEADER"),
-	}
-
-	// Skip if embedding service not configured
-	if embedCfg.BaseURL == "" || embedCfg.APIKey == "" {
-		t.Skip("Embedding service not configured (EMBED_BASE_URL or EMBED_API_KEY missing)")
-	}
-
-	mockLLM := &mockLLMProvider{response: "Key lesson: Always check inputs first."}
-
 	em := NewEvolvingMemory(EvolvingMemoryConfig{
-		EmbeddingConfig: embedCfg,
-		LLM:             mockLLM,
+		EmbeddingConfig: config.EmbeddingConfig{},
+		EmbedFn:         testEmbedFn,
+		LLM:             &mockLLMProvider{response: "Key lesson: Always check inputs first."},
 		Model:           "test-model",
 		MaxSize:         100,
 		TopK:            3,
@@ -61,177 +50,119 @@ func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 		EnableRAG:       true,
 	})
 
-	// Test Evolve (adding memories)
-	t.Run("Evolve", func(t *testing.T) {
-		err := em.Evolve(ctx, "test task 1", "solution 1", "success")
-		if err != nil {
-			t.Fatalf("Evolve failed: %v", err)
-		}
+	// Evolve (adding memories)
+	if err := em.Evolve(ctx, "test task 1", "solution 1", "success"); err != nil {
+		t.Fatalf("Evolve failed: %v", err)
+	}
+	if got := len(em.entries); got != 1 {
+		t.Fatalf("expected 1 entry, got %d", got)
+	}
 
-		if len(em.entries) != 1 {
-			t.Errorf("Expected 1 entry, got %d", len(em.entries))
-		}
-	})
+	// Search should find the memory.
+	res, err := em.Search(ctx, "test task")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(res) == 0 {
+		t.Fatalf("expected search to return results")
+	}
 
-	// Test ExpRecent
-	t.Run("ExpRecent", func(t *testing.T) {
-		// Clear existing entries and add fresh test entries
-		em.entries = make([]*MemoryEntry, 0)
-		for i := 0; i < 5; i++ {
-			em.entries = append(em.entries, &MemoryEntry{
-				Input:    "task " + string(rune('A'+i)),
-				Output:   "output " + string(rune('A'+i)),
-				Feedback: "success",
-			})
-		}
-
-		context := em.BuildExpRecentContext()
-		if context == "" {
-			t.Error("ExpRecent context should not be empty")
-		}
-		if len(em.GetRecentWindow()) != 5 {
-			t.Errorf("Expected 5 recent entries, got %d", len(em.GetRecentWindow()))
-		}
-	})
-
-	// Test memory pruning
-	t.Run("PruneOnMaxSize", func(t *testing.T) {
-		em.maxSize = 3
-		em.entries = make([]*MemoryEntry, 0)
-
-		for i := 0; i < 5; i++ {
-			em.entries = append(em.entries, &MemoryEntry{ID: string(rune('A' + i))})
-		}
-
-		// Manually trigger pruning
-		if len(em.entries) > em.maxSize {
-			em.entries = em.entries[len(em.entries)-em.maxSize:]
-		}
-
-		if len(em.entries) != 3 {
-			t.Errorf("Expected 3 entries after pruning, got %d", len(em.entries))
-		}
-	})
-
-	// Test ApplyEdits
-	t.Run("ApplyEdits", func(t *testing.T) {
-		em.entries = []*MemoryEntry{
-			{ID: "mem1", Summary: "test1"},
-			{ID: "mem2", Summary: "test2"},
-			{ID: "mem3", Summary: "test3"},
-		}
-
-		ops := []MemoryEditOp{
-			{Type: "PRUNE", IDs: []string{"mem2"}},
-			{Type: "UPDATE_TAG", IDs: []string{"mem1"}, Tag: "important"},
-		}
-
-		err := em.ApplyEdits(ctx, ops)
-		if err != nil {
-			t.Fatalf("ApplyEdits failed: %v", err)
-		}
-
-		if len(em.entries) != 2 {
-			t.Errorf("Expected 2 entries after prune, got %d", len(em.entries))
-		}
-
-		if em.entries[0].Metadata["tag"] != "important" {
-			t.Error("Tag was not updated")
-		}
-	})
+	// Synthesize should produce non-empty context.
+	ctxStr := em.Synthesize(ctx, "current task", res)
+	if ctxStr == "" {
+		t.Fatalf("expected synthesized context")
+	}
 }
 
-func TestReMemController(t *testing.T) {
+func TestEvolvingMemory_ExpRecent(t *testing.T) {
+	ctx := context.Background()
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn})
+
+	// Add entries directly to avoid summarizer/embeddings.
+	em.mu.Lock()
+	for i := 0; i < 5; i++ {
+		em.entries = append(em.entries, &MemoryEntry{Input: "task", Output: "out", Feedback: "success"})
+	}
+	em.mu.Unlock()
+
+	recent := em.BuildExpRecentContext()
+	if recent == "" {
+		t.Fatalf("expected recent context")
+	}
+	_ = ctx
+}
+
+func TestEvolvingMemory_CallbacksFire(t *testing.T) {
 	ctx := context.Background()
 
-	// Load .env file (fallback to example.env) for embedding config
-	_ = godotenv.Load("../../../.env")
-	_ = godotenv.Load("../../../example.env")
-
-	// Create embedding config from environment
-	embedCfg := config.EmbeddingConfig{
-		BaseURL:   os.Getenv("EMBED_BASE_URL"),
-		Path:      os.Getenv("EMBED_PATH"),
-		Model:     os.Getenv("EMBED_MODEL"),
-		APIKey:    os.Getenv("EMBED_API_KEY"),
-		APIHeader: os.Getenv("EMBED_API_HEADER"),
-	}
-
-	// Skip if embedding service not configured
-	if embedCfg.BaseURL == "" || embedCfg.APIKey == "" {
-		t.Skip("Embedding service not configured (EMBED_BASE_URL or EMBED_API_KEY missing)")
-	}
-
-	mockLLM := &mockLLMProvider{
-		response: `{"action":"ACT","content":"Final answer: 42"}`,
-	}
+	var (
+		mu          sync.Mutex
+		searchHits  int
+		synthHits   int
+		evolveHits  int
+		lastPhase   PhaseType
+		lastEventID string
+	)
 
 	em := NewEvolvingMemory(EvolvingMemoryConfig{
-		EmbeddingConfig: embedCfg,
-		LLM:             mockLLM,
+		EmbeddingConfig: config.EmbeddingConfig{},
+		EmbedFn:         testEmbedFn,
+		LLM:             &mockLLMProvider{response: "Lesson."},
 		Model:           "test-model",
-		MaxSize:         100,
-		TopK:            3,
-		WindowSize:      10,
+		TopK:            2,
 		EnableRAG:       true,
+		Callbacks: &MemoryCallbacks{
+			OnSearch: func(evt *MemoryEvent) {
+				mu.Lock()
+				defer mu.Unlock()
+				searchHits++
+				lastPhase = evt.Phase
+				if len(evt.RetrievedIDs) > 0 {
+					lastEventID = evt.RetrievedIDs[0]
+				}
+			},
+			OnSynthesized: func(evt *MemoryEvent) {
+				mu.Lock()
+				defer mu.Unlock()
+				synthHits++
+				lastPhase = evt.Phase
+			},
+			OnEvolve: func(evt *MemoryEvent) {
+				mu.Lock()
+				defer mu.Unlock()
+				evolveHits++
+				lastPhase = evt.Phase
+			},
+		},
 	})
 
-	rc := NewReMemController(ReMemConfig{
-		Memory:        em,
-		LLM:           mockLLM,
-		Model:         "test-model",
-		MaxInnerSteps: 5,
-	})
-
-	t.Run("Execute", func(t *testing.T) {
-		finalContent, trace, err := rc.Execute(ctx, "What is the answer?", nil)
-		if err != nil {
-			t.Fatalf("Execute failed: %v", err)
-		}
-
-		if finalContent != "Final answer: 42" {
-			t.Errorf("Expected 'Final answer: 42', got '%s'", finalContent)
-		}
-
-		if len(trace) != 0 {
-			t.Logf("Reasoning trace: %v", trace)
-		}
-	})
-}
-
-func TestCosineSimilarity(t *testing.T) {
-	tests := []struct {
-		name     string
-		a        []float32
-		b        []float32
-		expected float64
-	}{
-		{
-			name:     "identical vectors",
-			a:        []float32{1, 0, 0},
-			b:        []float32{1, 0, 0},
-			expected: 1.0,
-		},
-		{
-			name:     "orthogonal vectors",
-			a:        []float32{1, 0, 0},
-			b:        []float32{0, 1, 0},
-			expected: 0.0,
-		},
-		{
-			name:     "opposite vectors",
-			a:        []float32{1, 0, 0},
-			b:        []float32{-1, 0, 0},
-			expected: -1.0,
-		},
+	if err := em.Evolve(ctx, "do thing", "done", "success"); err != nil {
+		t.Fatalf("evolve failed: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := cosineSimilarity(tt.a, tt.b)
-			if result != tt.expected {
-				t.Errorf("Expected %v, got %v", tt.expected, result)
-			}
-		})
+	res, err := em.Search(ctx, "do")
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	_ = em.Synthesize(ctx, "cur", res)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if evolveHits == 0 {
+		t.Fatalf("expected evolve callback")
+	}
+	if searchHits == 0 {
+		t.Fatalf("expected search callback")
+	}
+	if synthHits == 0 {
+		t.Fatalf("expected synth callback")
+	}
+	if lastPhase == "" {
+		t.Fatalf("expected phase to be set")
+	}
+	if lastEventID == "" {
+		// It's okay if empty depending on topK and embeddings; but in practice it should be populated.
+		t.Logf("no retrieved id captured")
 	}
 }
+

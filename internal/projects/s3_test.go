@@ -129,6 +129,7 @@ func TestS3Service_ListTree(t *testing.T) {
 		path string
 		name string
 	}{
+		{".", ".metadata"},
 		{".", "file1.txt"},
 		{".", "file2.txt"},
 		{"src", "main.go"},
@@ -146,6 +147,16 @@ func TestS3Service_ListTree(t *testing.T) {
 	// Should have: README.md, file1.txt, file2.txt, src/
 	// Note: dirs first, then files alphabetically
 	assert.True(t, len(entries) >= 3)
+
+	// Hidden dotfiles should be present (S3 implementation previously filtered ".meta*" at root).
+	hasHidden := false
+	for _, e := range entries {
+		if e.Type == "file" && e.Name == ".metadata" {
+			hasHidden = true
+			break
+		}
+	}
+	assert.True(t, hasHidden, "should include hidden dotfiles at root")
 
 	// List src directory
 	entries, err = svc.ListTree(ctx, 123, proj.ID, "src")

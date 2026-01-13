@@ -583,11 +583,6 @@ func (s *S3Service) ListTree(ctx context.Context, userID int64, projectID, treeP
 		relPath := strings.TrimPrefix(obj.Key, filesPrefix+"/")
 		name := path.Base(relPath)
 
-		// Skip .meta files at root
-		if treePath == "" && strings.HasPrefix(name, ".meta") {
-			continue
-		}
-
 		entries = append(entries, FileEntry{
 			Path:    relPath,
 			Name:    name,

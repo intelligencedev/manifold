@@ -591,6 +591,89 @@ func (t *patchTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	}, nil
 }
 
+type deleteTool struct {
+	guard rootGuard
+}
+
+type deleteArgs struct {
+	Path      string `json:"path"`
+	Recursive bool   `json:"recursive"`
+}
+
+type deleteResult struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Deleted bool   `json:"deleted,omitempty"`
+	WasDir  bool   `json:"was_dir,omitempty"`
+}
+
+func NewDeleteTool(allowedRoots []string) *deleteTool {
+	return &deleteTool{guard: newRootGuard(allowedRoots)}
+}
+
+func (t *deleteTool) Name() string { return "file_delete" }
+
+func (t *deleteTool) JSONSchema() map[string]any {
+	return map[string]any{
+		"name":        t.Name(),
+		"description": "Delete a file or directory from the current project workspace. Directories require recursive=true.",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":      map[string]any{"type": "string", "description": "File or directory path relative to the project root."},
+				"recursive": map[string]any{"type": "boolean", "description": "Allow deleting directories and their contents."},
+			},
+			"required": []string{"path"},
+		},
+	}
+}
+
+func (t *deleteTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
+	var args deleteArgs
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(args.Path) == "" {
+		return deleteResult{OK: false, Error: "missing path"}, nil
+	}
+
+	base, err := t.guard.baseDir(ctx)
+	if err != nil {
+		return deleteResult{OK: false, Error: err.Error()}, nil
+	}
+	rel, full, err := resolvePath(base, args.Path)
+	if err != nil {
+		return deleteResult{OK: false, Error: fmt.Sprintf("invalid path: %v", err)}, nil
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		return deleteResult{OK: false, Error: err.Error()}, nil
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return deleteResult{OK: false, Error: "refusing to delete symlink"}, nil
+	}
+
+	wasDir := info.IsDir()
+	if wasDir && !args.Recursive {
+		return deleteResult{OK: false, Error: "path is a directory; set recursive to delete"}, nil
+	}
+	if wasDir {
+		if err := os.RemoveAll(full); err != nil {
+			return deleteResult{OK: false, Error: fmt.Sprintf("delete directory: %v", err)}, nil
+		}
+	} else if err := os.Remove(full); err != nil {
+		return deleteResult{OK: false, Error: fmt.Sprintf("delete file: %v", err)}, nil
+	}
+
+	return deleteResult{
+		OK:      true,
+		Path:    filepath.ToSlash(rel),
+		Deleted: true,
+		WasDir:  wasDir,
+	}, nil
+}
+
 func splitLines(data []byte) ([]string, bool, string) {
 	rawContent := string(data)
 	newline := "\n"

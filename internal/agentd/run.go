@@ -354,6 +354,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(filetool.NewReadTool(allowedRoots, cfg.OutputTruncateByte))
 	toolRegistry.Register(filetool.NewWriteTool(allowedRoots, 0))
 	toolRegistry.Register(filetool.NewPatchTool(allowedRoots, 0))
+	toolRegistry.Register(filetool.NewDeleteTool(allowedRoots))
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(*cfg, httpClient))

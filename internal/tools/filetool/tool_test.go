@@ -3,6 +3,7 @@ package filetool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -107,4 +108,69 @@ func TestReadToolRequiresBaseDir(t *testing.T) {
 	resp := respAny.(readResult)
 	require.False(t, resp.OK)
 	require.Contains(t, resp.Error, "base directory")
+}
+
+func TestDeleteToolDeletesFile(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	base := filepath.Join(tmp, "project")
+	require.NoError(t, os.MkdirAll(base, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "old.txt"), []byte("bye"), 0o644))
+
+	tool := NewDeleteTool([]string{tmp})
+	ctx := sandbox.WithBaseDir(context.Background(), base)
+
+	respAny, err := tool.Call(ctx, json.RawMessage(`{"path":"old.txt"}`))
+	require.NoError(t, err)
+
+	resp := respAny.(deleteResult)
+	require.True(t, resp.OK)
+	require.Equal(t, "old.txt", resp.Path)
+	require.True(t, resp.Deleted)
+	require.False(t, resp.WasDir)
+
+	_, err = os.Stat(filepath.Join(base, "old.txt"))
+	require.True(t, errors.Is(err, os.ErrNotExist))
+}
+
+func TestDeleteToolRequiresRecursiveForDirectory(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	base := filepath.Join(tmp, "project")
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "dir"), 0o755))
+
+	tool := NewDeleteTool([]string{tmp})
+	ctx := sandbox.WithBaseDir(context.Background(), base)
+
+	respAny, err := tool.Call(ctx, json.RawMessage(`{"path":"dir"}`))
+	require.NoError(t, err)
+
+	resp := respAny.(deleteResult)
+	require.False(t, resp.OK)
+	require.Contains(t, resp.Error, "recursive")
+}
+
+func TestDeleteToolDeletesDirectoryRecursive(t *testing.T) {
+	t.Parallel()
+
+	tmp := t.TempDir()
+	base := filepath.Join(tmp, "project")
+	require.NoError(t, os.MkdirAll(filepath.Join(base, "dir", "nest"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "dir", "nest", "file.txt"), []byte("data"), 0o644))
+
+	tool := NewDeleteTool([]string{tmp})
+	ctx := sandbox.WithBaseDir(context.Background(), base)
+
+	respAny, err := tool.Call(ctx, json.RawMessage(`{"path":"dir","recursive":true}`))
+	require.NoError(t, err)
+
+	resp := respAny.(deleteResult)
+	require.True(t, resp.OK)
+	require.True(t, resp.WasDir)
+	require.True(t, resp.Deleted)
+
+	_, err = os.Stat(filepath.Join(base, "dir"))
+	require.True(t, errors.Is(err, os.ErrNotExist))
 }

@@ -324,7 +324,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 			out.ExtraHeaders = sp.ExtraHeaders
 		}
 		if sp.ExtraParams != nil {
-			out.ExtraParams = sp.ExtraParams
+			out.ExtraParams = mergeAnyMap(out.ExtraParams, sp.ExtraParams)
 		}
 	}
 	return out
@@ -336,10 +336,12 @@ func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, 
 		baseURL = strings.TrimSpace(a.cfg.LLMClient.Anthropic.BaseURL)
 		apiKey = strings.TrimSpace(a.cfg.LLMClient.Anthropic.APIKey)
 		model = strings.TrimSpace(a.cfg.LLMClient.Anthropic.Model)
+		params = copyAnyMap(a.cfg.LLMClient.Anthropic.ExtraParams)
 	case "google":
 		baseURL = strings.TrimSpace(a.cfg.LLMClient.Google.BaseURL)
 		apiKey = strings.TrimSpace(a.cfg.LLMClient.Google.APIKey)
 		model = strings.TrimSpace(a.cfg.LLMClient.Google.Model)
+		params = copyAnyMap(a.cfg.LLMClient.Google.ExtraParams)
 	default:
 		baseURL = strings.TrimSpace(a.cfg.LLMClient.OpenAI.BaseURL)
 		apiKey = strings.TrimSpace(a.cfg.LLMClient.OpenAI.APIKey)
@@ -373,6 +375,17 @@ func copyAnyMap(in map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(in))
 	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func mergeAnyMap(base, override map[string]any) map[string]any {
+	if len(override) == 0 {
+		return copyAnyMap(base)
+	}
+	out := copyAnyMap(base)
+	for k, v := range override {
 		out[k] = v
 	}
 	return out
@@ -427,6 +440,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		AllowTools:  append([]string(nil), a.cfg.ToolAllowList...),
 		System:      a.cfg.SystemPrompt,
 		Provider:    provider,
+		ExtraParams: sp.ExtraParams,
 	}
 	switch provider {
 	case "anthropic":
@@ -442,7 +456,6 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		toSave.APIKey = a.cfg.LLMClient.OpenAI.APIKey
 		toSave.Model = a.cfg.LLMClient.OpenAI.Model
 		toSave.ExtraHeaders = a.cfg.LLMClient.OpenAI.ExtraHeaders
-		toSave.ExtraParams = a.cfg.LLMClient.OpenAI.ExtraParams
 		toSave.ReasoningEffort = sp.ReasoningEffort
 	}
 	toSave.UserID = systemUserID

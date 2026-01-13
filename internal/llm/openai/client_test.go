@@ -346,4 +346,55 @@ func TestExtractReasoningEffort(t *testing.T) {
 			t.Fatal("unexpected extraction when key is missing")
 		}
 	})
+
+	t.Run("extracts nested reasoning.effort and preserves other fields", func(t *testing.T) {
+		extra := map[string]any{
+			"reasoning": map[string]any{
+				"effort":  "high",
+				"summary": "auto",
+			},
+			"other": "keep",
+		}
+		val, ok := extractReasoningEffort(extra)
+		if !ok {
+			t.Fatal("expected nested reasoning.effort to be extracted")
+		}
+		if val != shared.ReasoningEffort("high") {
+			t.Fatalf("unexpected effort value: %v", val)
+		}
+		rm, exists := extra["reasoning"].(map[string]any)
+		if !exists {
+			t.Fatal("expected reasoning map to remain for summary")
+		}
+		if _, hasEffort := rm["effort"]; hasEffort {
+			t.Fatal("expected effort to be removed from reasoning map")
+		}
+		if rm["summary"] != "auto" {
+			t.Fatal("expected summary to remain in reasoning map")
+		}
+		if extra["other"] != "keep" {
+			t.Fatal("other fields should remain untouched")
+		}
+	})
+
+	t.Run("top-level effort wins over nested reasoning.effort", func(t *testing.T) {
+		extra := map[string]any{
+			"reasoning_effort": "medium",
+			"reasoning": map[string]any{
+				"effort":  "low",
+				"summary": "auto",
+			},
+		}
+		val, ok := extractReasoningEffort(extra)
+		if !ok {
+			t.Fatal("expected reasoning effort to be extracted")
+		}
+		if val != shared.ReasoningEffort("medium") {
+			t.Fatalf("unexpected effort value: %v", val)
+		}
+		rm := extra["reasoning"].(map[string]any)
+		if _, hasEffort := rm["effort"]; hasEffort {
+			t.Fatal("expected nested effort to be removed")
+		}
+	})
 }

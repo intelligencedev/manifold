@@ -328,11 +328,35 @@ func extractReasoningEffort(extra map[string]any) (shared.ReasoningEffort, bool)
 	if extra == nil {
 		return "", false
 	}
-	raw, ok := extra["reasoning_effort"]
+	var raw any
+	var ok bool
+	if raw, ok = extra["reasoning_effort"]; ok {
+		delete(extra, "reasoning_effort")
+	} else if raw, ok = extra["reasoningEffort"]; ok {
+		delete(extra, "reasoningEffort")
+	}
+
+	// Also support reasoning.effort and ensure it doesn't override the typed field.
+	if rmRaw, hasReasoning := extra["reasoning"]; hasReasoning {
+		if rm, ok := rmRaw.(map[string]any); ok {
+			if val, hasEffort := rm["effort"]; hasEffort {
+				if !ok {
+					raw = val
+					ok = true
+				}
+				delete(rm, "effort")
+			}
+			if len(rm) == 0 {
+				delete(extra, "reasoning")
+			} else {
+				extra["reasoning"] = rm
+			}
+		}
+	}
+
 	if !ok {
 		return "", false
 	}
-	delete(extra, "reasoning_effort")
 	s, ok := raw.(string)
 	if !ok {
 		return "", false

@@ -304,6 +304,8 @@ type AnthropicConfig struct {
 	APIKey  string `yaml:"apiKey" json:"apiKey"`
 	Model   string `yaml:"model" json:"model"`
 	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	// ExtraParams are merged into the Anthropic request body.
+	ExtraParams map[string]any `yaml:"extraParams" json:"extraParams"`
 	// PromptCache enables Anthropic prompt caching via cache_control on supported blocks.
 	// When enabled, Manifold will attach ephemeral cache_control directives to
 	// selected request parts (system prompt, tool schema, and/or message blocks).
@@ -328,10 +330,11 @@ type AnthropicPromptCacheConfig struct {
 
 // GoogleConfig holds Google Gemini provider settings.
 type GoogleConfig struct {
-	APIKey  string `yaml:"apiKey" json:"apiKey"`
-	Model   string `yaml:"model" json:"model"`
-	BaseURL string `yaml:"baseURL" json:"baseURL"`
-	Timeout int    `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	APIKey      string         `yaml:"apiKey" json:"apiKey"`
+	Model       string         `yaml:"model" json:"model"`
+	BaseURL     string         `yaml:"baseURL" json:"baseURL"`
+	Timeout     int            `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	ExtraParams map[string]any `yaml:"extraParams" json:"extraParams"`
 }
 
 // SpecialistConfig describes a single specialist agent bound to a specific

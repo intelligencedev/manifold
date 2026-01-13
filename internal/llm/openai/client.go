@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 
 	sdk "github.com/openai/openai-go/v2"
@@ -1756,10 +1758,6 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 		params.SetExtraFields(merged)
 	}
 
-	start := time.Now()
-	stream := c.sdk.Responses.NewStreaming(ctx, params)
-	defer func() { _ = stream.Close() }()
-
 	// Accumulate function/custom tool call info per output index
 	type callAcc struct {
 		name string
@@ -1767,138 +1765,160 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 		args strings.Builder
 		done bool
 	}
-	acc := map[int64]*callAcc{}
 
-	// Token usage
-	var promptTokens, completionTokens, totalTokens int
-	// Assistant content for self-hosted tokenization
-	var assistantContent strings.Builder
-	// Reasoning summary accumulation (by latest summary index)
-	var summaryIndex int64 = -1
-	var summaryText strings.Builder
-
-	for stream.Next() {
-		ev := stream.Current()
-		switch v := ev.AsAny().(type) {
-		case rs.ResponseTextDeltaEvent:
-			if v.Delta != "" {
-				h.OnDelta(v.Delta)
-				assistantContent.WriteString(v.Delta)
-			}
-		case rs.ResponseReasoningSummaryTextDeltaEvent:
-			if summaryIndex != v.SummaryIndex {
-				summaryIndex = v.SummaryIndex
-				summaryText.Reset()
-			}
-			if v.Delta != "" {
-				summaryText.WriteString(v.Delta)
-				h.OnThoughtSummary(summaryText.String())
-			}
-		case rs.ResponseReasoningSummaryTextDoneEvent:
-			if summaryIndex != v.SummaryIndex {
-				summaryIndex = v.SummaryIndex
-			}
-			summaryText.Reset()
-			if v.Text != "" {
-				summaryText.WriteString(v.Text)
-				h.OnThoughtSummary(summaryText.String())
-			}
-		case rs.ResponseOutputItemAddedEvent:
-			// Only capture tool call metadata if the item type indicates a function/tool call.
-			// The SDK's As* methods always return a struct even for non-matching types.
-			switch v.Item.Type {
-			case "function_call":
-				fn := v.Item.AsFunctionCall()
-				ca := acc[v.OutputIndex]
-				if ca == nil {
-					ca = &callAcc{}
-					acc[v.OutputIndex] = ca
-				}
-				ca.name = fn.Name
-				ca.id = fn.CallID
-				if ca.id == "" {
-					ca.id = fn.ID
-				}
-				if fn.Arguments != "" && ca.args.Len() == 0 {
-					ca.args.WriteString(fn.Arguments)
-				}
-			case "mcp_call":
-				ct := v.Item.AsMcpCall()
-				ca := acc[v.OutputIndex]
-				if ca == nil {
-					ca = &callAcc{}
-					acc[v.OutputIndex] = ca
-				}
-				ca.name = ct.Name
-				ca.id = ct.ID
-				if ct.Arguments != "" && ca.args.Len() == 0 {
-					ca.args.WriteString(ct.Arguments)
-				}
-			}
-		case rs.ResponseOutputItemDoneEvent:
-			// Nothing special; metadata already handled
-			_ = v
-		case rs.ResponseFunctionCallArgumentsDeltaEvent:
-			ca := acc[v.OutputIndex]
-			if ca == nil {
-				ca = &callAcc{}
-				acc[v.OutputIndex] = ca
-			}
-			if v.Delta != "" {
-				ca.args.WriteString(v.Delta)
-			}
-		case rs.ResponseFunctionCallArgumentsDoneEvent:
-			ca := acc[v.OutputIndex]
-			if ca != nil && !ca.done {
-				if ca.args.Len() == 0 && v.Arguments != "" {
-					ca.args.WriteString(v.Arguments)
-				}
-				ca.done = true
-				// Emit tool call
-				h.OnToolCall(llm.ToolCall{
-					Name: ca.name,
-					Args: json.RawMessage(ca.args.String()),
-					ID:   ca.id,
-				})
-			}
-		case rs.ResponseCustomToolCallInputDeltaEvent:
-			ca := acc[v.OutputIndex]
-			if ca == nil {
-				ca = &callAcc{}
-				acc[v.OutputIndex] = ca
-			}
-			if v.Delta != "" {
-				ca.args.WriteString(v.Delta)
-			}
-		case rs.ResponseCustomToolCallInputDoneEvent:
-			ca := acc[v.OutputIndex]
-			if ca != nil && !ca.done {
-				if ca.args.Len() == 0 && v.Input != "" {
-					ca.args.WriteString(v.Input)
-				}
-				ca.done = true
-				h.OnToolCall(llm.ToolCall{
-					Name: ca.name,
-					Args: json.RawMessage(ca.args.String()),
-					ID:   ca.id,
-				})
-			}
-		case rs.ResponseCompletedEvent:
-			// Capture usage
-			promptTokens = int(v.Response.Usage.InputTokens)
-			completionTokens = int(v.Response.Usage.OutputTokens)
-			totalTokens = int(v.Response.Usage.TotalTokens)
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 && ctx.Err() != nil {
+			lastErr = ctx.Err()
+			break
 		}
-	}
+		start := time.Now()
+		stream := c.sdk.Responses.NewStreaming(ctx, params)
 
-	err := stream.Err()
-	dur := time.Since(start)
-	base := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).
-		Int("prompt_tokens", promptTokens).Int("completion_tokens", completionTokens).Int("total_tokens", totalTokens).Logger()
-	if err != nil {
-		base.Error().Err(err).Msg("responses_stream_error")
-		span.RecordError(err)
-	} else {
+		acc := map[int64]*callAcc{}
+		var promptTokens, completionTokens, totalTokens int
+		var assistantContent strings.Builder
+		var summaryIndex int64 = -1
+		var summaryText strings.Builder
+		sawDelta := false
+		sawToolCall := false
+		sawSummary := false
+
+		for stream.Next() {
+			ev := stream.Current()
+			switch v := ev.AsAny().(type) {
+			case rs.ResponseTextDeltaEvent:
+				if v.Delta != "" {
+					sawDelta = true
+					h.OnDelta(v.Delta)
+					assistantContent.WriteString(v.Delta)
+				}
+			case rs.ResponseReasoningSummaryTextDeltaEvent:
+				if summaryIndex != v.SummaryIndex {
+					summaryIndex = v.SummaryIndex
+					summaryText.Reset()
+				}
+				if v.Delta != "" {
+					sawSummary = true
+					summaryText.WriteString(v.Delta)
+					h.OnThoughtSummary(summaryText.String())
+				}
+			case rs.ResponseReasoningSummaryTextDoneEvent:
+				if summaryIndex != v.SummaryIndex {
+					summaryIndex = v.SummaryIndex
+				}
+				summaryText.Reset()
+				if v.Text != "" {
+					sawSummary = true
+					summaryText.WriteString(v.Text)
+					h.OnThoughtSummary(summaryText.String())
+				}
+			case rs.ResponseOutputItemAddedEvent:
+				// Only capture tool call metadata if the item type indicates a function/tool call.
+				// The SDK's As* methods always return a struct even for non-matching types.
+				switch v.Item.Type {
+				case "function_call":
+					fn := v.Item.AsFunctionCall()
+					ca := acc[v.OutputIndex]
+					if ca == nil {
+						ca = &callAcc{}
+						acc[v.OutputIndex] = ca
+					}
+					ca.name = fn.Name
+					ca.id = fn.CallID
+					if ca.id == "" {
+						ca.id = fn.ID
+					}
+					if fn.Arguments != "" && ca.args.Len() == 0 {
+						ca.args.WriteString(fn.Arguments)
+					}
+				case "mcp_call":
+					ct := v.Item.AsMcpCall()
+					ca := acc[v.OutputIndex]
+					if ca == nil {
+						ca = &callAcc{}
+						acc[v.OutputIndex] = ca
+					}
+					ca.name = ct.Name
+					ca.id = ct.ID
+					if ct.Arguments != "" && ca.args.Len() == 0 {
+						ca.args.WriteString(ct.Arguments)
+					}
+				}
+			case rs.ResponseOutputItemDoneEvent:
+				// Nothing special; metadata already handled
+				_ = v
+			case rs.ResponseFunctionCallArgumentsDeltaEvent:
+				ca := acc[v.OutputIndex]
+				if ca == nil {
+					ca = &callAcc{}
+					acc[v.OutputIndex] = ca
+				}
+				if v.Delta != "" {
+					ca.args.WriteString(v.Delta)
+				}
+			case rs.ResponseFunctionCallArgumentsDoneEvent:
+				ca := acc[v.OutputIndex]
+				if ca != nil && !ca.done {
+					if ca.args.Len() == 0 && v.Arguments != "" {
+						ca.args.WriteString(v.Arguments)
+					}
+					ca.done = true
+					sawToolCall = true
+					// Emit tool call
+					h.OnToolCall(llm.ToolCall{
+						Name: ca.name,
+						Args: json.RawMessage(ca.args.String()),
+						ID:   ca.id,
+					})
+				}
+			case rs.ResponseCustomToolCallInputDeltaEvent:
+				ca := acc[v.OutputIndex]
+				if ca == nil {
+					ca = &callAcc{}
+					acc[v.OutputIndex] = ca
+				}
+				if v.Delta != "" {
+					ca.args.WriteString(v.Delta)
+				}
+			case rs.ResponseCustomToolCallInputDoneEvent:
+				ca := acc[v.OutputIndex]
+				if ca != nil && !ca.done {
+					if ca.args.Len() == 0 && v.Input != "" {
+						ca.args.WriteString(v.Input)
+					}
+					ca.done = true
+					sawToolCall = true
+					h.OnToolCall(llm.ToolCall{
+						Name: ca.name,
+						Args: json.RawMessage(ca.args.String()),
+						ID:   ca.id,
+					})
+				}
+			case rs.ResponseCompletedEvent:
+				// Capture usage
+				promptTokens = int(v.Response.Usage.InputTokens)
+				completionTokens = int(v.Response.Usage.OutputTokens)
+				totalTokens = int(v.Response.Usage.TotalTokens)
+			}
+		}
+
+		err := stream.Err()
+		_ = stream.Close()
+		dur := time.Since(start)
+		base := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).
+			Int("prompt_tokens", promptTokens).Int("completion_tokens", completionTokens).Int("total_tokens", totalTokens).Logger()
+		if err != nil {
+			lastErr = err
+			if attempt == 0 && isConnectionReset(err) && !sawDelta && !sawToolCall && !sawSummary && ctx.Err() == nil {
+				base.Warn().Err(err).Msg("responses_stream_retry")
+				continue
+			}
+			base.Error().Err(err).Msg("responses_stream_error")
+			span.RecordError(err)
+			return err
+		}
+
 		if c.isSelfHosted() {
 			p := c.tokenizeCount(ctx, buildPromptText(msgs))
 			a := c.tokenizeCount(ctx, assistantContent.String())
@@ -1915,8 +1935,24 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
 		}
 		base.Debug().Msg("responses_stream_ok")
+		return nil
 	}
-	return err
+
+	return lastErr
+}
+
+func isConnectionReset(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) && errors.Is(opErr.Err, syscall.ECONNRESET) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "connection reset by peer")
 }
 
 type responseCompactRequest struct {

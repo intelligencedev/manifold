@@ -798,6 +798,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 
 			res, err := eng.RunStream(ctx, req.Prompt, history)
 			if err != nil {
+				logStreamContextDone(err, r, "/agent/run", req.SessionID, req.ProjectID, "")
 				log.Error().Err(err).Msg("agent run error")
 				if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
 					fmt.Fprintf(w, "data: %s\n\n", b)
@@ -1152,6 +1153,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			prun := a.runs.create(req.Prompt)
 			res, err := eng.RunStream(ctx, req.Prompt, history)
 			if err != nil {
+				logStreamContextDone(err, r, "/api/prompt", req.SessionID, req.ProjectID, "")
 				log.Error().Err(err).Msg("agent run error")
 				if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
 					fmt.Fprintf(w, "data: %s\n\n", b)
@@ -1421,6 +1423,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 
 		res, err := eng.RunStream(ctx, prompt, history)
 		if err != nil {
+			logStreamContextDone(err, r, "/agent/run", sessionID, "", name)
 			log.Error().Err(err).Str("specialist", name).Msg("specialist_stream_error")
 			if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
 				fmt.Fprintf(w, "data: %s\n\n", b)
@@ -1492,4 +1495,32 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")
 	}
 	return true
+}
+
+func logStreamContextDone(err error, r *http.Request, endpoint, sessionID, projectID, specialist string) {
+	if err == nil {
+		return
+	}
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	event := log.Warn().
+		Err(err).
+		Str("endpoint", endpoint).
+		Bool("stream", true).
+		Str("remote_addr", r.RemoteAddr).
+		Bool("deadline_exceeded", errors.Is(err, context.DeadlineExceeded))
+	if ua := r.UserAgent(); ua != "" {
+		event = event.Str("user_agent", ua)
+	}
+	if sessionID != "" {
+		event = event.Str("session_id", sessionID)
+	}
+	if projectID != "" {
+		event = event.Str("project_id", projectID)
+	}
+	if specialist != "" {
+		event = event.Str("specialist", specialist)
+	}
+	event.Msg("request_context_done")
 }

@@ -485,6 +485,17 @@ export const useChatStore = defineStore("chat", () => {
     });
 
     const controller = new AbortController();
+    controller.signal.addEventListener(
+      "abort",
+      () => {
+        console.warn("chat stream aborted", {
+          sessionId,
+          assistantId,
+          reason: controller.signal.reason,
+        });
+      },
+      { once: true },
+    );
     setStreamingState(sessionId, { assistantId, abortController: controller });
     toolMessageIndex.set(sessionId, new Map());
 
@@ -530,6 +541,15 @@ export const useChatStore = defineStore("chat", () => {
         });
       }
     } catch (error: any) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        console.warn("chat stream aborted (fetch)", {
+          sessionId,
+          assistantId,
+          reason: controller.signal.reason,
+        });
+      } else {
+        console.warn("chat stream error", error);
+      }
       const assistantUpdater = (m: ChatMessage) => ({
         ...m,
         streaming: false,
@@ -1032,7 +1052,9 @@ export const useChatStore = defineStore("chat", () => {
     const targetSessionId = sessionId || activeSessionId.value;
     if (!targetSessionId) return;
     const state = streamingStateFor(targetSessionId);
-    state?.abortController.abort();
+    if (!state?.abortController) return;
+    console.warn("chat stopStreaming called", { sessionId: targetSessionId });
+    state.abortController.abort("stopStreaming");
   }
 
   async function regenerateAssistant(

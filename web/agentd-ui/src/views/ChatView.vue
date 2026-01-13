@@ -877,6 +877,7 @@ const messagesPane = ref<HTMLDivElement | null>(null);
 const composer = ref<HTMLTextAreaElement | null>(null);
 const copiedMessageId = ref<string | null>(null);
 const autoScrollEnabled = ref(true);
+const lastScrollTop = ref(0);
 // Attachments state for composer
 const fileInput = ref<HTMLInputElement | null>(null);
 const pendingAttachments = ref<ChatAttachment[]>([]);
@@ -2110,7 +2111,29 @@ function isNearBottom(container: HTMLElement) {
 function handleMessagesScroll(event: Event) {
   const container = event.target as HTMLElement | null;
   if (!container) return;
-  autoScrollEnabled.value = isNearBottom(container);
+  if (container.scrollHeight <= container.clientHeight) {
+    autoScrollEnabled.value = true;
+    lastScrollTop.value = 0;
+    return;
+  }
+
+  const currentTop = container.scrollTop;
+  const delta = currentTop - lastScrollTop.value;
+  lastScrollTop.value = currentTop;
+
+  if (delta < -1) {
+    // User scrolls upward: stop auto-scroll immediately.
+    autoScrollEnabled.value = false;
+    return;
+  }
+
+  const nearBottom = isNearBottom(container);
+  if (nearBottom) {
+    autoScrollEnabled.value = true;
+  } else if (delta > 0) {
+    // User scrolls down but not at bottom yet; keep auto-scroll off.
+    autoScrollEnabled.value = false;
+  }
 }
 
 function handleScrollToLatest() {

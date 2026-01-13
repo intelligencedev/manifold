@@ -166,6 +166,13 @@ export async function streamAgentRun(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
+      // Keep auth/session cookies attached for long-running streams.
+      credentials: "include",
+      // Avoid intermediary caching/buffering affecting SSE delivery.
+      cache: "no-store",
+      // Hint the browser to keep the request alive on navigation/unload when possible.
+      // Note: behavior varies by browser; the server also sends heartbeats.
+      keepalive: true,
       signal,
     });
   } catch (error) {
@@ -208,13 +215,17 @@ export async function streamAgentRun(
         break;
       }
       const chunk = decoder.decode(value, { stream: true });
-      console.log("[SSE chunk]", JSON.stringify(chunk));
+      if (import.meta.env.DEV && import.meta.env.VITE_DEBUG_SSE === "true") {
+        console.log("[SSE chunk]", JSON.stringify(chunk));
+      }
       buffer += chunk;
       buffer = processBuffer(buffer, onEvent);
     }
     // flush remaining buffered data
     if (buffer.trim().length > 0) {
-      console.log("[SSE flush]", JSON.stringify(buffer));
+      if (import.meta.env.DEV && import.meta.env.VITE_DEBUG_SSE === "true") {
+        console.log("[SSE flush]", JSON.stringify(buffer));
+      }
       processBuffer(buffer, onEvent, true);
     }
   } finally {
@@ -316,6 +327,9 @@ export async function streamAgentVisionRun(
       method: "POST",
       headers: { Accept: "text/event-stream" },
       body: form,
+      credentials: "include",
+      cache: "no-store",
+      keepalive: true,
       signal,
     });
   } catch (error) {

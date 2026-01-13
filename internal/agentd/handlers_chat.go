@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -28,6 +29,7 @@ import (
 type agentStreamTracer struct {
 	w  io.Writer
 	fl http.Flusher
+	mu *sync.Mutex
 }
 
 func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
@@ -52,6 +54,10 @@ func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
 	b, err := json.Marshal(payload)
 	if err != nil {
 		return
+	}
+	if t.mu != nil {
+		t.mu.Lock()
+		defer t.mu.Unlock()
 	}
 	fmt.Fprintf(t.w, "data: %s\n\n", b)
 	t.fl.Flush()
@@ -650,6 +656,26 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				return
 			}
 
+			// Serialize all writes to the SSE stream. Tool calls and delegated agent
+			// tracing can write concurrently.
+			var streamMu sync.Mutex
+			writeSSE := func(payload any) {
+				b, err := json.Marshal(payload)
+				if err != nil {
+					return
+				}
+				streamMu.Lock()
+				defer streamMu.Unlock()
+				fmt.Fprintf(w, "data: %s\n\n", b)
+				fl.Flush()
+			}
+			writeSSEText := func(text string) {
+				streamMu.Lock()
+				defer streamMu.Unlock()
+				fmt.Fprint(w, text)
+				fl.Flush()
+			}
+
 			// If memory manager triggered summarization during BuildContext, emit event
 			if memorySummaryResult != nil && memorySummaryResult.Triggered {
 				payload := map[string]any{
@@ -659,18 +685,16 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					"message_count":    memorySummaryResult.MessageCount,
 					"summarized_count": memorySummaryResult.SummarizedCount,
 				}
-				b, _ := json.Marshal(payload)
 				log.Debug().
 					Int("input_tokens", memorySummaryResult.EstimatedTokens).
 					Int("token_budget", memorySummaryResult.TokenBudget).
 					Int("message_count", memorySummaryResult.MessageCount).
 					Int("summarized_count", memorySummaryResult.SummarizedCount).
 					Msg("emitting_summary_sse_event")
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(payload)
 			}
 
-			tracer := &agentStreamTracer{w: w, fl: fl}
+			tracer := &agentStreamTracer{w: w, fl: fl, mu: &streamMu}
 
 			seconds := a.cfg.StreamRunTimeoutSeconds
 			if seconds <= 0 {
@@ -678,6 +702,27 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 			ctx, cancel, dur := withMaybeTimeout(ctx, seconds)
 			defer cancel()
+
+			// Keep-alive pings prevent some browsers/proxies (notably Safari/WebKit)
+			// from closing idle SSE connections during long-running tool execution.
+			// This does not affect the agent logic; it's a transport-level heartbeat.
+			stopKeepalive := make(chan struct{})
+			go func() {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-stopKeepalive:
+						return
+					case <-ticker.C:
+						// SSE comment line (ignored by clients) + blank line delimiter.
+						writeSSEText(": keepalive\n\n")
+					}
+				}
+			}()
+			defer close(stopKeepalive)
 
 			if req.Image {
 				ctx = llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
@@ -694,16 +739,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 
 			eng.OnDelta = func(d string) {
 				payload := map[string]string{"type": "delta", "data": d}
-				b, _ := json.Marshal(payload)
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(payload)
 			}
 			eng.OnThoughtSummary = func(summary string) {
 				log.Debug().Int("summary_len", len(summary)).Msg("http_handler_thought_summary")
 				payload := map[string]string{"type": "thought_summary", "data": summary}
-				b, _ := json.Marshal(payload)
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(payload)
 			}
 			eng.OnToolStart = func(name string, args []byte, toolID string) {
 				payload := map[string]any{"type": "tool_start", "title": "Tool: " + name, "tool_id": toolID, "args": string(args)}
@@ -711,27 +752,21 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				if name == "agent_call" || name == "ask_agent" {
 					payload["agent"] = true
 				}
-				b, _ := json.Marshal(payload)
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(payload)
 			}
 			eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
 				if name == "text_to_speech_chunk" {
 					var meta map[string]any
 					_ = json.Unmarshal(result, &meta)
 					metaPayload := map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]}
-					b, _ := json.Marshal(metaPayload)
-					fmt.Fprintf(w, "data: %s\n\n", b)
-					fl.Flush()
+					writeSSE(metaPayload)
 					return
 				}
 				payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result), "tool_id": toolID}
 				if name == "agent_call" || name == "ask_agent" {
 					payload["agent"] = true
 				}
-				b, _ := json.Marshal(payload)
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(payload)
 
 				if name == "text_to_speech" {
 					var resp map[string]any
@@ -741,10 +776,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 							trimmed = strings.TrimPrefix(trimmed, "/")
 							url := "/audio/" + trimmed
 							ap := map[string]any{"type": "tts_audio", "file_path": fp, "url": url}
-							if bb, err2 := json.Marshal(ap); err2 == nil {
-								fmt.Fprintf(w, "data: %s\n\n", bb)
-								fl.Flush()
-							}
+							writeSSE(ap)
 						}
 					}
 				}
@@ -778,9 +810,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					if img.FullPath != "" {
 						payload["file_path"] = img.FullPath
 					}
-					b, _ := json.Marshal(payload)
-					fmt.Fprintf(w, "data: %s\n\n", b)
-					fl.Flush()
+					writeSSE(payload)
 				}
 			}
 			eng.OnSummaryTriggered = func(inputTokens, tokenBudget, messageCount, summarizedCount int) {
@@ -791,21 +821,14 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 					"message_count":    messageCount,
 					"summarized_count": summarizedCount,
 				}
-				b, _ := json.Marshal(payload)
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(payload)
 			}
 
 			res, err := eng.RunStream(ctx, req.Prompt, history)
 			if err != nil {
 				logStreamContextDone(err, r, "/agent/run", req.SessionID, req.ProjectID, "")
 				log.Error().Err(err).Msg("agent run error")
-				if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
-					fmt.Fprintf(w, "data: %s\n\n", b)
-				} else {
-					fmt.Fprintf(w, "data: %q\n\n", "(error)")
-				}
-				fl.Flush()
+				writeSSE(map[string]string{"type": "error", "data": "(error) " + err.Error()})
 				a.runs.updateStatus(currentRun.ID, "failed", 0)
 				// Commit workspace changes even on error so partial work is preserved
 				a.commitWorkspace(ctx, checkedOutWorkspace)
@@ -815,9 +838,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 				res = appendImageSummary(res, savedImages)
 			}
 			payload := map[string]string{"type": "final", "data": res}
-			b, _ := json.Marshal(payload)
-			fmt.Fprintf(w, "data: %s\n\n", b)
-			fl.Flush()
+			writeSSE(payload)
 			a.runs.updateStatus(currentRun.ID, "completed", 0)
 			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
@@ -1296,13 +1317,51 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			http.Error(w, "streaming not supported", http.StatusInternalServerError)
 			return true
 		}
-		tracer := &agentStreamTracer{w: w, fl: fl}
+
+		// Serialize all writes to the SSE stream. Specialist engines can execute tools
+		// concurrently, and tracing callbacks may also write.
+		var streamMu sync.Mutex
+		writeSSE := func(payload any) {
+			b, err := json.Marshal(payload)
+			if err != nil {
+				return
+			}
+			streamMu.Lock()
+			defer streamMu.Unlock()
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
+		writeSSEText := func(text string) {
+			streamMu.Lock()
+			defer streamMu.Unlock()
+			fmt.Fprint(w, text)
+			fl.Flush()
+		}
+
+		tracer := &agentStreamTracer{w: w, fl: fl, mu: &streamMu}
 		seconds := a.cfg.StreamRunTimeoutSeconds
 		if seconds <= 0 {
 			seconds = a.cfg.AgentRunTimeoutSeconds
 		}
 		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
 		defer cancel()
+
+		stopKeepalive := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-stopKeepalive:
+					return
+				case <-ticker.C:
+					writeSSEText(": keepalive\n\n")
+				}
+			}
+		}()
+		defer close(stopKeepalive)
 
 		if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
 			ctx = llm.WithImagePrompt(ctx, opts)
@@ -1322,45 +1381,35 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 				return
 			}
 			payload := map[string]string{"type": "delta", "data": d}
-			b, _ := json.Marshal(payload)
-			fmt.Fprintf(w, "data: %s\n\n", b)
-			fl.Flush()
+			writeSSE(payload)
 		}
 		eng.OnThoughtSummary = func(summary string) {
 			if summary == "" {
 				return
 			}
 			payload := map[string]string{"type": "thought_summary", "data": summary}
-			b, _ := json.Marshal(payload)
-			fmt.Fprintf(w, "data: %s\n\n", b)
-			fl.Flush()
+			writeSSE(payload)
 		}
 		eng.OnToolStart = func(toolName string, args []byte, toolID string) {
 			payload := map[string]any{"type": "tool_start", "title": "Tool: " + toolName, "tool_id": toolID, "args": string(args)}
 			if toolName == "agent_call" || toolName == "ask_agent" {
 				payload["agent"] = true
 			}
-			b, _ := json.Marshal(payload)
-			fmt.Fprintf(w, "data: %s\n\n", b)
-			fl.Flush()
+			writeSSE(payload)
 		}
 		eng.OnTool = func(toolName string, args []byte, result []byte, toolID string) {
 			if toolName == "text_to_speech_chunk" {
 				var meta map[string]any
 				_ = json.Unmarshal(result, &meta)
 				metaPayload := map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]}
-				b, _ := json.Marshal(metaPayload)
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(metaPayload)
 				return
 			}
 			payload := map[string]any{"type": "tool_result", "title": "Tool: " + toolName, "data": string(result), "tool_id": toolID}
 			if toolName == "agent_call" || toolName == "ask_agent" {
 				payload["agent"] = true
 			}
-			b, _ := json.Marshal(payload)
-			fmt.Fprintf(w, "data: %s\n\n", b)
-			fl.Flush()
+			writeSSE(payload)
 			if toolName == "text_to_speech" {
 				var resp map[string]any
 				if err := json.Unmarshal(result, &resp); err == nil {
@@ -1369,10 +1418,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 						trimmed = strings.TrimPrefix(trimmed, "/")
 						url := "/audio/" + trimmed
 						ap := map[string]any{"type": "tts_audio", "file_path": fp, "url": url}
-						if bb, err2 := json.Marshal(ap); err2 == nil {
-							fmt.Fprintf(w, "data: %s\n\n", bb)
-							fl.Flush()
-						}
+						writeSSE(ap)
 					}
 				}
 			}
@@ -1403,9 +1449,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 				if img.FullPath != "" {
 					payload["file_path"] = img.FullPath
 				}
-				b, _ := json.Marshal(payload)
-				fmt.Fprintf(w, "data: %s\n\n", b)
-				fl.Flush()
+				writeSSE(payload)
 			}
 		}
 		eng.OnSummaryTriggered = func(inputTokens, tokenBudget, messageCount, summarizedCount int) {
@@ -1416,21 +1460,14 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 				"message_count":    messageCount,
 				"summarized_count": summarizedCount,
 			}
-			b, _ := json.Marshal(payload)
-			fmt.Fprintf(w, "data: %s\n\n", b)
-			fl.Flush()
+			writeSSE(payload)
 		}
 
 		res, err := eng.RunStream(ctx, prompt, history)
 		if err != nil {
 			logStreamContextDone(err, r, "/agent/run", sessionID, "", name)
 			log.Error().Err(err).Str("specialist", name).Msg("specialist_stream_error")
-			if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
-				fmt.Fprintf(w, "data: %s\n\n", b)
-			} else {
-				fmt.Fprintf(w, "data: %q\n\n", "(error)")
-			}
-			fl.Flush()
+			writeSSE(map[string]string{"type": "error", "data": "(error) " + err.Error()})
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			return true
 		}
@@ -1438,9 +1475,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			res = appendImageSummary(res, savedImages)
 		}
 		payload := map[string]string{"type": "final", "data": res}
-		b, _ := json.Marshal(payload)
-		fmt.Fprintf(w, "data: %s\n\n", b)
-		fl.Flush()
+		writeSSE(payload)
 		a.runs.updateStatus(prun.ID, "completed", 0)
 		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist_stream")

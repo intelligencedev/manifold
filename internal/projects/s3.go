@@ -249,6 +249,26 @@ func (s *S3Service) DecryptProjectFile(ctx context.Context, userID int64, projec
 	return plaintext, nil
 }
 
+// EncryptProjectFile encrypts a file's content for a specific project.
+// Returns the encrypted content and a flag indicating if encryption was applied.
+func (s *S3Service) EncryptProjectFile(ctx context.Context, userID int64, projectID string, data []byte) ([]byte, bool, error) {
+	if !s.encrypt {
+		return data, false, nil
+	}
+
+	dek, err := s.ensureProjectDEK(ctx, userID, projectID)
+	if err != nil {
+		return nil, false, fmt.Errorf("get DEK: %w", err)
+	}
+
+	encrypted, err := s.encryptData(dek, data)
+	if err != nil {
+		return nil, false, fmt.Errorf("encrypt: %w", err)
+	}
+
+	return encrypted, true, nil
+}
+
 // userPrefix returns the S3 key prefix for a user's projects.
 func (s *S3Service) userPrefix(userID int64) string {
 	return fmt.Sprintf("%s/users/%d/projects", s.keyPrefix, userID)

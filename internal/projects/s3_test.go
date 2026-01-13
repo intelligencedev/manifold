@@ -115,6 +115,38 @@ func TestS3Service_UploadAndReadFile(t *testing.T) {
 	assert.Equal(t, content, data)
 }
 
+func TestS3Service_EncryptProjectFile(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := objectstore.NewMemoryStore()
+	svc := NewS3Service(store, config.S3Config{Prefix: "workspaces"})
+
+	ciphertext, encrypted, err := svc.EncryptProjectFile(ctx, 123, "proj1", []byte("plaintext"))
+	require.NoError(t, err)
+	assert.False(t, encrypted)
+	assert.Equal(t, []byte("plaintext"), ciphertext)
+
+	tmpDir := t.TempDir()
+	provider, err := NewFileKeyProvider(tmpDir, "")
+	require.NoError(t, err)
+	defer provider.Close()
+
+	svc.SetKeyProvider(provider)
+	require.NoError(t, svc.EnableEncryption(true))
+
+	plaintext := []byte("secret-data")
+	ciphertext, encrypted, err = svc.EncryptProjectFile(ctx, 123, "proj1", plaintext)
+	require.NoError(t, err)
+	assert.True(t, encrypted)
+	assert.NotEqual(t, plaintext, ciphertext)
+	assert.True(t, bytes.HasPrefix(ciphertext, fileMagic[:]))
+
+	decrypted, err := svc.DecryptProjectFile(ctx, 123, "proj1", ciphertext)
+	require.NoError(t, err)
+	assert.Equal(t, plaintext, decrypted)
+}
+
 func TestS3Service_ListTree(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

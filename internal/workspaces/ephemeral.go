@@ -32,6 +32,13 @@ type FileDecrypter interface {
 	DecryptProjectFile(ctx context.Context, userID int64, projectID string, data []byte) ([]byte, error)
 }
 
+// FileEncrypter provides encryption for project files.
+type FileEncrypter interface {
+	// EncryptProjectFile encrypts a file's content for a specific project.
+	// Returns the encrypted content and a flag indicating if encryption was applied.
+	EncryptProjectFile(ctx context.Context, userID int64, projectID string, data []byte) ([]byte, bool, error)
+}
+
 // EphemeralWorkspaceManager implements WorkspaceManager using ephemeral local
 // directories that sync with S3 object storage.
 type EphemeralWorkspaceManager struct {
@@ -39,6 +46,7 @@ type EphemeralWorkspaceManager struct {
 	workdir   string // root for ephemeral workspace dirs
 	keyPrefix string // S3 key prefix for project files
 	decrypter FileDecrypter
+	encrypter FileEncrypter
 	mu        sync.RWMutex
 	active    map[string]*workspaceState // session -> state
 }
@@ -108,6 +116,13 @@ func NewEphemeralManager(store objectstore.ObjectStore, cfg *config.Config) *Eph
 // This should be called after creating the manager if encryption is enabled.
 func (m *EphemeralWorkspaceManager) SetDecrypter(d FileDecrypter) {
 	m.decrypter = d
+	m.encrypter = nil
+	if d == nil {
+		return
+	}
+	if encrypter, ok := d.(FileEncrypter); ok {
+		m.encrypter = encrypter
+	}
 }
 
 // Mode returns "ephemeral".
@@ -634,8 +649,24 @@ func (m *EphemeralWorkspaceManager) Commit(ctx context.Context, ws Workspace) er
 		defer f.Close()
 
 		s3Key := prefix + "/" + relPath
-		etag, err := m.store.Put(ctx, s3Key, f, objectstore.PutOptions{
-			ContentType: detectContentType(relPath),
+		contentType := detectContentType(relPath)
+		reader := io.Reader(f)
+		if m.encrypter != nil {
+			data, err := io.ReadAll(f)
+			if err != nil {
+				return fmt.Errorf("read file %s: %w", relPath, err)
+			}
+			encrypted, didEncrypt, err := m.encrypter.EncryptProjectFile(ctx, ws.UserID, ws.ProjectID, data)
+			if err != nil {
+				return fmt.Errorf("encrypt file %s: %w", relPath, err)
+			}
+			if didEncrypt {
+				contentType = "application/octet-stream"
+			}
+			reader = bytes.NewReader(encrypted)
+		}
+		etag, err := m.store.Put(ctx, s3Key, reader, objectstore.PutOptions{
+			ContentType: contentType,
 		})
 		if err != nil {
 			return fmt.Errorf("upload %s: %w", relPath, err)

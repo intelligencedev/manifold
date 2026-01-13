@@ -752,10 +752,13 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			}
 			log.Info().Msg("projects_s3_backend_encryption_enabled")
 
-			// Configure the ephemeral workspace manager to use S3Service for decryption
-			if ephMgr, ok := app.workspaceManager.(*workspaces.EphemeralWorkspaceManager); ok {
-				ephMgr.SetDecrypter(s3Svc)
-				log.Info().Msg("ephemeral_workspace_decrypter_configured")
+			// Configure the workspace manager to use S3Service for encryption/decryption.
+			type workspaceDecrypterSetter interface {
+				SetDecrypter(workspaces.FileDecrypter)
+			}
+			if setter, ok := app.workspaceManager.(workspaceDecrypterSetter); ok {
+				setter.SetDecrypter(s3Svc)
+				log.Info().Msg("workspace_decrypter_configured")
 			}
 		}
 		app.projectsService = s3Svc

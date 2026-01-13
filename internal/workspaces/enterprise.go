@@ -134,6 +134,14 @@ func NewEnterpriseManager(cfg *config.Config, store objectstore.ObjectStore) Wor
 // Mode returns "enterprise".
 func (m *EnterpriseWorkspaceManager) Mode() string { return m.mode }
 
+// SetDecrypter forwards the decrypter configuration to the underlying ephemeral manager.
+func (m *EnterpriseWorkspaceManager) SetDecrypter(d FileDecrypter) {
+	if m == nil || m.ephem == nil {
+		return
+	}
+	m.ephem.SetDecrypter(d)
+}
+
 // Checkout reuses the ephemeral manager; primes Redis generation cache when available.
 func (m *EnterpriseWorkspaceManager) Checkout(ctx context.Context, userID int64, projectID, sessionID string) (Workspace, error) {
 	ws := Workspace{UserID: userID, ProjectID: projectID, SessionID: sessionID, Mode: m.mode}

@@ -3,6 +3,7 @@ package workspaces
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -112,6 +113,58 @@ func TestEphemeralWorkspaceManager_CheckoutAndCommit(t *testing.T) {
 	err = mgr.Cleanup(ctx, ws)
 	require.NoError(t, err)
 	assert.NoDirExists(t, ws.BaseDir)
+}
+
+func TestEphemeralWorkspaceManager_CommitEncryptsWhenEncrypterSet(t *testing.T) {
+	t.Parallel()
+
+	tmpDir, err := os.MkdirTemp("", "ephemeral-encrypt-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	store := objectstore.NewMemoryStore()
+	ctx := context.Background()
+
+	userID := int64(123)
+	projectID := "test-project"
+	_, err = store.Put(ctx, "workspaces/users/123/projects/test-project/files/README.md", bytes.NewReader([]byte("# Test Project")), objectstore.PutOptions{})
+	require.NoError(t, err)
+
+	cfg := &config.Config{
+		Workdir: tmpDir,
+		Projects: config.ProjectsConfig{
+			Backend: "s3",
+			Workspace: config.WorkspaceConfig{
+				Mode: "ephemeral",
+				Root: filepath.Join(tmpDir, "sandboxes"),
+			},
+			S3: config.S3Config{
+				Prefix: "workspaces",
+			},
+		},
+	}
+	mgr := NewEphemeralManager(store, cfg)
+	cryptor := &fakeCryptor{}
+	mgr.SetDecrypter(cryptor)
+
+	ws, err := mgr.Checkout(ctx, userID, projectID, "session-1")
+	require.NoError(t, err)
+
+	readmePath := filepath.Join(ws.BaseDir, "README.md")
+	err = os.WriteFile(readmePath, []byte("# Updated Project"), 0o644)
+	require.NoError(t, err)
+
+	err = mgr.Commit(ctx, ws)
+	require.NoError(t, err)
+	assert.NotZero(t, cryptor.encryptCalls)
+
+	reader, attrs, err := store.Get(ctx, "workspaces/users/123/projects/test-project/files/README.md")
+	require.NoError(t, err)
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	assert.Equal(t, "application/octet-stream", attrs.ContentType)
+	assert.Equal(t, "enc:# Updated Project", string(data))
 }
 
 func TestEphemeralWorkspaceManager_EmptyProjectID(t *testing.T) {

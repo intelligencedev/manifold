@@ -87,6 +87,9 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 		if strings.TrimSpace(sc.Model) != "" {
 			cfg.Model = strings.TrimSpace(sc.Model)
 		}
+		if len(sc.ExtraParams) > 0 {
+			cfg.ExtraParams = mergeAnyMap(cfg.ExtraParams, sc.ExtraParams)
+		}
 		prov, err := google.New(cfg, hc)
 		if err != nil {
 			return nil, ""
@@ -102,6 +105,9 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 		}
 		if strings.TrimSpace(sc.Model) != "" {
 			cfg.Model = strings.TrimSpace(sc.Model)
+		}
+		if len(sc.ExtraParams) > 0 {
+			cfg.ExtraParams = mergeAnyMap(cfg.ExtraParams, sc.ExtraParams)
 		}
 		prov := anthropic.New(cfg, hc)
 		return prov, cfg.Model

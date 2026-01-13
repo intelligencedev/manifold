@@ -175,6 +175,33 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID st
 		return eng
 	}
 
+	// Apply user's LLM overrides (provider/model/extra params).
+	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
+	userCfg := *a.cfg
+	userCfg.LLMClient = llmCfg
+	if provider == "" || provider == "openai" || provider == "local" {
+		userCfg.OpenAI = llmCfg.OpenAI
+	}
+	if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
+		log.Warn().Err(err).Msg("failed to build per-user llm provider")
+	} else {
+		eng.LLM = userLLM
+	}
+	currentModel := strings.TrimSpace(sp.Model)
+	if currentModel == "" {
+		switch provider {
+		case "anthropic":
+			currentModel = strings.TrimSpace(llmCfg.Anthropic.Model)
+		case "google":
+			currentModel = strings.TrimSpace(llmCfg.Google.Model)
+		default:
+			currentModel = strings.TrimSpace(llmCfg.OpenAI.Model)
+		}
+	}
+	if currentModel != "" {
+		eng.Model = currentModel
+	}
+
 	// Apply user's tool configuration
 	if !sp.EnableTools {
 		eng.Tools = tools.NewRegistry() // empty registry

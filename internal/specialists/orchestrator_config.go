@@ -31,6 +31,9 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 		if strings.TrimSpace(sp.Model) != "" {
 			cfg.Anthropic.Model = strings.TrimSpace(sp.Model)
 		}
+		if len(sp.ExtraParams) > 0 {
+			cfg.Anthropic.ExtraParams = mergeAnyMap(cfg.Anthropic.ExtraParams, sp.ExtraParams)
+		}
 	case "google":
 		if strings.TrimSpace(sp.BaseURL) != "" {
 			cfg.Google.BaseURL = strings.TrimSpace(sp.BaseURL)
@@ -40,6 +43,9 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 		}
 		if strings.TrimSpace(sp.Model) != "" {
 			cfg.Google.Model = strings.TrimSpace(sp.Model)
+		}
+		if len(sp.ExtraParams) > 0 {
+			cfg.Google.ExtraParams = mergeAnyMap(cfg.Google.ExtraParams, sp.ExtraParams)
 		}
 	default:
 		if strings.TrimSpace(sp.BaseURL) != "" {
@@ -54,8 +60,8 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 		if sp.ExtraHeaders != nil {
 			cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
 		}
-		if sp.ExtraParams != nil {
-			cfg.OpenAI.ExtraParams = sp.ExtraParams
+		if len(sp.ExtraParams) > 0 {
+			cfg.OpenAI.ExtraParams = mergeAnyMap(cfg.OpenAI.ExtraParams, sp.ExtraParams)
 		}
 	}
 
@@ -75,4 +81,25 @@ func ApplyOrchestratorConfig(cfg *config.Config, sp persistence.Specialist) stri
 	cfg.SystemPrompt = sp.System
 
 	return provider
+}
+
+func mergeAnyMap(base, override map[string]any) map[string]any {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	if len(override) == 0 {
+		out := make(map[string]any, len(base))
+		for k, v := range base {
+			out[k] = v
+		}
+		return out
+	}
+	out := make(map[string]any, len(base)+len(override))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		out[k] = v
+	}
+	return out
 }

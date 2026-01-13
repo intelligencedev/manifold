@@ -33,6 +33,7 @@ type Client struct {
 	model     string
 	maxTokens int64
 	cacheCfg  config.AnthropicPromptCacheConfig
+	extra     map[string]any
 }
 
 func New(cfg config.AnthropicConfig, httpClient *http.Client) *Client {
@@ -64,6 +65,7 @@ func New(cfg config.AnthropicConfig, httpClient *http.Client) *Client {
 		model:     model,
 		maxTokens: defaultMaxTokens,
 		cacheCfg:  cacheCfg,
+		extra:     cfg.ExtraParams,
 	}
 }
 
@@ -98,6 +100,9 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		if params.MaxTokens <= thinkingBudget {
 			params.MaxTokens = thinkingBudget + 1024
 		}
+	}
+	if len(c.extra) > 0 {
+		params.SetExtraFields(c.extra)
 	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic Chat", string(params.Model), len(tools), len(msgs))
@@ -168,6 +173,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		if params.MaxTokens <= thinkingBudget {
 			params.MaxTokens = thinkingBudget + 1024
 		}
+	}
+	if len(c.extra) > 0 {
+		params.SetExtraFields(c.extra)
 	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatStream", string(params.Model), len(tools), len(msgs))

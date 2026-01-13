@@ -22,6 +22,7 @@ type Client struct {
 	client      *genai.Client
 	model       string
 	httpOptions genai.HTTPOptions
+	extra       map[string]any
 }
 
 func New(cfg config.GoogleConfig, httpClient *http.Client) (*Client, error) {
@@ -56,6 +57,7 @@ func New(cfg config.GoogleConfig, httpClient *http.Client) (*Client, error) {
 		client:      client,
 		model:       model,
 		httpOptions: httpOpts,
+		extra:       cfg.ExtraParams,
 	}, nil
 }
 
@@ -203,8 +205,17 @@ func (c *Client) pickModel(model string) string {
 }
 
 func (c *Client) buildContentConfig(ctx context.Context, model string, tools []*genai.Tool, toolCfg *genai.ToolConfig) *genai.GenerateContentConfig {
+	httpOpts := c.httpOptions
+	if extraBody := c.buildExtraBody(); extraBody != nil {
+		if httpOpts.ExtraBody != nil {
+			httpOpts.ExtraBody = mergeAnyMap(httpOpts.ExtraBody, extraBody)
+		} else {
+			httpOpts.ExtraBody = extraBody
+		}
+	}
+
 	cfg := &genai.GenerateContentConfig{
-		HTTPOptions: &c.httpOptions,
+		HTTPOptions: &httpOpts,
 		Tools:       tools,
 		ToolConfig:  toolCfg,
 	}
@@ -222,6 +233,95 @@ func (c *Client) buildContentConfig(ctx context.Context, model string, tools []*
 		}
 	}
 	return cfg
+}
+
+func (c *Client) buildExtraBody() map[string]any {
+	if len(c.extra) == 0 {
+		return nil
+	}
+
+	body := map[string]any{}
+	genCfg := map[string]any{}
+
+	for rawKey, val := range c.extra {
+		key := strings.TrimSpace(rawKey)
+		if key == "" {
+			continue
+		}
+		norm := normalizeExtraKey(key)
+		switch norm {
+		case "generationconfig":
+			if m, ok := val.(map[string]any); ok {
+				for mk, mv := range m {
+					genCfg[mk] = mv
+				}
+			} else {
+				body[key] = val
+			}
+		case "temperature":
+			genCfg["temperature"] = val
+		case "topp":
+			genCfg["topP"] = val
+		case "topk":
+			genCfg["topK"] = val
+		case "candidatecount":
+			genCfg["candidateCount"] = val
+		case "maxoutputtokens":
+			genCfg["maxOutputTokens"] = val
+		case "stopsequences":
+			genCfg["stopSequences"] = val
+		case "responsemimetype":
+			genCfg["responseMimeType"] = val
+		case "responseschema":
+			genCfg["responseSchema"] = val
+		case "responsejsonschema":
+			genCfg["responseJsonSchema"] = val
+		case "responselogprobs":
+			genCfg["responseLogprobs"] = val
+		case "logprobs":
+			genCfg["logprobs"] = val
+		case "presencepenalty":
+			genCfg["presencePenalty"] = val
+		case "frequencypenalty":
+			genCfg["frequencyPenalty"] = val
+		case "seed":
+			genCfg["seed"] = val
+		default:
+			body[key] = val
+		}
+	}
+
+	if len(genCfg) > 0 {
+		body["generationConfig"] = genCfg
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	return body
+}
+
+func normalizeExtraKey(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	key = strings.ReplaceAll(key, "_", "")
+	key = strings.ReplaceAll(key, "-", "")
+	return strings.ToLower(key)
+}
+
+func mergeAnyMap(base, override map[string]any) map[string]any {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(base)+len(override))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		out[k] = v
+	}
+	return out
 }
 
 func shouldIncludeThoughtSummaries(model string) bool {

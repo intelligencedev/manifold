@@ -50,11 +50,14 @@ services:
       PROJECTS_S3_BUCKET: ${MINIO_BUCKET:-manifold-workspaces}
       PROJECTS_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       PROJECTS_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      # Encryption via Vault
+      # Encryption via Vault (Production Mode)
+      # On first run, retrieve the app token from vault-init output:
+      #   docker exec manifold_vault cat /vault/data/app-token.json
+      # Then set VAULT_TOKEN in your .env file
       PROJECTS_ENCRYPT: "true"
       PROJECTS_ENCRYPTION_PROVIDER: vault
       VAULT_ADDR: http://vault:8200
-      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
+      VAULT_TOKEN: ${VAULT_TOKEN:-}
       VAULT_KEY_NAME: ${VAULT_KEY_NAME:-manifold-kek}
       # Redis coordination
       REDIS_ADDR: redis:6379
@@ -250,26 +253,44 @@ services:
   ##########################
   # Vault (Key Management)
   ##########################
+  # Production mode with file storage backend.
+  # Keys persist across restarts. First startup will initialize Vault
+  # and save unseal keys to /vault/data/init-keys.json.
+  #
+  # WARNING: In production, secure the unseal keys properly!
+  # Consider using auto-unseal with cloud KMS (AWS KMS, GCP KMS, Azure Key Vault).
 
   vault:
     image: hashicorp/vault:1.15
     container_name: manifold_vault
     cap_add:
       - IPC_LOCK
+    user: root
+    entrypoint: ["/bin/sh", "-c", "chown -R vault:vault /vault/data && exec docker-entrypoint.sh server"]
     environment:
-      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
       VAULT_ADDR: "http://127.0.0.1:8200"
+      VAULT_LOCAL_CONFIG: |
+        storage "file" {
+          path = "/vault/data"
+        }
+        listener "tcp" {
+          address     = "0.0.0.0:8200"
+          tls_disable = true
+        }
+        api_addr = "http://0.0.0.0:8200"
+        disable_mlock = true
+        ui = false
     ports:
       - "8200:8200"
     volumes:
       - vault_data:/vault/data
     healthcheck:
-      test: ["CMD", "vault", "status"]
+      # In production mode, Vault may be sealed but still healthy
+      test: ["CMD", "sh", "-c", "vault status -format=json | grep -q '\"initialized\"'"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 5s
+      start_period: 10s
     restart: unless-stopped
 
   vault-init:
@@ -280,18 +301,11 @@ services:
         condition: service_healthy
     environment:
       VAULT_ADDR: "http://vault:8200"
-      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
-    entrypoint: >
-      /bin/sh -c "
-      echo 'Waiting for Vault...';
-      sleep 2;
-      echo 'Enabling Transit secrets engine...';
-      vault secrets enable transit 2>/dev/null || echo 'Transit already enabled';
-      echo 'Creating encryption key...';
-      vault write -f transit/keys/$${VAULT_KEY_NAME:-manifold-kek} 2>/dev/null || echo 'Key already exists';
-      echo 'Vault initialized with Transit key: $${VAULT_KEY_NAME:-manifold-kek}';
-      exit 0;
-      "
+      VAULT_KEY_NAME: ${VAULT_KEY_NAME:-manifold-kek}
+    volumes:
+      - vault_data:/vault/data
+      - ./configs/vault/init.sh:/vault/init.sh:ro
+    entrypoint: ["/bin/sh", "/vault/init.sh"]
 
   ##########################
   # Observability Stack

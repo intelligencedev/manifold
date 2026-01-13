@@ -579,9 +579,12 @@ func (m *EphemeralWorkspaceManager) Commit(ctx context.Context, ws Workspace) er
 			return err
 		}
 
-		// Skip .meta directory
-		if d.IsDir() && d.Name() == ".meta" {
+		// Skip internal metadata and VCS directories.
+		if d.IsDir() && (d.Name() == ".meta" || d.Name() == ".git") {
 			return filepath.SkipDir
+		}
+		if !d.IsDir() && d.Name() == ".git" {
+			return nil
 		}
 
 		if d.IsDir() {

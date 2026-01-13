@@ -13,7 +13,7 @@ func TestApplyOrchestratorConfig_OpenAI(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		LLMClient: config.LLMClientConfig{Provider: "openai"},
+		LLMClient: config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{ExtraParams: map[string]any{"default": 0.1}}},
 		OpenAI:    config.OpenAIConfig{APIKey: "orig"},
 	}
 	sp := persistence.Specialist{
@@ -37,6 +37,7 @@ func TestApplyOrchestratorConfig_OpenAI(t *testing.T) {
 	require.True(t, cfg.EnableTools)
 	require.Equal(t, []string{"a", "b"}, cfg.ToolAllowList)
 	require.Equal(t, cfg.LLMClient.OpenAI, cfg.OpenAI)
+	require.Equal(t, map[string]any{"default": 0.1, "temp": 0.2}, cfg.LLMClient.OpenAI.ExtraParams)
 }
 
 func TestApplyLLMClientOverride_OpenAI(t *testing.T) {
@@ -44,7 +45,7 @@ func TestApplyLLMClientOverride_OpenAI(t *testing.T) {
 
 	base := config.LLMClientConfig{
 		Provider: "openai",
-		OpenAI:   config.OpenAIConfig{APIKey: "orig"},
+		OpenAI:   config.OpenAIConfig{APIKey: "orig", ExtraParams: map[string]any{"base": 1}},
 	}
 	sp := persistence.Specialist{
 		BaseURL:      "https://example.com",
@@ -61,7 +62,7 @@ func TestApplyLLMClientOverride_OpenAI(t *testing.T) {
 	require.Equal(t, "key", got.OpenAI.APIKey)
 	require.Equal(t, "model", got.OpenAI.Model)
 	require.Equal(t, map[string]string{"x": "y"}, got.OpenAI.ExtraHeaders)
-	require.Equal(t, map[string]any{"temp": 0.7}, got.OpenAI.ExtraParams)
+	require.Equal(t, map[string]any{"base": 1, "temp": 0.7}, got.OpenAI.ExtraParams)
 }
 
 func TestApplyOrchestratorConfig_Anthropic(t *testing.T) {
@@ -76,6 +77,9 @@ func TestApplyOrchestratorConfig_Anthropic(t *testing.T) {
 		BaseURL:  "https://anthropic.example",
 		APIKey:   "anthro-key",
 		Model:    "claude",
+		ExtraParams: map[string]any{
+			"temperature": 0.2,
+		},
 	}
 
 	provider := ApplyOrchestratorConfig(cfg, sp)
@@ -85,4 +89,41 @@ func TestApplyOrchestratorConfig_Anthropic(t *testing.T) {
 	require.Equal(t, "anthro-key", cfg.LLMClient.Anthropic.APIKey)
 	require.Equal(t, "claude", cfg.LLMClient.Anthropic.Model)
 	require.Equal(t, "orig", cfg.OpenAI.APIKey)
+	require.Equal(t, map[string]any{"temperature": 0.2}, cfg.LLMClient.Anthropic.ExtraParams)
+}
+
+func TestApplyLLMClientOverride_AnthropicExtraParams(t *testing.T) {
+	t.Parallel()
+
+	base := config.LLMClientConfig{
+		Provider:  "anthropic",
+		Anthropic: config.AnthropicConfig{ExtraParams: map[string]any{"base": 1}},
+	}
+	sp := persistence.Specialist{
+		Provider:    "anthropic",
+		ExtraParams: map[string]any{"temperature": 0.4},
+	}
+
+	got, provider := ApplyLLMClientOverride(base, sp)
+
+	require.Equal(t, "anthropic", provider)
+	require.Equal(t, map[string]any{"base": 1, "temperature": 0.4}, got.Anthropic.ExtraParams)
+}
+
+func TestApplyLLMClientOverride_GoogleExtraParams(t *testing.T) {
+	t.Parallel()
+
+	base := config.LLMClientConfig{
+		Provider: "google",
+		Google:   config.GoogleConfig{ExtraParams: map[string]any{"base": true}},
+	}
+	sp := persistence.Specialist{
+		Provider:    "google",
+		ExtraParams: map[string]any{"topP": 0.8},
+	}
+
+	got, provider := ApplyLLMClientOverride(base, sp)
+
+	require.Equal(t, "google", provider)
+	require.Equal(t, map[string]any{"base": true, "topP": 0.8}, got.Google.ExtraParams)
 }

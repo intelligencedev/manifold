@@ -79,6 +79,9 @@ type Engine struct {
 	// due to the message history exceeding the token budget. Parameters include:
 	// inputTokens, tokenBudget, messageCount, and messagesBeingSummarized.
 	OnSummaryTriggered func(inputTokens, tokenBudget, messageCount, summarizedCount int)
+	// OnMemoryEvent, if set, is invoked when the evolving memory system emits
+	// Search/Synthesis/Evolve events. Useful for debugging and observability.
+	OnMemoryEvent func(*memory.MemoryEvent)
 	// Tokenizer provides accurate token counting when available. If nil, the engine
 	// falls back to heuristic estimation (chars/4).
 	Tokenizer llm.Tokenizer
@@ -184,17 +187,23 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	if e.EvolvingMemory != nil {
 		log.Info().Str("user_input", userInput).Int("response_len", len(final)).Msg("evolving_memory_store_triggered")
 		feedback := "success" // default; could be derived from user feedback or evaluation
+		structuredFB := &memory.StructuredFeedback{
+			Type:         memory.FeedbackSuccess,
+			Correct:      true,
+			ProgressRate: 1.0,
+			Message:      "Task completed successfully",
+		}
 		bgCtx := context.Background()
 		if span := trace.SpanFromContext(ctx); span != nil {
 			bgCtx = trace.ContextWithSpanContext(bgCtx, span.SpanContext())
 		}
-		go func(ctx context.Context, input, response, fb string) {
-			if err := e.EvolvingMemory.Evolve(ctx, input, response, fb); err != nil {
+		go func(ctx context.Context, input, response, fb string, sfb *memory.StructuredFeedback) {
+			if err := e.EvolvingMemory.EvolveEnhanced(ctx, input, response, fb, sfb, nil, ""); err != nil {
 				log.Error().Err(err).Str("feedback", fb).Msg("evolving_memory_store_failed")
 				return
 			}
-			log.Info().Str("feedback", fb).Msg("evolving_memory_stored")
-		}(bgCtx, userInput, final, feedback)
+			log.Info().Str("feedback", fb).Bool("has_structured_feedback", sfb != nil).Msg("evolving_memory_stored")
+		}(bgCtx, userInput, final, feedback, structuredFB)
 	}
 
 	return final, nil
@@ -829,6 +838,20 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 	log.Info().Str("user_input", userInput).Msg("evolving_memory_augment_triggered")
 
 	var memoryContext string
+
+	if e.EvolvingMemory != nil && e.OnMemoryEvent != nil {
+		e.EvolvingMemory.SetCallbacks(&memory.MemoryCallbacks{
+			OnSearch: func(evt *memory.MemoryEvent) {
+				e.OnMemoryEvent(evt)
+			},
+			OnSynthesized: func(evt *memory.MemoryEvent) {
+				e.OnMemoryEvent(evt)
+			},
+			OnEvolve: func(evt *memory.MemoryEvent) {
+				e.OnMemoryEvent(evt)
+			},
+		})
+	}
 
 	// Try ExpRAG (experience retrieval) and ExpRecent (recent window) in parallel when enabled.
 	if e.EvolvingMemory != nil {

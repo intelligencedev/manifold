@@ -32,7 +32,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 			cfg.Anthropic.Model = strings.TrimSpace(sp.Model)
 		}
 		if len(sp.ExtraParams) > 0 {
-			cfg.Anthropic.ExtraParams = mergeAnyMap(cfg.Anthropic.ExtraParams, sp.ExtraParams)
+			cfg.Anthropic.ExtraParams = copyAnyMap(sp.ExtraParams)
 		}
 	case "google":
 		if strings.TrimSpace(sp.BaseURL) != "" {
@@ -45,7 +45,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 			cfg.Google.Model = strings.TrimSpace(sp.Model)
 		}
 		if len(sp.ExtraParams) > 0 {
-			cfg.Google.ExtraParams = mergeAnyMap(cfg.Google.ExtraParams, sp.ExtraParams)
+			cfg.Google.ExtraParams = copyAnyMap(sp.ExtraParams)
 		}
 	default:
 		if strings.TrimSpace(sp.BaseURL) != "" {
@@ -61,7 +61,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 			cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
 		}
 		if len(sp.ExtraParams) > 0 {
-			cfg.OpenAI.ExtraParams = mergeAnyMap(cfg.OpenAI.ExtraParams, sp.ExtraParams)
+			cfg.OpenAI.ExtraParams = copyAnyMap(sp.ExtraParams)
 		}
 	}
 
@@ -99,6 +99,17 @@ func mergeAnyMap(base, override map[string]any) map[string]any {
 		out[k] = v
 	}
 	for k, v := range override {
+		out[k] = v
+	}
+	return out
+}
+
+func copyAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
 		out[k] = v
 	}
 	return out

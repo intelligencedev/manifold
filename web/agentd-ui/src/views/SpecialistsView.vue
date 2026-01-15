@@ -236,12 +236,22 @@ function edit(s: Specialist) {
 function cloneSpecialist(s: Specialist) {
   const baseName = `${s.name || 'specialist'} copy`
   const uniqueName = generateUniqueName(baseName)
+  const clonedHeaders = { ...(s.extraHeaders || {}) }
+  const clonedParams = s.extraParams
+    ? JSON.parse(JSON.stringify(s.extraParams))
+    : {}
+  const clonedAllowTools = Array.isArray(s.allowTools)
+    ? [...s.allowTools]
+    : s.allowTools
   editorInitial.value = {
     ...s,
     name: uniqueName,
     paused: true,
     description: s.description ?? '',
     apiKey: '',
+    allowTools: clonedAllowTools,
+    extraHeaders: clonedHeaders,
+    extraParams: clonedParams,
   }
   if (!editorInitial.value.provider) {
     editorInitial.value.provider = providerOptions.value[0] || 'openai'

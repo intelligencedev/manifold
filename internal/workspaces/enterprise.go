@@ -280,6 +280,10 @@ func (m *EnterpriseWorkspaceManager) ensureInvalidationSubscription(ctx context.
 
 // Commit delegates to the ephemeral manager, then updates generation cache and publishes events.
 func (m *EnterpriseWorkspaceManager) Commit(ctx context.Context, ws Workspace) error {
+	if err := m.ephem.Commit(ctx, ws); err != nil {
+		return err
+	}
+
 	if m.cache != nil && m.material != nil {
 		tenant := fmt.Sprint(ws.UserID)
 		changed := m.ephem.LastChangedPaths(ws)
@@ -292,10 +296,6 @@ func (m *EnterpriseWorkspaceManager) Commit(ctx context.Context, ws Workspace) e
 				_ = m.cache.SaveManifest(ctx, tenant, ws.ProjectID, manifest)
 			}
 		}
-	}
-
-	if err := m.ephem.Commit(ctx, ws); err != nil {
-		return err
 	}
 
 	if ws.ProjectID == "" {

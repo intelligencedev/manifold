@@ -88,7 +88,7 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 			cfg.Model = strings.TrimSpace(sc.Model)
 		}
 		if len(sc.ExtraParams) > 0 {
-			cfg.ExtraParams = mergeAnyMap(cfg.ExtraParams, sc.ExtraParams)
+			cfg.ExtraParams = copyAnyMap(sc.ExtraParams)
 		}
 		prov, err := google.New(cfg, hc)
 		if err != nil {
@@ -107,7 +107,7 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 			cfg.Model = strings.TrimSpace(sc.Model)
 		}
 		if len(sc.ExtraParams) > 0 {
-			cfg.ExtraParams = mergeAnyMap(cfg.ExtraParams, sc.ExtraParams)
+			cfg.ExtraParams = copyAnyMap(sc.ExtraParams)
 		}
 		prov := anthropic.New(cfg, hc)
 		return prov, cfg.Model
@@ -128,17 +128,19 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 		if strings.TrimSpace(sc.Model) != "" {
 			oc.Model = strings.TrimSpace(sc.Model)
 		}
-		if len(sc.ExtraParams) > 0 || strings.TrimSpace(sc.ReasoningEffort) != "" || len(oc.ExtraParams) > 0 {
-			extra := map[string]any{}
-			for k, v := range oc.ExtraParams {
-				extra[k] = v
+		extra := map[string]any{}
+		if len(sc.ExtraParams) > 0 {
+			extra = copyAnyMap(sc.ExtraParams)
+		} else if len(oc.ExtraParams) > 0 {
+			extra = copyAnyMap(oc.ExtraParams)
+		}
+		if re := strings.TrimSpace(sc.ReasoningEffort); re != "" {
+			if extra == nil {
+				extra = map[string]any{}
 			}
-			for k, v := range sc.ExtraParams {
-				extra[k] = v
-			}
-			if re := strings.TrimSpace(sc.ReasoningEffort); re != "" {
-				extra["reasoning_effort"] = re
-			}
+			extra["reasoning_effort"] = re
+		}
+		if len(extra) > 0 {
 			oc.ExtraParams = extra
 		}
 		prov := openaillm.New(oc, hc)
@@ -406,9 +408,7 @@ type headerTransport struct {
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
 	for k, v := range t.headers {
-		if r.Header.Get(k) == "" {
-			r.Header.Set(k, v)
-		}
+		r.Header.Set(k, v)
 	}
 	return t.base.RoundTrip(r)
 }

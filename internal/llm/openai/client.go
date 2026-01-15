@@ -1660,8 +1660,6 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 	}
 	if summary, ok := extractReasoningSummary(merged); ok {
 		params.Reasoning.Summary = summary
-	} else if params.Reasoning.Summary == "" && !c.isSelfHosted() && shouldDefaultReasoningSummary(string(params.Model)) {
-		params.Reasoning.Summary = shared.ReasoningSummaryAuto
 	}
 	if len(merged) > 0 {
 		params.SetExtraFields(merged)
@@ -1775,8 +1773,6 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 	}
 	if summary, ok := extractReasoningSummary(merged); ok {
 		params.Reasoning.Summary = summary
-	} else if params.Reasoning.Summary == "" && !c.isSelfHosted() && shouldDefaultReasoningSummary(string(params.Model)) {
-		params.Reasoning.Summary = shared.ReasoningSummaryAuto
 	}
 	if len(merged) > 0 {
 		params.SetExtraFields(merged)

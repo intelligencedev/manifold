@@ -1,9 +1,11 @@
 package observability
 
 import (
+	"fmt"
 	"io"
 	stdlog "log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -23,32 +25,23 @@ func InitLogger(logPath string, level string) {
 			w = f
 		} else {
 			// best-effort; continue with stdout
-			_, _ = os.Stderr.WriteString("failed to open log file: " + err.Error() + "\n")
+			_, _ = fmt.Fprintf(os.Stderr, "failed to open log file %q: %v\n", logPath, err)
 		}
 	}
 	log.Logger = log.Output(w).With().Timestamp().Logger()
 	// Parse level
+	level = strings.ToLower(strings.TrimSpace(level))
+	if level == "warning" {
+		level = "warn"
+	}
 	lvl := zerolog.InfoLevel
-	switch level {
-	case "trace":
-		lvl = zerolog.TraceLevel
-	case "debug":
-		lvl = zerolog.DebugLevel
-	case "info", "":
-		lvl = zerolog.InfoLevel
-	case "warn", "warning":
-		lvl = zerolog.WarnLevel
-	case "error":
-		lvl = zerolog.ErrorLevel
-	case "fatal":
-		lvl = zerolog.FatalLevel
-	case "panic":
-		lvl = zerolog.PanicLevel
-	default:
-		// leave default info
+	if level != "" {
+		if l, err := zerolog.ParseLevel(level); err == nil {
+			lvl = l
+		}
 	}
 	zerolog.SetGlobalLevel(lvl)
-	// Redirect the standard library logger to zerolog so ALL logs are captured
+	// Redirect the standard library logger so ALL logs are captured.
 	stdlog.SetFlags(0)
-	stdlog.SetOutput(w)
+	stdlog.SetOutput(log.Logger)
 }

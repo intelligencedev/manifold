@@ -26,6 +26,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -167,7 +168,10 @@ func run(ctx context.Context, workdir, dsn string, dryRun, verbose bool) error {
 					return nil
 				}
 
-				relPath, _ := filepath.Rel(projectRoot, path)
+				relPath, err := filepath.Rel(projectRoot, path)
+				if err != nil {
+					return nil
+				}
 				relPath = filepath.ToSlash(relPath)
 
 				if relPath == "." {
@@ -224,7 +228,7 @@ func run(ctx context.Context, workdir, dsn string, dryRun, verbose bool) error {
 					fmt.Fprintf(os.Stderr, "warning: failed to update stats for %s: %v\n", projectID, err)
 					stats.errors++
 				}
-			} else if err == persistence.ErrNotFound {
+			} else if errors.Is(err, persistence.ErrNotFound) {
 				// Insert new project with preserved ID
 				if err := insertProject(ctx, store, userID, projectID, meta.Name, meta.CreatedAt, meta.UpdatedAt, totalBytes, fileCount); err != nil {
 					fmt.Fprintf(os.Stderr, "warning: failed to insert project %s: %v\n", projectID, err)
@@ -232,7 +236,7 @@ func run(ctx context.Context, workdir, dsn string, dryRun, verbose bool) error {
 					continue
 				}
 				stats.projectsMigrated++
-			} else if err == persistence.ErrForbidden {
+			} else if errors.Is(err, persistence.ErrForbidden) {
 				fmt.Fprintf(os.Stderr, "warning: project %s belongs to different user\n", projectID)
 				stats.errors++
 				continue

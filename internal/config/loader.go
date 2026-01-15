@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -20,6 +21,14 @@ func Load() (Config, error) {
 	_ = godotenv.Overload()
 
 	cfg := Config{}
+	// Defaults that are awkward to represent as zero-values.
+	//
+	// Tokenization:
+	// - FallbackToHeuristic: default true
+	// Skills:
+	// - UseS3Loader: default true
+	cfg.Tokenization.FallbackToHeuristic = true
+	cfg.Skills.UseS3Loader = true
 	// Allow overriding the agent system prompt via env var SYSTEM_PROMPT.
 	cfg.SystemPrompt = strings.TrimSpace(os.Getenv("SYSTEM_PROMPT"))
 	cfg.LLMClient.Provider = strings.TrimSpace(os.Getenv("LLM_PROVIDER"))
@@ -177,6 +186,10 @@ func Load() (Config, error) {
 	// Global enableTools via env (overrides YAML)
 	if v := strings.TrimSpace(os.Getenv("ENABLE_TOOLS")); v != "" {
 		cfg.EnableTools = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+	// Tool allow-list via env (overrides YAML). Comma-separated tool names.
+	if v := strings.TrimSpace(os.Getenv("ALLOW_TOOLS")); v != "" {
+		cfg.ToolAllowList = parseCommaSeparatedList(v)
 	}
 
 	// Database backends via environment variables
@@ -500,9 +513,7 @@ func Load() (Config, error) {
 	if cfg.Tokenization.CacheTTLSeconds <= 0 {
 		cfg.Tokenization.CacheTTLSeconds = 3600 // 1 hour
 	}
-	// FallbackToHeuristic defaults to true (zero value is false, so we need explicit check)
-	// We leave it as-is since YAML/env can set it; default behavior is true when not configured.
-	// The consuming code should treat unset (false) as "use default true".
+	// Tokenization.FallbackToHeuristic defaults to true at initialization.
 
 	// Apply embedding defaults
 	if cfg.Embedding.BaseURL == "" {
@@ -614,12 +625,7 @@ func Load() (Config, error) {
 	if blockStr != "" {
 		// env overrides any YAML-defined list
 		cfg.Exec.BlockBinaries = nil
-		parts := strings.Split(blockStr, ",")
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
+		for _, p := range parseCommaSeparatedList(blockStr) {
 			if strings.Contains(p, "/") || strings.Contains(p, "\\") {
 				return Config{}, fmt.Errorf("BLOCK_BINARIES must contain bare binary names only (no paths): %q", p)
 			}
@@ -871,8 +877,8 @@ func loadSpecialists(cfg *Config) error {
 		Topic   string `yaml:"topic"`
 	}
 	type skillsYAML struct {
-		RedisCacheTTLSeconds int  `yaml:"redisCacheTTLSeconds"`
-		UseS3Loader          bool `yaml:"useS3Loader"`
+		RedisCacheTTLSeconds int   `yaml:"redisCacheTTLSeconds"`
+		UseS3Loader          *bool `yaml:"useS3Loader"`
 	}
 	type tokenizationYAML struct {
 		Enabled             bool  `yaml:"enabled"`
@@ -1335,7 +1341,7 @@ func loadSpecialists(cfg *Config) error {
 		if !cfg.EnableTools && w.EnableTools != nil {
 			cfg.EnableTools = *w.EnableTools
 		}
-		// Top-level AllowTools mapping into cfg.ToolAllowList (env would override if implemented)
+		// Top-level AllowTools mapping into cfg.ToolAllowList (env takes precedence).
 		if len(cfg.ToolAllowList) == 0 && len(w.AllowTools) > 0 {
 			cfg.ToolAllowList = append([]string{}, w.AllowTools...)
 		}
@@ -1547,8 +1553,8 @@ func loadSpecialists(cfg *Config) error {
 		if cfg.Skills.RedisCacheTTLSeconds == 0 && w.Skills.RedisCacheTTLSeconds > 0 {
 			cfg.Skills.RedisCacheTTLSeconds = w.Skills.RedisCacheTTLSeconds
 		}
-		if !cfg.Skills.UseS3Loader && w.Skills.UseS3Loader {
-			cfg.Skills.UseS3Loader = true
+		if w.Skills.UseS3Loader != nil {
+			cfg.Skills.UseS3Loader = *w.Skills.UseS3Loader
 		}
 		if !cfg.Tokenization.Enabled && w.Tokenization.Enabled {
 			cfg.Tokenization.Enabled = true
@@ -1575,6 +1581,19 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+func parseCommaSeparatedList(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
 func intFromEnv(key string, def int) int {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		if n, err := parseInt(v); err == nil {
@@ -1585,13 +1604,9 @@ func intFromEnv(key string, def int) int {
 }
 
 func parseInt(s string) (int, error) {
-	var n int
-	_, err := fmt.Sscanf(s, "%d", &n)
-	return n, err
+	return strconv.Atoi(strings.TrimSpace(s))
 }
 
 func parseFloat(s string) (float64, error) {
-	var f float64
-	_, err := fmt.Sscanf(s, "%f", &f)
-	return f, err
+	return strconv.ParseFloat(strings.TrimSpace(s), 64)
 }

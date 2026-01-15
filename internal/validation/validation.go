@@ -18,49 +18,34 @@ var ErrInvalidSessionID = errors.New("invalid session_id")
 // ProjectID checks if a project ID is safe for use in filesystem paths.
 // Returns cleaned project ID and error if validation fails.
 func ProjectID(projectID string) (string, error) {
-	if projectID == "" {
-		return "", nil
-	}
-
-	// IDs must be a single path segment.
-	if projectID == "." || projectID == ".." {
-		return "", ErrInvalidProjectID
-	}
-	if strings.ContainsAny(projectID, `/\\`) {
-		return "", ErrInvalidProjectID
-	}
-
-	cleanPID := filepath.Clean(projectID)
-	if cleanPID != projectID ||
-		strings.HasPrefix(cleanPID, "..") ||
-		strings.Contains(cleanPID, string(os.PathSeparator)+"..") ||
-		filepath.IsAbs(cleanPID) {
-		return "", ErrInvalidProjectID
-	}
-
-	return cleanPID, nil
+	return validatePathSegment(projectID, ErrInvalidProjectID)
 }
 
 // SessionID checks if a session ID is safe for use as a single filesystem path segment.
 func SessionID(sessionID string) (string, error) {
-	if sessionID == "" {
+	return validatePathSegment(sessionID, ErrInvalidSessionID)
+}
+
+func validatePathSegment(value string, invalidErr error) (string, error) {
+	if value == "" {
 		return "", nil
 	}
 
-	if sessionID == "." || sessionID == ".." {
-		return "", ErrInvalidSessionID
+	// IDs must be a single path segment.
+	if value == "." || value == ".." {
+		return "", invalidErr
 	}
-	if strings.ContainsAny(sessionID, `/\\`) {
-		return "", ErrInvalidSessionID
-	}
-
-	cleanSID := filepath.Clean(sessionID)
-	if cleanSID != sessionID ||
-		strings.HasPrefix(cleanSID, "..") ||
-		strings.Contains(cleanSID, string(os.PathSeparator)+"..") ||
-		filepath.IsAbs(cleanSID) {
-		return "", ErrInvalidSessionID
+	if strings.ContainsAny(value, `/\\`) {
+		return "", invalidErr
 	}
 
-	return cleanSID, nil
+	clean := filepath.Clean(value)
+	if clean != value ||
+		strings.HasPrefix(clean, "..") ||
+		strings.Contains(clean, string(os.PathSeparator)+"..") ||
+		filepath.IsAbs(clean) {
+		return "", invalidErr
+	}
+
+	return clean, nil
 }

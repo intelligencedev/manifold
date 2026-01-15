@@ -41,6 +41,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -262,7 +263,10 @@ func run(ctx context.Context, cfg config) error {
 					return nil
 				}
 
-				relPath, _ := filepath.Rel(projectRoot, path)
+				relPath, err := filepath.Rel(projectRoot, path)
+				if err != nil {
+					return nil
+				}
 				relPath = filepath.ToSlash(relPath)
 
 				info, err := d.Info()
@@ -316,6 +320,11 @@ func run(ctx context.Context, cfg config) error {
 					}
 					stats.filesSkipped++
 					continue
+				}
+				if err != nil && !errors.Is(err, objectstore.ErrNotFound) {
+					if cfg.verbose {
+						fmt.Fprintf(os.Stderr, "  warning: head failed %s: %v\n", f.relPath, err)
+					}
 				}
 
 				// Read file

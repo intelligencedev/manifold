@@ -2,6 +2,7 @@ package observability
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,6 +22,10 @@ import (
 
 // InitOTel configures tracing and metrics exporters. Returns a shutdown func.
 func InitOTel(ctx context.Context, obs config.ObsConfig) (func(context.Context) error, error) {
+	if obs.OTLP == "" {
+		return nil, errors.New("otlp endpoint is required")
+	}
+
 	res, err := resource.New(ctx,
 		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),

@@ -139,3 +139,36 @@ func TestEmbedApiHeadersEnv_JSONAndCSV(t *testing.T) {
 		t.Fatalf("expected foo bar, got %q", got)
 	}
 }
+
+func TestLoad_AllowToolsEnv(t *testing.T) {
+	// Ensure required env for Load()
+	oldOpenAI := os.Getenv("OPENAI_API_KEY")
+	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
+	_ = os.Setenv("OPENAI_API_KEY", "dummy")
+	oldWorkdir := os.Getenv("WORKDIR")
+	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
+	_ = os.Setenv("WORKDIR", ".")
+
+	oldAllow := os.Getenv("ALLOW_TOOLS")
+	oldSpecialistsConfig := os.Getenv("SPECIALISTS_CONFIG")
+	defer func() {
+		_ = os.Setenv("ALLOW_TOOLS", oldAllow)
+		_ = os.Setenv("SPECIALISTS_CONFIG", oldSpecialistsConfig)
+	}()
+	_ = os.Setenv("ALLOW_TOOLS", "a, b,,c")
+	_ = os.Unsetenv("SPECIALISTS_CONFIG")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	want := []string{"a", "b", "c"}
+	if got := cfg.ToolAllowList; len(got) != len(want) {
+		t.Fatalf("unexpected allow list: got %#v want %#v", got, want)
+	}
+	for i := range cfg.ToolAllowList {
+		if cfg.ToolAllowList[i] != want[i] {
+			t.Fatalf("unexpected allow list: got %#v want %#v", cfg.ToolAllowList, want)
+		}
+	}
+}

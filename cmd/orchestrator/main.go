@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -34,6 +35,8 @@ import (
 
 const systemUserID int64 = 0
 
+const mcpInitTimeout = 20 * time.Second
+
 func getenv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -60,11 +63,20 @@ func getenvDuration(key string, def time.Duration) time.Duration {
 }
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal().Err(err).Msg("orchestrator")
+	}
+}
+
+func run() error {
 	// Load application config early so Kafka topics/brokers can come from config.yaml/.env
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to load config")
+		return fmt.Errorf("load config: %w", err)
 	}
+	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
+
+	baseCtx := context.Background()
 
 	// Parse brokers from config (comma-separated)
 	brokersCSV := strings.TrimSpace(cfg.Kafka.Brokers)
@@ -76,7 +88,7 @@ func main() {
 		}
 	}
 	if len(brokers) == 0 {
-		log.Fatal().Msg("no Kafka brokers configured")
+		return fmt.Errorf("no Kafka brokers configured")
 	}
 
 	groupID := getenv("KAFKA_GROUP_ID", "manifold-orchestrator")
@@ -88,13 +100,19 @@ func main() {
 	// Use the same duration as the dedupe TTL by default.
 	dedupeTTL := workflowTimeout
 
-	log.Info().Msgf("starting orchestrator Kafka adapter: brokers=%v groupID=%s commandsTopic=%s responsesTopic=%s workers=%d workflowTimeout=%s",
-		brokers, groupID, commandsTopic, responsesTopic, workerCount, workflowTimeout)
+	log.Info().
+		Strs("brokers", brokers).
+		Str("groupID", groupID).
+		Str("commandsTopic", commandsTopic).
+		Str("responsesTopic", responsesTopic).
+		Int("workers", workerCount).
+		Dur("workflowTimeout", workflowTimeout).
+		Msg("starting orchestrator Kafka adapter")
 
 	// Initialize Redis-based deduplication store.
 	dedupe, err := orchestrator.NewRedisDedupeStore(redisAddr)
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize Redis dedupe store")
+		return fmt.Errorf("init redis dedupe store: %w", err)
 	}
 	defer func() {
 		if cerr := dedupe.Close(); cerr != nil {
@@ -116,11 +134,14 @@ func main() {
 		}
 	}()
 
-	// Build WARPP runner backed by the in-process tool registry.
-	// Use previously loaded cfg to construct tools and logging.
-	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
-	shutdown, _ := observability.InitOTel(context.Background(), cfg.Obs)
-	defer func() { _ = shutdown(context.Background()) }()
+	shutdown, err := observability.InitOTel(baseCtx, cfg.Obs)
+	if err != nil {
+		log.Warn().Err(err).Msg("otel init failed, continuing without observability")
+		shutdown = nil
+	}
+	if shutdown != nil {
+		defer func() { _ = shutdown(context.Background()) }()
+	}
 
 	// Tuned HTTP transport for concurrency and observability
 	tr := &http.Transport{
@@ -144,10 +165,11 @@ func main() {
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	// Databases: construct backends and register tools
-	mgr, err := databases.NewManager(context.Background(), cfg.Databases)
+	mgr, err := databases.NewManager(baseCtx, cfg.Databases)
 	if err != nil {
-		log.Fatal().Err(err).Msg("databases init failed")
+		return fmt.Errorf("init databases: %w", err)
 	}
+	defer mgr.Close()
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
@@ -187,13 +209,20 @@ func main() {
 
 	// MCP: connect to configured servers and register their tools
 	mcpMgr := mcpclient.NewManager()
-	ctxInit, cancelInit := context.WithTimeout(context.Background(), 20*time.Second)
-	_ = mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP)
+	defer mcpMgr.Close()
+
+	ctxInit, cancelInit := context.WithTimeout(baseCtx, mcpInitTimeout)
+	if err := mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP); err != nil {
+		log.Warn().Err(err).Msg("mcp init")
+	}
 	cancelInit()
 
 	// Configure WARPP to source defaults from the database, not hard-coded values.
 	warpp.SetDefaultStore(mgr.Warpp)
-	wfreg, _ := warpp.LoadFromStore(context.Background(), mgr.Warpp, systemUserID)
+	wfreg, err := warpp.LoadFromStore(baseCtx, mgr.Warpp, systemUserID)
+	if err != nil {
+		return fmt.Errorf("load workflows: %w", err)
+	}
 	warppRunner := &warpp.Runner{Workflows: wfreg, Tools: registry}
 	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly
 	warpptool.RegisterAll(registry, warppRunner)
@@ -201,14 +230,14 @@ func main() {
 	runner := orchestrator.NewWarppAdapter(warppRunner)
 
 	// Handle SIGINT/SIGTERM for graceful shutdown.
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(baseCtx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
 	// Verify Kafka connectivity and ensure topics exist before starting consumers.
-	ctxAdmin, cancelAdmin := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxAdmin, cancelAdmin := context.WithTimeout(baseCtx, 5*time.Second)
 	defer cancelAdmin()
 	if err := orchestrator.CheckBrokers(ctxAdmin, brokers, 3*time.Second); err != nil {
-		log.Fatal().Err(err).Msg("failed to reach Kafka brokers")
+		return fmt.Errorf("reach kafka brokers: %w", err)
 	}
 
 	// Ensure commands, responses, and DLQ topics exist (create if missing).
@@ -216,7 +245,7 @@ func main() {
 	respCfg := kafka.TopicConfig{Topic: responsesTopic, NumPartitions: 1, ReplicationFactor: 1}
 	dlqCfg := kafka.TopicConfig{Topic: responsesTopic + ".dlq", NumPartitions: 1, ReplicationFactor: 1}
 	if err := orchestrator.EnsureTopics(ctxAdmin, brokers, []kafka.TopicConfig{cmdCfg, respCfg, dlqCfg}); err != nil {
-		log.Fatal().Err(err).Msg("failed to ensure Kafka topics")
+		return fmt.Errorf("ensure kafka topics: %w", err)
 	}
 
 	// Start the consumer with a default reader config.
@@ -234,9 +263,9 @@ func main() {
 		dedupeTTL,
 		workflowTimeout,
 	); err != nil {
-		// Exit on error as requested.
-		log.Fatal().Err(err).Msg("kafka consumer terminated with error")
+		return fmt.Errorf("kafka consumer terminated: %w", err)
 	}
 
 	log.Info().Msg("orchestrator Kafka adapter stopped")
+	return nil
 }

@@ -3,12 +3,25 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"os"
+	"strings"
 
+	"github.com/rs/zerolog/log"
 	"github.com/segmentio/kafka-go"
 )
+
+func parseCSV(s string) []string {
+	fields := strings.Split(s, ",")
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
 
 func main() {
 	brokers := os.Getenv("KAFKA_BROKERS")
@@ -23,24 +36,28 @@ func main() {
 	if responses == "" {
 		responses = "dev.manifold.orchestrator.responses"
 	}
+	brokerList := parseCSV(brokers)
+	if len(brokerList) == 0 {
+		log.Fatal().Msg("no Kafka brokers configured")
+	}
 
 	ctx := context.Background()
-	conn, err := kafka.DialContext(ctx, "tcp", brokers)
+	conn, err := kafka.DialContext(ctx, "tcp", brokerList[0])
 	if err != nil {
-		log.Fatalf("dial: %v", err)
+		log.Fatal().Err(err).Msg("dial")
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	ctrl, err := conn.Controller()
 	if err != nil {
-		log.Fatalf("controller: %v", err)
+		log.Fatal().Err(err).Msg("controller")
 	}
 	ctrlAddr := net.JoinHostPort(ctrl.Host, fmt.Sprint(ctrl.Port))
 	cw, err := kafka.DialContext(ctx, "tcp", ctrlAddr)
 	if err != nil {
-		log.Fatalf("dial controller: %v", err)
+		log.Fatal().Err(err).Msg("dial controller")
 	}
-	defer cw.Close()
+	defer func() { _ = cw.Close() }()
 
 	topics := []kafka.TopicConfig{
 		{Topic: commands, NumPartitions: 1, ReplicationFactor: 1},
@@ -53,7 +70,7 @@ func main() {
 			continue
 		}
 		if err := cw.CreateTopics(t); err != nil {
-			log.Fatalf("create topic %s: %v", t.Topic, err)
+			log.Fatal().Err(err).Str("topic", t.Topic).Msg("create topic")
 		}
 		fmt.Printf("created topic: %s\n", t.Topic)
 	}

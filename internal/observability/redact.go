@@ -29,19 +29,21 @@ func RedactJSON(raw json.RawMessage) json.RawMessage {
 func redactValue(v any) any {
 	switch val := v.(type) {
 	case map[string]any:
+		out := make(map[string]any, len(val))
 		for k, vv := range val {
 			if isSensitiveKey(k) {
-				val[k] = "[REDACTED]"
-			} else {
-				val[k] = redactValue(vv)
+				out[k] = "[REDACTED]"
+				continue
 			}
+			out[k] = redactValue(vv)
 		}
-		return val
+		return out
 	case []any:
+		out := make([]any, len(val))
 		for i := range val {
-			val[i] = redactValue(val[i])
+			out[i] = redactValue(val[i])
 		}
-		return val
+		return out
 	default:
 		return v
 	}

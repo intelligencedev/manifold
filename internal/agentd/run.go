@@ -669,49 +669,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
 	app.playgroundHandler = httpapi.NewServer(playgroundService)
 
-	// Initialize KeyProvider if encryption is enabled
-	var keyProvider projects.KeyProvider
-	if cfg.Projects.Encrypt {
-		var err error
-		kpCfg := projects.KeyProviderConfig{
-			Type: cfg.Projects.Encryption.Provider,
-			File: projects.FileKeyProviderConfig{
-				KeystorePath: cfg.Projects.Encryption.File.KeystorePath,
-			},
-			Vault: projects.VaultKeyProviderConfig{
-				Address:        cfg.Projects.Encryption.Vault.Address,
-				Token:          cfg.Projects.Encryption.Vault.Token,
-				KeyName:        cfg.Projects.Encryption.Vault.KeyName,
-				MountPath:      cfg.Projects.Encryption.Vault.MountPath,
-				Namespace:      cfg.Projects.Encryption.Vault.Namespace,
-				TLSSkipVerify:  cfg.Projects.Encryption.Vault.TLSSkipVerify,
-				TimeoutSeconds: cfg.Projects.Encryption.Vault.TimeoutSeconds,
-			},
-			AWSKMS: projects.AWSKMSKeyProviderConfig{
-				KeyID:           cfg.Projects.Encryption.AWSKMS.KeyID,
-				Region:          cfg.Projects.Encryption.AWSKMS.Region,
-				AccessKeyID:     cfg.Projects.Encryption.AWSKMS.AccessKeyID,
-				SecretAccessKey: cfg.Projects.Encryption.AWSKMS.SecretAccessKey,
-				Endpoint:        cfg.Projects.Encryption.AWSKMS.Endpoint,
-			},
-		}
-		keyProvider, err = projects.NewKeyProvider(cfg.Workdir, kpCfg)
-		if err != nil {
-			return nil, fmt.Errorf("create key provider: %w", err)
-		}
-		log.Info().Str("type", cfg.Projects.Encryption.Provider).Msg("key_provider_initialized")
-	}
-
 	// Filesystem backend only.
 	fsService := projects.NewService(cfg.Workdir)
-	if cfg.Projects.Encrypt && keyProvider != nil {
-		fsService.SetKeyProvider(keyProvider)
-	}
-	if cfg.Projects.Encrypt {
-		if err := fsService.EnableEncryption(true); err != nil {
-			return nil, fmt.Errorf("enable project encryption failed: %w", err)
-		}
-	}
 	app.projectsService = fsService
 	log.Info().Str("workdir", cfg.Workdir).Msg("projects_filesystem_backend_initialized")
 

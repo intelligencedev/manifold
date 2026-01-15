@@ -296,58 +296,6 @@ func Load() (Config, error) {
 		}
 	}
 
-	// Projects configuration via environment variables
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPT")); v != "" {
-		cfg.Projects.Encrypt = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
-	}
-	// Encryption key provider configuration
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_PROVIDER")); v != "" {
-		cfg.Projects.Encryption.Provider = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_FILE_KEYSTORE_PATH")); v != "" {
-		cfg.Projects.Encryption.File.KeystorePath = v
-	}
-	// Vault Transit configuration
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_ADDRESS")); v != "" {
-		cfg.Projects.Encryption.Vault.Address = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_TOKEN")); v != "" {
-		cfg.Projects.Encryption.Vault.Token = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_KEY_NAME")); v != "" {
-		cfg.Projects.Encryption.Vault.KeyName = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_MOUNT_PATH")); v != "" {
-		cfg.Projects.Encryption.Vault.MountPath = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_NAMESPACE")); v != "" {
-		cfg.Projects.Encryption.Vault.Namespace = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_TLS_SKIP_VERIFY")); v != "" {
-		cfg.Projects.Encryption.Vault.TLSSkipVerify = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_VAULT_TIMEOUT_SECONDS")); v != "" {
-		if n, err := parseInt(v); err == nil {
-			cfg.Projects.Encryption.Vault.TimeoutSeconds = n
-		}
-	}
-	// AWS KMS configuration
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_KEY_ID")); v != "" {
-		cfg.Projects.Encryption.AWSKMS.KeyID = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_REGION")); v != "" {
-		cfg.Projects.Encryption.AWSKMS.Region = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_ACCESS_KEY_ID")); v != "" {
-		cfg.Projects.Encryption.AWSKMS.AccessKeyID = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_SECRET_ACCESS_KEY")); v != "" {
-		cfg.Projects.Encryption.AWSKMS.SecretAccessKey = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_ENDPOINT")); v != "" {
-		cfg.Projects.Encryption.AWSKMS.Endpoint = v
-	}
-
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
 		return Config{}, err
@@ -750,31 +698,6 @@ func loadSpecialists(cfg *Config) error {
 		Voice   string `yaml:"voice"`
 		Format  string `yaml:"format"`
 	}
-	type fileKeyProviderYAML struct {
-		KeystorePath string `yaml:"keystorePath"`
-	}
-	type vaultKeyProviderYAML struct {
-		Address        string `yaml:"address"`
-		Token          string `yaml:"token"`
-		KeyName        string `yaml:"keyName"`
-		MountPath      string `yaml:"mountPath"`
-		Namespace      string `yaml:"namespace"`
-		TLSSkipVerify  bool   `yaml:"tlsSkipVerify"`
-		TimeoutSeconds int    `yaml:"timeoutSeconds"`
-	}
-	type awsKMSKeyProviderYAML struct {
-		KeyID           string `yaml:"keyID"`
-		Region          string `yaml:"region"`
-		AccessKeyID     string `yaml:"accessKeyID"`
-		SecretAccessKey string `yaml:"secretAccessKey"`
-		Endpoint        string `yaml:"endpoint"`
-	}
-	type encryptionYAML struct {
-		Provider string                `yaml:"provider"`
-		File     fileKeyProviderYAML   `yaml:"file"`
-		Vault    vaultKeyProviderYAML  `yaml:"vault"`
-		AWSKMS   awsKMSKeyProviderYAML `yaml:"awskms"`
-	}
 	type tokenizationYAML struct {
 		Enabled             bool  `yaml:"enabled"`
 		CacheSize           int   `yaml:"cacheSize"`
@@ -782,8 +705,6 @@ func loadSpecialists(cfg *Config) error {
 		FallbackToHeuristic *bool `yaml:"fallbackToHeuristic"`
 	}
 	type projectsYAML struct {
-		Encrypt    bool           `yaml:"encrypt"`
-		Encryption encryptionYAML `yaml:"encryption"`
 	}
 	type oauth2YAML struct {
 		AuthURL             string   `yaml:"authURL"`
@@ -1288,52 +1209,6 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Auth.OAuth2.RolesField == "" && strings.TrimSpace(w.Auth.OAuth2.RolesField) != "" {
 			cfg.Auth.OAuth2.RolesField = strings.TrimSpace(w.Auth.OAuth2.RolesField)
-		}
-		// Projects: merge YAML config if env not set
-		if w.Projects.Encrypt {
-			cfg.Projects.Encrypt = true
-		}
-		if cfg.Projects.Encryption.Provider == "" && strings.TrimSpace(w.Projects.Encryption.Provider) != "" {
-			cfg.Projects.Encryption.Provider = strings.TrimSpace(w.Projects.Encryption.Provider)
-		}
-		if cfg.Projects.Encryption.File.KeystorePath == "" && strings.TrimSpace(w.Projects.Encryption.File.KeystorePath) != "" {
-			cfg.Projects.Encryption.File.KeystorePath = strings.TrimSpace(w.Projects.Encryption.File.KeystorePath)
-		}
-		if cfg.Projects.Encryption.Vault.Address == "" && strings.TrimSpace(w.Projects.Encryption.Vault.Address) != "" {
-			cfg.Projects.Encryption.Vault.Address = strings.TrimSpace(w.Projects.Encryption.Vault.Address)
-		}
-		if cfg.Projects.Encryption.Vault.Token == "" && strings.TrimSpace(w.Projects.Encryption.Vault.Token) != "" {
-			cfg.Projects.Encryption.Vault.Token = strings.TrimSpace(w.Projects.Encryption.Vault.Token)
-		}
-		if cfg.Projects.Encryption.Vault.KeyName == "" && strings.TrimSpace(w.Projects.Encryption.Vault.KeyName) != "" {
-			cfg.Projects.Encryption.Vault.KeyName = strings.TrimSpace(w.Projects.Encryption.Vault.KeyName)
-		}
-		if cfg.Projects.Encryption.Vault.MountPath == "" && strings.TrimSpace(w.Projects.Encryption.Vault.MountPath) != "" {
-			cfg.Projects.Encryption.Vault.MountPath = strings.TrimSpace(w.Projects.Encryption.Vault.MountPath)
-		}
-		if cfg.Projects.Encryption.Vault.Namespace == "" && strings.TrimSpace(w.Projects.Encryption.Vault.Namespace) != "" {
-			cfg.Projects.Encryption.Vault.Namespace = strings.TrimSpace(w.Projects.Encryption.Vault.Namespace)
-		}
-		if !cfg.Projects.Encryption.Vault.TLSSkipVerify && w.Projects.Encryption.Vault.TLSSkipVerify {
-			cfg.Projects.Encryption.Vault.TLSSkipVerify = true
-		}
-		if cfg.Projects.Encryption.Vault.TimeoutSeconds == 0 && w.Projects.Encryption.Vault.TimeoutSeconds > 0 {
-			cfg.Projects.Encryption.Vault.TimeoutSeconds = w.Projects.Encryption.Vault.TimeoutSeconds
-		}
-		if cfg.Projects.Encryption.AWSKMS.KeyID == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.KeyID) != "" {
-			cfg.Projects.Encryption.AWSKMS.KeyID = strings.TrimSpace(w.Projects.Encryption.AWSKMS.KeyID)
-		}
-		if cfg.Projects.Encryption.AWSKMS.Region == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.Region) != "" {
-			cfg.Projects.Encryption.AWSKMS.Region = strings.TrimSpace(w.Projects.Encryption.AWSKMS.Region)
-		}
-		if cfg.Projects.Encryption.AWSKMS.AccessKeyID == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.AccessKeyID) != "" {
-			cfg.Projects.Encryption.AWSKMS.AccessKeyID = strings.TrimSpace(w.Projects.Encryption.AWSKMS.AccessKeyID)
-		}
-		if cfg.Projects.Encryption.AWSKMS.SecretAccessKey == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.SecretAccessKey) != "" {
-			cfg.Projects.Encryption.AWSKMS.SecretAccessKey = strings.TrimSpace(w.Projects.Encryption.AWSKMS.SecretAccessKey)
-		}
-		if cfg.Projects.Encryption.AWSKMS.Endpoint == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.Endpoint) != "" {
-			cfg.Projects.Encryption.AWSKMS.Endpoint = strings.TrimSpace(w.Projects.Encryption.AWSKMS.Endpoint)
 		}
 		if !cfg.Tokenization.Enabled && w.Tokenization.Enabled {
 			cfg.Tokenization.Enabled = true

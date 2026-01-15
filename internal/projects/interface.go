@@ -34,9 +34,6 @@ type ProjectService interface {
 
 	// ReadFile opens a file for reading.
 	ReadFile(ctx context.Context, userID int64, projectID, path string) (io.ReadCloser, error)
-
-	// EnableEncryption toggles at-rest encryption for project files.
-	EnableEncryption(enable bool) error
 }
 
 // Ensure Service implements ProjectService.

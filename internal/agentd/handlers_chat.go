@@ -1196,7 +1196,9 @@ func (a *app) promptHandler() http.HandlerFunc {
 			a.runs.updateStatus(prun.ID, "completed", 0)
 			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
+			}
 			// Commit workspace changes after successful run
+			a.commitWorkspace(ctx, checkedOutWorkspace)
 			return
 		}
 
@@ -1244,10 +1246,16 @@ func (a *app) promptHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		// Commit workspace changes after successful run
+		a.commitWorkspace(ctx, checkedOutWorkspace)
+		return
+	}
+
+}
 
 func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
 	reg, err := a.specialistsRegistryForUser(r.Context(), owner)
-		// Commit workspace changes after successful run
+	if err != nil {
+		http.Error(w, "specialist registry unavailable", http.StatusInternalServerError)
 		return true
 	}
 	sp, ok := reg.Get(name)

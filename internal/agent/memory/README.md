@@ -118,7 +118,7 @@ Current implementation:
 - Requires external embedding service
 
 Future enhancements planned:
-- Persistent storage backend (Postgres/Redis)
+- Persistent storage backend (Postgres)
 - Distributed memory via vector database
 - Advanced pruning strategies (importance scoring, time decay)
 - Memory visualization tools

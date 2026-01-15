@@ -155,14 +155,12 @@ databases:
 # - Stdio-based: Local processes spawned by Manifold (command + args)
 # - Remote HTTP: Streamable HTTP endpoints (url)
 #
-# Path-Dependent Servers (Enterprise Mode):
-# In enterprise deployments with S3-backed workspaces, servers marked with
-# `pathDependent: true` will be instantiated per-user with {{PROJECT_DIR}}
-# expanded to the user's active project workspace path.
+# Path-Dependent Servers:
+# When auth is enabled, servers marked with `pathDependent: true` will be
+# instantiated per-user with {{PROJECT_DIR}} expanded to the user's active
+# project workspace path.
 # NOTE: Use {{PROJECT_DIR}} NOT ${PROJECT_DIR} - the config loader runs os.ExpandEnv
 # which would expand ${...} syntax prematurely.
-# In simple deployments (no auth, filesystem backend), pathDependent is ignored
-# and all servers run as shared singletons with static paths.
 mcp:
   servers:
   # Stateless server - shared globally (default behavior)
@@ -224,32 +222,3 @@ mcp:
       tls:
         insecureSkipVerify: false
         # caFile: /etc/ssl/certs/ca-bundle.crt
-# Projects Storage Configuration (Phase 0 - Feature Flags)
-# These settings prepare for S3-backed durable storage and ephemeral workspaces.
-# In Phase 0, only "filesystem" backend and "legacy" workspace mode are active.
-projects:
-  # Backend: "filesystem" (default) | "s3" (future)
-  backend: filesystem
-  # Enable at-rest encryption for project files
-  encrypt: false
-  # Workspace configuration for agent tool execution
-  workspace:
-    # Mode: "legacy" (direct project dir) | "ephemeral" (per-session copies, future)
-    mode: legacy
-    # Root directory for ephemeral workspaces (default: ${WORKDIR}/sandboxes)
-    # root: "${WORKDIR}/sandboxes"
-    # TTL for ephemeral workspaces in seconds (default: 86400 = 24 hours)
-    ttlSeconds: 86400
-  # S3/MinIO configuration (used when backend: s3)
-  # s3:
-  #   endpoint: "http://minio:9000"
-  #   region: "us-east-1"
-  #   bucket: "manifold-workspaces"
-  #   prefix: "workspaces"
-  #   accessKey: "${PROJECTS_S3_ACCESS_KEY}"
-  #   secretKey: "${PROJECTS_S3_SECRET_KEY}"
-  #   usePathStyle: true          # Required for MinIO
-  #   tlsInsecureSkipVerify: false
-  #   sse:
-  #     mode: none                 # none | sse-s3 | sse-kms
-  #     kmsKeyID: ""

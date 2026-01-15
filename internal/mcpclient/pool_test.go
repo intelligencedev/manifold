@@ -23,38 +23,26 @@ func TestMCPServerPool_RequiresPerUserMCP(t *testing.T) {
 			name: "simple mode - auth disabled",
 			cfg: &config.Config{
 				Auth: config.AuthConfig{Enabled: false},
+				MCP: config.MCPConfig{
+					Servers: []config.MCPServerConfig{{Name: "pd", PathDependent: true}},
+				},
 			},
 			expected: false,
 		},
 		{
-			name: "auth enabled but filesystem backend",
+			name: "auth enabled without path-dependent servers",
 			cfg: &config.Config{
-				Auth:     config.AuthConfig{Enabled: true},
-				Projects: config.ProjectsConfig{Backend: "filesystem"},
+				Auth: config.AuthConfig{Enabled: true},
 			},
 			expected: false,
 		},
 		{
-			name: "auth enabled, s3 backend, legacy mode",
+			name: "auth enabled with path-dependent servers",
 			cfg: &config.Config{
-				Auth:     config.AuthConfig{Enabled: true},
-				Projects: config.ProjectsConfig{Backend: "s3", Workspace: config.WorkspaceConfig{Mode: "legacy"}},
-			},
-			expected: false,
-		},
-		{
-			name: "enterprise mode - full",
-			cfg: &config.Config{
-				Auth:     config.AuthConfig{Enabled: true},
-				Projects: config.ProjectsConfig{Backend: "s3", Workspace: config.WorkspaceConfig{Mode: "enterprise"}},
-			},
-			expected: true,
-		},
-		{
-			name: "ephemeral mode - full",
-			cfg: &config.Config{
-				Auth:     config.AuthConfig{Enabled: true},
-				Projects: config.ProjectsConfig{Backend: "s3", Workspace: config.WorkspaceConfig{Mode: "ephemeral"}},
+				Auth: config.AuthConfig{Enabled: true},
+				MCP: config.MCPConfig{
+					Servers: []config.MCPServerConfig{{Name: "pd", PathDependent: true}},
+				},
 			},
 			expected: true,
 		},
@@ -62,7 +50,12 @@ func TestMCPServerPool_RequiresPerUserMCP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pool := &MCPServerPool{cfg: tt.cfg}
+			var pool *MCPServerPool
+			if tt.cfg == nil {
+				pool = &MCPServerPool{}
+			} else {
+				pool = NewMCPServerPool(tt.cfg, nil, nil)
+			}
 			if got := pool.RequiresPerUserMCP(); got != tt.expected {
 				t.Errorf("RequiresPerUserMCP() = %v, want %v", got, tt.expected)
 			}

@@ -1,3 +1,6 @@
+//go:build enterprise
+// +build enterprise
+
 // migrateprojects-s3 migrates existing filesystem-based projects to S3 storage.
 //
 // It scans the local filesystem for project files and uploads them to S3/MinIO,

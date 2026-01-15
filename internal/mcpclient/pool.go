@@ -19,9 +19,9 @@ import (
 // MCPServerPool manages MCP server sessions with support for both
 // shared (global) and per-user instances based on path dependency.
 //
-// In simple deployment mode (no auth or legacy workspaces), all MCP servers
-// are shared globally. In enterprise mode (auth + S3 + ephemeral workspaces),
-// path-dependent MCP servers get per-user instances with project paths injected.
+// In simple deployment mode (no auth), all MCP servers are shared globally.
+// When auth is enabled, path-dependent MCP servers get per-user instances with
+// project paths injected.
 type MCPServerPool struct {
 	mu  sync.RWMutex
 	cfg *config.Config
@@ -29,7 +29,7 @@ type MCPServerPool struct {
 	// shared holds sessions for non-path-dependent servers (shared globally)
 	shared *Manager
 
-	// perUser holds sessions for path-dependent servers (enterprise mode only)
+	// perUser holds sessions for path-dependent servers
 	// Key is userID
 	perUser map[int64]*userMCPState
 
@@ -117,15 +117,15 @@ func (p *MCPServerPool) OnWorkspaceCheckout(ctx context.Context, userID int64, p
 }
 
 // RequiresPerUserMCP returns true if the deployment is configured for
-// per-user MCP instances (enterprise mode with auth + S3 workspaces).
+// per-user MCP instances (auth enabled + path-dependent servers).
 func (p *MCPServerPool) RequiresPerUserMCP() bool {
 	if p.cfg == nil {
 		return false
 	}
-	return p.cfg.Auth.Enabled &&
-		p.cfg.Projects.Backend == "s3" &&
-		(p.cfg.Projects.Workspace.Mode == "enterprise" ||
-			p.cfg.Projects.Workspace.Mode == "ephemeral")
+	if !p.cfg.Auth.Enabled {
+		return false
+	}
+	return len(p.pathDependentServers) > 0
 }
 
 // RegisterFromConfig connects to configured MCP servers and registers tools.

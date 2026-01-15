@@ -25,10 +25,7 @@ func Load() (Config, error) {
 	//
 	// Tokenization:
 	// - FallbackToHeuristic: default true
-	// Skills:
-	// - UseS3Loader: default true
 	cfg.Tokenization.FallbackToHeuristic = true
-	cfg.Skills.UseS3Loader = true
 	// Allow overriding the agent system prompt via env var SYSTEM_PROMPT.
 	cfg.SystemPrompt = strings.TrimSpace(os.Getenv("SYSTEM_PROMPT"))
 	cfg.LLMClient.Provider = strings.TrimSpace(os.Getenv("LLM_PROVIDER"))
@@ -144,10 +141,6 @@ func Load() (Config, error) {
 	}
 
 	cfg.Web.SearXNGURL = strings.TrimSpace(os.Getenv("SEARXNG_URL"))
-	// Kafka defaults for orchestrator integration
-	cfg.Kafka.Brokers = strings.TrimSpace(firstNonEmpty(os.Getenv("KAFKA_BROKERS"), os.Getenv("KAFKA_BOOTSTRAP_SERVERS")))
-	cfg.Kafka.CommandsTopic = strings.TrimSpace(firstNonEmpty(os.Getenv("KAFKA_COMMANDS_TOPIC"), os.Getenv("KAFKA_COMMAND_TOPIC")))
-	cfg.Kafka.ResponsesTopic = strings.TrimSpace(firstNonEmpty(os.Getenv("KAFKA_RESPONSES_TOPIC"), os.Getenv("KAFKA_RESPONSE_TOPIC")))
 	// TTS defaults (optional)
 	cfg.TTS.BaseURL = strings.TrimSpace(os.Getenv("TTS_BASE_URL"))
 	cfg.TTS.Model = strings.TrimSpace(os.Getenv("TTS_MODEL"))
@@ -304,9 +297,6 @@ func Load() (Config, error) {
 	}
 
 	// Projects configuration via environment variables
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_BACKEND")); v != "" {
-		cfg.Projects.Backend = v
-	}
 	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPT")); v != "" {
 		cfg.Projects.Encrypt = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
 	}
@@ -356,48 +346,6 @@ func Load() (Config, error) {
 	}
 	if v := strings.TrimSpace(os.Getenv("PROJECTS_ENCRYPTION_AWSKMS_ENDPOINT")); v != "" {
 		cfg.Projects.Encryption.AWSKMS.Endpoint = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_WORKSPACE_MODE")); v != "" {
-		cfg.Projects.Workspace.Mode = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_WORKSPACE_ROOT")); v != "" {
-		cfg.Projects.Workspace.Root = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_WORKSPACE_TTL_SECONDS")); v != "" {
-		if n, err := parseInt(v); err == nil {
-			cfg.Projects.Workspace.TTLSeconds = n
-		}
-	}
-	// S3/MinIO configuration for projects storage
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_ENDPOINT")); v != "" {
-		cfg.Projects.S3.Endpoint = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_REGION")); v != "" {
-		cfg.Projects.S3.Region = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_BUCKET")); v != "" {
-		cfg.Projects.S3.Bucket = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_PREFIX")); v != "" {
-		cfg.Projects.S3.Prefix = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_ACCESS_KEY")); v != "" {
-		cfg.Projects.S3.AccessKey = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_SECRET_KEY")); v != "" {
-		cfg.Projects.S3.SecretKey = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_USE_PATH_STYLE")); v != "" {
-		cfg.Projects.S3.UsePathStyle = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_TLS_INSECURE")); v != "" {
-		cfg.Projects.S3.TLSInsecureSkipVerify = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_SSE_MODE")); v != "" {
-		cfg.Projects.S3.SSE.Mode = v
-	}
-	if v := strings.TrimSpace(os.Getenv("PROJECTS_S3_SSE_KMS_KEY_ID")); v != "" {
-		cfg.Projects.S3.SSE.KMSKeyID = v
 	}
 
 	// Optionally load specialist agents from YAML.
@@ -472,15 +420,6 @@ func Load() (Config, error) {
 	}
 	if cfg.Web.SearXNGURL == "" {
 		cfg.Web.SearXNGURL = "http://localhost:8080"
-	}
-	if cfg.Kafka.Brokers == "" {
-		cfg.Kafka.Brokers = "localhost:9092"
-	}
-	if cfg.Kafka.CommandsTopic == "" {
-		cfg.Kafka.CommandsTopic = "dev.sio.orchestrator.commands"
-	}
-	if cfg.Kafka.ResponsesTopic == "" {
-		cfg.Kafka.ResponsesTopic = "dev.sio.orchestrator.responses"
 	}
 	if cfg.Exec.MaxCommandSeconds == 0 {
 		cfg.Exec.MaxCommandSeconds = 30
@@ -568,24 +507,6 @@ func Load() (Config, error) {
 	}
 
 	// Apply projects defaults
-	if cfg.Projects.Backend == "" {
-		cfg.Projects.Backend = "filesystem"
-	}
-	if cfg.Projects.Workspace.Mode == "" {
-		cfg.Projects.Workspace.Mode = "legacy"
-	}
-	if cfg.Projects.Workspace.TTLSeconds == 0 {
-		cfg.Projects.Workspace.TTLSeconds = 86400 // 24 hours
-	}
-	if cfg.Projects.S3.Region == "" {
-		cfg.Projects.S3.Region = "us-east-1"
-	}
-	if cfg.Projects.S3.Prefix == "" {
-		cfg.Projects.S3.Prefix = "workspaces"
-	}
-	if cfg.Projects.S3.SSE.Mode == "" {
-		cfg.Projects.S3.SSE.Mode = "none"
-	}
 
 	if cfg.OpenAI.APIKey == "" {
 		return Config{}, errors.New("OPENAI_API_KEY is required for llm_client.openai (set in .env or environment)")
@@ -611,11 +532,6 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("WORKDIR must be a directory: %s", absWD)
 	}
 	cfg.Workdir = absWD
-
-	// Apply workspace root default after WORKDIR is resolved
-	if cfg.Projects.Workspace.Root == "" {
-		cfg.Projects.Workspace.Root = filepath.Join(absWD, "sandboxes")
-	}
 
 	// Keep LLMClient.OpenAI in sync with the effective OpenAI config.
 	cfg.LLMClient.OpenAI = cfg.OpenAI
@@ -728,11 +644,6 @@ func loadSpecialists(cfg *Config) error {
 	type execYAML struct {
 		BlockBinaries     []string `yaml:"blockBinaries"`
 		MaxCommandSeconds int      `yaml:"maxCommandSeconds"`
-	}
-	type kafkaYAML struct {
-		Brokers        string `yaml:"brokers"`
-		CommandsTopic  string `yaml:"commandsTopic"`
-		ResponsesTopic string `yaml:"responsesTopic"`
 	}
 	type obsClickhouseYAML struct {
 		DSN                  string `yaml:"dsn"`
@@ -864,58 +775,15 @@ func loadSpecialists(cfg *Config) error {
 		Vault    vaultKeyProviderYAML  `yaml:"vault"`
 		AWSKMS   awsKMSKeyProviderYAML `yaml:"awskms"`
 	}
-	type redisYAML struct {
-		Enabled               bool   `yaml:"enabled"`
-		Addr                  string `yaml:"addr"`
-		Password              string `yaml:"password"`
-		DB                    int    `yaml:"db"`
-		TLSInsecureSkipVerify bool   `yaml:"tlsInsecureSkipVerify"`
-	}
-	type projectsKafkaYAML struct {
-		Enabled bool   `yaml:"enabled"`
-		Brokers string `yaml:"brokers"`
-		Topic   string `yaml:"topic"`
-	}
-	type skillsYAML struct {
-		RedisCacheTTLSeconds int   `yaml:"redisCacheTTLSeconds"`
-		UseS3Loader          *bool `yaml:"useS3Loader"`
-	}
 	type tokenizationYAML struct {
 		Enabled             bool  `yaml:"enabled"`
 		CacheSize           int   `yaml:"cacheSize"`
 		CacheTTLSeconds     int   `yaml:"cacheTTLSeconds"`
 		FallbackToHeuristic *bool `yaml:"fallbackToHeuristic"`
 	}
-	type s3SSEConfigYAML struct {
-		Mode     string `yaml:"mode"`
-		KMSKeyID string `yaml:"kmsKeyID"`
-	}
-	type s3ConfigYAML struct {
-		Endpoint              string          `yaml:"endpoint"`
-		Region                string          `yaml:"region"`
-		Bucket                string          `yaml:"bucket"`
-		Prefix                string          `yaml:"prefix"`
-		AccessKey             string          `yaml:"accessKey"`
-		SecretKey             string          `yaml:"secretKey"`
-		UsePathStyle          bool            `yaml:"usePathStyle"`
-		TLSInsecureSkipVerify bool            `yaml:"tlsInsecureSkipVerify"`
-		SSE                   s3SSEConfigYAML `yaml:"sse"`
-	}
-	type workspaceConfigYAML struct {
-		Mode       string `yaml:"mode"`
-		Root       string `yaml:"root"`
-		TTLSeconds int    `yaml:"ttlSeconds"`
-		CacheDir   string `yaml:"cacheDir"`
-		TmpfsDir   string `yaml:"tmpfsDir"`
-	}
 	type projectsYAML struct {
-		Backend    string              `yaml:"backend"`
-		Encrypt    bool                `yaml:"encrypt"`
-		Encryption encryptionYAML      `yaml:"encryption"`
-		Workspace  workspaceConfigYAML `yaml:"workspace"`
-		S3         s3ConfigYAML        `yaml:"s3"`
-		Redis      redisYAML           `yaml:"redis"`
-		Events     projectsKafkaYAML   `yaml:"events"`
+		Encrypt    bool           `yaml:"encrypt"`
+		Encryption encryptionYAML `yaml:"encryption"`
 	}
 	type oauth2YAML struct {
 		AuthURL             string   `yaml:"authURL"`
@@ -970,7 +838,6 @@ func loadSpecialists(cfg *Config) error {
 		MaxSteps                     int                `yaml:"maxSteps"`
 		MaxToolParallelism           int                `yaml:"maxToolParallelism"`
 		Exec                         execYAML           `yaml:"exec"`
-		Kafka                        kafkaYAML          `yaml:"kafka"`
 		Obs                          obsYAML            `yaml:"obs"`
 		Web                          webYAML            `yaml:"web"`
 		Databases                    databasesYAML      `yaml:"databases"`
@@ -979,7 +846,6 @@ func loadSpecialists(cfg *Config) error {
 		EvolvingMemory               evolvingMemoryYAML `yaml:"evolvingMemory"`
 		TTS                          ttsYAML            `yaml:"tts"`
 		Projects                     projectsYAML       `yaml:"projects"`
-		Skills                       skillsYAML         `yaml:"skills"`
 		Tokenization                 tokenizationYAML   `yaml:"tokenization"`
 		EnableTools                  *bool              `yaml:"enableTools"`
 		// AllowTools is a top-level allow-list for tools exposed to the main agent.
@@ -1147,15 +1013,6 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.WorkflowTimeoutSeconds == 0 && w.WorkflowTimeoutSeconds != 0 && !workflowTimeoutFromEnv {
 			cfg.WorkflowTimeoutSeconds = w.WorkflowTimeoutSeconds
-		}
-		if cfg.Kafka.Brokers == "" && strings.TrimSpace(w.Kafka.Brokers) != "" {
-			cfg.Kafka.Brokers = strings.TrimSpace(w.Kafka.Brokers)
-		}
-		if cfg.Kafka.CommandsTopic == "" && strings.TrimSpace(w.Kafka.CommandsTopic) != "" {
-			cfg.Kafka.CommandsTopic = strings.TrimSpace(w.Kafka.CommandsTopic)
-		}
-		if cfg.Kafka.ResponsesTopic == "" && strings.TrimSpace(w.Kafka.ResponsesTopic) != "" {
-			cfg.Kafka.ResponsesTopic = strings.TrimSpace(w.Kafka.ResponsesTopic)
 		}
 		if cfg.Exec.MaxCommandSeconds == 0 && w.Exec.MaxCommandSeconds > 0 {
 			cfg.Exec.MaxCommandSeconds = w.Exec.MaxCommandSeconds
@@ -1433,9 +1290,6 @@ func loadSpecialists(cfg *Config) error {
 			cfg.Auth.OAuth2.RolesField = strings.TrimSpace(w.Auth.OAuth2.RolesField)
 		}
 		// Projects: merge YAML config if env not set
-		if cfg.Projects.Backend == "" && strings.TrimSpace(w.Projects.Backend) != "" {
-			cfg.Projects.Backend = strings.TrimSpace(w.Projects.Backend)
-		}
 		if w.Projects.Encrypt {
 			cfg.Projects.Encrypt = true
 		}
@@ -1480,81 +1334,6 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.Projects.Encryption.AWSKMS.Endpoint == "" && strings.TrimSpace(w.Projects.Encryption.AWSKMS.Endpoint) != "" {
 			cfg.Projects.Encryption.AWSKMS.Endpoint = strings.TrimSpace(w.Projects.Encryption.AWSKMS.Endpoint)
-		}
-		if cfg.Projects.Workspace.Mode == "" && strings.TrimSpace(w.Projects.Workspace.Mode) != "" {
-			cfg.Projects.Workspace.Mode = strings.TrimSpace(w.Projects.Workspace.Mode)
-		}
-		if cfg.Projects.Workspace.Root == "" && strings.TrimSpace(w.Projects.Workspace.Root) != "" {
-			cfg.Projects.Workspace.Root = strings.TrimSpace(w.Projects.Workspace.Root)
-		}
-		if cfg.Projects.Workspace.TTLSeconds == 0 && w.Projects.Workspace.TTLSeconds > 0 {
-			cfg.Projects.Workspace.TTLSeconds = w.Projects.Workspace.TTLSeconds
-		}
-		if cfg.Projects.Workspace.CacheDir == "" && strings.TrimSpace(w.Projects.Workspace.CacheDir) != "" {
-			cfg.Projects.Workspace.CacheDir = strings.TrimSpace(w.Projects.Workspace.CacheDir)
-		}
-		if cfg.Projects.Workspace.TmpfsDir == "" && strings.TrimSpace(w.Projects.Workspace.TmpfsDir) != "" {
-			cfg.Projects.Workspace.TmpfsDir = strings.TrimSpace(w.Projects.Workspace.TmpfsDir)
-		}
-		if cfg.Projects.S3.Endpoint == "" && strings.TrimSpace(w.Projects.S3.Endpoint) != "" {
-			cfg.Projects.S3.Endpoint = strings.TrimSpace(w.Projects.S3.Endpoint)
-		}
-		if cfg.Projects.S3.Region == "" && strings.TrimSpace(w.Projects.S3.Region) != "" {
-			cfg.Projects.S3.Region = strings.TrimSpace(w.Projects.S3.Region)
-		}
-		if cfg.Projects.S3.Bucket == "" && strings.TrimSpace(w.Projects.S3.Bucket) != "" {
-			cfg.Projects.S3.Bucket = strings.TrimSpace(w.Projects.S3.Bucket)
-		}
-		if cfg.Projects.S3.Prefix == "" && strings.TrimSpace(w.Projects.S3.Prefix) != "" {
-			cfg.Projects.S3.Prefix = strings.TrimSpace(w.Projects.S3.Prefix)
-		}
-		if cfg.Projects.S3.AccessKey == "" && strings.TrimSpace(w.Projects.S3.AccessKey) != "" {
-			cfg.Projects.S3.AccessKey = strings.TrimSpace(w.Projects.S3.AccessKey)
-		}
-		if cfg.Projects.S3.SecretKey == "" && strings.TrimSpace(w.Projects.S3.SecretKey) != "" {
-			cfg.Projects.S3.SecretKey = strings.TrimSpace(w.Projects.S3.SecretKey)
-		}
-		if w.Projects.S3.UsePathStyle {
-			cfg.Projects.S3.UsePathStyle = true
-		}
-		if w.Projects.S3.TLSInsecureSkipVerify {
-			cfg.Projects.S3.TLSInsecureSkipVerify = true
-		}
-		if cfg.Projects.S3.SSE.Mode == "" && strings.TrimSpace(w.Projects.S3.SSE.Mode) != "" {
-			cfg.Projects.S3.SSE.Mode = strings.TrimSpace(w.Projects.S3.SSE.Mode)
-		}
-		if cfg.Projects.S3.SSE.KMSKeyID == "" && strings.TrimSpace(w.Projects.S3.SSE.KMSKeyID) != "" {
-			cfg.Projects.S3.SSE.KMSKeyID = strings.TrimSpace(w.Projects.S3.SSE.KMSKeyID)
-		}
-		if !cfg.Projects.Redis.Enabled && w.Projects.Redis.Enabled {
-			cfg.Projects.Redis.Enabled = true
-		}
-		if cfg.Projects.Redis.Addr == "" && strings.TrimSpace(w.Projects.Redis.Addr) != "" {
-			cfg.Projects.Redis.Addr = strings.TrimSpace(w.Projects.Redis.Addr)
-		}
-		if cfg.Projects.Redis.Password == "" && strings.TrimSpace(w.Projects.Redis.Password) != "" {
-			cfg.Projects.Redis.Password = strings.TrimSpace(w.Projects.Redis.Password)
-		}
-		if cfg.Projects.Redis.DB == 0 && w.Projects.Redis.DB != 0 {
-			cfg.Projects.Redis.DB = w.Projects.Redis.DB
-		}
-		if !cfg.Projects.Redis.TLSInsecureSkipVerify && w.Projects.Redis.TLSInsecureSkipVerify {
-			cfg.Projects.Redis.TLSInsecureSkipVerify = true
-		}
-		if !cfg.Projects.Events.Enabled && w.Projects.Events.Enabled {
-			cfg.Projects.Events.Enabled = true
-		}
-		if cfg.Projects.Events.Brokers == "" && strings.TrimSpace(w.Projects.Events.Brokers) != "" {
-			cfg.Projects.Events.Brokers = strings.TrimSpace(w.Projects.Events.Brokers)
-		}
-		if cfg.Projects.Events.Topic == "" && strings.TrimSpace(w.Projects.Events.Topic) != "" {
-			cfg.Projects.Events.Topic = strings.TrimSpace(w.Projects.Events.Topic)
-		}
-		if cfg.Skills.RedisCacheTTLSeconds == 0 && w.Skills.RedisCacheTTLSeconds > 0 {
-			cfg.Skills.RedisCacheTTLSeconds = w.Skills.RedisCacheTTLSeconds
-		}
-		if w.Skills.UseS3Loader != nil {
-			cfg.Skills.UseS3Loader = *w.Skills.UseS3Loader
 		}
 		if !cfg.Tokenization.Enabled && w.Tokenization.Enabled {
 			cfg.Tokenization.Enabled = true

@@ -165,4 +165,3 @@ func TestEvolvingMemory_CallbacksFire(t *testing.T) {
 		t.Logf("no retrieved id captured")
 	}
 }
-

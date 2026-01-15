@@ -4,12 +4,12 @@ Overview
 
 WARPP workflows are lightweight JSON templates that describe a sequence of human-readable steps which call out to registered tools. The WARPP runner loads workflows from `configs/workflows` and executes them in-process using the configured tool registry.
 
-A workflow maps an intent (a short name) to a set of ordered steps. Each step can have an optional guard expression and a tool reference. Steps may optionally publish their result to Kafka when `publish_result` is set.
+A workflow maps an intent (a short name) to a set of ordered steps. Each step can have an optional guard expression and a tool reference. Steps may optionally publish their result to a caller-provided callback when `publish_result` is set.
 
 Why use WARPP
 
 - Simple, testable workflow templates.
-- Decouples orchestration (message input / Kafka) from business logic (tools).
+- Decouples orchestration (input routing) from business logic (tools).
 - Allows LLM-driven or tool-driven orchestration using existing tool implementations.
 
 JSON template: top-level shape
@@ -48,7 +48,7 @@ Step object fields
 - `text` (string): human-readable description of the step (used in execution summary/logs).
 - `guard` (string, optional): a boolean expression evaluated against the current attributes map; if the guard evaluates false, the step is skipped.
 - `tool` (object, optional): a `ToolRef` describing which tool to call and with which args.
-- `publish_result` (boolean, optional): if true, the WARPP runner will invoke the configured publisher after the step completes, allowing the orchestrator to produce a Kafka message containing the step's output.
+- `publish_result` (boolean, optional): if true, the WARPP runner will invoke the configured publisher after the step completes, allowing the caller to receive per-step outputs.
 
 ToolRef
 
@@ -78,10 +78,9 @@ Guards
 
 Execution flow (high-level)
 
-1. Orchestrator receives a command message (see `docs/kafka.md` for message format).
-2. The orchestrator looks up the requested workflow by `workflow`/intent and calls the WARPP adapter.
-3. WARPP `Personalize` is called with provided `Attrs` to infer `query`/`utter` and to trim steps by guard.
-4. WARPP `Execute` runs the steps in order:
+1. The runner is invoked by the agent CLI or the server with a selected workflow intent.
+2. WARPP `Personalize` is called with provided `Attrs` to infer `query`/`utter` and to trim steps by guard.
+3. WARPP `Execute` runs the steps in order:
    - For each step with a `tool`, WARPP renders the `args` by substituting `${A.*}` placeholders.
    - WARPP dispatches the tool call via the tool registry.
    - Tool output is recorded in attributes (`A.last_payload`, `A.payloads`) and may be used by later steps.
@@ -97,7 +96,7 @@ Tool interaction and payloads
 Errors and retry behavior
 
 - If a tool call returns an error, WARPP `Execute` returns that error to the caller. The orchestrator treats certain errors as transient and will retry the entire workflow execution a limited number of times.
-- If a step's publish to Kafka fails (publisher returns error), the runner treats publishing as best-effort and continues execution (the orchestrator-level publisher chooses whether to surface errors or log them).
+- If a step's publish callback returns an error, the runner treats publishing as best-effort and continues execution.
 
 Best practices
 
@@ -135,10 +134,6 @@ Invocation examples
 
   ./dist/agent -q "save latest web search to a file" -warpp
 
-- Orchestrator / Kafka-driven execution. The orchestrator loads workflows from
-  `configs/workflows` and exposes an adapter that executes a named workflow (intent). When
-  the orchestrator receives a command envelope, it looks up the `workflow` field and runs
-  that workflow via the WARPP adapter. See `cmd/orchestrator/main.go` for the wiring.
 
 Routes vs WARPP workflows
 
@@ -170,7 +165,4 @@ Troubleshooting
 - If a placeholder `${A.key}` is empty in the dispatched tool args, inspect the incoming command `Attrs` and the `Personalize` logic.
 - If a step is unexpectedly skipped, evaluate the `guard` expression against the attribute map; a missing attribute will cause existence guards to fail.
 
-
 ---
-
-For more on Kafka message shapes and how the orchestrator integrates with Kafka, see `docs/kafka.md`.

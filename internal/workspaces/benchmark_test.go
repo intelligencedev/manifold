@@ -1,4 +1,5 @@
-//go:build nowhisper
+//go:build enterprise && nowhisper
+// +build enterprise,nowhisper
 
 package workspaces_test
 

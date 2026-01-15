@@ -23,13 +23,25 @@ try {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const proxyTarget = env.VITE_DEV_SERVER_PROXY;
+  const isTest =
+    mode === "test" ||
+    process.env.VITEST === "true" ||
+    process.env.VITEST === "1";
+
+  const alias: Record<string, string> = {
+    "@": path.resolve(__dirname, "src"),
+  };
+  if (isTest) {
+    alias["vue3-grid-layout-next/dist/style.css"] = path.resolve(
+      __dirname,
+      "tests/styleMock.css",
+    );
+  }
 
   return {
     plugins: [vue(), vueJsx()],
     resolve: {
-      alias: {
-        "@": path.resolve(__dirname, "src"),
-      },
+      alias,
     },
     server: proxyTarget
       ? {
@@ -61,6 +73,12 @@ export default defineConfig(({ mode }) => {
       environment: "jsdom",
       globals: true,
       setupFiles: "./tests/setupTests.ts",
+      include: ["tests/**/*.spec.ts", "tests/**/*.test.ts"],
+      exclude: ["e2e/**", "node_modules/**", "dist/**"],
+      css: true,
+      deps: {
+        inline: [/vue3-grid-layout-next/],
+      },
     },
   };
 });

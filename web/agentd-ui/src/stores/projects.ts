@@ -42,7 +42,7 @@ export const useProjectsStore = defineStore("projects", () => {
 
   async function setCurrent(id: string) {
     currentProjectId.value = id;
-    // Persist to backend (triggers MCP session setup in enterprise mode)
+    // Persist to backend (triggers MCP session setup when auth is enabled)
     try {
       await setActiveProject(id);
     } catch (e) {

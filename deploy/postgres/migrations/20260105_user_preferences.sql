@@ -1,5 +1,5 @@
 -- User Preferences table for persisting user settings across sessions.
--- Primary use case: storing active project selection for enterprise workspace mode.
+-- Primary use case: storing active project selection for auth-enabled workspace mode.
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     user_id BIGINT PRIMARY KEY,

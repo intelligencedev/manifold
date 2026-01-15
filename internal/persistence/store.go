@@ -163,7 +163,7 @@ type MCPStore interface {
 }
 
 // Project represents a project stored in the database.
-// This is the authoritative metadata record for projects stored in S3 or filesystem.
+// This is the authoritative metadata record for projects stored on disk.
 type Project struct {
 	ID        string    `json:"id"`
 	UserID    int64     `json:"userId"`
@@ -177,12 +177,12 @@ type Project struct {
 	Bytes int64 `json:"bytes"`
 	// FileCount is the number of files in the project (cached).
 	FileCount int `json:"fileCount"`
-	// StorageBackend indicates where files are stored: "filesystem" or "s3".
+	// StorageBackend indicates where files are stored: "filesystem".
 	StorageBackend string `json:"storageBackend,omitempty"`
 }
 
 // ProjectFile represents a file entry in the project_files index.
-// This enables fast directory listing without expensive S3 LIST operations.
+// This enables fast directory listing without expensive listing operations.
 type ProjectFile struct {
 	ProjectID string    `json:"projectId"`
 	Path      string    `json:"path"`      // Full project-relative path (e.g., "src/main.go")
@@ -190,7 +190,7 @@ type ProjectFile struct {
 	IsDir     bool      `json:"isDir"`     // True if this is a directory entry
 	Size      int64     `json:"size"`      // File size in bytes (0 for directories)
 	ModTime   time.Time `json:"modTime"`   // Last modification time
-	ETag      string    `json:"etag"`      // S3 ETag or content hash for change detection
+	ETag      string    `json:"etag"`      // ETag or content hash for change detection
 	UpdatedAt time.Time `json:"updatedAt"` // When this index entry was last updated
 }
 

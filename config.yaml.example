@@ -181,7 +181,7 @@ mcp:
       - --rm
       - mcp/duckduckgo
 
-  # Path-dependent server - per-user instances in enterprise mode
+  # Path-dependent server - per-user instances when auth is enabled
   # The {{PROJECT_DIR}} placeholder is expanded to user's workspace path
   # - name: filesystem
   #   pathDependent: true

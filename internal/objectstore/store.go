@@ -1,6 +1,5 @@
 // Package objectstore provides an abstraction layer for object storage backends.
-// It supports S3-compatible services (AWS S3, MinIO) with a narrow interface
-// suitable for project file storage.
+// It keeps a narrow interface suitable for project file storage.
 package objectstore
 
 import (

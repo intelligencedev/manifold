@@ -122,7 +122,7 @@ var (
 func GetCacheService() *CacheService {
 	globalCacheOnce.Do(func() {
 		// Default initialization with local cache only.
-		// Call InitCacheService to enable Redis/S3 backing.
+		// Call InitCacheService to enable alternate backing stores.
 		globalCacheService = &CacheService{
 			localCache: NewCache(),
 		}

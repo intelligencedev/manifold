@@ -11,7 +11,7 @@ import (
 )
 
 // MemoryStore implements ObjectStore using an in-memory map.
-// Useful for testing without S3 dependencies.
+// Useful for testing without external object-store dependencies.
 type MemoryStore struct {
 	mu      sync.RWMutex
 	objects map[string]*memObject

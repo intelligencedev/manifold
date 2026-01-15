@@ -1,5 +1,0 @@
-# Manifold Enterprise Configuration (Deprecated)
-# =============================================
-# Enterprise features (S3/MinIO, Redis, Kafka, and enterprise workspaces)
-# have been removed. Use config.yaml or config.yaml.example for local
-# filesystem-only configuration.

@@ -1196,9 +1196,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			a.runs.updateStatus(prun.ID, "completed", 0)
 			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
-			}
-			// Commit workspace changes to S3 after successful run
-			a.commitWorkspace(ctx, checkedOutWorkspace)
+			// Commit workspace changes after successful run
 			return
 		}
 
@@ -1245,20 +1243,11 @@ func (a *app) promptHandler() http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
-		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
-			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
-		}
-		// Commit workspace changes to S3 after successful run
-		a.commitWorkspace(ctx, checkedOutWorkspace)
-	}
-}
+		// Commit workspace changes after successful run
 
 func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
 	reg, err := a.specialistsRegistryForUser(r.Context(), owner)
-	if err != nil {
-		log.Error().Err(err).Str("specialist", name).Msg("load_specialist_registry")
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		// Commit workspace changes after successful run
 		return true
 	}
 	sp, ok := reg.Get(name)

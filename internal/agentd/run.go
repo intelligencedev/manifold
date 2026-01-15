@@ -428,7 +428,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// Load MCP servers from the system user store.
 	if mgr.MCP != nil {
 		if servers, err := mgr.MCP.List(ctxInit, systemUserID); err == nil {
-			// In enterprise mode we must NOT start path-dependent servers as shared singletons,
+			// When auth is enabled we must NOT start path-dependent servers as shared singletons,
 			// since they require a real project workspace path. Those are managed by MCPServerPool.
 			pathDependentNames := map[string]bool{}
 			for _, s := range cfg.MCP.Servers {
@@ -485,7 +485,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	workspaces.SetCheckoutCallback(mcpPool.OnWorkspaceCheckout)
 
 	// Register non-path-dependent servers to the pool (shared)
-	// Path-dependent servers in enterprise mode are registered per-user on project switch
+	// Path-dependent servers are registered per-user on project switch when auth is enabled
 	ctxPool, cancelPool := context.WithTimeout(ctx, 20*time.Second)
 	if err := mcpPool.RegisterFromConfig(ctxPool, baseToolRegistry); err != nil {
 		log.Warn().Err(err).Msg("mcp_pool_registration_failed")
@@ -498,7 +498,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	cancelPool()
 
-	// Start idle session reaper for enterprise mode (15 min check interval, 1 hour max idle)
+	// Start idle session reaper for per-user MCP sessions (15 min check interval, 1 hour max idle)
 	if mcpPool.RequiresPerUserMCP() {
 		mcpPool.StartReaper(ctx, baseToolRegistry, 15*time.Minute, 1*time.Hour)
 	}

@@ -6,7 +6,7 @@ import (
 )
 
 // ProjectService defines the interface for project storage operations.
-// Implementations include filesystem-backed (Service) and S3-backed (S3Service).
+// Implementations include filesystem-backed (Service).
 type ProjectService interface {
 	// CreateProject creates a new project for the given user.
 	CreateProject(ctx context.Context, userID int64, name string) (Project, error)

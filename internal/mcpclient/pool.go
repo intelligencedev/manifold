@@ -130,11 +130,11 @@ func (p *MCPServerPool) RequiresPerUserMCP() bool {
 
 // RegisterFromConfig connects to configured MCP servers and registers tools.
 // Non-path-dependent servers are registered to the shared manager.
-// Path-dependent servers in enterprise mode are deferred until user context is available.
+// Path-dependent servers are deferred until user context is available.
 func (p *MCPServerPool) RegisterFromConfig(ctx context.Context, reg tools.Registry) error {
 	for _, srv := range p.cfg.MCP.Servers {
 		if srv.PathDependent && p.RequiresPerUserMCP() {
-			// Skip path-dependent servers in enterprise mode - they're registered per-user
+			// Skip path-dependent servers when per-user MCP is required - they're registered per-user
 			log.Debug().Str("server", srv.Name).Msg("deferring_path_dependent_mcp_server")
 			continue
 		}

@@ -143,7 +143,7 @@ type VaultKeyProviderConfig struct {
 	KeyName string `yaml:"keyName" json:"keyName"`
 	// MountPath is the mount path for the transit engine (default: "transit").
 	MountPath string `yaml:"mountPath" json:"mountPath"`
-	// Namespace is the Vault namespace for enterprise deployments.
+	// Namespace is the Vault namespace for multi-tenant deployments.
 	Namespace string `yaml:"namespace" json:"namespace"`
 	// TLSSkipVerify disables TLS certificate verification (dev only).
 	TLSSkipVerify bool `yaml:"tlsSkipVerify" json:"tlsSkipVerify"`
@@ -412,7 +412,7 @@ type MCPServerConfig struct {
 	// KeepAliveSeconds configures client ping interval; 0 disables keepalive.
 	KeepAliveSeconds int `yaml:"keepAliveSeconds" json:"keepAliveSeconds"`
 	// PathDependent marks this server as requiring per-user instances with project
-	// path injection. Only applies when enterprise workspace mode is enabled.
+	// path injection. Only applies when auth is enabled.
 	// When true, placeholders like {{PROJECT_DIR}} in Args and Env will be expanded
 	// to the user's active project workspace path. Note: We use {{...}} syntax instead
 	// of ${...} because the config loader runs os.ExpandEnv which expands ${...}.

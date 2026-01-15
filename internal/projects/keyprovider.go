@@ -198,7 +198,7 @@ type VaultKeyProviderConfig struct {
 	KeyName string `yaml:"keyName" json:"keyName"`
 	// MountPath is the mount path for the transit engine (default: "transit").
 	MountPath string `yaml:"mountPath" json:"mountPath"`
-	// Namespace is the Vault namespace for enterprise deployments.
+	// Namespace is the Vault namespace for multi-tenant deployments.
 	Namespace string `yaml:"namespace" json:"namespace"`
 	// TLSSkipVerify disables TLS certificate verification (dev only).
 	TLSSkipVerify bool `yaml:"tlsSkipVerify" json:"tlsSkipVerify"`
@@ -207,7 +207,7 @@ type VaultKeyProviderConfig struct {
 }
 
 // VaultKeyProvider implements KeyProvider using HashiCorp Vault's Transit secrets engine.
-// This provides enterprise-grade key management where KEKs are managed by Vault and
+// This provides production-grade key management where KEKs are managed by Vault and
 // never exposed to application servers.
 type VaultKeyProvider struct {
 	client    *http.Client
@@ -413,7 +413,7 @@ type AWSKMSKeyProviderConfig struct {
 }
 
 // AWSKMSKeyProvider implements KeyProvider using AWS Key Management Service.
-// This provides enterprise-grade key management where KEKs are managed by AWS KMS.
+// This provides production-grade key management where KEKs are managed by AWS KMS.
 //
 // Note: This implementation uses the AWS SDK v2 HTTP API directly to avoid
 // heavy SDK dependencies. For production use, consider using the official AWS SDK.

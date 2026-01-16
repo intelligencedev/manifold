@@ -951,7 +951,23 @@ const renderModeOptions = computed<DropdownOption[]>(() => [
   { id: "html", label: "html", value: "html" },
 ]);
 
-const selectedSpecialist = ref<string>("orchestrator");
+const selectedSpecialistBySession = ref<Record<string, string>>({});
+const selectedSpecialist = computed({
+  get: () => {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return "orchestrator";
+    return selectedSpecialistBySession.value[sessionId] || "orchestrator";
+  },
+  set: (value: string) => {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return;
+    const next = (value || "orchestrator").trim() || "orchestrator";
+    selectedSpecialistBySession.value = {
+      ...selectedSpecialistBySession.value,
+      [sessionId]: next,
+    };
+  },
+});
 
 // --- @mention specialist picker (Slack-like) ---
 const mentionQuery = ref("");
@@ -1586,6 +1602,21 @@ watch(
   },
   { flush: "post" },
 );
+
+watch(sessions, (next) => {
+  const keep = new Set(next.map((s) => s.id));
+  const current = selectedSpecialistBySession.value;
+  let changed = false;
+  const pruned: Record<string, string> = {};
+  for (const [id, value] of Object.entries(current)) {
+    if (keep.has(id)) {
+      pruned[id] = value;
+    } else {
+      changed = true;
+    }
+  }
+  if (changed) selectedSpecialistBySession.value = pruned;
+});
 
 watch(
   () =>

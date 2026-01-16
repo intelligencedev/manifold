@@ -185,6 +185,39 @@ export async function uploadFile(
   });
 }
 
+export async function fetchProjectFileText(
+  id: string,
+  path: string,
+): Promise<string> {
+  const { data } = await apiClient.get<string>(
+    `/projects/${encodeURIComponent(id)}/files`,
+    {
+      params: { path },
+      responseType: "text",
+      transformResponse: (raw) => raw,
+    },
+  );
+  return typeof data === "string" ? data : String(data ?? "");
+}
+
+export async function saveProjectFileText(
+  id: string,
+  dirPath: string,
+  name: string,
+  content: string,
+): Promise<void> {
+  await apiClient.post(
+    `/projects/${encodeURIComponent(id)}/files`,
+    content,
+    {
+      params: { path: dirPath, name },
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+    },
+  );
+}
+
 // Build a direct URL to fetch a file's content for preview/download.
 export function projectFileUrl(id: string, path: string): string {
   const b = baseURL.replace(/\/$/, "");

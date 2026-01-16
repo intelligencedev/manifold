@@ -755,12 +755,6 @@
                         }}
                       </p>
                     </div>
-                    <span
-                      class="participant-pill"
-                      :class="participantPillClasses(participant.name)"
-                    >
-                      {{ participantStatusLabel(participant.name) }}
-                    </span>
                   </li>
                 </ul>
               </div>
@@ -1491,8 +1485,12 @@ const participantList = computed<Participant[]>(() => {
     specialistsByName.value.get("orchestrator")?.model?.trim() ||
     sessionAgentDefaults.value.model ||
     "";
-  add("orchestrator", orchestratorModel);
+  const orchestratorSpec = specialistsByName.value.get("orchestrator");
+  if (!orchestratorSpec?.paused) {
+    add("orchestrator", orchestratorModel);
+  }
   const extras = (specialistsData?.value || [])
+    .filter((spec: Specialist) => !spec.paused)
     .map((spec: Specialist) => ({
       name: (spec.name || "").trim(),
       model: (spec.model || "").trim(),
@@ -1553,18 +1551,8 @@ function participantRowClasses(name: string) {
 function participantDotClasses(name: string) {
   const active = participantIsActive(name);
   return {
-    "participant-dot--live": active && isStreaming.value,
-    "participant-dot--ready": !active && isStreaming.value,
-    "participant-dot--idle": !isStreaming.value,
-  };
-}
-
-function participantPillClasses(name: string) {
-  const active = participantIsActive(name);
-  return {
-    "participant-pill--live": active && isStreaming.value,
-    "participant-pill--ready": !active && isStreaming.value,
-    "participant-pill--idle": !isStreaming.value,
+    "participant-dot--active": active,
+    "participant-dot--idle": !active,
   };
 }
 
@@ -1630,6 +1618,15 @@ function clampActiveSpecialistPaneHeight(height: number) {
     containerHeight - splitterHeight - PANEL_MIN_HEIGHT,
   );
   return Math.min(Math.max(height, PANEL_MIN_HEIGHT), maxHeight);
+}
+
+function defaultActiveSpecialistPaneHeight() {
+  const containerHeight = panelContainerHeight.value;
+  const splitterHeight = panelSplitterHeight.value;
+  if (!containerHeight) return null;
+  const available = containerHeight - splitterHeight;
+  if (!Number.isFinite(available) || available <= 0) return null;
+  return clampActiveSpecialistPaneHeight(available / 2);
 }
 
 function stopPanelSplitterDrag() {
@@ -1739,11 +1736,16 @@ onMounted(() => {
     scrollMessagesToBottom({ force: true, behavior: "auto" });
     updateSidePanelMetrics();
     if (activeSpecialistPane.value && activeSpecialistPaneHeight.value === null) {
-      const initialHeight =
-        activeSpecialistPane.value.getBoundingClientRect().height;
-      if (initialHeight > 0) {
-        activeSpecialistPaneHeight.value =
-          clampActiveSpecialistPaneHeight(initialHeight);
+      const defaultHeight = defaultActiveSpecialistPaneHeight();
+      if (defaultHeight !== null) {
+        activeSpecialistPaneHeight.value = defaultHeight;
+      } else {
+        const initialHeight =
+          activeSpecialistPane.value.getBoundingClientRect().height;
+        if (initialHeight > 0) {
+          activeSpecialistPaneHeight.value =
+            clampActiveSpecialistPaneHeight(initialHeight);
+        }
       }
     }
     if (isBrowser && "ResizeObserver" in window && sidePanelsPane.value) {
@@ -1751,6 +1753,11 @@ onMounted(() => {
         updateSidePanelMetrics();
         if (activeSpecialistPaneHeight.value !== null) {
           if (activeSpecialistPaneHeight.value <= 0 && activeSpecialistPane.value) {
+            const defaultHeight = defaultActiveSpecialistPaneHeight();
+            if (defaultHeight !== null) {
+              activeSpecialistPaneHeight.value = defaultHeight;
+              return;
+            }
             const measured =
               activeSpecialistPane.value.getBoundingClientRect().height;
             if (measured > 0) {
@@ -1763,6 +1770,11 @@ onMounted(() => {
             activeSpecialistPaneHeight.value,
           );
         } else if (activeSpecialistPane.value) {
+          const defaultHeight = defaultActiveSpecialistPaneHeight();
+          if (defaultHeight !== null) {
+            activeSpecialistPaneHeight.value = defaultHeight;
+            return;
+          }
           const measured =
             activeSpecialistPane.value.getBoundingClientRect().height;
           if (measured > 0) {
@@ -2457,18 +2469,14 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   background: rgb(var(--color-border));
 }
 
-.participant-dot--live {
-  background: rgb(var(--color-accent));
-  box-shadow: 0 0 0 4px rgb(var(--color-accent) / 0.2);
-}
-
-.participant-dot--ready {
-  background: rgb(var(--color-warning));
-  box-shadow: 0 0 0 4px rgb(var(--color-warning) / 0.18);
+.participant-dot--active {
+  background: rgb(var(--color-success));
+  box-shadow: 0 0 0 4px rgb(var(--color-success) / 0.22);
 }
 
 .participant-dot--idle {
-  background: rgb(var(--color-border));
+  background: rgb(var(--color-warning));
+  box-shadow: 0 0 0 4px rgb(var(--color-warning) / 0.18);
 }
 
 .participant-body {
@@ -2492,33 +2500,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   white-space: normal;
 }
 
-.participant-pill {
-  font-size: 0.58rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0.18rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: rgb(var(--color-surface-muted) / 0.8);
-  color: rgb(var(--color-subtle-foreground));
-}
-
-.participant-pill--live {
-  border-color: rgb(var(--color-accent) / 0.4);
-  color: rgb(var(--color-accent));
-  background: rgb(var(--color-accent) / 0.12);
-}
-
-.participant-pill--ready {
-  border-color: rgb(var(--color-warning) / 0.35);
-  color: rgb(var(--color-warning));
-  background: rgb(var(--color-warning) / 0.12);
-}
-
-.participant-pill--idle {
-  border-color: rgb(var(--color-border) / 0.6);
-}
 
 .response-status {
   display: flex;

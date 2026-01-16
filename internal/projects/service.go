@@ -347,7 +347,7 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 		return err
 	}
 	fullRel := filepath.ToSlash(filepath.Join(rel, name))
-	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills/") || fullRel == ".manifold/skills" || fullRel == "manifold/skills"
+	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -392,7 +392,7 @@ func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path st
 		}
 	}
 	fullRel := filepath.ToSlash(rel)
-	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills/") || fullRel == ".manifold/skills" || fullRel == "manifold/skills"
+	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -447,7 +447,7 @@ func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to 
 	}
 	fullSrc := filepath.ToSlash(srcRel)
 	fullDst := filepath.ToSlash(dstRel)
-	bumpSkills := strings.HasPrefix(fullSrc, ".manifold/skills/") || strings.HasPrefix(fullDst, ".manifold/skills/") || fullSrc == ".manifold/skills" || fullDst == ".manifold/skills" || strings.HasPrefix(fullSrc, "manifold/skills") || strings.HasPrefix(fullDst, "manifold/skills")
+	bumpSkills := strings.HasPrefix(fullSrc, ".skills/") || strings.HasPrefix(fullDst, ".skills/") || fullSrc == ".skills" || fullDst == ".skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -467,7 +467,7 @@ func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path str
 		return err
 	}
 	fullRel := filepath.ToSlash(rel)
-	bumpSkills := strings.HasPrefix(fullRel, ".manifold/skills/") || fullRel == ".manifold/skills" || strings.HasPrefix(fullRel, "manifold/skills")
+	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }

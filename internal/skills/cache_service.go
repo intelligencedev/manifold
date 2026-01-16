@@ -89,7 +89,7 @@ func RenderSkillsSection(skillsList []Metadata) string {
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
-	b.WriteString("These skills are discovered from the project's .manifold/skills folder. Each entry includes a name, description, and file path.\n")
+	b.WriteString("These skills are discovered from the project's .skills folder. Each entry includes a name, description, and file path.\n")
 	for _, s := range skillsList {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {

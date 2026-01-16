@@ -1,6 +1,7 @@
 package projects
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +14,9 @@ func TestServiceCRUD(t *testing.T) {
 	svc := NewService(tmp)
 	userID := int64(1)
 
+	ctx := context.TODO()
 	// Create project
-	p, err := svc.CreateProject(nil, userID, "My Project")
+	p, err := svc.CreateProject(ctx, userID, "My Project")
 	if err != nil {
 		t.Fatalf("CreateProject error: %v", err)
 	}
@@ -28,7 +30,7 @@ func TestServiceCRUD(t *testing.T) {
 	}
 
 	// List projects
-	list, err := svc.ListProjects(nil, userID)
+	list, err := svc.ListProjects(ctx, userID)
 	if err != nil {
 		t.Fatalf("ListProjects error: %v", err)
 	}
@@ -37,16 +39,16 @@ func TestServiceCRUD(t *testing.T) {
 	}
 
 	// Create dir and upload file
-	if err := svc.CreateDir(nil, userID, p.ID, "/data"); err != nil {
+	if err := svc.CreateDir(ctx, userID, p.ID, "/data"); err != nil {
 		t.Fatalf("CreateDir error: %v", err)
 	}
 	body := strings.NewReader("hello")
-	if err := svc.UploadFile(nil, userID, p.ID, "/data", "a.txt", body); err != nil {
+	if err := svc.UploadFile(ctx, userID, p.ID, "/data", "a.txt", body); err != nil {
 		t.Fatalf("UploadFile error: %v", err)
 	}
 
 	// List tree
-	entries, err := svc.ListTree(nil, userID, p.ID, "/data")
+	entries, err := svc.ListTree(ctx, userID, p.ID, "/data")
 	if err != nil {
 		t.Fatalf("ListTree error: %v", err)
 	}
@@ -55,10 +57,10 @@ func TestServiceCRUD(t *testing.T) {
 	}
 
 	// Delete file
-	if err := svc.DeleteFile(nil, userID, p.ID, "/data/a.txt"); err != nil {
+	if err := svc.DeleteFile(ctx, userID, p.ID, "/data/a.txt"); err != nil {
 		t.Fatalf("DeleteFile error: %v", err)
 	}
-	entries, err = svc.ListTree(nil, userID, p.ID, "/data")
+	entries, err = svc.ListTree(ctx, userID, p.ID, "/data")
 	if err != nil {
 		t.Fatalf("ListTree error: %v", err)
 	}
@@ -67,15 +69,15 @@ func TestServiceCRUD(t *testing.T) {
 	}
 
 	// Create nested folder and file, then delete the folder
-	if err := svc.CreateDir(nil, userID, p.ID, "/data/dir"); err != nil {
+	if err := svc.CreateDir(ctx, userID, p.ID, "/data/dir"); err != nil {
 		t.Fatalf("CreateDir nested error: %v", err)
 	}
 	body2 := strings.NewReader("nested")
-	if err := svc.UploadFile(nil, userID, p.ID, "/data/dir", "n.txt", body2); err != nil {
+	if err := svc.UploadFile(ctx, userID, p.ID, "/data/dir", "n.txt", body2); err != nil {
 		t.Fatalf("UploadFile nested error: %v", err)
 	}
 	// Sanity check listing
-	entries, err = svc.ListTree(nil, userID, p.ID, "/data")
+	entries, err = svc.ListTree(ctx, userID, p.ID, "/data")
 	if err != nil {
 		t.Fatalf("ListTree after nested create error: %v", err)
 	}
@@ -83,10 +85,10 @@ func TestServiceCRUD(t *testing.T) {
 		t.Fatalf("unexpected entries after nested create: %+v", entries)
 	}
 	// Delete directory recursively
-	if err := svc.DeleteFile(nil, userID, p.ID, "/data/dir"); err != nil {
+	if err := svc.DeleteFile(ctx, userID, p.ID, "/data/dir"); err != nil {
 		t.Fatalf("DeleteFile directory error: %v", err)
 	}
-	entries, err = svc.ListTree(nil, userID, p.ID, "/data")
+	entries, err = svc.ListTree(ctx, userID, p.ID, "/data")
 	if err != nil {
 		t.Fatalf("ListTree after dir delete error: %v", err)
 	}
@@ -95,7 +97,7 @@ func TestServiceCRUD(t *testing.T) {
 	}
 
 	// Delete project
-	if err := svc.DeleteProject(nil, userID, p.ID); err != nil {
+	if err := svc.DeleteProject(ctx, userID, p.ID); err != nil {
 		t.Fatalf("DeleteProject error: %v", err)
 	}
 	root := filepath.Join(tmp, "users", "1", "projects", p.ID)
@@ -110,21 +112,22 @@ func TestServiceMove(t *testing.T) {
 	svc := NewService(tmp)
 	userID := int64(7)
 
-	proj, err := svc.CreateProject(nil, userID, "Mover")
+	ctx := context.TODO()
+	proj, err := svc.CreateProject(ctx, userID, "Mover")
 	if err != nil {
 		t.Fatalf("CreateProject error: %v", err)
 	}
 	root := filepath.Join(tmp, "users", "7", "projects", proj.ID)
 
-	if err := svc.CreateDir(nil, userID, proj.ID, "/src"); err != nil {
+	if err := svc.CreateDir(ctx, userID, proj.ID, "/src"); err != nil {
 		t.Fatalf("CreateDir error: %v", err)
 	}
-	if err := svc.UploadFile(nil, userID, proj.ID, "/src", "a.txt", strings.NewReader("alpha")); err != nil {
+	if err := svc.UploadFile(ctx, userID, proj.ID, "/src", "a.txt", strings.NewReader("alpha")); err != nil {
 		t.Fatalf("UploadFile error: %v", err)
 	}
 
 	// Move file to project root
-	if err := svc.MovePath(nil, userID, proj.ID, "/src/a.txt", "a.txt"); err != nil {
+	if err := svc.MovePath(ctx, userID, proj.ID, "/src/a.txt", "a.txt"); err != nil {
 		t.Fatalf("MovePath file error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "a.txt")); err != nil {
@@ -135,13 +138,13 @@ func TestServiceMove(t *testing.T) {
 	}
 
 	// Prepare a directory move
-	if err := svc.CreateDir(nil, userID, proj.ID, "/src/assets"); err != nil {
+	if err := svc.CreateDir(ctx, userID, proj.ID, "/src/assets"); err != nil {
 		t.Fatalf("CreateDir nested error: %v", err)
 	}
-	if err := svc.UploadFile(nil, userID, proj.ID, "/src/assets", "nested.txt", strings.NewReader("body")); err != nil {
+	if err := svc.UploadFile(ctx, userID, proj.ID, "/src/assets", "nested.txt", strings.NewReader("body")); err != nil {
 		t.Fatalf("UploadFile nested error: %v", err)
 	}
-	if err := svc.MovePath(nil, userID, proj.ID, "/src/assets", "assets"); err != nil {
+	if err := svc.MovePath(ctx, userID, proj.ID, "/src/assets", "assets"); err != nil {
 		t.Fatalf("MovePath dir error: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "assets", "nested.txt")); err != nil {
@@ -152,15 +155,15 @@ func TestServiceMove(t *testing.T) {
 	}
 
 	// Moving into a descendant should error
-	if err := svc.MovePath(nil, userID, proj.ID, "assets", "assets/subdir/assets"); err == nil {
+	if err := svc.MovePath(ctx, userID, proj.ID, "assets", "assets/subdir/assets"); err == nil {
 		t.Fatalf("expected error when moving directory into descendant")
 	}
 
 	// Destination collision should error
-	if err := svc.UploadFile(nil, userID, proj.ID, ".", "a.txt", strings.NewReader("dupe")); err != nil {
+	if err := svc.UploadFile(ctx, userID, proj.ID, ".", "a.txt", strings.NewReader("dupe")); err != nil {
 		t.Fatalf("UploadFile collision prep error: %v", err)
 	}
-	if err := svc.MovePath(nil, userID, proj.ID, "assets/nested.txt", "a.txt"); err == nil {
+	if err := svc.MovePath(ctx, userID, proj.ID, "assets/nested.txt", "a.txt"); err == nil {
 		t.Fatalf("expected error when destination exists")
 	}
 }

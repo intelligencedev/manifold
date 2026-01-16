@@ -10,6 +10,8 @@ import {
   deletePath,
   createDir,
   moveProjectPath,
+  fetchProjectFileText,
+  saveProjectFileText,
   setActiveProject,
   getUserPreferences,
 } from "@/api/client";
@@ -42,7 +44,7 @@ export const useProjectsStore = defineStore("projects", () => {
 
   async function setCurrent(id: string) {
     currentProjectId.value = id;
-    // Persist to backend (triggers MCP session setup in enterprise mode)
+    // Persist to backend (triggers MCP session setup when auth is enabled)
     try {
       await setActiveProject(id);
     } catch (e) {
@@ -118,6 +120,14 @@ export const useProjectsStore = defineStore("projects", () => {
     return parent || ".";
   }
 
+  function fileName(path: string) {
+    const clean = normalizePath(path);
+    if (clean === "." || clean === "") return "";
+    const idx = clean.lastIndexOf("/");
+    if (idx === -1) return clean;
+    return clean.slice(idx + 1);
+  }
+
   async function movePath(from: string, to: string) {
     if (!currentProjectId.value) return;
     const projectID = currentProjectId.value;
@@ -139,6 +149,22 @@ export const useProjectsStore = defineStore("projects", () => {
     if (!currentProjectId.value) return;
     await uploadFile(currentProjectId.value, path, file);
     await ensureTree(path || ".");
+  }
+
+  async function readTextFile(path: string) {
+    if (!currentProjectId.value) return "";
+    const clean = normalizePath(path);
+    return fetchProjectFileText(currentProjectId.value, clean);
+  }
+
+  async function writeTextFile(path: string, content: string) {
+    if (!currentProjectId.value) return;
+    const clean = normalizePath(path);
+    const name = fileName(clean);
+    if (!name) return;
+    const dir = parentPath(clean);
+    await saveProjectFileText(currentProjectId.value, dir, name, content);
+    await ensureTree(dir);
   }
 
   async function create(name: string) {
@@ -176,6 +202,8 @@ export const useProjectsStore = defineStore("projects", () => {
     removePath,
     movePath,
     upload,
+    readTextFile,
+    writeTextFile,
     create,
     remove,
     initFromPreferences,

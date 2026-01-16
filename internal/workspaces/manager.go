@@ -1,4 +1,4 @@
-// Package workspaces manages ephemeral and legacy workspace lifecycles for agent runs.
+// Package workspaces manages local workspace lifecycles for agent runs.
 // It abstracts the mapping between project IDs and filesystem paths used by tools.
 package workspaces
 
@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"manifold/internal/config"
-	"manifold/internal/objectstore"
 	"manifold/internal/validation"
 )
 
@@ -23,6 +22,19 @@ var ErrInvalidSessionID = validation.ErrInvalidSessionID
 
 // ErrProjectNotFound indicates the requested project does not exist.
 var ErrProjectNotFound = errors.New("project not found")
+
+// SkillsInvalidationFunc is called when skills need to be invalidated for a project.
+// Local-only builds keep this as a no-op hook for compatibility.
+type SkillsInvalidationFunc func(projectID string)
+
+// globalSkillsInvalidator can be set by the skills package during initialization.
+var globalSkillsInvalidator SkillsInvalidationFunc
+
+// SetSkillsInvalidator registers a callback for skills cache invalidation.
+// In local-only mode this is optional and may be unused.
+func SetSkillsInvalidator(fn SkillsInvalidationFunc) {
+	globalSkillsInvalidator = fn
+}
 
 // CheckoutCallback is called after a workspace is successfully checked out.
 // This allows external systems (like MCP session management) to react to workspace changes.
@@ -54,81 +66,36 @@ type Workspace struct {
 	SessionID string
 	// BaseDir is the local filesystem path where tools operate.
 	BaseDir string
-	// Mode indicates whether this is a "legacy" or "ephemeral" workspace.
+	// Mode indicates the workspace strategy (currently "legacy").
 	Mode string
 }
 
 // WorkspaceManager abstracts workspace checkout, commit, and cleanup operations.
-// Different implementations support legacy (direct project dir) and ephemeral
-// (per-session copy) strategies.
+// The current implementation supports legacy (direct project dir) strategy only.
 type WorkspaceManager interface {
 	// Checkout prepares a workspace for the given user, project, and session.
 	// For legacy mode, this returns the existing project directory.
-	// For ephemeral mode, this creates a working copy.
 	Checkout(ctx context.Context, userID int64, projectID, sessionID string) (Workspace, error)
 
 	// Commit persists any changes from the workspace back to durable storage.
 	// For legacy mode, this is a no-op since changes are already on disk.
-	// For ephemeral mode, this syncs changes to S3/object storage.
 	Commit(ctx context.Context, ws Workspace) error
 
 	// Cleanup removes ephemeral workspace resources.
 	// For legacy mode, this is a no-op.
-	// For ephemeral mode, this removes the temporary directory.
 	Cleanup(ctx context.Context, ws Workspace) error
 
-	// Mode returns the workspace mode ("legacy" or "ephemeral").
+	// Mode returns the workspace mode ("legacy").
 	Mode() string
 }
 
 // NewManager creates a WorkspaceManager based on configuration.
-// Returns LegacyWorkspaceManager for "legacy" mode (default) and
-// EphemeralWorkspaceManager for "ephemeral" mode when S3 is configured.
+// Returns LegacyWorkspaceManager for local filesystem usage.
 func NewManager(cfg *config.Config) WorkspaceManager {
-	mode := cfg.Projects.Workspace.Mode
-	if mode == "" {
-		mode = "legacy"
+	return &LegacyWorkspaceManager{
+		workdir: cfg.Workdir,
+		mode:    "legacy",
 	}
-
-	switch mode {
-	case "enterprise":
-		return NewEnterpriseManager(cfg, nil)
-	case "ephemeral":
-		// Ephemeral mode requires S3 backend configuration
-		// The actual S3 store is created separately and injected via NewManagerWithStore
-		// Fall back to legacy for now; use NewManagerWithStore for full ephemeral support
-		return &LegacyWorkspaceManager{
-			workdir: cfg.Workdir,
-			mode:    "legacy",
-		}
-	default:
-		return &LegacyWorkspaceManager{
-			workdir: cfg.Workdir,
-			mode:    "legacy",
-		}
-	}
-}
-
-// NewManagerWithStore creates a WorkspaceManager with an injected object store.
-// This is used for ephemeral workspaces backed by S3 storage.
-// When an object store is provided, ephemeral mode is always used regardless of
-// the configured workspace mode, since the legacy manager cannot verify projects
-// that exist only in S3.
-func NewManagerWithStore(cfg *config.Config, store objectstore.ObjectStore) WorkspaceManager {
-	if store == nil {
-		// Can't do ephemeral without a store, fall back to legacy
-		return &LegacyWorkspaceManager{
-			workdir: cfg.Workdir,
-			mode:    "legacy",
-		}
-	}
-
-	mode := cfg.Projects.Workspace.Mode
-	if mode == "enterprise" {
-		return NewEnterpriseManager(cfg, store)
-	}
-	// Default: ephemeral mode when S3 store is provided
-	return NewEphemeralManager(store, cfg)
 }
 
 // LegacyWorkspaceManager implements WorkspaceManager using direct project directories.

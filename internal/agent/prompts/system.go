@@ -96,7 +96,7 @@ Be cautious with destructive operations. If a command could modify files, consid
 }
 
 // RenderSkillsForProject builds a markdown "## Skills" section from SKILL.md files
-// discovered directly under the project's .manifold/skills folder. Only metadata is
+// discovered directly under the project's .skills folder. Only metadata is
 // injected to keep context small. Returns empty string if no skills are found.
 func RenderSkillsForProject(projectDir string) string {
 	if strings.TrimSpace(projectDir) == "" {
@@ -152,7 +152,7 @@ func renderSkillsSection(skillsList []skills.Metadata) string {
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
-	b.WriteString("These skills are discovered from the project's .manifold/skills folder. Each entry includes a name, description, and file path.\n")
+	b.WriteString("These skills are discovered from the project's .skills folder. Each entry includes a name, description, and file path.\n")
 	for _, s := range skillsList {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {

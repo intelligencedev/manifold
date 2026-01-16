@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLoaderLoad_ParsesAndDedupesByPrecedence(t *testing.T) {
+func TestLoaderLoad_ParsesProjectSkills(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
@@ -18,7 +18,7 @@ func TestLoaderLoad_ParsesAndDedupesByPrecedence(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
 
 	// Repo skill.
-	repoSkill := filepath.Join(repo, ".manifold", "skills", "alpha")
+	repoSkill := filepath.Join(repo, ".skills", "alpha")
 	require.NoError(t, os.MkdirAll(repoSkill, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(repoSkill, "SKILL.md"), []byte(`---
 name: alpha
@@ -30,19 +30,8 @@ metadata:
 # Body
 `), 0o644))
 
-	// User skill with same name should be ignored.
-	userDir := filepath.Join(tmp, "user", ".manifold", "skills")
-	userSkill := filepath.Join(userDir, "alpha")
-	require.NoError(t, os.MkdirAll(userSkill, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(userSkill, "SKILL.md"), []byte(`---
-name: alpha
-description: user alpha
----
-`), 0o644))
-
 	loader := Loader{
 		Workdir: repo,
-		UserDir: userDir,
 	}
 
 	out := loader.Load()
@@ -58,12 +47,13 @@ func TestLoaderLoad_RejectsMissingFrontmatter(t *testing.T) {
 	t.Parallel()
 
 	tmp := t.TempDir()
-	root := filepath.Join(tmp, "user")
-	skillDir := filepath.Join(root, "oops")
+	repo := filepath.Join(tmp, "repo")
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+	skillDir := filepath.Join(repo, ".skills", "oops")
 	require.NoError(t, os.MkdirAll(skillDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# no frontmatter\n"), 0o644))
 
-	loader := Loader{UserDir: root}
+	loader := Loader{Workdir: repo}
 	out := loader.Load()
 	require.Len(t, out.Errors, 1)
 }

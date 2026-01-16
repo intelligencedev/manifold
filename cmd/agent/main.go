@@ -32,6 +32,11 @@ import (
 
 const systemUserID int64 = 0
 
+const (
+	defaultRunTimeout = 2 * time.Minute
+	mcpInitTimeout    = 20 * time.Second
+)
+
 func main() {
 	// Load config first to populate defaults.
 	cfg, err := config.Load()
@@ -49,11 +54,27 @@ func main() {
 		os.Exit(2)
 	}
 
+	if err := run(&cfg, *q, *maxSteps, *warppFlag, *specialist); err != nil {
+		log.Fatal().Err(err).Msg("agent")
+	}
+}
+
+func run(cfg *config.Config, query string, maxSteps int, warppEnabled bool, specialistName string) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+
 	observability.InitLogger(cfg.LogPath, cfg.LogLevel)
 	log.Info().Msg("agent starting")
 	baseCtx := context.Background()
-	shutdown, _ := observability.InitOTel(baseCtx, cfg.Obs)
-	defer func() { _ = shutdown(context.Background()) }()
+	shutdown, err := observability.InitOTel(baseCtx, cfg.Obs)
+	if err != nil {
+		log.Warn().Err(err).Msg("otel init failed, continuing without observability")
+		shutdown = nil
+	}
+	if shutdown != nil {
+		defer func() { _ = shutdown(context.Background()) }()
+	}
 
 	// Configure global LLM payload logging/truncation before creating providers.
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
@@ -62,7 +83,10 @@ func main() {
 	// mirrors agentd behavior (specialists and orchestrator loaded from DB).
 	var specPool *pgxpool.Pool
 	if cfg.Databases.DefaultDSN != "" {
-		if p, err := databases.OpenPool(baseCtx, cfg.Databases.DefaultDSN); err == nil {
+		p, err := databases.OpenPool(baseCtx, cfg.Databases.DefaultDSN)
+		if err != nil {
+			log.Warn().Err(err).Msg("open specialists db")
+		} else {
 			specPool = p
 		}
 	}
@@ -80,8 +104,12 @@ func main() {
 	if specListErr != nil {
 		log.Warn().Err(specListErr).Msg("list specialists")
 	}
-	if sp, ok, _ := specStore.GetByName(baseCtx, systemUserID, specialists.OrchestratorName); ok {
-		specialists.ApplyOrchestratorConfig(&cfg, sp)
+	sp, ok, spErr := specStore.GetByName(baseCtx, systemUserID, specialists.OrchestratorName)
+	if spErr != nil {
+		log.Warn().Err(spErr).Msg("load orchestrator specialist")
+	}
+	if ok {
+		specialists.ApplyOrchestratorConfig(cfg, sp)
 		if strings.TrimSpace(cfg.SystemPrompt) == "" {
 			cfg.SystemPrompt = specialists.DefaultOrchestratorPrompt
 		}
@@ -97,9 +125,9 @@ func main() {
 	}
 
 	// Create the LLM provider after potential DB overrides.
-	llm, err := llmproviders.Build(cfg, httpClient)
+	llm, err := llmproviders.Build(*cfg, httpClient)
 	if err != nil {
-		log.Fatal().Err(err).Msg("build llm provider")
+		return fmt.Errorf("build llm provider: %w", err)
 	}
 
 	// Build specialists registry from DB (fallback to YAML) so the CLI resolves
@@ -110,30 +138,31 @@ func main() {
 	} else {
 		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, nil)
 	}
+	specReg.SetWorkdir(cfg.Workdir)
 
 	// If a specialist was requested, route the query directly and exit.
-	if *specialist != "" {
-		a, ok := specReg.Get(*specialist)
+	if strings.TrimSpace(specialistName) != "" {
+		a, ok := specReg.Get(specialistName)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "unknown specialist %q. Available: %v\n", *specialist, specReg.Names())
-			os.Exit(2)
+			return fmt.Errorf("unknown specialist %q; available: %v", specialistName, specReg.Names())
 		}
-		log.Info().Str("specialist", *specialist).Msg("direct specialist invocation")
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		log.Info().Str("specialist", specialistName).Msg("direct specialist invocation")
+		ctx, cancel := context.WithTimeout(baseCtx, defaultRunTimeout)
 		defer cancel()
-		out, err := a.Inference(ctx, *q, nil)
+		out, err := a.Inference(ctx, query, nil)
 		if err != nil {
-			log.Fatal().Err(err).Msg("specialist")
+			return fmt.Errorf("specialist %q: %w", specialistName, err)
 		}
 		fmt.Println(out)
-		return
+		return nil
 	}
 
 	registry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	mgr, err := databases.NewManager(baseCtx, cfg.Databases)
 	if err != nil {
-		log.Fatal().Err(err).Msg("databases")
+		return fmt.Errorf("init databases: %w", err)
 	}
+	defer mgr.Close()
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	registry.Register(cli.NewTool(exec))               // provides run_cli
 	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
@@ -144,7 +173,7 @@ func main() {
 	registry.Register(textsplitter.New()) // provides split_text
 	registry.Register(utility.NewTextboxTool())
 	// Register TTS tool.
-	registry.Register(tts.New(cfg, httpClient))
+	registry.Register(tts.New(*cfg, httpClient))
 
 	// Register specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd).
 	if specListErr == nil {
@@ -152,6 +181,7 @@ func main() {
 	} else {
 		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
 	}
+	specReg.SetWorkdir(cfg.Workdir)
 
 	// If tools are globally disabled, use an empty registry.
 	if !cfg.EnableTools {
@@ -173,24 +203,33 @@ func main() {
 
 	// Connect to configured MCP servers and register their tools.
 	mcpMgr := mcpclient.NewManager()
-	ctxInit, cancelInit := context.WithTimeout(baseCtx, 20*time.Second)
-	_ = mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP)
+	defer mcpMgr.Close()
+	ctxInit, cancelInit := context.WithTimeout(baseCtx, mcpInitTimeout)
+	if err := mcpMgr.RegisterFromConfig(ctxInit, registry, cfg.MCP); err != nil {
+		log.Warn().Err(err).Msg("mcp init")
+	}
 	cancelInit()
 
 	// Run the WARPP workflow executor instead of the LLM loop when enabled.
-	if *warppFlag {
+	if warppEnabled {
 		// Configure WARPP to source defaults from the database, not hard-coded values.
 		warpp.SetDefaultStore(mgr.Warpp)
-		wfreg, _ := warpp.LoadFromStore(baseCtx, mgr.Warpp, systemUserID)
+		wfreg, err := warpp.LoadFromStore(baseCtx, mgr.Warpp, systemUserID)
+		if err != nil {
+			return fmt.Errorf("load workflows: %w", err)
+		}
 		runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(baseCtx, defaultRunTimeout)
 		defer cancel()
-		intent := runner.DetectIntent(ctx, *q)
-		wf, _ := wfreg.Get(intent)
-		attrs := warpp.Attrs{"utter": *q}
+		intent := runner.DetectIntent(ctx, query)
+		wf, err := wfreg.Get(intent)
+		if err != nil {
+			return fmt.Errorf("workflow %q not found: %w", intent, err)
+		}
+		attrs := warpp.Attrs{"utter": query}
 		wfStar, _, attrs, err := runner.Personalize(ctx, wf, attrs)
 		if err != nil {
-			log.Fatal().Err(err).Msg("personalize")
+			return fmt.Errorf("personalize workflow: %w", err)
 		}
 		allow := map[string]bool{}
 		for _, s := range wfStar.Steps {
@@ -200,27 +239,27 @@ func main() {
 		}
 		final, err := runner.Execute(ctx, wfStar, allow, attrs, nil)
 		if err != nil {
-			log.Fatal().Err(err).Msg("warpp")
+			return fmt.Errorf("execute workflow: %w", err)
 		}
 		fmt.Println(final)
-		return
+		return nil
 	}
 
 	// Call a specialist directly if a pre-dispatch route matches.
-	if name := specialists.Route(cfg.SpecialistRoutes, *q); name != "" {
+	if name := specialists.Route(cfg.SpecialistRoutes, query); name != "" {
 		log.Info().Str("route", name).Msg("pre-dispatch specialist route matched")
 		a, ok := specReg.Get(name)
 		if !ok {
 			log.Error().Str("route", name).Msg("specialist not found for route")
 		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			ctx, cancel := context.WithTimeout(baseCtx, defaultRunTimeout)
 			defer cancel()
-			out, err := a.Inference(ctx, *q, nil)
+			out, err := a.Inference(ctx, query, nil)
 			if err != nil {
-				log.Fatal().Err(err).Msg("specialist pre-dispatch")
+				return fmt.Errorf("specialist pre-dispatch %q: %w", name, err)
 			}
 			fmt.Println(out)
-			return
+			return nil
 		}
 	}
 
@@ -230,7 +269,7 @@ func main() {
 	eng := agent.Engine{
 		LLM:                        llm,
 		Tools:                      registry,
-		MaxSteps:                   *maxSteps,
+		MaxSteps:                   maxSteps,
 		System:                     systemPrompt,
 		SummaryEnabled:             cfg.SummaryEnabled,
 		SummaryReserveBufferTokens: cfg.SummaryReserveBufferTokens,
@@ -240,15 +279,16 @@ func main() {
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if cfg.AgentRunTimeoutSeconds > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(cfg.AgentRunTimeoutSeconds)*time.Second)
+		ctx, cancel = context.WithTimeout(baseCtx, time.Duration(cfg.AgentRunTimeoutSeconds)*time.Second)
 	} else {
-		ctx, cancel = context.WithCancel(context.Background())
+		ctx, cancel = context.WithCancel(baseCtx)
 	}
 	defer cancel()
 
-	final, err := eng.Run(ctx, *q, nil)
+	final, err := eng.Run(ctx, query, nil)
 	if err != nil {
-		log.Fatal().Err(err).Msg("agent")
+		return err
 	}
 	fmt.Println(final)
+	return nil
 }

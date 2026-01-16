@@ -843,7 +843,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
-			// Commit workspace changes to S3 after successful run
+			// Commit workspace changes after successful run
 			a.commitWorkspace(ctx, checkedOutWorkspace)
 			return
 		}
@@ -894,13 +894,12 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
-		// Commit workspace changes to S3 after successful run
+		// Commit workspace changes after successful run
 		a.commitWorkspace(ctx, checkedOutWorkspace)
 	}
 }
 
-// commitWorkspace commits workspace changes back to durable storage (e.g., S3).
-// For ephemeral workspaces, this syncs any files created or modified by the agent.
+// commitWorkspace commits workspace changes back to storage.
 // For legacy workspaces, this is a no-op since changes are already on disk.
 func (a *app) commitWorkspace(ctx context.Context, ws *workspaces.Workspace) {
 	if ws == nil {
@@ -1198,7 +1197,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
-			// Commit workspace changes to S3 after successful run
+			// Commit workspace changes after successful run
 			a.commitWorkspace(ctx, checkedOutWorkspace)
 			return
 		}
@@ -1246,20 +1245,17 @@ func (a *app) promptHandler() http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
-		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
-			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
-		}
-		// Commit workspace changes to S3 after successful run
+		// Commit workspace changes after successful run
 		a.commitWorkspace(ctx, checkedOutWorkspace)
+		return
 	}
+
 }
 
 func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
 	reg, err := a.specialistsRegistryForUser(r.Context(), owner)
 	if err != nil {
-		log.Error().Err(err).Str("specialist", name).Msg("load_specialist_registry")
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		http.Error(w, "specialist registry unavailable", http.StatusInternalServerError)
 		return true
 	}
 	sp, ok := reg.Get(name)

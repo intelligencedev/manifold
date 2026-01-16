@@ -48,7 +48,7 @@ func (s *memUserPreferencesStore) SetActiveProject(ctx context.Context, userID i
 	return nil
 }
 
-// pgUserPreferencesStore is a PostgreSQL-backed implementation for enterprise deployments.
+// pgUserPreferencesStore is a PostgreSQL-backed implementation for auth-enabled deployments.
 type pgUserPreferencesStore struct {
 	pool *pgxpool.Pool
 }

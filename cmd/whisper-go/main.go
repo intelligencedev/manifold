@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"os"
+	"strings"
 	"unsafe"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
@@ -30,16 +33,16 @@ func main() {
 	audioPath = args[0]
 
 	if modelPath == "" {
-		fmt.Fprintf(os.Stderr, "Error: -model flag is required\n")
+		fmt.Fprintln(os.Stderr, "error: -model flag is required")
 		os.Exit(1)
 	}
 
-	// Check if files exist
-	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
-		log.Fatalf("Model file does not exist: %s", modelPath)
+	// Check if files exist.
+	if err := mustExist(modelPath, "model file"); err != nil {
+		log.Fatal(err)
 	}
-	if _, err := os.Stat(audioPath); os.IsNotExist(err) {
-		log.Fatalf("Audio file does not exist: %s", audioPath)
+	if err := mustExist(audioPath, "audio file"); err != nil {
+		log.Fatal(err)
 	}
 
 	fmt.Printf("Loading model: %s\n", modelPath)
@@ -73,7 +76,7 @@ func main() {
 
 	// Print out the results
 	fmt.Println("Transcription results:")
-	fmt.Println(string(make([]byte, 60)))
+	fmt.Println(strings.Repeat("-", 60))
 	for {
 		segment, err := context.NextSegment()
 		if err != nil {
@@ -81,6 +84,17 @@ func main() {
 		}
 		fmt.Printf("[%6s->%6s] %s\n", segment.Start, segment.End, segment.Text)
 	}
+}
+
+func mustExist(path, label string) error {
+	_, err := os.Stat(path)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%s does not exist: %s", label, path)
+	}
+	return fmt.Errorf("stat %s: %w", path, err)
 }
 
 // WAVHeader represents the header of a WAV file
@@ -104,19 +118,18 @@ type WAVHeader struct {
 func loadWAVFile(filepath string) ([]float32, error) {
 	file, err := os.Open(filepath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open file: %v", err)
+		return nil, fmt.Errorf("open wav: %w", err)
 	}
 	defer file.Close()
 
 	var header WAVHeader
-	err = binary.Read(file, binary.LittleEndian, &header)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read WAV header: %v", err)
+	if err := binary.Read(file, binary.LittleEndian, &header); err != nil {
+		return nil, fmt.Errorf("read wav header: %w", err)
 	}
 
 	// Check if it's a valid WAV file
 	if string(header.ChunkID[:]) != "RIFF" || string(header.Format[:]) != "WAVE" {
-		return nil, fmt.Errorf("not a valid WAV file")
+		return nil, fmt.Errorf("invalid wav file")
 	}
 
 	fmt.Printf("WAV Info: %d channels, %d Hz, %d bits per sample\n",
@@ -124,9 +137,8 @@ func loadWAVFile(filepath string) ([]float32, error) {
 
 	// Read audio data
 	audioData := make([]byte, header.Subchunk2Size)
-	_, err = io.ReadFull(file, audioData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read audio data: %v", err)
+	if _, err := io.ReadFull(file, audioData); err != nil {
+		return nil, fmt.Errorf("read audio data: %w", err)
 	}
 
 	// Convert to float32 samples

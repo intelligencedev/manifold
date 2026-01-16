@@ -82,7 +82,7 @@ func (a *app) handleSetPreferences(w http.ResponseWriter, r *http.Request, userI
 		return
 	}
 
-	// In enterprise mode, set up per-user MCP sessions for the new project
+	// Set up per-user MCP sessions for the new project when required
 	if a.mcpPool != nil && a.mcpPool.RequiresPerUserMCP() && req.ActiveProjectID != "" {
 		ws, err := a.workspaceManager.Checkout(r.Context(), userID, req.ActiveProjectID, "")
 		if err != nil {
@@ -160,7 +160,7 @@ func (a *app) setActiveProjectHandler() http.HandlerFunc {
 			return
 		}
 
-		// In enterprise mode, set up per-user MCP sessions for the new project
+		// Set up per-user MCP sessions for the new project when required
 		if a.mcpPool != nil && a.mcpPool.RequiresPerUserMCP() && req.ProjectID != "" {
 			// Checkout workspace to get the materialized path
 			ws, err := a.workspaceManager.Checkout(r.Context(), userID, req.ProjectID, "")

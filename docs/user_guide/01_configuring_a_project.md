@@ -5,7 +5,7 @@ description: Create, manage, and use projects as the working directory for files
 
 # Configuring a Project
 
-Projects are per-user workspaces where Manifold stores files used by chat, playground experiments, and workflows. The UI exposes a tree view and basic file operations; the backend persists everything under a per-user WORKDIR with optional at-rest encryption.
+Projects are per-user workspaces where Manifold stores files used by chat, playground experiments, and workflows. The UI exposes a tree view and basic file operations; the backend persists everything under a per-user WORKDIR.
 
 Placeholder for screenshots: [Projects header + tree panel]
 
@@ -50,22 +50,8 @@ Preview behavior
 
 Backend rules and safety
 - Paths are sanitized under the project root; symlinks are ignored for both listing and deletion.
-- Uploads are either plaintext or AES‑GCM encrypted on write when project encryption is enabled.
 - Deletions never follow symlinks and reject deleting a symlink.
 - Moves validate destination uniqueness and prevent moving a directory into its own subtree.
-
-## Encryption at rest (optional)
-
-If enabled by the operator, Manifold encrypts project files at rest:
-- A per-server master key is stored under $WORKDIR/.keystore/master.key.
-- Each project has a 32‑byte DEK wrapped by the master key (.meta/enc.json).
-- New uploads are written as MGCM v1: header + nonce + AES‑GCM ciphertext.
-- Rotation is supported: enc.json can carry new and previous wrapped DEKs while files are re-encrypted.
-
-Notes
-- Encryption is configured server-side; there is no client toggle in the Projects UI.
-- The keystore master key is stored at $WORKDIR/.keystore/master.key on the server.
-- Key rotation is an administrative operation (no Projects UI control).
 
 ## Using projects elsewhere
 

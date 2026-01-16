@@ -192,31 +192,6 @@ func TestRenderSkillsSection(t *testing.T) {
 	}
 }
 
-func TestParseIntFromString(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		input  string
-		want   int64
-		wantOk bool
-	}{
-		{"123", 123, true},
-		{"0", 0, true},
-		{"", 0, false},
-		{"abc", 0, false},
-		{"12abc", 0, false},
-	}
-
-	for _, tt := range tests {
-		var got int64
-		ok, _ := parseIntFromString(tt.input, &got)
-		assert.Equal(t, tt.wantOk, ok, "input: %q", tt.input)
-		if tt.wantOk {
-			assert.Equal(t, tt.want, got, "input: %q", tt.input)
-		}
-	}
-}
-
 func TestCachedSkills_CachedAt(t *testing.T) {
 	t.Parallel()
 

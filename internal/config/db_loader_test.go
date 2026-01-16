@@ -33,6 +33,10 @@ databases:
 	old := os.Getenv("SPECIALISTS_CONFIG")
 	defer func() { _ = os.Setenv("SPECIALISTS_CONFIG", old) }()
 	_ = os.Setenv("SPECIALISTS_CONFIG", f)
+	// Ensure no explicit tool allow-list env interferes.
+	oldAllowTools := os.Getenv("ALLOW_TOOLS")
+	defer func() { _ = os.Setenv("ALLOW_TOOLS", oldAllowTools) }()
+	_ = os.Unsetenv("ALLOW_TOOLS")
 
 	// Clear env vars that could interfere
 	for _, k := range []string{"OPENAI_API_KEY", "WORKDIR", "SEARCH_BACKEND", "GRAPH_BACKEND"} {

@@ -20,6 +20,35 @@ import (
 	"manifold/internal/workspaces"
 )
 
+var allowedTextExtensions = map[string]struct{}{
+	".txt":  {},
+	".md":   {},
+	".log":  {},
+	".json": {},
+	".js":   {},
+	".ts":   {},
+	".go":   {},
+	".py":   {},
+	".java": {},
+	".c":    {},
+	".cpp":  {},
+	".yml":  {},
+	".yaml": {},
+	".toml": {},
+	".ini":  {},
+	".sh":   {},
+	".csv":  {},
+}
+
+func isAllowedTextFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		return false
+	}
+	_, ok := allowedTextExtensions[ext]
+	return ok
+}
+
 func (a *app) projectsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		a.projectsCORS(w, r, "GET, POST, OPTIONS")
@@ -249,6 +278,10 @@ func (a *app) projectDetailHandler() http.HandlerFunc {
 				}
 				if name == "" {
 					http.Error(w, "missing name", http.StatusBadRequest)
+					return
+				}
+				if !isAllowedTextFile(name) {
+					http.Error(w, "unsupported file type", http.StatusBadRequest)
 					return
 				}
 				if err := a.projectsService.UploadFile(r.Context(), userID, projectID, p, name, r.Body); err != nil {

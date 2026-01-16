@@ -324,7 +324,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 			out.ExtraHeaders = sp.ExtraHeaders
 		}
 		if sp.ExtraParams != nil {
-			out.ExtraParams = mergeAnyMap(out.ExtraParams, sp.ExtraParams)
+			out.ExtraParams = copyAnyMap(sp.ExtraParams)
 		}
 	}
 	return out

@@ -32,8 +32,12 @@ func WithHeaders(base *http.Client, headers map[string]string) *http.Client {
 	if rt == nil {
 		rt = http.DefaultTransport
 	}
+	headersCopy := make(map[string]string, len(headers))
+	for k, v := range headers {
+		headersCopy[k] = v
+	}
 	c := *base
-	c.Transport = &staticHeaderTransport{base: rt, headers: headers}
+	c.Transport = &staticHeaderTransport{base: rt, headers: headersCopy}
 	return &c
 }
 

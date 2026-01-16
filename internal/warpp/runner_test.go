@@ -111,7 +111,7 @@ func TestRunnerDetectPersonalizeExecute(t *testing.T) {
 		Steps: []Step{
 			{ID: "s1", Text: "search", Tool: &ToolRef{Name: "web_search", Args: map[string]any{"query": "${A.query}"}}},
 			{ID: "s2", Text: "fetch", Guard: "A.first_url", Tool: &ToolRef{Name: "web_fetch", Args: map[string]any{"url": "${A.first_url}", "prefer_readable": true}}},
-			{ID: "s3", Text: "transform", Tool: &ToolRef{Name: "llm_transform", Args: map[string]any{"input": "${A.report_md}", "instruction": "fmt"}}},
+			{ID: "step3", Text: "transform", Tool: &ToolRef{Name: "llm_transform", Args: map[string]any{"input": "${A.report_md}", "instruction": "fmt"}}},
 			{ID: "s4", Text: "write", Tool: &ToolRef{Name: "write_file", Args: map[string]any{"path": "report.md", "content": "${A.report_md}"}}},
 		},
 	}

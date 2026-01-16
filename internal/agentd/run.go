@@ -25,7 +25,6 @@ import (
 	openaillm "manifold/internal/llm/openai"
 	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
-	"manifold/internal/objectstore"
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
@@ -49,7 +48,6 @@ import (
 	codeevolvetool "manifold/internal/tools/codeevolve"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
-	kafkatools "manifold/internal/tools/kafka"
 	"manifold/internal/tools/patchtool"
 	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/tools/textsplitter"
@@ -89,7 +87,6 @@ type app struct {
 	runs               *runStore
 	playgroundHandler  http.Handler
 	projectsService    projects.ProjectService
-	s3Store            *objectstore.S3Store // nil if filesystem backend
 	workspaceManager   workspaces.WorkspaceManager
 	whisperModel       whisper.Model
 	authStore          *auth.Store
@@ -350,23 +347,14 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(web.NewScreenshotTool())
 	toolRegistry.Register(web.NewFetchTool(mgr.Search))
 	toolRegistry.Register(patchtool.New(cfg.Workdir))
-	allowedRoots := []string{cfg.Workdir, cfg.Projects.Workspace.Root, cfg.Projects.Workspace.TmpfsDir}
+	allowedRoots := []string{cfg.Workdir}
 	toolRegistry.Register(filetool.NewReadTool(allowedRoots, cfg.OutputTruncateByte))
 	toolRegistry.Register(filetool.NewWriteTool(allowedRoots, 0))
 	toolRegistry.Register(filetool.NewPatchTool(allowedRoots, 0))
+	toolRegistry.Register(filetool.NewDeleteTool(allowedRoots))
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(tts.New(*cfg, httpClient))
-
-	// Register the Kafka tool for publishing messages.
-	if cfg.Kafka.Brokers != "" {
-		if producer, err := kafkatools.NewProducerFromBrokers(cfg.Kafka.Brokers); err == nil {
-			// NewSendMessageTool will auto-detect orchestrator commands topics by pattern matching
-			toolRegistry.Register(kafkatools.NewSendMessageTool(producer))
-		} else {
-			log.Warn().Err(err).Msg("kafka tool registration failed, continuing without kafka support")
-		}
-	}
 
 	// Register RAG tools backed by the internal rag service.
 	// Create a real embedder using the configured embedding service.
@@ -392,38 +380,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
 
-	// Initialize S3 store early if S3 backend is configured (needed for workspace manager)
-	var s3Store *objectstore.S3Store
-	if cfg.Projects.Backend == "s3" {
-		var err error
-		s3Store, err = objectstore.NewS3Store(ctx, cfg.Projects.S3)
-		if err != nil {
-			return nil, fmt.Errorf("init s3 store: %w", err)
-		}
-		// Verify connectivity
-		if err := s3Store.Ping(ctx); err != nil {
-			return nil, fmt.Errorf("s3 connectivity check failed: %w", err)
-		}
-		log.Info().
-			Str("bucket", cfg.Projects.S3.Bucket).
-			Str("prefix", cfg.Projects.S3.Prefix).
-			Str("endpoint", cfg.Projects.S3.Endpoint).
-			Msg("s3_store_initialized")
-	}
-
-	// Initialize workspace manager with optional S3 store for ephemeral workspaces.
-	// When using S3 backend, ephemeral mode is required since the legacy workspace manager
-	// checks for local filesystem directories that don't exist when projects are stored in S3.
-	var wsMgr workspaces.WorkspaceManager
-	if s3Store != nil {
-		// S3 backend requires ephemeral workspace mode to properly sync files
-		if cfg.Projects.Workspace.Mode != "ephemeral" {
-			log.Info().Msg("s3_backend_forcing_ephemeral_workspace_mode")
-		}
-		wsMgr = workspaces.NewManagerWithStore(cfg, s3Store)
-	} else {
-		wsMgr = workspaces.NewManager(cfg)
-	}
+	// Initialize workspace manager (local filesystem only).
+	wsMgr := workspaces.NewManager(cfg)
 	log.Info().Str("mode", wsMgr.Mode()).Msg("workspace_manager_initialized")
 
 	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
@@ -457,14 +415,20 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, baseToolRegistry, cfg.MCP)
 
-	requiresPerUserMCP := cfg.Auth.Enabled &&
-		cfg.Projects.Backend == "s3" &&
-		(cfg.Projects.Workspace.Mode == "enterprise" || cfg.Projects.Workspace.Mode == "ephemeral")
+	requiresPerUserMCP := false
+	if cfg.Auth.Enabled {
+		for _, srv := range cfg.MCP.Servers {
+			if srv.PathDependent {
+				requiresPerUserMCP = true
+				break
+			}
+		}
+	}
 
 	// Load MCP servers from the system user store.
 	if mgr.MCP != nil {
 		if servers, err := mgr.MCP.List(ctxInit, systemUserID); err == nil {
-			// In enterprise mode we must NOT start path-dependent servers as shared singletons,
+			// When auth is enabled we must NOT start path-dependent servers as shared singletons,
 			// since they require a real project workspace path. Those are managed by MCPServerPool.
 			pathDependentNames := map[string]bool{}
 			for _, s := range cfg.MCP.Servers {
@@ -521,7 +485,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	workspaces.SetCheckoutCallback(mcpPool.OnWorkspaceCheckout)
 
 	// Register non-path-dependent servers to the pool (shared)
-	// Path-dependent servers in enterprise mode are registered per-user on project switch
+	// Path-dependent servers are registered per-user on project switch when auth is enabled
 	ctxPool, cancelPool := context.WithTimeout(ctx, 20*time.Second)
 	if err := mcpPool.RegisterFromConfig(ctxPool, baseToolRegistry); err != nil {
 		log.Warn().Err(err).Msg("mcp_pool_registration_failed")
@@ -534,7 +498,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	cancelPool()
 
-	// Start idle session reaper for enterprise mode (15 min check interval, 1 hour max idle)
+	// Start idle session reaper for per-user MCP sessions (15 min check interval, 1 hour max idle)
 	if mcpPool.RequiresPerUserMCP() {
 		mcpPool.StartReaper(ctx, baseToolRegistry, 15*time.Minute, 1*time.Hour)
 	}
@@ -705,96 +669,16 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
 	app.playgroundHandler = httpapi.NewServer(playgroundService)
 
-	// Initialize projects service based on backend configuration (s3Store already initialized above)
-	app.s3Store = s3Store
+	// Filesystem backend only.
+	fsService := projects.NewService(cfg.Workdir)
+	app.projectsService = fsService
+	log.Info().Str("workdir", cfg.Workdir).Msg("projects_filesystem_backend_initialized")
 
-	// Initialize KeyProvider if encryption is enabled
-	var keyProvider projects.KeyProvider
-	if cfg.Projects.Encrypt {
-		var err error
-		kpCfg := projects.KeyProviderConfig{
-			Type: cfg.Projects.Encryption.Provider,
-			File: projects.FileKeyProviderConfig{
-				KeystorePath: cfg.Projects.Encryption.File.KeystorePath,
-			},
-			Vault: projects.VaultKeyProviderConfig{
-				Address:        cfg.Projects.Encryption.Vault.Address,
-				Token:          cfg.Projects.Encryption.Vault.Token,
-				KeyName:        cfg.Projects.Encryption.Vault.KeyName,
-				MountPath:      cfg.Projects.Encryption.Vault.MountPath,
-				Namespace:      cfg.Projects.Encryption.Vault.Namespace,
-				TLSSkipVerify:  cfg.Projects.Encryption.Vault.TLSSkipVerify,
-				TimeoutSeconds: cfg.Projects.Encryption.Vault.TimeoutSeconds,
-			},
-			AWSKMS: projects.AWSKMSKeyProviderConfig{
-				KeyID:           cfg.Projects.Encryption.AWSKMS.KeyID,
-				Region:          cfg.Projects.Encryption.AWSKMS.Region,
-				AccessKeyID:     cfg.Projects.Encryption.AWSKMS.AccessKeyID,
-				SecretAccessKey: cfg.Projects.Encryption.AWSKMS.SecretAccessKey,
-				Endpoint:        cfg.Projects.Encryption.AWSKMS.Endpoint,
-			},
-		}
-		keyProvider, err = projects.NewKeyProvider(cfg.Workdir, kpCfg)
-		if err != nil {
-			return nil, fmt.Errorf("create key provider: %w", err)
-		}
-		log.Info().Str("type", cfg.Projects.Encryption.Provider).Msg("key_provider_initialized")
-	}
-
-	switch cfg.Projects.Backend {
-	case "s3":
-		s3Svc := projects.NewS3Service(s3Store, cfg.Projects.S3)
-		if cfg.Projects.Encrypt && keyProvider != nil {
-			s3Svc.SetKeyProvider(keyProvider)
-			if err := s3Svc.EnableEncryption(true); err != nil {
-				return nil, fmt.Errorf("enable S3 project encryption: %w", err)
-			}
-			log.Info().Msg("projects_s3_backend_encryption_enabled")
-
-			// Configure the ephemeral workspace manager to use S3Service for decryption
-			if ephMgr, ok := app.workspaceManager.(*workspaces.EphemeralWorkspaceManager); ok {
-				ephMgr.SetDecrypter(s3Svc)
-				log.Info().Msg("ephemeral_workspace_decrypter_configured")
-			}
-		}
-		app.projectsService = s3Svc
-		log.Info().Msg("projects_s3_backend_initialized")
-	default:
-		// Filesystem backend (default)
-		fsService := projects.NewService(cfg.Workdir)
-		if cfg.Projects.Encrypt && keyProvider != nil {
-			fsService.SetKeyProvider(keyProvider)
-		}
-		if cfg.Projects.Encrypt {
-			if err := fsService.EnableEncryption(true); err != nil {
-				return nil, fmt.Errorf("enable project encryption failed: %w", err)
-			}
-		}
-		app.projectsService = fsService
-		log.Info().Str("workdir", cfg.Workdir).Msg("projects_filesystem_backend_initialized")
-	}
-
-	// Initialize skills cache service with optional Redis backing
-	skillsCacheTTL := time.Hour
-	if cfg.Skills.RedisCacheTTLSeconds > 0 {
-		skillsCacheTTL = time.Duration(cfg.Skills.RedisCacheTTLSeconds) * time.Second
-	}
-	skillsCfg := skills.CacheServiceConfig{
-		RedisConfig: cfg.Projects.Redis,
-		RedisTTL:    skillsCacheTTL,
-	}
-	// Only use S3 loader if explicitly enabled (default true) and we have S3 backend
-	if (cfg.Skills.UseS3Loader || cfg.Skills.RedisCacheTTLSeconds == 0) && cfg.Projects.Backend == "s3" {
-		// Use adapter to convert projects.ProjectService to skills.SkillsProjectService
-		skillsCfg.ProjectSvc = NewProjectsServiceAdapter(app.projectsService)
-	}
-	if err := skills.InitCacheService(skillsCfg); err != nil {
+	// Initialize skills cache service (local only).
+	if err := skills.InitCacheService(skills.CacheServiceConfig{}); err != nil {
 		log.Warn().Err(err).Msg("skills_cache_service_init_failed")
 	} else {
-		log.Info().
-			Bool("redis", cfg.Projects.Redis.Enabled).
-			Bool("s3Loader", skillsCfg.ProjectSvc != nil).
-			Msg("skills_cache_service_initialized")
+		log.Info().Msg("skills_cache_service_initialized")
 	}
 	// Register skills invalidator with workspaces package to break import cycle
 	workspaces.SetSkillsInvalidator(skills.InvalidateCacheForProject)

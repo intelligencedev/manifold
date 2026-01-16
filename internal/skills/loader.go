@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	skillsDirName = ".manifold/skills"
+	skillsDirName = ".skills"
 	skillFileName = "SKILL.md"
 
 	maxNameLen      = 64
@@ -20,17 +20,13 @@ const (
 	maxShortDescLen = maxDescLen
 )
 
-// Loader discovers and parses skills from well-known roots.
+// Loader discovers and parses skills from the project .skills folder.
 type Loader struct {
 	// Workdir is the cwd for the current request; repo skills are discovered relative to it.
 	Workdir string
-	// UserDir is the user-scoped skills root (e.g., ~/.manifold/skills).
-	UserDir string
-	// AdminDir is an optional machine-wide skills root (e.g., /etc/codex/skills).
-	AdminDir string
 }
 
-// LoadFromDir directly loads skills from {dir}/.manifold/skills without walking up
+// LoadFromDir directly loads skills from {dir}/.skills without walking up
 // the directory tree. This is the preferred method for project-scoped skills.
 func LoadFromDir(dir string) LoadOutcome {
 	var outcome LoadOutcome
@@ -60,41 +56,22 @@ func LoadFromDir(dir string) LoadOutcome {
 	return outcome
 }
 
-// Load returns discovered skills in precedence order (repo > user > admin) with deduplication by name.
+// Load returns discovered skills from the project .skills folder.
 func (l Loader) Load() LoadOutcome {
-	roots := []struct {
-		Path  string
-		Scope Scope
-	}{
-		{l.repoSkillsRoot(), ScopeRepo},
-		{strings.TrimSpace(l.UserDir), ScopeUser},
-	}
-	if strings.TrimSpace(l.AdminDir) != "" {
-		roots = append(roots, struct {
-			Path  string
-			Scope Scope
-		}{strings.TrimSpace(l.AdminDir), ScopeAdmin})
-	}
-
 	var outcome LoadOutcome
-	seen := make(map[string]struct{})
 
-	for _, root := range roots {
-		if root.Path == "" {
+	root := l.repoSkillsRoot()
+	if root == "" {
+		return outcome
+	}
+
+	for _, path := range discoverSkillFiles(root) {
+		md, err := parseSkill(path, ScopeRepo)
+		if err != nil {
+			outcome.Errors = append(outcome.Errors, Error{Path: path, Message: err.Error()})
 			continue
 		}
-		for _, path := range discoverSkillFiles(root.Path) {
-			md, err := parseSkill(path, root.Scope)
-			if err != nil {
-				outcome.Errors = append(outcome.Errors, Error{Path: path, Message: err.Error()})
-				continue
-			}
-			if _, dup := seen[md.Name]; dup {
-				continue
-			}
-			seen[md.Name] = struct{}{}
-			outcome.Skills = append(outcome.Skills, md)
-		}
+		outcome.Skills = append(outcome.Skills, md)
 	}
 
 	return outcome

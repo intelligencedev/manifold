@@ -15,6 +15,31 @@ const uploadInput = ref<HTMLInputElement | null>(null);
 const treeRef = ref<InstanceType<typeof FileTree> | null>(null);
 const cwd = ref(".");
 const selectedFile = ref<string>("");
+const editorContent = ref("");
+const editorDirty = ref(false);
+const editorLoading = ref(false);
+const editorSaving = ref(false);
+const editorError = ref("");
+const allowedTextExtensions = [
+  ".txt",
+  ".md",
+  ".log",
+  ".json",
+  ".js",
+  ".ts",
+  ".go",
+  ".py",
+  ".java",
+  ".c",
+  ".cpp",
+  ".yml",
+  ".yaml",
+  ".toml",
+  ".ini",
+  ".sh",
+  ".csv",
+];
+const isTextFile = computed(() => isTextFilePath(selectedFile.value));
 const previewUrl = computed(() => {
   if (!store.currentProjectId || !selectedFile.value) return "";
   return projectFileUrl(store.currentProjectId, selectedFile.value);
@@ -50,6 +75,12 @@ function pickUpload() {
   uploadInput.value?.click();
 }
 
+function isTextFilePath(path: string) {
+  if (!path) return false;
+  const lower = path.toLowerCase();
+  return allowedTextExtensions.some((ext) => lower.endsWith(ext));
+}
+
 async function onFiles(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = input.files;
@@ -66,6 +97,27 @@ async function mkdir() {
   const path = (cwd.value === "." ? "" : cwd.value + "/") + name;
   await store.makeDir(path);
   await store.ensureTree(cwd.value);
+}
+
+async function createFile() {
+  const name = prompt(
+    "New file name? (Text files only, e.g. main.go or notes.txt)",
+  );
+  if (!name) return;
+  if (name.includes("/") || name.includes("\\")) {
+    alert("Please provide a file name without path separators.");
+    return;
+  }
+  if (!isTextFilePath(name)) {
+    alert(
+      `Unsupported file type. Allowed: ${allowedTextExtensions.join(", ")}`,
+    );
+    return;
+  }
+  const path = (cwd.value === "." ? "" : cwd.value + "/") + name;
+  await store.writeTextFile(path, "");
+  await store.ensureTree(cwd.value);
+  selectedFile.value = path;
 }
 
 async function bulkDownload() {
@@ -129,12 +181,53 @@ function openFile(path: string) {
   selectedFile.value = path;
 }
 
+async function loadEditorFile(path: string) {
+  editorError.value = "";
+  editorDirty.value = false;
+  editorContent.value = "";
+  if (!path || !isTextFilePath(path)) return;
+  editorLoading.value = true;
+  try {
+    editorContent.value = await store.readTextFile(path);
+  } catch (e) {
+    console.error(e);
+    editorError.value = "Failed to load file.";
+  } finally {
+    editorLoading.value = false;
+  }
+}
+
+async function saveEditor() {
+  if (!selectedFile.value || !isTextFilePath(selectedFile.value)) return;
+  editorSaving.value = true;
+  editorError.value = "";
+  try {
+    await store.writeTextFile(selectedFile.value, editorContent.value);
+    editorDirty.value = false;
+  } catch (e) {
+    console.error(e);
+    editorError.value = "Failed to save file.";
+  } finally {
+    editorSaving.value = false;
+  }
+}
+
 watch(
   () => store.currentProjectId,
   () => {
     cwd.value = ".";
     selectedFile.value = "";
+    editorContent.value = "";
+    editorDirty.value = false;
+    editorError.value = "";
     void store.ensureTree(".");
+  },
+);
+
+watch(
+  () => selectedFile.value,
+  (path) => {
+    void loadEditorFile(path);
   },
 );
 
@@ -250,6 +343,12 @@ function onMoved(payload: { from: string; to: string }) {
             </button>
             <button
               class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
+              @click="createFile"
+            >
+              New File
+            </button>
+            <button
+              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="pickUpload"
             >
               Upload
@@ -306,22 +405,43 @@ function onMoved(payload: { from: string; to: string }) {
             Select a file to preview
           </div>
           <template v-else>
-            <div v-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)">
+            <div v-if="isTextFile" class="flex h-full flex-col gap-3">
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/50 px-3 text-sm font-semibold text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  :disabled="editorLoading || editorSaving || !editorDirty"
+                  @click="saveEditor"
+                >
+                  {{ editorSaving ? "Saving..." : "Save" }}
+                </button>
+                <span
+                  v-if="editorLoading"
+                  class="text-xs text-subtle-foreground"
+                  >Loading...</span
+                >
+                <span v-if="editorError" class="text-xs text-danger">
+                  {{ editorError }}
+                </span>
+                <span
+                  v-else-if="editorDirty"
+                  class="text-xs text-subtle-foreground"
+                  >Unsaved changes</span
+                >
+              </div>
+              <textarea
+                v-model="editorContent"
+                class="min-h-[360px] flex-1 resize-none rounded-3 border border-border bg-surface/70 p-3 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                spellcheck="false"
+                @input="editorDirty = true"
+              />
+            </div>
+            <div v-else-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)">
               <img
                 :src="previewUrl"
                 alt="preview"
                 class="max-w-full rounded-4 border border-border"
               />
             </div>
-            <iframe
-              v-else-if="
-                /\.(md|txt|log|json|js|ts|go|py|java|c|cpp|yml|yaml|toml|ini|sh|csv)$/i.test(
-                  selectedFile,
-                )
-              "
-              :src="previewUrl"
-              class="h-full w-full rounded-4 border border-border"
-            />
             <div v-else class="text-sm text-subtle-foreground">
               Preview not available.
               <a

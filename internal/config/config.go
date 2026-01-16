@@ -3,8 +3,6 @@ package config
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	Workdir string
-	// Kafka configuration for orchestrator integration
-	Kafka KafkaConfig
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt string
 	// Rolling summarization config: enable and tuning knobs (token-based only)
@@ -90,8 +88,6 @@ type Config struct {
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
 	// Tokenization configures accurate token counting for summarization.
 	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
-	// Skills configures skill caching behavior.
-	Skills SkillsConfig `yaml:"skills" json:"skills"`
 }
 
 // TokenizationConfig controls how tokens are counted for summarization decisions.
@@ -108,154 +104,8 @@ type TokenizationConfig struct {
 	FallbackToHeuristic bool `yaml:"fallbackToHeuristic" json:"fallbackToHeuristic"`
 }
 
-// KafkaConfig holds Kafka connectivity and topic defaults for orchestrator
-type KafkaConfig struct {
-	Brokers        string `yaml:"brokers" json:"brokers"`
-	CommandsTopic  string `yaml:"commandsTopic" json:"commandsTopic"`
-	ResponsesTopic string `yaml:"responsesTopic" json:"responsesTopic"`
-}
-
 // ProjectsConfig controls project storage and workspace behavior.
 type ProjectsConfig struct {
-	// Backend selects the storage backend: "filesystem" (default) or "s3".
-	Backend string `yaml:"backend" json:"backend"`
-	// Encrypt enables at-rest encryption for project files using an envelope
-	// scheme. When enabled, requires a KeyProvider configuration.
-	Encrypt bool `yaml:"encrypt" json:"encrypt"`
-	// Encryption configures the key provider for envelope encryption.
-	// Supports "file" (legacy), "vault" (HashiCorp Vault Transit), and "awskms" (AWS KMS).
-	Encryption EncryptionConfig `yaml:"encryption" json:"encryption"`
-	// Workspace configures ephemeral workspace behavior for agent runs.
-	Workspace WorkspaceConfig `yaml:"workspace" json:"workspace"`
-	// S3 configures S3/MinIO-compatible object storage when Backend="s3".
-	S3 S3Config `yaml:"s3" json:"s3"`
-	// Redis configures optional generation cache, locks, and invalidation.
-	Redis RedisConfig `yaml:"redis" json:"redis"`
-	// Events configures optional Kafka publishing for project commits.
-	Events ProjectsKafkaConfig `yaml:"events" json:"events"`
-}
-
-// EncryptionConfig configures the key provider for project encryption.
-type EncryptionConfig struct {
-	// Provider selects the key provider: "file" (default/legacy), "vault", or "awskms".
-	Provider string `yaml:"provider" json:"provider"`
-	// File configures the file-based key provider (legacy mode).
-	File FileKeyProviderConfig `yaml:"file" json:"file"`
-	// Vault configures HashiCorp Vault Transit secrets engine.
-	Vault VaultKeyProviderConfig `yaml:"vault" json:"vault"`
-	// AWSKMS configures AWS Key Management Service.
-	AWSKMS AWSKMSKeyProviderConfig `yaml:"awskms" json:"awskms"`
-}
-
-// FileKeyProviderConfig configures the file-based key provider.
-type FileKeyProviderConfig struct {
-	// KeystorePath is the directory containing the master.key file.
-	// Defaults to ${WORKDIR}/.keystore if empty.
-	KeystorePath string `yaml:"keystorePath" json:"keystorePath"`
-}
-
-// VaultKeyProviderConfig configures the Vault Transit secrets engine provider.
-type VaultKeyProviderConfig struct {
-	// Address is the Vault server URL (e.g., "https://vault.example.com:8200").
-	Address string `yaml:"address" json:"address"`
-	// Token is the Vault authentication token. Prefer VAULT_TOKEN env var.
-	Token string `yaml:"token" json:"token"`
-	// KeyName is the name of the transit key in Vault (e.g., "manifold-kek").
-	KeyName string `yaml:"keyName" json:"keyName"`
-	// MountPath is the mount path for the transit engine (default: "transit").
-	MountPath string `yaml:"mountPath" json:"mountPath"`
-	// Namespace is the Vault namespace for enterprise deployments.
-	Namespace string `yaml:"namespace" json:"namespace"`
-	// TLSSkipVerify disables TLS certificate verification (dev only).
-	TLSSkipVerify bool `yaml:"tlsSkipVerify" json:"tlsSkipVerify"`
-	// TimeoutSeconds is the HTTP request timeout (default: 30).
-	TimeoutSeconds int `yaml:"timeoutSeconds" json:"timeoutSeconds"`
-}
-
-// AWSKMSKeyProviderConfig configures the AWS KMS provider.
-type AWSKMSKeyProviderConfig struct {
-	// KeyID is the AWS KMS key ID or ARN.
-	KeyID string `yaml:"keyID" json:"keyID"`
-	// Region is the AWS region (e.g., "us-east-1").
-	Region string `yaml:"region" json:"region"`
-	// AccessKeyID is the AWS access key (prefer IAM roles or env vars).
-	AccessKeyID string `yaml:"accessKeyID" json:"accessKeyID"`
-	// SecretAccessKey is the AWS secret key (prefer IAM roles or env vars).
-	SecretAccessKey string `yaml:"secretAccessKey" json:"secretAccessKey"`
-	// Endpoint is an optional custom endpoint for KMS (e.g., LocalStack).
-	Endpoint string `yaml:"endpoint" json:"endpoint"`
-}
-
-// WorkspaceConfig controls ephemeral workspace behavior for agent tool execution.
-type WorkspaceConfig struct {
-	// Mode selects workspace isolation strategy: "legacy" (use project dir directly)
-	// or "ephemeral" (create per-session working copies). Default: "legacy".
-	Mode string `yaml:"mode" json:"mode"`
-	// Root is the base directory for ephemeral workspaces. Default: "${WORKDIR}/sandboxes".
-	Root string `yaml:"root" json:"root"`
-	// TTLSeconds is how long an ephemeral workspace may remain before cleanup.
-	// Default: 86400 (24 hours).
-	TTLSeconds int `yaml:"ttlSeconds" json:"ttlSeconds"`
-	// CacheDir is the encrypted cache root for enterprise mode.
-	CacheDir string `yaml:"cacheDir" json:"cacheDir"`
-	// TmpfsDir is the tmpfs/plaintext working set root for enterprise mode.
-	TmpfsDir string `yaml:"tmpfsDir" json:"tmpfsDir"`
-}
-
-// S3Config holds S3/MinIO connection settings for object storage backend.
-type S3Config struct {
-	// Endpoint is the S3 API endpoint URL (e.g., "http://minio:9000" for MinIO).
-	Endpoint string `yaml:"endpoint" json:"endpoint"`
-	// Region is the AWS region or MinIO region hint.
-	Region string `yaml:"region" json:"region"`
-	// Bucket is the S3 bucket name for project storage.
-	Bucket string `yaml:"bucket" json:"bucket"`
-	// Prefix is the key prefix within the bucket for all project data.
-	Prefix string `yaml:"prefix" json:"prefix"`
-	// AccessKey is the S3 access key ID (prefer env var for production).
-	AccessKey string `yaml:"accessKey" json:"accessKey"`
-	// SecretKey is the S3 secret access key (prefer env var for production).
-	SecretKey string `yaml:"secretKey" json:"secretKey"`
-	// UsePathStyle enables path-style addressing (required for MinIO).
-	UsePathStyle bool `yaml:"usePathStyle" json:"usePathStyle"`
-	// TLSInsecureSkipVerify disables TLS certificate verification (dev only).
-	TLSInsecureSkipVerify bool `yaml:"tlsInsecureSkipVerify" json:"tlsInsecureSkipVerify"`
-	// SSE configures server-side encryption.
-	SSE S3SSEConfig `yaml:"sse" json:"sse"`
-}
-
-// S3SSEConfig configures S3 server-side encryption.
-type S3SSEConfig struct {
-	// Mode selects SSE mode: "none", "sse-s3", or "sse-kms". Default: "none".
-	Mode string `yaml:"mode" json:"mode"`
-	// KMSKeyID is the KMS key ID for sse-kms mode.
-	KMSKeyID string `yaml:"kmsKeyID" json:"kmsKeyID"`
-}
-
-// RedisConfig enables Redis coordination/generation cache.
-type RedisConfig struct {
-	Enabled               bool   `yaml:"enabled" json:"enabled"`
-	Addr                  string `yaml:"addr" json:"addr"`
-	Password              string `yaml:"password" json:"password"`
-	DB                    int    `yaml:"db" json:"db"`
-	TLSInsecureSkipVerify bool   `yaml:"tlsInsecureSkipVerify" json:"tlsInsecureSkipVerify"`
-}
-
-// ProjectsKafkaConfig describes Kafka topics for project events.
-type ProjectsKafkaConfig struct {
-	Enabled bool   `yaml:"enabled" json:"enabled"`
-	Brokers string `yaml:"brokers" json:"brokers"`
-	Topic   string `yaml:"topic" json:"topic"`
-}
-
-// SkillsConfig controls skill caching and loading behavior.
-type SkillsConfig struct {
-	// RedisCacheTTLSeconds sets the TTL for Redis-cached skills prompts.
-	// Default: 3600 (1 hour). Set to 0 to disable Redis caching.
-	RedisCacheTTLSeconds int `yaml:"redisCacheTTLSeconds" json:"redisCacheTTLSeconds"`
-	// UseS3Loader enables direct S3 skills loading without full workspace hydration.
-	// Only applies when projects.backend="s3". Default: true.
-	UseS3Loader bool `yaml:"useS3Loader" json:"useS3Loader"`
 }
 
 // TTSConfig holds text-to-speech specific configuration.
@@ -505,7 +355,7 @@ type MCPServerConfig struct {
 	// KeepAliveSeconds configures client ping interval; 0 disables keepalive.
 	KeepAliveSeconds int `yaml:"keepAliveSeconds" json:"keepAliveSeconds"`
 	// PathDependent marks this server as requiring per-user instances with project
-	// path injection. Only applies when enterprise workspace mode is enabled.
+	// path injection. Only applies when auth is enabled.
 	// When true, placeholders like {{PROJECT_DIR}} in Args and Env will be expanded
 	// to the user's active project workspace path. Note: We use {{...}} syntax instead
 	// of ${...} because the config loader runs os.ExpandEnv which expands ${...}.

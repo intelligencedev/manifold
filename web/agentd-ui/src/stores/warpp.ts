@@ -2,7 +2,6 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { WarppStepTrace } from "@/types/warpp";
 import { runWarppWorkflow, type WarppRunResponse } from "@/api/warpp";
-import { useProjectsStore } from "@/stores/projects";
 
 export const useWarppRunStore = defineStore("warpp-run", () => {
   const running = ref(false);
@@ -22,6 +21,7 @@ export const useWarppRunStore = defineStore("warpp-run", () => {
   async function startRun(
     intent: string,
     prompt?: string,
+    projectId?: string,
   ): Promise<WarppRunResponse> {
     if (running.value) throw new Error("A run is already in progress");
     running.value = true;
@@ -31,8 +31,6 @@ export const useWarppRunStore = defineStore("warpp-run", () => {
     runAbort = new AbortController();
     try {
       runLogs.value.push("→ POST /api/warpp/run");
-      const projStore = useProjectsStore();
-      const projectId = projStore.currentProjectId || undefined;
       const res = await runWarppWorkflow(
         intent,
         prompt ?? `Run workflow: ${intent}`,

@@ -53,6 +53,7 @@ export interface WarppWorkflow {
   intent: string;
   description?: string;
   keywords?: string[];
+  project_id?: string;
   max_concurrency?: number;
   fail_fast?: boolean;
   steps: WarppStep[];

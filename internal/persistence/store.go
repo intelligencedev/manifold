@@ -111,6 +111,7 @@ type WarppWorkflow struct {
 	Intent         string           `json:"intent"`
 	Description    string           `json:"description"`
 	Keywords       []string         `json:"keywords"`
+	ProjectID      string           `json:"project_id,omitempty"`
 	Steps          []map[string]any `json:"steps"`
 	UI             map[string]any   `json:"ui,omitempty"`
 	MaxConcurrency int              `json:"max_concurrency,omitempty"`

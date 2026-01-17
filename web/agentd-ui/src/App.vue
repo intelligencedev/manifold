@@ -44,19 +44,6 @@
 
           <template #actions>
             <div class="hidden items-center gap-2 sm:flex">
-              <span
-                class="text-[10px] font-semibold uppercase tracking-wide text-subtle-foreground"
-                >Project</span
-              >
-              <DropdownSelect
-                v-model="selectedProjectId"
-                :options="projectOptions"
-                size="sm"
-                placeholder="Project"
-                :title="selectedProjectTitle"
-                aria-label="Project select"
-                class="w-56 truncate"
-              />
             </div>
             <div class="ml-1">
               <AccountButton :username="user?.name || user?.email" />
@@ -92,10 +79,8 @@
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, RouterView, useRoute } from "vue-router";
 import AccountButton from "@/components/AccountButton.vue";
-import DropdownSelect from "@/components/DropdownSelect.vue";
 import Topbar from "@/components/ui/Topbar.vue";
 import manifoldLogo from "@/assets/images/manifold_logo.png";
-import { useProjectsStore } from "@/stores/projects";
 import { useThemeStore } from "@/stores/theme";
 
 const themeStore = useThemeStore();
@@ -152,28 +137,4 @@ function navClass(path: string, dense = false) {
   return base;
 }
 
-const projectsStore = useProjectsStore();
-onMounted(async () => {
-  await projectsStore.refresh();
-  // Restore last active project from user preferences
-  await projectsStore.initFromPreferences();
-});
-
-const projectOptions = computed(() =>
-  projectsStore.projects.map((p) => ({ id: p.id, label: p.name, value: p.id })),
-);
-
-const selectedProjectTitle = computed(() => {
-  const id = projectsStore.currentProjectId;
-  if (!id) return "Project";
-  const found = projectsStore.projects.find((p) => p.id === id);
-  return found?.name || "Project";
-});
-
-const selectedProjectId = computed({
-  get: () => projectsStore.currentProjectId || "",
-  set: (v: string) => {
-    void projectsStore.setCurrent(v);
-  },
-});
 </script>

@@ -164,7 +164,14 @@
               </button>
             </span>
             <div class="flex items-center gap-2">
-              <!-- Project selection is global in the header; moved to App.vue -->
+              <DropdownSelect
+                v-model="selectedProjectId"
+                :options="projectOptions"
+                size="xs"
+                title="Project for this conversation"
+                aria-label="Project"
+                class="min-w-[180px]"
+              />
               <DropdownSelect
                 v-model="renderMode"
                 :options="renderModeOptions"
@@ -848,9 +855,21 @@ onMounted(() => {
   }
 });
 const projects = computed(() => proj.projects);
+const selectedProjectBySession = ref<Record<string, string>>({});
 const selectedProjectId = computed({
-  get: () => proj.currentProjectId || "",
-  set: (v: string) => (proj.currentProjectId = v),
+  get: () => {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return "";
+    return selectedProjectBySession.value[sessionId] || "";
+  },
+  set: (v: string) => {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return;
+    selectedProjectBySession.value = {
+      ...selectedProjectBySession.value,
+      [sessionId]: v,
+    };
+  },
 });
 const sessions = computed(() => chat.sessions);
 const messagesBySession = computed(() => chat.messagesBySession);
@@ -944,6 +963,21 @@ const projectOptions = computed<DropdownOption[]>(() => {
     ...projectEntries,
   ];
 });
+
+watch(
+  [activeSessionId, projects],
+  ([sessionId, projectList]) => {
+    if (!sessionId) return;
+    if (selectedProjectBySession.value[sessionId]) return;
+    const fallback = projectList[0]?.id;
+    if (!fallback) return;
+    selectedProjectBySession.value = {
+      ...selectedProjectBySession.value,
+      [sessionId]: fallback,
+    };
+  },
+  { immediate: true },
+);
 
 // Transform render mode options for dropdown
 const renderModeOptions = computed<DropdownOption[]>(() => [
@@ -1616,6 +1650,18 @@ watch(sessions, (next) => {
     }
   }
   if (changed) selectedSpecialistBySession.value = pruned;
+
+  const projectCurrent = selectedProjectBySession.value;
+  let projectChanged = false;
+  const projectPruned: Record<string, string> = {};
+  for (const [id, value] of Object.entries(projectCurrent)) {
+    if (keep.has(id)) {
+      projectPruned[id] = value;
+    } else {
+      projectChanged = true;
+    }
+  }
+  if (projectChanged) selectedProjectBySession.value = projectPruned;
 });
 
 watch(

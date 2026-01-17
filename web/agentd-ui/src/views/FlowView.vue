@@ -18,6 +18,18 @@
         />
       </label>
 
+      <label class="text-sm text-muted-foreground">
+        Project
+        <DropdownSelect
+          v-model="selectedWorkflowProjectId"
+          size="sm"
+          class="ml-2 text-sm"
+          :options="projectOptions"
+          title="Optional project assignment for this workflow"
+          aria-label="Project"
+        />
+      </label>
+
       <button
         class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
         title="Create new workflow"
@@ -174,6 +186,9 @@
       >
       <span v-if="activeWorkflow?.keywords?.length" class="ml-3"
         >Keywords: {{ activeWorkflow?.keywords?.join(", ") }}</span
+      >
+      <span v-if="activeWorkflowProjectName" class="ml-3"
+        >Project: {{ activeWorkflowProjectName }}</span
       >
     </div>
 
@@ -952,6 +967,8 @@ import type {
 } from "@/types/warpp";
 import type { StepNodeData, GroupNodeData } from "@/types/flow";
 import { useWarppRunStore } from "@/stores/warpp";
+import { useProjectsStore } from "@/stores/projects";
+import type { DropdownOption } from "@/types/dropdown";
 import {
   WARPP_STEP_NODE_DIMENSIONS,
   WARPP_UTILITY_NODE_DIMENSIONS,
@@ -1204,6 +1221,40 @@ const isHydrating = ref(false);
 const workflowList = ref<WarppWorkflow[]>([]);
 const selectedIntent = ref<string>("");
 const activeWorkflow = ref<WarppWorkflow | null>(null);
+
+const projectsStore = useProjectsStore();
+const projects = computed(() => projectsStore.projects);
+const projectOptions = computed<DropdownOption[]>(() => {
+  const entries = projects.value.map((project) => ({
+    id: project.id,
+    label: project.name,
+    value: project.id,
+  }));
+  return [
+    { id: "", label: "No project", value: "" },
+    ...entries,
+  ];
+});
+const selectedWorkflowProjectId = computed({
+  get: () => activeWorkflow.value?.project_id ?? "",
+  set: (value: string) => {
+    if (!activeWorkflow.value) return;
+    const next = value?.trim() || "";
+    const current = activeWorkflow.value.project_id ?? "";
+    if (current === next) return;
+    activeWorkflow.value = {
+      ...activeWorkflow.value,
+      project_id: next || undefined,
+    };
+    dirty.value = true;
+  },
+});
+const activeWorkflowProjectName = computed(() => {
+  const pid = activeWorkflow.value?.project_id;
+  if (!pid) return "";
+  const match = projects.value.find((p) => p.id === pid);
+  return match?.name || pid;
+});
 
 const tools = ref<WarppTool[]>([]);
 provide("warppTools", tools);
@@ -1938,6 +1989,10 @@ onMounted(async () => {
         return [] as WarppTool[];
       }),
       fetchWarppWorkflows(),
+      projectsStore.refresh().catch((err) => {
+        console.error("projects", err);
+        return [];
+      }),
     ]);
     tools.value = mergeBuiltinUtilityTools(toolResp);
     workflowList.value = workflows;
@@ -2745,6 +2800,7 @@ async function performSave(
     }
     const normalizedSaved: WarppWorkflow = {
       ...saved,
+      project_id: saved.project_id ?? payload.project_id,
       ui: mergedUi,
     };
     console.log("[DEBUG] Merged UI groups:", normalizedSaved.ui?.groups);
@@ -2815,7 +2871,11 @@ async function onRun() {
       );
   }
   try {
-    const res = await warppRunStore.startRun(intent, `Run workflow: ${intent}`);
+    const res = await warppRunStore.startRun(
+      intent,
+      `Run workflow: ${intent}`,
+      activeWorkflow.value.project_id || undefined,
+    );
     applyRunTrace(res.trace ?? []);
   } catch (err: any) {
     resetRunView();
@@ -3029,6 +3089,12 @@ async function onImportSelected(event: Event) {
     intent,
     description: typeof data?.description === "string" ? data.description : "",
     keywords: Array.isArray(data?.keywords) ? data.keywords : undefined,
+    project_id:
+      typeof data?.project_id === "string"
+        ? data.project_id
+        : typeof data?.projectId === "string"
+          ? data.projectId
+          : undefined,
     max_concurrency:
       typeof data?.max_concurrency === "number"
         ? data.max_concurrency

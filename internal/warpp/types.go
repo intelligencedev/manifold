@@ -8,6 +8,7 @@ type Workflow struct {
 	Intent      string      `json:"intent"`
 	Description string      `json:"description"`
 	Keywords    []string    `json:"keywords"`
+	ProjectID   string      `json:"project_id,omitempty"`
 	Steps       []Step      `json:"steps"`
 	UI          *WorkflowUI `json:"ui,omitempty"`
 	// Optional execution hints

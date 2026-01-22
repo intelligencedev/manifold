@@ -424,17 +424,6 @@ func extractReasoningSummary(extra map[string]any) (shared.ReasoningSummary, boo
 	return "", false
 }
 
-func shouldDefaultReasoningSummary(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	if m == "" {
-		return false
-	}
-	if strings.HasPrefix(m, "gpt-5") {
-		return true
-	}
-	return strings.HasPrefix(m, "o1") || strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4")
-}
-
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
 	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
@@ -1220,6 +1209,10 @@ func (c *Client) imageModel(model string) string {
 // ChatWithImageAttachment sends a chat completion with an image attachment.
 // This is a concrete method specific to the OpenAI provider.
 func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message, mimeType, base64Data string, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if strings.EqualFold(c.api, "responses") {
+		images := []ImageAttachment{{MimeType: mimeType, Base64Data: base64Data}}
+		return c.chatResponsesWithImages(ctx, msgs, images, tools, model)
+	}
 	log := observability.LoggerWithTrace(ctx)
 	// Tracing and prompt logging
 	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatWithImageAttachment", firstNonEmpty(model, c.model), len(tools), len(msgs))
@@ -1254,7 +1247,8 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 				contentParts = append(contentParts, sdk.ChatCompletionContentPartUnionParam{
 					OfImageURL: &sdk.ChatCompletionContentPartImageParam{
 						ImageURL: sdk.ChatCompletionContentPartImageImageURLParam{
-							URL: dataURL,
+							URL:    dataURL,
+							Detail: "auto",
 						},
 					},
 				})
@@ -1347,6 +1341,9 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 // ChatWithImageAttachments sends a chat completion with one or more image attachments.
 // The images are included as content parts alongside the user's text.
 func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Message, images []ImageAttachment, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if strings.EqualFold(c.api, "responses") {
+		return c.chatResponsesWithImages(ctx, msgs, images, tools, model)
+	}
 	log := observability.LoggerWithTrace(ctx)
 	// Tracing and prompt logging
 	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatWithImageAttachments", firstNonEmpty(model, c.model), len(tools), len(msgs))
@@ -1380,7 +1377,10 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 					dataURL := "data:" + img.MimeType + ";base64," + img.Base64Data
 					contentParts = append(contentParts, sdk.ChatCompletionContentPartUnionParam{
 						OfImageURL: &sdk.ChatCompletionContentPartImageParam{
-							ImageURL: sdk.ChatCompletionContentPartImageImageURLParam{URL: dataURL},
+							ImageURL: sdk.ChatCompletionContentPartImageImageURLParam{
+								URL:    dataURL,
+								Detail: "auto",
+							},
 						},
 					})
 				}
@@ -1598,6 +1598,113 @@ func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instr
 	return items, instructions
 }
 
+func adaptResponsesInputWithImages(msgs []llm.Message, images []ImageAttachment) (items rs.ResponseInputParam, instructions string) {
+	if len(images) == 0 {
+		return adaptResponsesInput(msgs)
+	}
+
+	validToolCallIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		if m.Role != "assistant" || len(m.ToolCalls) == 0 {
+			continue
+		}
+		for _, tc := range m.ToolCalls {
+			if strings.TrimSpace(tc.ID) == "" {
+				continue
+			}
+			validToolCallIDs[tc.ID] = struct{}{}
+		}
+	}
+
+	lastUserIdx := -1
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "user" {
+			lastUserIdx = i
+			break
+		}
+	}
+
+	items = make([]rs.ResponseInputItemUnionParam, 0, len(msgs))
+	var sys []string
+	for i, m := range msgs {
+		if m.Compaction != nil {
+			items = append(items, responseCompactionItemParam(*m.Compaction))
+			continue
+		}
+		switch m.Role {
+		case "system":
+			if strings.TrimSpace(m.Content) != "" {
+				sys = append(sys, m.Content)
+			}
+		case "user":
+			content := strings.TrimSpace(m.Content)
+			if content == "" {
+				content = " "
+			}
+			if i == lastUserIdx {
+				parts := make(rs.ResponseInputMessageContentListParam, 0, 1+len(images))
+				if strings.TrimSpace(content) != "" {
+					parts = append(parts, rs.ResponseInputContentParamOfInputText(content))
+				}
+				for _, img := range images {
+					if strings.TrimSpace(img.MimeType) == "" || strings.TrimSpace(img.Base64Data) == "" {
+						continue
+					}
+					dataURL := "data:" + img.MimeType + ";base64," + img.Base64Data
+					parts = append(parts, responseInputImageContentParam(dataURL))
+				}
+				if len(parts) == 0 {
+					parts = append(parts, rs.ResponseInputContentParamOfInputText(" "))
+				}
+				items = append(items, rs.ResponseInputItemUnionParam{OfInputMessage: &rs.ResponseInputItemMessageParam{
+					Content: parts,
+					Role:    "user",
+				}})
+				continue
+			}
+			part := rs.ResponseInputContentParamOfInputText(content)
+			items = append(items, rs.ResponseInputItemUnionParam{OfInputMessage: &rs.ResponseInputItemMessageParam{
+				Content: rs.ResponseInputMessageContentListParam{part},
+				Role:    "user",
+			}})
+		case "assistant":
+			if len(m.ToolCalls) > 0 {
+				for _, tc := range m.ToolCalls {
+					callID := tc.ID
+					args := string(tc.Args)
+					items = append(items, rs.ResponseInputItemParamOfFunctionCall(args, callID, tc.Name))
+				}
+			}
+		case "tool":
+			toolID := strings.TrimSpace(m.ToolID)
+			if toolID == "" {
+				continue
+			}
+			if _, ok := validToolCallIDs[toolID]; !ok {
+				continue
+			}
+			out := strings.TrimSpace(m.Content)
+			if out == "" {
+				out = "{}"
+			}
+			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
+		}
+	}
+	if len(sys) > 0 {
+		instructions = strings.Join(sys, "\n\n")
+	}
+	return items, instructions
+}
+
+func responseInputImageContentParam(dataURL string) rs.ResponseInputContentUnionParam {
+	return rs.ResponseInputContentUnionParam{
+		OfInputImage: &rs.ResponseInputImageParam{
+			Detail:   rs.ResponseInputImageDetailAuto,
+			ImageURL: param.NewOpt(dataURL),
+		},
+	}
+}
+
 func responseCompactionItemParam(item llm.CompactionItem) rs.ResponseInputItemUnionParam {
 	payload := map[string]any{
 		"type":              "compaction",
@@ -1608,6 +1715,80 @@ func responseCompactionItemParam(item llm.CompactionItem) rs.ResponseInputItemUn
 	}
 	raw, _ := json.Marshal(payload)
 	return param.Override[rs.ResponseInputItemUnionParam](json.RawMessage(raw))
+}
+
+func (c *Client) chatResponsesWithImages(ctx context.Context, msgs []llm.Message, images []ImageAttachment, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	log := observability.LoggerWithTrace(ctx)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Chat With Images", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	params := rs.ResponseNewParams{
+		Model: rs.ResponsesModel(firstNonEmpty(model, c.model)),
+	}
+	input, instr := adaptResponsesInputWithImages(msgs, images)
+	if len(input) > 0 {
+		params.Input.OfInputItemList = input
+	}
+	if strings.TrimSpace(instr) != "" {
+		params.Instructions = sdk.String(instr)
+	}
+	if len(tools) > 0 {
+		if c.isSelfHosted() {
+			params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
+		} else {
+			params.Tools = adaptResponsesTools(tools)
+		}
+	}
+	merged := map[string]any{}
+	if len(c.extra) > 0 {
+		merged = make(map[string]any, len(c.extra))
+		for k, v := range c.extra {
+			merged[k] = v
+		}
+	}
+	if len(merged) > 0 {
+		if len(tools) == 0 {
+			delete(merged, "parallel_tool_calls")
+		}
+		if effort, ok := extractReasoningEffort(merged); ok {
+			params.Reasoning.Effort = effort
+		}
+	}
+	if summary, ok := extractReasoningSummary(merged); ok {
+		params.Reasoning.Summary = summary
+	}
+	if len(merged) > 0 {
+		params.SetExtraFields(merged)
+	}
+
+	start := time.Now()
+	resp, err := c.sdk.Responses.New(ctx, params)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("responses_with_images_error")
+		span.RecordError(err)
+		return llm.Message{}, err
+	}
+
+	out := llm.Message{Role: "assistant", Content: resp.OutputText()}
+	for _, it := range resp.Output {
+		switch it.Type {
+		case "function_call":
+			fn := it.AsFunctionCall()
+			id := fn.CallID
+			if id == "" {
+				id = fn.ID
+			}
+			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+				Name: fn.Name,
+				Args: json.RawMessage(fn.Arguments),
+				ID:   id,
+			})
+		}
+	}
+	llm.LogRedactedResponse(ctx, map[string]any{"output_text_len": len(out.Content), "tool_calls": len(out.ToolCalls)})
+	return out, nil
 }
 
 // chatResponses handles non-streaming chat via the Responses API.

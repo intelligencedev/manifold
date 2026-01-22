@@ -40,14 +40,21 @@ export const useChatStore = defineStore("chat", () => {
   const fetchedMessageSessions = new Set<string>();
 
   const activeSessionId = ref<string>("");
-  type StreamState = { assistantId: string; abortController: AbortController };
+  type StreamState = {
+    assistantId: string;
+    abortController: AbortController;
+    streamId: string;
+  };
   const streamingStateBySession = ref<Record<string, StreamState>>({});
   const isStreaming = computed(() => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return false;
     return Boolean(streamingStateBySession.value[sessionId]);
   });
-  const toolMessageIndex = new Map<string, Map<string, string>>();
+  const toolMessageIndex = new Map<
+    string,
+    { streamId: string; index: Map<string, string> }
+  >();
   const thoughtSummariesBySession = ref<Record<string, string[]>>({});
   const agentThreadsBySession = ref<Record<string, AgentThread[]>>({});
   const agentThreadIndex = new Map<string, Map<string, AgentThread>>();
@@ -139,13 +146,23 @@ export const useChatStore = defineStore("chat", () => {
     streamingStateBySession.value = rest;
   }
 
-  function toolIndexFor(sessionId: string) {
-    let index = toolMessageIndex.get(sessionId);
-    if (!index) {
-      index = new Map<string, string>();
-      toolMessageIndex.set(sessionId, index);
+  function toolIndexFor(sessionId: string, streamId: string) {
+    let entry = toolMessageIndex.get(sessionId);
+    if (!entry || entry.streamId !== streamId) {
+      entry = { streamId, index: new Map<string, string>() };
+      toolMessageIndex.set(sessionId, entry);
     }
-    return index;
+    return entry.index;
+  }
+
+  function clearToolIndex(sessionId: string, streamId: string) {
+    const entry = toolMessageIndex.get(sessionId);
+    if (entry?.streamId === streamId) toolMessageIndex.delete(sessionId);
+  }
+
+  function isStreamCurrent(sessionId: string, streamId: string) {
+    const state = streamingStateFor(sessionId);
+    return Boolean(state && state.streamId === streamId);
   }
 
   function threadIndexFor(sessionId: string) {
@@ -448,14 +465,21 @@ export const useChatStore = defineStore("chat", () => {
   ) {
     const content = (text || "").trim();
     const sessionId = ensureSession();
-    if ((!content && !attachments.length) || isSessionStreaming(sessionId))
-      return;
+    if (!content && !attachments.length) return;
+    const wasStreaming = isSessionStreaming(sessionId);
+    if (wasStreaming) {
+      interruptStreaming(sessionId, {
+        reason: "Interrupted by user",
+        archiveThoughtSummaries: true,
+        clearThoughtSummaries: true,
+      });
+    }
     const now = new Date().toISOString();
     const agentName = (options.agentName || "").trim();
     const agentModel = (options.agentModel || "").trim();
 
     resetAgentThreads(sessionId);
-    resetThoughtSummaries(sessionId);
+    if (!wasStreaming) resetThoughtSummaries(sessionId);
 
     if (content) {
       void maybeAutoTitle(sessionId, content);
@@ -473,6 +497,7 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     const assistantId = crypto.randomUUID();
+    const streamId = crypto.randomUUID();
     appendMessage(sessionId, {
       id: assistantId,
       role: "assistant",
@@ -496,8 +521,12 @@ export const useChatStore = defineStore("chat", () => {
       },
       { once: true },
     );
-    setStreamingState(sessionId, { assistantId, abortController: controller });
-    toolMessageIndex.set(sessionId, new Map());
+    setStreamingState(sessionId, {
+      assistantId,
+      abortController: controller,
+      streamId,
+    });
+    toolIndexFor(sessionId, streamId);
 
     try {
       // Expand text attachments into the prompt
@@ -524,7 +553,7 @@ export const useChatStore = defineStore("chat", () => {
           sessionId,
           files: imageFiles,
           signal: controller.signal,
-          onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
+          onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
           specialist: options.specialist,
           projectId: options.projectId,
         });
@@ -533,7 +562,7 @@ export const useChatStore = defineStore("chat", () => {
           prompt: promptToSend,
           sessionId,
           signal: controller.signal,
-          onEvent: (e) => handleStreamEvent(e, sessionId, assistantId),
+          onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
           specialist: options.specialist,
           projectId: options.projectId,
           image: options.image,
@@ -550,20 +579,25 @@ export const useChatStore = defineStore("chat", () => {
       } else {
         console.warn("chat stream error", error);
       }
-      const assistantUpdater = (m: ChatMessage) => ({
-        ...m,
-        streaming: false,
-        error:
-          error instanceof DOMException && error.name === "AbortError"
-            ? "Generation stopped"
-            : error instanceof Error
-              ? error.message
-              : "Unexpected error",
-      });
+      const assistantUpdater = (m: ChatMessage) => {
+        if (!m.streaming) return m;
+        return {
+          ...m,
+          streaming: false,
+          error:
+            error instanceof DOMException && error.name === "AbortError"
+              ? "Generation stopped"
+              : error instanceof Error
+                ? error.message
+                : "Unexpected error",
+        };
+      };
       updateMessage(sessionId, assistantId, assistantUpdater);
     } finally {
-      clearStreamingState(sessionId);
-      toolMessageIndex.delete(sessionId);
+      if (isStreamCurrent(sessionId, streamId)) {
+        clearStreamingState(sessionId);
+        clearToolIndex(sessionId, streamId);
+      }
     }
   }
 
@@ -625,7 +659,9 @@ export const useChatStore = defineStore("chat", () => {
     event: ChatStreamEvent,
     sessionId: string,
     assistantId: string,
+    streamId: string,
   ) {
+    if (!isStreamCurrent(sessionId, streamId)) return;
     switch (event.type) {
       case "thought_summary": {
         if (typeof event.data === "string" && event.data.trim()) {
@@ -662,7 +698,7 @@ export const useChatStore = defineStore("chat", () => {
             ? event.tool_id
             : null;
         const messageId = crypto.randomUUID();
-        if (key) toolIndexFor(sessionId).set(key, messageId);
+        if (key) toolIndexFor(sessionId, streamId).set(key, messageId);
         appendMessage(
           sessionId,
           {
@@ -685,7 +721,7 @@ export const useChatStore = defineStore("chat", () => {
           typeof event.tool_id === "string" && event.tool_id.trim()
             ? event.tool_id
             : null;
-        const toolIndex = toolIndexFor(sessionId);
+        const toolIndex = toolIndexFor(sessionId, streamId);
         if (key && toolIndex.has(key)) {
           const messageId = toolIndex.get(key) as string;
           updateMessage(sessionId, messageId, (m) => ({
@@ -1048,13 +1084,66 @@ export const useChatStore = defineStore("chat", () => {
     return -1;
   }
 
+  function interruptStreaming(
+    sessionId: string,
+    options: {
+      reason?: string;
+      archiveThoughtSummaries?: boolean;
+      clearThoughtSummaries?: boolean;
+    } = {},
+  ) {
+    const state = streamingStateFor(sessionId);
+    if (!state) return false;
+    const reason = options.reason || "Interrupted";
+    const now = new Date().toISOString();
+
+    if (options.archiveThoughtSummaries) {
+      const summaries = thoughtSummariesBySession.value[sessionId] || [];
+      if (summaries.length) {
+        appendMessage(
+          sessionId,
+          {
+            id: crypto.randomUUID(),
+            role: "tool",
+            title: "Thought summaries (interrupted)",
+            content: summaries.join("\n"),
+            createdAt: now,
+          },
+          false,
+        );
+      }
+    }
+
+    updateMessage(sessionId, state.assistantId, (m) => ({
+      ...m,
+      streaming: false,
+      error: reason,
+    }));
+
+    const existing = messagesBySession.value[sessionId] || [];
+    if (existing.some((m) => m.role === "tool" && m.streaming)) {
+      const next = existing.map((m) =>
+        m.role === "tool" && m.streaming
+          ? { ...m, streaming: false, error: reason }
+          : m,
+      );
+      setMessages(sessionId, next);
+    }
+
+    if (options.clearThoughtSummaries) {
+      clearThoughtSummaries(sessionId);
+    }
+
+    state.abortController.abort("interrupt");
+    return true;
+  }
+
   function stopStreaming(sessionId?: string) {
     const targetSessionId = sessionId || activeSessionId.value;
     if (!targetSessionId) return;
-    const state = streamingStateFor(targetSessionId);
-    if (!state?.abortController) return;
+    if (!interruptStreaming(targetSessionId, { reason: "Generation stopped" }))
+      return;
     console.warn("chat stopStreaming called", { sessionId: targetSessionId });
-    state.abortController.abort("stopStreaming");
   }
 
   async function regenerateAssistant(

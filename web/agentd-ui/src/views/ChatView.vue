@@ -532,11 +532,27 @@
                         ? 'border border-danger/60 text-foreground/80 hover:text-danger'
                         : 'bg-accent text-accent-foreground hover:bg-accent/90',
                     ]"
-                    :title="isStreaming ? 'Stop generating' : 'Send message'"
-                    :aria-label="
-                      isStreaming ? 'Stop generating' : 'Send message'
+                    :title="
+                      isStreaming && (draft.trim() || pendingAttachments.length)
+                        ? 'Send message'
+                        : isStreaming
+                          ? 'Stop generating'
+                          : 'Send message'
                     "
-                    @click="isStreaming ? stopStreaming() : sendCurrentPrompt()"
+                    :aria-label="
+                      isStreaming && (draft.trim() || pendingAttachments.length)
+                        ? 'Send message'
+                        : isStreaming
+                          ? 'Stop generating'
+                          : 'Send message'
+                    "
+                    @click="
+                      isStreaming && (draft.trim() || pendingAttachments.length)
+                        ? sendCurrentPrompt()
+                        : isStreaming
+                          ? stopStreaming()
+                          : sendCurrentPrompt()
+                    "
                     :disabled="
                       !isStreaming &&
                       (!projectSelected ||
@@ -669,14 +685,25 @@
 
                   <div class="mt-3 flex min-h-0 flex-1 flex-col">
                     <header class="flex items-center justify-between">
-                      <button
+                      <div
                         v-if="activeThoughtSummaries.length"
-                        type="button"
-                        class="text-[11px] text-faint-foreground hover:text-foreground"
-                        @click="chat.clearThoughtSummaries()"
+                        class="flex items-center gap-2"
                       >
-                        Clear
-                      </button>
+                        <button
+                          type="button"
+                          class="text-[11px] text-faint-foreground hover:text-foreground"
+                          @click="copyThoughtSummaries()"
+                        >
+                          {{ copiedThoughtSummaries ? "Copied" : "Copy" }}
+                        </button>
+                        <button
+                          type="button"
+                          class="text-[11px] text-faint-foreground hover:text-foreground"
+                          @click="chat.clearThoughtSummaries()"
+                        >
+                          Clear
+                        </button>
+                      </div>
                     </header>
 
                     <div
@@ -889,6 +916,7 @@ const renameInput = ref<HTMLInputElement | null>(null);
 const messagesPane = ref<HTMLDivElement | null>(null);
 const composer = ref<HTMLTextAreaElement | null>(null);
 const copiedMessageId = ref<string | null>(null);
+const copiedThoughtSummaries = ref(false);
 const autoScrollEnabled = ref(true);
 const lastScrollTop = ref(0);
 // Attachments state for composer
@@ -917,6 +945,7 @@ const sidePanelsPane = ref<HTMLElement | null>(null);
 const activeSpecialistPane = ref<HTMLElement | null>(null);
 const panelSplitter = ref<HTMLElement | null>(null);
 const activeSpecialistPaneHeight = ref<number | null>(null);
+const panelSplitAuto = ref(true);
 const isPanelSplitterDragging = ref(false);
 const PANEL_MIN_HEIGHT = 160;
 const panelContainerHeight = ref(0);
@@ -1229,7 +1258,9 @@ const activeSpecialistPaneStyle = computed(() => {
   const style: Record<string, string> = {
     minHeight: `${PANEL_MIN_HEIGHT}px`,
   };
-  if (activeSpecialistPaneHeight.value !== null) {
+  if (panelSplitAuto.value) {
+    style.flex = "1 1 0";
+  } else if (activeSpecialistPaneHeight.value !== null) {
     style.height = `${activeSpecialistPaneHeight.value}px`;
     style.flex = "0 0 auto";
   }
@@ -1724,6 +1755,7 @@ function handlePanelSplitterPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
   if (!isBrowser || !sidePanelsPane.value || !activeSpecialistPane.value) return;
   event.preventDefault();
+  panelSplitAuto.value = false;
   updateSidePanelMetrics();
   isPanelSplitterDragging.value = true;
   panelDragStartY = event.clientY;
@@ -1812,52 +1844,27 @@ onMounted(() => {
     autoSizeComposer();
     scrollMessagesToBottom({ force: true, behavior: "auto" });
     updateSidePanelMetrics();
-    if (activeSpecialistPane.value && activeSpecialistPaneHeight.value === null) {
+    if (activeSpecialistPane.value) {
       const defaultHeight = defaultActiveSpecialistPaneHeight();
       if (defaultHeight !== null) {
         activeSpecialistPaneHeight.value = defaultHeight;
-      } else {
-        const initialHeight =
-          activeSpecialistPane.value.getBoundingClientRect().height;
-        if (initialHeight > 0) {
-          activeSpecialistPaneHeight.value =
-            clampActiveSpecialistPaneHeight(initialHeight);
-        }
+        panelSplitAuto.value = true;
       }
     }
     if (isBrowser && "ResizeObserver" in window && sidePanelsPane.value) {
       panelResizeObserver = new ResizeObserver(() => {
         updateSidePanelMetrics();
-        if (activeSpecialistPaneHeight.value !== null) {
-          if (activeSpecialistPaneHeight.value <= 0 && activeSpecialistPane.value) {
-            const defaultHeight = defaultActiveSpecialistPaneHeight();
-            if (defaultHeight !== null) {
-              activeSpecialistPaneHeight.value = defaultHeight;
-              return;
-            }
-            const measured =
-              activeSpecialistPane.value.getBoundingClientRect().height;
-            if (measured > 0) {
-              activeSpecialistPaneHeight.value =
-                clampActiveSpecialistPaneHeight(measured);
-              return;
-            }
-          }
-          activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
-            activeSpecialistPaneHeight.value,
-          );
-        } else if (activeSpecialistPane.value) {
+        if (panelSplitAuto.value) {
           const defaultHeight = defaultActiveSpecialistPaneHeight();
           if (defaultHeight !== null) {
             activeSpecialistPaneHeight.value = defaultHeight;
             return;
           }
-          const measured =
-            activeSpecialistPane.value.getBoundingClientRect().height;
-          if (measured > 0) {
-            activeSpecialistPaneHeight.value =
-              clampActiveSpecialistPaneHeight(measured);
-          }
+        }
+        if (activeSpecialistPaneHeight.value !== null) {
+          activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
+            activeSpecialistPaneHeight.value,
+          );
         }
       });
       panelResizeObserver.observe(sidePanelsPane.value);
@@ -1946,8 +1953,7 @@ async function sendCurrentPrompt() {
 async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   const content = text.trim();
   if (!projectSelected.value) return;
-  if ((!content && !pendingAttachments.value.length) || isStreaming.value)
-    return;
+  if (!content && !pendingAttachments.value.length) return;
 
   // New prompt: ensure any prior timer intervals are stopped before we start a new stream.
   stopAllResponseTimers();
@@ -1955,6 +1961,13 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   autoScrollEnabled.value = true;
   draft.value = options.echoUser === false ? draft.value : "";
   try {
+    const attachmentsToSend = [...pendingAttachments.value];
+    const filesByAttachmentSnapshot = new Map(filesByAttachment);
+    if (attachmentsToSend.some((att) => att.kind === "image")) {
+      pendingAttachments.value = pendingAttachments.value.filter(
+        (att) => att.kind !== "image",
+      );
+    }
     const specialist =
       selectedSpecialist.value && selectedSpecialist.value !== "orchestrator"
         ? selectedSpecialist.value
@@ -1962,8 +1975,8 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
     const { agentName, agentModel } = resolveAgentContext();
     await chat.sendPrompt(
       content,
-      pendingAttachments.value,
-      filesByAttachment,
+      attachmentsToSend,
+      filesByAttachmentSnapshot,
       {
         ...options,
         specialist,
@@ -2025,6 +2038,64 @@ function copyMessage(message: ChatMessage) {
     .catch(() => {
       copiedMessageId.value = null;
     });
+}
+
+function copyThoughtSummaries() {
+  const summaries = activeThoughtSummaries.value || [];
+  if (!summaries.length) return;
+
+  const text = summaries
+    .map((summary) => {
+      const raw = (summary || "").trim();
+      if (!raw) return "";
+      if (renderMode.value !== "html") return raw;
+
+      try {
+        const doc = new DOMParser().parseFromString(raw, "text/html");
+        return (doc.body?.textContent || "").trim();
+      } catch {
+        return raw;
+      }
+    })
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+
+  if (!text) return;
+
+  const setCopied = () => {
+    copiedThoughtSummaries.value = true;
+    setTimeout(() => {
+      copiedThoughtSummaries.value = false;
+    }, 1200);
+  };
+
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard
+      .writeText(text)
+      .then(setCopied)
+      .catch(() => {
+        copiedThoughtSummaries.value = false;
+      });
+    return;
+  }
+
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    textarea.style.top = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    if (ok) setCopied();
+  } catch {
+    copiedThoughtSummaries.value = false;
+  }
 }
 
 function openImageModal(img: ChatAttachment) {

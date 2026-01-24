@@ -22,13 +22,14 @@ import (
 // Agent represents a configured specialist bound to a specific endpoint/model.
 // It is designed for inference-only requests (no tool schema unless enabled).
 type Agent struct {
-	Name            string
-	Description     string
-	System          string
-	Model           string
-	EnableTools     bool
-	ReasoningEffort string // optional: "low"|"medium"|"high"
-	ExtraParams     map[string]any
+	Name                       string
+	Description                string
+	System                     string
+	Model                      string
+	SummaryContextWindowTokens int
+	EnableTools                bool
+	ReasoningEffort            string // optional: "low"|"medium"|"high"
+	ExtraParams                map[string]any
 
 	provider llm.Provider
 	tools    tools.Registry
@@ -181,15 +182,16 @@ func (r *Registry) ReplaceFromConfigs(base config.LLMClientConfig, list []config
 		}
 
 		a := &Agent{
-			Name:            sc.Name,
-			Description:     strings.TrimSpace(sc.Description),
-			System:          specialistSystem,
-			Model:           model,
-			EnableTools:     sc.EnableTools,
-			ReasoningEffort: strings.TrimSpace(sc.ReasoningEffort),
-			ExtraParams:     sc.ExtraParams,
-			provider:        prov,
-			tools:           toolsView,
+			Name:                       sc.Name,
+			Description:                strings.TrimSpace(sc.Description),
+			System:                     specialistSystem,
+			Model:                      model,
+			SummaryContextWindowTokens: sc.SummaryContextWindowTokens,
+			EnableTools:                sc.EnableTools,
+			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
+			ExtraParams:                sc.ExtraParams,
+			provider:                   prov,
+			tools:                      toolsView,
 		}
 		if a.Name != "" {
 			agents[a.Name] = a

@@ -335,33 +335,49 @@
             </div>
 
             <footer
-              class="mt-3 flex flex-wrap items-center gap-2 text-xs text-subtle-foreground"
+              class="mt-3 flex flex-wrap items-center justify-end gap-1 text-xs text-subtle-foreground"
             >
+              <button
+                v-if="message.role === 'assistant'"
+                type="button"
+                class="rounded-4 px-2 py-1 transition hover:text-accent"
+                :disabled="isStreaming || message.streaming"
+                @click="regenerateAssistant(message)"
+                title="Regenerate"
+                aria-label="Regenerate response"
+              >
+                <SolarRefreshIcon class="h-4 w-4" />
+              </button>
               <button
                 v-if="message.role === 'assistant' && message.content"
                 type="button"
-                class="rounded-4 border border-border px-2 py-1 transition hover:border-accent hover:text-accent"
+                class="rounded-4 px-2 py-1 transition hover:text-accent"
                 @click="copyMessage(message)"
+                :title="copiedMessageId === message.id ? 'Copied' : 'Copy'"
+                :aria-label="copiedMessageId === message.id ? 'Copied message' : 'Copy message'"
               >
-                <span v-if="copiedMessageId === message.id">Copied</span>
-                <span v-else>Copy</span>
+                <SolarCopyIcon class="h-4 w-4" />
               </button>
               <button
                 v-if="message.role === 'user' && message.content"
                 type="button"
-                class="rounded-4 border border-border px-2 py-1 transition hover:border-accent hover:text-accent"
+                class="rounded-4 px-2 py-1 transition hover:text-accent"
                 @click="copyMessage(message)"
+                :title="copiedMessageId === message.id ? 'Copied' : 'Copy'"
+                :aria-label="copiedMessageId === message.id ? 'Copied message' : 'Copy message'"
               >
-                <span v-if="copiedMessageId === message.id">Copied</span>
-                <span v-else>Copy</span>
+                <SolarCopyIcon class="h-4 w-4" />
               </button>
               <button
-                v-if="canRegenerate && message.id === lastAssistantId"
+                v-if="(message.role === 'assistant' || message.role === 'user') && message.id"
                 type="button"
-                class="rounded-4 border border-border px-2 py-1 transition hover:border-accent hover:text-accent"
-                @click="regenerateAssistant"
+                class="rounded-4 px-2 py-1 transition hover:text-accent"
+                :disabled="isStreaming || message.streaming"
+                @click="deleteChatMessage(message)"
+                title="Delete"
+                aria-label="Delete message"
               >
-                Regenerate
+                <SolarTrashIcon class="h-4 w-4" />
               </button>
             </footer>
           </article>
@@ -827,6 +843,9 @@ import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
 import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.vue";
 import SolarStopBold from "@/components/icons/SolarStopBold.vue";
+import SolarCopyIcon from "@/components/icons/SolarCopy.vue";
+import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
+import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import Camera from "@/components/icons/Camera.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import GlassCard from "@/components/ui/GlassCard.vue";
@@ -1380,16 +1399,10 @@ type Participant = {
   model: string;
 };
 
-const lastUser = computed(() =>
-  findLast(activeMessages.value, (msg) => msg.role === "user"),
-);
 const lastAssistant = computed(() =>
   findLast(activeMessages.value, (msg) => msg.role === "assistant"),
 );
 const lastAssistantId = computed(() => lastAssistant.value?.id || "");
-const canRegenerate = computed(() =>
-  Boolean(!isStreaming.value && lastUser.value && lastAssistant.value),
-);
 
 function safeTimestampMs(value?: string) {
   if (!value) return 0;
@@ -1999,8 +2012,9 @@ function stopStreaming() {
   chat.stopStreaming();
 }
 
-async function regenerateAssistant() {
-  if (!projectSelected.value || !canRegenerate.value || !lastUser.value) return;
+async function regenerateAssistant(message: ChatMessage) {
+  if (!projectSelected.value || message.role !== "assistant" || !message.id)
+    return;
   const specialist =
     selectedSpecialist.value && selectedSpecialist.value !== "orchestrator"
       ? selectedSpecialist.value
@@ -2011,6 +2025,7 @@ async function regenerateAssistant() {
     projectId: selectedProjectId.value,
     agentName,
     agentModel,
+    messageId: message.id,
   });
 }
 
@@ -2038,6 +2053,20 @@ function copyMessage(message: ChatMessage) {
     .catch(() => {
       copiedMessageId.value = null;
     });
+}
+
+async function deleteChatMessage(message: ChatMessage) {
+  const sessionId = activeSessionId.value;
+  if (!sessionId || !message?.id) return;
+  if (isStreaming.value || message.streaming) return;
+  const label = message.role === "user" ? "user" : "assistant";
+  const ok = confirm(`Delete this ${label} message?`);
+  if (!ok) return;
+  try {
+    await chat.deleteMessage(sessionId, message.id);
+  } catch (error) {
+    console.warn("Failed to delete message", error);
+  }
 }
 
 function copyThoughtSummaries() {

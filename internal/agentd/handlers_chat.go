@@ -198,12 +198,16 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 		parts := strings.Split(rest, "/")
 		id := parts[0]
 		subresource := ""
-		if len(parts) == 2 {
+		subresourceID := ""
+		if len(parts) >= 2 {
 			subresource = parts[1]
+		}
+		if len(parts) >= 3 {
+			subresourceID = parts[2]
 		}
 		switch subresource {
 		case "messages":
-			setChatCORSHeaders(w, r, "GET, OPTIONS")
+			setChatCORSHeaders(w, r, "GET, DELETE, OPTIONS")
 		case "title":
 			setChatCORSHeaders(w, r, "POST, OPTIONS")
 		default:
@@ -214,6 +218,202 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 			return
 		}
 		if subresource == "messages" {
+			if subresourceID != "" {
+				if r.Method != http.MethodDelete {
+					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+					return
+				}
+				// Load messages to determine summary impact and related tool outputs.
+				msgs, err := a.chatStore.ListMessages(r.Context(), userID, id, 0)
+				if err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("list_chat_messages")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+				msgIndex := -1
+				var target persist.ChatMessage
+				for i, m := range msgs {
+					if m.ID == subresourceID {
+						msgIndex = i
+						target = m
+						break
+					}
+				}
+				if msgIndex == -1 {
+					http.NotFound(w, r)
+					return
+				}
+				sess, err := a.chatStore.GetSession(r.Context(), userID, id)
+				if err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("get_chat_session")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+
+				// Delete target message first.
+				if err := a.chatStore.DeleteMessage(r.Context(), userID, id, subresourceID); err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("delete_chat_message")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+
+				// Remove related tool outputs if the assistant message contained tool calls.
+				toolIDs := toolCallIDsFromMessage(target)
+				if len(toolIDs) > 0 {
+					toolSet := make(map[string]struct{}, len(toolIDs))
+					for _, id := range toolIDs {
+						toolSet[id] = struct{}{}
+					}
+					for _, m := range msgs {
+						if m.Role != "tool" {
+							continue
+						}
+						if toolID := toolIDFromMessage(m); toolID != "" {
+							if _, ok := toolSet[toolID]; ok {
+								_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
+							}
+						}
+					}
+				}
+
+				// If the deleted message was part of the summarized range, clear summary.
+				if sess.SummarizedCount > 0 && msgIndex < sess.SummarizedCount {
+					if err := a.chatStore.UpdateSummary(r.Context(), userID, id, "", 0); err != nil {
+						log.Error().Err(err).Str("session", id).Msg("reset_chat_summary")
+					}
+				}
+
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			if r.Method == http.MethodDelete {
+				afterID := strings.TrimSpace(r.URL.Query().Get("after"))
+				if afterID == "" {
+					http.Error(w, "missing after", http.StatusBadRequest)
+					return
+				}
+				inclusive := false
+				switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("inclusive"))) {
+				case "true", "1", "yes", "y":
+					inclusive = true
+				}
+
+				msgs, err := a.chatStore.ListMessages(r.Context(), userID, id, 0)
+				if err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("list_chat_messages")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+				msgIndex := -1
+				var target persist.ChatMessage
+				for i, m := range msgs {
+					if m.ID == afterID {
+						msgIndex = i
+						target = m
+						break
+					}
+				}
+				if msgIndex == -1 {
+					http.NotFound(w, r)
+					return
+				}
+				sess, err := a.chatStore.GetSession(r.Context(), userID, id)
+				if err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("get_chat_session")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+
+				if err := a.chatStore.DeleteMessagesAfter(r.Context(), userID, id, afterID, inclusive); err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("delete_chat_messages_after")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+
+				// Remove related tool outputs if the target assistant message contained tool calls.
+				if inclusive {
+					toolIDs := toolCallIDsFromMessage(target)
+					if len(toolIDs) > 0 {
+						toolSet := make(map[string]struct{}, len(toolIDs))
+						for _, id := range toolIDs {
+							toolSet[id] = struct{}{}
+						}
+						for _, m := range msgs {
+							if m.Role != "tool" {
+								continue
+							}
+							if toolID := toolIDFromMessage(m); toolID != "" {
+								if _, ok := toolSet[toolID]; ok {
+									_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
+								}
+							}
+						}
+					}
+				}
+
+				remainingCount := msgIndex + 1
+				if inclusive {
+					remainingCount = msgIndex
+				}
+				if sess.SummarizedCount > remainingCount {
+					if err := a.chatStore.UpdateSummary(r.Context(), userID, id, "", 0); err != nil {
+						log.Error().Err(err).Str("session", id).Msg("reset_chat_summary")
+					}
+				}
+
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
 			if r.Method != http.MethodGet {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
@@ -434,6 +634,50 @@ func hydrateChatMessages(raw []persist.ChatMessage) []persist.ChatMessage {
 	}
 
 	return out
+}
+
+func toolCallIDsFromMessage(msg persist.ChatMessage) []string {
+	if msg.Role != "assistant" {
+		return nil
+	}
+	trimmed := strings.TrimSpace(msg.Content)
+	if !strings.HasPrefix(trimmed, "{") {
+		return nil
+	}
+	var data struct {
+		ToolCalls []llm.ToolCall `json:"tool_calls"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
+		return nil
+	}
+	if len(data.ToolCalls) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(data.ToolCalls))
+	for _, tc := range data.ToolCalls {
+		id := strings.TrimSpace(tc.ID)
+		if id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func toolIDFromMessage(msg persist.ChatMessage) string {
+	if msg.Role != "tool" {
+		return ""
+	}
+	trimmed := strings.TrimSpace(msg.Content)
+	if !strings.HasPrefix(trimmed, "{") {
+		return ""
+	}
+	var data struct {
+		ToolID string `json:"tool_id"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(data.ToolID)
 }
 
 func (a *app) agentRunHandler() http.HandlerFunc {
@@ -1286,6 +1530,18 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	}
 
 	buildEngine := func() *agent.Engine {
+		summaryCtxSize := sp.SummaryContextWindowTokens
+		if summaryCtxSize <= 0 {
+			summaryCtxSize = a.cfg.SummaryContextWindowTokens
+		}
+		if summaryCtxSize <= 0 {
+			ctxSize, _ := llm.ContextSize(sp.Model)
+			const defaultSummaryContextWindowCap = 32_000
+			if ctxSize <= 0 || ctxSize > defaultSummaryContextWindowCap {
+				ctxSize = defaultSummaryContextWindowCap
+			}
+			summaryCtxSize = ctxSize
+		}
 		systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
 		if skillsSection != "" {
 			systemPrompt = systemPrompt + "\n\n" + skillsSection
@@ -1296,6 +1552,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			MaxSteps:                     a.cfg.MaxSteps,
 			System:                       systemPrompt,
 			Model:                        sp.Model,
+			ContextWindowTokens:          summaryCtxSize,
 			SummaryEnabled:               a.cfg.SummaryEnabled,
 			SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
 			SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,

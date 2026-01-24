@@ -110,6 +110,31 @@ export async function fetchChatMessages(
   return data;
 }
 
+export async function deleteChatMessage(
+  sessionId: string,
+  messageId: string,
+): Promise<void> {
+  await apiClient.delete(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(messageId)}`,
+  );
+}
+
+export async function deleteChatMessagesAfter(
+  sessionId: string,
+  messageId: string,
+  inclusive = false,
+): Promise<void> {
+  await apiClient.delete(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+    {
+      params: {
+        after: messageId,
+        inclusive: inclusive ? "true" : "false",
+      },
+    },
+  );
+}
+
 export async function generateChatSessionTitle(
   sessionId: string,
   prompt: string,

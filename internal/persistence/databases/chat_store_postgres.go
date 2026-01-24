@@ -296,6 +296,125 @@ func (s *pgChatStore) DeleteSession(ctx context.Context, userID *int64, id strin
 	return persistence.ErrNotFound
 }
 
+func (s *pgChatStore) DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	// Ensure the session exists and caller has access.
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	cmd, err := tx.Exec(ctx, `DELETE FROM chat_messages WHERE session_id = $1 AND id = $2`, sessionID, messageID)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.ErrNotFound
+	}
+
+	// Update last message preview after deletion.
+	var lastContent string
+	row := tx.QueryRow(ctx, `
+SELECT content
+FROM chat_messages
+WHERE session_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT 1`, sessionID)
+	if err := row.Scan(&lastContent); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		lastContent = ""
+	}
+	preview := snippetForPreview(lastContent)
+	update := `UPDATE chat_sessions SET updated_at = NOW(), last_message_preview = $2 WHERE id = $1`
+	args := []any{sessionID, preview}
+	if userID != nil {
+		update += ` AND user_id = $3`
+		args = append(args, *userID)
+	}
+	if _, err := tx.Exec(ctx, update, args...); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (s *pgChatStore) DeleteMessagesAfter(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	// Ensure the session exists and caller has access.
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var targetCreated time.Time
+	row := tx.QueryRow(ctx, `SELECT created_at FROM chat_messages WHERE session_id = $1 AND id = $2`, sessionID, messageID)
+	if err := row.Scan(&targetCreated); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return persistence.ErrNotFound
+		}
+		return err
+	}
+
+	cmp := ">"
+	if inclusive {
+		cmp = ">="
+	}
+	query := `
+DELETE FROM chat_messages
+WHERE session_id = $1
+AND (created_at > $2 OR (created_at = $2 AND id ` + cmp + ` $3))`
+	if _, err := tx.Exec(ctx, query, sessionID, targetCreated, messageID); err != nil {
+		return err
+	}
+
+	// Update last message preview after deletion.
+	var lastContent string
+	row = tx.QueryRow(ctx, `
+SELECT content
+FROM chat_messages
+WHERE session_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT 1`, sessionID)
+	if err := row.Scan(&lastContent); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		lastContent = ""
+	}
+	preview := snippetForPreview(lastContent)
+	update := `UPDATE chat_sessions SET updated_at = NOW(), last_message_preview = $2 WHERE id = $1`
+	args := []any{sessionID, preview}
+	if userID != nil {
+		update += ` AND user_id = $3`
+		args = append(args, *userID)
+	}
+	if _, err := tx.Exec(ctx, update, args...); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (s *pgChatStore) ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
 	log := observability.LoggerWithTrace(ctx)
 	log.Debug().Str("session_id", sessionID).Int("limit", limit).Msg("list_messages_start")

@@ -37,21 +37,24 @@ type UserPreferencesStore interface {
 
 // Specialist represents a stored specialist configuration for CRUD.
 type Specialist struct {
-	ID              int64             `json:"id"`
-	UserID          int64             `json:"userId"`
-	Name            string            `json:"name"`
-	Provider        string            `json:"provider"`
-	Description     string            `json:"description"`
-	BaseURL         string            `json:"baseURL"`
-	APIKey          string            `json:"apiKey"`
-	Model           string            `json:"model"`
-	EnableTools     bool              `json:"enableTools"`
-	Paused          bool              `json:"paused"`
-	AllowTools      []string          `json:"allowTools"`
-	ReasoningEffort string            `json:"reasoningEffort"`
-	System          string            `json:"system"`
-	ExtraHeaders    map[string]string `json:"extraHeaders"`
-	ExtraParams     map[string]any    `json:"extraParams"`
+	ID          int64  `json:"id"`
+	UserID      int64  `json:"userId"`
+	Name        string `json:"name"`
+	Provider    string `json:"provider"`
+	Description string `json:"description"`
+	BaseURL     string `json:"baseURL"`
+	APIKey      string `json:"apiKey"`
+	Model       string `json:"model"`
+	// SummaryContextWindowTokens overrides the summary context window size (in tokens)
+	// for this specialist. Zero means use the global fallback.
+	SummaryContextWindowTokens int               `json:"summaryContextWindowTokens"`
+	EnableTools                bool              `json:"enableTools"`
+	Paused                     bool              `json:"paused"`
+	AllowTools                 []string          `json:"allowTools"`
+	ReasoningEffort            string            `json:"reasoningEffort"`
+	System                     string            `json:"system"`
+	ExtraHeaders               map[string]string `json:"extraHeaders"`
+	ExtraParams                map[string]any    `json:"extraParams"`
 }
 
 // SpecialistsStore defines CRUD over specialists.
@@ -99,6 +102,8 @@ type ChatStore interface {
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)
+	DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error
+	DeleteMessagesAfter(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool) error
 	AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []ChatMessage, preview string, model string) error
 	UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error
 }

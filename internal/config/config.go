@@ -197,6 +197,9 @@ type SpecialistConfig struct {
 	BaseURL     string `yaml:"baseURL" json:"baseURL"`
 	APIKey      string `yaml:"apiKey" json:"apiKey"`
 	Model       string `yaml:"model" json:"model"`
+	// SummaryContextWindowTokens overrides the summary context window size (in tokens)
+	// for this specialist. Zero means use the global fallback.
+	SummaryContextWindowTokens int `yaml:"summaryContextWindowTokens" json:"summaryContextWindowTokens"`
 	// API, when set, overrides which API surface to use for this specialist: "completions" or "responses".
 	API         string `yaml:"api" json:"api"`
 	EnableTools bool   `yaml:"enableTools" json:"enableTools"`

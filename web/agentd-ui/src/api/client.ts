@@ -263,6 +263,7 @@ export interface Specialist {
   baseURL: string;
   apiKey?: string;
   model: string;
+  summaryContextWindowTokens?: number;
   enableTools: boolean;
   paused: boolean;
   allowTools?: string[];

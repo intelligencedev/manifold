@@ -596,6 +596,34 @@
           </ul>
         </div>
 
+        <FormSection
+          title="Summarization"
+          helper="Override the summary context window for this specialist. Leave blank to use the global summaryContextWindowTokens fallback."
+        >
+          <div class="flex flex-col gap-1">
+            <label
+              for="sp-summary-context"
+              class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+              >Summary context window (tokens)</label>
+            <input
+              id="sp-summary-context"
+              v-model="draft.summaryContextWindowTokens"
+              type="number"
+              min="1"
+              step="1"
+              class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+              placeholder="Use global default"
+              @blur="touch('summaryContextWindowTokens')"
+            />
+            <p
+              v-if="fieldError('summaryContextWindowTokens')"
+              class="text-xs text-danger-foreground"
+            >
+              {{ fieldError("summaryContextWindowTokens") }}
+            </p>
+          </div>
+        </FormSection>
+
         <CollapsiblePanel
           v-model="headersOpen"
           title="Extra headers"
@@ -805,6 +833,7 @@ const draft = reactive({
   description: "",
   provider: "",
   model: "",
+  summaryContextWindowTokens: "",
   paused: false,
   useDefaultEndpoint: true,
   customBaseURL: "",
@@ -937,6 +966,15 @@ const fieldErrors = computed<Record<string, string>>(() => {
   const paramsRowErrs = validateRows(extraParamsRows.value);
   if (paramsRowErrs.length) errs.extraParams = "Fix errors in extra params.";
 
+  const summaryOverride = String(draft.summaryContextWindowTokens || "").trim();
+  if (summaryOverride) {
+    const parsed = Number(summaryOverride);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+      errs.summaryContextWindowTokens =
+        "Summary context window must be a positive whole number.";
+    }
+  }
+
   return errs;
 });
 
@@ -960,6 +998,8 @@ const errorsByTab = computed(() => {
     advanced.push(fieldErrors.value.extraHeaders);
   if (fieldErrors.value.extraParams)
     advanced.push(fieldErrors.value.extraParams);
+  if (fieldErrors.value.summaryContextWindowTokens)
+    advanced.push(fieldErrors.value.summaryContextWindowTokens);
 
   return { basics, prompt, tools: toolsTab, advanced };
 });
@@ -1009,6 +1049,7 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     provider: sp.provider || "",
     baseURL: (sp.baseURL || "").trim(),
     model: (sp.model || "").trim(),
+    summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
     paused: !!sp.paused,
     allowTools,
@@ -1026,6 +1067,7 @@ function normalizePayload(sp: Specialist): Specialist {
     provider: sp.provider || "",
     baseURL: (sp.baseURL || "").trim(),
     model: (sp.model || "").trim(),
+    summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
     paused: !!sp.paused,
     apiKey: sp.apiKey || undefined,
@@ -1103,6 +1145,7 @@ function buildPayloadFromDraft(): Specialist {
     provider: (draft.provider || "").trim(),
     model: (draft.model || "").trim(),
     baseURL: (baseURL || "").trim(),
+    summaryContextWindowTokens: 0,
     enableTools,
     paused: !!draft.paused,
     allowTools: allow,
@@ -1110,6 +1153,14 @@ function buildPayloadFromDraft(): Specialist {
     extraHeaders: extraHeadersObj.value,
     extraParams: extraParamsObj.value,
   };
+
+  const summaryOverride = String(draft.summaryContextWindowTokens || "").trim();
+  if (summaryOverride) {
+    const parsed = Number(summaryOverride);
+    if (Number.isFinite(parsed) && Number.isInteger(parsed) && parsed > 0) {
+      payload.summaryContextWindowTokens = parsed;
+    }
+  }
 
   const nextKey = credentialDraft.value.trim();
   if (nextKey) {
@@ -1441,6 +1492,9 @@ function initFromInitial(sp: Specialist) {
   draft.model = normalized.model || "";
   draft.paused = !!normalized.paused;
   draft.system = normalized.system || "";
+  draft.summaryContextWindowTokens = normalized.summaryContextWindowTokens
+    ? String(normalized.summaryContextWindowTokens)
+    : "";
 
   // endpoint defaults
   const defaults = props.providerDefaults?.[draft.provider];

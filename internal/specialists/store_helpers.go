@@ -20,19 +20,20 @@ func ConfigsFromStore(list []persistence.Specialist) []config.SpecialistConfig {
 			continue
 		}
 		out = append(out, config.SpecialistConfig{
-			Name:            s.Name,
-			Description:     s.Description,
-			Provider:        s.Provider,
-			BaseURL:         s.BaseURL,
-			APIKey:          s.APIKey,
-			Model:           s.Model,
-			EnableTools:     s.EnableTools,
-			Paused:          s.Paused,
-			AllowTools:      s.AllowTools,
-			ReasoningEffort: s.ReasoningEffort,
-			System:          s.System,
-			ExtraHeaders:    s.ExtraHeaders,
-			ExtraParams:     s.ExtraParams,
+			Name:                       s.Name,
+			Description:                s.Description,
+			Provider:                   s.Provider,
+			BaseURL:                    s.BaseURL,
+			APIKey:                     s.APIKey,
+			Model:                      s.Model,
+			SummaryContextWindowTokens: s.SummaryContextWindowTokens,
+			EnableTools:                s.EnableTools,
+			Paused:                     s.Paused,
+			AllowTools:                 s.AllowTools,
+			ReasoningEffort:            s.ReasoningEffort,
+			System:                     s.System,
+			ExtraHeaders:               s.ExtraHeaders,
+			ExtraParams:                s.ExtraParams,
 		})
 	}
 	return out
@@ -64,19 +65,20 @@ func SeedStore(ctx context.Context, store persistence.SpecialistsStore, userID i
 			continue
 		}
 		_, err := store.Upsert(ctx, userID, persistence.Specialist{
-			Name:            name,
-			Provider:        sc.Provider,
-			Description:     sc.Description,
-			BaseURL:         sc.BaseURL,
-			APIKey:          sc.APIKey,
-			Model:           sc.Model,
-			EnableTools:     sc.EnableTools,
-			Paused:          sc.Paused,
-			AllowTools:      sc.AllowTools,
-			ReasoningEffort: sc.ReasoningEffort,
-			System:          sc.System,
-			ExtraHeaders:    sc.ExtraHeaders,
-			ExtraParams:     sc.ExtraParams,
+			Name:                       name,
+			Provider:                   sc.Provider,
+			Description:                sc.Description,
+			BaseURL:                    sc.BaseURL,
+			APIKey:                     sc.APIKey,
+			Model:                      sc.Model,
+			SummaryContextWindowTokens: sc.SummaryContextWindowTokens,
+			EnableTools:                sc.EnableTools,
+			Paused:                     sc.Paused,
+			AllowTools:                 sc.AllowTools,
+			ReasoningEffort:            sc.ReasoningEffort,
+			System:                     sc.System,
+			ExtraHeaders:               sc.ExtraHeaders,
+			ExtraParams:                sc.ExtraParams,
 		})
 		if err != nil {
 			return err

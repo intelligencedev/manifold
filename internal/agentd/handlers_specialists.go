@@ -279,20 +279,21 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 	baseModel, baseURL, baseKey, baseHeaders, baseParams := a.providerDefaults(defaultProvider)
 	// Start from global defaults
 	out := persist.Specialist{
-		ID:           0,
-		UserID:       userID,
-		Name:         specialists.OrchestratorName,
-		Description:  "",
-		Provider:     defaultProvider,
-		BaseURL:      baseURL,
-		APIKey:       baseKey,
-		Model:        baseModel,
-		EnableTools:  a.cfg.EnableTools,
-		Paused:       false,
-		AllowTools:   a.cfg.ToolAllowList,
-		System:       a.cfg.SystemPrompt,
-		ExtraHeaders: baseHeaders,
-		ExtraParams:  baseParams,
+		ID:                         0,
+		UserID:                     userID,
+		Name:                       specialists.OrchestratorName,
+		Description:                "",
+		Provider:                   defaultProvider,
+		BaseURL:                    baseURL,
+		APIKey:                     baseKey,
+		Model:                      baseModel,
+		SummaryContextWindowTokens: 0,
+		EnableTools:                a.cfg.EnableTools,
+		Paused:                     false,
+		AllowTools:                 a.cfg.ToolAllowList,
+		System:                     a.cfg.SystemPrompt,
+		ExtraHeaders:               baseHeaders,
+		ExtraParams:                baseParams,
 	}
 	// Apply per-user overlay if present
 	if sp, ok, _ := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName); ok {
@@ -311,6 +312,9 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		}
 		if strings.TrimSpace(sp.Model) != "" {
 			out.Model = sp.Model
+		}
+		if sp.SummaryContextWindowTokens > 0 {
+			out.SummaryContextWindowTokens = sp.SummaryContextWindowTokens
 		}
 		out.EnableTools = sp.EnableTools
 		if sp.AllowTools != nil {
@@ -433,14 +437,15 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	a.warppMu.Unlock()
 
 	toSave := persist.Specialist{
-		Name:        specialists.OrchestratorName,
-		Description: sp.Description,
-		EnableTools: a.cfg.EnableTools,
-		Paused:      false,
-		AllowTools:  append([]string(nil), a.cfg.ToolAllowList...),
-		System:      a.cfg.SystemPrompt,
-		Provider:    provider,
-		ExtraParams: sp.ExtraParams,
+		Name:                       specialists.OrchestratorName,
+		Description:                sp.Description,
+		EnableTools:                a.cfg.EnableTools,
+		Paused:                     false,
+		AllowTools:                 append([]string(nil), a.cfg.ToolAllowList...),
+		System:                     a.cfg.SystemPrompt,
+		Provider:                   provider,
+		ExtraParams:                sp.ExtraParams,
+		SummaryContextWindowTokens: sp.SummaryContextWindowTokens,
 	}
 	switch provider {
 	case "anthropic":

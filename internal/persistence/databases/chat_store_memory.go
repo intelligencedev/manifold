@@ -139,6 +139,90 @@ func (s *memChatStore) DeleteSession(ctx context.Context, userID *int64, id stri
 	return nil
 }
 
+func (s *memChatStore) DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ErrForbidden
+	}
+	msgs := s.messages[sessionID]
+	idx := -1
+	for i, m := range msgs {
+		if m.ID == messageID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return persistence.ErrNotFound
+	}
+	msgs = append(msgs[:idx], msgs[idx+1:]...)
+	s.messages[sessionID] = msgs
+
+	preview := ""
+	if len(msgs) > 0 {
+		preview = snippetForPreview(msgs[len(msgs)-1].Content)
+	}
+	sess.LastMessagePreview = preview
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[sessionID] = sess
+	return nil
+}
+
+func (s *memChatStore) DeleteMessagesAfter(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ErrForbidden
+	}
+	msgs := s.messages[sessionID]
+	idx := -1
+	for i, m := range msgs {
+		if m.ID == messageID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return persistence.ErrNotFound
+	}
+	cut := idx + 1
+	if inclusive {
+		cut = idx
+	}
+	if cut < 0 {
+		cut = 0
+	}
+	if cut > len(msgs) {
+		cut = len(msgs)
+	}
+	msgs = msgs[:cut]
+	s.messages[sessionID] = msgs
+
+	preview := ""
+	if len(msgs) > 0 {
+		preview = snippetForPreview(msgs[len(msgs)-1].Content)
+	}
+	sess.LastMessagePreview = preview
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[sessionID] = sess
+	return nil
+}
+
 func (s *memChatStore) ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

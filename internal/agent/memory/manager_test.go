@@ -135,6 +135,59 @@ func (s *stubChatStore) ListMessages(ctx context.Context, userID *int64, session
 	return msgs, nil
 }
 
+func (s *stubChatStore) DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msgs := s.messages[sessionID]
+	idx := -1
+	for i, m := range msgs {
+		if m.ID == messageID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil
+	}
+	msgs = append(msgs[:idx], msgs[idx+1:]...)
+	s.messages[sessionID] = msgs
+	if sess, ok := s.sessions[sessionID]; ok {
+		sess.UpdatedAt = time.Now()
+	}
+	return nil
+}
+
+func (s *stubChatStore) DeleteMessagesAfter(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	msgs := s.messages[sessionID]
+	idx := -1
+	for i, m := range msgs {
+		if m.ID == messageID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return nil
+	}
+	cut := idx + 1
+	if inclusive {
+		cut = idx
+	}
+	if cut < 0 {
+		cut = 0
+	}
+	if cut > len(msgs) {
+		cut = len(msgs)
+	}
+	s.messages[sessionID] = msgs[:cut]
+	if sess, ok := s.sessions[sessionID]; ok {
+		sess.UpdatedAt = time.Now()
+	}
+	return nil
+}
+
 func (s *stubChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

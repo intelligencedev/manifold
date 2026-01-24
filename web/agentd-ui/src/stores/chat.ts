@@ -11,6 +11,8 @@ import type {
 import {
   createChatSession as apiCreateChatSession,
   deleteChatSession as apiDeleteChatSession,
+  deleteChatMessage as apiDeleteChatMessage,
+  deleteChatMessagesAfter as apiDeleteChatMessagesAfter,
   fetchChatMessages,
   generateChatSessionTitle,
   listChatSessions,
@@ -244,6 +246,28 @@ export const useChatStore = defineStore("chat", () => {
     ) {
       touchSession(sessionId, snippet(message.content));
     }
+  }
+
+  async function deleteMessage(sessionId: string, messageId: string) {
+    if (!sessionId || !messageId) return;
+    await apiDeleteChatMessage(sessionId, messageId);
+    const refreshed = await fetchChatMessages(sessionId);
+    setMessages(sessionId, refreshed);
+    clearThoughtSummaries(sessionId);
+    clearSummaryEvent(sessionId);
+  }
+
+  async function deleteMessagesAfter(
+    sessionId: string,
+    messageId: string,
+    inclusive = false,
+  ) {
+    if (!sessionId || !messageId) return;
+    await apiDeleteChatMessagesAfter(sessionId, messageId, inclusive);
+    const refreshed = await fetchChatMessages(sessionId);
+    setMessages(sessionId, refreshed);
+    clearThoughtSummaries(sessionId);
+    clearSummaryEvent(sessionId);
   }
 
   function updateMessage(
@@ -1152,23 +1176,27 @@ export const useChatStore = defineStore("chat", () => {
       projectId?: string;
       agentName?: string;
       agentModel?: string;
+      messageId?: string;
     } = {},
   ) {
     const sessionId = ensureSession();
     if (isSessionStreaming(sessionId)) return;
     const messages = messagesBySession.value[sessionId] || [];
-    const lastUser = [...messages].reverse().find((m) => m.role === "user");
-    const lastAssistantIdx = [...messages]
-      .reverse()
-      .findIndex((m) => m.role === "assistant");
-    if (!lastUser || lastAssistantIdx === -1) return;
-    // Remove last assistant message
-    const targetIndex = messages.findLastIndex(
-      (m: ChatMessage) => m.role === "assistant",
-    );
-    const next = [...messages];
-    if (targetIndex !== -1) next.splice(targetIndex, 1);
-    setMessages(sessionId, next);
+    const targetIndex = options.messageId
+      ? messages.findIndex((m) => m.id === options.messageId)
+      : messages.findLastIndex((m) => m.role === "assistant");
+    if (targetIndex === -1) return;
+    const target = messages[targetIndex];
+    if (!target || target.role !== "assistant" || !target.id) return;
+    let lastUser: ChatMessage | undefined;
+    for (let i = targetIndex - 1; i >= 0; i -= 1) {
+      if (messages[i].role === "user") {
+        lastUser = messages[i];
+        break;
+      }
+    }
+    if (!lastUser) return;
+    await deleteMessagesAfter(sessionId, target.id, true);
     await sendPrompt(lastUser.content, [], undefined, {
       echoUser: false,
       specialist: options.specialist,
@@ -1201,6 +1229,7 @@ export const useChatStore = defineStore("chat", () => {
     selectSession,
     createSession,
     deleteSession,
+    deleteMessage,
     renameSession,
     sendPrompt,
     stopStreaming,

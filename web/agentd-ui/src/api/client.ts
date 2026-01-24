@@ -301,6 +301,18 @@ export interface Specialist {
   system?: string;
   extraHeaders?: Record<string, string>;
   extraParams?: Record<string, any>;
+  groups?: string[];
+}
+
+export interface SpecialistGroup {
+  id?: number;
+  userId?: number;
+  name: string;
+  description?: string;
+  orchestrator: Specialist;
+  members: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface SpecialistProviderDefaults {
@@ -348,6 +360,59 @@ export async function listSpecialistDefaults(): Promise<
     Record<string, SpecialistProviderDefaults>
   >("/specialists/defaults");
   return data;
+}
+
+// Specialist Groups
+export async function listGroups(): Promise<SpecialistGroup[]> {
+  const { data } = await apiClient.get<SpecialistGroup[]>("/groups");
+  return data;
+}
+
+export async function getGroup(name: string): Promise<SpecialistGroup> {
+  const { data } = await apiClient.get<SpecialistGroup>(
+    `/groups/${encodeURIComponent(name)}`,
+  );
+  return data;
+}
+
+export async function upsertGroup(
+  group: SpecialistGroup,
+): Promise<SpecialistGroup> {
+  if (group.name && group.id == null) {
+    const { data } = await apiClient.post<SpecialistGroup>("/groups", group);
+    return data;
+  }
+  const { data } = await apiClient.put<SpecialistGroup>(
+    `/groups/${encodeURIComponent(group.name)}`,
+    group,
+  );
+  return data;
+}
+
+export async function deleteGroup(name: string): Promise<void> {
+  await apiClient.delete(`/groups/${encodeURIComponent(name)}`);
+}
+
+export async function addGroupMember(
+  groupName: string,
+  specialistName: string,
+): Promise<void> {
+  await apiClient.put(
+    `/groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(
+      specialistName,
+    )}`,
+  );
+}
+
+export async function removeGroupMember(
+  groupName: string,
+  specialistName: string,
+): Promise<void> {
+  await apiClient.delete(
+    `/groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(
+      specialistName,
+    )}`,
+  );
 }
 
 // Users & Roles

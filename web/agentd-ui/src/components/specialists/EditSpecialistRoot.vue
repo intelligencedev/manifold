@@ -177,6 +177,49 @@
         </FormSection>
 
         <FormSection
+          title="Groups"
+          helper="Assign this specialist to one or more teams. Specialists can belong to multiple groups."
+        >
+          <div class="flex flex-col gap-3">
+            <input
+              v-model="groupSearch"
+              type="text"
+              placeholder="Search groups"
+              class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm text-foreground"
+            />
+            <div class="rounded-lg border border-border/60 bg-surface">
+              <div
+                v-if="!availableGroups.length"
+                class="px-3 py-3 text-sm text-subtle-foreground"
+              >
+                No groups created yet.
+              </div>
+              <div
+                v-else-if="!filteredGroupOptions.length"
+                class="px-3 py-3 text-sm text-subtle-foreground"
+              >
+                No groups match your search.
+              </div>
+              <label
+                v-for="g in filteredGroupOptions"
+                :key="g"
+                class="flex cursor-pointer items-start gap-3 border-t border-border/40 px-3 py-2 transition-colors first:border-t-0 hover:bg-surface-muted/40"
+              >
+                <input
+                  class="mt-1 h-4 w-4 shrink-0"
+                  type="checkbox"
+                  :checked="selectedGroupsSet.has(g)"
+                  @change="setGroupSelected(g, ($event.target as HTMLInputElement).checked)"
+                />
+                <div class="min-w-0">
+                  <p class="text-sm font-medium text-foreground">{{ g }}</p>
+                </div>
+              </label>
+            </div>
+          </div>
+        </FormSection>
+
+        <FormSection
           title="Runtime"
           helper="Select a provider and model. Optionally override the default endpoint."
         >
@@ -804,6 +847,7 @@ const props = withDefaults(
     lockName?: boolean;
     providerDefaults?: Record<string, SpecialistProviderDefaults>;
     providerOptions: string[];
+    availableGroups?: string[];
     credentialConfigured?: boolean;
   }>(),
   { lockName: false, credentialConfigured: false },
@@ -859,6 +903,9 @@ const toolsLoading = ref(false);
 const toolsError = ref("");
 const toolsSearch = ref("");
 
+const groupSearch = ref("");
+const selectedGroups = ref<string[]>([]);
+
 const showCredentialModal = ref(false);
 const credentialDraft = ref("");
 const credPanel = ref<HTMLElement | null>(null);
@@ -883,6 +930,14 @@ const promptApply = ref<{ promptId: string; versionId: string }>({
 const providerDropdownOptions = computed(() =>
   props.providerOptions.map((opt) => ({ id: opt, label: opt, value: opt })),
 );
+
+const availableGroups = computed(() => props.availableGroups || []);
+const selectedGroupsSet = computed(() => new Set(selectedGroups.value));
+const filteredGroupOptions = computed(() => {
+  const q = groupSearch.value.trim().toLowerCase();
+  if (!q) return availableGroups.value;
+  return availableGroups.value.filter((g) => g.toLowerCase().includes(q));
+});
 
 const providerDefaultsForSelected = computed(() => {
   const prov = (draft.provider || "").trim();
@@ -1042,6 +1097,8 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
   allowTools.sort((a, b) =>
     a.localeCompare(b, undefined, { sensitivity: "base" }),
   );
+  const groups = Array.isArray(sp.groups) ? [...sp.groups] : [];
+  groups.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
 
   return {
     name: (sp.name || "").trim(),
@@ -1056,6 +1113,7 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     system: sp.system || "",
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
+    groups,
   };
 }
 
@@ -1075,6 +1133,7 @@ function normalizePayload(sp: Specialist): Specialist {
     system: sp.system || "",
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
+    groups: Array.isArray(sp.groups) ? sp.groups : [],
   };
 }
 
@@ -1152,6 +1211,7 @@ function buildPayloadFromDraft(): Specialist {
     system: draft.system,
     extraHeaders: extraHeadersObj.value,
     extraParams: extraParamsObj.value,
+    groups: selectedGroups.value,
   };
 
   const summaryOverride = String(draft.summaryContextWindowTokens || "").trim();
@@ -1372,6 +1432,17 @@ function setToolAllowed(name: string, allowed: boolean) {
   );
 }
 
+function setGroupSelected(name: string, selected: boolean) {
+  const groupName = (name || "").trim();
+  if (!groupName) return;
+  const next = new Set(selectedGroups.value);
+  if (selected) next.add(groupName);
+  else next.delete(groupName);
+  selectedGroups.value = Array.from(next).sort((a, b) =>
+    a.localeCompare(b, undefined, { sensitivity: "base" }),
+  );
+}
+
 function openCredentialModal() {
   credRestoreFocusEl.value = document.activeElement as HTMLElement | null;
   credentialDraft.value = "";
@@ -1521,6 +1592,10 @@ function initFromInitial(sp: Specialist) {
     draft.toolPolicy = "any";
     allowTools.value = [];
   }
+
+  selectedGroups.value = Array.isArray(normalized.groups)
+    ? [...normalized.groups]
+    : [];
 
   // advanced
   extraHeadersObj.value = normalized.extraHeaders || {};

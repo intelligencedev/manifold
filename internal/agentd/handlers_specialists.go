@@ -111,9 +111,17 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
+			membership := a.groupMembershipsForUser(r.Context(), userID)
 			out := make([]persist.Specialist, 0, len(list)+1)
-			out = append(out, a.orchestratorSpecialist(r.Context(), userID))
+			orchestrator := a.orchestratorSpecialist(r.Context(), userID)
+			orchestrator.Groups = membership[orchestrator.Name]
+			out = append(out, orchestrator)
 			out = append(out, list...)
+			for i := range out {
+				if groups, ok := membership[out[i].Name]; ok {
+					out[i].Groups = groups
+				}
+			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(out)
 
@@ -164,6 +172,11 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			if err := a.applyGroupMemberships(r.Context(), userID, saved.Name, sp.Groups); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			saved.Groups = sp.Groups
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(saved)
@@ -195,8 +208,10 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 		switch r.Method {
 		case http.MethodGet:
 			if name == specialists.OrchestratorName {
+				sp := a.orchestratorSpecialist(r.Context(), userID)
+				sp.Groups = a.groupMembershipsForUser(r.Context(), userID)[sp.Name]
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
+				json.NewEncoder(w).Encode(sp)
 				return
 			}
 			sp, ok, err := a.specStore.GetByName(r.Context(), userID, name)
@@ -208,6 +223,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.NotFound(w, r)
 				return
 			}
+			sp.Groups = a.groupMembershipsForUser(r.Context(), userID)[sp.Name]
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(sp)
 		case http.MethodPut:
@@ -251,6 +267,11 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			if err := a.applyGroupMemberships(r.Context(), userID, saved.Name, sp.Groups); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			saved.Groups = sp.Groups
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
 			a.invalidateSpecialistsCache(r.Context(), userID)
@@ -263,6 +284,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.Error(w, "error", http.StatusInternalServerError)
 				return
 			}
+			_ = a.removeSpecialistFromGroups(r.Context(), userID, name)
 			w.WriteHeader(http.StatusNoContent)
 			a.invalidateSpecialistsCache(r.Context(), userID)
 		default:
@@ -360,6 +382,67 @@ func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, 
 		params = map[string]any{}
 	}
 	return model, baseURL, apiKey, headers, params
+}
+
+func (a *app) groupMembershipsForUser(ctx context.Context, userID int64) map[string][]string {
+	if a.groupStore == nil {
+		return map[string][]string{}
+	}
+	m, err := a.groupStore.ListMemberships(ctx, userID)
+	if err != nil {
+		return map[string][]string{}
+	}
+	return m
+}
+
+func (a *app) applyGroupMemberships(ctx context.Context, userID int64, specialistName string, groups []string) error {
+	if a.groupStore == nil {
+		return nil
+	}
+	if groups == nil {
+		return nil
+	}
+	current := a.groupMembershipsForUser(ctx, userID)[specialistName]
+	currentSet := map[string]struct{}{}
+	for _, g := range current {
+		currentSet[g] = struct{}{}
+	}
+	desiredSet := map[string]struct{}{}
+	for _, g := range groups {
+		g = strings.TrimSpace(g)
+		if g == "" {
+			continue
+		}
+		desiredSet[g] = struct{}{}
+	}
+	for g := range currentSet {
+		if _, ok := desiredSet[g]; !ok {
+			if err := a.groupStore.RemoveMember(ctx, userID, g, specialistName); err != nil {
+				return err
+			}
+		}
+	}
+	for g := range desiredSet {
+		if _, ok := currentSet[g]; !ok {
+			if err := a.groupStore.AddMember(ctx, userID, g, specialistName); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (a *app) removeSpecialistFromGroups(ctx context.Context, userID int64, specialistName string) error {
+	if a.groupStore == nil {
+		return nil
+	}
+	current := a.groupMembershipsForUser(ctx, userID)[specialistName]
+	for _, g := range current {
+		if err := a.groupStore.RemoveMember(ctx, userID, g, specialistName); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyStringMap(in map[string]string) map[string]string {

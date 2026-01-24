@@ -18,10 +18,12 @@ import (
 	"manifold/internal/agent/prompts"
 	"manifold/internal/auth"
 	"manifold/internal/llm"
+	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/warpp"
 	"manifold/internal/workspaces"
 )
@@ -847,6 +849,13 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
 		if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
 			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
+				return
+			}
+		}
+
+		groupName := strings.TrimSpace(r.URL.Query().Get("group"))
+		if groupName != "" {
+			if handled := a.handleGroupChat(w, r, groupName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
 				return
 			}
 		}
@@ -1781,6 +1790,356 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	a.runs.updateStatus(prun.ID, "completed", 0)
 	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, out, modelLabel); err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")
+	}
+	return true
+}
+
+func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
+	if a.groupStore == nil {
+		http.Error(w, "groups unavailable", http.StatusInternalServerError)
+		return true
+	}
+	group, ok, err := a.groupStore.GetByName(r.Context(), owner, name)
+	if err != nil {
+		http.Error(w, "failed to load group", http.StatusInternalServerError)
+		return true
+	}
+	if !ok {
+		http.Error(w, "group not found", http.StatusNotFound)
+		return true
+	}
+	sp := group.Orchestrator
+	if strings.TrimSpace(sp.Name) == "" {
+		sp.Name = specialists.OrchestratorName
+	}
+
+	baseRegCfg := a.cfg.LLMClient
+	if orch, ok, _ := a.specStore.GetByName(r.Context(), owner, specialists.OrchestratorName); ok {
+		baseRegCfg, _ = specialists.ApplyLLMClientOverride(baseRegCfg, orch)
+	}
+	memberSet := make(map[string]struct{}, len(group.Members))
+	for _, m := range group.Members {
+		key := strings.TrimSpace(m)
+		if key == "" {
+			continue
+		}
+		memberSet[strings.ToLower(key)] = struct{}{}
+	}
+	list, err := a.specStore.List(r.Context(), owner)
+	if err != nil {
+		http.Error(w, "failed to load specialists", http.StatusInternalServerError)
+		return true
+	}
+	filtered := make([]persist.Specialist, 0, len(list))
+	for _, s := range list {
+		if _, ok := memberSet[strings.ToLower(strings.TrimSpace(s.Name))]; ok {
+			filtered = append(filtered, s)
+		}
+	}
+	groupReg := specialists.NewRegistry(baseRegCfg, specialists.ConfigsFromStore(filtered), a.httpClient, a.baseToolRegistry)
+
+	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
+	userCfg := *a.cfg
+	userCfg.LLMClient = llmCfg
+	if provider == "" || provider == "openai" || provider == "local" {
+		userCfg.OpenAI = llmCfg.OpenAI
+	}
+	userLLM, err := llmproviders.Build(userCfg, a.httpClient)
+	if err != nil {
+		http.Error(w, "group orchestrator not configured", http.StatusInternalServerError)
+		return true
+	}
+	currentModel := strings.TrimSpace(sp.Model)
+	if currentModel == "" {
+		switch provider {
+		case "anthropic":
+			currentModel = strings.TrimSpace(llmCfg.Anthropic.Model)
+		case "google":
+			currentModel = strings.TrimSpace(llmCfg.Google.Model)
+		default:
+			currentModel = strings.TrimSpace(llmCfg.OpenAI.Model)
+		}
+	}
+	modelLabel := name
+	if currentModel != "" {
+		modelLabel = fmt.Sprintf("%s:%s", name, currentModel)
+	}
+
+	skillsSection := ""
+	if baseDir, ok := sandbox.BaseDirFromContext(r.Context()); ok {
+		skillsSection = prompts.RenderSkillsForProject(baseDir)
+	}
+
+	buildEngine := func() *agent.Engine {
+		summaryCtxSize := sp.SummaryContextWindowTokens
+		if summaryCtxSize <= 0 {
+			summaryCtxSize = a.cfg.SummaryContextWindowTokens
+		}
+		if summaryCtxSize <= 0 {
+			ctxSize, _ := llm.ContextSize(currentModel)
+			const defaultSummaryContextWindowCap = 32_000
+			if ctxSize <= 0 || ctxSize > defaultSummaryContextWindowCap {
+				ctxSize = defaultSummaryContextWindowCap
+			}
+			summaryCtxSize = ctxSize
+		}
+
+		systemPrompt := strings.TrimSpace(sp.System)
+		if systemPrompt == "" {
+			systemPrompt = specialists.DefaultOrchestratorPrompt
+		}
+		base := prompts.DefaultSystemPrompt(a.cfg.Workdir, systemPrompt)
+		if skillsSection != "" {
+			base = base + "\n\n" + skillsSection
+		}
+		base = groupReg.AppendToSystemPrompt(base)
+
+		toolReg := tools.NewRegistry()
+		if sp.EnableTools {
+			if len(sp.AllowTools) > 0 {
+				toolReg = tools.NewFilteredRegistry(a.baseToolRegistry, sp.AllowTools)
+			} else {
+				toolReg = a.baseToolRegistry
+			}
+		}
+		eng := &agent.Engine{
+			LLM:                          userLLM,
+			Tools:                        toolReg,
+			MaxSteps:                     a.cfg.MaxSteps,
+			System:                       base,
+			Model:                        currentModel,
+			ContextWindowTokens:          summaryCtxSize,
+			SummaryEnabled:               a.cfg.SummaryEnabled,
+			SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
+			SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
+			SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
+		}
+		eng.AttachTokenizer(userLLM, nil)
+		delegator := agenttools.NewDelegator(eng.Tools, groupReg, a.workspaceManager, a.cfg.MaxSteps)
+		delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+		eng.Delegator = delegator
+		return eng
+	}
+
+	if r.Header.Get("Accept") == "text/event-stream" {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		fl, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return true
+		}
+
+		// Serialize all writes to the SSE stream. Specialist engines can execute tools
+		// concurrently, and tracing callbacks may also write.
+		var streamMu sync.Mutex
+		writeSSE := func(payload any) {
+			b, err := json.Marshal(payload)
+			if err != nil {
+				return
+			}
+			streamMu.Lock()
+			defer streamMu.Unlock()
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			fl.Flush()
+		}
+		writeSSEText := func(text string) {
+			streamMu.Lock()
+			defer streamMu.Unlock()
+			fmt.Fprint(w, text)
+			fl.Flush()
+		}
+
+		tracer := &agentStreamTracer{w: w, fl: fl, mu: &streamMu}
+		seconds := a.cfg.StreamRunTimeoutSeconds
+		if seconds <= 0 {
+			seconds = a.cfg.AgentRunTimeoutSeconds
+		}
+		ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+		defer cancel()
+
+		stopKeepalive := make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(15 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-stopKeepalive:
+					return
+				case <-ticker.C:
+					writeSSEText(": keepalive\n\n")
+				}
+			}
+		}()
+		defer close(stopKeepalive)
+
+		if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
+			ctx = llm.WithImagePrompt(ctx, opts)
+		}
+		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+		var savedImages []savedImage
+		if dur > 0 {
+			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("group", name).Bool("stream", true).Msg("using configured stream timeout")
+		} else {
+			log.Debug().Str("endpoint", "/agent/run").Str("group", name).Bool("stream", true).Msg("no timeout configured; running until completion")
+		}
+		prun := a.runs.create(prompt)
+		eng := buildEngine()
+		eng.AgentTracer = tracer
+		eng.OnDelta = func(d string) {
+			if d == "" {
+				return
+			}
+			payload := map[string]string{"type": "delta", "data": d}
+			writeSSE(payload)
+		}
+		eng.OnThoughtSummary = func(summary string) {
+			if summary == "" {
+				return
+			}
+			payload := map[string]string{"type": "thought_summary", "data": summary}
+			writeSSE(payload)
+		}
+		eng.OnToolStart = func(toolName string, args []byte, toolID string) {
+			payload := map[string]any{"type": "tool_start", "title": "Tool: " + toolName, "tool_id": toolID, "args": string(args)}
+			if toolName == "agent_call" || toolName == "ask_agent" {
+				payload["agent"] = true
+			}
+			writeSSE(payload)
+		}
+		eng.OnTool = func(toolName string, args []byte, result []byte, toolID string) {
+			if toolName == "text_to_speech_chunk" {
+				var meta map[string]any
+				_ = json.Unmarshal(result, &meta)
+				metaPayload := map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]}
+				writeSSE(metaPayload)
+				return
+			}
+			payload := map[string]any{"type": "tool_result", "title": "Tool: " + toolName, "data": string(result), "tool_id": toolID}
+			if toolName == "agent_call" || toolName == "ask_agent" {
+				payload["agent"] = true
+			}
+			writeSSE(payload)
+			if toolName == "text_to_speech" {
+				var resp map[string]any
+				if err := json.Unmarshal(result, &resp); err == nil {
+					if fp, ok := resp["file_path"].(string); ok && fp != "" {
+						trimmed := strings.TrimPrefix(fp, "./")
+						trimmed = strings.TrimPrefix(trimmed, "/")
+						url := "/audio/" + trimmed
+						ap := map[string]any{"type": "tts_audio", "file_path": fp, "url": url}
+						writeSSE(ap)
+					}
+				}
+			}
+		}
+		var turnMessages []llm.Message
+		eng.OnTurnMessage = func(msg llm.Message) {
+			turnMessages = append(turnMessages, msg)
+		}
+		eng.OnAssistant = func(msg llm.Message) {
+			if len(msg.Images) == 0 {
+				return
+			}
+			saved := saveGeneratedImages(baseDir, msg.Images, "")
+			if len(saved) == 0 {
+				return
+			}
+			savedImages = append(savedImages, saved...)
+			for _, img := range saved {
+				payload := map[string]any{
+					"type":     "image",
+					"name":     img.Name,
+					"mime":     img.MIME,
+					"data_url": img.DataURL,
+				}
+				if img.RelPath != "" {
+					payload["rel_path"] = img.RelPath
+				}
+				if img.FullPath != "" {
+					payload["file_path"] = img.FullPath
+				}
+				writeSSE(payload)
+			}
+		}
+		eng.OnSummaryTriggered = func(inputTokens, tokenBudget, messageCount, summarizedCount int) {
+			payload := map[string]any{
+				"type":             "summary",
+				"input_tokens":     inputTokens,
+				"token_budget":     tokenBudget,
+				"message_count":    messageCount,
+				"summarized_count": summarizedCount,
+			}
+			writeSSE(payload)
+		}
+
+		res, err := eng.RunStream(ctx, prompt, history)
+		if err != nil {
+			logStreamContextDone(err, r, "/agent/run", sessionID, "", name)
+			log.Error().Err(err).Str("group", name).Msg("group_stream_error")
+			writeSSE(map[string]string{"type": "error", "data": "(error) " + err.Error()})
+			a.runs.updateStatus(prun.ID, "failed", 0)
+			return true
+		}
+		if len(savedImages) > 0 {
+			res = appendImageSummary(res, savedImages)
+		}
+		payload := map[string]string{"type": "final", "data": res}
+		writeSSE(payload)
+		a.runs.updateStatus(prun.ID, "completed", 0)
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
+			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_group_stream")
+		}
+		return true
+	}
+
+	seconds := a.cfg.AgentRunTimeoutSeconds
+	ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
+	defer cancel()
+
+	if opts, ok := llm.ImagePromptFromContext(r.Context()); ok {
+		ctx = llm.WithImagePrompt(ctx, opts)
+	}
+	if dur > 0 {
+		log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("group", name).Msg("using configured agent timeout")
+	} else {
+		log.Debug().Str("endpoint", "/agent/run").Str("group", name).Msg("no timeout configured; running until completion")
+	}
+	prun := a.runs.create(prompt)
+	eng := buildEngine()
+	baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
+	var savedImages []savedImage
+	var turnMessages []llm.Message
+	eng.OnTurnMessage = func(msg llm.Message) {
+		turnMessages = append(turnMessages, msg)
+	}
+	eng.OnAssistant = func(msg llm.Message) {
+		if len(msg.Images) == 0 {
+			return
+		}
+		saved := saveGeneratedImages(baseDir, msg.Images, "")
+		if len(saved) == 0 {
+			return
+		}
+		savedImages = append(savedImages, saved...)
+	}
+	result, err := eng.Run(ctx, prompt, history)
+	if err != nil {
+		log.Error().Err(err).Str("group", name).Msg("group_run_error")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		a.runs.updateStatus(prun.ID, "failed", 0)
+		return true
+	}
+	if len(savedImages) > 0 {
+		result = appendImageSummary(result, savedImages)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"result": result})
+	a.runs.updateStatus(prun.ID, "completed", 0)
+	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, result, modelLabel); err != nil {
+		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_group")
 	}
 	return true
 }

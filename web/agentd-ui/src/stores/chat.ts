@@ -480,6 +480,7 @@ export const useChatStore = defineStore("chat", () => {
     options: {
       echoUser?: boolean;
       specialist?: string;
+      groupName?: string;
       projectId?: string;
       image?: boolean;
       imageSize?: string;
@@ -579,6 +580,7 @@ export const useChatStore = defineStore("chat", () => {
           signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
           specialist: options.specialist,
+          groupName: options.groupName,
           projectId: options.projectId,
         });
       } else {
@@ -588,6 +590,7 @@ export const useChatStore = defineStore("chat", () => {
           signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
           specialist: options.specialist,
+          groupName: options.groupName,
           projectId: options.projectId,
           image: options.image,
           imageSize: options.imageSize,
@@ -1173,6 +1176,7 @@ export const useChatStore = defineStore("chat", () => {
   async function regenerateAssistant(
     options: {
       specialist?: string;
+      groupName?: string;
       projectId?: string;
       agentName?: string;
       agentModel?: string;
@@ -1200,6 +1204,7 @@ export const useChatStore = defineStore("chat", () => {
     await sendPrompt(lastUser.content, [], undefined, {
       echoUser: false,
       specialist: options.specialist,
+      groupName: options.groupName,
       projectId: options.projectId,
       agentName: options.agentName,
       agentModel: options.agentModel,

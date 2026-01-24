@@ -47,6 +47,8 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/specialists/defaults", a.specialistDefaultsHandler())
 	mux.HandleFunc("/api/specialists", a.specialistsHandler())
 	mux.HandleFunc("/api/specialists/", a.specialistDetailHandler())
+	mux.HandleFunc("/api/groups", a.groupsHandler())
+	mux.HandleFunc("/api/groups/", a.groupDetailHandler())
 
 	mux.HandleFunc("/api/metrics/tokens", a.metricsTokensHandler())
 	mux.HandleFunc("/api/metrics/traces", a.metricsTracesHandler())

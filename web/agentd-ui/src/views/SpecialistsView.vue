@@ -8,19 +8,101 @@
     <div class="flex flex-col xl:flex-row gap-4 flex-1 min-h-0">
       <!-- left: card grid -->
       <div class="scrollbar-inset xl:w-1/2 min-w-0 min-h-0 overflow-auto rounded-[var(--radius-lg,26px)] glass-surface p-4">
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="text-base font-semibold">Specialist Assistants</h2>
-          <button @click="startCreate" class="rounded-full border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10">
-            New
+        <div class="mb-4 flex items-center justify-between gap-3">
+          <h2 class="text-base font-semibold">Specialists & Teams</h2>
+          <div class="flex items-center gap-2">
+            <button @click="startCreateGroup" class="rounded-full border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10">
+              New group
+            </button>
+            <button @click="startCreate" class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent">
+              New specialist
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-6">
+          <div class="mb-2 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-foreground">Groups</h3>
+          </div>
+          <div v-if="groupsLoading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading groups…</div>
+          <div v-else-if="groupsError" class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load groups.</div>
+          <div v-else-if="!groups.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No groups configured yet.</div>
+          <div v-else class="flex flex-col gap-3">
+            <GlassCard
+              v-for="g in groups"
+              :key="g.name"
+              class="flex flex-col transition-all duration-200 cursor-pointer"
+              :class="{ 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface': isCurrentlyEditingGroup(g.name) }"
+              interactive
+              @click="editGroup(g)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-base font-semibold text-foreground">{{ g.name }}</h3>
+                  <p class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground">Orchestrator</p>
+                  <p class="text-sm text-muted-foreground">{{ g.orchestrator?.model || '—' }}</p>
+                </div>
+                <Pill tone="accent" size="sm">Group</Pill>
+              </div>
+              <p class="mt-3 text-sm text-subtle-foreground">{{ g.description || 'No description provided yet.' }}</p>
+              <div class="mt-3 flex items-center gap-2 text-xs text-subtle-foreground">
+                <span class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium">Members · {{ g.members?.length || 0 }}</span>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2" @click.stop>
+                <button
+                  type="button"
+                  @click="editGroup(g)"
+                  class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  @click="removeGroup(g)"
+                  class="rounded-full border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
+                >
+                  Delete
+                </button>
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+
+        <div class="mb-3 flex flex-wrap gap-2">
+          <button
+            type="button"
+            class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+            :class="groupFilter === 'all' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="groupFilter = 'all'"
+          >
+            All
+          </button>
+          <button
+            type="button"
+            class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+            :class="groupFilter === 'ungrouped' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="groupFilter = 'ungrouped'"
+          >
+            Ungrouped
+          </button>
+          <button
+            v-for="g in groups"
+            :key="`filter-${g.name}`"
+            type="button"
+            class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+            :class="groupFilter === g.name ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="groupFilter = g.name"
+          >
+            {{ g.name }}
           </button>
         </div>
 
-        <div v-if="loading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading…</div>
+        <div v-if="loading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading specialists…</div>
         <div v-else-if="error" class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load specialists.</div>
-        <div v-else-if="!specialists.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No specialists configured yet.</div>
+        <div v-else-if="!filteredSpecialists.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No specialists match this filter.</div>
         <div v-else class="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
           <GlassCard
-            v-for="s in specialists"
+            v-for="s in filteredSpecialists"
             :key="s.name"
             class="flex flex-col transition-all duration-200 cursor-pointer"
             :class="{ 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface': isCurrentlyEditing(s.name) }"
@@ -47,6 +129,13 @@
             </div>
 
             <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
+
+            <div class="mt-3 flex flex-wrap gap-2 text-xs">
+              <Pill v-if="!s.groups || !s.groups.length" tone="neutral" size="sm">Ungrouped</Pill>
+              <Pill v-for="g in s.groups || []" :key="`${s.name}-${g}`" tone="neutral" size="sm">
+                {{ g }}
+              </Pill>
+            </div>
 
             <div class="flex-grow"></div>
 
@@ -103,7 +192,7 @@
 
       <!-- right: editor -->
       <div class="xl:w-1/2 min-w-0 min-h-0">
-        <GlassCard v-if="editing" class="h-full min-h-0 overflow-hidden">
+        <GlassCard v-if="editingType === 'specialist'" class="h-full min-h-0 overflow-hidden">
           <EditSpecialistRoot
             :key="editorInitial?.name || 'new'"
             class="h-full"
@@ -112,12 +201,26 @@
             :credentialConfigured="editorCredentialConfigured"
             :providerDefaults="providerDefaultsMap"
             :providerOptions="providerOptions"
+            :availableGroups="groupNames"
             @cancel="closeEditor"
             @saved="onSaved"
           />
         </GlassCard>
+        <GlassCard v-else-if="editingType === 'group'" class="h-full min-h-0 overflow-hidden">
+          <EditGroupRoot
+            :key="groupEditorInitial?.name || 'new-group'"
+            class="h-full"
+            :initial="groupEditorInitial!"
+            :lockName="groupEditorLockName"
+            :providerDefaults="providerDefaultsMap"
+            :providerOptions="providerOptions"
+            :availableSpecialists="specialistNames"
+            @cancel="closeEditor"
+            @saved="onGroupSaved"
+          />
+        </GlassCard>
         <GlassCard v-else class="flex h-full min-h-0 items-center justify-center p-4 text-sm text-subtle-foreground">
-          Select a specialist or click New to create one.
+          Select a specialist or group, or click New to create one.
         </GlassCard>
       </div>
     </div>
@@ -127,15 +230,17 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { listSpecialists, upsertSpecialist, deleteSpecialist, listSpecialistDefaults, type Specialist, type SpecialistProviderDefaults } from '@/api/client'
+import { listSpecialists, upsertSpecialist, deleteSpecialist, listSpecialistDefaults, listGroups, deleteGroup, type Specialist, type SpecialistGroup, type SpecialistProviderDefaults } from '@/api/client'
 import SolarPause from '@/components/icons/SolarPause.vue'
 import SolarPlay from '@/components/icons/SolarPlay.vue'
 import GlassCard from '@/components/ui/GlassCard.vue'
 import Pill from '@/components/ui/Pill.vue'
 import EditSpecialistRoot from '@/components/specialists/EditSpecialistRoot.vue'
+import EditGroupRoot from '@/components/specialists/EditGroupRoot.vue'
 
 const qc = useQueryClient()
 const { data, isLoading: loading, isError: error } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
+const { data: groupsData, isLoading: groupsLoading, isError: groupsError } = useQuery({ queryKey: ['groups'], queryFn: listGroups, staleTime: 5_000 })
 const { data: providerDefaultsData } = useQuery<Record<string, SpecialistProviderDefaults>>({
   queryKey: ['specialist-defaults'],
   queryFn: listSpecialistDefaults,
@@ -143,6 +248,7 @@ const { data: providerDefaultsData } = useQuery<Record<string, SpecialistProvide
 })
 
 const providerDefaultsMap = computed<Record<string, SpecialistProviderDefaults> | undefined>(() => providerDefaultsData.value)
+const groups = computed<SpecialistGroup[]>(() => groupsData.value ?? [])
 // Always present specialists sorted by name (case-insensitive)
 const specialists = computed<Specialist[]>(() => {
   const list = data.value ?? []
@@ -161,6 +267,15 @@ const specialists = computed<Specialist[]>(() => {
   return [...unique].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 })
 
+const filteredSpecialists = computed<Specialist[]>(() => {
+  const filter = groupFilter.value
+  if (filter === 'all') return specialists.value
+  if (filter === 'ungrouped') {
+    return specialists.value.filter((sp) => !sp.groups || sp.groups.length === 0)
+  }
+  return specialists.value.filter((sp) => sp.groups?.includes(filter))
+})
+
 const providerOptions = computed(() => {
   const defaults = providerDefaultsMap.value
   if (defaults && typeof defaults === 'object') {
@@ -171,17 +286,29 @@ const providerOptions = computed(() => {
 
 const providerDropdownOptions = computed(() => providerOptions.value.map((opt) => ({ id: opt, label: opt, value: opt })))
 
-const editing = ref(false)
+const groupNames = computed(() => groups.value.map(group => group.name).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
+const specialistNames = computed(() => specialists.value.filter(sp => sp.name !== 'orchestrator').map(sp => sp.name))
+
+const groupFilter = ref<'all' | 'ungrouped' | string>('all')
+
+const editingType = ref<'specialist' | 'group' | null>(null)
 const editorInitial = ref<Specialist | null>(null)
 const editorLockName = ref(false)
 const editorCredentialConfigured = ref(false)
+const groupEditorInitial = ref<SpecialistGroup | null>(null)
+const groupEditorLockName = ref(false)
 const actionError = ref<string | null>(null)
 
-// Track which specialist is currently being edited for visual feedback
-const currentEditingName = computed(() => editing.value ? editorInitial.value?.name || null : null)
+// Track which specialist/group is currently being edited for visual feedback
+const currentEditingName = computed(() => editingType.value === 'specialist' ? editorInitial.value?.name || null : null)
+const currentEditingGroupName = computed(() => editingType.value === 'group' ? groupEditorInitial.value?.name || null : null)
 
 function isCurrentlyEditing(name: string): boolean {
-  return editing.value && editorInitial.value?.name === name
+  return editingType.value === 'specialist' && editorInitial.value?.name === name
+}
+
+function isCurrentlyEditingGroup(name: string): boolean {
+  return editingType.value === 'group' && groupEditorInitial.value?.name === name
 }
 
 function statusBadgeClass(paused: boolean): string {
@@ -221,17 +348,21 @@ function startCreate() {
   editorInitial.value = { name: '', description: '', provider: defaultProvider, model: '', baseURL: '', enableTools: false, paused: false, system: '', allowTools: [], extraHeaders: {}, extraParams: {} }
   editorLockName.value = false
   editorCredentialConfigured.value = false
-  editing.value = true
+  editingType.value = 'specialist'
+  groupEditorInitial.value = null
+  groupEditorLockName.value = false
 }
 function edit(s: Specialist) {
   // If already editing the same specialist, do nothing
-  if (editing.value && editorInitial.value?.name === s.name) {
+  if (editingType.value === 'specialist' && editorInitial.value?.name === s.name) {
     return
   }
   editorInitial.value = { ...s, provider: s.provider || providerOptions.value[0] || 'openai', description: s.description ?? '', apiKey: '' }
   editorLockName.value = true
   editorCredentialConfigured.value = !!s.apiKey
-  editing.value = true
+  editingType.value = 'specialist'
+  groupEditorInitial.value = null
+  groupEditorLockName.value = false
 }
 function cloneSpecialist(s: Specialist) {
   const baseName = `${s.name || 'specialist'} copy`
@@ -258,7 +389,9 @@ function cloneSpecialist(s: Specialist) {
   }
   editorLockName.value = false
   editorCredentialConfigured.value = false
-  editing.value = true
+  editingType.value = 'specialist'
+  groupEditorInitial.value = null
+  groupEditorLockName.value = false
 }
 function generateUniqueName(base: string) {
   const names = new Set((data.value ?? []).map(sp => sp.name))
@@ -274,10 +407,12 @@ function generateUniqueName(base: string) {
   return candidate
 }
 function closeEditor() {
-  editing.value = false
+  editingType.value = null
   editorInitial.value = null
   editorLockName.value = false
   editorCredentialConfigured.value = false
+  groupEditorInitial.value = null
+  groupEditorLockName.value = false
 }
 
 function onSaved(saved: Specialist) {
@@ -294,6 +429,66 @@ function onSaved(saved: Specialist) {
   }
   editorLockName.value = true
   editorCredentialConfigured.value = !!saved.apiKey
+  editingType.value = 'specialist'
+  void qc.invalidateQueries({ queryKey: ['groups'] })
+}
+
+function startCreateGroup() {
+  const defaultProvider = providerOptions.value[0] || 'openai'
+  groupEditorInitial.value = {
+    name: '',
+    description: '',
+    members: [],
+    orchestrator: {
+      name: 'new-group-orchestrator',
+      description: 'Group orchestrator',
+      provider: defaultProvider,
+      model: '',
+      baseURL: '',
+      enableTools: true,
+      paused: false,
+      system: '',
+      allowTools: [],
+      extraHeaders: {},
+      extraParams: {},
+    },
+  }
+  groupEditorLockName.value = false
+  editingType.value = 'group'
+  editorInitial.value = null
+  editorLockName.value = false
+  editorCredentialConfigured.value = false
+}
+
+function editGroup(group: SpecialistGroup) {
+  if (editingType.value === 'group' && groupEditorInitial.value?.name === group.name) {
+    return
+  }
+  groupEditorInitial.value = {
+    ...group,
+    description: group.description ?? '',
+    members: group.members || [],
+    orchestrator: group.orchestrator,
+  }
+  groupEditorLockName.value = true
+  editingType.value = 'group'
+  editorInitial.value = null
+  editorLockName.value = false
+  editorCredentialConfigured.value = false
+}
+
+function onGroupSaved(saved: SpecialistGroup) {
+  actionError.value = null
+  groupEditorInitial.value = {
+    ...saved,
+    description: saved.description ?? '',
+    members: saved.members || [],
+    orchestrator: saved.orchestrator,
+  }
+  groupEditorLockName.value = true
+  editingType.value = 'group'
+  void qc.invalidateQueries({ queryKey: ['groups'] })
+  void qc.invalidateQueries({ queryKey: ['specialists'] })
 }
 async function togglePause(s: Specialist) {
   try {
@@ -311,9 +506,22 @@ async function remove(s: Specialist) {
     await deleteSpecialist(s.name)
     actionError.value = null
     await qc.invalidateQueries({ queryKey: ['specialists'] })
+    await qc.invalidateQueries({ queryKey: ['groups'] })
     await qc.invalidateQueries({ queryKey: ['agent-status'] })
   } catch (e) {
     setErr(e, 'Failed to delete specialist.')
+  }
+}
+
+async function removeGroup(g: SpecialistGroup) {
+  if (!confirm(`Delete group ${g.name}?`)) return
+  try {
+    await deleteGroup(g.name)
+    actionError.value = null
+    await qc.invalidateQueries({ queryKey: ['groups'] })
+    await qc.invalidateQueries({ queryKey: ['specialists'] })
+  } catch (e) {
+    setErr(e, 'Failed to delete group.')
   }
 }
 </script>

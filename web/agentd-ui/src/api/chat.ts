@@ -58,6 +58,9 @@ export interface StreamAgentRunOptions {
   // Optional specialist override: when set (and not 'orchestrator'),
   // the backend will run that specialist for this request.
   specialist?: string;
+  // Optional group override: when set, the backend will use the group's
+  // orchestrator configuration for this request.
+  groupName?: string;
   // Optional project context: when provided, backend will sandbox tools under
   // the user's project root and attach { project_id } in the JSON body.
   projectId?: string;
@@ -160,6 +163,7 @@ export async function streamAgentRun(
     signal,
     onEvent,
     specialist,
+    groupName,
     projectId,
   } = options;
   const fetchFn = fetchImpl ?? fetch;
@@ -172,15 +176,21 @@ export async function streamAgentRun(
 
   let response: Response;
 
-  // Build endpoint with optional specialist override as a query param.
+  // Build endpoint with optional specialist/group overrides as query params.
   let url = runEndpoint;
+  const params = new URLSearchParams();
   if (
     specialist &&
     specialist.trim() &&
     specialist.trim().toLowerCase() !== "orchestrator"
   ) {
-    const qp = `specialist=${encodeURIComponent(specialist.trim())}`;
-    url = `${url}?${qp}`;
+    params.set("specialist", specialist.trim());
+  }
+  if (groupName && groupName.trim()) {
+    params.set("group", groupName.trim());
+  }
+  if (params.toString()) {
+    url = `${url}?${params.toString()}`;
   }
 
   try {
@@ -324,6 +334,7 @@ export async function streamAgentVisionRun(
     signal,
     onEvent,
     specialist,
+    groupName,
     projectId,
   } = options;
   const fetchFn = fetchImpl ?? fetch;
@@ -337,15 +348,21 @@ export async function streamAgentVisionRun(
 
   let response: Response;
   const decoder = new TextDecoder();
-  // Build endpoint with optional specialist override as a query param.
+  // Build endpoint with optional specialist/group overrides as a query param.
   let url = visionEndpoint;
+  const params = new URLSearchParams();
   if (
     specialist &&
     specialist.trim() &&
     specialist.trim().toLowerCase() !== "orchestrator"
   ) {
-    const qp = `specialist=${encodeURIComponent(specialist.trim())}`;
-    url = `${url}?${qp}`;
+    params.set("specialist", specialist.trim());
+  }
+  if (groupName && groupName.trim()) {
+    params.set("group", groupName.trim());
+  }
+  if (params.toString()) {
+    url = `${url}?${params.toString()}`;
   }
   try {
     response = await fetchFn(url, {

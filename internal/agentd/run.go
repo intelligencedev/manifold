@@ -92,6 +92,7 @@ type app struct {
 	authStore          *auth.Store
 	authProvider       auth.Provider
 	specStore          persist.SpecialistsStore
+	groupStore         persist.SpecialistGroupsStore
 	mcpStore           persist.MCPStore
 	userPrefsStore     persist.UserPreferencesStore
 	mcpManager         *mcpclient.Manager
@@ -873,6 +874,9 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	specStore := databases.NewSpecialistsStore(pg)
 	_ = specStore.Init(ctx)
 	a.specStore = specStore
+	groupStore := databases.NewSpecialistGroupsStore(pg)
+	_ = groupStore.Init(ctx)
+	a.groupStore = groupStore
 
 	if err := specialists.SeedStore(ctx, specStore, systemUserID, a.cfg.Specialists); err != nil {
 		log.Warn().Err(err).Msg("seed specialists")

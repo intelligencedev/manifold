@@ -777,6 +777,16 @@
                   {{ participantList.length }} available
                 </span>
               </header>
+              <div class="mt-2">
+                <DropdownSelect
+                  v-model="selectedGroup"
+                  :options="groupOptions"
+                  size="xs"
+                  title="Group for this conversation"
+                  aria-label="Specialist group"
+                  class="w-full"
+                />
+              </div>
               <div class="mt-2 flex-1 min-h-0 overflow-y-auto">
                 <div
                   v-if="!participantList.length"
@@ -836,7 +846,12 @@ import type {
   ChatRole,
 } from "@/types/chat";
 import { useQuery } from "@tanstack/vue-query";
-import { listSpecialists, type Specialist } from "@/api/client";
+import {
+  listGroups,
+  listSpecialists,
+  type Specialist,
+  type SpecialistGroup,
+} from "@/api/client";
 import { renderMarkdown } from "@/utils/markdown";
 import "highlight.js/styles/github-dark-dimmed.css";
 import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
@@ -982,11 +997,24 @@ const { data: specialistsData } = useQuery({
   queryFn: listSpecialists,
   staleTime: 5_000,
 });
+const { data: groupsData } = useQuery({
+  queryKey: ["groups"],
+  queryFn: listGroups,
+  staleTime: 5_000,
+});
 const specialistsByName = computed(() => {
   const map = new Map<string, Specialist>();
   (specialistsData?.value || []).forEach((s: Specialist) => {
     const key = s.name?.trim().toLowerCase();
     if (key) map.set(key, s);
+  });
+  return map;
+});
+const groupsByName = computed(() => {
+  const map = new Map<string, SpecialistGroup>();
+  (groupsData?.value || []).forEach((g: SpecialistGroup) => {
+    const key = g.name?.trim().toLowerCase();
+    if (key) map.set(key, g);
   });
   return map;
 });
@@ -1033,6 +1061,20 @@ const renderModeOptions = computed<DropdownOption[]>(() => [
   { id: "html", label: "html", value: "html" },
 ]);
 
+const groupOptions = computed<DropdownOption[]>(() => {
+  const groups = (groupsData?.value || [])
+    .map((g) => ({
+      id: g.name,
+      label: g.name,
+      value: g.name,
+    }))
+    .filter((g) => (g.value || "").trim())
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+    );
+  return [{ id: "", label: "All specialists", value: "" }, ...groups];
+});
+
 const selectedSpecialistBySession = ref<Record<string, string>>({});
 const selectedSpecialist = computed({
   get: () => {
@@ -1049,6 +1091,38 @@ const selectedSpecialist = computed({
       [sessionId]: next,
     };
   },
+});
+
+const selectedGroupBySession = ref<Record<string, string>>({});
+const selectedGroup = computed({
+  get: () => {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return "";
+    return selectedGroupBySession.value[sessionId] || "";
+  },
+  set: (value: string) => {
+    const sessionId = activeSessionId.value;
+    if (!sessionId) return;
+    const next = (value || "").trim();
+    selectedGroupBySession.value = {
+      ...selectedGroupBySession.value,
+      [sessionId]: next,
+    };
+  },
+});
+const selectedGroupConfig = computed(() => {
+  const name = (selectedGroup.value || "").trim().toLowerCase();
+  if (!name) return null;
+  return groupsByName.value.get(name) || null;
+});
+const selectedGroupMembers = computed(() => {
+  const group = selectedGroupConfig.value;
+  if (!group) return new Set<string>();
+  return new Set(
+    (group.members || [])
+      .map((m) => m.trim().toLowerCase())
+      .filter(Boolean),
+  );
 });
 
 // --- @mention specialist picker (Slack-like) ---
@@ -1146,6 +1220,23 @@ function selectMentionCandidate(name: string) {
     autoSizeComposer();
   });
 }
+
+watch([selectedGroup, groupsData], ([groupName]) => {
+  const name = (groupName || "").trim();
+  if (!name) return;
+  if (!groupsByName.value.has(name.toLowerCase())) {
+    selectedGroup.value = "";
+  }
+});
+
+watch([selectedGroup, selectedSpecialist, selectedGroupMembers], () => {
+  if (!selectedGroup.value) return;
+  const selected = (selectedSpecialist.value || "").trim();
+  if (!selected || selected.toLowerCase() === "orchestrator") return;
+  if (!selectedGroupMembers.value.has(selected.toLowerCase())) {
+    selectedSpecialist.value = "orchestrator";
+  }
+});
 const projectSelected = computed(() => Boolean(selectedProjectId.value));
 const requiresProjectSelection = computed(() => !projectSelected.value);
 
@@ -1575,6 +1666,28 @@ const participantList = computed<Participant[]>(() => {
     seen.add(key);
     list.push({ name: trimmed, model: (model || "").trim() });
   };
+  const selectedGroupValue = selectedGroupConfig.value;
+  if (selectedGroupValue) {
+    const groupOrchestratorModel =
+      (selectedGroupValue.orchestrator?.model || "").trim() ||
+      sessionAgentDefaults.value.model ||
+      "";
+    add("orchestrator", groupOrchestratorModel);
+    const members = (selectedGroupValue.members || [])
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .sort((a, b) =>
+        a.localeCompare(b, undefined, { sensitivity: "base" }),
+      );
+    for (const name of members) {
+      if (name.toLowerCase() === "orchestrator") continue;
+      const spec = specialistsByName.value.get(name.toLowerCase());
+      if (spec?.paused) continue;
+      add(spec?.name || name, spec?.model || "");
+    }
+    return list;
+  }
+
   const orchestratorModel =
     specialistsByName.value.get("orchestrator")?.model?.trim() ||
     sessionAgentDefaults.value.model ||
@@ -1608,9 +1721,14 @@ const activeSpecialistModel = computed(() => {
   const running = latestRunningAgentThread.value;
   if (running?.model) return running.model.trim();
   const key = activeSpecialistName.value.toLowerCase();
+  if (key === "orchestrator") {
+    const groupModel =
+      (selectedGroupConfig.value?.orchestrator?.model || "").trim();
+    if (groupModel) return groupModel;
+    return sessionAgentDefaults.value.model || "";
+  }
   const spec = specialistsByName.value.get(key);
   if (spec?.model) return spec.model.trim();
-  if (key === "orchestrator") return sessionAgentDefaults.value.model || "";
   return "";
 });
 
@@ -1694,6 +1812,18 @@ watch(sessions, (next) => {
     }
   }
   if (changed) selectedSpecialistBySession.value = pruned;
+
+  const groupCurrent = selectedGroupBySession.value;
+  let groupChanged = false;
+  const groupPruned: Record<string, string> = {};
+  for (const [id, value] of Object.entries(groupCurrent)) {
+    if (keep.has(id)) {
+      groupPruned[id] = value;
+    } else {
+      groupChanged = true;
+    }
+  }
+  if (groupChanged) selectedGroupBySession.value = groupPruned;
 
   const projectCurrent = selectedProjectBySession.value;
   let projectChanged = false;
@@ -1985,6 +2115,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
       selectedSpecialist.value && selectedSpecialist.value !== "orchestrator"
         ? selectedSpecialist.value
         : undefined;
+    const groupName = selectedGroup.value || undefined;
     const { agentName, agentModel } = resolveAgentContext();
     await chat.sendPrompt(
       content,
@@ -1993,6 +2124,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
       {
         ...options,
         specialist,
+        groupName,
         projectId: selectedProjectId.value || undefined,
         image: imagePrompt.value,
         imageSize: "1K",
@@ -2019,9 +2151,11 @@ async function regenerateAssistant(message: ChatMessage) {
     selectedSpecialist.value && selectedSpecialist.value !== "orchestrator"
       ? selectedSpecialist.value
       : undefined;
+  const groupName = selectedGroup.value || undefined;
   const { agentName, agentModel } = resolveAgentContext();
   await chat.regenerateAssistant({
     specialist,
+    groupName,
     projectId: selectedProjectId.value,
     agentName,
     agentModel,
@@ -2033,8 +2167,13 @@ function resolveAgentContext() {
   const selected = (selectedSpecialist.value || "orchestrator").trim();
   const fallback = sessionAgentDefaults.value;
   const agentName = selected || fallback.agentName || "Agent";
+  const groupModel =
+    selected.toLowerCase() === "orchestrator"
+      ? (selectedGroupConfig.value?.orchestrator?.model || "").trim()
+      : "";
   const spec = specialistsByName.value.get(agentName.toLowerCase());
-  const agentModel = (spec?.model || "").trim() || fallback.model || "";
+  const agentModel =
+    groupModel || (spec?.model || "").trim() || fallback.model || "";
   return { agentName, agentModel };
 }
 

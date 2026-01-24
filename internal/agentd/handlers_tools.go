@@ -29,6 +29,13 @@ type traceMetricsResponse struct {
 	Traces        []llmpkg.TraceSnapshot `json:"traces"`
 }
 
+type logMetricsResponse struct {
+	Timestamp     int64      `json:"timestamp"`
+	WindowSeconds int64      `json:"windowSeconds,omitempty"`
+	Source        string     `json:"source"`
+	Logs          []LogEntry `json:"logs"`
+}
+
 func (a *app) metricsTokensHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var uid int64 = systemUserID
@@ -166,6 +173,62 @@ func (a *app) metricsTracesHandler() http.HandlerFunc {
 		}
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Warn().Err(err).Msg("failed to encode trace metrics response")
+		}
+	}
+}
+
+func (a *app) metricsLogsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.cfg.Auth.Enabled {
+			_, ok := auth.CurrentUser(r.Context())
+			if !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		window, err := parseWindowParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		limit := parseLimitParam(r, 200)
+
+		logs := []LogEntry{}
+		source := "none"
+		applied := time.Duration(0)
+		if a.logMetrics != nil {
+			// For system observability, show all application logs regardless of user.
+			// The LogsForUser filter only applies to user-scoped logs (chat logs, etc.)
+			// which include an enduser.id attribute.
+			chLogs, queriedWindow, err := a.logMetrics.Logs(r.Context(), window, limit)
+			if err != nil {
+				log.Warn().Err(err).Msg("log metrics query failed")
+			} else {
+				logs = chLogs
+				applied = queriedWindow
+				source = a.logMetrics.Source()
+			}
+		}
+
+		resp := logMetricsResponse{
+			Timestamp: time.Now().Unix(),
+			Source:    source,
+			Logs:      logs,
+		}
+		if applied > 0 {
+			resp.WindowSeconds = int64(applied.Seconds())
+		}
+
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Warn().Err(err).Msg("failed to encode log metrics response")
 		}
 	}
 }

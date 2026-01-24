@@ -11,9 +11,12 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/host"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -64,13 +67,27 @@ func InitOTel(ctx context.Context, obs config.ObsConfig) (func(context.Context) 
 	otel.SetMeterProvider(mp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
+	// Initialize OTLP log exporter
+	logExp, err := otlploghttp.New(ctx, otlploghttp.WithEndpoint(obs.OTLP), otlploghttp.WithInsecure())
+	if err != nil {
+		return nil, fmt.Errorf("init log exporter: %w", err)
+	}
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+		sdklog.WithResource(res),
+	)
+	global.SetLoggerProvider(lp)
+
 	if err := host.Start(host.WithMeterProvider(mp)); err != nil {
 		return nil, fmt.Errorf("failed to start host metrics: %w", err)
 	}
 
 	return func(ctx context.Context) error {
 		var first error
-		if err := mp.Shutdown(ctx); err != nil {
+		if err := lp.Shutdown(ctx); err != nil {
+			first = err
+		}
+		if err := mp.Shutdown(ctx); err != nil && first == nil {
 			first = err
 		}
 		if err := tp.Shutdown(ctx); err != nil && first == nil {

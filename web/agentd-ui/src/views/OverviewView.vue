@@ -57,6 +57,10 @@
           <MemoryPanel />
         </template>
 
+        <template #item-logs>
+          <LogsPanel />
+        </template>
+
         <template #item-agents>
           <AgentsPanel :agents="agents" />
         </template>
@@ -78,6 +82,7 @@ import DashboardGrid, {
 import TokenUsagePanel from "@/components/observability/TokenUsagePanel.vue";
 import TracesPanel from "@/components/observability/TracesPanel.vue";
 import MemoryPanel from "@/components/observability/MemoryPanel.vue";
+import LogsPanel from "@/components/observability/LogsPanel.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
 import Panel from "@/components/ui/Panel.vue";
@@ -103,6 +108,8 @@ const dashboardLayout = ref<GridItemConfig[]>([
   { i: "runs", x: 8, y: 4, w: 4, h: 5, minW: 3, minH: 3 },
   // Memory - full width
   { i: "memory", x: 0, y: 9, w: 12, h: 4, minW: 4, minH: 3 },
+  // Logs - full width
+  { i: "logs", x: 0, y: 13, w: 12, h: 4, minW: 4, minH: 3 },
 ]);
 
 const { data: agentData } = useQuery({

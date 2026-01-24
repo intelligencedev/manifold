@@ -71,6 +71,9 @@ func run(cfg *config.Config, query string, maxSteps int, warppEnabled bool, spec
 	if err != nil {
 		log.Warn().Err(err).Msg("otel init failed, continuing without observability")
 		shutdown = nil
+	} else {
+		// Bridge zerolog to OTLP log exporter
+		observability.EnableOTelLogging(cfg.Obs.ServiceName)
 	}
 	if shutdown != nil {
 		defer func() { _ = shutdown(context.Background()) }()

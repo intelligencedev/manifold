@@ -43,13 +43,13 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch, resource]
+      processors: [memory_limiter, resource, batch]
       exporters: [clickhouse, logging]
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch, resource]
+      processors: [memory_limiter, resource, batch]
       exporters: [clickhouse, logging]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch, resource]
+      processors: [memory_limiter, resource, batch]
       exporters: [clickhouse, logging]

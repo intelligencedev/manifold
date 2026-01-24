@@ -99,6 +99,7 @@ type app struct {
 	tokenMetrics       tokenMetricsProvider
 	traceMetrics       *clickhouseTraceMetrics
 	runMetrics         *clickhouseRunMetrics
+	logMetrics         *clickhouseLogMetrics
 }
 
 type tokenMetricsProvider interface {
@@ -286,6 +287,9 @@ func Run() {
 	if err != nil {
 		log.Warn().Err(err).Msg("otel init failed, continuing without observability")
 		shutdown = nil
+	} else {
+		// Bridge zerolog to OTLP log exporter
+		observability.EnableOTelLogging(cfg.Obs.ServiceName)
 	}
 	if shutdown != nil {
 		defer func() { _ = shutdown(context.Background()) }()
@@ -709,6 +713,12 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	} else if chTraces != nil {
 		app.traceMetrics = chTraces
 		app.runMetrics = newClickHouseRunMetrics(chTraces)
+	}
+
+	if chLogs, err := newClickHouseLogMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
+		log.Warn().Err(err).Msg("clickhouse log queries disabled")
+	} else if chLogs != nil {
+		app.logMetrics = chLogs
 	}
 
 	_ = mcpMgr // ensure lifetime; manager currently long-lived

@@ -102,6 +102,37 @@ export async function fetchTraceMetrics(
   return response.data;
 }
 
+export interface LogMetricsRow {
+  timestamp: number;
+  level: string;
+  message: string;
+  service?: string;
+  traceId?: string;
+  spanId?: string;
+}
+
+export interface LogMetricsResponse {
+  timestamp: number;
+  windowSeconds?: number;
+  source?: string;
+  logs: LogMetricsRow[];
+}
+
+export interface LogMetricsParams {
+  window?: string;
+  windowSeconds?: number;
+  limit?: number;
+}
+
+export async function fetchLogMetrics(
+  params?: LogMetricsParams,
+): Promise<LogMetricsResponse> {
+  const response = await apiClient.get<LogMetricsResponse>("/metrics/logs", {
+    params,
+  });
+  return response.data;
+}
+
 // Projects API --------------------------------------------------------------
 
 export interface ProjectSummary {

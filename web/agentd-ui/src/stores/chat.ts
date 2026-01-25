@@ -882,7 +882,8 @@ export const useChatStore = defineStore("chat", () => {
       case "agent_final":
       case "agent_tool_start":
       case "agent_tool_result":
-      case "agent_error": {
+      case "agent_error":
+      case "agent_thought_summary": {
         handleAgentTraceEvent(event, sessionId);
         break;
       }
@@ -922,6 +923,7 @@ export const useChatStore = defineStore("chat", () => {
           status: "running",
           content: "",
           entries: [],
+          thoughtSummaries: [],
           startedAt: now,
         }));
         break;
@@ -940,6 +942,7 @@ export const useChatStore = defineStore("chat", () => {
             status: "running",
             content: contentText || "",
             entries: [],
+            thoughtSummaries: [],
             startedAt: now,
           }),
           (thread) => ({
@@ -963,6 +966,7 @@ export const useChatStore = defineStore("chat", () => {
             status: "done",
             content: contentText || "",
             entries: [],
+            thoughtSummaries: [],
             startedAt: now,
             finishedAt: now,
           }),
@@ -997,6 +1001,7 @@ export const useChatStore = defineStore("chat", () => {
                 createdAt: now,
               },
             ],
+            thoughtSummaries: [],
             startedAt: now,
           }),
           (thread) => ({
@@ -1037,6 +1042,7 @@ export const useChatStore = defineStore("chat", () => {
                 createdAt: now,
               },
             ],
+            thoughtSummaries: [],
             startedAt: now,
           }),
           (thread) => ({
@@ -1078,6 +1084,7 @@ export const useChatStore = defineStore("chat", () => {
                 createdAt: now,
               },
             ],
+            thoughtSummaries: [],
             startedAt: now,
             finishedAt: now,
             error: errText,
@@ -1097,6 +1104,45 @@ export const useChatStore = defineStore("chat", () => {
               },
             ],
           }),
+        );
+        break;
+      }
+      case "agent_thought_summary": {
+        const summary =
+          typeof event.thought_summary === "string"
+            ? event.thought_summary.trim()
+            : "";
+        if (!summary) break;
+        upsertAgentThread(
+          sessionId,
+          callId,
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            model,
+            prompt: "",
+            depth,
+            status: "running",
+            content: "",
+            entries: [],
+            thoughtSummaries: [summary],
+            startedAt: now,
+          }),
+          (thread) => {
+            // Append or extend the last summary if it's a prefix
+            const existing = thread.thoughtSummaries || [];
+            const last = existing[existing.length - 1];
+            if (last) {
+              if (summary === last) return thread;
+              if (summary.length > last.length && summary.startsWith(last)) {
+                const next = [...existing];
+                next[next.length - 1] = summary;
+                return { ...thread, thoughtSummaries: next };
+              }
+            }
+            return { ...thread, thoughtSummaries: [...existing, summary] };
+          },
         );
         break;
       }

@@ -138,10 +138,17 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
 			tracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result), ToolID: toolID})
 		}
+		eng.OnThoughtSummary = func(summary string) {
+			if summary == "" {
+				return
+			}
+			tracer.Trace(agent.AgentTrace{Type: "agent_thought_summary", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, ThoughtSummary: summary})
+		}
 	}
 
 	observability.LoggerWithTrace(ctx).Info().Str("agent_delegate", req.AgentName).Msg("delegated_agent_start")
-	out, err := eng.Run(runCtx, req.Prompt, req.History)
+	// Use RunStream instead of Run to enable streaming callbacks (OnDelta, OnThoughtSummary, etc.)
+	out, err := eng.RunStream(runCtx, req.Prompt, req.History)
 	if err != nil {
 		if tracer != nil {
 			tracer.Trace(agent.AgentTrace{Type: "agent_error", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Error: err.Error()})

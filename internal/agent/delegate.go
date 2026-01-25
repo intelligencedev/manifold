@@ -10,19 +10,20 @@ import (
 // or other orchestrators). UIs can use these events to render nested agent
 // interactions.
 type AgentTrace struct {
-	Type         string
-	Agent        string
-	Model        string
-	CallID       string
-	ParentCallID string
-	Depth        int
-	Role         string
-	Content      string
-	Title        string
-	Args         string
-	Data         string
-	ToolID       string
-	Error        string
+	Type           string
+	Agent          string
+	Model          string
+	CallID         string
+	ParentCallID   string
+	Depth          int
+	Role           string
+	Content        string
+	Title          string
+	Args           string
+	Data           string
+	ToolID         string
+	Error          string
+	ThoughtSummary string
 }
 
 // AgentTracer receives trace events emitted during delegated agent execution.

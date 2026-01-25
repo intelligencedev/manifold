@@ -17,7 +17,8 @@ export type ChatStreamEventType =
   | "agent_final"
   | "agent_tool_start"
   | "agent_tool_result"
-  | "agent_error";
+  | "agent_error"
+  | "agent_thought_summary";
 
 export interface ChatStreamEvent {
   type: ChatStreamEventType;
@@ -41,6 +42,7 @@ export interface ChatStreamEvent {
   role?: string;
   content?: string;
   error?: string;
+  thought_summary?: string;
   // Summary event fields
   input_tokens?: number;
   token_budget?: number;

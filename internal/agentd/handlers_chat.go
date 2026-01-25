@@ -39,19 +39,20 @@ func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
 		return
 	}
 	payload := map[string]any{
-		"type":           ev.Type,
-		"agent":          ev.Agent,
-		"model":          ev.Model,
-		"call_id":        ev.CallID,
-		"parent_call_id": ev.ParentCallID,
-		"depth":          ev.Depth,
-		"role":           ev.Role,
-		"content":        ev.Content,
-		"title":          ev.Title,
-		"args":           ev.Args,
-		"data":           ev.Data,
-		"tool_id":        ev.ToolID,
-		"error":          ev.Error,
+		"type":            ev.Type,
+		"agent":           ev.Agent,
+		"model":           ev.Model,
+		"call_id":         ev.CallID,
+		"parent_call_id":  ev.ParentCallID,
+		"depth":           ev.Depth,
+		"role":            ev.Role,
+		"content":         ev.Content,
+		"title":           ev.Title,
+		"args":            ev.Args,
+		"data":            ev.Data,
+		"tool_id":         ev.ToolID,
+		"error":           ev.Error,
+		"thought_summary": ev.ThoughtSummary,
 	}
 	b, err := json.Marshal(payload)
 	if err != nil {

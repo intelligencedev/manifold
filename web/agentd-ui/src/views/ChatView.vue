@@ -702,7 +702,7 @@
                   <div class="mt-3 flex min-h-0 flex-1 flex-col">
                     <header class="flex items-center justify-between">
                       <div
-                        v-if="activeThoughtSummaries.length"
+                        v-if="displayedThoughtSummaries.length"
                         class="flex items-center gap-2"
                       >
                         <button
@@ -727,14 +727,14 @@
                       class="mt-2 flex-1 min-h-0 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
                     >
                       <div
-                        v-if="!activeThoughtSummaries.length"
+                        v-if="!displayedThoughtSummaries.length"
                         class="text-[11px] text-faint-foreground"
                       >
                         No thought summaries yet.
                       </div>
                       <ul v-else class="space-y-1 text-[12px] text-foreground">
                         <li
-                          v-for="(summary, idx) in activeThoughtSummaries"
+                          v-for="(summary, idx) in displayedThoughtSummaries"
                           :key="`${idx}:${summary}`"
                           class="flex gap-2"
                         >
@@ -1356,6 +1356,15 @@ const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
+// Combined thought summaries: show delegated agent's thoughts when one is running,
+// otherwise show orchestrator thoughts
+const displayedThoughtSummaries = computed(() => {
+  const running = latestRunningAgentThread.value;
+  if (running && running.thoughtSummaries?.length) {
+    return running.thoughtSummaries;
+  }
+  return activeThoughtSummaries.value;
+});
 const toolActivityMsById = ref<Record<string, number>>({});
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
@@ -1929,7 +1938,7 @@ function handlePanelSplitterPointerUp() {
 
 watch(
   () =>
-    activeThoughtSummaries.value
+    displayedThoughtSummaries.value
       .map((summary) => summary.length)
       .join(":"),
   () => {
@@ -2209,7 +2218,7 @@ async function deleteChatMessage(message: ChatMessage) {
 }
 
 function copyThoughtSummaries() {
-  const summaries = activeThoughtSummaries.value || [];
+  const summaries = displayedThoughtSummaries.value || [];
   if (!summaries.length) return;
 
   const text = summaries

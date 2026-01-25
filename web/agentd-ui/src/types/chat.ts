@@ -69,6 +69,7 @@ export interface AgentThread {
   status: "running" | "done" | "error";
   content: string;
   entries: AgentTraceEntry[];
+  thoughtSummaries: string[];
   startedAt: string;
   finishedAt?: string;
   error?: string;

@@ -193,6 +193,65 @@
                 class="w-full resize-y overflow-auto rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
               ></textarea>
             </div>
+            <div class="flex flex-col gap-1">
+              <label
+                for="group-orch-apikey"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >API Key (optional)</label
+              >
+              <input
+                id="group-orch-apikey"
+                v-model.trim="orchestratorDraft.apiKey"
+                type="password"
+                autocomplete="off"
+                class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                placeholder="Override provider API key"
+              />
+            </div>
+            <div class="flex flex-col gap-1">
+              <label
+                for="group-orch-summary-ctx"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Summary context window (tokens)</label
+              >
+              <input
+                id="group-orch-summary-ctx"
+                v-model.number="orchestratorDraft.summaryContextWindowTokens"
+                type="number"
+                min="1"
+                step="1"
+                class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                placeholder="Use global default"
+              />
+            </div>
+            <div class="flex flex-col gap-1">
+              <label
+                for="group-orch-extra-headers"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Extra headers (JSON)</label
+              >
+              <textarea
+                id="group-orch-extra-headers"
+                v-model="orchestratorDraft.extraHeadersJson"
+                rows="3"
+                class="w-full resize-y overflow-auto rounded border border-border/60 bg-surface-muted/40 px-3 py-2 font-mono text-sm"
+                placeholder='{}'
+              ></textarea>
+            </div>
+            <div class="flex flex-col gap-1">
+              <label
+                for="group-orch-extra-params"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Extra params (JSON)</label
+              >
+              <textarea
+                id="group-orch-extra-params"
+                v-model="orchestratorDraft.extraParamsJson"
+                rows="3"
+                class="w-full resize-y overflow-auto rounded border border-border/60 bg-surface-muted/40 px-3 py-2 font-mono text-sm"
+                placeholder='{}'
+              ></textarea>
+            </div>
           </div>
         </FormSection>
       </div>
@@ -318,9 +377,13 @@ const orchestratorDraft = reactive({
   provider: "",
   model: "",
   baseURL: "",
+  apiKey: "",
   enableTools: false,
   allowToolsText: "",
   system: "",
+  summaryContextWindowTokens: null as number | null,
+  extraHeadersJson: "{}",
+  extraParamsJson: "{}",
 });
 
 const baseline = ref<SpecialistGroup | null>(null);
@@ -355,10 +418,60 @@ const filteredMembers = computed(() => {
   return list.filter((name) => name.toLowerCase().includes(q));
 });
 
+function normalizeAllowTools(value: string): string[] {
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v);
+}
+
+function parseJsonSafe<T>(json: string, fallback: T): T {
+  try {
+    return JSON.parse(json) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 const isDirty = computed(() => {
   if (!baseline.value) return true;
-  const current = buildPayload();
-  return JSON.stringify(current) !== JSON.stringify(baseline.value);
+
+  // Compare group fields
+  if (draft.name.trim() !== (baseline.value.name || "")) return true;
+  if (draft.description !== (baseline.value.description || "")) return true;
+
+  // Compare members
+  const baselineMembers = new Set(baseline.value.members || []);
+  if (selectedMembers.value.size !== baselineMembers.size) return true;
+  for (const m of selectedMembers.value) {
+    if (!baselineMembers.has(m)) return true;
+  }
+
+  // Compare orchestrator fields
+  const orch = baseline.value.orchestrator || ({} as Specialist);
+  if ((orchestratorDraft.provider || defaultProvider.value) !== (orch.provider || defaultProvider.value)) return true;
+  if ((orchestratorDraft.model || "") !== (orch.model || "")) return true;
+  if ((orchestratorDraft.baseURL || "") !== (orch.baseURL || "")) return true;
+  if ((orchestratorDraft.apiKey || "") !== (orch.apiKey || "")) return true;
+  if (orchestratorDraft.enableTools !== !!orch.enableTools) return true;
+  if ((orchestratorDraft.system || "") !== (orch.system || "")) return true;
+  if ((orchestratorDraft.summaryContextWindowTokens ?? null) !== (orch.summaryContextWindowTokens ?? null)) return true;
+
+  // Compare allowTools
+  const currentAllowTools = normalizeAllowTools(orchestratorDraft.allowToolsText).sort();
+  const baselineAllowTools = (orch.allowTools || []).slice().sort();
+  if (JSON.stringify(currentAllowTools) !== JSON.stringify(baselineAllowTools)) return true;
+
+  // Compare extraHeaders and extraParams
+  const currentHeaders = parseJsonSafe(orchestratorDraft.extraHeadersJson, {});
+  const baselineHeaders = orch.extraHeaders || {};
+  if (JSON.stringify(currentHeaders) !== JSON.stringify(baselineHeaders)) return true;
+
+  const currentParams = parseJsonSafe(orchestratorDraft.extraParamsJson, {});
+  const baselineParams = orch.extraParams || {};
+  if (JSON.stringify(currentParams) !== JSON.stringify(baselineParams)) return true;
+
+  return false;
 });
 
 function initFromInitial(group: SpecialistGroup) {
@@ -370,9 +483,13 @@ function initFromInitial(group: SpecialistGroup) {
   orchestratorDraft.provider = orch.provider || defaultProvider.value;
   orchestratorDraft.model = orch.model || "";
   orchestratorDraft.baseURL = orch.baseURL || "";
+  orchestratorDraft.apiKey = orch.apiKey || "";
   orchestratorDraft.enableTools = !!orch.enableTools;
   orchestratorDraft.allowToolsText = (orch.allowTools || []).join(", ");
   orchestratorDraft.system = orch.system || "";
+  orchestratorDraft.summaryContextWindowTokens = orch.summaryContextWindowTokens ?? null;
+  orchestratorDraft.extraHeadersJson = JSON.stringify(orch.extraHeaders || {}, null, 2);
+  orchestratorDraft.extraParamsJson = JSON.stringify(orch.extraParams || {}, null, 2);
 
   applyProviderDefaults();
 
@@ -388,13 +505,6 @@ function applyProviderDefaults() {
   if (!orchestratorDraft.baseURL) orchestratorDraft.baseURL = defaults.baseURL || "";
 }
 
-function normalizeAllowTools(value: string): string[] {
-  return value
-    .split(",")
-    .map((v) => v.trim())
-    .filter((v) => v);
-}
-
 function toggleMember(name: string, enabled: boolean) {
   const next = new Set(selectedMembers.value);
   if (enabled) next.add(name);
@@ -403,18 +513,23 @@ function toggleMember(name: string, enabled: boolean) {
 }
 
 function buildPayload(): SpecialistGroup {
+  const baseOrch = baseline.value?.orchestrator;
   const orchestrator: Specialist = {
+    // Preserve existing id from backend
+    ...(baseOrch?.id ? { id: baseOrch.id } : {}),
     name: orchestratorName.value,
     provider: orchestratorDraft.provider || defaultProvider.value,
     model: orchestratorDraft.model || "",
     baseURL: orchestratorDraft.baseURL || "",
+    apiKey: orchestratorDraft.apiKey || "",
     enableTools: orchestratorDraft.enableTools,
     paused: false,
     allowTools: normalizeAllowTools(orchestratorDraft.allowToolsText),
     system: orchestratorDraft.system || "",
     description: `Group orchestrator for ${draft.name || "group"}`,
-    extraHeaders: {},
-    extraParams: {},
+    summaryContextWindowTokens: orchestratorDraft.summaryContextWindowTokens ?? undefined,
+    extraHeaders: parseJsonSafe(orchestratorDraft.extraHeadersJson, {}),
+    extraParams: parseJsonSafe(orchestratorDraft.extraParamsJson, {}),
   };
 
   return {

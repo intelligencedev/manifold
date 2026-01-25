@@ -121,6 +121,15 @@ func (a *app) handleListMCPServers(w http.ResponseWriter, r *http.Request, userI
 		status := "connected"
 		if s.Disabled {
 			status = "disabled"
+		} else if s.URL != "" && s.OAuthAccessToken != "" {
+			// Check if OAuth token is expired and needs re-auth
+			if !s.OAuthExpiresAt.IsZero() && s.OAuthExpiresAt.Before(time.Now()) {
+				// Token is expired - check if we can refresh
+				if s.OAuthRefreshToken == "" {
+					status = "needs_auth"
+				}
+				// If refresh token exists, we can try to refresh on next use
+			}
 		}
 		// TODO: Check if manager has active session
 
@@ -164,14 +173,13 @@ func (a *app) handleCreateMCPServer(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	// Trigger connection
-	if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, convertToConfig(saved)); err != nil {
-		// Log error but don't fail the request? Or fail?
-		// If we fail, we should probably delete from DB or warn user.
-		// For now, let's return 201 but with error in body or just log it.
-		// Better to fail if connection fails so user knows.
-		// But we already saved to DB.
-		// Let's just log for now.
+	// Refresh token if needed and trigger connection
+	cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
+	if needsAuth {
+		// Token expired and could not be refreshed - still create server but mark as needing auth
+		fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
+	} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
+		// Log error but don't fail the request
 		fmt.Printf("failed to connect to new MCP server: %v\n", err)
 	}
 
@@ -194,8 +202,11 @@ func (a *app) handleUpdateMCPServer(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	// Reconnect
-	if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, convertToConfig(saved)); err != nil {
+	// Refresh token if needed and reconnect
+	cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
+	if needsAuth {
+		fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
+	} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
 		fmt.Printf("failed to reconnect updated MCP server: %v\n", err)
 	}
 
@@ -231,6 +242,71 @@ func convertToConfig(s persistence.MCPServer) config.MCPServerConfig {
 		KeepAliveSeconds: s.KeepAliveSeconds,
 		BearerToken:      token,
 	}
+}
+
+// refreshAndConvertToConfig refreshes expired OAuth tokens if needed and converts
+// the server to a config object. Returns the config, whether re-auth is needed,
+// and any error encountered during refresh.
+func (a *app) refreshAndConvertToConfig(ctx context.Context, s persistence.MCPServer) (config.MCPServerConfig, bool, error) {
+	// Attempt to refresh token if needed
+	refreshed, needsAuth, err := a.refreshOAuthTokenIfNeeded(ctx, s)
+	if err != nil {
+		// Log but continue with whatever token state we have
+		fmt.Printf("mcp oauth token refresh warning for %s: %v\n", s.Name, err)
+	}
+	return convertToConfig(refreshed), needsAuth, nil
+}
+
+// RefreshMCPServersOnStartup refreshes OAuth tokens for all stored MCP servers
+// that have expired tokens, and registers them with the MCP manager. This should
+// be called after the app is initialized to restore OAuth-authenticated remote
+// MCP servers on restart.
+func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) error {
+	if a.mcpStore == nil {
+		return nil
+	}
+
+	servers, err := a.mcpStore.List(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("failed to list MCP servers: %w", err)
+	}
+
+	for _, s := range servers {
+		if s.Disabled {
+			continue
+		}
+
+		// Skip servers without OAuth tokens (they don't need refresh)
+		if s.OAuthAccessToken == "" && s.BearerToken == "" {
+			continue
+		}
+
+		// Skip local command-based servers (no OAuth flow needed)
+		if s.URL == "" {
+			continue
+		}
+
+		// Refresh token if needed and register
+		cfgSrv, needsAuth, err := a.refreshAndConvertToConfig(ctx, s)
+		if err != nil {
+			fmt.Printf("MCP server %s: token refresh error: %v\n", s.Name, err)
+			continue
+		}
+
+		if needsAuth {
+			fmt.Printf("MCP server %s: OAuth token expired, needs re-authentication\n", s.Name)
+			continue
+		}
+
+		// Token is valid (or was just refreshed), register the server
+		if err := a.mcpManager.RegisterOne(ctx, a.baseToolRegistry, cfgSrv); err != nil {
+			fmt.Printf("MCP server %s: registration failed: %v\n", s.Name, err)
+		} else {
+			fmt.Printf("MCP server %s: registered with cached/refreshed OAuth token\n", s.Name)
+		}
+	}
+
+	return nil
 }
 
 // OAuth Handlers
@@ -706,4 +782,144 @@ func computeBaseOrigin(full string) string {
 		return full
 	}
 	return fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+}
+
+// refreshOAuthTokenIfNeeded checks if the server's OAuth access token is expired or about to expire,
+// and attempts to refresh it using the stored refresh token. Returns the (possibly updated) server
+// record and a boolean indicating whether re-authentication is required.
+//
+// Token refresh logic:
+// - If no OAuth access token is set, returns the server unchanged
+// - If the token has no expiry time set, returns the server unchanged (treat as valid)
+// - If the token expires within the next 5 minutes, attempt refresh
+// - On successful refresh, updates the database and returns the new server record
+// - On refresh failure, clears the access token and marks server as needing re-auth
+func (a *app) refreshOAuthTokenIfNeeded(ctx context.Context, srv persistence.MCPServer) (persistence.MCPServer, bool, error) {
+	// No OAuth token set - nothing to refresh
+	if srv.OAuthAccessToken == "" {
+		return srv, false, nil
+	}
+
+	// No expiry set - treat token as valid (some providers don't set expiry)
+	if srv.OAuthExpiresAt.IsZero() {
+		return srv, false, nil
+	}
+
+	// Check if token expires within the next 5 minutes
+	refreshThreshold := time.Now().Add(5 * time.Minute)
+	if srv.OAuthExpiresAt.After(refreshThreshold) {
+		// Token still valid
+		return srv, false, nil
+	}
+
+	// Token expired or expiring soon - need to refresh
+	if srv.OAuthRefreshToken == "" {
+		// No refresh token available - require re-authentication
+		srv.OAuthAccessToken = ""
+		srv.OAuthExpiresAt = time.Time{}
+		_, _ = a.mcpStore.Upsert(ctx, srv.UserID, srv)
+		return srv, true, nil
+	}
+
+	// Attempt to refresh the token
+	newToken, err := a.performTokenRefresh(ctx, srv)
+	if err != nil {
+		// Refresh failed - clear tokens and require re-auth
+		srv.OAuthAccessToken = ""
+		srv.OAuthRefreshToken = ""
+		srv.OAuthExpiresAt = time.Time{}
+		_, _ = a.mcpStore.Upsert(ctx, srv.UserID, srv)
+		return srv, true, fmt.Errorf("token refresh failed: %w", err)
+	}
+
+	// Update server with new tokens
+	srv.OAuthAccessToken = newToken.AccessToken
+	if newToken.RefreshToken != "" {
+		srv.OAuthRefreshToken = newToken.RefreshToken
+	}
+	srv.OAuthExpiresAt = newToken.Expiry
+
+	// Persist updated tokens
+	updated, err := a.mcpStore.Upsert(ctx, srv.UserID, srv)
+	if err != nil {
+		return srv, false, fmt.Errorf("failed to persist refreshed token: %w", err)
+	}
+
+	return updated, false, nil
+}
+
+// performTokenRefresh exchanges a refresh token for a new access token using the
+// authorization server's token endpoint.
+func (a *app) performTokenRefresh(ctx context.Context, srv persistence.MCPServer) (*oauth2.Token, error) {
+	if srv.URL == "" {
+		return nil, fmt.Errorf("server URL required for token refresh")
+	}
+
+	// Discover authorization server metadata
+	prm, err := a.discoverResourceMetadata(ctx, srv.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover resource metadata: %w", err)
+	}
+	if len(prm.AuthorizationServers) == 0 {
+		return nil, fmt.Errorf("no authorization servers found for resource")
+	}
+
+	issuer := prm.AuthorizationServers[0]
+	asm, err := a.discoverAuthServerMeta(ctx, issuer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover auth server metadata: %w", err)
+	}
+
+	// Build token refresh request
+	data := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {srv.OAuthRefreshToken},
+		"client_id":     {srv.OAuthClientID},
+	}
+	if srv.OAuthClientSecret != "" {
+		data.Set("client_secret", srv.OAuthClientSecret)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, asm.TokenEndpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("token refresh returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		TokenType    string `json:"token_type"`
+		ExpiresIn    int64  `json:"expires_in"`
+		RefreshToken string `json:"refresh_token"`
+		Scope        string `json:"scope"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to decode token response: %w", err)
+	}
+
+	if tokenResp.AccessToken == "" {
+		return nil, fmt.Errorf("no access token in refresh response")
+	}
+
+	token := &oauth2.Token{
+		AccessToken:  tokenResp.AccessToken,
+		TokenType:    tokenResp.TokenType,
+		RefreshToken: tokenResp.RefreshToken,
+	}
+	if tokenResp.ExpiresIn > 0 {
+		token.Expiry = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	}
+
+	return token, nil
 }

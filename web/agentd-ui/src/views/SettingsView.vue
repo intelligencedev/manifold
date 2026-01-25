@@ -897,6 +897,14 @@
                   Connect
                 </button>
                 <button
+                  v-if="server.url && server.hasToken && server.oauthClientId"
+                  type="button"
+                  class="rounded border border-border/70 px-3 py-1 text-xs font-semibold text-foreground hover:border-border hover:bg-surface-muted/60"
+                  @click="connectServer(server)"
+                >
+                  Reauthenticate
+                </button>
+                <button
                   v-if="server.source === 'db'"
                   type="button"
                   class="rounded border border-danger/60 bg-danger/10 px-3 py-1 text-xs font-semibold text-danger-foreground hover:bg-danger/20"

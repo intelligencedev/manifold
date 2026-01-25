@@ -228,3 +228,197 @@ func TestMCPOAuthCallbackTokenExchange(t *testing.T) {
 		t.Fatalf("expiry not set")
 	}
 }
+
+// TestMCPOAuthTokenRefresh tests the token refresh functionality when tokens are expired.
+func TestMCPOAuthTokenRefresh(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	// Create server with expired token and refresh token
+	expiredTime := time.Now().Add(-1 * time.Hour) // Expired 1 hour ago
+	srv, _ := store.Upsert(context.Background(), 0, persist.MCPServer{
+		Name:              "refresh-test",
+		URL:               "https://resource.example/data",
+		OAuthClientID:     "cid123",
+		OAuthClientSecret: "sec123",
+		OAuthAccessToken:  "old-token",
+		OAuthRefreshToken: "refresh-token",
+		OAuthExpiresAt:    expiredTime,
+	})
+
+	// Transport that handles metadata discovery and token refresh
+	transport := func(r *http.Request) *http.Response {
+		switch {
+		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
+			meta := oauthex.ProtectedResourceMetadata{
+				Resource:             "https://resource.example",
+				AuthorizationServers: []string{"https://auth.example"},
+				ScopesSupported:      []string{"openid"},
+			}
+			b, _ := json.Marshal(meta)
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
+		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
+			// Token refresh endpoint - return new tokens
+			b := `{"access_token":"new-access-token","refresh_token":"new-refresh-token","expires_in":3600,"token_type":"Bearer"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		default:
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+		}
+	}
+	client := newTestHTTPClient(transport)
+	a := buildTestApp(t, client, store)
+
+	// Load the server and refresh
+	refreshed, needsAuth, err := a.refreshOAuthTokenIfNeeded(context.Background(), srv)
+	if err != nil {
+		t.Fatalf("refresh failed: %v", err)
+	}
+	if needsAuth {
+		t.Fatalf("should not need re-auth when refresh token is available")
+	}
+	if refreshed.OAuthAccessToken != "new-access-token" {
+		t.Fatalf("expected new access token, got %s", refreshed.OAuthAccessToken)
+	}
+	if refreshed.OAuthRefreshToken != "new-refresh-token" {
+		t.Fatalf("expected new refresh token, got %s", refreshed.OAuthRefreshToken)
+	}
+	if refreshed.OAuthExpiresAt.Before(time.Now()) {
+		t.Fatalf("new expiry should be in the future")
+	}
+
+	// Verify persistence
+	stored, ok, _ := store.GetByName(context.Background(), 0, "refresh-test")
+	if !ok {
+		t.Fatal("server not found in store")
+	}
+	if stored.OAuthAccessToken != "new-access-token" {
+		t.Fatalf("token not persisted, got %s", stored.OAuthAccessToken)
+	}
+}
+
+// TestMCPOAuthTokenRefreshNoRefreshToken tests that re-auth is required when no refresh token exists.
+func TestMCPOAuthTokenRefreshNoRefreshToken(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	// Create server with expired token but NO refresh token
+	expiredTime := time.Now().Add(-1 * time.Hour)
+	srv, _ := store.Upsert(context.Background(), 0, persist.MCPServer{
+		Name:             "no-refresh-test",
+		URL:              "https://resource.example/data",
+		OAuthClientID:    "cid123",
+		OAuthAccessToken: "old-token",
+		OAuthExpiresAt:   expiredTime,
+		// No OAuthRefreshToken
+	})
+
+	client := newTestHTTPClient(func(r *http.Request) *http.Response {
+		return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+	})
+	a := buildTestApp(t, client, store)
+
+	refreshed, needsAuth, _ := a.refreshOAuthTokenIfNeeded(context.Background(), srv)
+	if !needsAuth {
+		t.Fatal("should require re-auth when no refresh token available")
+	}
+	if refreshed.OAuthAccessToken != "" {
+		t.Fatalf("access token should be cleared, got %s", refreshed.OAuthAccessToken)
+	}
+}
+
+// TestMCPOAuthTokenValidNotExpired tests that valid tokens are not refreshed.
+func TestMCPOAuthTokenValidNotExpired(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	// Create server with valid token (expires in 1 hour)
+	validExpiry := time.Now().Add(1 * time.Hour)
+	srv, _ := store.Upsert(context.Background(), 0, persist.MCPServer{
+		Name:              "valid-test",
+		URL:               "https://resource.example/data",
+		OAuthClientID:     "cid123",
+		OAuthAccessToken:  "valid-token",
+		OAuthRefreshToken: "refresh-token",
+		OAuthExpiresAt:    validExpiry,
+	})
+
+	// Transport should NOT be called for valid tokens
+	callCount := 0
+	client := newTestHTTPClient(func(r *http.Request) *http.Response {
+		callCount++
+		return &http.Response{StatusCode: 500, Body: io.NopCloser(strings.NewReader("should not be called"))}
+	})
+	a := buildTestApp(t, client, store)
+
+	refreshed, needsAuth, err := a.refreshOAuthTokenIfNeeded(context.Background(), srv)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if needsAuth {
+		t.Fatal("should not need re-auth for valid token")
+	}
+	if callCount > 0 {
+		t.Fatal("HTTP client should not have been called for valid token")
+	}
+	if refreshed.OAuthAccessToken != "valid-token" {
+		t.Fatalf("token should be unchanged, got %s", refreshed.OAuthAccessToken)
+	}
+}
+
+// TestMCPOAuthTokenRefreshFails tests behavior when refresh request fails.
+func TestMCPOAuthTokenRefreshFails(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	expiredTime := time.Now().Add(-1 * time.Hour)
+	srv, _ := store.Upsert(context.Background(), 0, persist.MCPServer{
+		Name:              "refresh-fail-test",
+		URL:               "https://resource.example/data",
+		OAuthClientID:     "cid123",
+		OAuthAccessToken:  "old-token",
+		OAuthRefreshToken: "refresh-token",
+		OAuthExpiresAt:    expiredTime,
+	})
+
+	// Transport that returns error on token refresh
+	transport := func(r *http.Request) *http.Response {
+		switch {
+		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
+			meta := oauthex.ProtectedResourceMetadata{
+				Resource:             "https://resource.example",
+				AuthorizationServers: []string{"https://auth.example"},
+				ScopesSupported:      []string{"openid"},
+			}
+			b, _ := json.Marshal(meta)
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
+		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
+			// Simulate refresh token revoked/invalid
+			return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":"invalid_grant"}`))}
+		default:
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+		}
+	}
+	client := newTestHTTPClient(transport)
+	a := buildTestApp(t, client, store)
+
+	refreshed, needsAuth, err := a.refreshOAuthTokenIfNeeded(context.Background(), srv)
+	if err == nil {
+		t.Fatal("expected error when refresh fails")
+	}
+	if !needsAuth {
+		t.Fatal("should require re-auth when refresh fails")
+	}
+	if refreshed.OAuthAccessToken != "" {
+		t.Fatal("tokens should be cleared on refresh failure")
+	}
+	if refreshed.OAuthRefreshToken != "" {
+		t.Fatal("refresh token should be cleared on refresh failure")
+	}
+
+	// Verify tokens are cleared in store
+	stored, ok, _ := store.GetByName(context.Background(), 0, "refresh-fail-test")
+	if !ok {
+		t.Fatal("server not found")
+	}
+	if stored.OAuthAccessToken != "" || stored.OAuthRefreshToken != "" {
+		t.Fatal("tokens should be cleared in store after refresh failure")
+	}
+}

@@ -724,6 +724,17 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	_ = mcpMgr // ensure lifetime; manager currently long-lived
 
+	// Refresh OAuth tokens for cached remote MCP servers and register them.
+	// This runs after app is fully initialized so we have access to httpClient
+	// and other dependencies needed for OAuth token refresh.
+	if mgr.MCP != nil {
+		ctxRefresh, cancelRefresh := context.WithTimeout(ctx, 30*time.Second)
+		if err := app.RefreshMCPServersOnStartup(ctxRefresh, systemUserID); err != nil {
+			log.Warn().Err(err).Msg("mcp_oauth_refresh_on_startup_failed")
+		}
+		cancelRefresh()
+	}
+
 	return app, nil
 }
 

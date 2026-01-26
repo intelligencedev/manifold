@@ -293,6 +293,7 @@ type OAuth2Config struct {
 	PictureField        string   `yaml:"pictureField" json:"pictureField"`
 	SubjectField        string   `yaml:"subjectField" json:"subjectField"`
 	RolesField          string   `yaml:"rolesField" json:"rolesField"`
+	DisablePKCE         bool     `yaml:"disablePKCE" json:"disablePKCE"` // Disable PKCE for providers that don't support it well
 }
 
 // DBConfig contains sub-config for each pluggable database backend.

@@ -69,7 +69,7 @@ services:
     depends_on:
       - clickhouse
     volumes:
-      - ./configs/otel/collector.yaml:/etc/otelcol/config.yaml:ro
+      - ./deploy/configs/otel/collector.yaml:/etc/otelcol/config.yaml:ro
     command:
       - "--config=/etc/otelcol/config.yaml"
     ports:

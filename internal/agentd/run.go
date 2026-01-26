@@ -863,6 +863,7 @@ func (a *app) initAuth(ctx context.Context) error {
 			StateTTLSeconds:     a.cfg.Auth.StateTTLSeconds,
 			TempCookieSecure:    a.cfg.Auth.CookieSecure,
 			HTTPClient:          a.httpClient,
+			DisablePKCE:         a.cfg.Auth.OAuth2.DisablePKCE,
 		}
 		oauthProvider, err := auth.NewOAuth2(ctx, a.authStore, opts)
 		if err != nil {

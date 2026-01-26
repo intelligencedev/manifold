@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -44,6 +45,7 @@ type OAuth2Options struct {
 	StateTTLSeconds     int
 	TempCookieSecure    bool
 	HTTPClient          *http.Client
+	DisablePKCE         bool // Disable PKCE for providers that don't support it well (e.g., GitHub OAuth Apps)
 }
 
 // OAuth2 implements a plain OAuth2 Authorization Code + PKCE login handler.
@@ -65,6 +67,7 @@ type OAuth2 struct {
 	rolesField          string
 	defaultRoles        []string
 	httpClient          *http.Client
+	disablePKCE         bool
 }
 
 // NewOAuth2 constructs a new OAuth2 provider backed by the given options.
@@ -135,6 +138,7 @@ func NewOAuth2(ctx context.Context, store *Store, opts OAuth2Options) (*OAuth2, 
 		rolesField:          strings.TrimSpace(opts.RolesField),
 		defaultRoles:        normalizeDefaultRoles(opts.DefaultRoles),
 		httpClient:          httpClient,
+		disablePKCE:         opts.DisablePKCE,
 	}, nil
 }
 
@@ -142,26 +146,61 @@ func NewOAuth2(ctx context.Context, store *Store, opts OAuth2Options) (*OAuth2, 
 func (o *OAuth2) LoginHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state, _ := randToken(16)
-		cv, _ := randToken(32)
-		challenge := pkceChallenge(cv)
 		https := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 		secure := o.tempCookieSecure && https
 		setTempCookie(w, oauth2StateCookie, state, o.stateTTL, secure)
-		setTempCookie(w, oauth2VerifierCookie, cv, o.stateTTL, secure)
-		url := o.oauth2Config.AuthCodeURL(
-			state,
-			oauth2.SetAuthURLParam("code_challenge", challenge),
-			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-		)
-		http.Redirect(w, r, url, http.StatusFound)
+
+		var authURL string
+		if o.disablePKCE {
+			// Skip PKCE for providers that don't support it well
+			authURL = o.oauth2Config.AuthCodeURL(state)
+		} else {
+			cv, _ := randToken(32)
+			challenge := pkceChallenge(cv)
+			setTempCookie(w, oauth2VerifierCookie, cv, o.stateTTL, secure)
+			authURL = o.oauth2Config.AuthCodeURL(
+				state,
+				oauth2.SetAuthURLParam("code_challenge", challenge),
+				oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+			)
+		}
+		http.Redirect(w, r, authURL, http.StatusFound)
 	}
 }
 
 // CallbackHandler completes the OAuth2 authorization, creates user and session, and sets cookie.
 func (o *OAuth2) CallbackHandler(cookieSecure bool, cookieDomain string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		state := r.URL.Query().Get("state")
 		code := r.URL.Query().Get("code")
+		state := r.URL.Query().Get("state")
+
+		// Truncate for logging (safely)
+		codePreview := code
+		if len(codePreview) > 8 {
+			codePreview = codePreview[:8]
+		}
+		statePreview := state
+		if len(statePreview) > 8 {
+			statePreview = statePreview[:8]
+		}
+
+		// Log every callback request to detect duplicates/prefetch
+		log.Printf("oauth2 callback: method=%s code=%s... state=%s... purpose=%s sec-purpose=%s",
+			r.Method, codePreview, statePreview,
+			r.Header.Get("Purpose"), r.Header.Get("Sec-Purpose"))
+
+		// Browsers may prefetch/prerender - reject non-user-initiated requests
+		if purpose := r.Header.Get("Purpose"); purpose == "prefetch" || purpose == "prerender" {
+			log.Printf("oauth2 callback: rejecting prefetch/prerender request")
+			http.Error(w, "prefetch not allowed", http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("Sec-Purpose") == "prefetch" {
+			log.Printf("oauth2 callback: rejecting Sec-Purpose prefetch")
+			http.Error(w, "prefetch not allowed", http.StatusBadRequest)
+			return
+		}
+
 		if state == "" || code == "" {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
@@ -171,19 +210,29 @@ func (o *OAuth2) CallbackHandler(cookieSecure bool, cookieDomain string) http.Ha
 			http.Error(w, "invalid state", http.StatusBadRequest)
 			return
 		}
-		vc, err := r.Cookie(oauth2VerifierCookie)
-		if err != nil || vc.Value == "" {
-			http.Error(w, "missing code verifier", http.StatusBadRequest)
-			return
-		}
+
 		ctx := o.withHTTPClient(r.Context())
-		tok, err := o.oauth2Config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", vc.Value))
+		var tok *oauth2.Token
+		if o.disablePKCE {
+			// Exchange without PKCE verifier
+			tok, err = o.oauth2Config.Exchange(ctx, code)
+		} else {
+			vc, vcErr := r.Cookie(oauth2VerifierCookie)
+			if vcErr != nil || vc.Value == "" {
+				http.Error(w, "missing code verifier", http.StatusBadRequest)
+				return
+			}
+			tok, err = o.oauth2Config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", vc.Value))
+		}
 		if err != nil {
-			http.Error(w, "exchange failed", http.StatusBadRequest)
+			// Log the actual error for debugging - GitHub may reject PKCE or the code may be stale
+			log.Printf("oauth2 exchange failed: %v (provider=%s, redirect=%s)", err, o.providerName, o.oauth2Config.RedirectURL)
+			http.Error(w, fmt.Sprintf("exchange failed: %v", err), http.StatusBadRequest)
 			return
 		}
 		payload, err := o.fetchUserInfo(ctx, tok)
 		if err != nil {
+			log.Printf("oauth2 userinfo failed: %v (provider=%s, url=%s)", err, o.providerName, o.userInfoURL)
 			http.Error(w, "userinfo failed", http.StatusBadGateway)
 			return
 		}

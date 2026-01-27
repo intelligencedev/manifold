@@ -116,7 +116,7 @@
         class="glass-surface relative flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/80 chat-pane"
       >
         <header
-          class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3"
+          class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 pb-4 pt-1"
         >
           <div>
             <h1 class="text-base font-semibold text-foreground">
@@ -163,22 +163,32 @@
                 </svg>
               </button>
             </span>
-            <div class="flex items-center gap-2">
-              <DropdownSelect
-                v-model="selectedProjectId"
-                :options="projectOptions"
-                size="xs"
-                title="Project for this conversation"
-                aria-label="Project"
-                class="min-w-[180px]"
-              />
-              <DropdownSelect
-                v-model="renderMode"
-                :options="renderModeOptions"
-                size="xs"
-                title="Render mode for assistant responses"
-                aria-label="Render mode"
-              />
+            <div class="flex items-center gap-2 -mt-1.5">
+              <div class="flex flex-col items-start gap-1">
+                <span class="text-[10px] font-medium leading-none text-faint-foreground">
+                  Project
+                </span>
+                <DropdownSelect
+                  v-model="selectedProjectId"
+                  :options="projectOptions"
+                  size="xs"
+                  title="Project for this conversation"
+                  aria-label="Project"
+                  class="min-w-[180px]"
+                />
+              </div>
+              <div class="flex flex-col items-start gap-1">
+                <span class="text-[10px] font-medium leading-none text-faint-foreground">
+                  Render mode
+                </span>
+                <DropdownSelect
+                  v-model="renderMode"
+                  :options="renderModeOptions"
+                  size="xs"
+                  title="Render mode for assistant responses"
+                  aria-label="Render mode"
+                />
+              </div>
             </div>
           </div>
         </header>

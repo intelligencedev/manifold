@@ -165,7 +165,7 @@
             </span>
             <div class="flex items-center gap-2 -mt-1.5">
               <div class="flex flex-col items-start gap-1">
-                <span class="text-[10px] font-medium leading-none text-faint-foreground">
+                <span class="ml-1 text-[10px] font-medium leading-none text-faint-foreground">
                   Project
                 </span>
                 <DropdownSelect
@@ -178,7 +178,7 @@
                 />
               </div>
               <div class="flex flex-col items-start gap-1">
-                <span class="text-[10px] font-medium leading-none text-faint-foreground">
+                <span class="ml-1 text-[10px] font-medium leading-none text-faint-foreground">
                   Render mode
                 </span>
                 <DropdownSelect

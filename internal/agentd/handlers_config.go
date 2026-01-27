@@ -1,13 +1,10 @@
 package agentd
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 
 	yaml "gopkg.in/yaml.v3"
@@ -361,7 +358,7 @@ func persistToConfigYAML(s agentdSettings) error {
 	if s.EmbedPath != "" {
 		setPath(root, []string{"embedding", "path"}, s.EmbedPath)
 	}
-	if s.EmbedAPIHeaders != nil && len(s.EmbedAPIHeaders) > 0 {
+	if len(s.EmbedAPIHeaders) > 0 {
 		setPath(root, []string{"embedding", "headers"}, s.EmbedAPIHeaders)
 	}
 
@@ -489,192 +486,4 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]any{"error": err.Error()})
-}
-
-// persistToDotEnv updates (or creates) a local .env file with the provided settings.
-func persistToDotEnv(s agentdSettings) error {
-	path := findDotEnvPath()
-	// Read existing
-	values, _ := readDotEnv(path)
-
-	// Map settings -> env keys
-	set := func(k, v string) {
-		if v == "" {
-			return
-		}
-		values[k] = v
-	}
-	set("OPENAI_SUMMARY_MODEL", s.OpenAISummaryModel)
-	set("OPENAI_SUMMARY_URL", s.OpenAISummaryURL)
-	set("SUMMARY_ENABLED", fmtBool(s.SummaryEnabled))
-	if s.SummaryReserveBufferTokens != 0 {
-		set("SUMMARY_RESERVE_BUFFER_TOKENS", fmtInt(s.SummaryReserveBufferTokens))
-	}
-
-	set("EMBED_BASE_URL", s.EmbedBaseURL)
-	set("EMBED_MODEL", s.EmbedModel)
-	set("EMBED_API_KEY", s.EmbedAPIKey)
-	set("EMBED_API_HEADER", s.EmbedAPIHeader)
-	if s.EmbedAPIHeaders != nil && len(s.EmbedAPIHeaders) > 0 {
-		if b, err := json.Marshal(s.EmbedAPIHeaders); err == nil {
-			set("EMBED_API_HEADERS", string(b))
-		}
-	}
-	set("EMBED_PATH", s.EmbedPath)
-
-	if s.AgentRunTimeoutSeconds != 0 {
-		set("AGENT_RUN_TIMEOUT_SECONDS", fmtInt(s.AgentRunTimeoutSeconds))
-	}
-	if s.StreamRunTimeoutSeconds != 0 {
-		set("STREAM_RUN_TIMEOUT_SECONDS", fmtInt(s.StreamRunTimeoutSeconds))
-	}
-	if s.WorkflowTimeoutSeconds != 0 {
-		set("WORKFLOW_TIMEOUT_SECONDS", fmtInt(s.WorkflowTimeoutSeconds))
-	}
-
-	if strings.TrimSpace(s.BlockBinaries) != "" {
-		set("BLOCK_BINARIES", normalizeCSV(s.BlockBinaries))
-	}
-	if s.MaxCommandSeconds != 0 {
-		set("MAX_COMMAND_SECONDS", fmtInt(s.MaxCommandSeconds))
-	}
-	if s.OutputTruncateBytes != 0 {
-		set("OUTPUT_TRUNCATE_BYTES", fmtInt(s.OutputTruncateBytes))
-	}
-
-	set("OTEL_SERVICE_NAME", s.OTELServiceName)
-	set("SERVICE_VERSION", s.ServiceVersion)
-	set("ENVIRONMENT", s.Environment)
-	set("OTEL_EXPORTER_OTLP_ENDPOINT", s.OTLPEndpoint)
-
-	set("LOG_PATH", s.LogPath)
-	set("LOG_LEVEL", s.LogLevel)
-	set("LOG_PAYLOADS", fmtBool(s.LogPayloads))
-
-	if s.SearXNGURL != "" {
-		set("SEARXNG_URL", s.SearXNGURL)
-	} else if s.WebSearXNGURL != "" {
-		set("SEARXNG_URL", s.WebSearXNGURL)
-	}
-
-	// Databases
-	if s.DatabaseURL != "" {
-		set("DATABASE_URL", s.DatabaseURL)
-	} else if s.DBURL != "" {
-		set("DATABASE_URL", s.DBURL)
-	} else if s.PostgresDSN != "" {
-		set("DATABASE_URL", s.PostgresDSN)
-	}
-	set("SEARCH_BACKEND", s.SearchBackend)
-	set("SEARCH_DSN", s.SearchDSN)
-	set("SEARCH_INDEX", s.SearchIndex)
-	set("VECTOR_BACKEND", s.VectorBackend)
-	set("VECTOR_DSN", s.VectorDSN)
-	set("VECTOR_INDEX", s.VectorIndex)
-	if s.VectorDims != 0 {
-		set("VECTOR_DIMENSIONS", fmtInt(s.VectorDims))
-	}
-	set("VECTOR_METRIC", s.VectorMetric)
-	set("GRAPH_BACKEND", s.GraphBackend)
-	set("GRAPH_DSN", s.GraphDSN)
-
-	return writeDotEnv(path, values)
-}
-
-func fmtInt(n int) string { return fmt.Sprintf("%d", n) }
-func fmtBool(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
-
-func normalizeCSV(s string) string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return strings.Join(out, ",")
-}
-
-// readDotEnv parses a minimal KEY=VALUE file. Quoted values are supported.
-func readDotEnv(path string) (map[string]string, error) {
-	res := map[string]string{}
-	f, err := os.Open(path)
-	if err != nil {
-		return res, err
-	}
-	defer f.Close()
-	scanner := bufio.NewScanner(f)
-	re := regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$`)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == "" {
-			continue
-		}
-		m := re.FindStringSubmatch(line)
-		if len(m) == 3 {
-			k := m[1]
-			v := strings.TrimSpace(m[2])
-			v = strings.Trim(v, "\"")
-			res[k] = v
-		}
-	}
-	return res, scanner.Err()
-}
-
-func writeDotEnv(path string, values map[string]string) error {
-	// Ensure directory exists
-	dir := filepath.Dir(path)
-	if dir != "." && dir != "" {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-	}
-	// Write in sorted deterministic order
-	// Preserve existing comments is out of scope; we emit a simple file.
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	bw := bufio.NewWriter(f)
-	_, _ = bw.WriteString("# Managed by agentd /api/config/agentd. Manual edits may be overwritten.\n")
-	keys := make([]string, 0, len(values))
-	for k := range values {
-		keys = append(keys, k)
-	}
-	// Simple alpha sort
-	for i := 0; i < len(keys)-1; i++ {
-		for j := i + 1; j < len(keys); j++ {
-			if keys[j] < keys[i] {
-				keys[i], keys[j] = keys[j], keys[i]
-			}
-		}
-	}
-	for _, k := range keys {
-		v := values[k]
-		// Quote if contains spaces or special chars
-		if strings.ContainsAny(v, " #\t\n\r") {
-			v = "\"" + v + "\""
-		}
-		_, _ = bw.WriteString(fmt.Sprintf("%s=%s\n", k, v))
-	}
-	return bw.Flush()
-}
-
-func findDotEnvPath() string {
-	// Prefer .env in current working directory; fallback to example.env name
-	if _, err := os.Stat(".env"); err == nil {
-		return ".env"
-	}
-	// If example exists, write next to it as .env
-	if _, err := os.Stat("example.env"); err == nil {
-		return ".env"
-	}
-	return ".env"
 }

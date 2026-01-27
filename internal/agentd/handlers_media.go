@@ -1,8 +1,9 @@
 package agentd
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -219,12 +221,28 @@ func (a *app) audioServeHandler() http.HandlerFunc {
 
 func (a *app) sttHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Resolve user for per-user API key lookup
+		var userID int64
+		if a.cfg.Auth.Enabled {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			id, _, err := resolveChatAccess(r.Context(), a.authStore, u)
+			if err != nil {
+				log.Error().Err(err).Msg("stt_resolve_chat_access")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if id != nil {
+				userID = *id
+			}
+		}
+
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if a.whisperModel == nil {
-			http.Error(w, "whisper model unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -242,75 +260,89 @@ func (a *app) sttHandler() http.HandlerFunc {
 			http.Error(w, "read error", http.StatusInternalServerError)
 			return
 		}
-		if len(data) < 44 || string(data[0:4]) != "RIFF" || string(data[8:12]) != "WAVE" {
-			http.Error(w, "unsupported audio (expect WAV)", http.StatusBadRequest)
-			return
+
+		// Get per-user orchestrator config (includes API key)
+		orch := a.orchestratorSpecialist(r.Context(), userID)
+
+		model := strings.TrimSpace(a.cfg.STT.Model)
+		if model == "" {
+			model = "gpt-4o-mini-transcribe"
 		}
-		channels := binary.LittleEndian.Uint16(data[22:24])
-		sampleRate := binary.LittleEndian.Uint32(data[24:28])
-		bitsPerSample := binary.LittleEndian.Uint16(data[34:36])
-		offset := 12
-		var audioStart, audioLen int
-		for offset+8 <= len(data) {
-			chunkID := string(data[offset : offset+4])
-			chunkSize := int(binary.LittleEndian.Uint32(data[offset+4 : offset+8]))
-			if chunkID == "data" {
-				audioStart = offset + 8
-				audioLen = chunkSize
-				break
-			}
-			offset += 8 + chunkSize
+		baseURL := strings.TrimSpace(a.cfg.STT.BaseURL)
+		if baseURL == "" {
+			baseURL = strings.TrimSpace(orch.BaseURL)
 		}
-		if audioLen == 0 || audioStart+audioLen > len(data) {
-			http.Error(w, "invalid wav data", http.StatusBadRequest)
-			return
+		if baseURL == "" {
+			baseURL = "https://api.openai.com"
 		}
-		raw := data[audioStart : audioStart+audioLen]
-		var samples []float32
-		switch bitsPerSample {
-		case 16:
-			for i := 0; i+1 < len(raw); i += 2 {
-				sample := int16(binary.LittleEndian.Uint16(raw[i : i+2]))
-				samples = append(samples, float32(sample)/32768.0)
-			}
-		case 32:
-			for i := 0; i+3 < len(raw); i += 4 {
-				bits := binary.LittleEndian.Uint32(raw[i : i+4])
-				samples = append(samples, wavFloat32(bits))
-			}
-		default:
-			http.Error(w, "unsupported bit depth", http.StatusBadRequest)
-			return
+		baseURL = strings.TrimRight(baseURL, "/")
+		if strings.HasSuffix(baseURL, "/v1") {
+			baseURL = strings.TrimSuffix(baseURL, "/v1")
 		}
-		if channels == 2 {
-			mono := make([]float32, len(samples)/2)
-			for i := 0; i < len(mono); i++ {
-				mono[i] = (samples[i*2] + samples[i*2+1]) / 2
-			}
-			samples = mono
-		}
-		if sampleRate != 16000 {
-			log.Warn().Uint32("rate", sampleRate).Msg("non-16k audio provided; transcription may be degraded")
-		}
-		ctx, err := a.whisperModel.NewContext()
+		reqURL := baseURL + "/v1/audio/transcriptions"
+		log.Debug().Str("endpoint", reqURL).Str("model", model).Int64("user_id", userID).Msg("stt_request")
+
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		fw, err := mw.CreateFormFile("file", "prompt.wav")
 		if err != nil {
-			http.Error(w, "ctx error", http.StatusInternalServerError)
+			http.Error(w, "form error", http.StatusInternalServerError)
 			return
 		}
-		ctx.SetLanguage("en")
-		if err := ctx.Process(samples, nil, nil, nil); err != nil {
-			http.Error(w, "process error", http.StatusInternalServerError)
+		if _, err := fw.Write(data); err != nil {
+			http.Error(w, "form error", http.StatusInternalServerError)
 			return
 		}
-		var sb strings.Builder
-		for {
-			seg, err := ctx.NextSegment()
-			if err != nil {
-				break
-			}
-			sb.WriteString(seg.Text)
+		if err := mw.WriteField("model", model); err != nil {
+			http.Error(w, "form error", http.StatusInternalServerError)
+			return
 		}
+		if err := mw.WriteField("response_format", "json"); err != nil {
+			http.Error(w, "form error", http.StatusInternalServerError)
+			return
+		}
+		if err := mw.Close(); err != nil {
+			http.Error(w, "form error", http.StatusInternalServerError)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		started := time.Now()
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, &buf)
+		if err != nil {
+			http.Error(w, "request error", http.StatusInternalServerError)
+			return
+		}
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		if orch.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+orch.APIKey)
+		}
+
+		resp, err := a.httpClient.Do(req)
+		if err != nil {
+			log.Warn().Err(err).Str("endpoint", reqURL).Dur("elapsed", time.Since(started)).Msg("stt_request_failed")
+			http.Error(w, "stt request failed", http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<10))
+			log.Warn().Int("status", resp.StatusCode).Str("body", strings.TrimSpace(string(b))).Str("endpoint", reqURL).Dur("elapsed", time.Since(started)).Msg("stt_request_error")
+			http.Error(w, strings.TrimSpace(string(b)), resp.StatusCode)
+			return
+		}
+
+		var out struct {
+			Text string `json:"text"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+			log.Warn().Err(err).Str("endpoint", reqURL).Dur("elapsed", time.Since(started)).Msg("stt_response_decode_failed")
+			http.Error(w, "invalid stt response", http.StatusBadGateway)
+			return
+		}
+		log.Debug().Str("endpoint", reqURL).Int("text_len", len(out.Text)).Dur("elapsed", time.Since(started)).Msg("stt_response")
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"text": strings.TrimSpace(sb.String())})
+		_ = json.NewEncoder(w).Encode(map[string]string{"text": strings.TrimSpace(out.Text)})
 	}
 }

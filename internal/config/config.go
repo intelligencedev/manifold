@@ -74,6 +74,8 @@ type Config struct {
 	EvolvingMemory EvolvingMemoryConfig
 	// TTS configures text-to-speech defaults and endpoint.
 	TTS TTSConfig `yaml:"tts" json:"tts"`
+	// STT configures speech-to-text defaults and endpoint.
+	STT STTConfig `yaml:"stt" json:"stt"`
 	// AgentRunTimeoutSeconds sets an upper wall-clock bound for a single agent
 	// Run() invocation. 0 or negative disables the global timeout (recommended
 	// for long-running, tool-bounded workflows where per-tool timeouts and
@@ -117,6 +119,15 @@ type TTSConfig struct {
 	Model string `yaml:"model" json:"model"`
 	// Voice is the default voice name to request from the TTS endpoint.
 	Voice string `yaml:"voice" json:"voice"`
+}
+
+// STTConfig holds speech-to-text specific configuration.
+type STTConfig struct {
+	// BaseURL is the HTTP base for STT requests. Requests will be POSTed to
+	// ${BaseURL}/v1/audio/transcriptions if set.
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	// Model is the default STT model to use when transcribing audio.
+	Model string `yaml:"model" json:"model"`
 }
 
 type ExecConfig struct {

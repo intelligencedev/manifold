@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/rs/zerolog/log"
@@ -28,7 +27,6 @@ import (
 	"manifold/internal/observability"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
-	persistdb "manifold/internal/persistence/databases"
 	"manifold/internal/playground"
 	"manifold/internal/playground/artifacts"
 	"manifold/internal/playground/dataset"
@@ -88,7 +86,6 @@ type app struct {
 	playgroundHandler  http.Handler
 	projectsService    projects.ProjectService
 	workspaceManager   workspaces.WorkspaceManager
-	whisperModel       whisper.Model
 	authStore          *auth.Store
 	authProvider       auth.Provider
 	specStore          persist.SpecialistsStore
@@ -401,10 +398,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if !cfg.EnableTools {
 		toolRegistry = tools.NewRegistry()
 	} else if len(cfg.ToolAllowList) > 0 {
-		allowList := make([]string, 0, len(cfg.ToolAllowList))
-		for _, name := range cfg.ToolAllowList {
-			allowList = append(allowList, name)
-		}
+		allowList := append([]string{}, cfg.ToolAllowList...)
 		toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, allowList)
 	}
 
@@ -568,9 +562,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 		var evStore memory.EvolvingMemoryStore
 		if mgr.EvolvingMemory != nil {
-			if s, ok := mgr.EvolvingMemory.(memory.EvolvingMemoryStore); ok {
-				evStore = s
-			}
+			evStore = mgr.EvolvingMemory
 		}
 
 		app.evolvingCfg = memory.EvolvingMemoryConfig{
@@ -688,8 +680,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// Register skills invalidator with workspaces package to break import cycle
 	workspaces.SetSkillsInvalidator(skills.InvalidateCacheForProject)
 
-	app.whisperModel = app.loadWhisperModel("models/ggml-small.en.bin")
-
 	if err := app.initAuth(ctx); err != nil {
 		return nil, err
 	}
@@ -745,11 +735,11 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 
 	if a.cfg.Databases.DefaultDSN != "" {
 		if p, errPool := databases.OpenPool(ctx, a.cfg.Databases.DefaultDSN); errPool == nil {
-			wfStore = persistdb.NewPostgresWarppStore(p)
+			wfStore = databases.NewPostgresWarppStore(p)
 		}
 	}
 	if wfStore == nil {
-		wfStore = persistdb.NewPostgresWarppStore(nil)
+		wfStore = databases.NewPostgresWarppStore(nil)
 	}
 	_ = wfStore.Init(ctx)
 
@@ -780,16 +770,6 @@ func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error 
 	a.warppStore = wfStore
 	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly.
 	warpptool.RegisterAll(toolRegistry, a.warppRunner)
-	return nil
-}
-
-func (a *app) loadWhisperModel(modelPath string) whisper.Model {
-	model, err := whisper.New(modelPath)
-	if err == nil {
-		log.Info().Str("model", modelPath).Msg("whisper model loaded")
-		return model
-	}
-	log.Warn().Str("model", modelPath).Err(err).Msg("whisper model load failed; /stt disabled")
 	return nil
 }
 

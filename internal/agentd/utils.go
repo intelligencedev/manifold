@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/rs/zerolog/log"
 
@@ -211,7 +210,7 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, user
 	return store.AppendMessages(ctx, userID, sessionID, messages, preview, model)
 }
 
-func resolveChatAccess(ctx context.Context, authStore *auth.Store, user *auth.User) (*int64, bool, error) {
+func resolveChatAccess(_ context.Context, authStore *auth.Store, user *auth.User) (*int64, bool, error) {
 	if authStore == nil || user == nil {
 		return nil, true, nil
 	}
@@ -242,11 +241,6 @@ func (a *app) requireUserID(r *http.Request) (int64, error) {
 		return 0, errors.New("unauthorized")
 	}
 	return user.ID, nil
-}
-
-// wavFloat32 converts a little-endian uint32 representation to float32 without allocations.
-func wavFloat32(bits uint32) float32 {
-	return *(*float32)(unsafe.Pointer(&bits))
 }
 
 // providerSupportsCompaction checks if an LLM provider implements the CompactionProvider

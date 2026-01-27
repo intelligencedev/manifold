@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/rs/zerolog/log"
 
 	"manifold/internal/config"
 	llmpkg "manifold/internal/llm"
@@ -407,13 +406,6 @@ LIMIT ?
 		return nil, err
 	}
 	return out, nil
-}
-
-func warnCHQueryDisabled(err error) {
-	if err == nil {
-		return
-	}
-	log.Warn().Err(err).Msg("clickhouse telemetry query failed")
 }
 
 func parseInt64Loose(raw string) int64 {

@@ -2649,6 +2649,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   const data = (await resp.json()) as { text?: string };
   return data?.text || "";
 }
+
 </script>
 
 <style scoped>

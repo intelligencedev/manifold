@@ -23,7 +23,7 @@ Chat is project-scoped. If no project is selected (via the app header), the comp
 
 - Text: Enter message; press Enter to send (Shift+Enter for newline).
 - Attachments: click the paperclip to attach images (PNG/JPEG) or text files (txt, md, log). Thumbnails and chips appear before send.
-- Voice: click the mic to record; speech is transcribed via /stt and appended to the composer. The browser records audio, downsamples to 16 kHz mono, encodes a small WAV, and posts to /stt.
+- Voice: click the mic to record; speech is transcribed via /stt and appended to the composer. The browser records audio, downsamples to 16 kHz mono, encodes a small WAV, and posts to /stt. **Note:** Speech-to-text currently requires an OpenAI API-compatible endpoint (e.g., OpenAI, Azure OpenAI, or a local server implementing the `/v1/audio/transcriptions` API). The API key is taken from the current user's orchestrator specialist configuration.
 - Send/Stop: the arrow sends; while streaming, the button switches to Stop.
 - Generate image: toggle to request an image response from providers that support image generation.
 
@@ -60,8 +60,7 @@ Chat is project-scoped. If no project is selected (via the app header), the comp
 
 Troubleshooting
 - “Select a project to run the agent”: choose a project in the top header.
-- Mic icon disabled: browser cannot access microphone or a recording is already active.
-- Regenerate disabled: there is no prior assistant turn to regenerate, or the model is still streaming.
+- Mic icon disabled: browser cannot access microphone or a recording is already active.- Voice transcription fails (401 error): ensure your orchestrator specialist has a valid OpenAI API key configured. STT uses the per-user orchestrator's API key, not the global config.- Regenerate disabled: there is no prior assistant turn to regenerate, or the model is still streaming.
 
 Placeholder for screenshots: [Composer with attachments; Tool sidebar details]
 

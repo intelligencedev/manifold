@@ -20,9 +20,6 @@ $ cp example.env .env && cp config.yaml.example config.yaml
 # Replace test123 with real key
 $ sed -i '' 's/^OPENAI_API_KEY="[^"]*"/OPENAI_API_KEY="test123"/' .env
 
-# Update submodules
-$ git submodule update --init --recursive
-
 # Ensure Node version 20 is enabled
 $ nvm use 20
 

@@ -132,6 +132,17 @@ embedding:
   # apiKey: "${OPENAI_API_KEY}"
   # apiHeader: "Authorization"
 
+# Text-to-speech defaults (OpenAI-compatible)
+tts:
+  baseURL: "https://api.openai.com"
+  model: "gpt-4o-mini-tts"
+  voice: "alloy"
+
+# Speech-to-text defaults (OpenAI-compatible)
+stt:
+  baseURL: "https://api.openai.com"
+  model: "gpt-4o-mini-transcribe"
+
 databases:
   defaultDSN: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
   chat:

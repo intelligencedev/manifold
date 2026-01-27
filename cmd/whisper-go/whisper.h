@@ -1,102 +1,23 @@
 #ifndef WHISPER_H
 #define WHISPER_H
 
+// Whisper has been removed from Manifold.
+// This header is intentionally empty to avoid pulling whisper.cpp/ggml symbols.
+
+#endif // WHISPER_H#ifndef WHISPER_H
+#define WHISPER_H
+
+// Whisper has been removed from Manifold.
+// This header is intentionally empty to avoid pulling whisper.cpp/ggml symbols.
+
+#endif // WHISPER_H#ifndef WHISPER_H
+#define WHISPER_H
+
 #include "ggml.h"
 #include "ggml-cpu.h"
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-#ifdef __GNUC__
-#    define WHISPER_DEPRECATED(func, hint) func __attribute__((deprecated(hint)))
-#elif defined(_MSC_VER)
-#    define WHISPER_DEPRECATED(func, hint) __declspec(deprecated(hint)) func
-#else
-#    define WHISPER_DEPRECATED(func, hint) func
-#endif
-
-#ifdef WHISPER_SHARED
-#    ifdef _WIN32
-#        ifdef WHISPER_BUILD
-#            define WHISPER_API __declspec(dllexport)
-#        else
-#            define WHISPER_API __declspec(dllimport)
-#        endif
-#    else
-#        define WHISPER_API __attribute__ ((visibility ("default")))
-#    endif
-#else
-#    define WHISPER_API
-#endif
-
-#define WHISPER_SAMPLE_RATE 16000
-#define WHISPER_N_FFT       400
-#define WHISPER_HOP_LENGTH  160
-#define WHISPER_CHUNK_SIZE  30
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-    //
-    // C interface
-    //
-    // The following interface is thread-safe as long as the sample whisper_context is not used by multiple threads
-    // concurrently.
-    //
-    // Basic usage:
-    //
-    //     #include "whisper.h"
-    //
-    //     ...
-    //
-    //     whisper_context_params cparams = whisper_context_default_params();
-    //
-    //     struct whisper_context * ctx = whisper_init_from_file_with_params("/path/to/ggml-base.en.bin", cparams);
-    //
-    //     if (whisper_full(ctx, wparams, pcmf32.data(), pcmf32.size()) != 0) {
-    //         fprintf(stderr, "failed to process audio\n");
-    //         return 7;
-    //     }
-    //
-    //     const int n_segments = whisper_full_n_segments(ctx);
-    //     for (int i = 0; i < n_segments; ++i) {
-    //         const char * text = whisper_full_get_segment_text(ctx, i);
-    //         printf("%s", text);
-    //     }
-    //
-    //     whisper_free(ctx);
-    //
-    //     ...
-    //
-    // This is a demonstration of the most straightforward usage of the library.
-    // "pcmf32" contains the RAW audio data in 32-bit floating point format.
-    //
-    // The interface also allows for more fine-grained control over the computation, but it requires a deeper
-    // understanding of how the model works.
-    //
-
-    struct whisper_context;
-    struct whisper_state;
-    struct whisper_full_params;
-
-    typedef int32_t whisper_pos;
-    typedef int32_t whisper_token;
-    typedef int32_t whisper_seq_id;
-
-    enum whisper_alignment_heads_preset {
-        WHISPER_AHEADS_NONE,
-        WHISPER_AHEADS_N_TOP_MOST,  // All heads from the N-top-most text-layers
-        WHISPER_AHEADS_CUSTOM,
-        WHISPER_AHEADS_TINY_EN,
-        WHISPER_AHEADS_TINY,
-        WHISPER_AHEADS_BASE_EN,
-        WHISPER_AHEADS_BASE,
-        WHISPER_AHEADS_SMALL_EN,
-        WHISPER_AHEADS_SMALL,
-        WHISPER_AHEADS_MEDIUM_EN,
-        WHISPER_AHEADS_MEDIUM,
+// Whisper has been removed from Manifold.
+// This header is intentionally blank to avoid pulling whisper.cpp/ggml symbols.
         WHISPER_AHEADS_LARGE_V1,
         WHISPER_AHEADS_LARGE_V2,
         WHISPER_AHEADS_LARGE_V3,

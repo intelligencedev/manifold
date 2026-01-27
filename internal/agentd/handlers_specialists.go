@@ -467,17 +467,6 @@ func copyAnyMap(in map[string]any) map[string]any {
 	return out
 }
 
-func mergeAnyMap(base, override map[string]any) map[string]any {
-	if len(override) == 0 {
-		return copyAnyMap(base)
-	}
-	out := copyAnyMap(base)
-	for k, v := range override {
-		out[k] = v
-	}
-	return out
-}
-
 func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist) error {
 	provider := specialists.ApplyOrchestratorConfig(a.cfg, sp)
 

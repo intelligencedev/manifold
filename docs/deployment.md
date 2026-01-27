@@ -47,6 +47,7 @@ Metadata lives in `.meta/project.json` inside each project directory. No additio
 
 - `workdir` in [config.yaml](../config.yaml) should point to the same `WORKDIR` you set in `.env`.
 - Database DSNs are required for chat history, search, vector, and graph services. Use the same Postgres instance for local development.
+- **Speech-to-text (STT)**: Voice input in the Chat view requires an OpenAI API-compatible transcription endpoint. Configure `STT_BASE_URL` and `STT_MODEL` in `.env` if using a custom endpoint. The API key is taken from the user's orchestrator specialist configuration in the database.
 
 ## Observability (Optional)
 

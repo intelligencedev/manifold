@@ -145,6 +145,9 @@ func Load() (Config, error) {
 	cfg.TTS.BaseURL = strings.TrimSpace(os.Getenv("TTS_BASE_URL"))
 	cfg.TTS.Model = strings.TrimSpace(os.Getenv("TTS_MODEL"))
 	cfg.TTS.Voice = strings.TrimSpace(os.Getenv("TTS_VOICE"))
+	// STT defaults (optional)
+	cfg.STT.BaseURL = strings.TrimSpace(os.Getenv("STT_BASE_URL"))
+	cfg.STT.Model = strings.TrimSpace(os.Getenv("STT_MODEL"))
 
 	// Summary configuration via env (token-based only)
 	if v := strings.TrimSpace(os.Getenv("SUMMARY_ENABLED")); v != "" {
@@ -698,6 +701,10 @@ func loadSpecialists(cfg *Config) error {
 		Voice   string `yaml:"voice"`
 		Format  string `yaml:"format"`
 	}
+	type sttYAML struct {
+		BaseURL string `yaml:"baseURL"`
+		Model   string `yaml:"model"`
+	}
 	type tokenizationYAML struct {
 		Enabled             bool  `yaml:"enabled"`
 		CacheSize           int   `yaml:"cacheSize"`
@@ -766,6 +773,7 @@ func loadSpecialists(cfg *Config) error {
 		Embedding                    embeddingYAML      `yaml:"embedding"`
 		EvolvingMemory               evolvingMemoryYAML `yaml:"evolvingMemory"`
 		TTS                          ttsYAML            `yaml:"tts"`
+		STT                          sttYAML            `yaml:"stt"`
 		Projects                     projectsYAML       `yaml:"projects"`
 		Tokenization                 tokenizationYAML   `yaml:"tokenization"`
 		EnableTools                  *bool              `yaml:"enableTools"`
@@ -1132,6 +1140,13 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.TTS.Voice == "" && strings.TrimSpace(w.TTS.Voice) != "" {
 			cfg.TTS.Voice = strings.TrimSpace(w.TTS.Voice)
+		}
+		// STT defaults from YAML if not set by env
+		if cfg.STT.BaseURL == "" && strings.TrimSpace(w.STT.BaseURL) != "" {
+			cfg.STT.BaseURL = strings.TrimSpace(w.STT.BaseURL)
+		}
+		if cfg.STT.Model == "" && strings.TrimSpace(w.STT.Model) != "" {
+			cfg.STT.Model = strings.TrimSpace(w.STT.Model)
 		}
 		// Auth from YAML (env overrides not yet implemented)
 		if w.Auth.Enabled {

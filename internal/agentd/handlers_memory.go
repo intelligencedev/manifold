@@ -253,7 +253,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plan)
 }
 
-func (a *app) deriveMemoryPlan(sess any, msgs []llm.Message) memoryPlanResponse {
+func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message) memoryPlanResponse {
 	// We approximate the tail as everything except the first summary/system message
 	total := len(msgs)
 	tailStart := 0

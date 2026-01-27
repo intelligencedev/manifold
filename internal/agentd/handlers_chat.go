@@ -1501,9 +1501,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		// Commit workspace changes after successful run
 		a.commitWorkspace(ctx, checkedOutWorkspace)
-		return
 	}
-
 }
 
 func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {

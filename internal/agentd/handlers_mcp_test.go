@@ -4,12 +4,6 @@ package agentd
 // registration, PKCE, resource indicator, and token persistence. They avoid global
 // auth by leaving cfg.Auth.Enabled=false so requireUserID returns systemUserID.
 //
-// WARNING: The repository build may currently fail due to missing whisper.cpp
-// CGO headers. Running only these tests still compiles the agentd package which
-// imports code referring to whisper; ensure the whisper dependency is set up or
-// run with environment that provides the header. The test logic itself does not
-// depend on whisper.
-
 import (
 	"context"
 	"encoding/json"
@@ -64,17 +58,6 @@ func buildTestApp(t *testing.T, httpClient *http.Client, store persist.MCPStore)
 		mcpManager:   mcpclient.NewManager(),
 	}
 	return a
-}
-
-// parseJSON helper.
-func parseJSON[T any](t *testing.T, body io.Reader) T {
-	t.Helper()
-	var v T
-	dec := json.NewDecoder(body)
-	if err := dec.Decode(&v); err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-	return v
 }
 
 // TestMCPCreateAndList verifies basic create + list behaviour.

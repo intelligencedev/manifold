@@ -11,8 +11,8 @@
         <div class="mb-4 flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold">Specialists & Teams</h2>
           <div class="flex items-center gap-2">
-            <button @click="startCreateGroup" class="rounded-full border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10">
-              New group
+            <button @click="startCreateTeam" class="rounded-full border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10">
+              New team
             </button>
             <button @click="startCreate" class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent">
               New specialist
@@ -22,43 +22,43 @@
 
         <div class="mb-6">
           <div class="mb-2 flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-foreground">Groups</h3>
+            <h3 class="text-sm font-semibold text-foreground">Teams</h3>
           </div>
-          <div v-if="groupsLoading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading groups…</div>
-          <div v-else-if="groupsError" class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load groups.</div>
-          <div v-else-if="!groups.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No groups configured yet.</div>
+          <div v-if="teamsLoading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading teams…</div>
+          <div v-else-if="teamsError" class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load teams.</div>
+          <div v-else-if="!teams.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No teams configured yet.</div>
           <div v-else class="flex flex-col gap-3">
             <GlassCard
-              v-for="g in groups"
-              :key="g.name"
+              v-for="t in teams"
+              :key="t.name"
               class="flex flex-col transition-all duration-200 cursor-pointer"
-              :class="{ 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface': isCurrentlyEditingGroup(g.name) }"
+              :class="{ 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface': isCurrentlyEditingTeam(t.name) }"
               interactive
-              @click="editGroup(g)"
+              @click="editTeam(t)"
             >
               <div class="flex items-start justify-between gap-3">
                 <div>
-                  <h3 class="text-base font-semibold text-foreground">{{ g.name }}</h3>
+                  <h3 class="text-base font-semibold text-foreground">{{ t.name }}</h3>
                   <p class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground">Orchestrator</p>
-                  <p class="text-sm text-muted-foreground">{{ g.orchestrator?.model || '—' }}</p>
+                  <p class="text-sm text-muted-foreground">{{ t.orchestrator?.model || '—' }}</p>
                 </div>
-                <Pill tone="accent" size="sm">Group</Pill>
+                <Pill tone="accent" size="sm">Team</Pill>
               </div>
-              <p class="mt-3 text-sm text-subtle-foreground">{{ g.description || 'No description provided yet.' }}</p>
+              <p class="mt-3 text-sm text-subtle-foreground">{{ t.description || 'No description provided yet.' }}</p>
               <div class="mt-3 flex items-center gap-2 text-xs text-subtle-foreground">
-                <span class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium">Members · {{ g.members?.length || 0 }}</span>
+                <span class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium">Members · {{ t.members?.length || 0 }}</span>
               </div>
               <div class="mt-3 flex flex-wrap gap-2" @click.stop>
                 <button
                   type="button"
-                  @click="editGroup(g)"
+                  @click="editTeam(t)"
                   class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                 >
                   Edit
                 </button>
                 <button
                   type="button"
-                  @click="removeGroup(g)"
+                  @click="removeTeam(t)"
                   class="rounded-full border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
                 >
                   Delete
@@ -72,28 +72,28 @@
           <button
             type="button"
             class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-            :class="groupFilter === 'all' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
-            @click="groupFilter = 'all'"
+            :class="teamFilter === 'all' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="teamFilter = 'all'"
           >
             All
           </button>
           <button
             type="button"
             class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-            :class="groupFilter === 'ungrouped' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
-            @click="groupFilter = 'ungrouped'"
+            :class="teamFilter === 'unassigned' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="teamFilter = 'unassigned'"
           >
-            Ungrouped
+            Unassigned
           </button>
           <button
-            v-for="g in groups"
-            :key="`filter-${g.name}`"
+            v-for="t in teams"
+            :key="`filter-${t.name}`"
             type="button"
             class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-            :class="groupFilter === g.name ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
-            @click="groupFilter = g.name"
+            :class="teamFilter === t.name ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="teamFilter = t.name"
           >
-            {{ g.name }}
+            {{ t.name }}
           </button>
         </div>
 
@@ -131,9 +131,9 @@
             <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
 
             <div class="mt-3 flex flex-wrap gap-2 text-xs">
-              <Pill v-if="!s.groups || !s.groups.length" tone="neutral" size="sm">Ungrouped</Pill>
-              <Pill v-for="g in s.groups || []" :key="`${s.name}-${g}`" tone="neutral" size="sm">
-                {{ g }}
+              <Pill v-if="!s.teams || !s.teams.length" tone="neutral" size="sm">Unassigned</Pill>
+              <Pill v-for="t in s.teams || []" :key="`${s.name}-${t}`" tone="neutral" size="sm">
+                {{ t }}
               </Pill>
             </div>
 
@@ -201,26 +201,26 @@
             :credentialConfigured="editorCredentialConfigured"
             :providerDefaults="providerDefaultsMap"
             :providerOptions="providerOptions"
-            :availableGroups="groupNames"
+            :availableTeams="teamNames"
             @cancel="closeEditor"
             @saved="onSaved"
           />
         </GlassCard>
-        <GlassCard v-else-if="editingType === 'group'" class="h-full min-h-0 overflow-hidden">
-          <EditGroupRoot
-            :key="groupEditorInitial?.name || 'new-group'"
+        <GlassCard v-else-if="editingType === 'team'" class="h-full min-h-0 overflow-hidden">
+          <EditTeamRoot
+            :key="teamEditorInitial?.name || 'new-team'"
             class="h-full"
-            :initial="groupEditorInitial!"
-            :lockName="groupEditorLockName"
+            :initial="teamEditorInitial!"
+            :lockName="teamEditorLockName"
             :providerDefaults="providerDefaultsMap"
             :providerOptions="providerOptions"
             :availableSpecialists="specialistNames"
             @cancel="closeEditor"
-            @saved="onGroupSaved"
+            @saved="onTeamSaved"
           />
         </GlassCard>
         <GlassCard v-else class="flex h-full min-h-0 items-center justify-center p-4 text-sm text-subtle-foreground">
-          Select a specialist or group, or click New to create one.
+          Select a specialist or team, or click New to create one.
         </GlassCard>
       </div>
     </div>
@@ -230,17 +230,17 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { listSpecialists, upsertSpecialist, deleteSpecialist, listSpecialistDefaults, listGroups, deleteGroup, type Specialist, type SpecialistGroup, type SpecialistProviderDefaults } from '@/api/client'
+import { listSpecialists, upsertSpecialist, deleteSpecialist, listSpecialistDefaults, listTeams, deleteTeam, type Specialist, type SpecialistTeam, type SpecialistProviderDefaults } from '@/api/client'
 import SolarPause from '@/components/icons/SolarPause.vue'
 import SolarPlay from '@/components/icons/SolarPlay.vue'
 import GlassCard from '@/components/ui/GlassCard.vue'
 import Pill from '@/components/ui/Pill.vue'
 import EditSpecialistRoot from '@/components/specialists/EditSpecialistRoot.vue'
-import EditGroupRoot from '@/components/specialists/EditGroupRoot.vue'
+import EditTeamRoot from '@/components/specialists/EditTeamRoot.vue'
 
 const qc = useQueryClient()
 const { data, isLoading: loading, isError: error } = useQuery({ queryKey: ['specialists'], queryFn: listSpecialists, staleTime: 5_000 })
-const { data: groupsData, isLoading: groupsLoading, isError: groupsError } = useQuery({ queryKey: ['groups'], queryFn: listGroups, staleTime: 5_000 })
+const { data: teamsData, isLoading: teamsLoading, isError: teamsError } = useQuery({ queryKey: ['teams'], queryFn: listTeams, staleTime: 5_000 })
 const { data: providerDefaultsData } = useQuery<Record<string, SpecialistProviderDefaults>>({
   queryKey: ['specialist-defaults'],
   queryFn: listSpecialistDefaults,
@@ -248,7 +248,7 @@ const { data: providerDefaultsData } = useQuery<Record<string, SpecialistProvide
 })
 
 const providerDefaultsMap = computed<Record<string, SpecialistProviderDefaults> | undefined>(() => providerDefaultsData.value)
-const groups = computed<SpecialistGroup[]>(() => groupsData.value ?? [])
+const teams = computed<SpecialistTeam[]>(() => teamsData.value ?? [])
 // Always present specialists sorted by name (case-insensitive)
 const specialists = computed<Specialist[]>(() => {
   const list = data.value ?? []
@@ -268,12 +268,12 @@ const specialists = computed<Specialist[]>(() => {
 })
 
 const filteredSpecialists = computed<Specialist[]>(() => {
-  const filter = groupFilter.value
+  const filter = teamFilter.value
   if (filter === 'all') return specialists.value
-  if (filter === 'ungrouped') {
-    return specialists.value.filter((sp) => !sp.groups || sp.groups.length === 0)
+  if (filter === 'unassigned') {
+    return specialists.value.filter((sp) => !sp.teams || sp.teams.length === 0)
   }
-  return specialists.value.filter((sp) => sp.groups?.includes(filter))
+  return specialists.value.filter((sp) => sp.teams?.includes(filter))
 })
 
 const providerOptions = computed(() => {
@@ -286,29 +286,29 @@ const providerOptions = computed(() => {
 
 const providerDropdownOptions = computed(() => providerOptions.value.map((opt) => ({ id: opt, label: opt, value: opt })))
 
-const groupNames = computed(() => groups.value.map(group => group.name).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
+const teamNames = computed(() => teams.value.map(team => team.name).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
 const specialistNames = computed(() => specialists.value.filter(sp => sp.name !== 'orchestrator').map(sp => sp.name))
 
-const groupFilter = ref<'all' | 'ungrouped' | string>('all')
+const teamFilter = ref<'all' | 'unassigned' | string>('all')
 
-const editingType = ref<'specialist' | 'group' | null>(null)
+const editingType = ref<'specialist' | 'team' | null>(null)
 const editorInitial = ref<Specialist | null>(null)
 const editorLockName = ref(false)
 const editorCredentialConfigured = ref(false)
-const groupEditorInitial = ref<SpecialistGroup | null>(null)
-const groupEditorLockName = ref(false)
+const teamEditorInitial = ref<SpecialistTeam | null>(null)
+const teamEditorLockName = ref(false)
 const actionError = ref<string | null>(null)
 
-// Track which specialist/group is currently being edited for visual feedback
+// Track which specialist/team is currently being edited for visual feedback
 const currentEditingName = computed(() => editingType.value === 'specialist' ? editorInitial.value?.name || null : null)
-const currentEditingGroupName = computed(() => editingType.value === 'group' ? groupEditorInitial.value?.name || null : null)
+const currentEditingTeamName = computed(() => editingType.value === 'team' ? teamEditorInitial.value?.name || null : null)
 
 function isCurrentlyEditing(name: string): boolean {
   return editingType.value === 'specialist' && editorInitial.value?.name === name
 }
 
-function isCurrentlyEditingGroup(name: string): boolean {
-  return editingType.value === 'group' && groupEditorInitial.value?.name === name
+function isCurrentlyEditingTeam(name: string): boolean {
+  return editingType.value === 'team' && teamEditorInitial.value?.name === name
 }
 
 function statusBadgeClass(paused: boolean): string {
@@ -349,8 +349,8 @@ function startCreate() {
   editorLockName.value = false
   editorCredentialConfigured.value = false
   editingType.value = 'specialist'
-  groupEditorInitial.value = null
-  groupEditorLockName.value = false
+  teamEditorInitial.value = null
+  teamEditorLockName.value = false
 }
 function edit(s: Specialist) {
   // If already editing the same specialist, do nothing
@@ -361,8 +361,8 @@ function edit(s: Specialist) {
   editorLockName.value = true
   editorCredentialConfigured.value = !!s.apiKey
   editingType.value = 'specialist'
-  groupEditorInitial.value = null
-  groupEditorLockName.value = false
+  teamEditorInitial.value = null
+  teamEditorLockName.value = false
 }
 function cloneSpecialist(s: Specialist) {
   const baseName = `${s.name || 'specialist'} copy`
@@ -390,8 +390,8 @@ function cloneSpecialist(s: Specialist) {
   editorLockName.value = false
   editorCredentialConfigured.value = false
   editingType.value = 'specialist'
-  groupEditorInitial.value = null
-  groupEditorLockName.value = false
+  teamEditorInitial.value = null
+  teamEditorLockName.value = false
 }
 function generateUniqueName(base: string) {
   const names = new Set((data.value ?? []).map(sp => sp.name))
@@ -411,8 +411,8 @@ function closeEditor() {
   editorInitial.value = null
   editorLockName.value = false
   editorCredentialConfigured.value = false
-  groupEditorInitial.value = null
-  groupEditorLockName.value = false
+  teamEditorInitial.value = null
+  teamEditorLockName.value = false
 }
 
 function onSaved(saved: Specialist) {
@@ -430,18 +430,18 @@ function onSaved(saved: Specialist) {
   editorLockName.value = true
   editorCredentialConfigured.value = !!saved.apiKey
   editingType.value = 'specialist'
-  void qc.invalidateQueries({ queryKey: ['groups'] })
+  void qc.invalidateQueries({ queryKey: ['teams'] })
 }
 
-function startCreateGroup() {
+function startCreateTeam() {
   const defaultProvider = providerOptions.value[0] || 'openai'
-  groupEditorInitial.value = {
+  teamEditorInitial.value = {
     name: '',
     description: '',
     members: [],
     orchestrator: {
-      name: 'new-group-orchestrator',
-      description: 'Group orchestrator',
+      name: 'new-team-orchestrator',
+      description: 'Team orchestrator',
       provider: defaultProvider,
       model: '',
       baseURL: '',
@@ -453,41 +453,41 @@ function startCreateGroup() {
       extraParams: {},
     },
   }
-  groupEditorLockName.value = false
-  editingType.value = 'group'
+  teamEditorLockName.value = false
+  editingType.value = 'team'
   editorInitial.value = null
   editorLockName.value = false
   editorCredentialConfigured.value = false
 }
 
-function editGroup(group: SpecialistGroup) {
-  if (editingType.value === 'group' && groupEditorInitial.value?.name === group.name) {
+function editTeam(team: SpecialistTeam) {
+  if (editingType.value === 'team' && teamEditorInitial.value?.name === team.name) {
     return
   }
-  groupEditorInitial.value = {
-    ...group,
-    description: group.description ?? '',
-    members: group.members || [],
-    orchestrator: group.orchestrator,
+  teamEditorInitial.value = {
+    ...team,
+    description: team.description ?? '',
+    members: team.members || [],
+    orchestrator: team.orchestrator,
   }
-  groupEditorLockName.value = true
-  editingType.value = 'group'
+  teamEditorLockName.value = true
+  editingType.value = 'team'
   editorInitial.value = null
   editorLockName.value = false
   editorCredentialConfigured.value = false
 }
 
-function onGroupSaved(saved: SpecialistGroup) {
+function onTeamSaved(saved: SpecialistTeam) {
   actionError.value = null
-  groupEditorInitial.value = {
+  teamEditorInitial.value = {
     ...saved,
     description: saved.description ?? '',
     members: saved.members || [],
     orchestrator: saved.orchestrator,
   }
-  groupEditorLockName.value = true
-  editingType.value = 'group'
-  void qc.invalidateQueries({ queryKey: ['groups'] })
+  teamEditorLockName.value = true
+  editingType.value = 'team'
+  void qc.invalidateQueries({ queryKey: ['teams'] })
   void qc.invalidateQueries({ queryKey: ['specialists'] })
 }
 async function togglePause(s: Specialist) {
@@ -506,22 +506,22 @@ async function remove(s: Specialist) {
     await deleteSpecialist(s.name)
     actionError.value = null
     await qc.invalidateQueries({ queryKey: ['specialists'] })
-    await qc.invalidateQueries({ queryKey: ['groups'] })
+    await qc.invalidateQueries({ queryKey: ['teams'] })
     await qc.invalidateQueries({ queryKey: ['agent-status'] })
   } catch (e) {
     setErr(e, 'Failed to delete specialist.')
   }
 }
 
-async function removeGroup(g: SpecialistGroup) {
-  if (!confirm(`Delete group ${g.name}?`)) return
+async function removeTeam(t: SpecialistTeam) {
+  if (!confirm(`Delete team ${t.name}?`)) return
   try {
-    await deleteGroup(g.name)
+    await deleteTeam(t.name)
     actionError.value = null
-    await qc.invalidateQueries({ queryKey: ['groups'] })
+    await qc.invalidateQueries({ queryKey: ['teams'] })
     await qc.invalidateQueries({ queryKey: ['specialists'] })
   } catch (e) {
-    setErr(e, 'Failed to delete group.')
+    setErr(e, 'Failed to delete team.')
   }
 }
 </script>

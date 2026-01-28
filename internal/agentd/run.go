@@ -89,7 +89,7 @@ type app struct {
 	authStore          *auth.Store
 	authProvider       auth.Provider
 	specStore          persist.SpecialistsStore
-	groupStore         persist.SpecialistGroupsStore
+	teamStore          persist.SpecialistTeamsStore
 	mcpStore           persist.MCPStore
 	userPrefsStore     persist.UserPreferencesStore
 	mcpManager         *mcpclient.Manager
@@ -866,9 +866,9 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	specStore := databases.NewSpecialistsStore(pg)
 	_ = specStore.Init(ctx)
 	a.specStore = specStore
-	groupStore := databases.NewSpecialistGroupsStore(pg)
-	_ = groupStore.Init(ctx)
-	a.groupStore = groupStore
+	teamStore := databases.NewSpecialistTeamsStore(pg)
+	_ = teamStore.Init(ctx)
+	a.teamStore = teamStore
 
 	if err := specialists.SeedStore(ctx, specStore, systemUserID, a.cfg.Specialists); err != nil {
 		log.Warn().Err(err).Msg("seed specialists")

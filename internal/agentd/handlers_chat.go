@@ -854,9 +854,9 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 		}
 
-		groupName := strings.TrimSpace(r.URL.Query().Get("group"))
-		if groupName != "" {
-			if handled := a.handleGroupChat(w, r, groupName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
+		teamName := strings.TrimSpace(r.URL.Query().Get("team"))
+		if teamName != "" {
+			if handled := a.handleTeamChat(w, r, teamName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
 				return
 			}
 		}
@@ -1793,21 +1793,21 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	return true
 }
 
-func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
-	if a.groupStore == nil {
-		http.Error(w, "groups unavailable", http.StatusInternalServerError)
+func (a *app) handleTeamChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
+	if a.teamStore == nil {
+		http.Error(w, "teams unavailable", http.StatusInternalServerError)
 		return true
 	}
-	group, ok, err := a.groupStore.GetByName(r.Context(), owner, name)
+	team, ok, err := a.teamStore.GetByName(r.Context(), owner, name)
 	if err != nil {
-		http.Error(w, "failed to load group", http.StatusInternalServerError)
+		http.Error(w, "failed to load team", http.StatusInternalServerError)
 		return true
 	}
 	if !ok {
-		http.Error(w, "group not found", http.StatusNotFound)
+		http.Error(w, "team not found", http.StatusNotFound)
 		return true
 	}
-	sp := group.Orchestrator
+	sp := team.Orchestrator
 	if strings.TrimSpace(sp.Name) == "" {
 		sp.Name = specialists.OrchestratorName
 	}
@@ -1816,8 +1816,8 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 	if orch, ok, _ := a.specStore.GetByName(r.Context(), owner, specialists.OrchestratorName); ok {
 		baseRegCfg, _ = specialists.ApplyLLMClientOverride(baseRegCfg, orch)
 	}
-	memberSet := make(map[string]struct{}, len(group.Members))
-	for _, m := range group.Members {
+	memberSet := make(map[string]struct{}, len(team.Members))
+	for _, m := range team.Members {
 		key := strings.TrimSpace(m)
 		if key == "" {
 			continue
@@ -1835,7 +1835,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 			filtered = append(filtered, s)
 		}
 	}
-	groupReg := specialists.NewRegistry(baseRegCfg, specialists.ConfigsFromStore(filtered), a.httpClient, a.baseToolRegistry)
+	teamReg := specialists.NewRegistry(baseRegCfg, specialists.ConfigsFromStore(filtered), a.httpClient, a.baseToolRegistry)
 
 	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
 	userCfg := *a.cfg
@@ -1845,7 +1845,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 	}
 	userLLM, err := llmproviders.Build(userCfg, a.httpClient)
 	if err != nil {
-		http.Error(w, "group orchestrator not configured", http.StatusInternalServerError)
+		http.Error(w, "team orchestrator not configured", http.StatusInternalServerError)
 		return true
 	}
 	currentModel := strings.TrimSpace(sp.Model)
@@ -1891,7 +1891,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 		if skillsSection != "" {
 			base = base + "\n\n" + skillsSection
 		}
-		base = groupReg.AppendToSystemPrompt(base)
+		base = teamReg.AppendToSystemPrompt(base)
 
 		toolReg := tools.NewRegistry()
 		if sp.EnableTools {
@@ -1914,7 +1914,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 			SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 		}
 		eng.AttachTokenizer(userLLM, nil)
-		delegator := agenttools.NewDelegator(eng.Tools, groupReg, a.workspaceManager, a.cfg.MaxSteps)
+		delegator := agenttools.NewDelegator(eng.Tools, teamReg, a.workspaceManager, a.cfg.MaxSteps)
 		delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 		eng.Delegator = delegator
 		return eng
@@ -1980,9 +1980,9 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 		baseDir := sandbox.ResolveBaseDir(ctx, a.cfg.Workdir)
 		var savedImages []savedImage
 		if dur > 0 {
-			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("group", name).Bool("stream", true).Msg("using configured stream timeout")
+			log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("team", name).Bool("stream", true).Msg("using configured stream timeout")
 		} else {
-			log.Debug().Str("endpoint", "/agent/run").Str("group", name).Bool("stream", true).Msg("no timeout configured; running until completion")
+			log.Debug().Str("endpoint", "/agent/run").Str("team", name).Bool("stream", true).Msg("no timeout configured; running until completion")
 		}
 		prun := a.runs.create(prompt)
 		eng := buildEngine()
@@ -2077,7 +2077,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 		res, err := eng.RunStream(ctx, prompt, history)
 		if err != nil {
 			logStreamContextDone(err, r, "/agent/run", sessionID, "", name)
-			log.Error().Err(err).Str("group", name).Msg("group_stream_error")
+			log.Error().Err(err).Str("team", name).Msg("team_stream_error")
 			writeSSE(map[string]string{"type": "error", "data": "(error) " + err.Error()})
 			a.runs.updateStatus(prun.ID, "failed", 0)
 			return true
@@ -2089,7 +2089,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 		writeSSE(payload)
 		a.runs.updateStatus(prun.ID, "completed", 0)
 		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
-			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_group_stream")
+			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_team_stream")
 		}
 		return true
 	}
@@ -2102,9 +2102,9 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 		ctx = llm.WithImagePrompt(ctx, opts)
 	}
 	if dur > 0 {
-		log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("group", name).Msg("using configured agent timeout")
+		log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("team", name).Msg("using configured agent timeout")
 	} else {
-		log.Debug().Str("endpoint", "/agent/run").Str("group", name).Msg("no timeout configured; running until completion")
+		log.Debug().Str("endpoint", "/agent/run").Str("team", name).Msg("no timeout configured; running until completion")
 	}
 	prun := a.runs.create(prompt)
 	eng := buildEngine()
@@ -2126,7 +2126,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 	}
 	result, err := eng.Run(ctx, prompt, history)
 	if err != nil {
-		log.Error().Err(err).Str("group", name).Msg("group_run_error")
+		log.Error().Err(err).Str("team", name).Msg("team_run_error")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		a.runs.updateStatus(prun.ID, "failed", 0)
 		return true
@@ -2138,7 +2138,7 @@ func (a *app) handleGroupChat(w http.ResponseWriter, r *http.Request, name, prom
 	json.NewEncoder(w).Encode(map[string]string{"result": result})
 	a.runs.updateStatus(prun.ID, "completed", 0)
 	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, result, modelLabel); err != nil {
-		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_group")
+		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_team")
 	}
 	return true
 }

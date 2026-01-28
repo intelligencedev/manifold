@@ -60,9 +60,9 @@ export interface StreamAgentRunOptions {
   // Optional specialist override: when set (and not 'orchestrator'),
   // the backend will run that specialist for this request.
   specialist?: string;
-  // Optional group override: when set, the backend will use the group's
+  // Optional team override: when set, the backend will use the team's
   // orchestrator configuration for this request.
-  groupName?: string;
+  teamName?: string;
   // Optional project context: when provided, backend will sandbox tools under
   // the user's project root and attach { project_id } in the JSON body.
   projectId?: string;
@@ -165,7 +165,7 @@ export async function streamAgentRun(
     signal,
     onEvent,
     specialist,
-    groupName,
+    teamName,
     projectId,
   } = options;
   const fetchFn = fetchImpl ?? fetch;
@@ -178,7 +178,7 @@ export async function streamAgentRun(
 
   let response: Response;
 
-  // Build endpoint with optional specialist/group overrides as query params.
+  // Build endpoint with optional specialist/team overrides as query params.
   let url = runEndpoint;
   const params = new URLSearchParams();
   if (
@@ -188,8 +188,8 @@ export async function streamAgentRun(
   ) {
     params.set("specialist", specialist.trim());
   }
-  if (groupName && groupName.trim()) {
-    params.set("group", groupName.trim());
+  if (teamName && teamName.trim()) {
+    params.set("team", teamName.trim());
   }
   if (params.toString()) {
     url = `${url}?${params.toString()}`;
@@ -336,7 +336,7 @@ export async function streamAgentVisionRun(
     signal,
     onEvent,
     specialist,
-    groupName,
+    teamName,
     projectId,
   } = options;
   const fetchFn = fetchImpl ?? fetch;
@@ -350,7 +350,7 @@ export async function streamAgentVisionRun(
 
   let response: Response;
   const decoder = new TextDecoder();
-  // Build endpoint with optional specialist/group overrides as a query param.
+  // Build endpoint with optional specialist/team overrides as a query param.
   let url = visionEndpoint;
   const params = new URLSearchParams();
   if (
@@ -360,8 +360,8 @@ export async function streamAgentVisionRun(
   ) {
     params.set("specialist", specialist.trim());
   }
-  if (groupName && groupName.trim()) {
-    params.set("group", groupName.trim());
+  if (teamName && teamName.trim()) {
+    params.set("team", teamName.trim());
   }
   if (params.toString()) {
     url = `${url}?${params.toString()}`;

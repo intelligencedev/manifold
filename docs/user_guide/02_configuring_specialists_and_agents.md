@@ -54,6 +54,17 @@ Tool Access
 Saving
 - Clicking Save validates JSON fields and upserts the specialist via the API. Errors are surfaced inline.
 
+## Teams
+
+Teams group specialists under a dedicated orchestrator configuration. A team has its own provider/model, tool policy, and system prompt, and can include any subset of specialists. Specialists can belong to multiple teams.
+
+Use the Teams section to:
+- Create or edit a team (name, description, orchestrator settings).
+- Configure tool access for the team orchestrator.
+- Add or remove team members.
+
+In chat, selecting a team runs the request using the team orchestrator and limits participants to the team’s members.
+
 Backend behavior
 - The agent registry builds providers from the specialist config and the base LLM settings. When tools are enabled, the registry creates a filtered tools view from the global registry using the allow list.
 - Reasoning effort and extra params are merged and passed when supported by the provider implementation.

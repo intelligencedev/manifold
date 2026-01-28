@@ -276,9 +276,7 @@ func (a *app) sttHandler() http.HandlerFunc {
 			baseURL = "https://api.openai.com"
 		}
 		baseURL = strings.TrimRight(baseURL, "/")
-		if strings.HasSuffix(baseURL, "/v1") {
-			baseURL = strings.TrimSuffix(baseURL, "/v1")
-		}
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
 		reqURL := baseURL + "/v1/audio/transcriptions"
 		log.Debug().Str("endpoint", reqURL).Str("model", model).Int64("user_id", userID).Msg("stt_request")
 

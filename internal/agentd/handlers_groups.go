@@ -9,7 +9,7 @@ import (
 	"manifold/internal/specialists"
 )
 
-func (a *app) groupsHandler() http.HandlerFunc {
+func (a *app) teamsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := a.requireUserID(r)
 		if err != nil {
@@ -21,7 +21,7 @@ func (a *app) groupsHandler() http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			list, err := a.groupStore.List(r.Context(), userID)
+			list, err := a.teamStore.List(r.Context(), userID)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -31,7 +31,7 @@ func (a *app) groupsHandler() http.HandlerFunc {
 		case http.MethodPost:
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
-			var g persistence.SpecialistGroup
+			var g persistence.SpecialistTeam
 			if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
@@ -42,8 +42,8 @@ func (a *app) groupsHandler() http.HandlerFunc {
 				return
 			}
 			g.UserID = userID
-			g.Orchestrator = a.normalizeGroupOrchestrator(g.Name, g.Orchestrator)
-			saved, err := a.groupStore.Upsert(r.Context(), userID, g)
+			g.Orchestrator = a.normalizeTeamOrchestrator(g.Name, g.Orchestrator)
+			saved, err := a.teamStore.Upsert(r.Context(), userID, g)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -57,7 +57,7 @@ func (a *app) groupsHandler() http.HandlerFunc {
 	}
 }
 
-func (a *app) groupDetailHandler() http.HandlerFunc {
+func (a *app) teamDetailHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := a.requireUserID(r)
 		if err != nil {
@@ -67,22 +67,22 @@ func (a *app) groupDetailHandler() http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		path := strings.TrimPrefix(r.URL.Path, "/api/groups/")
+		path := strings.TrimPrefix(r.URL.Path, "/api/teams/")
 		if strings.Contains(path, "/members/") {
 			parts := strings.SplitN(path, "/members/", 2)
 			if len(parts) != 2 {
 				http.NotFound(w, r)
 				return
 			}
-			groupName := strings.TrimSpace(parts[0])
+			teamName := strings.TrimSpace(parts[0])
 			specialistName := strings.TrimSpace(parts[1])
-			if groupName == "" || specialistName == "" {
+			if teamName == "" || specialistName == "" {
 				http.NotFound(w, r)
 				return
 			}
 			switch r.Method {
 			case http.MethodPut:
-				if err := a.groupStore.AddMember(r.Context(), userID, groupName, specialistName); err != nil {
+				if err := a.teamStore.AddMember(r.Context(), userID, teamName, specialistName); err != nil {
 					if err == persistence.ErrNotFound {
 						http.NotFound(w, r)
 						return
@@ -92,7 +92,7 @@ func (a *app) groupDetailHandler() http.HandlerFunc {
 				}
 				w.WriteHeader(http.StatusNoContent)
 			case http.MethodDelete:
-				if err := a.groupStore.RemoveMember(r.Context(), userID, groupName, specialistName); err != nil {
+				if err := a.teamStore.RemoveMember(r.Context(), userID, teamName, specialistName); err != nil {
 					http.Error(w, "internal server error", http.StatusInternalServerError)
 					return
 				}
@@ -111,7 +111,7 @@ func (a *app) groupDetailHandler() http.HandlerFunc {
 
 		switch r.Method {
 		case http.MethodGet:
-			g, ok, err := a.groupStore.GetByName(r.Context(), userID, name)
+			g, ok, err := a.teamStore.GetByName(r.Context(), userID, name)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -125,15 +125,15 @@ func (a *app) groupDetailHandler() http.HandlerFunc {
 		case http.MethodPut:
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
-			var g persistence.SpecialistGroup
+			var g persistence.SpecialistTeam
 			if err := json.NewDecoder(r.Body).Decode(&g); err != nil {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
 			g.Name = name
 			g.UserID = userID
-			g.Orchestrator = a.normalizeGroupOrchestrator(name, g.Orchestrator)
-			saved, err := a.groupStore.Upsert(r.Context(), userID, g)
+			g.Orchestrator = a.normalizeTeamOrchestrator(name, g.Orchestrator)
+			saved, err := a.teamStore.Upsert(r.Context(), userID, g)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -141,7 +141,7 @@ func (a *app) groupDetailHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
 		case http.MethodDelete:
-			if err := a.groupStore.Delete(r.Context(), userID, name); err != nil {
+			if err := a.teamStore.Delete(r.Context(), userID, name); err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
@@ -152,8 +152,8 @@ func (a *app) groupDetailHandler() http.HandlerFunc {
 	}
 }
 
-func (a *app) normalizeGroupOrchestrator(groupName string, sp persistence.Specialist) persistence.Specialist {
-	name := strings.TrimSpace(groupName)
+func (a *app) normalizeTeamOrchestrator(teamName string, sp persistence.Specialist) persistence.Specialist {
+	name := strings.TrimSpace(teamName)
 	orchestratorName := name + "-orchestrator"
 	if strings.TrimSpace(sp.Provider) == "" {
 		sp.Provider = a.cfg.LLMClient.Provider
@@ -185,7 +185,7 @@ func (a *app) normalizeGroupOrchestrator(groupName string, sp persistence.Specia
 	}
 	sp.Name = orchestratorName
 	if strings.TrimSpace(sp.Description) == "" {
-		sp.Description = "Group orchestrator for " + groupName
+		sp.Description = "Team orchestrator for " + teamName
 	}
 	sp.EnableTools = sp.EnableTools || a.cfg.EnableTools
 	sp.Paused = false

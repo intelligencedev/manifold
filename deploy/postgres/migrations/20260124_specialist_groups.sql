@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS specialist_groups (
+CREATE TABLE IF NOT EXISTS specialist_teams (
     id SERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL DEFAULT 0,
     name TEXT NOT NULL,
@@ -8,12 +8,12 @@ CREATE TABLE IF NOT EXISTS specialist_groups (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS specialist_groups_user_name_idx
-    ON specialist_groups(user_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS specialist_teams_user_name_idx
+    ON specialist_teams(user_id, name);
 
-CREATE TABLE IF NOT EXISTS specialist_group_memberships (
+CREATE TABLE IF NOT EXISTS specialist_team_memberships (
     user_id BIGINT NOT NULL DEFAULT 0,
-    group_id INT NOT NULL REFERENCES specialist_groups(id) ON DELETE CASCADE,
+    team_id INT NOT NULL REFERENCES specialist_teams(id) ON DELETE CASCADE,
     specialist_name TEXT NOT NULL,
-    PRIMARY KEY (user_id, group_id, specialist_name)
+    PRIMARY KEY (user_id, team_id, specialist_name)
 );

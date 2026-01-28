@@ -7,4 +7,5 @@ jobs:
   deprecated:
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Deprecated: whisper build removed."
+      - run: |
+          echo "Deprecated: whisper build removed."

@@ -301,10 +301,10 @@ export interface Specialist {
   system?: string;
   extraHeaders?: Record<string, string>;
   extraParams?: Record<string, any>;
-  groups?: string[];
+  teams?: string[];
 }
 
-export interface SpecialistGroup {
+export interface SpecialistTeam {
   id?: number;
   userId?: number;
   name: string;
@@ -362,54 +362,54 @@ export async function listSpecialistDefaults(): Promise<
   return data;
 }
 
-// Specialist Groups
-export async function listGroups(): Promise<SpecialistGroup[]> {
-  const { data } = await apiClient.get<SpecialistGroup[]>("/groups");
+// Specialist Teams
+export async function listTeams(): Promise<SpecialistTeam[]> {
+  const { data } = await apiClient.get<SpecialistTeam[]>("/teams");
   return data;
 }
 
-export async function getGroup(name: string): Promise<SpecialistGroup> {
-  const { data } = await apiClient.get<SpecialistGroup>(
-    `/groups/${encodeURIComponent(name)}`,
+export async function getTeam(name: string): Promise<SpecialistTeam> {
+  const { data } = await apiClient.get<SpecialistTeam>(
+    `/teams/${encodeURIComponent(name)}`,
   );
   return data;
 }
 
-export async function upsertGroup(
-  group: SpecialistGroup,
-): Promise<SpecialistGroup> {
-  if (group.name && group.id == null) {
-    const { data } = await apiClient.post<SpecialistGroup>("/groups", group);
+export async function upsertTeam(
+  team: SpecialistTeam,
+): Promise<SpecialistTeam> {
+  if (team.name && team.id == null) {
+    const { data } = await apiClient.post<SpecialistTeam>("/teams", team);
     return data;
   }
-  const { data } = await apiClient.put<SpecialistGroup>(
-    `/groups/${encodeURIComponent(group.name)}`,
-    group,
+  const { data } = await apiClient.put<SpecialistTeam>(
+    `/teams/${encodeURIComponent(team.name)}`,
+    team,
   );
   return data;
 }
 
-export async function deleteGroup(name: string): Promise<void> {
-  await apiClient.delete(`/groups/${encodeURIComponent(name)}`);
+export async function deleteTeam(name: string): Promise<void> {
+  await apiClient.delete(`/teams/${encodeURIComponent(name)}`);
 }
 
-export async function addGroupMember(
-  groupName: string,
+export async function addTeamMember(
+  teamName: string,
   specialistName: string,
 ): Promise<void> {
   await apiClient.put(
-    `/groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(
+    `/teams/${encodeURIComponent(teamName)}/members/${encodeURIComponent(
       specialistName,
     )}`,
   );
 }
 
-export async function removeGroupMember(
-  groupName: string,
+export async function removeTeamMember(
+  teamName: string,
   specialistName: string,
 ): Promise<void> {
   await apiClient.delete(
-    `/groups/${encodeURIComponent(groupName)}/members/${encodeURIComponent(
+    `/teams/${encodeURIComponent(teamName)}/members/${encodeURIComponent(
       specialistName,
     )}`,
   );

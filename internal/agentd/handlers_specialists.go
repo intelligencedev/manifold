@@ -111,15 +111,15 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			membership := a.groupMembershipsForUser(r.Context(), userID)
+			membership := a.teamMembershipsForUser(r.Context(), userID)
 			out := make([]persist.Specialist, 0, len(list)+1)
 			orchestrator := a.orchestratorSpecialist(r.Context(), userID)
-			orchestrator.Groups = membership[orchestrator.Name]
+			orchestrator.Teams = membership[orchestrator.Name]
 			out = append(out, orchestrator)
 			out = append(out, list...)
 			for i := range out {
-				if groups, ok := membership[out[i].Name]; ok {
-					out[i].Groups = groups
+				if teams, ok := membership[out[i].Name]; ok {
+					out[i].Teams = teams
 				}
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -172,11 +172,11 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := a.applyGroupMemberships(r.Context(), userID, saved.Name, sp.Groups); err != nil {
+			if err := a.applyTeamMemberships(r.Context(), userID, saved.Name, sp.Teams); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			saved.Groups = sp.Groups
+			saved.Teams = sp.Teams
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(saved)
@@ -209,7 +209,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 		case http.MethodGet:
 			if name == specialists.OrchestratorName {
 				sp := a.orchestratorSpecialist(r.Context(), userID)
-				sp.Groups = a.groupMembershipsForUser(r.Context(), userID)[sp.Name]
+				sp.Teams = a.teamMembershipsForUser(r.Context(), userID)[sp.Name]
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(sp)
 				return
@@ -223,7 +223,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.NotFound(w, r)
 				return
 			}
-			sp.Groups = a.groupMembershipsForUser(r.Context(), userID)[sp.Name]
+			sp.Teams = a.teamMembershipsForUser(r.Context(), userID)[sp.Name]
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(sp)
 		case http.MethodPut:
@@ -267,11 +267,11 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := a.applyGroupMemberships(r.Context(), userID, saved.Name, sp.Groups); err != nil {
+			if err := a.applyTeamMemberships(r.Context(), userID, saved.Name, sp.Teams); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			saved.Groups = sp.Groups
+			saved.Teams = sp.Teams
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
 			a.invalidateSpecialistsCache(r.Context(), userID)
@@ -284,7 +284,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.Error(w, "error", http.StatusInternalServerError)
 				return
 			}
-			_ = a.removeSpecialistFromGroups(r.Context(), userID, name)
+			_ = a.removeSpecialistFromTeams(r.Context(), userID, name)
 			w.WriteHeader(http.StatusNoContent)
 			a.invalidateSpecialistsCache(r.Context(), userID)
 		default:
@@ -384,47 +384,47 @@ func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, 
 	return model, baseURL, apiKey, headers, params
 }
 
-func (a *app) groupMembershipsForUser(ctx context.Context, userID int64) map[string][]string {
-	if a.groupStore == nil {
+func (a *app) teamMembershipsForUser(ctx context.Context, userID int64) map[string][]string {
+	if a.teamStore == nil {
 		return map[string][]string{}
 	}
-	m, err := a.groupStore.ListMemberships(ctx, userID)
+	m, err := a.teamStore.ListMemberships(ctx, userID)
 	if err != nil {
 		return map[string][]string{}
 	}
 	return m
 }
 
-func (a *app) applyGroupMemberships(ctx context.Context, userID int64, specialistName string, groups []string) error {
-	if a.groupStore == nil {
+func (a *app) applyTeamMemberships(ctx context.Context, userID int64, specialistName string, teams []string) error {
+	if a.teamStore == nil {
 		return nil
 	}
-	if groups == nil {
+	if teams == nil {
 		return nil
 	}
-	current := a.groupMembershipsForUser(ctx, userID)[specialistName]
+	current := a.teamMembershipsForUser(ctx, userID)[specialistName]
 	currentSet := map[string]struct{}{}
-	for _, g := range current {
-		currentSet[g] = struct{}{}
+	for _, t := range current {
+		currentSet[t] = struct{}{}
 	}
 	desiredSet := map[string]struct{}{}
-	for _, g := range groups {
-		g = strings.TrimSpace(g)
-		if g == "" {
+	for _, t := range teams {
+		t = strings.TrimSpace(t)
+		if t == "" {
 			continue
 		}
-		desiredSet[g] = struct{}{}
+		desiredSet[t] = struct{}{}
 	}
-	for g := range currentSet {
-		if _, ok := desiredSet[g]; !ok {
-			if err := a.groupStore.RemoveMember(ctx, userID, g, specialistName); err != nil {
+	for t := range currentSet {
+		if _, ok := desiredSet[t]; !ok {
+			if err := a.teamStore.RemoveMember(ctx, userID, t, specialistName); err != nil {
 				return err
 			}
 		}
 	}
-	for g := range desiredSet {
-		if _, ok := currentSet[g]; !ok {
-			if err := a.groupStore.AddMember(ctx, userID, g, specialistName); err != nil {
+	for t := range desiredSet {
+		if _, ok := currentSet[t]; !ok {
+			if err := a.teamStore.AddMember(ctx, userID, t, specialistName); err != nil {
 				return err
 			}
 		}
@@ -432,13 +432,13 @@ func (a *app) applyGroupMemberships(ctx context.Context, userID int64, specialis
 	return nil
 }
 
-func (a *app) removeSpecialistFromGroups(ctx context.Context, userID int64, specialistName string) error {
-	if a.groupStore == nil {
+func (a *app) removeSpecialistFromTeams(ctx context.Context, userID int64, specialistName string) error {
+	if a.teamStore == nil {
 		return nil
 	}
-	current := a.groupMembershipsForUser(ctx, userID)[specialistName]
-	for _, g := range current {
-		if err := a.groupStore.RemoveMember(ctx, userID, g, specialistName); err != nil {
+	current := a.teamMembershipsForUser(ctx, userID)[specialistName]
+	for _, t := range current {
+		if err := a.teamStore.RemoveMember(ctx, userID, t, specialistName); err != nil {
 			return err
 		}
 	}

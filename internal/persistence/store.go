@@ -55,11 +55,11 @@ type Specialist struct {
 	System                     string            `json:"system"`
 	ExtraHeaders               map[string]string `json:"extraHeaders"`
 	ExtraParams                map[string]any    `json:"extraParams"`
-	Groups                     []string          `json:"groups,omitempty"`
+	Teams                      []string          `json:"teams,omitempty"`
 }
 
-// SpecialistGroup represents a team of specialists with a unique orchestrator config.
-type SpecialistGroup struct {
+// SpecialistTeam represents a team of specialists with a unique orchestrator config.
+type SpecialistTeam struct {
 	ID           int64      `json:"id"`
 	UserID       int64      `json:"userId"`
 	Name         string     `json:"name"`
@@ -79,15 +79,15 @@ type SpecialistsStore interface {
 	Delete(ctx context.Context, userID int64, name string) error
 }
 
-// SpecialistGroupsStore defines CRUD over specialist groups and memberships.
-type SpecialistGroupsStore interface {
+// SpecialistTeamsStore defines CRUD over specialist teams and memberships.
+type SpecialistTeamsStore interface {
 	Init(ctx context.Context) error
-	List(ctx context.Context, userID int64) ([]SpecialistGroup, error)
-	GetByName(ctx context.Context, userID int64, name string) (SpecialistGroup, bool, error)
-	Upsert(ctx context.Context, userID int64, g SpecialistGroup) (SpecialistGroup, error)
+	List(ctx context.Context, userID int64) ([]SpecialistTeam, error)
+	GetByName(ctx context.Context, userID int64, name string) (SpecialistTeam, bool, error)
+	Upsert(ctx context.Context, userID int64, g SpecialistTeam) (SpecialistTeam, error)
 	Delete(ctx context.Context, userID int64, name string) error
-	AddMember(ctx context.Context, userID int64, groupName string, specialistName string) error
-	RemoveMember(ctx context.Context, userID int64, groupName string, specialistName string) error
+	AddMember(ctx context.Context, userID int64, teamName string, specialistName string) error
+	RemoveMember(ctx context.Context, userID int64, teamName string, specialistName string) error
 	ListMemberships(ctx context.Context, userID int64) (map[string][]string, error)
 }
 

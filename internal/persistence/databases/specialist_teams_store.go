@@ -34,9 +34,9 @@ func (s *memTeamStore) List(ctx context.Context, userID int64) ([]persistence.Sp
 		return []persistence.SpecialistTeam{}, nil
 	}
 	out := make([]persistence.SpecialistTeam, 0, len(userTeams))
-	for _, t := range userTeams {
-		t.Members = s.membersForTeam(userID, t.Name)
-		out = append(out, t)
+	for _, g := range userTeams {
+		g.Members = s.membersForTeam(userID, g.Name)
+		out = append(out, g)
 	}
 	for i := 1; i < len(out); i++ {
 		for j := i; j > 0 && strings.ToLower(out[j].Name) < strings.ToLower(out[j-1].Name); j-- {
@@ -48,33 +48,35 @@ func (s *memTeamStore) List(ctx context.Context, userID int64) ([]persistence.Sp
 
 func (s *memTeamStore) GetByName(ctx context.Context, userID int64, name string) (persistence.SpecialistTeam, bool, error) {
 	if userTeams := s.teams[userID]; userTeams != nil {
-		t, ok := userTeams[name]
-		if ok {
-			t.Members = s.membersForTeam(userID, name)
+		// Case-insensitive lookup
+		for key, g := range userTeams {
+			if strings.EqualFold(key, name) {
+				g.Members = s.membersForTeam(userID, key)
+				return g, true, nil
+			}
 		}
-		return t, ok, nil
 	}
 	return persistence.SpecialistTeam{}, false, nil
 }
 
-func (s *memTeamStore) Upsert(ctx context.Context, userID int64, t persistence.SpecialistTeam) (persistence.SpecialistTeam, error) {
-	if strings.TrimSpace(t.Name) == "" {
+func (s *memTeamStore) Upsert(ctx context.Context, userID int64, g persistence.SpecialistTeam) (persistence.SpecialistTeam, error) {
+	if strings.TrimSpace(g.Name) == "" {
 		return persistence.SpecialistTeam{}, errors.New("name required")
 	}
 	if s.teams[userID] == nil {
 		s.teams[userID] = map[string]persistence.SpecialistTeam{}
 	}
-	if t.CreatedAt.IsZero() {
-		t.CreatedAt = time.Now().UTC()
+	if g.CreatedAt.IsZero() {
+		g.CreatedAt = time.Now().UTC()
 	}
-	t.UpdatedAt = time.Now().UTC()
-	t.UserID = userID
-	s.teams[userID][t.Name] = t
-	if t.Members != nil {
-		_ = s.replaceMembers(userID, t.Name, t.Members)
+	g.UpdatedAt = time.Now().UTC()
+	g.UserID = userID
+	s.teams[userID][g.Name] = g
+	if g.Members != nil {
+		_ = s.replaceMembers(userID, g.Name, g.Members)
 	}
-	t.Members = s.membersForTeam(userID, t.Name)
-	return t, nil
+	g.Members = s.membersForTeam(userID, g.Name)
+	return g, nil
 }
 
 func (s *memTeamStore) Delete(ctx context.Context, userID int64, name string) error {
@@ -157,7 +159,7 @@ type pgTeamStore struct {
 
 func (s *pgTeamStore) Init(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `
-CREATE TABLE IF NOT EXISTS specialist_teams (
+CREATE TABLE IF NOT EXISTS specialist_groups (
 	id SERIAL PRIMARY KEY,
 	user_id BIGINT NOT NULL DEFAULT 0,
 	name TEXT NOT NULL,
@@ -167,13 +169,13 @@ CREATE TABLE IF NOT EXISTS specialist_teams (
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS specialist_teams_user_name_idx ON specialist_teams(user_id, name);
+CREATE UNIQUE INDEX IF NOT EXISTS specialist_groups_user_name_idx ON specialist_groups(user_id, name);
 
-CREATE TABLE IF NOT EXISTS specialist_team_memberships (
+CREATE TABLE IF NOT EXISTS specialist_group_memberships (
 	user_id BIGINT NOT NULL DEFAULT 0,
-	team_id INT NOT NULL REFERENCES specialist_teams(id) ON DELETE CASCADE,
+	group_id INT NOT NULL REFERENCES specialist_groups(id) ON DELETE CASCADE,
 	specialist_name TEXT NOT NULL,
-	PRIMARY KEY (user_id, team_id, specialist_name)
+	PRIMARY KEY (user_id, group_id, specialist_name)
 );
 `)
 	return err
@@ -183,9 +185,9 @@ func (s *pgTeamStore) List(ctx context.Context, userID int64) ([]persistence.Spe
 	rows, err := s.pool.Query(ctx, `
 SELECT g.id, g.user_id, g.name, g.description, g.orchestrator, g.created_at, g.updated_at,
 	COALESCE(array_agg(m.specialist_name) FILTER (WHERE m.specialist_name IS NOT NULL), '{}')
-FROM specialist_teams g
-LEFT JOIN specialist_team_memberships m
-	ON m.team_id = g.id AND m.user_id = g.user_id
+FROM specialist_groups g
+LEFT JOIN specialist_group_memberships m
+	ON m.group_id = g.id AND m.user_id = g.user_id
 WHERE g.user_id = $1
 GROUP BY g.id
 ORDER BY LOWER(g.name);`, userID)
@@ -213,10 +215,10 @@ func (s *pgTeamStore) GetByName(ctx context.Context, userID int64, name string) 
 	row := s.pool.QueryRow(ctx, `
 SELECT g.id, g.user_id, g.name, g.description, g.orchestrator, g.created_at, g.updated_at,
 	COALESCE(array_agg(m.specialist_name) FILTER (WHERE m.specialist_name IS NOT NULL), '{}')
-FROM specialist_teams g
-LEFT JOIN specialist_team_memberships m
-	ON m.team_id = g.id AND m.user_id = g.user_id
-WHERE g.user_id = $1 AND g.name = $2
+FROM specialist_groups g
+LEFT JOIN specialist_group_memberships m
+	ON m.group_id = g.id AND m.user_id = g.user_id
+WHERE g.user_id = $1 AND LOWER(g.name) = LOWER($2)
 GROUP BY g.id;`, userID, name)
 	var g persistence.SpecialistTeam
 	var orchBytes []byte
@@ -239,7 +241,7 @@ func (s *pgTeamStore) Upsert(ctx context.Context, userID int64, g persistence.Sp
 	}
 	orch, _ := json.Marshal(g.Orchestrator)
 	row := s.pool.QueryRow(ctx, `
-INSERT INTO specialist_teams(user_id, name, description, orchestrator)
+INSERT INTO specialist_groups(user_id, name, description, orchestrator)
 VALUES($1,$2,$3,$4)
 ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, orchestrator=EXCLUDED.orchestrator, updated_at=NOW()
 RETURNING id, created_at, updated_at;`, userID, g.Name, g.Description, orch)
@@ -261,7 +263,7 @@ RETURNING id, created_at, updated_at;`, userID, g.Name, g.Description, orch)
 }
 
 func (s *pgTeamStore) Delete(ctx context.Context, userID int64, name string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM specialist_teams WHERE user_id=$1 AND name=$2`, userID, name)
+	_, err := s.pool.Exec(ctx, `DELETE FROM specialist_groups WHERE user_id=$1 AND LOWER(name)=LOWER($2)`, userID, name)
 	return err
 }
 
@@ -277,7 +279,7 @@ func (s *pgTeamStore) AddMember(ctx context.Context, userID int64, teamName stri
 		return persistence.ErrNotFound
 	}
 	_, err = s.pool.Exec(ctx, `
-INSERT INTO specialist_team_memberships(user_id, team_id, specialist_name)
+INSERT INTO specialist_group_memberships(user_id, group_id, specialist_name)
 VALUES($1,$2,$3)
 ON CONFLICT DO NOTHING;`, userID, teamID, specialistName)
 	return err
@@ -291,15 +293,15 @@ func (s *pgTeamStore) RemoveMember(ctx context.Context, userID int64, teamName s
 	if !ok {
 		return nil
 	}
-	_, err = s.pool.Exec(ctx, `DELETE FROM specialist_team_memberships WHERE user_id=$1 AND team_id=$2 AND specialist_name=$3`, userID, teamID, specialistName)
+	_, err = s.pool.Exec(ctx, `DELETE FROM specialist_group_memberships WHERE user_id=$1 AND group_id=$2 AND specialist_name=$3`, userID, teamID, specialistName)
 	return err
 }
 
 func (s *pgTeamStore) ListMemberships(ctx context.Context, userID int64) (map[string][]string, error) {
 	rows, err := s.pool.Query(ctx, `
 SELECT m.specialist_name, array_agg(g.name)
-FROM specialist_team_memberships m
-JOIN specialist_teams g ON g.id = m.team_id AND g.user_id = m.user_id
+FROM specialist_group_memberships m
+JOIN specialist_groups g ON g.id = m.group_id AND g.user_id = m.user_id
 WHERE m.user_id = $1
 GROUP BY m.specialist_name;`, userID)
 	if err != nil {
@@ -309,12 +311,12 @@ GROUP BY m.specialist_name;`, userID)
 	out := map[string][]string{}
 	for rows.Next() {
 		var name string
-		var teams []string
-		if err := rows.Scan(&name, &teams); err != nil {
+		var groups []string
+		if err := rows.Scan(&name, &groups); err != nil {
 			return nil, err
 		}
-		sortStrings(teams)
-		out[name] = teams
+		sortStrings(groups)
+		out[name] = groups
 	}
 	return out, rows.Err()
 }
@@ -327,7 +329,7 @@ func (s *pgTeamStore) replaceMembers(ctx context.Context, userID int64, teamName
 	if !ok {
 		return persistence.ErrNotFound
 	}
-	_, err = s.pool.Exec(ctx, `DELETE FROM specialist_team_memberships WHERE user_id=$1 AND team_id=$2`, userID, teamID)
+	_, err = s.pool.Exec(ctx, `DELETE FROM specialist_group_memberships WHERE user_id=$1 AND group_id=$2`, userID, teamID)
 	if err != nil {
 		return err
 	}
@@ -337,7 +339,7 @@ func (s *pgTeamStore) replaceMembers(ctx context.Context, userID int64, teamName
 			continue
 		}
 		if _, err := s.pool.Exec(ctx, `
-INSERT INTO specialist_team_memberships(user_id, team_id, specialist_name)
+INSERT INTO specialist_group_memberships(user_id, group_id, specialist_name)
 VALUES($1,$2,$3)
 ON CONFLICT DO NOTHING;`, userID, teamID, m); err != nil {
 			return err
@@ -347,7 +349,7 @@ ON CONFLICT DO NOTHING;`, userID, teamID, m); err != nil {
 }
 
 func (s *pgTeamStore) teamID(ctx context.Context, userID int64, name string) (int64, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT id FROM specialist_teams WHERE user_id=$1 AND name=$2`, userID, name)
+	row := s.pool.QueryRow(ctx, `SELECT id FROM specialist_groups WHERE user_id=$1 AND LOWER(name)=LOWER($2)`, userID, name)
 	var id int64
 	if err := row.Scan(&id); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

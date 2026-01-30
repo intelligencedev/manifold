@@ -18,22 +18,20 @@ import (
 	"manifold/internal/sandbox"
 )
 
-// AskAgentTool performs a synchronous HTTP call to the local /agent/run endpoint
-// to invoke another agent (optionally a named specialist) and returns its output.
-// This is a simple RPC-style delegator for Phase 1 (no Kafka/bus yet).
-type AskAgentTool struct {
+// DelegateToTeamTool performs a synchronous HTTP call to the local /agent/run endpoint
+// to invoke a team's orchestrator (via ?group=) and returns its output.
+type DelegateToTeamTool struct {
 	httpClient *http.Client
 	baseURL    string // e.g., http://127.0.0.1:32180
 	// defaultTimeout is applied when the parent context has no deadline and
-	// the caller did not specify timeout_ms. Intended to honor
-	// AGENT_RUN_TIMEOUT_SECONDS for non-stream /agent/run.
+	// the caller did not specify timeout_ms.
 	defaultTimeout time.Duration
 }
 
-// NewAskAgentTool constructs an AskAgentTool. If defaultTimeoutSeconds > 0,
+// NewDelegateToTeamTool constructs a DelegateToTeamTool. If defaultTimeoutSeconds > 0,
 // the tool will apply that as a per-request timeout when the provided context
 // does not already carry a deadline and the call does not specify timeout_ms.
-func NewAskAgentTool(httpClient *http.Client, baseURL string, defaultTimeoutSeconds int) *AskAgentTool {
+func NewDelegateToTeamTool(httpClient *http.Client, baseURL string, defaultTimeoutSeconds int) *DelegateToTeamTool {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
@@ -44,25 +42,25 @@ func NewAskAgentTool(httpClient *http.Client, baseURL string, defaultTimeoutSeco
 	if defaultTimeoutSeconds > 0 {
 		def = time.Duration(defaultTimeoutSeconds) * time.Second
 	}
-	return &AskAgentTool{httpClient: httpClient, baseURL: baseURL, defaultTimeout: def}
+	return &DelegateToTeamTool{httpClient: httpClient, baseURL: baseURL, defaultTimeout: def}
 }
 
-func (t *AskAgentTool) Name() string { return "ask_agent" }
+func (t *DelegateToTeamTool) Name() string { return "delegate_to_team" }
 
-func (t *AskAgentTool) JSONSchema() map[string]any {
+func (t *DelegateToTeamTool) JSONSchema() map[string]any {
 	return map[string]any{
 		"name":        t.Name(),
-		"description": "Synchronously ask another agent/specialist via the local HTTP API (/agent/run).",
+		"description": "Delegate a task to a team's orchestrator and wait for the response.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"to": map[string]any{
+				"team": map[string]any{
 					"type":        "string",
-					"description": "Optional specialist name to route to (query param ?specialist=).",
+					"description": "Team name to route to (invokes the team's orchestrator).",
 				},
 				"prompt": map[string]any{
 					"type":        "string",
-					"description": "Prompt to send to the target agent.",
+					"description": "Prompt to send to the team's orchestrator.",
 				},
 				"history": map[string]any{
 					"type":        "array",
@@ -89,14 +87,14 @@ func (t *AskAgentTool) JSONSchema() map[string]any {
 					"description": "Optional timeout in milliseconds for the HTTP call.",
 				},
 			},
-			"required": []string{"prompt"},
+			"required": []string{"team", "prompt"},
 		},
 	}
 }
 
-func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
+func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
-		To        string        `json:"to"`
+		Team      string        `json:"team"`
 		Prompt    string        `json:"prompt"`
 		History   []llm.Message `json:"history"`
 		TimeoutMS int           `json:"timeout_ms"`
@@ -105,14 +103,19 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 	// Handle empty or nil JSON gracefully
 	if len(raw) == 0 {
-		return map[string]any{"ok": false, "error": "empty arguments: prompt is required"}, nil
+		return map[string]any{"ok": false, "error": "empty arguments: team and prompt are required"}, nil
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return map[string]any{"ok": false, "error": fmt.Sprintf("invalid arguments: %v", err)}, nil
 	}
+	if strings.TrimSpace(args.Team) == "" {
+		return map[string]any{"ok": false, "error": "team is required"}, nil
+	}
+	if strings.TrimSpace(args.Prompt) == "" {
+		return map[string]any{"ok": false, "error": "prompt is required"}, nil
+	}
 
 	// Inherit session_id from context if not explicitly provided by the LLM.
-	// This allows delegated agents to share the same conversation context.
 	sessionID := strings.TrimSpace(args.SessionID)
 	fromContext := false
 	if sessionID == "" {
@@ -135,7 +138,6 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 
 	// Inherit project_id from context if not explicitly provided by the LLM.
-	// This ensures delegated agents operate within the same project sandbox.
 	projectID := strings.TrimSpace(args.ProjectID)
 	if projectID == "" {
 		if ctxPID, ok := sandbox.ProjectIDFromContext(ctx); ok {
@@ -151,21 +153,22 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		body["project_id"] = projectID
 	}
 	b, _ := json.Marshal(body)
-	// Build endpoint URL; force non-stream JSON via stream=0; include specialist when provided
+
+	// Build endpoint URL; force non-stream JSON via stream=0; include team name as group param
 	u, _ := neturl.Parse(fmt.Sprintf("%s/agent/run", t.baseURL))
 	q := u.Query()
 	q.Set("stream", "0")
-	if args.To != "" {
-		q.Set("specialist", args.To)
-	}
+	q.Set("group", strings.TrimSpace(args.Team))
 	u.RawQuery = q.Encode()
 
-	// Determine effective context: prefer parent deadline; otherwise, use
-	// tool default timeout to honor AGENT_RUN_TIMEOUT_SECONDS for non-stream.
-	runCtx := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && t.defaultTimeout > 0 && args.TimeoutMS <= 0 {
+	// Team delegation is a long-running operation. Unlike other tools, we detach
+	// from the parent context's deadline to allow the team to work without timeout.
+	// The team's internal agent runs have their own timeout management.
+	// Only apply a timeout if explicitly requested via timeout_ms argument.
+	runCtx := context.WithoutCancel(ctx)
+	if args.TimeoutMS > 0 {
 		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, t.defaultTimeout)
+		runCtx, cancel = context.WithTimeout(runCtx, time.Duration(args.TimeoutMS)*time.Millisecond)
 		defer cancel()
 	}
 
@@ -182,24 +185,18 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 
 	client := t.httpClient
-	// Apply explicit per-call timeout if provided. If not provided and no
-	// parent deadline, apply the tool default.
 	if args.TimeoutMS > 0 {
 		c := *t.httpClient
 		c.Timeout = time.Duration(args.TimeoutMS) * time.Millisecond
 		client = &c
-	} else if _, hasDeadline := ctx.Deadline(); !hasDeadline && t.defaultTimeout > 0 {
-		c := *t.httpClient
-		c.Timeout = t.defaultTimeout
-		client = &c
 	}
-	// Observability: log effective timeout and whether parent had deadline
+	// No default timeout for team delegation - teams are long-running workflows
 	{
 		log := observability.LoggerWithTrace(ctx)
 		eff := int(client.Timeout / time.Millisecond)
-		_, has := ctx.Deadline()
-		log.Debug().Int("args_timeout_ms", args.TimeoutMS).Int("effective_timeout_ms", eff).Bool("parent_has_deadline", has).Str("endpoint", u.String()).Msg("ask_agent_call")
+		log.Debug().Int("args_timeout_ms", args.TimeoutMS).Int("effective_timeout_ms", eff).Str("endpoint", u.String()).Msg("delegate_to_team_call")
 	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
@@ -211,13 +208,11 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if resp.StatusCode >= 400 {
 		return map[string]any{"ok": false, "status": resp.StatusCode, "error": string(data)}, nil
 	}
-	// If result is a JSON-encoded string, best-effort decode it so callers
-	// receive structured results rather than double-encoded payloads.
-	if raw, ok := payload["result"].(string); ok && strings.HasPrefix(strings.TrimSpace(raw), "{") {
+	if rawResult, ok := payload["result"].(string); ok && strings.HasPrefix(strings.TrimSpace(rawResult), "{") {
 		var decoded any
-		if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
+		if err := json.Unmarshal([]byte(rawResult), &decoded); err == nil {
 			payload["result"] = decoded
 		}
 	}
-	return map[string]any{"ok": true, "to": args.To, "response": payload}, nil
+	return map[string]any{"ok": true, "team": args.Team, "response": payload}, nil
 }

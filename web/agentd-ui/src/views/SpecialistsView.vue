@@ -250,6 +250,14 @@ const { data: providerDefaultsData } = useQuery<Record<string, SpecialistProvide
 const providerDefaultsMap = computed<Record<string, SpecialistProviderDefaults> | undefined>(() => providerDefaultsData.value)
 const teams = computed<SpecialistTeam[]>(() => teamsData.value ?? [])
 // Always present specialists sorted by name (case-insensitive)
+// Check if a name is a team orchestrator (e.g., "alpha-orchestrator") but NOT the main "orchestrator"
+function isTeamOrchestratorName(name?: string | null): boolean {
+  if (!name) return false
+  // Keep the main orchestrator visible; only hide team-specific orchestrators
+  if (name === 'orchestrator') return false
+  return name.endsWith('-orchestrator')
+}
+
 const specialists = computed<Specialist[]>(() => {
   const list = data.value ?? []
   const unique: Specialist[] = []
@@ -263,8 +271,9 @@ const specialists = computed<Specialist[]>(() => {
       unique.push(sp)
     }
   }
+  const filtered = unique.filter(sp => !isTeamOrchestratorName(sp.name))
   // Keep stable ordering from API but present alphabetically for UX.
-  return [...unique].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  return [...filtered].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
 })
 
 const filteredSpecialists = computed<Specialist[]>(() => {
@@ -287,7 +296,7 @@ const providerOptions = computed(() => {
 const providerDropdownOptions = computed(() => providerOptions.value.map((opt) => ({ id: opt, label: opt, value: opt })))
 
 const teamNames = computed(() => teams.value.map(team => team.name).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
-const specialistNames = computed(() => specialists.value.filter(sp => sp.name !== 'orchestrator').map(sp => sp.name))
+const specialistNames = computed(() => specialists.value.filter(sp => !isTeamOrchestratorName(sp.name)).map(sp => sp.name))
 
 const teamFilter = ref<'all' | 'unassigned' | string>('all')
 

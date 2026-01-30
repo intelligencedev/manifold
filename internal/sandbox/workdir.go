@@ -9,6 +9,9 @@ type baseDirCtxKey struct{}
 type sessionIDCtxKey struct{}
 type projectIDCtxKey struct{}
 
+// Context key for forwarding auth cookies to internal service calls.
+type authCookieCtxKey struct{}
+
 // WithBaseDir attaches a per-request/per-run base directory to ctx.
 // Tools that operate on the filesystem should prefer this value over
 // their default configured workdir.
@@ -86,4 +89,27 @@ func ResolveBaseDir(ctx context.Context, defaultDir string) string {
 		return v
 	}
 	return defaultDir
+}
+
+// WithAuthCookie attaches an auth cookie (name=value) to ctx for forwarding
+// to internal service calls like delegate_to_team.
+func WithAuthCookie(ctx context.Context, cookie string) context.Context {
+	if ctx == nil {
+		return context.WithValue(context.Background(), authCookieCtxKey{}, cookie)
+	}
+	return context.WithValue(ctx, authCookieCtxKey{}, cookie)
+}
+
+// AuthCookieFromContext returns the auth cookie previously set with
+// WithAuthCookie. The boolean is false if no value is present.
+func AuthCookieFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	if v := ctx.Value(authCookieCtxKey{}); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s, true
+		}
+	}
+	return "", false
 }

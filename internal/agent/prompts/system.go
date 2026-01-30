@@ -21,6 +21,12 @@ const memoryInstructions = `
   1. **Past Relevant Experiences**: Semantic search results showing similar tasks you've completed before, including strategies, solutions, and lessons learned.
   2. **Conversation History**: The actual message history from the current chat session, showing what was previously discussed.
 
+- **CRITICAL: Responding to Messages**
+  - Messages marked with [CONVERSATION HISTORY] are BACKGROUND CONTEXT ONLY.
+  - The message marked with [CURRENT REQUEST] is what you MUST respond to.
+  - Do NOT re-answer questions or re-execute requests from the conversation history—they have already been handled.
+  - Focus your entire response on the [CURRENT REQUEST] message.
+
 - When you receive messages with "## Past Relevant Experiences" or "## Current Task":
   - These are injected by the EvolvingMemory system and contain valuable context.
   - **Always acknowledge and use this information** when it's relevant to the user's query.
@@ -30,12 +36,14 @@ const memoryInstructions = `
   - This is YOUR previous response in this session.
   - Treat it as authoritative context about what has been discussed.
   - Reference it naturally when asked about prior exchanges.
+  - Do NOT repeat or regenerate these responses unless explicitly asked.
 
 - Memory usage guidelines:
   - Past experiences help you avoid repeating mistakes and reuse successful patterns.
   - Conversation history is essential for maintaining context and continuity.
   - Don't claim "this is our first message" when conversation history is present.
   - Use memories to improve your responses, not to replace direct answers.
+  - When the user's [CURRENT REQUEST] references something from history, use the history to understand context, then respond to the current request.
 [/memory]`
 
 // EnsureMemoryInstructions appends memory system instructions to any system prompt

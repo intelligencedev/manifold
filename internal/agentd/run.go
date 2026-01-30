@@ -394,6 +394,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
+	// Team delegation uses 0 timeout (no default timeout) because team tasks are
+	// long-running multi-agent workflows. The team's internal agent runs have their
+	// own timeout management via the parent context.
+	toolRegistry.Register(agenttools.NewDelegateToTeamTool(httpClient, "http://127.0.0.1:32180", 0))
 
 	if !cfg.EnableTools {
 		toolRegistry = tools.NewRegistry()

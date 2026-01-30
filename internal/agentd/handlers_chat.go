@@ -762,6 +762,18 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		// Attach session ID to context so tools like ask_agent can inherit it.
 		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
 
+		// Forward auth cookie to context so tools like delegate_to_team can authenticate
+		// internal service calls.
+		if a.cfg.Auth.Enabled {
+			cookieName := a.cfg.Auth.CookieName
+			if cookieName == "" {
+				cookieName = "sio_session"
+			}
+			if c, err := r.Cookie(cookieName); err == nil && c != nil && c.Value != "" {
+				r = r.WithContext(sandbox.WithAuthCookie(r.Context(), cookieName+"="+c.Value))
+			}
+		}
+
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -854,7 +866,11 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			}
 		}
 
+		// Support both ?team= (preferred) and ?group= (legacy) query params
 		teamName := strings.TrimSpace(r.URL.Query().Get("team"))
+		if teamName == "" {
+			teamName = strings.TrimSpace(r.URL.Query().Get("group"))
+		}
 		if teamName != "" {
 			if handled := a.handleTeamChat(w, r, teamName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
 				return
@@ -1219,6 +1235,18 @@ func (a *app) promptHandler() http.HandlerFunc {
 
 		// Attach session ID to context so tools like ask_agent can inherit it.
 		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
+
+		// Forward auth cookie to context so tools like delegate_to_team can authenticate
+		// internal service calls.
+		if a.cfg.Auth.Enabled {
+			cookieName := a.cfg.Auth.CookieName
+			if cookieName == "" {
+				cookieName = "sio_session"
+			}
+			if c, err := r.Cookie(cookieName); err == nil && c != nil && c.Value != "" {
+				r = r.WithContext(sandbox.WithAuthCookie(r.Context(), cookieName+"="+c.Value))
+			}
+		}
 
 		// Track workspace for commit after agent run completes.
 		var checkedOutWorkspace *workspaces.Workspace

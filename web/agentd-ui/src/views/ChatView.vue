@@ -100,6 +100,14 @@
                 </span>
                 <button
                   type="button"
+                  class="rounded px-1 text-[10px] text-subtle-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
+                  title="Export conversation"
+                  @click.stop="exportSession(session.id)"
+                >
+                  <SolarDownloadIcon class="inline-block h-3 w-3" />
+                </button>
+                <button
+                  type="button"
                   class="rounded px-1 text-[10px] text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
                   @click.stop="deleteSession(session.id)"
                 >
@@ -871,6 +879,7 @@ import SolarStopBold from "@/components/icons/SolarStopBold.vue";
 import SolarCopyIcon from "@/components/icons/SolarCopy.vue";
 import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
+import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
 import Camera from "@/components/icons/Camera.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import GlassCard from "@/components/ui/GlassCard.vue";
@@ -2081,6 +2090,78 @@ async function deleteSession(sessionId: string) {
   } catch (error) {
     // ignore
   }
+}
+
+async function exportSession(sessionId: string) {
+  const session = sessions.value.find((s) => s.id === sessionId);
+  if (!session) return;
+
+  // Load messages for the session (force refresh to ensure we have all)
+  await chat.loadMessagesFromServer(sessionId, { force: true });
+  const messages = messagesBySession.value[sessionId] || [];
+
+  // Build export payload
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    session: {
+      id: session.id,
+      name: session.name,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      model: session.model,
+    },
+    messages: messages.map((msg) => ({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      createdAt: msg.createdAt,
+      agent: msg.agent,
+      agentName: msg.agentName,
+      agentModel: msg.agentModel,
+      model: msg.model,
+      title: msg.title,
+      toolArgs: msg.toolArgs,
+      attachments: msg.attachments?.map((att) => ({
+        id: att.id,
+        name: att.name,
+        kind: att.kind,
+        path: att.path,
+      })),
+    })),
+  };
+
+  // Safe stringify with cycle protection
+  const seen = new WeakSet();
+  const json = JSON.stringify(
+    payload,
+    (_k, val) => {
+      if (typeof val === "function" || typeof val === "symbol") return undefined;
+      if (val && typeof val === "object") {
+        if (seen.has(val)) return undefined;
+        seen.add(val);
+      }
+      return val;
+    },
+    2,
+  );
+
+  // Create filename from session name
+  const safeName = (session.name || "chat")
+    .replace(/[^a-zA-Z0-9_-]/g, "_")
+    .slice(0, 50);
+  const ts = new Date().toISOString().replace(/[:]/g, "-").slice(0, 19);
+  const filename = `${safeName}-${ts}.json`;
+
+  // Trigger download
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function startRename(session: ChatSessionMeta) {

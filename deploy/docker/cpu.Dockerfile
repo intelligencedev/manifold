@@ -51,7 +51,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Runtime image
 FROM ubuntu:22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates dumb-init \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl dumb-init \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -16,7 +16,10 @@ services:
       - ./.env:/app/.env
       - ./config.yaml:/app/config.yaml
       - ./.:/app/manifold
+      - /Users/art/Documents/manifold-tmp:/Users/art/Documents/manifold-tmp
     restart: unless-stopped
+    env_file:
+      - .env
 
   pg-manifold:
     build:

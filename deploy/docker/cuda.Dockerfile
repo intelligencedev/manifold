@@ -48,7 +48,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Runtime image with CUDA runtime
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates dumb-init \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates dumb-init docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

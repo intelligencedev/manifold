@@ -80,7 +80,7 @@
             >
               <div class="flex items-center gap-2">
                 <span
-                  class="rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] text-subtle-foreground"
+                  class="whitespace-nowrap rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] text-subtle-foreground"
                 >
                   {{ messageCountFor(session.id) }} msg{{
                     messageCountFor(session.id) === 1 ? "" : "s"

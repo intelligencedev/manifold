@@ -190,7 +190,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(vrun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, a.cfg.OpenAI.Model); err != nil {
+			if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, a.cfg.OpenAI.Model, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 				log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision_stream")
 			}
 			return
@@ -198,7 +198,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": out.Content})
 		a.runs.updateStatus(vrun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, a.cfg.OpenAI.Model); err != nil {
+		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, a.cfg.OpenAI.Model, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision")
 		}
 	}

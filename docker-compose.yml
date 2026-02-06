@@ -21,6 +21,7 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    user: "${UID:-65532}:${GID:-65532}"
 
   pg-manifold:
     build:

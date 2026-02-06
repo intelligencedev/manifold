@@ -3,6 +3,7 @@ package databases
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -52,7 +53,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	embedding JSONB
 );
 
 CREATE INDEX IF NOT EXISTS chat_messages_session_created_idx ON chat_messages(session_id, created_at);
@@ -65,6 +67,9 @@ ALTER TABLE chat_sessions
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS user_id BIGINT;
+
+ALTER TABLE chat_messages
+	ADD COLUMN IF NOT EXISTS embedding JSONB;
 
 CREATE INDEX IF NOT EXISTS chat_sessions_user_updated_idx ON chat_sessions(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS chat_sessions_user_created_idx ON chat_sessions(user_id, created_at DESC);
@@ -424,15 +429,15 @@ func (s *pgChatStore) ListMessages(ctx context.Context, userID *int64, sessionID
 	}
 	log.Debug().Str("session_id", sessionID).Msg("list_messages_session_ok")
 	query := `
-SELECT id, session_id, role, content, created_at
+SELECT id, session_id, role, content, created_at, embedding
 FROM chat_messages
 WHERE session_id = $1
 ORDER BY created_at ASC, id ASC`
 	args := []any{sessionID}
 	if limit > 0 {
 		query = `
-SELECT id, session_id, role, content, created_at FROM (
-    SELECT id, session_id, role, content, created_at
+SELECT id, session_id, role, content, created_at, embedding FROM (
+	SELECT id, session_id, role, content, created_at, embedding
     FROM chat_messages
     WHERE session_id = $1
     ORDER BY created_at DESC, id DESC
@@ -449,8 +454,12 @@ ORDER BY created_at ASC, id ASC`
 	var out []persistence.ChatMessage
 	for rows.Next() {
 		var msg persistence.ChatMessage
-		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+		var embeddingRaw []byte
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt, &embeddingRaw); err != nil {
 			return nil, err
+		}
+		if len(embeddingRaw) > 0 {
+			_ = json.Unmarshal(embeddingRaw, &msg.Embedding)
 		}
 		out = append(out, msg)
 	}
@@ -486,9 +495,15 @@ func (s *pgChatStore) AppendMessages(ctx context.Context, userID *int64, session
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
+		var embeddingJSON []byte
+		if len(message.Embedding) > 0 {
+			if data, err := json.Marshal(message.Embedding); err == nil {
+				embeddingJSON = data
+			}
+		}
 		if _, err := tx.Exec(ctx, `
-INSERT INTO chat_messages (id, session_id, role, content, created_at)
-VALUES ($1, $2, $3, $4, $5)`, id, sessionID, message.Role, message.Content, createdAt); err != nil {
+INSERT INTO chat_messages (id, session_id, role, content, created_at, embedding)
+VALUES ($1, $2, $3, $4, $5, $6)`, id, sessionID, message.Role, message.Content, createdAt, embeddingJSON); err != nil {
 			return err
 		}
 	}

@@ -111,6 +111,8 @@ type ChatMessage struct {
 	Role      string    `json:"role"`
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"createdAt"`
+	// Optional: semantic embedding for retrieval (typically set on user messages).
+	Embedding []float32 `json:"embedding,omitempty"`
 	// Optional, not persisted: used to hydrate tool calls for the UI.
 	Title    string `json:"title,omitempty"`
 	ToolArgs string `json:"toolArgs,omitempty"`

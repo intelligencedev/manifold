@@ -645,14 +645,18 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	useResponsesCompaction := (cfg.LLMClient.Provider == "" || cfg.LLMClient.Provider == "openai") &&
 		strings.EqualFold(cfg.OpenAI.API, "responses")
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
-		Enabled:                cfg.SummaryEnabled,
-		ReserveBufferTokens:    cfg.SummaryReserveBufferTokens,
-		MinKeepLastMessages:    cfg.SummaryMinKeepLastMessages,
-		MaxKeepLastMessages:    cfg.SummaryMaxKeepLastMessages,
-		MaxSummaryChunkTokens:  cfg.SummaryMaxSummaryChunkTokens,
-		ContextWindowTokens:    summaryCtxSize,
-		SummaryModel:           cfg.OpenAI.SummaryModel,
-		UseResponsesCompaction: useResponsesCompaction,
+		Enabled:                     cfg.SummaryEnabled,
+		ReserveBufferTokens:         cfg.SummaryReserveBufferTokens,
+		MinKeepLastMessages:         cfg.SummaryMinKeepLastMessages,
+		MaxKeepLastMessages:         cfg.SummaryMaxKeepLastMessages,
+		MaxSummaryChunkTokens:       cfg.SummaryMaxSummaryChunkTokens,
+		ContextWindowTokens:         summaryCtxSize,
+		SummaryModel:                cfg.OpenAI.SummaryModel,
+		UseResponsesCompaction:      useResponsesCompaction,
+		SemanticHistoryEnabled:      cfg.ChatMemorySemanticEnabled,
+		SemanticTopK:                cfg.ChatMemorySemanticTopK,
+		SemanticMinKeepLastMessages: cfg.ChatMemorySemanticMinRecentTail,
+		SemanticSimilarityThreshold: cfg.ChatMemorySemanticSimilarityThreshold,
 	})
 
 	if mgr.Playground == nil {

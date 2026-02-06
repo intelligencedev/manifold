@@ -48,8 +48,18 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Runtime image with CUDA runtime
 FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates dumb-init docker.io \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates dumb-init docker.io \
+    git openssh-client \
     && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user with a writable home for git/ssh
+RUN groupadd -g 65532 appuser \
+    && useradd -m -u 65532 -g 65532 -s /bin/bash appuser \
+    && mkdir -p /home/appuser/.ssh /app \
+    && chown -R 65532:65532 /home/appuser /app
+
+ENV HOME=/home/appuser
 
 WORKDIR /app
 COPY --from=builder /src/app/dist/agentd /app/agentd

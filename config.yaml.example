@@ -87,6 +87,12 @@ summaryMaxKeepLastMessages: 12
 # Maximum tokens per summary chunk when building multi-turn summaries
 summaryMaxSummaryChunkTokens: 4096
 
+# Semantic chat history retrieval (optional)
+chatMemorySemanticEnabled: false
+chatMemorySemanticTopK: 6
+chatMemorySemanticMinRecentTail: 4
+chatMemorySemanticSimilarityThreshold: 0.3
+
 obs:
   serviceName: manifold
   environment: local

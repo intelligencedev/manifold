@@ -13,6 +13,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/auth"
+	"manifold/internal/config"
+	"manifold/internal/embedding"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 )
@@ -108,15 +110,66 @@ func previewSnippet(content string) string {
 	return string(runes[:limit]) + "..."
 }
 
-func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent, assistantContent, model string) error {
+const embedAssistantSnippetLimit = 800
+
+func buildEmbeddingInput(userContent, assistantContent string) string {
+	user := strings.TrimSpace(userContent)
+	if user == "" {
+		return ""
+	}
+	assistant := strings.TrimSpace(assistantContent)
+	if assistant != "" {
+		assistant = truncateEmbeddingRunes(assistant, embedAssistantSnippetLimit)
+		return user + "\n\nAssistant:\n" + assistant
+	}
+	return user
+}
+
+func truncateEmbeddingRunes(content string, limit int) string {
+	trimmed := strings.TrimSpace(content)
+	if limit <= 0 {
+		return trimmed
+	}
+	runes := []rune(trimmed)
+	if len(runes) <= limit {
+		return trimmed
+	}
+	if limit <= 3 {
+		return string(runes[:limit])
+	}
+	return string(runes[:limit-3]) + "..."
+}
+
+func embedChatTurn(ctx context.Context, cfg config.EmbeddingConfig, userContent, assistantContent string) []float32 {
+	input := buildEmbeddingInput(userContent, assistantContent)
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	vecs, err := embedding.EmbedText(ctx, cfg, []string{input})
+	if err != nil {
+		log.Warn().Err(err).Msg("embed_chat_turn_failed")
+		return nil
+	}
+	if len(vecs) == 0 {
+		return nil
+	}
+	return vecs[0]
+}
+
+func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent, assistantContent, model string, embedCfg config.EmbeddingConfig, embedEnabled bool) error {
 	messages := make([]persist.ChatMessage, 0, 2)
 	now := time.Now().UTC()
+	var embeddingVec []float32
+	if embedEnabled {
+		embeddingVec = embedChatTurn(ctx, embedCfg, userContent, assistantContent)
+	}
 	if strings.TrimSpace(userContent) != "" {
 		messages = append(messages, persist.ChatMessage{
 			SessionID: sessionID,
 			Role:      "user",
 			Content:   userContent,
 			CreatedAt: now,
+			Embedding: embeddingVec,
 		})
 	}
 	if strings.TrimSpace(assistantContent) != "" {
@@ -139,7 +192,7 @@ func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, 
 
 // storeChatTurnWithHistory stores a complete conversation turn including all intermediate
 // assistant messages (with tool calls) and tool response messages.
-func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent string, turnMessages []llm.Message, finalContent, model string) error {
+func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent string, turnMessages []llm.Message, finalContent, model string, embedCfg config.EmbeddingConfig, embedEnabled bool) error {
 	roles := make([]string, len(turnMessages))
 	for i, m := range turnMessages {
 		roles[i] = m.Role
@@ -147,6 +200,10 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, user
 	log.Info().Str("session_id", sessionID).Str("user_content_len", fmt.Sprint(len(userContent))).Int("turn_messages", len(turnMessages)).Strs("roles", roles).Msg("store_chat_turn_start")
 	messages := make([]persist.ChatMessage, 0, 2+len(turnMessages))
 	now := time.Now().UTC()
+	var embeddingVec []float32
+	if embedEnabled {
+		embeddingVec = embedChatTurn(ctx, embedCfg, userContent, finalContent)
+	}
 
 	// Add user message
 	if strings.TrimSpace(userContent) != "" {
@@ -155,6 +212,7 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, user
 			Role:      "user",
 			Content:   userContent,
 			CreatedAt: now,
+			Embedding: embeddingVec,
 		})
 	}
 

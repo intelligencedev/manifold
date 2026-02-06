@@ -30,7 +30,15 @@ type Config struct {
 	SummaryMaxKeepLastMessages int `yaml:"summaryMaxKeepLastMessages" json:"summaryMaxKeepLastMessages"`
 	// SummaryMaxSummaryChunkTokens caps the size of the summary prompt in tokens.
 	SummaryMaxSummaryChunkTokens int `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
-	OutputTruncateByte           int
+	// ChatMemorySemanticEnabled enables semantic retrieval for chat history.
+	ChatMemorySemanticEnabled bool `yaml:"chatMemorySemanticEnabled" json:"chatMemorySemanticEnabled"`
+	// ChatMemorySemanticTopK controls how many relevant turns to retrieve.
+	ChatMemorySemanticTopK int `yaml:"chatMemorySemanticTopK" json:"chatMemorySemanticTopK"`
+	// ChatMemorySemanticMinRecentTail preserves this many recent messages.
+	ChatMemorySemanticMinRecentTail int `yaml:"chatMemorySemanticMinRecentTail" json:"chatMemorySemanticMinRecentTail"`
+	// ChatMemorySemanticSimilarityThreshold drops turns below this similarity score.
+	ChatMemorySemanticSimilarityThreshold float64 `yaml:"chatMemorySemanticSimilarityThreshold" json:"chatMemorySemanticSimilarityThreshold"`
+	OutputTruncateByte                    int
 	// Maximum number of reasoning steps the agent can take
 	MaxSteps int
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.

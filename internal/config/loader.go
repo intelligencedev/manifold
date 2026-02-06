@@ -179,6 +179,26 @@ func Load() (Config, error) {
 		}
 	}
 
+	// Semantic chat memory configuration via env
+	if v := strings.TrimSpace(os.Getenv("CHAT_MEMORY_SEMANTIC_ENABLED")); v != "" {
+		cfg.ChatMemorySemanticEnabled = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")
+	}
+	if v := strings.TrimSpace(os.Getenv("CHAT_MEMORY_SEMANTIC_TOP_K")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.ChatMemorySemanticTopK = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("CHAT_MEMORY_SEMANTIC_MIN_RECENT_TAIL")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.ChatMemorySemanticMinRecentTail = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("CHAT_MEMORY_SEMANTIC_SIMILARITY_THRESHOLD")); v != "" {
+		if f, err := parseFloat(v); err == nil {
+			cfg.ChatMemorySemanticSimilarityThreshold = f
+		}
+	}
+
 	// Global enableTools via env (overrides YAML)
 	if v := strings.TrimSpace(os.Getenv("ENABLE_TOOLS")); v != "" {
 		cfg.EnableTools = strings.EqualFold(v, "true") || v == "1" || strings.EqualFold(v, "yes")

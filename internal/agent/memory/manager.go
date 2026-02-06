@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 	"sync"
 
@@ -105,6 +107,14 @@ type Config struct {
 	SummaryModel string `yaml:"summaryModel" json:"summaryModel"`
 	// UseResponsesCompaction enables the Responses API compaction endpoint when supported.
 	UseResponsesCompaction bool `yaml:"useResponsesCompaction" json:"useResponsesCompaction"`
+	// SemanticHistoryEnabled enables semantic retrieval of past chat turns.
+	SemanticHistoryEnabled bool `yaml:"semanticHistoryEnabled" json:"semanticHistoryEnabled"`
+	// SemanticTopK controls how many relevant turns to retrieve.
+	SemanticTopK int `yaml:"semanticTopK" json:"semanticTopK"`
+	// SemanticMinKeepLastMessages preserves this many recent messages.
+	SemanticMinKeepLastMessages int `yaml:"semanticMinKeepLastMessages" json:"semanticMinKeepLastMessages"`
+	// SemanticSimilarityThreshold drops turns below this similarity score.
+	SemanticSimilarityThreshold float64 `yaml:"semanticSimilarityThreshold" json:"semanticSimilarityThreshold"`
 }
 
 // Manager coordinates persistence-backed chat memory with rolling summaries so that
@@ -123,6 +133,11 @@ type Manager struct {
 	maxSummaryChunkTokens  int
 	contextWindowTokens    int
 	useResponsesCompaction bool
+
+	semanticHistoryEnabled    bool
+	semanticTopK              int
+	semanticMinKeepLastMsgs   int
+	semanticSimilarityMinimum float64
 }
 
 // Introspection helpers used by debug/observability surfaces.
@@ -145,16 +160,20 @@ func (m *Manager) MaxSummaryChunkTokens() int { return m.maxSummaryChunkTokens }
 // NewManager returns a chat memory manager.
 func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) *Manager {
 	m := &Manager{
-		store:                  store,
-		summary:                provider,
-		summaryModel:           cfg.SummaryModel,
-		enabled:                cfg.Enabled && provider != nil,
-		reserveBufferTokens:    cfg.ReserveBufferTokens,
-		minKeepLastMessages:    cfg.MinKeepLastMessages,
-		maxKeepLastMessages:    cfg.MaxKeepLastMessages,
-		maxSummaryChunkTokens:  cfg.MaxSummaryChunkTokens,
-		contextWindowTokens:    cfg.ContextWindowTokens,
-		useResponsesCompaction: cfg.UseResponsesCompaction,
+		store:                     store,
+		summary:                   provider,
+		summaryModel:              cfg.SummaryModel,
+		enabled:                   cfg.Enabled && provider != nil,
+		reserveBufferTokens:       cfg.ReserveBufferTokens,
+		minKeepLastMessages:       cfg.MinKeepLastMessages,
+		maxKeepLastMessages:       cfg.MaxKeepLastMessages,
+		maxSummaryChunkTokens:     cfg.MaxSummaryChunkTokens,
+		contextWindowTokens:       cfg.ContextWindowTokens,
+		useResponsesCompaction:    cfg.UseResponsesCompaction,
+		semanticHistoryEnabled:    cfg.SemanticHistoryEnabled,
+		semanticTopK:              cfg.SemanticTopK,
+		semanticMinKeepLastMsgs:   cfg.SemanticMinKeepLastMessages,
+		semanticSimilarityMinimum: cfg.SemanticSimilarityThreshold,
 	}
 	if m.reserveBufferTokens <= 0 {
 		m.reserveBufferTokens = defaultReserveBuffer
@@ -170,6 +189,18 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 	}
 	if m.maxSummaryChunkTokens <= 0 {
 		m.maxSummaryChunkTokens = maxSummarizeChunkSize
+	}
+	if m.semanticTopK <= 0 {
+		m.semanticTopK = 6
+	}
+	if m.semanticMinKeepLastMsgs <= 0 {
+		m.semanticMinKeepLastMsgs = m.minKeepLastMessages
+		if m.semanticMinKeepLastMsgs <= 0 {
+			m.semanticMinKeepLastMsgs = 4
+		}
+	}
+	if m.semanticSimilarityMinimum <= 0 {
+		m.semanticSimilarityMinimum = 0.3
 	}
 	if m.contextWindowTokens <= 0 && cfg.SummaryModel != "" {
 		if size, _ := llm.ContextSize(cfg.SummaryModel); size > 0 {
@@ -408,6 +439,252 @@ func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, se
 	return history, summaryResult, nil
 }
 
+// BuildContextForProviderWithEmbedding assembles the conversation history using
+// semantic retrieval of prior turns when enabled. If semantic retrieval is
+// disabled or queryEmbedding is empty, it falls back to BuildContextForProvider.
+func (m *Manager) BuildContextForProviderWithEmbedding(ctx context.Context, userID *int64, sessionID string, targetSupportsCompaction bool, queryEmbedding []float32) ([]llm.Message, *SummaryResult, error) {
+	if !m.semanticHistoryEnabled || len(queryEmbedding) == 0 {
+		return m.BuildContextForProvider(ctx, userID, sessionID, targetSupportsCompaction)
+	}
+
+	log := observability.LoggerWithTrace(ctx)
+	if sessionID == "" {
+		return nil, nil, nil
+	}
+
+	messages, err := m.store.ListMessages(ctx, userID, sessionID, 0)
+	if err != nil {
+		if errors.Is(err, persistence.ErrNotFound) {
+			messages = nil
+		} else {
+			return nil, nil, err
+		}
+	}
+	log.Info().Str("session_id", sessionID).Int("messages_count", len(messages)).Msg("build_context_list_messages_semantic")
+
+	session, err := m.store.GetSession(ctx, userID, sessionID)
+	if err != nil {
+		if errors.Is(err, persistence.ErrNotFound) {
+			session = persistence.ChatSession{ID: sessionID}
+		} else {
+			return nil, nil, err
+		}
+	}
+
+	summary := session.Summary
+	summarizedCount := session.SummarizedCount
+	var summaryResult *SummaryResult
+
+	if m.enabled {
+		updatedSummary, updatedCount, result := m.ensureSummary(ctx, userID, session, messages)
+		if updatedSummary != "" || updatedCount != summarizedCount {
+			summary = updatedSummary
+			summarizedCount = updatedCount
+		}
+		if result != nil && result.Triggered {
+			summaryResult = result
+		}
+	}
+
+	total := len(messages)
+	tailStart := 0
+	if m.enabled {
+		ctxSize := m.contextWindowTokens
+		if ctxSize <= 0 {
+			ctxSize = 32_000
+		}
+		reserveBuffer := m.reserveBufferTokens
+		if reserveBuffer <= 0 {
+			reserveBuffer = defaultReserveBuffer
+		}
+		budget := ctxSize - reserveBuffer
+		if budget <= 0 {
+			budget = ctxSize / 2
+		}
+		tailBudget := budget / 2
+		if tailBudget <= 0 {
+			tailBudget = budget
+		}
+		minTail := m.semanticMinKeepLastMsgs
+		if minTail <= 0 {
+			minTail = 4
+		}
+		remaining := tailBudget
+		kept := 0
+		tailStart = total
+		for i := total - 1; i >= 0; i-- {
+			msgTokens := len([]rune(strings.TrimSpace(messages[i].Content)))/4 + 1
+			if kept >= minTail && remaining-msgTokens <= 0 {
+				break
+			}
+			remaining -= msgTokens
+			kept++
+			tailStart = i
+			if remaining <= 0 {
+				break
+			}
+		}
+		if tailStart < summarizedCount {
+			tailStart = summarizedCount
+		}
+		maxTail := m.maxKeepLastMessages
+		if maxTail > 0 && total-tailStart > maxTail {
+			tailStart = total - maxTail
+			if tailStart < summarizedCount {
+				tailStart = summarizedCount
+			}
+		}
+		if summary == "" && summarizedCount > 0 {
+			tailStart = 0
+		}
+	}
+
+	if tailStart < 0 {
+		tailStart = 0
+	}
+	if tailStart > total {
+		tailStart = total
+	}
+	if summary != "" && !targetSupportsCompaction {
+		ds := decodeDualSummary(summary)
+		if ds.Plain == "" && ds.Compaction != "" {
+			log.Warn().Str("session_id", sessionID).Msg("compaction_summary_incompatible_with_target_provider_no_plain_fallback")
+			tailStart = 0
+		}
+	}
+
+	if total > 0 {
+		minIdx := summarizedCount
+		if minIdx < 0 {
+			minIdx = 0
+		}
+		adjusted := adjustIndexForToolDeps(messages, 0, tailStart)
+		if adjusted < tailStart {
+			if adjusted < minIdx {
+				log.Warn().
+					Str("session_id", sessionID).
+					Int("summarized_count", summarizedCount).
+					Int("tail_start", tailStart).
+					Int("adjusted_tail_start", adjusted).
+					Msg("tail_start_crosses_tool_chain_including_pre_summarized_tool_calls")
+			}
+			tailStart = adjusted
+		}
+	}
+
+	type scoredTurn struct {
+		start int
+		end   int
+		score float64
+	}
+	turns := make([]scoredTurn, 0)
+	for i := 0; i < total; i++ {
+		msg := messages[i]
+		if msg.Role != "user" || len(msg.Embedding) == 0 {
+			continue
+		}
+		if summary != "" && summarizedCount > 0 && i < summarizedCount {
+			continue
+		}
+		score := cosineSimilarityVectors(queryEmbedding, msg.Embedding)
+		if score < m.semanticSimilarityMinimum {
+			continue
+		}
+		end := i + 1
+		for end < total && messages[end].Role != "user" {
+			end++
+		}
+		turns = append(turns, scoredTurn{start: i, end: end, score: score})
+	}
+
+	if len(turns) > 0 {
+		sort.Slice(turns, func(i, j int) bool {
+			return turns[i].score > turns[j].score
+		})
+		if len(turns) > m.semanticTopK {
+			turns = turns[:m.semanticTopK]
+		}
+	}
+
+	selected := make(map[int]struct{}, total)
+	for i := tailStart; i < total; i++ {
+		selected[i] = struct{}{}
+	}
+	for _, t := range turns {
+		for i := t.start; i < t.end; i++ {
+			if summary != "" && summarizedCount > 0 && i < summarizedCount {
+				continue
+			}
+			selected[i] = struct{}{}
+		}
+	}
+
+	indices := make([]int, 0, len(selected))
+	for idx := range selected {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+
+	history := make([]llm.Message, 0, len(indices)+1)
+	if targetSupportsCompaction {
+		history = append(history, llm.Message{Role: "system", Content: compactionContinuationRule})
+	}
+	if summary != "" {
+		ds := decodeDualSummary(summary)
+		if targetSupportsCompaction && ds.Compaction != "" {
+			if item, ok := decodeCompactionSummary(ds.Compaction); ok {
+				history = append(history, llm.Message{Role: "assistant", Compaction: &item})
+			} else if ds.Plain != "" {
+				history = append(history, llm.Message{
+					Role:    "system",
+					Content: "Conversation summary (for context only):\n" + ds.Plain,
+				})
+			}
+		} else if ds.Plain != "" {
+			history = append(history, llm.Message{
+				Role:    "system",
+				Content: "Conversation summary (for context only):\n" + ds.Plain,
+			})
+		} else if ds.Compaction != "" && !targetSupportsCompaction {
+			log.Warn().Str("session_id", sessionID).Msg("compaction_summary_incompatible_with_target_provider_no_plain_fallback")
+		}
+	}
+
+	for _, idx := range indices {
+		msg := messages[idx]
+		if msg.Role == "assistant" && strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
+			var data struct {
+				Content   string         `json:"content"`
+				ToolCalls []llm.ToolCall `json:"tool_calls"`
+			}
+			if err := json.Unmarshal([]byte(msg.Content), &data); err == nil && len(data.ToolCalls) > 0 {
+				history = append(history, llm.Message{
+					Role:      msg.Role,
+					Content:   data.Content,
+					ToolCalls: data.ToolCalls,
+				})
+				continue
+			}
+		} else if msg.Role == "tool" && strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
+			var data struct {
+				Content string `json:"content"`
+				ToolID  string `json:"tool_id"`
+			}
+			if err := json.Unmarshal([]byte(msg.Content), &data); err == nil && data.ToolID != "" {
+				history = append(history, llm.Message{
+					Role:    msg.Role,
+					Content: data.Content,
+					ToolID:  data.ToolID,
+				})
+				continue
+			}
+		}
+		history = append(history, llm.Message{Role: msg.Role, Content: msg.Content})
+	}
+
+	return history, summaryResult, nil
+}
+
 // adjustIndexForToolDeps ensures that if the kept tail includes any tool response
 // messages, it also includes the preceding assistant message(s) that contain the
 // corresponding ToolCalls.
@@ -488,6 +765,22 @@ func adjustIndexForToolDeps(msgs []persistence.ChatMessage, start, cutIndex int)
 	}
 
 	return earliestNeeded
+}
+
+func cosineSimilarityVectors(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var dot, magA, magB float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+		magA += float64(a[i]) * float64(a[i])
+		magB += float64(b[i]) * float64(b[i])
+	}
+	if magA == 0 || magB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(magA) * math.Sqrt(magB))
 }
 
 func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session persistence.ChatSession, messages []persistence.ChatMessage) (string, int, *SummaryResult) {

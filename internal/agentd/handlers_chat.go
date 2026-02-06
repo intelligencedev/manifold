@@ -17,6 +17,7 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/auth"
+	"manifold/internal/embedding"
 	"manifold/internal/llm"
 	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
@@ -786,7 +787,15 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		// Check if the main LLM provider supports compaction (OpenAI Responses API).
 		// Non-OpenAI providers cannot use encrypted compaction summaries.
 		targetSupportsCompaction := providerSupportsCompaction(a.llm)
-		history, memorySummaryResult, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, req.SessionID, targetSupportsCompaction)
+		var queryEmbedding []float32
+		if a.cfg.ChatMemorySemanticEnabled && strings.TrimSpace(req.Prompt) != "" {
+			if vecs, err := embedding.EmbedText(r.Context(), a.cfg.Embedding, []string{req.Prompt}); err == nil && len(vecs) > 0 {
+				queryEmbedding = vecs[0]
+			} else if err != nil {
+				log.Warn().Err(err).Str("session", req.SessionID).Msg("chat_semantic_embed_failed")
+			}
+		}
+		history, memorySummaryResult, err := a.chatMemory.BuildContextForProviderWithEmbedding(r.Context(), userID, req.SessionID, targetSupportsCompaction, queryEmbedding)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -1110,7 +1119,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			payload := map[string]string{"type": "final", "data": res}
 			writeSSE(payload)
 			a.runs.updateStatus(currentRun.ID, "completed", 0)
-			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
+			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			// Commit workspace changes after successful run
@@ -1161,7 +1170,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": result})
 		a.runs.updateStatus(currentRun.ID, "completed", 0)
-		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, result, eng.Model, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 			log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 		}
 		// Commit workspace changes after successful run
@@ -1291,7 +1300,15 @@ func (a *app) promptHandler() http.HandlerFunc {
 		// Check if the main LLM provider supports compaction (OpenAI Responses API).
 		// Non-OpenAI providers cannot use encrypted compaction summaries.
 		targetSupportsCompaction := providerSupportsCompaction(a.llm)
-		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, req.SessionID, targetSupportsCompaction)
+		var queryEmbedding []float32
+		if a.cfg.ChatMemorySemanticEnabled && strings.TrimSpace(req.Prompt) != "" {
+			if vecs, err := embedding.EmbedText(r.Context(), a.cfg.Embedding, []string{req.Prompt}); err == nil && len(vecs) > 0 {
+				queryEmbedding = vecs[0]
+			} else if err != nil {
+				log.Warn().Err(err).Str("session", req.SessionID).Msg("chat_semantic_embed_failed")
+			}
+		}
+		history, _, err := a.chatMemory.BuildContextForProviderWithEmbedding(r.Context(), userID, req.SessionID, targetSupportsCompaction, queryEmbedding)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -1476,7 +1493,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(prun.ID, "completed", 0)
-			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model); err != nil {
+			if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, turnMessages, res, eng.Model, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 			}
 			// Commit workspace changes after successful run
@@ -1766,7 +1783,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		payload := map[string]string{"type": "final", "data": res}
 		writeSSE(payload)
 		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist_stream")
 		}
 		return true
@@ -1815,7 +1832,7 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"result": out})
 	a.runs.updateStatus(prun.ID, "completed", 0)
-	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, out, modelLabel); err != nil {
+	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, out, modelLabel, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")
 	}
 	return true
@@ -2116,7 +2133,7 @@ func (a *app) handleTeamChat(w http.ResponseWriter, r *http.Request, name, promp
 		payload := map[string]string{"type": "final", "data": res}
 		writeSSE(payload)
 		a.runs.updateStatus(prun.ID, "completed", 0)
-		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
+		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_team_stream")
 		}
 		return true
@@ -2165,7 +2182,7 @@ func (a *app) handleTeamChat(w http.ResponseWriter, r *http.Request, name, promp
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"result": result})
 	a.runs.updateStatus(prun.ID, "completed", 0)
-	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, result, modelLabel); err != nil {
+	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, result, modelLabel, a.cfg.Embedding, a.cfg.ChatMemorySemanticEnabled); err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_team")
 	}
 	return true

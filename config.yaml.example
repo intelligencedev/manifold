@@ -47,6 +47,8 @@ llm_client:
   #   apiKey: ""
   #   model: ""
   #   baseURL: ""
+  #   # Max output tokens per request (override default).
+  #   maxTokens: 4096
   #   promptCache:
   #     enabled: false
   #     # When enabled, Manifold attaches Anthropic cache_control directives.

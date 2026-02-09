@@ -30,7 +30,7 @@ export const useWarppRunStore = defineStore("warpp-run", () => {
     runAbort?.abort();
     runAbort = new AbortController();
     try {
-      runLogs.value.push("→ POST /api/warpp/run");
+      runLogs.value.push("→ POST /api/flows/v2/run");
       const res = await runWarppWorkflow(
         intent,
         prompt ?? `Run workflow: ${intent}`,

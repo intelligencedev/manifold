@@ -12,13 +12,14 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/rs/zerolog/log"
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 )
 
-const defaultMaxTokens int64 = 1024
+const defaultMaxTokens int64 = 4096
 
 // thinkingData stores Anthropic thinking block information for multi-turn conversations.
 // When extended thinking is enabled, Anthropic requires assistant messages to include
@@ -60,12 +61,17 @@ func New(cfg config.AnthropicConfig, httpClient *http.Client) *Client {
 		cacheCfg.CacheTools = true
 	}
 
+	maxTokens := defaultMaxTokens
+	if cfg.MaxTokens > 0 {
+		maxTokens = cfg.MaxTokens
+	}
+
 	return &Client{
 		sdk:       anthropic.NewClient(opts...),
 		model:     model,
-		maxTokens: defaultMaxTokens,
+		maxTokens: maxTokens,
 		cacheCfg:  cacheCfg,
-		extra:     cfg.ExtraParams,
+		extra:     llm.NormalizeExtraParams(cfg.ExtraParams),
 	}
 }
 
@@ -101,8 +107,16 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 			params.MaxTokens = thinkingBudget + 1024
 		}
 	}
-	if len(c.extra) > 0 {
-		params.SetExtraFields(c.extra)
+	extra := llm.NormalizeExtraParams(c.extra)
+	if v, found, ok := llm.PopIntExtraParam(extra, "max_tokens", "maxTokens"); found {
+		if ok {
+			params.MaxTokens = v
+		} else {
+			log.Warn().Msg("anthropic_invalid_extra_max_tokens")
+		}
+	}
+	if len(extra) > 0 {
+		params.SetExtraFields(extra)
 	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic Chat", string(params.Model), len(tools), len(msgs))
@@ -130,6 +144,11 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 	llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 
+	stopReason := string(resp.StopReason)
+	if stopReason == "" {
+		stopReason = "unknown"
+	}
+
 	log.Debug().
 		Str("model", string(params.Model)).
 		Int("tools", len(tools)).
@@ -137,6 +156,8 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens).
+		Str("stop_reason", stopReason).
+		Str("stop_sequence", resp.StopSequence).
 		Msg("anthropic_chat_ok")
 
 	return out, nil
@@ -174,8 +195,16 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 			params.MaxTokens = thinkingBudget + 1024
 		}
 	}
-	if len(c.extra) > 0 {
-		params.SetExtraFields(c.extra)
+	extra := llm.NormalizeExtraParams(c.extra)
+	if v, found, ok := llm.PopIntExtraParam(extra, "max_tokens", "maxTokens"); found {
+		if ok {
+			params.MaxTokens = v
+		} else {
+			log.Warn().Msg("anthropic_invalid_extra_max_tokens")
+		}
+	}
+	if len(extra) > 0 {
+		params.SetExtraFields(extra)
 	}
 
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatStream", string(params.Model), len(tools), len(msgs))
@@ -353,6 +382,11 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	llm.LogRedactedResponse(ctx, acc)
 
 	dur := time.Since(start)
+	stopReason := string(acc.StopReason)
+	if stopReason == "" {
+		stopReason = "unknown"
+	}
+
 	log.Debug().
 		Str("model", string(params.Model)).
 		Int("tools", len(tools)).
@@ -361,6 +395,8 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens).
 		Int("thought_summaries", thinkingCount).
+		Str("stop_reason", stopReason).
+		Str("stop_sequence", acc.StopSequence).
 		Msg("anthropic_stream_ok")
 
 	return nil

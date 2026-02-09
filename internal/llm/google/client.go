@@ -57,7 +57,7 @@ func New(cfg config.GoogleConfig, httpClient *http.Client) (*Client, error) {
 		client:      client,
 		model:       model,
 		httpOptions: httpOpts,
-		extra:       cfg.ExtraParams,
+		extra:       llm.NormalizeExtraParams(cfg.ExtraParams),
 	}, nil
 }
 

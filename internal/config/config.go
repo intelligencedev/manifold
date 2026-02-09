@@ -165,6 +165,9 @@ type AnthropicConfig struct {
 	APIKey  string `yaml:"apiKey" json:"apiKey"`
 	Model   string `yaml:"model" json:"model"`
 	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	// MaxTokens overrides the per-request max output tokens for Anthropic.
+	// When unset (0), Manifold uses a conservative default.
+	MaxTokens int64 `yaml:"maxTokens" json:"maxTokens"`
 	// ExtraParams are merged into the Anthropic request body.
 	ExtraParams map[string]any `yaml:"extraParams" json:"extraParams"`
 	// PromptCache enables Anthropic prompt caching via cache_control on supported blocks.

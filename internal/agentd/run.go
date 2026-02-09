@@ -75,6 +75,7 @@ type app struct {
 	warppRunner        *warpp.Runner
 	warppRegistries    map[int64]*warpp.Registry
 	warppStore         persist.WarppWorkflowStore
+	flowV2             *flowV2Runtime
 	evolvingMu         sync.RWMutex
 	userEvolving       map[int64]map[string]*memory.EvolvingMemory
 	evolvingCfg        memory.EvolvingMemoryConfig
@@ -356,6 +357,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(filetool.NewDeleteTool(allowedRoots))
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
+	toolRegistry.Register(utility.NewAgentResponseTool())
 	toolRegistry.Register(tts.New(*cfg, httpClient))
 
 	// Register RAG tools backed by the internal rag service.
@@ -517,6 +519,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		specRegistry:     specReg,
 		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:             newRunStore(),
+		flowV2:           newFlowV2Runtime(),
 		mcpStore:         mgr.MCP,
 		userPrefsStore:   mgr.UserPreferences,
 		mcpManager:       mcpMgr,

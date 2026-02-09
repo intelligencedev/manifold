@@ -1000,16 +1000,6 @@ const DEFAULT_LAYOUT_START_Y = 160;
 const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320;
 const UTILITY_TOOL_PREFIX = "utility_";
 const AGENT_RESPONSE_TOOL = "agent_response";
-const BUILTIN_UTILITY_TOOLS: WarppTool[] = [
-  {
-    name: AGENT_RESPONSE_TOOL,
-    description: "Render agent responses as text, markdown, or HTML",
-    parameters: {
-      text: "Markdown or HTML content to render",
-      render_mode: "raw | markdown | html",
-    },
-  },
-];
 
 // Dagre layout sizing
 // Use measured node sizes when available; these are fallbacks when not yet measured
@@ -1390,15 +1380,6 @@ const toolMap = computed(() => {
   });
   return map;
 });
-
-function mergeBuiltinUtilityTools(list: WarppTool[]): WarppTool[] {
-  const names = new Set(list.map((tool) => tool.name));
-  const merged = [...list];
-  BUILTIN_UTILITY_TOOLS.forEach((builtin) => {
-    if (!names.has(builtin.name)) merged.push(builtin);
-  });
-  return merged;
-}
 
 // Selection state for showing Node Configuration panel
 const selectedNodes = computed(() =>
@@ -1984,17 +1965,14 @@ onMounted(async () => {
   loading.value = true;
   try {
     const [toolResp, workflows] = await Promise.all([
-      fetchWarppTools().catch((err) => {
-        console.error("warpp tools", err);
-        return [] as WarppTool[];
-      }),
+      fetchWarppTools(),
       fetchWarppWorkflows(),
       projectsStore.refresh().catch((err) => {
         console.error("projects", err);
         return [];
       }),
     ]);
-    tools.value = mergeBuiltinUtilityTools(toolResp);
+    tools.value = toolResp;
     workflowList.value = workflows;
     if (selectedIntent.value) {
       await loadWorkflow(selectedIntent.value);
@@ -2761,7 +2739,8 @@ async function performSave(
       },
     };
     runLogs.value.push(
-      "[save] PUT /api/warpp/workflows/" + encodeURIComponent(payload.intent),
+      "[save] PUT /api/flows/v2/workflows/" +
+        encodeURIComponent(payload.intent),
     );
     console.log("[DEBUG] Payload groups:", payload.ui?.groups);
     console.log(

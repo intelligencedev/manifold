@@ -152,7 +152,7 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	return &Client{
 		sdk:         sdk.NewClient(opts...),
 		model:       c.Model,
-		extra:       c.ExtraParams,
+		extra:       llm.NormalizeExtraParams(c.ExtraParams),
 		logPayloads: c.LogPayloads,
 		baseURL:     c.BaseURL,
 		httpClient:  httpClient,

@@ -300,6 +300,14 @@ func parseLimitParam(r *http.Request, defaultValue int) int {
 }
 
 func (a *app) warppToolsHandler() http.HandlerFunc {
+	return a.toolsCatalogHandler()
+}
+
+func (a *app) flowV2ToolsHandler() http.HandlerFunc {
+	return a.toolsCatalogHandler()
+}
+
+func (a *app) toolsCatalogHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.cfg.Auth.Enabled {
 			if _, ok := auth.CurrentUser(r.Context()); !ok {

@@ -5,6 +5,7 @@ import ChatView from "@/views/ChatView.vue";
 vi.mock("@/api/client", () => ({
   listProjects: async () => [{ id: "proj-1", name: "Demo Project" }],
   listSpecialists: async () => [{ name: "orchestrator", model: "gpt-5" }],
+  listTeams: async () => [],
   getUserPreferences: async () => ({ activeProjectId: "proj-1" }),
   setActiveProject: async () => {},
   createProject: async () => ({ id: "proj-1", name: "Demo Project" }),
@@ -28,18 +29,15 @@ vi.mock("@/api/chat", () => ({
 }));
 
 beforeEach(() => {
-  vi.stubGlobal(
-    "fetch",
-    async (input: RequestInfo | URL) => {
-      if (String(input).includes("/api/me")) {
-        return new Response(JSON.stringify({ name: "Test User" }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return new Response("", { status: 204 });
-    },
-  );
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    if (String(input).includes("/api/me")) {
+      return new Response(JSON.stringify({ name: "Test User" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response("", { status: 204 });
+  });
 });
 
 afterEach(() => {

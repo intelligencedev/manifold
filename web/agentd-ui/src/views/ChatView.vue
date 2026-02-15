@@ -108,10 +108,12 @@
                 </button>
                 <button
                   type="button"
-                  class="rounded px-1 text-[10px] text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
-                  @click.stop="deleteSession(session.id)"
+                  class="inline-flex h-6 w-6 items-center justify-center text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
+                  :title="`Delete conversation ${session.name}`"
+                  :aria-label="`Delete conversation ${session.name}`"
+                  @click.stop="openDeleteSessionDialog(session)"
                 >
-                  Delete
+                  <SolarTrashIcon class="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
@@ -173,7 +175,9 @@
             </span>
             <div class="flex items-center gap-2 -mt-1.5">
               <div class="flex flex-col items-start gap-1">
-                <span class="ml-1 text-[10px] font-medium leading-none text-faint-foreground">
+                <span
+                  class="ml-1 text-[10px] font-medium leading-none text-faint-foreground"
+                >
                   Project
                 </span>
                 <DropdownSelect
@@ -186,7 +190,9 @@
                 />
               </div>
               <div class="flex flex-col items-start gap-1">
-                <span class="ml-1 text-[10px] font-medium leading-none text-faint-foreground">
+                <span
+                  class="ml-1 text-[10px] font-medium leading-none text-faint-foreground"
+                >
                   Render mode
                 </span>
                 <DropdownSelect
@@ -372,7 +378,11 @@
                 class="rounded-4 px-2 py-1 transition hover:text-accent"
                 @click="copyMessage(message)"
                 :title="copiedMessageId === message.id ? 'Copied' : 'Copy'"
-                :aria-label="copiedMessageId === message.id ? 'Copied message' : 'Copy message'"
+                :aria-label="
+                  copiedMessageId === message.id
+                    ? 'Copied message'
+                    : 'Copy message'
+                "
               >
                 <SolarCopyIcon class="h-4 w-4" />
               </button>
@@ -382,12 +392,19 @@
                 class="rounded-4 px-2 py-1 transition hover:text-accent"
                 @click="copyMessage(message)"
                 :title="copiedMessageId === message.id ? 'Copied' : 'Copy'"
-                :aria-label="copiedMessageId === message.id ? 'Copied message' : 'Copy message'"
+                :aria-label="
+                  copiedMessageId === message.id
+                    ? 'Copied message'
+                    : 'Copy message'
+                "
               >
                 <SolarCopyIcon class="h-4 w-4" />
               </button>
               <button
-                v-if="(message.role === 'assistant' || message.role === 'user') && message.id"
+                v-if="
+                  (message.role === 'assistant' || message.role === 'user') &&
+                  message.id
+                "
                 type="button"
                 class="rounded-4 px-2 py-1 transition hover:text-accent"
                 :disabled="isStreaming || message.streaming"
@@ -451,7 +468,7 @@
                   >
                     <span class="truncate font-medium">@{{ cand.name }}</span>
                     <span class="shrink-0 text-[10px] text-faint-foreground">
-                      {{ cand.model ? `Model ${cand.model}` : '' }}
+                      {{ cand.model ? `Model ${cand.model}` : "" }}
                     </span>
                   </button>
 
@@ -674,26 +691,83 @@
         </div>
       </div>
 
+      <div
+        v-if="showDeleteSessionDialog && deleteSessionTarget"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-session-title"
+        @click.self="closeDeleteSessionDialog"
+        @keydown.esc.prevent="closeDeleteSessionDialog"
+      >
+        <div
+          class="w-full max-w-md rounded-5 bg-surface p-5 shadow-3 ring-1 ring-border/60"
+        >
+          <h2
+            id="delete-session-title"
+            class="text-base font-semibold text-danger"
+          >
+            Delete Conversation
+          </h2>
+          <p class="mt-2 text-sm text-subtle-foreground">
+            This permanently removes
+            <span class="font-semibold text-foreground">{{
+              deleteSessionTarget.name
+            }}</span>
+            and all messages in it.
+          </p>
+          <form class="mt-4 space-y-3" @submit.prevent="confirmDeleteSession">
+            <p class="text-xs text-faint-foreground">
+              This action cannot be undone.
+            </p>
+            <p v-if="deleteSessionError" class="text-xs text-danger">
+              {{ deleteSessionError }}
+            </p>
+            <div class="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                class="h-9 rounded-full border border-white/15 px-3 text-sm text-subtle-foreground transition hover:border-white/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="deleteSessionPending"
+                @click="closeDeleteSessionDialog"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="h-9 rounded-full border border-danger/60 bg-danger/10 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="!canConfirmDeleteSession"
+              >
+                {{
+                  deleteSessionPending ? "Deleting..." : "Delete Conversation"
+                }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <!-- Participants sidebar -->
       <aside
         class="hidden h-full min-h-0 xl:flex flex-col text-sm text-subtle-foreground chat-side"
       >
-        <div
-          ref="sidePanelsPane"
-          class="flex min-h-0 flex-1 flex-col"
-        >
+        <div ref="sidePanelsPane" class="flex min-h-0 flex-1 flex-col">
           <div
             ref="activeSpecialistPane"
             class="min-h-0"
             :style="activeSpecialistPaneStyle"
           >
-            <GlassCard :padded="false" class="flex h-full flex-col overflow-hidden">
+            <GlassCard
+              :padded="false"
+              class="flex h-full flex-col overflow-hidden"
+            >
               <div class="flex min-h-0 flex-1 flex-col">
                 <header class="flex items-center justify-between">
                   <h2 class="text-sm font-semibold text-foreground">
                     Active specialist
                   </h2>
-                  <span class="text-[11px] text-faint-foreground">Live view</span>
+                  <span class="text-[11px] text-faint-foreground"
+                    >Live view</span
+                  >
                 </header>
                 <div class="mt-2 flex min-h-0 flex-1 flex-col">
                   <div
@@ -840,7 +914,6 @@
           </GlassCard>
         </div>
       </aside>
-
     </section>
   </div>
 </template>
@@ -924,7 +997,9 @@ function usernameFromUser(user: CurrentUser | null): string | null {
   return at > 0 ? email.slice(0, at) : email;
 }
 
-const displayUsername = computed(() => usernameFromUser(currentUser.value) || "there");
+const displayUsername = computed(
+  () => usernameFromUser(currentUser.value) || "there",
+);
 
 onMounted(() => {
   void loadCurrentUser();
@@ -994,6 +1069,13 @@ const modalImageSrc = computed(() => {
   if (!img) return "";
   return img.previewUrl || img.path || "";
 });
+const showDeleteSessionDialog = ref(false);
+const deleteSessionTarget = ref<ChatSessionMeta | null>(null);
+const deleteSessionPending = ref(false);
+const deleteSessionError = ref("");
+const canConfirmDeleteSession = computed(
+  () => !!deleteSessionTarget.value?.id && !deleteSessionPending.value,
+);
 const sidePanelsPane = ref<HTMLElement | null>(null);
 const activeSpecialistPane = ref<HTMLElement | null>(null);
 const panelSplitter = ref<HTMLElement | null>(null);
@@ -1138,9 +1220,7 @@ const selectedTeamMembers = computed(() => {
   const team = selectedTeamConfig.value;
   if (!team) return new Set<string>();
   return new Set(
-    (team.members || [])
-      .map((m) => m.trim().toLowerCase())
-      .filter(Boolean),
+    (team.members || []).map((m) => m.trim().toLowerCase()).filter(Boolean),
   );
 });
 
@@ -1704,9 +1784,7 @@ const participantList = computed<Participant[]>(() => {
     const members = (selectedTeamValue.members || [])
       .map((name) => name.trim())
       .filter(Boolean)
-      .sort((a, b) =>
-        a.localeCompare(b, undefined, { sensitivity: "base" }),
-      );
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     for (const name of members) {
       if (name.toLowerCase() === "orchestrator") continue;
       const spec = specialistsByName.value.get(name.toLowerCase());
@@ -1750,8 +1828,9 @@ const activeSpecialistModel = computed(() => {
   if (running?.model) return running.model.trim();
   const key = activeSpecialistName.value.toLowerCase();
   if (key === "orchestrator") {
-    const teamModel =
-      (selectedTeamConfig.value?.orchestrator?.model || "").trim();
+    const teamModel = (
+      selectedTeamConfig.value?.orchestrator?.model || ""
+    ).trim();
     if (teamModel) return teamModel;
     return sessionAgentDefaults.value.model || "";
   }
@@ -1924,7 +2003,8 @@ function stopPanelSplitterDrag() {
 
 function handlePanelSplitterPointerDown(event: PointerEvent) {
   if (event.button !== 0) return;
-  if (!isBrowser || !sidePanelsPane.value || !activeSpecialistPane.value) return;
+  if (!isBrowser || !sidePanelsPane.value || !activeSpecialistPane.value)
+    return;
   event.preventDefault();
   panelSplitAuto.value = false;
   updateSidePanelMetrics();
@@ -1957,9 +2037,7 @@ function handlePanelSplitterPointerUp() {
 
 watch(
   () =>
-    displayedThoughtSummaries.value
-      .map((summary) => summary.length)
-      .join(":"),
+    displayedThoughtSummaries.value.map((summary) => summary.length).join(":"),
   () => {
     nextTick(() => {
       if (!thoughtStreamPane.value) return;
@@ -2082,14 +2160,41 @@ async function createSession(name = "New Chat") {
   }
 }
 
-async function deleteSession(sessionId: string) {
+function resetDeleteSessionDialogState() {
+  deleteSessionTarget.value = null;
+  deleteSessionPending.value = false;
+  deleteSessionError.value = "";
+}
+
+function openDeleteSessionDialog(session: ChatSessionMeta) {
+  if (!session?.id) return;
+  deleteSessionTarget.value = session;
+  deleteSessionPending.value = false;
+  deleteSessionError.value = "";
+  showDeleteSessionDialog.value = true;
+}
+
+function closeDeleteSessionDialog() {
+  if (deleteSessionPending.value) return;
+  showDeleteSessionDialog.value = false;
+  resetDeleteSessionDialogState();
+}
+
+async function confirmDeleteSession() {
+  const sessionId = deleteSessionTarget.value?.id;
+  if (!sessionId || !canConfirmDeleteSession.value) return;
+  deleteSessionPending.value = true;
+  deleteSessionError.value = "";
   try {
     await chat.deleteSession(sessionId);
+    showDeleteSessionDialog.value = false;
+    resetDeleteSessionDialogState();
     autoScrollEnabled.value = true;
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
   } catch (error) {
-    // ignore
+    deleteSessionError.value = "Failed to delete conversation.";
   }
+  deleteSessionPending.value = false;
 }
 
 async function exportSession(sessionId: string) {
@@ -2135,7 +2240,8 @@ async function exportSession(sessionId: string) {
   const json = JSON.stringify(
     payload,
     (_k, val) => {
-      if (typeof val === "function" || typeof val === "symbol") return undefined;
+      if (typeof val === "function" || typeof val === "symbol")
+        return undefined;
       if (val && typeof val === "object") {
         if (seen.has(val)) return undefined;
         seen.add(val);
@@ -2595,8 +2701,9 @@ async function startRecording() {
   if (!canUseMic || isRecording.value) return;
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioCtx = new (window.AudioContext ||
-      (window as any).webkitAudioContext)();
+    audioCtx = new (
+      window.AudioContext || (window as any).webkitAudioContext
+    )();
     inputSampleRate = audioCtx.sampleRate || 48000;
     sourceNode = audioCtx.createMediaStreamSource(mediaStream);
     // ScriptProcessorNode buffer size 4096, stereo support if available
@@ -2740,7 +2847,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   const data = (await resp.json()) as { text?: string };
   return data?.text || "";
 }
-
 </script>
 
 <style scoped>
@@ -2784,7 +2890,9 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   height: 1px;
   border-radius: 999px;
   background: rgb(var(--color-border) / 0.6);
-  transition: background 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .panel-splitter:hover .panel-splitter__line,
@@ -2917,7 +3025,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   white-space: normal;
 }
 
-
 .response-status {
   display: flex;
   align-items: center;
@@ -3016,7 +3123,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   color: rgb(var(--color-danger));
   background: rgb(var(--color-danger) / 0.12);
 }
-
 
 @keyframes statusPulse {
   0% {

@@ -28,7 +28,7 @@ Backend behavior
 ## Select, delete projects
 
 - Select: use the Projects select in the page header or the global selector in the app header.
-- Delete: click Delete in the Projects header (only for the currently selected project). This removes the entire project directory.
+- Delete: click the trash icon next to Create, then type the exact project name and confirm the acknowledgement checkbox. This removes the entire project directory.
 
 Constraints
 - Deleting removes all files immediately; there is no recycle bin or undo.
@@ -40,8 +40,8 @@ The left panel shows the current directory (cwd) and a file tree with drag-and-d
 You can:
 - Create a folder: New Folder (creates nested dirs as needed).
 - Upload files: Upload supports multi-select; files are uploaded into the current directory shown next to the Root button (e.g., "." or "docs").
-- Download: select checkboxes then Download. Each selected item triggers its own browser download (no zip bundling).
-- Delete: select checkboxes then Delete. Deleting a folder removes its contents recursively.
+- Download: select checkboxes then Download Selected. Each selected item triggers its own browser download (no zip bundling).
+- Delete: select checkboxes then Delete Selected. Deleting a folder removes its contents recursively.
 - Move/Rename: drag an item onto a destination folder (or the Root bar) to move it. Dragging effectively renames paths; moving a directory into its descendant is refused.
   - There is no separate inline rename action; rename is achieved by dragging to a new name/path.
 
@@ -65,4 +65,3 @@ Troubleshooting
  - Project selection persistence: the active project is tracked in the current browser session; on reload, the app defaults to the first available project if none is selected.
 
 Placeholder for screenshots: [Create project + file tree + preview]
-

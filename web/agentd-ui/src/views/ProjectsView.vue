@@ -7,6 +7,7 @@ import GlassCard from "@/components/ui/GlassCard.vue";
 import Pill from "@/components/ui/Pill.vue";
 import FileTree from "@/components/FileTree.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import type { DropdownOption } from "@/types/dropdown";
 
 const store = useProjectsStore();
@@ -70,6 +71,66 @@ const selectedProjectId = computed({
     void store.setCurrent(v);
   },
 });
+const selectedCount = computed(() => treeRef.value?.checked?.size ?? 0);
+const canDeleteSelectedItems = computed(() => selectedCount.value > 0);
+
+const showDeleteProjectDialog = ref(false);
+const deleteProjectTargetId = ref("");
+const deleteProjectTargetName = ref("");
+const deleteProjectTypedName = ref("");
+const deleteProjectAcknowledged = ref(false);
+const deleteProjectPending = ref(false);
+const deleteProjectError = ref("");
+const canConfirmDeleteProject = computed(
+  () =>
+    !!deleteProjectTargetId.value &&
+    deleteProjectTypedName.value.trim() === deleteProjectTargetName.value &&
+    deleteProjectAcknowledged.value &&
+    !deleteProjectPending.value,
+);
+
+function resetDeleteProjectDialogState() {
+  deleteProjectTargetId.value = "";
+  deleteProjectTargetName.value = "";
+  deleteProjectTypedName.value = "";
+  deleteProjectAcknowledged.value = false;
+  deleteProjectPending.value = false;
+  deleteProjectError.value = "";
+}
+
+function openDeleteProjectDialog() {
+  if (!current.value?.id) return;
+  deleteProjectTargetId.value = current.value.id;
+  deleteProjectTargetName.value = current.value.name;
+  deleteProjectTypedName.value = "";
+  deleteProjectAcknowledged.value = false;
+  deleteProjectPending.value = false;
+  deleteProjectError.value = "";
+  showDeleteProjectDialog.value = true;
+}
+
+function closeDeleteProjectDialog() {
+  if (deleteProjectPending.value) return;
+  showDeleteProjectDialog.value = false;
+  resetDeleteProjectDialogState();
+}
+
+async function confirmDeleteProject() {
+  const projectID = deleteProjectTargetId.value;
+  if (!projectID || !canConfirmDeleteProject.value) return;
+  deleteProjectPending.value = true;
+  deleteProjectError.value = "";
+  try {
+    await store.remove(projectID);
+    showDeleteProjectDialog.value = false;
+    resetDeleteProjectDialogState();
+  } catch (e) {
+    console.error(e);
+    deleteProjectError.value = "Failed to delete project.";
+  } finally {
+    deleteProjectPending.value = false;
+  }
+}
 
 function pickUpload() {
   uploadInput.value?.click();
@@ -257,11 +318,7 @@ function onMoved(payload: { from: string; to: string }) {
 
 <template>
   <section class="flex min-h-0 flex-1 flex-col space-y-3">
-    <Panel
-      title="Projects"
-      description="Create projects, upload files, and preview artifacts in one place."
-      :padded="true"
-    >
+    <Panel title="Projects" :padded="true">
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <label class="sr-only" for="new-project">New project name</label>
@@ -276,6 +333,15 @@ function onMoved(payload: { from: string; to: string }) {
             @click="createProject"
           >
             Create
+          </button>
+          <button
+            class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-danger/45 text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!current"
+            title="Delete current project"
+            aria-label="Delete current project"
+            @click="openDeleteProjectDialog"
+          >
+            <SolarTrashIcon class="h-4 w-4" />
           </button>
         </div>
 
@@ -295,13 +361,6 @@ function onMoved(payload: { from: string; to: string }) {
             title="Download project as .tar.gz"
           >
             Download
-          </button>
-          <button
-            v-if="store.currentProjectId"
-            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-danger/50 px-3 text-sm font-semibold text-danger transition hover:bg-danger/10"
-            @click="() => store.remove(store.currentProjectId)"
-          >
-            Delete
           </button>
         </div>
 
@@ -355,17 +414,17 @@ function onMoved(payload: { from: string; to: string }) {
             </button>
             <button
               class="h-9 rounded-full border border-accent/50 px-3 text-sm text-accent transition hover:bg-accent/10 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!(treeRef?.checked && treeRef.checked.size > 0)"
+              :disabled="!canDeleteSelectedItems"
               @click="bulkDownload"
             >
-              Download
+              Download Selected
             </button>
             <button
               class="h-9 rounded-full border border-danger/60 px-3 text-sm text-danger transition hover:bg-danger/10 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="!(treeRef?.checked && treeRef.checked.size > 0)"
+              :disabled="!canDeleteSelectedItems"
               @click="bulkDelete"
             >
-              Delete
+              Delete Selected
             </button>
             <input
               ref="uploadInput"
@@ -459,6 +518,80 @@ function onMoved(payload: { from: string; to: string }) {
     <GlassCard v-else class="p-6 text-subtle-foreground">
       No project selected. Create one to get started.
     </GlassCard>
+
+    <div
+      v-if="showDeleteProjectDialog"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-project-title"
+      @keydown.esc.prevent="closeDeleteProjectDialog"
+    >
+      <div
+        class="w-full max-w-md rounded-4 border border-danger/40 bg-surface p-5 shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
+      >
+        <h2
+          id="delete-project-title"
+          class="text-base font-semibold text-danger"
+        >
+          Delete Project
+        </h2>
+        <p class="mt-2 text-sm text-subtle-foreground">
+          This will permanently remove
+          <span class="font-semibold text-foreground">{{
+            deleteProjectTargetName
+          }}</span>
+          and all files in it.
+        </p>
+        <form class="mt-4 space-y-3" @submit.prevent="confirmDeleteProject">
+          <div class="space-y-1">
+            <label
+              for="delete-project-confirm"
+              class="text-xs font-medium uppercase tracking-wide text-faint-foreground"
+            >
+              Type project name to confirm
+            </label>
+            <input
+              id="delete-project-confirm"
+              v-model="deleteProjectTypedName"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              class="h-9 w-full rounded-full border border-danger/50 bg-surface/70 px-3 text-sm text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70"
+              placeholder="Project name"
+            />
+          </div>
+          <label class="flex items-start gap-2 text-xs text-subtle-foreground">
+            <input
+              v-model="deleteProjectAcknowledged"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-border bg-surface"
+            />
+            <span>I understand this action cannot be undone.</span>
+          </label>
+          <p v-if="deleteProjectError" class="text-xs text-danger">
+            {{ deleteProjectError }}
+          </p>
+          <div class="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              class="h-9 rounded-full border border-white/15 px-3 text-sm text-subtle-foreground transition hover:border-white/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="deleteProjectPending"
+              @click="closeDeleteProjectDialog"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="h-9 rounded-full border border-danger/60 bg-danger/10 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="!canConfirmDeleteProject"
+            >
+              {{ deleteProjectPending ? "Deleting..." : "Delete Project" }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </section>
 </template>
 

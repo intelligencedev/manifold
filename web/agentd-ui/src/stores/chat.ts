@@ -21,6 +21,7 @@ import {
   streamAgentVisionRun,
   type ChatStreamEvent,
 } from "@/api/chat";
+import { stripLeadingSpecialistMention } from "@/utils/chatMentions";
 
 type FilesByAttachment = Map<string, File>;
 
@@ -480,6 +481,7 @@ export const useChatStore = defineStore("chat", () => {
     options: {
       echoUser?: boolean;
       specialist?: string;
+      routingSpecialist?: string;
       teamName?: string;
       projectId?: string;
       image?: boolean;
@@ -555,7 +557,10 @@ export const useChatStore = defineStore("chat", () => {
 
     try {
       // Expand text attachments into the prompt
-      let promptToSend = content;
+      let promptToSend = stripLeadingSpecialistMention(
+        content,
+        options.routingSpecialist || options.specialist,
+      );
       const textAtts = attachments.filter((a) => a.kind === "text");
       const imgAtts = attachments.filter((a) => a.kind === "image");
       for (const att of textAtts) {
@@ -1222,6 +1227,7 @@ export const useChatStore = defineStore("chat", () => {
   async function regenerateAssistant(
     options: {
       specialist?: string;
+      routingSpecialist?: string;
       teamName?: string;
       projectId?: string;
       agentName?: string;
@@ -1250,6 +1256,7 @@ export const useChatStore = defineStore("chat", () => {
     await sendPrompt(lastUser.content, [], undefined, {
       echoUser: false,
       specialist: options.specialist,
+      routingSpecialist: options.routingSpecialist,
       teamName: options.teamName,
       projectId: options.projectId,
       agentName: options.agentName,

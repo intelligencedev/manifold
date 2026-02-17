@@ -944,6 +944,7 @@ import {
   type SpecialistTeam,
 } from "@/api/client";
 import { renderMarkdown } from "@/utils/markdown";
+import { resolveLeadingSpecialistMention } from "@/utils/chatMentions";
 import "highlight.js/styles/github-dark-dimmed.css";
 import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
@@ -2317,9 +2318,21 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         (att) => att.kind !== "image",
       );
     }
+    const mentioned = resolveLeadingSpecialistMention(
+      content,
+      participantList.value.map((p) => p.name),
+    );
+    const mentionedSpecialist = (mentioned.specialist || "").trim();
+    if (mentionedSpecialist) {
+      selectedSpecialist.value = mentionedSpecialist;
+    }
+    const routingSpecialist =
+      mentionedSpecialist ||
+      (selectedSpecialist.value || "orchestrator").trim() ||
+      "orchestrator";
     const specialist =
-      selectedSpecialist.value && selectedSpecialist.value !== "orchestrator"
-        ? selectedSpecialist.value
+      routingSpecialist.toLowerCase() !== "orchestrator"
+        ? routingSpecialist
         : undefined;
     const teamName = selectedTeam.value || undefined;
     const { agentName, agentModel } = resolveAgentContext();
@@ -2330,6 +2343,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
       {
         ...options,
         specialist,
+        routingSpecialist,
         teamName,
         projectId: selectedProjectId.value || undefined,
         image: imagePrompt.value,
@@ -2353,14 +2367,17 @@ function stopStreaming() {
 async function regenerateAssistant(message: ChatMessage) {
   if (!projectSelected.value || message.role !== "assistant" || !message.id)
     return;
+  const routingSpecialist =
+    (selectedSpecialist.value || "orchestrator").trim() || "orchestrator";
   const specialist =
-    selectedSpecialist.value && selectedSpecialist.value !== "orchestrator"
-      ? selectedSpecialist.value
+    routingSpecialist && routingSpecialist.toLowerCase() !== "orchestrator"
+      ? routingSpecialist
       : undefined;
   const teamName = selectedTeam.value || undefined;
   const { agentName, agentModel } = resolveAgentContext();
   await chat.regenerateAssistant({
     specialist,
+    routingSpecialist,
     teamName,
     projectId: selectedProjectId.value,
     agentName,

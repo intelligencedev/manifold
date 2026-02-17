@@ -8,6 +8,13 @@ import (
 func newRouter(a *app) *http.ServeMux {
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("/openapi.json", a.openapiSpecHandler())
+	mux.HandleFunc("/api/openapi.json", a.openapiSpecHandler())
+	mux.HandleFunc("/api-docs", a.openapiDocsHandler())
+	mux.HandleFunc("/api-docs/", a.openapiDocsHandler())
+	mux.HandleFunc("/api/docs", a.openapiDocsHandler())
+	mux.HandleFunc("/api/docs/", a.openapiDocsHandler())
+
 	if a.playgroundHandler != nil {
 		mux.Handle("/api/v1/playground", a.playgroundHandler)
 		mux.Handle("/api/v1/playground/", a.playgroundHandler)

@@ -19,7 +19,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 
 GOLANGCI_LINT_VERSION := v1.59.0
 
-.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean build-tui frontend
+.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean build-tui frontend openapi
 .PHONY: sonar sonar-up sonar-down sonar-scan
 
 all: build
@@ -42,6 +42,7 @@ help:
 	@echo "  make build-manifold    # build agentd + embedded frontend"
 	@echo "  make build-agent        # build only the agent binary"
 	@echo "  make frontend           # build the Vue.js frontend assets"
+	@echo "  make openapi            # generate docs/openapi/openapi.json"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
 	@echo "  make ci                 # run CI checks (fmt-check, imports-check, vet, lint, test)"
@@ -246,3 +247,7 @@ frontend:
 	mkdir -p $(FRONTEND_EMBED_DIR)
 	cp -R $(FRONTEND_SRC_DIST)/. $(FRONTEND_EMBED_DIR)/
 	@echo "Frontend assets copied into $(FRONTEND_EMBED_DIR)"
+
+.PHONY: openapi
+openapi:
+	go run ./cmd/openapi -out docs/openapi/openapi.json -server http://localhost:32180

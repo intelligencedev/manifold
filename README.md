@@ -50,3 +50,7 @@ Create, iterate and version custom prompts that can be assigned to your agents. 
 ## Quick Start
 
 For step-by-step quick start instructions, see the repository Quick Start guide: [QUICKSTART.md](./QUICKSTART.md)
+
+## API Docs
+
+OpenAPI generation and API docs publishing workflow is documented in [docs/openapi.md](./docs/openapi.md).

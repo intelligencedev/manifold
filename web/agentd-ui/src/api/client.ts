@@ -256,10 +256,15 @@ export function projectFileUrl(id: string, path: string): string {
   return `${b}/projects/${encodeURIComponent(id)}/files?${qp}`;
 }
 
-// Build a URL to download the entire project as a tar.gz archive.
-export function projectArchiveUrl(id: string): string {
+// Build a URL to download a project (or subpath) as a tar.gz archive.
+export function projectArchiveUrl(id: string, path?: string): string {
   const b = baseURL.replace(/\/$/, "");
-  return `${b}/projects/${encodeURIComponent(id)}/archive`;
+  const cleanPath = path?.trim();
+  if (!cleanPath) {
+    return `${b}/projects/${encodeURIComponent(id)}/archive`;
+  }
+  const qp = new URLSearchParams({ path: cleanPath }).toString();
+  return `${b}/projects/${encodeURIComponent(id)}/archive?${qp}`;
 }
 
 // User Preferences API -------------------------------------------------------

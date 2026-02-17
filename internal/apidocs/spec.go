@@ -513,7 +513,9 @@ func routeCatalog() []routeSpec {
 			jsonOp(http.MethodDelete, "Projects", "Delete project", true, withResponseMode("none"), withSuccess(http.StatusNoContent)),
 		}},
 		{path: "/api/projects/{project_id}/archive", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Projects", "Download project archive (.tar.gz)", true, withResponseMode("binary")),
+			jsonOp(http.MethodGet, "Projects", "Download project archive (.tar.gz)", true, withResponseMode("binary"), withQuery(
+				qp("path", "string", "Optional project subpath (directory or file) to archive.", false),
+			)),
 		}},
 		{path: "/api/projects/{project_id}/tree", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Projects", "List project tree entries", true, withQuery(

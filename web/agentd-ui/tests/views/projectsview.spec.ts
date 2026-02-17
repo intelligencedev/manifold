@@ -4,6 +4,13 @@ import ProjectsView from "@/views/ProjectsView.vue";
 
 const apiMocks = vi.hoisted(() => ({
   deleteProject: vi.fn(async () => {}),
+  projectFileUrl: vi.fn((id: string, path: string) =>
+    `/api/projects/${encodeURIComponent(id)}/files?path=${encodeURIComponent(path)}`,
+  ),
+  projectArchiveUrl: vi.fn((id: string, path?: string) => {
+    if (!path) return `/api/projects/${encodeURIComponent(id)}/archive`;
+    return `/api/projects/${encodeURIComponent(id)}/archive?path=${encodeURIComponent(path)}`;
+  }),
 }));
 
 vi.mock("@/api/client", () => ({
@@ -26,7 +33,20 @@ vi.mock("@/api/client", () => ({
     files: 0,
   }),
   deleteProject: apiMocks.deleteProject,
-  listProjectTree: async () => [],
+  listProjectTree: async (_id: string, path = ".") => {
+    if (!path || path === ".") {
+      return [
+        {
+          name: "src",
+          path: "src",
+          isDir: true,
+          sizeBytes: 0,
+          modTime: "2026-02-13T12:00:00Z",
+        },
+      ];
+    }
+    return [];
+  },
   uploadFile: async () => {},
   deletePath: async () => {},
   createDir: async () => {},
@@ -35,15 +55,15 @@ vi.mock("@/api/client", () => ({
   saveProjectFileText: async () => {},
   setActiveProject: async () => {},
   getUserPreferences: async () => ({ activeProjectId: "proj-1" }),
-  projectFileUrl: (id: string, path: string) =>
-    `/api/projects/${encodeURIComponent(id)}/files?path=${encodeURIComponent(path)}`,
-  projectArchiveUrl: (id: string) =>
-    `/api/projects/${encodeURIComponent(id)}/archive`,
+  projectFileUrl: apiMocks.projectFileUrl,
+  projectArchiveUrl: apiMocks.projectArchiveUrl,
 }));
 
 describe("ProjectsView", () => {
   beforeEach(() => {
     apiMocks.deleteProject.mockClear();
+    apiMocks.projectFileUrl.mockClear();
+    apiMocks.projectArchiveUrl.mockClear();
   });
 
   it("requires explicit typed confirmation before deleting a project", async () => {
@@ -76,5 +96,27 @@ describe("ProjectsView", () => {
       expect(apiMocks.deleteProject).toHaveBeenCalledTimes(1);
       expect(apiMocks.deleteProject).toHaveBeenCalledWith("proj-1");
     });
+  });
+
+  it("downloads selected folders as archives", async () => {
+    const { findByLabelText, findByRole } = render(ProjectsView);
+
+    const folderCheckbox = await findByLabelText(/Select src/i);
+    await fireEvent.click(folderCheckbox);
+
+    const downloadSelected = (await findByRole("button", {
+      name: /Download Selected/i,
+    })) as HTMLButtonElement;
+
+    await waitFor(() => {
+      expect(downloadSelected).toBeEnabled();
+    });
+
+    await fireEvent.click(downloadSelected);
+
+    await waitFor(() => {
+      expect(apiMocks.projectArchiveUrl).toHaveBeenCalledWith("proj-1", "src");
+    });
+    expect(apiMocks.projectFileUrl).not.toHaveBeenCalledWith("proj-1", "src");
   });
 });

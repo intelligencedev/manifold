@@ -181,15 +181,33 @@ async function createFile() {
   selectedFile.value = path;
 }
 
+function findCheckedEntry(path: string) {
+  const projectID = store.currentProjectId;
+  if (!projectID) return null;
+  const prefix = `${projectID}:`;
+  for (const [key, entries] of Object.entries(store.treeByPath)) {
+    if (!key.startsWith(prefix)) continue;
+    const match = entries.find((entry) => entry.path === path);
+    if (match) return match;
+  }
+  return null;
+}
+
 async function bulkDownload() {
+  const projectID = store.currentProjectId;
   const ids = Array.from(treeRef.value?.checked ?? new Set<string>());
-  if (!ids.length || !store.currentProjectId) return;
+  if (!ids.length || !projectID) return;
 
   for (const path of ids) {
-    const url = projectFileUrl(store.currentProjectId, path);
+    const entry = findCheckedEntry(path);
+    const isDir = entry?.isDir ?? false;
+    const url = isDir
+      ? projectArchiveUrl(projectID, path)
+      : projectFileUrl(projectID, path);
+    const baseName = path.split("/").pop() || (isDir ? "folder" : "download");
     const a = document.createElement("a");
     a.href = url;
-    a.download = path.split("/").pop() || "download";
+    a.download = isDir ? `${baseName}.tar.gz` : baseName;
     a.style.display = "none";
     document.body.appendChild(a);
     a.click();

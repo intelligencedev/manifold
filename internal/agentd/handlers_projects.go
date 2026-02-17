@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -368,11 +369,74 @@ func (a *app) resolveProjectsUser(r *http.Request) (int64, bool, error) {
 	return u.ID, true, nil
 }
 
-// streamProjectArchive creates a tar.gz archive of all files in a project and streams it.
+func sanitizeArchiveFilename(name string) string {
+	safeName := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
+			return '-'
+		}
+		return r
+	}, strings.TrimSpace(name))
+	if safeName == "" {
+		return "project"
+	}
+	return safeName
+}
+
+func archivePathBaseName(p string) string {
+	clean := strings.Trim(filepath.ToSlash(strings.TrimSpace(p)), "/")
+	if clean == "" || clean == "." {
+		return ""
+	}
+	idx := strings.LastIndex(clean, "/")
+	if idx == -1 {
+		return clean
+	}
+	return clean[idx+1:]
+}
+
+func (a *app) archiveSingleFile(ctx context.Context, tw *tar.Writer, userID int64, projectID, projectPath, archivePath string, modTime time.Time) error {
+	if strings.TrimSpace(archivePath) == "" {
+		archivePath = archivePathBaseName(projectPath)
+	}
+	if strings.TrimSpace(archivePath) == "" {
+		return fmt.Errorf("invalid archive path")
+	}
+	rc, err := a.projectsService.ReadFile(ctx, userID, projectID, projectPath)
+	if err != nil {
+		return fmt.Errorf("read file %s: %w", projectPath, err)
+	}
+	defer rc.Close()
+	content, err := io.ReadAll(rc)
+	if err != nil {
+		return fmt.Errorf("read file content %s: %w", projectPath, err)
+	}
+	if modTime.IsZero() {
+		modTime = time.Now().UTC()
+	}
+	hdr := &tar.Header{
+		Name:    archivePath,
+		Mode:    0644,
+		Size:    int64(len(content)),
+		ModTime: modTime,
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return fmt.Errorf("write file header %s: %w", archivePath, err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		return fmt.Errorf("write file content %s: %w", archivePath, err)
+	}
+	return nil
+}
+
+// streamProjectArchive creates a tar.gz archive of a project or subpath and streams it.
 func (a *app) streamProjectArchive(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
 	ctx := r.Context()
+	sourcePath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if sourcePath == "" {
+		sourcePath = "."
+	}
 
-	// Get project info for filename
+	// Get project info for default filename
 	projects, err := a.projectsService.ListProjects(ctx, userID)
 	if err != nil {
 		log.Error().Err(err).Str("project", projectID).Msg("archive_list_projects")
@@ -386,15 +450,33 @@ func (a *app) streamProjectArchive(w http.ResponseWriter, r *http.Request, userI
 			break
 		}
 	}
-	// Sanitize project name for filename
-	safeName := strings.Map(func(r rune) rune {
-		if r == '/' || r == '\\' || r == ':' || r == '*' || r == '?' || r == '"' || r == '<' || r == '>' || r == '|' {
-			return '-'
+
+	archiveMode := "project" // project | dir | file
+	archiveName := projectName
+	if sourcePath != "." {
+		if _, listErr := a.projectsService.ListTree(ctx, userID, projectID, sourcePath); listErr == nil {
+			archiveMode = "dir"
+		} else {
+			rc, readErr := a.projectsService.ReadFile(ctx, userID, projectID, sourcePath)
+			if readErr != nil {
+				log.Warn().
+					Err(readErr).
+					Str("project", projectID).
+					Str("path", sourcePath).
+					Msg("archive_path_not_found")
+				http.Error(w, "not found", http.StatusNotFound)
+				return
+			}
+			_ = rc.Close()
+			archiveMode = "file"
 		}
-		return r
-	}, projectName)
+		if base := archivePathBaseName(sourcePath); base != "" {
+			archiveName = base
+		}
+	}
 
 	// Set headers for download
+	safeName := sanitizeArchiveFilename(archiveName)
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.tar.gz"`, safeName))
 
@@ -406,9 +488,34 @@ func (a *app) streamProjectArchive(w http.ResponseWriter, r *http.Request, userI
 	tw := tar.NewWriter(gzw)
 	defer tw.Close()
 
-	// Recursively walk the project tree and add files
-	if err := a.archiveDir(ctx, tw, userID, projectID, ".", ""); err != nil {
-		log.Error().Err(err).Str("project", projectID).Msg("archive_project")
+	var archiveErr error
+	switch archiveMode {
+	case "project":
+		archiveErr = a.archiveDir(ctx, tw, userID, projectID, ".", "")
+	case "dir":
+		rootName := archivePathBaseName(sourcePath)
+		if rootName == "" {
+			rootName = "folder"
+		}
+		if err := tw.WriteHeader(&tar.Header{
+			Name:     rootName + "/",
+			Mode:     0755,
+			Typeflag: tar.TypeDir,
+			ModTime:  time.Now().UTC(),
+		}); err != nil {
+			archiveErr = fmt.Errorf("write dir header %s: %w", rootName, err)
+		} else {
+			archiveErr = a.archiveDir(ctx, tw, userID, projectID, sourcePath, rootName)
+		}
+	case "file":
+		archiveErr = a.archiveSingleFile(ctx, tw, userID, projectID, sourcePath, archivePathBaseName(sourcePath), time.Now().UTC())
+	}
+	if archiveErr != nil {
+		log.Error().
+			Err(archiveErr).
+			Str("project", projectID).
+			Str("path", sourcePath).
+			Msg("archive_project")
 		// Can't send error at this point since we've started writing
 		return
 	}

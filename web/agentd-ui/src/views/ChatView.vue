@@ -832,7 +832,7 @@
                         >
                           <span aria-hidden="true">💭</span>
                           <div
-                            class="chat-markdown break-words"
+                            class="chat-markdown min-w-0 flex-1 break-words"
                             v-html="renderMarkdownOrHtml(summary)"
                           ></div>
                         </li>
@@ -3265,6 +3265,9 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 :deep(.chat-markdown pre) {
   margin: 0 0 0.75rem;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre;
 }
 
 :deep(.chat-markdown code) {
@@ -3286,6 +3289,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   display: block;
   white-space: pre;
   max-width: 100%;
+  overflow-x: auto;
 }
 /* Code block wrapper and toolbar */
 .chat-markdown :deep(.md-codeblock) {

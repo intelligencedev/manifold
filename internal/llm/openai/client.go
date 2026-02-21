@@ -30,6 +30,7 @@ type Client struct {
 	sdk         sdk.Client
 	model       string
 	extra       map[string]any
+	policy      responsesContextPolicy
 	logPayloads bool
 	baseURL     string
 	httpClient  *http.Client
@@ -149,10 +150,13 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if api == "" {
 		api = "completions"
 	}
+	policy := defaultResponsesContextPolicy(c.Model)
+	policy.applyOverrides(llm.NormalizeExtraParams(c.ExtraParams), c.Model)
 	return &Client{
 		sdk:         sdk.NewClient(opts...),
 		model:       c.Model,
 		extra:       llm.NormalizeExtraParams(c.ExtraParams),
+		policy:      policy,
 		logPayloads: c.LogPayloads,
 		baseURL:     c.BaseURL,
 		httpClient:  httpClient,
@@ -330,19 +334,22 @@ func extractReasoningEffort(extra map[string]any) (shared.ReasoningEffort, bool)
 	}
 	var raw any
 	var ok bool
+	found := false
 	if raw, ok = extra["reasoning_effort"]; ok {
 		delete(extra, "reasoning_effort")
+		found = true
 	} else if raw, ok = extra["reasoningEffort"]; ok {
 		delete(extra, "reasoningEffort")
+		found = true
 	}
 
 	// Also support reasoning.effort and ensure it doesn't override the typed field.
 	if rmRaw, hasReasoning := extra["reasoning"]; hasReasoning {
 		if rm, ok := rmRaw.(map[string]any); ok {
 			if val, hasEffort := rm["effort"]; hasEffort {
-				if !ok {
+				if !found {
 					raw = val
-					ok = true
+					found = true
 				}
 				delete(rm, "effort")
 			}
@@ -354,7 +361,7 @@ func extractReasoningEffort(extra map[string]any) (shared.ReasoningEffort, bool)
 		}
 	}
 
-	if !ok {
+	if !found {
 		return "", false
 	}
 	s, ok := raw.(string)
@@ -459,9 +466,9 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 				tmp[k] = v
 			}
 			delete(tmp, "parallel_tool_calls")
-			params.SetExtraFields(tmp)
+			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {
-			params.SetExtraFields(c.extra)
+			params.SetExtraFields(sanitizeExtraFields(c.extra))
 		}
 	}
 	// Start a tracing span and log prompt for correlation
@@ -610,7 +617,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		if len(tools) == 0 {
 			delete(merged, "parallel_tool_calls")
 		}
-		params.SetExtraFields(merged)
+		params.SetExtraFields(sanitizeExtraFields(merged))
 	}
 	start := time.Now()
 	comp, err := c.sdk.Chat.Completions.New(ctx, params)
@@ -754,9 +761,9 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 				tmp[k] = v
 			}
 			delete(tmp, "parallel_tool_calls")
-			params.SetExtraFields(tmp)
+			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {
-			params.SetExtraFields(c.extra)
+			params.SetExtraFields(sanitizeExtraFields(c.extra))
 		}
 	}
 	// Ask the API to include a final usage chunk so we can log token counts.
@@ -1280,9 +1287,9 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 				tmp[k] = v
 			}
 			delete(tmp, "parallel_tool_calls")
-			params.SetExtraFields(tmp)
+			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {
-			params.SetExtraFields(c.extra)
+			params.SetExtraFields(sanitizeExtraFields(c.extra))
 		}
 	}
 
@@ -1409,9 +1416,9 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 				tmp[k] = v
 			}
 			delete(tmp, "parallel_tool_calls")
-			params.SetExtraFields(tmp)
+			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {
-			params.SetExtraFields(c.extra)
+			params.SetExtraFields(sanitizeExtraFields(c.extra))
 		}
 	}
 
@@ -1499,6 +1506,233 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
+const (
+	maxResponsesToolOutputChars          = 24_000
+	responsesToolOutputEllipsis          = "\n\n[TRUNCATED: tool output exceeded OpenAI context budget]"
+	defaultResponsesToolOutputTokenLimit = 6_000
+	defaultResponsesReserveOutputTokens  = 25_000
+	defaultResponsesMinKeepMessages      = 8
+	defaultResponsesOverflowRetryTrim    = 4
+	defaultResponsesOverflowRetries      = 3
+	responsesMinInputBudgetTokens        = 8_000
+)
+
+func boundedResponsesToolOutput(content string) string {
+	return boundedResponsesToolOutputWithLimit(content, maxResponsesToolOutputChars)
+}
+
+func boundedResponsesToolOutputWithLimit(content string, maxChars int) string {
+	out := strings.TrimSpace(content)
+	if out == "" {
+		return "{}"
+	}
+	if maxChars <= 0 {
+		maxChars = maxResponsesToolOutputChars
+	}
+	if len(out) <= maxChars {
+		return out
+	}
+	limit := maxChars - len(responsesToolOutputEllipsis)
+	if limit < 0 {
+		limit = 0
+	}
+	return out[:limit] + responsesToolOutputEllipsis
+}
+
+type responsesContextPolicy struct {
+	Enabled              bool
+	MaxInputTokens       int
+	ReserveOutputTokens  int
+	MinKeepMessages      int
+	ToolOutputTokenLimit int
+	ToolOutputMaxChars   int
+	OverflowRetryTrim    int
+	OverflowRetries      int
+}
+
+func defaultResponsesContextPolicy(model string) responsesContextPolicy {
+	ctxWindow, _ := llm.ContextSize(model)
+	if ctxWindow <= 0 {
+		ctxWindow = 32_000
+	}
+	reserve := defaultResponsesReserveOutputTokens
+	maxInput := ctxWindow - reserve
+	if maxInput < responsesMinInputBudgetTokens {
+		maxInput = responsesMinInputBudgetTokens
+	}
+	toolLimit := defaultResponsesToolOutputTokenLimit
+	toolChars := toolLimit * 4
+	if toolChars < maxResponsesToolOutputChars {
+		toolChars = maxResponsesToolOutputChars
+	}
+	return responsesContextPolicy{
+		Enabled:              true,
+		MaxInputTokens:       maxInput,
+		ReserveOutputTokens:  reserve,
+		MinKeepMessages:      defaultResponsesMinKeepMessages,
+		ToolOutputTokenLimit: toolLimit,
+		ToolOutputMaxChars:   toolChars,
+		OverflowRetryTrim:    defaultResponsesOverflowRetryTrim,
+		OverflowRetries:      defaultResponsesOverflowRetries,
+	}
+}
+
+func (p *responsesContextPolicy) applyOverrides(extra map[string]any, model string) {
+	if p == nil {
+		return
+	}
+	if v, ok := boolFromAny(extra["context_management_enabled"]); ok {
+		p.Enabled = v
+	}
+	if v, ok := intFromAny(extra["context_input_tokens_limit"]); ok && v > 0 {
+		p.MaxInputTokens = v
+	}
+	if v, ok := intFromAny(extra["context_reserve_output_tokens"]); ok && v >= 0 {
+		p.ReserveOutputTokens = v
+		if p.MaxInputTokens <= 0 {
+			ctxWindow, _ := llm.ContextSize(model)
+			if ctxWindow <= 0 {
+				ctxWindow = 32_000
+			}
+			p.MaxInputTokens = ctxWindow - p.ReserveOutputTokens
+		}
+	}
+	if v, ok := intFromAny(extra["context_min_keep_messages"]); ok && v > 0 {
+		p.MinKeepMessages = v
+	}
+	if v, ok := intFromAny(extra["tool_output_token_limit"]); ok && v > 0 {
+		p.ToolOutputTokenLimit = v
+	}
+	if v, ok := intFromAny(extra["tool_output_char_limit"]); ok && v > 0 {
+		p.ToolOutputMaxChars = v
+	}
+	if v, ok := intFromAny(extra["context_overflow_retry_trim_messages"]); ok && v > 0 {
+		p.OverflowRetryTrim = v
+	}
+	if v, ok := intFromAny(extra["context_overflow_retries"]); ok && v > 0 {
+		p.OverflowRetries = v
+	}
+
+	if p.MaxInputTokens < responsesMinInputBudgetTokens {
+		p.MaxInputTokens = responsesMinInputBudgetTokens
+	}
+	if p.MinKeepMessages <= 0 {
+		p.MinKeepMessages = defaultResponsesMinKeepMessages
+	}
+	if p.ToolOutputTokenLimit <= 0 {
+		p.ToolOutputTokenLimit = defaultResponsesToolOutputTokenLimit
+	}
+	if p.ToolOutputMaxChars <= 0 {
+		p.ToolOutputMaxChars = p.ToolOutputTokenLimit * 4
+	}
+	if p.ToolOutputMaxChars < 1024 {
+		p.ToolOutputMaxChars = 1024
+	}
+	if p.OverflowRetryTrim <= 0 {
+		p.OverflowRetryTrim = defaultResponsesOverflowRetryTrim
+	}
+	if p.OverflowRetries <= 0 {
+		p.OverflowRetries = defaultResponsesOverflowRetries
+	}
+}
+
+func (c *Client) responsesContextPolicy(model string) responsesContextPolicy {
+	p := c.policy
+	if model != "" && model != c.model {
+		base := defaultResponsesContextPolicy(model)
+		base.applyOverrides(c.extra, model)
+		return base
+	}
+	return p
+}
+
+func intFromAny(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case float32:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case json.Number:
+		i, err := n.Int64()
+		if err != nil {
+			return 0, false
+		}
+		return int(i), true
+	case string:
+		s := strings.TrimSpace(n)
+		if s == "" {
+			return 0, false
+		}
+		var i int
+		_, err := fmt.Sscanf(s, "%d", &i)
+		if err != nil {
+			return 0, false
+		}
+		return i, true
+	default:
+		return 0, false
+	}
+}
+
+func boolFromAny(v any) (bool, bool) {
+	switch b := v.(type) {
+	case bool:
+		return b, true
+	case string:
+		s := strings.ToLower(strings.TrimSpace(b))
+		switch s {
+		case "1", "true", "yes", "on":
+			return true, true
+		case "0", "false", "no", "off":
+			return false, true
+		default:
+			return false, false
+		}
+	default:
+		return false, false
+	}
+}
+
+func sanitizeExtraFields(extra map[string]any) map[string]any {
+	if len(extra) == 0 {
+		return extra
+	}
+	out := make(map[string]any, len(extra))
+	for k, v := range extra {
+		switch k {
+		case "context_management_enabled",
+			"context_input_tokens_limit",
+			"context_reserve_output_tokens",
+			"context_min_keep_messages",
+			"tool_output_token_limit",
+			"tool_output_char_limit",
+			"context_overflow_retry_trim_messages",
+			"context_overflow_retries":
+			continue
+		default:
+			out[k] = v
+		}
+	}
+	return out
+}
+
+func isContextLengthExceededErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "context_length_exceeded") ||
+		strings.Contains(s, "context length exceeded") ||
+		strings.Contains(s, "input is too long") ||
+		strings.Contains(s, "maximum context length")
+}
+
 // =============== Responses API adapters and implementations ===============
 
 // adaptResponsesTools converts llm.ToolSchema to Responses ToolUnionParam slice.
@@ -1525,6 +1759,10 @@ func adaptResponsesTools(schemas []llm.ToolSchema) []rs.ToolUnionParam {
 
 // adaptResponsesInput builds the Responses Input item list and returns any combined instructions.
 func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instructions string) {
+	return adaptResponsesInputWithLimit(msgs, maxResponsesToolOutputChars)
+}
+
+func adaptResponsesInputWithLimit(msgs []llm.Message, toolOutputMaxChars int) (items rs.ResponseInputParam, instructions string) {
 	// The Responses API requires each function_call_output item to correspond to a
 	// function_call item with the same call_id in the provided input.
 	//
@@ -1585,10 +1823,7 @@ func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instr
 			if _, ok := validToolCallIDs[toolID]; !ok {
 				continue
 			}
-			out := strings.TrimSpace(m.Content)
-			if out == "" {
-				out = "{}"
-			}
+			out := boundedResponsesToolOutputWithLimit(m.Content, toolOutputMaxChars)
 			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 		}
 	}
@@ -1599,8 +1834,12 @@ func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instr
 }
 
 func adaptResponsesInputWithImages(msgs []llm.Message, images []ImageAttachment) (items rs.ResponseInputParam, instructions string) {
+	return adaptResponsesInputWithImagesAndLimit(msgs, images, maxResponsesToolOutputChars)
+}
+
+func adaptResponsesInputWithImagesAndLimit(msgs []llm.Message, images []ImageAttachment, toolOutputMaxChars int) (items rs.ResponseInputParam, instructions string) {
 	if len(images) == 0 {
-		return adaptResponsesInput(msgs)
+		return adaptResponsesInputWithLimit(msgs, toolOutputMaxChars)
 	}
 
 	validToolCallIDs := make(map[string]struct{}, 8)
@@ -1683,10 +1922,7 @@ func adaptResponsesInputWithImages(msgs []llm.Message, images []ImageAttachment)
 			if _, ok := validToolCallIDs[toolID]; !ok {
 				continue
 			}
-			out := strings.TrimSpace(m.Content)
-			if out == "" {
-				out = "{}"
-			}
+			out := boundedResponsesToolOutputWithLimit(m.Content, toolOutputMaxChars)
 			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 		}
 	}
@@ -1719,139 +1955,166 @@ func responseCompactionItemParam(item llm.CompactionItem) rs.ResponseInputItemUn
 
 func (c *Client) chatResponsesWithImages(ctx context.Context, msgs []llm.Message, images []ImageAttachment, tools []llm.ToolSchema, model string) (llm.Message, error) {
 	log := observability.LoggerWithTrace(ctx)
-	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Chat With Images", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	effectiveModel := firstNonEmpty(model, c.model)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Chat With Images", effectiveModel, len(tools), len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
 
-	params := rs.ResponseNewParams{
-		Model: rs.ResponsesModel(firstNonEmpty(model, c.model)),
-	}
-	input, instr := adaptResponsesInputWithImages(msgs, images)
-	if len(input) > 0 {
-		params.Input.OfInputItemList = input
-	}
-	if strings.TrimSpace(instr) != "" {
-		params.Instructions = sdk.String(instr)
-	}
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = adaptResponsesTools(tools)
-		}
-	}
-	merged := map[string]any{}
-	if len(c.extra) > 0 {
-		merged = make(map[string]any, len(c.extra))
-		for k, v := range c.extra {
-			merged[k] = v
-		}
-	}
-	if len(merged) > 0 {
-		if len(tools) == 0 {
-			delete(merged, "parallel_tool_calls")
-		}
-		if effort, ok := extractReasoningEffort(merged); ok {
-			params.Reasoning.Effort = effort
-		}
-	}
-	if summary, ok := extractReasoningSummary(merged); ok {
-		params.Reasoning.Summary = summary
-	}
-	if len(merged) > 0 {
-		params.SetExtraFields(merged)
-	}
+	policy := c.responsesContextPolicy(effectiveModel)
+	managedMsgs := c.trimResponsesMessagesToBudget(ctx, msgs, effectiveModel, policy)
 
-	start := time.Now()
-	resp, err := c.sdk.Responses.New(ctx, params)
-	dur := time.Since(start)
-	if err != nil {
-		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("responses_with_images_error")
-		span.RecordError(err)
-		return llm.Message{}, err
-	}
-
-	out := llm.Message{Role: "assistant", Content: resp.OutputText()}
-	for _, it := range resp.Output {
-		switch it.Type {
-		case "function_call":
-			fn := it.AsFunctionCall()
-			id := fn.CallID
-			if id == "" {
-				id = fn.ID
+	for overflowAttempt := 0; overflowAttempt < policy.OverflowRetries; overflowAttempt++ {
+		params := rs.ResponseNewParams{Model: rs.ResponsesModel(effectiveModel)}
+		input, instr := adaptResponsesInputWithImagesAndLimit(managedMsgs, images, policy.ToolOutputMaxChars)
+		if len(input) > 0 {
+			params.Input.OfInputItemList = input
+		}
+		if strings.TrimSpace(instr) != "" {
+			params.Instructions = sdk.String(instr)
+		}
+		if len(tools) > 0 {
+			if c.isSelfHosted() {
+				params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
+			} else {
+				params.Tools = adaptResponsesTools(tools)
 			}
-			out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-				Name: fn.Name,
-				Args: json.RawMessage(fn.Arguments),
-				ID:   id,
-			})
 		}
+
+		merged := map[string]any{}
+		if len(c.extra) > 0 {
+			merged = make(map[string]any, len(c.extra))
+			for k, v := range c.extra {
+				merged[k] = v
+			}
+		}
+		if len(merged) > 0 {
+			if len(tools) == 0 {
+				delete(merged, "parallel_tool_calls")
+			}
+			if effort, ok := extractReasoningEffort(merged); ok {
+				params.Reasoning.Effort = effort
+			}
+		}
+		if summary, ok := extractReasoningSummary(merged); ok {
+			params.Reasoning.Summary = summary
+		}
+		if len(merged) > 0 {
+			params.SetExtraFields(sanitizeExtraFields(merged))
+		}
+
+		start := time.Now()
+		resp, err := c.sdk.Responses.New(ctx, params)
+		dur := time.Since(start)
+		if err != nil {
+			if policy.Enabled && isContextLengthExceededErr(err) && overflowAttempt+1 < policy.OverflowRetries {
+				managedMsgs = trimOldestNonSystem(managedMsgs, policy.OverflowRetryTrim)
+				policy.ToolOutputMaxChars = max(1024, policy.ToolOutputMaxChars/2)
+				log.Warn().Err(err).Str("model", string(params.Model)).Int("overflow_attempt", overflowAttempt+1).Msg("responses_with_images_context_overflow_retry")
+				continue
+			}
+			log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("responses_with_images_error")
+			span.RecordError(err)
+			return llm.Message{}, err
+		}
+
+		out := llm.Message{Role: "assistant", Content: resp.OutputText()}
+		for _, it := range resp.Output {
+			switch it.Type {
+			case "function_call":
+				fn := it.AsFunctionCall()
+				id := fn.CallID
+				if id == "" {
+					id = fn.ID
+				}
+				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
+					Name: fn.Name,
+					Args: json.RawMessage(fn.Arguments),
+					ID:   id,
+				})
+			}
+		}
+		llm.LogRedactedResponse(ctx, map[string]any{"output_text_len": len(out.Content), "tool_calls": len(out.ToolCalls)})
+		return out, nil
 	}
-	llm.LogRedactedResponse(ctx, map[string]any{"output_text_len": len(out.Content), "tool_calls": len(out.ToolCalls)})
-	return out, nil
+
+	return llm.Message{}, fmt.Errorf("responses_with_images failed after context retries")
 }
 
 // chatResponses handles non-streaming chat via the Responses API.
 func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
 	log := observability.LoggerWithTrace(ctx)
+	effectiveModel := firstNonEmpty(model, c.model)
 	// Tracing and prompt logging
-	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Chat", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Chat", effectiveModel, len(tools), len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
+	policy := c.responsesContextPolicy(effectiveModel)
+	managedMsgs := c.trimResponsesMessagesToBudget(ctx, msgs, effectiveModel, policy)
 
-	params := rs.ResponseNewParams{
-		Model: rs.ResponsesModel(firstNonEmpty(model, c.model)),
-	}
-	// Build input and instructions
-	input, instr := adaptResponsesInput(msgs)
-	if len(input) > 0 {
-		params.Input.OfInputItemList = input
-	}
-	if strings.TrimSpace(instr) != "" {
-		params.Instructions = sdk.String(instr)
-	}
-	// Tools
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = adaptResponsesTools(tools)
+	var (
+		resp *rs.Response
+		err  error
+		dur  time.Duration
+	)
+	for overflowAttempt := 0; overflowAttempt < policy.OverflowRetries; overflowAttempt++ {
+		params := rs.ResponseNewParams{Model: rs.ResponsesModel(effectiveModel)}
+		input, instr := adaptResponsesInputWithLimit(managedMsgs, policy.ToolOutputMaxChars)
+		if len(input) > 0 {
+			params.Input.OfInputItemList = input
 		}
-	}
-	// Merge extra params
-	merged := map[string]any{}
-	if len(c.extra) > 0 || len(extra) > 0 {
-		merged = make(map[string]any, len(c.extra)+len(extra))
-		for k, v := range c.extra {
-			merged[k] = v
+		if strings.TrimSpace(instr) != "" {
+			params.Instructions = sdk.String(instr)
 		}
-		for k, v := range extra {
-			merged[k] = v
+		if len(tools) > 0 {
+			if c.isSelfHosted() {
+				params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
+			} else {
+				params.Tools = adaptResponsesTools(tools)
+			}
 		}
-	}
-	if len(merged) > 0 {
-		// Remove tool-specific flags when no tools are present
-		if len(tools) == 0 {
-			delete(merged, "parallel_tool_calls")
-		}
-		// Map reasoning_effort into the typed field to match Responses API contract.
-		if effort, ok := extractReasoningEffort(merged); ok {
-			params.Reasoning.Effort = effort
-		}
-	}
-	if summary, ok := extractReasoningSummary(merged); ok {
-		params.Reasoning.Summary = summary
-	}
-	if len(merged) > 0 {
-		params.SetExtraFields(merged)
-	}
 
-	start := time.Now()
-	resp, err := c.sdk.Responses.New(ctx, params)
-	dur := time.Since(start)
-	if err != nil {
+		merged := map[string]any{}
+		if len(c.extra) > 0 || len(extra) > 0 {
+			merged = make(map[string]any, len(c.extra)+len(extra))
+			for k, v := range c.extra {
+				merged[k] = v
+			}
+			for k, v := range extra {
+				merged[k] = v
+			}
+		}
+		if len(merged) > 0 {
+			if len(tools) == 0 {
+				delete(merged, "parallel_tool_calls")
+			}
+			if effort, ok := extractReasoningEffort(merged); ok {
+				params.Reasoning.Effort = effort
+			}
+		}
+		if summary, ok := extractReasoningSummary(merged); ok {
+			params.Reasoning.Summary = summary
+		}
+		if len(merged) > 0 {
+			params.SetExtraFields(sanitizeExtraFields(merged))
+		}
+
+		start := time.Now()
+		resp, err = c.sdk.Responses.New(ctx, params)
+		dur = time.Since(start)
+		if err == nil {
+			break
+		}
+		if policy.Enabled && isContextLengthExceededErr(err) && overflowAttempt+1 < policy.OverflowRetries {
+			managedMsgs = trimOldestNonSystem(managedMsgs, policy.OverflowRetryTrim)
+			policy.ToolOutputMaxChars = max(1024, policy.ToolOutputMaxChars/2)
+			log.Warn().Err(err).Str("model", string(params.Model)).Int("overflow_attempt", overflowAttempt+1).Msg("responses_context_overflow_retry")
+			continue
+		}
 		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("responses_error")
 		span.RecordError(err)
+		return llm.Message{}, err
+	}
+	if err != nil {
 		return llm.Message{}, err
 	}
 
@@ -1889,7 +2152,7 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 	completionTokens := int(resp.Usage.OutputTokens)
 	totalTokens := int(resp.Usage.TotalTokens)
 
-	f := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs))
+	f := log.With().Str("model", effectiveModel).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(managedMsgs))
 	f = f.Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens)
@@ -1901,13 +2164,13 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 
 	if c.isSelfHosted() {
 		// Override counts by re-tokenizing prompt and assistant content
-		p := c.tokenizeCount(ctx, buildPromptText(msgs))
+		p := c.tokenizeCount(ctx, buildPromptText(managedMsgs))
 		a := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, p, a, p+a)
-		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), p, a)
+		llm.RecordTokenMetricsFromContext(ctx, effectiveModel, p, a)
 	} else {
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
+		llm.RecordTokenMetricsFromContext(ctx, effectiveModel, promptTokens, completionTokens)
 	}
 	llm.LogRedactedResponse(ctx, map[string]any{"output_text_len": len(out.Content), "tool_calls": len(out.ToolCalls)})
 
@@ -1917,47 +2180,14 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 // chatStreamResponses streams output via the Responses API.
 func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
 	log := observability.LoggerWithTrace(ctx)
+	effectiveModel := firstNonEmpty(model, c.model)
 	// Tracing / prompt
-	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses ChatStream", firstNonEmpty(model, c.model), len(tools), len(msgs))
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses ChatStream", effectiveModel, len(tools), len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
 
-	params := rs.ResponseNewParams{Model: rs.ResponsesModel(firstNonEmpty(model, c.model))}
-	in, instr := adaptResponsesInput(msgs)
-	if len(in) > 0 {
-		params.Input.OfInputItemList = in
-	}
-	if strings.TrimSpace(instr) != "" {
-		params.Instructions = sdk.String(instr)
-	}
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = adaptResponsesTools(tools)
-		}
-	}
-	merged := map[string]any{}
-	if len(c.extra) > 0 {
-		merged = make(map[string]any, len(c.extra))
-		for k, v := range c.extra {
-			merged[k] = v
-		}
-	}
-	if len(merged) > 0 {
-		if len(tools) == 0 {
-			delete(merged, "parallel_tool_calls")
-		}
-		if effort, ok := extractReasoningEffort(merged); ok {
-			params.Reasoning.Effort = effort
-		}
-	}
-	if summary, ok := extractReasoningSummary(merged); ok {
-		params.Reasoning.Summary = summary
-	}
-	if len(merged) > 0 {
-		params.SetExtraFields(merged)
-	}
+	policy := c.responsesContextPolicy(effectiveModel)
+	managedMsgs := c.trimResponsesMessagesToBudget(ctx, msgs, effectiveModel, policy)
 
 	// Accumulate function/custom tool call info per output index
 	type callAcc struct {
@@ -1968,178 +2198,226 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 	}
 
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
-		if attempt > 0 && ctx.Err() != nil {
-			lastErr = ctx.Err()
+	for overflowAttempt := 0; overflowAttempt < policy.OverflowRetries; overflowAttempt++ {
+		params := rs.ResponseNewParams{Model: rs.ResponsesModel(effectiveModel)}
+		in, instr := adaptResponsesInputWithLimit(managedMsgs, policy.ToolOutputMaxChars)
+		if len(in) > 0 {
+			params.Input.OfInputItemList = in
+		}
+		if strings.TrimSpace(instr) != "" {
+			params.Instructions = sdk.String(instr)
+		}
+		if len(tools) > 0 {
+			if c.isSelfHosted() {
+				params.Tools = adaptResponsesTools(sanitizeToolSchemas(tools))
+			} else {
+				params.Tools = adaptResponsesTools(tools)
+			}
+		}
+		merged := map[string]any{}
+		if len(c.extra) > 0 {
+			merged = make(map[string]any, len(c.extra))
+			for k, v := range c.extra {
+				merged[k] = v
+			}
+		}
+		if len(merged) > 0 {
+			if len(tools) == 0 {
+				delete(merged, "parallel_tool_calls")
+			}
+			if effort, ok := extractReasoningEffort(merged); ok {
+				params.Reasoning.Effort = effort
+			}
+		}
+		if summary, ok := extractReasoningSummary(merged); ok {
+			params.Reasoning.Summary = summary
+		}
+		if len(merged) > 0 {
+			params.SetExtraFields(sanitizeExtraFields(merged))
+		}
+
+		streamCompleted := false
+		for attempt := 0; attempt < 2; attempt++ {
+			if attempt > 0 && ctx.Err() != nil {
+				lastErr = ctx.Err()
+				break
+			}
+			start := time.Now()
+			stream := c.sdk.Responses.NewStreaming(ctx, params)
+
+			acc := map[int64]*callAcc{}
+			var promptTokens, completionTokens, totalTokens int
+			var assistantContent strings.Builder
+			var summaryIndex int64 = -1
+			var summaryText strings.Builder
+			sawDelta := false
+			sawToolCall := false
+			sawSummary := false
+
+			for stream.Next() {
+				ev := stream.Current()
+				switch v := ev.AsAny().(type) {
+				case rs.ResponseTextDeltaEvent:
+					if v.Delta != "" {
+						sawDelta = true
+						h.OnDelta(v.Delta)
+						assistantContent.WriteString(v.Delta)
+					}
+				case rs.ResponseReasoningSummaryTextDeltaEvent:
+					if summaryIndex != v.SummaryIndex {
+						summaryIndex = v.SummaryIndex
+						summaryText.Reset()
+					}
+					if v.Delta != "" {
+						sawSummary = true
+						summaryText.WriteString(v.Delta)
+						h.OnThoughtSummary(summaryText.String())
+					}
+				case rs.ResponseReasoningSummaryTextDoneEvent:
+					if summaryIndex != v.SummaryIndex {
+						summaryIndex = v.SummaryIndex
+					}
+					summaryText.Reset()
+					if v.Text != "" {
+						sawSummary = true
+						summaryText.WriteString(v.Text)
+						h.OnThoughtSummary(summaryText.String())
+					}
+				case rs.ResponseOutputItemAddedEvent:
+					switch v.Item.Type {
+					case "function_call":
+						fn := v.Item.AsFunctionCall()
+						ca := acc[v.OutputIndex]
+						if ca == nil {
+							ca = &callAcc{}
+							acc[v.OutputIndex] = ca
+						}
+						ca.name = fn.Name
+						ca.id = fn.CallID
+						if ca.id == "" {
+							ca.id = fn.ID
+						}
+						if fn.Arguments != "" && ca.args.Len() == 0 {
+							ca.args.WriteString(fn.Arguments)
+						}
+					case "mcp_call":
+						ct := v.Item.AsMcpCall()
+						ca := acc[v.OutputIndex]
+						if ca == nil {
+							ca = &callAcc{}
+							acc[v.OutputIndex] = ca
+						}
+						ca.name = ct.Name
+						ca.id = ct.ID
+						if ct.Arguments != "" && ca.args.Len() == 0 {
+							ca.args.WriteString(ct.Arguments)
+						}
+					}
+				case rs.ResponseOutputItemDoneEvent:
+					_ = v
+				case rs.ResponseFunctionCallArgumentsDeltaEvent:
+					ca := acc[v.OutputIndex]
+					if ca == nil {
+						ca = &callAcc{}
+						acc[v.OutputIndex] = ca
+					}
+					if v.Delta != "" {
+						ca.args.WriteString(v.Delta)
+					}
+				case rs.ResponseFunctionCallArgumentsDoneEvent:
+					ca := acc[v.OutputIndex]
+					if ca != nil && !ca.done {
+						if ca.args.Len() == 0 && v.Arguments != "" {
+							ca.args.WriteString(v.Arguments)
+						}
+						ca.done = true
+						sawToolCall = true
+						h.OnToolCall(llm.ToolCall{Name: ca.name, Args: json.RawMessage(ca.args.String()), ID: ca.id})
+					}
+				case rs.ResponseCustomToolCallInputDeltaEvent:
+					ca := acc[v.OutputIndex]
+					if ca == nil {
+						ca = &callAcc{}
+						acc[v.OutputIndex] = ca
+					}
+					if v.Delta != "" {
+						ca.args.WriteString(v.Delta)
+					}
+				case rs.ResponseCustomToolCallInputDoneEvent:
+					ca := acc[v.OutputIndex]
+					if ca != nil && !ca.done {
+						if ca.args.Len() == 0 && v.Input != "" {
+							ca.args.WriteString(v.Input)
+						}
+						ca.done = true
+						sawToolCall = true
+						h.OnToolCall(llm.ToolCall{Name: ca.name, Args: json.RawMessage(ca.args.String()), ID: ca.id})
+					}
+				case rs.ResponseCompletedEvent:
+					promptTokens = int(v.Response.Usage.InputTokens)
+					completionTokens = int(v.Response.Usage.OutputTokens)
+					totalTokens = int(v.Response.Usage.TotalTokens)
+				}
+			}
+
+			err := stream.Err()
+			_ = stream.Close()
+			dur := time.Since(start)
+			base := log.With().Str("model", effectiveModel).Int("tools", len(tools)).Dur("duration", dur).
+				Int("prompt_tokens", promptTokens).Int("completion_tokens", completionTokens).Int("total_tokens", totalTokens).Logger()
+			if err != nil {
+				lastErr = err
+				if attempt == 0 && isConnectionReset(err) && !sawDelta && !sawToolCall && !sawSummary && ctx.Err() == nil {
+					base.Warn().Err(err).Msg("responses_stream_retry")
+					continue
+				}
+				if policy.Enabled && isContextLengthExceededErr(err) {
+					base.Warn().Err(err).Int("overflow_attempt", overflowAttempt+1).Msg("responses_stream_context_overflow")
+					break
+				}
+				base.Error().Err(err).Msg("responses_stream_error")
+				span.RecordError(err)
+				return err
+			}
+
+			if c.isSelfHosted() {
+				p := c.tokenizeCount(ctx, buildPromptText(managedMsgs))
+				a := c.tokenizeCount(ctx, assistantContent.String())
+				llm.RecordTokenAttributes(span, p, a, p+a)
+				if p > 0 || a > 0 {
+					llm.RecordTokenMetricsFromContext(ctx, effectiveModel, p, a)
+				}
+				llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": p, "completion_tokens": a, "total_tokens": p + a})
+			} else {
+				llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+				if promptTokens > 0 || completionTokens > 0 {
+					llm.RecordTokenMetricsFromContext(ctx, effectiveModel, promptTokens, completionTokens)
+				}
+				llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
+			}
+			base.Debug().Msg("responses_stream_ok")
+			streamCompleted = true
 			break
 		}
-		start := time.Now()
-		stream := c.sdk.Responses.NewStreaming(ctx, params)
 
-		acc := map[int64]*callAcc{}
-		var promptTokens, completionTokens, totalTokens int
-		var assistantContent strings.Builder
-		var summaryIndex int64 = -1
-		var summaryText strings.Builder
-		sawDelta := false
-		sawToolCall := false
-		sawSummary := false
-
-		for stream.Next() {
-			ev := stream.Current()
-			switch v := ev.AsAny().(type) {
-			case rs.ResponseTextDeltaEvent:
-				if v.Delta != "" {
-					sawDelta = true
-					h.OnDelta(v.Delta)
-					assistantContent.WriteString(v.Delta)
-				}
-			case rs.ResponseReasoningSummaryTextDeltaEvent:
-				if summaryIndex != v.SummaryIndex {
-					summaryIndex = v.SummaryIndex
-					summaryText.Reset()
-				}
-				if v.Delta != "" {
-					sawSummary = true
-					summaryText.WriteString(v.Delta)
-					h.OnThoughtSummary(summaryText.String())
-				}
-			case rs.ResponseReasoningSummaryTextDoneEvent:
-				if summaryIndex != v.SummaryIndex {
-					summaryIndex = v.SummaryIndex
-				}
-				summaryText.Reset()
-				if v.Text != "" {
-					sawSummary = true
-					summaryText.WriteString(v.Text)
-					h.OnThoughtSummary(summaryText.String())
-				}
-			case rs.ResponseOutputItemAddedEvent:
-				// Only capture tool call metadata if the item type indicates a function/tool call.
-				// The SDK's As* methods always return a struct even for non-matching types.
-				switch v.Item.Type {
-				case "function_call":
-					fn := v.Item.AsFunctionCall()
-					ca := acc[v.OutputIndex]
-					if ca == nil {
-						ca = &callAcc{}
-						acc[v.OutputIndex] = ca
-					}
-					ca.name = fn.Name
-					ca.id = fn.CallID
-					if ca.id == "" {
-						ca.id = fn.ID
-					}
-					if fn.Arguments != "" && ca.args.Len() == 0 {
-						ca.args.WriteString(fn.Arguments)
-					}
-				case "mcp_call":
-					ct := v.Item.AsMcpCall()
-					ca := acc[v.OutputIndex]
-					if ca == nil {
-						ca = &callAcc{}
-						acc[v.OutputIndex] = ca
-					}
-					ca.name = ct.Name
-					ca.id = ct.ID
-					if ct.Arguments != "" && ca.args.Len() == 0 {
-						ca.args.WriteString(ct.Arguments)
-					}
-				}
-			case rs.ResponseOutputItemDoneEvent:
-				// Nothing special; metadata already handled
-				_ = v
-			case rs.ResponseFunctionCallArgumentsDeltaEvent:
-				ca := acc[v.OutputIndex]
-				if ca == nil {
-					ca = &callAcc{}
-					acc[v.OutputIndex] = ca
-				}
-				if v.Delta != "" {
-					ca.args.WriteString(v.Delta)
-				}
-			case rs.ResponseFunctionCallArgumentsDoneEvent:
-				ca := acc[v.OutputIndex]
-				if ca != nil && !ca.done {
-					if ca.args.Len() == 0 && v.Arguments != "" {
-						ca.args.WriteString(v.Arguments)
-					}
-					ca.done = true
-					sawToolCall = true
-					// Emit tool call
-					h.OnToolCall(llm.ToolCall{
-						Name: ca.name,
-						Args: json.RawMessage(ca.args.String()),
-						ID:   ca.id,
-					})
-				}
-			case rs.ResponseCustomToolCallInputDeltaEvent:
-				ca := acc[v.OutputIndex]
-				if ca == nil {
-					ca = &callAcc{}
-					acc[v.OutputIndex] = ca
-				}
-				if v.Delta != "" {
-					ca.args.WriteString(v.Delta)
-				}
-			case rs.ResponseCustomToolCallInputDoneEvent:
-				ca := acc[v.OutputIndex]
-				if ca != nil && !ca.done {
-					if ca.args.Len() == 0 && v.Input != "" {
-						ca.args.WriteString(v.Input)
-					}
-					ca.done = true
-					sawToolCall = true
-					h.OnToolCall(llm.ToolCall{
-						Name: ca.name,
-						Args: json.RawMessage(ca.args.String()),
-						ID:   ca.id,
-					})
-				}
-			case rs.ResponseCompletedEvent:
-				// Capture usage
-				promptTokens = int(v.Response.Usage.InputTokens)
-				completionTokens = int(v.Response.Usage.OutputTokens)
-				totalTokens = int(v.Response.Usage.TotalTokens)
-			}
+		if streamCompleted {
+			return nil
 		}
-
-		err := stream.Err()
-		_ = stream.Close()
-		dur := time.Since(start)
-		base := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).
-			Int("prompt_tokens", promptTokens).Int("completion_tokens", completionTokens).Int("total_tokens", totalTokens).Logger()
-		if err != nil {
-			lastErr = err
-			if attempt == 0 && isConnectionReset(err) && !sawDelta && !sawToolCall && !sawSummary && ctx.Err() == nil {
-				base.Warn().Err(err).Msg("responses_stream_retry")
-				continue
-			}
-			base.Error().Err(err).Msg("responses_stream_error")
-			span.RecordError(err)
-			return err
+		if policy.Enabled && isContextLengthExceededErr(lastErr) && overflowAttempt+1 < policy.OverflowRetries {
+			managedMsgs = trimOldestNonSystem(managedMsgs, policy.OverflowRetryTrim)
+			policy.ToolOutputMaxChars = max(1024, policy.ToolOutputMaxChars/2)
+			continue
 		}
-
-		if c.isSelfHosted() {
-			p := c.tokenizeCount(ctx, buildPromptText(msgs))
-			a := c.tokenizeCount(ctx, assistantContent.String())
-			llm.RecordTokenAttributes(span, p, a, p+a)
-			if p > 0 || a > 0 {
-				llm.RecordTokenMetricsFromContext(ctx, string(params.Model), p, a)
-			}
-			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": p, "completion_tokens": a, "total_tokens": p + a})
-		} else {
-			llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-			if promptTokens > 0 || completionTokens > 0 {
-				llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
-			}
-			llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
+		if lastErr != nil {
+			span.RecordError(lastErr)
+			return lastErr
 		}
-		base.Debug().Msg("responses_stream_ok")
-		return nil
 	}
 
-	return lastErr
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("responses_stream failed after context retries")
 }
 
 func isConnectionReset(err error) bool {
@@ -2154,6 +2432,75 @@ func isConnectionReset(err error) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "connection reset by peer")
+}
+
+func (c *Client) trimResponsesMessagesToBudget(ctx context.Context, msgs []llm.Message, model string, policy responsesContextPolicy) []llm.Message {
+	if !policy.Enabled || policy.MaxInputTokens <= 0 || len(msgs) == 0 {
+		return msgs
+	}
+	tok := NewResponsesTokenizer(c, firstNonEmpty(model, c.model), nil, policy.ToolOutputMaxChars)
+	count, err := tok.CountMessagesTokens(ctx, msgs)
+	if err != nil || count <= policy.MaxInputTokens {
+		return msgs
+	}
+
+	systems := make([]llm.Message, 0, 2)
+	nonSystem := make([]llm.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == "system" {
+			systems = append(systems, m)
+			continue
+		}
+		nonSystem = append(nonSystem, m)
+	}
+	if len(nonSystem) == 0 {
+		return msgs
+	}
+	if policy.MinKeepMessages > len(nonSystem) {
+		policy.MinKeepMessages = len(nonSystem)
+	}
+	low := 0
+	high := len(nonSystem) - policy.MinKeepMessages
+	best := high
+	for low <= high {
+		mid := (low + high) / 2
+		candidate := append(append(make([]llm.Message, 0, len(systems)+len(nonSystem)-mid), systems...), nonSystem[mid:]...)
+		candidateCount, candidateErr := tok.CountMessagesTokens(ctx, candidate)
+		if candidateErr != nil {
+			break
+		}
+		if candidateCount <= policy.MaxInputTokens {
+			best = mid
+			high = mid - 1
+			continue
+		}
+		low = mid + 1
+	}
+	trimmed := append(append(make([]llm.Message, 0, len(systems)+len(nonSystem)-best), systems...), nonSystem[best:]...)
+	return trimmed
+}
+
+func trimOldestNonSystem(msgs []llm.Message, dropCount int) []llm.Message {
+	if dropCount <= 0 || len(msgs) == 0 {
+		return msgs
+	}
+	systems := make([]llm.Message, 0, 2)
+	nonSystem := make([]llm.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Role == "system" {
+			systems = append(systems, m)
+			continue
+		}
+		nonSystem = append(nonSystem, m)
+	}
+	if len(nonSystem) <= 1 {
+		return msgs
+	}
+	if dropCount >= len(nonSystem) {
+		dropCount = len(nonSystem) - 1
+	}
+	trimmed := append(append(make([]llm.Message, 0, len(systems)+len(nonSystem)-dropCount), systems...), nonSystem[dropCount:]...)
+	return trimmed
 }
 
 type responseCompactRequest struct {
@@ -2186,7 +2533,8 @@ func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, 
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
 
-	input, instructions := buildCompactionInput(msgs, previous)
+	policy := c.responsesContextPolicy(firstNonEmpty(model, c.model))
+	input, instructions := buildCompactionInputWithLimit(msgs, previous, policy.ToolOutputMaxChars)
 	req := responseCompactRequest{Model: firstNonEmpty(model, c.model)}
 	if len(input) > 0 {
 		req.Input = input
@@ -2212,6 +2560,10 @@ func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, 
 }
 
 func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]any, string) {
+	return buildCompactionInputWithLimit(msgs, previous, maxResponsesToolOutputChars)
+}
+
+func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionItem, toolOutputMaxChars int) ([]any, string) {
 	items := make([]any, 0, len(msgs)+1)
 	if previous != nil && strings.TrimSpace(previous.EncryptedContent) != "" {
 		payload := map[string]any{
@@ -2289,10 +2641,7 @@ func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]a
 				items = append(items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
 			}
 		case "tool":
-			out := strings.TrimSpace(m.Content)
-			if out == "" {
-				out = "{}"
-			}
+			out := boundedResponsesToolOutputWithLimit(m.Content, toolOutputMaxChars)
 			toolID := strings.TrimSpace(m.ToolID)
 			if toolID == "" {
 				continue
@@ -2313,7 +2662,8 @@ func (c *Client) Tokenizer(cache *llm.TokenCache) llm.Tokenizer {
 	if c.api != "responses" {
 		return nil
 	}
-	return NewResponsesTokenizer(c, c.model, cache)
+	policy := c.responsesContextPolicy(c.model)
+	return NewResponsesTokenizer(c, c.model, cache, policy.ToolOutputMaxChars)
 }
 
 // SupportsTokenization returns true if the client supports the Responses API

@@ -57,6 +57,11 @@ func (s *memSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.
 	if s.m[userID] == nil {
 		s.m[userID] = map[string]persistence.Specialist{}
 	}
+	if existing, ok := s.m[userID][sp.Name]; ok {
+		if strings.TrimSpace(sp.APIKey) == "" {
+			sp.APIKey = existing.APIKey
+		}
+	}
 	sp.UserID = userID
 	s.m[userID][sp.Name] = sp
 	return sp, nil
@@ -159,7 +164,12 @@ func (s *pgSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.S
 	row := s.pool.QueryRow(ctx, `
 INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url, api_key=EXCLUDED.api_key, model=EXCLUDED.model,
+	ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url,
+		api_key=CASE
+			WHEN NULLIF(BTRIM(EXCLUDED.api_key), '') IS NULL THEN specialists.api_key
+			ELSE EXCLUDED.api_key
+		END,
+		model=EXCLUDED.model,
 	summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
 	reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params, provider=EXCLUDED.provider
 RETURNING id;`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, sp.Provider)

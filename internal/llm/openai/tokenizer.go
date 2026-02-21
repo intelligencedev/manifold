@@ -16,18 +16,23 @@ import (
 // ResponsesTokenizer implements llm.Tokenizer using the OpenAI Responses API
 // /v1/responses/input_tokens preflight endpoint for accurate token counting.
 type ResponsesTokenizer struct {
-	client *Client
-	model  string
-	cache  *llm.TokenCache
+	client             *Client
+	model              string
+	cache              *llm.TokenCache
+	toolOutputMaxChars int
 }
 
 // NewResponsesTokenizer creates a tokenizer that uses the Responses API input_tokens endpoint.
 // The model parameter specifies which model to count tokens for (different models may tokenize differently).
-func NewResponsesTokenizer(client *Client, model string, cache *llm.TokenCache) *ResponsesTokenizer {
+func NewResponsesTokenizer(client *Client, model string, cache *llm.TokenCache, toolOutputMaxChars int) *ResponsesTokenizer {
+	if toolOutputMaxChars <= 0 {
+		toolOutputMaxChars = maxResponsesToolOutputChars
+	}
 	return &ResponsesTokenizer{
-		client: client,
-		model:  model,
-		cache:  cache,
+		client:             client,
+		model:              model,
+		cache:              cache,
+		toolOutputMaxChars: toolOutputMaxChars,
 	}
 }
 
@@ -231,10 +236,7 @@ func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string)
 			if _, ok := validToolCallIDs[toolID]; !ok {
 				continue
 			}
-			output := strings.TrimSpace(m.Content)
-			if output == "" {
-				output = "{}"
-			}
+			output := boundedResponsesToolOutputWithLimit(m.Content, t.toolOutputMaxChars)
 			items = append(items, map[string]any{
 				"type":    "function_call_output",
 				"call_id": toolID,

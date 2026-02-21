@@ -168,6 +168,93 @@ func TestAdaptResponsesInputFiltersOrphanToolOutputs(t *testing.T) {
 	}
 }
 
+func TestBoundedResponsesToolOutputTruncatesOversizedPayload(t *testing.T) {
+	input, _ := adaptResponsesInput([]llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "fetch", Args: []byte(`{"url":"https://example.com"}`)}}},
+		{Role: "tool", ToolID: "call_1", Content: strings.Repeat("x", maxResponsesToolOutputChars+500)},
+	})
+
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, "[TRUNCATED: tool output exceeded OpenAI context budget]") {
+		t.Fatalf("expected truncation marker in tool output, got: %s", s)
+	}
+}
+
+func TestBoundedResponsesToolOutputKeepsEmptyAsJSONObj(t *testing.T) {
+	if got := boundedResponsesToolOutput("   "); got != "{}" {
+		t.Fatalf("expected {}, got %q", got)
+	}
+}
+
+func TestAdaptResponsesInputWithLimitTruncatesToCustomCap(t *testing.T) {
+	input, _ := adaptResponsesInputWithLimit([]llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "fetch", Args: []byte(`{"url":"https://example.com"}`)}}},
+		{Role: "tool", ToolID: "call_1", Content: strings.Repeat("x", 5_000)},
+	}, 2_048)
+
+	raw, err := json.Marshal(input)
+	if err != nil {
+		t.Fatalf("marshal input: %v", err)
+	}
+	s := string(raw)
+	if !strings.Contains(s, responsesToolOutputEllipsis) {
+		t.Fatalf("expected truncation marker in tool output, got: %s", s)
+	}
+}
+
+func TestSanitizeExtraFieldsRemovesContextKeys(t *testing.T) {
+	clean := sanitizeExtraFields(map[string]any{
+		"temperature":                   0.2,
+		"context_management_enabled":    true,
+		"tool_output_token_limit":       123,
+		"context_overflow_retries":      4,
+		"parallel_tool_calls":           true,
+		"context_min_keep_messages":     6,
+		"tool_output_char_limit":        2048,
+		"context_input_tokens_limit":    9999,
+		"context_reserve_output_tokens": 111,
+	})
+
+	if _, ok := clean["context_management_enabled"]; ok {
+		t.Fatal("expected context_management_enabled to be removed")
+	}
+	if _, ok := clean["tool_output_token_limit"]; ok {
+		t.Fatal("expected tool_output_token_limit to be removed")
+	}
+	if _, ok := clean["context_overflow_retries"]; ok {
+		t.Fatal("expected context_overflow_retries to be removed")
+	}
+	if _, ok := clean["parallel_tool_calls"]; !ok {
+		t.Fatal("expected non-internal fields to remain")
+	}
+	if _, ok := clean["temperature"]; !ok {
+		t.Fatal("expected non-internal fields to remain")
+	}
+}
+
+func TestTrimOldestNonSystemKeepsSystemMessages(t *testing.T) {
+	trimmed := trimOldestNonSystem([]llm.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: "u1"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "user", Content: "u2"},
+	}, 2)
+
+	if len(trimmed) != 2 {
+		t.Fatalf("expected 2 messages after trim, got %d", len(trimmed))
+	}
+	if trimmed[0].Role != "system" {
+		t.Fatalf("expected first message to remain system, got %q", trimmed[0].Role)
+	}
+	if trimmed[1].Content != "u2" {
+		t.Fatalf("expected newest non-system message to remain, got %q", trimmed[1].Content)
+	}
+}
+
 func TestBuildCompactionInputFiltersMissingToolOutputs(t *testing.T) {
 	items, _ := buildCompactionInput([]llm.Message{
 		{Role: "assistant", Content: "hi", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "run", Args: []byte(`{"cmd":"ls"}`)}}},

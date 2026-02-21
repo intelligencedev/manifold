@@ -413,9 +413,19 @@ export const useChatStore = defineStore("chat", () => {
   ) {
     if (!sessionId) return;
     if (!options.force && fetchedMessageSessions.has(sessionId)) return;
+    const beforeFetch = messagesBySession.value[sessionId] || [];
     try {
       const data = (await fetchChatMessages(sessionId)) ?? [];
       fetchedMessageSessions.add(sessionId);
+      const current = messagesBySession.value[sessionId] || [];
+      const changedDuringFetch = current !== beforeFetch;
+      const preserveLocal =
+        changedDuringFetch &&
+        (current.some((m) => !!m.streaming) || current.length > data.length);
+      if (preserveLocal) {
+        syncSessionMessageCount(sessionId, current.length);
+        return;
+      }
       setMessages(sessionId, data);
     } catch (error) {
       const status = httpStatus(error);

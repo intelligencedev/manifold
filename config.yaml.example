@@ -43,6 +43,43 @@ llm_client:
       parallel_tool_calls: true
       prompt_cache_key: manifold-
       reasoning_effort: medium
+      # Responses API context management knobs (internal; not forwarded to provider)
+      # Enable/disable proactive context trimming + overflow retries. Default: true
+      # context_management_enabled: true
+      # Input token budget for request payload (messages/tools). Default: model_context - 25000, min 8000
+      # context_input_tokens_limit: 128000
+      # Reserved output/reasoning token headroom used to derive default input budget. Default: 25000
+      # context_reserve_output_tokens: 25000
+      # Minimum number of non-system messages to keep when trimming older context. Default: 8
+      # context_min_keep_messages: 8
+      # Preferred per-tool-output cap in tokens (used to derive char cap). Default: 6000
+      # tool_output_token_limit: 6000
+      # Hard per-tool-output char cap for function_call_output payloads. Default: 24000
+      # tool_output_char_limit: 24000
+      # On context_length_exceeded, drop this many oldest non-system messages per retry. Default: 4
+      # context_overflow_retry_trim_messages: 4
+      # Maximum retries when context_length_exceeded occurs. Default: 3
+      # context_overflow_retries: 3
+        #
+        # Recommended presets (choose one profile and uncomment):
+        #
+        # Small window profile (~32k-64k models):
+        # context_input_tokens_limit: 20000
+        # tool_output_char_limit: 12000
+        # context_overflow_retry_trim_messages: 6
+        # context_overflow_retries: 3
+        #
+        # Medium window profile (~128k models):
+        # context_input_tokens_limit: 90000
+        # tool_output_char_limit: 24000
+        # context_overflow_retry_trim_messages: 4
+        # context_overflow_retries: 3
+        #
+        # Large window profile (~400k+ models):
+        # context_input_tokens_limit: 250000
+        # tool_output_char_limit: 32000
+        # context_overflow_retry_trim_messages: 3
+        # context_overflow_retries: 2
   # anthropic:
   #   apiKey: ""
   #   model: ""

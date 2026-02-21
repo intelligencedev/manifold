@@ -48,6 +48,7 @@ Metadata lives in `.meta/project.json` inside each project directory. No additio
 - `workdir` in [config.yaml](../config.yaml) should point to the same `WORKDIR` you set in `.env`.
 - Database DSNs are required for chat history, search, vector, and graph services. Use the same Postgres instance for local development.
 - **Speech-to-text (STT)**: Voice input in the Chat view requires an OpenAI API-compatible transcription endpoint. Configure `STT_BASE_URL` and `STT_MODEL` in `.env` if using a custom endpoint. The API key is taken from the user's orchestrator specialist configuration in the database.
+- **OpenAI Responses context management**: If you use `llm_client.openai.api: responses`, you can tune proactive trimming and overflow retry behavior via `llm_client.openai.extraParams` (for example: `context_input_tokens_limit`, `tool_output_char_limit`, `context_overflow_retries`). See [config.yaml.example](../config.yaml.example) for all knobs and defaults.
 
 ## Observability (Optional)
 

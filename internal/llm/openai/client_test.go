@@ -131,6 +131,49 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestNormalizeSelfHostedChatMessages_MergesSystemToFront(t *testing.T) {
+	in := []llm.Message{
+		{Role: "user", Content: "u1"},
+		{Role: "system", Content: "s1"},
+		{Role: "assistant", Content: "a1"},
+		{Role: "system", Content: "s2"},
+		{Role: "user", Content: "u2"},
+	}
+
+	out := normalizeSelfHostedChatMessages(in)
+	if len(out) != 4 {
+		t.Fatalf("expected 4 messages after system merge, got %d", len(out))
+	}
+	if out[0].Role != "system" {
+		t.Fatalf("expected first role system, got %q", out[0].Role)
+	}
+	if out[0].Content != "s1\n\ns2" {
+		t.Fatalf("unexpected merged system content: %q", out[0].Content)
+	}
+	if out[1].Role != "user" || out[1].Content != "u1" {
+		t.Fatalf("unexpected message ordering at index 1: %#v", out[1])
+	}
+	if out[2].Role != "assistant" || out[2].Content != "a1" {
+		t.Fatalf("unexpected message ordering at index 2: %#v", out[2])
+	}
+	if out[3].Role != "user" || out[3].Content != "u2" {
+		t.Fatalf("unexpected message ordering at index 3: %#v", out[3])
+	}
+}
+
+func TestNormalizeSelfHostedChatMessages_NoSystemPreservesOrder(t *testing.T) {
+	in := []llm.Message{{Role: "user", Content: "u1"}, {Role: "assistant", Content: "a1"}}
+	out := normalizeSelfHostedChatMessages(in)
+	if len(out) != len(in) {
+		t.Fatalf("expected same length, got %d", len(out))
+	}
+	for i := range in {
+		if out[i].Role != in[i].Role || out[i].Content != in[i].Content {
+			t.Fatalf("expected order/content preserved at %d: got %#v want %#v", i, out[i], in[i])
+		}
+	}
+}
+
 func TestExtractReasoningSummary_TopLevelSummaryAliasRemoved(t *testing.T) {
 	extra := map[string]any{"summary": "auto", "temperature": 0.2}
 	got, ok := extractReasoningSummary(extra)
@@ -201,7 +244,7 @@ func TestAdaptResponsesInputWithLimitTruncatesToCustomCap(t *testing.T) {
 		t.Fatalf("marshal input: %v", err)
 	}
 	s := string(raw)
-	if !strings.Contains(s, responsesToolOutputEllipsis) {
+	if !strings.Contains(s, "TRUNCATED: tool output exceeded OpenAI context budget") {
 		t.Fatalf("expected truncation marker in tool output, got: %s", s)
 	}
 }

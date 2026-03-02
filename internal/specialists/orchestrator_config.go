@@ -32,7 +32,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 			cfg.Anthropic.Model = strings.TrimSpace(sp.Model)
 		}
 		if len(sp.ExtraParams) > 0 {
-			cfg.Anthropic.ExtraParams = copyAnyMap(sp.ExtraParams)
+			cfg.Anthropic.ExtraParams = mergeAnyMap(cfg.Anthropic.ExtraParams, sp.ExtraParams)
 		}
 	case "google":
 		if strings.TrimSpace(sp.BaseURL) != "" {
@@ -45,7 +45,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 			cfg.Google.Model = strings.TrimSpace(sp.Model)
 		}
 		if len(sp.ExtraParams) > 0 {
-			cfg.Google.ExtraParams = copyAnyMap(sp.ExtraParams)
+			cfg.Google.ExtraParams = mergeAnyMap(cfg.Google.ExtraParams, sp.ExtraParams)
 		}
 	default:
 		if strings.TrimSpace(sp.BaseURL) != "" {
@@ -61,7 +61,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 			cfg.OpenAI.ExtraHeaders = sp.ExtraHeaders
 		}
 		if len(sp.ExtraParams) > 0 {
-			cfg.OpenAI.ExtraParams = copyAnyMap(sp.ExtraParams)
+			cfg.OpenAI.ExtraParams = mergeAnyMap(cfg.OpenAI.ExtraParams, sp.ExtraParams)
 		}
 	}
 

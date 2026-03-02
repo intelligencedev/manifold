@@ -687,7 +687,7 @@
         >
           <KeyValueTableEditor
             v-model="extraParamsRows"
-            helper="Values are strings in the table editor. Use JSON mode for typed values."
+            helper='Values are strings by default. JSON values (for example {"type":"adaptive"}, true, 0.2) are preserved as typed values.'
             @editJson="openJsonModal('params')"
             @blur="touch('extraParams')"
           />
@@ -1173,9 +1173,21 @@ function rowsToParams(rows: KeyValueRow[]): Record<string, any> {
   for (const r of rows) {
     const key = r.key.trim();
     if (!key) continue;
-    out[key] = r.value;
+    out[key] = parseParamValue(r.value);
   }
   return out;
+}
+
+function parseParamValue(value: string): any {
+  const raw = String(value ?? "");
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return raw;
+  }
 }
 
 function objectToRows(obj: Record<string, any>): KeyValueRow[] {

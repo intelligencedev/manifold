@@ -31,7 +31,7 @@ func TestReadToolSingleFile(t *testing.T) {
 
 	resp := respAny.(readResult)
 	require.True(t, resp.OK)
-	require.Equal(t, "note.txt", resp.Path)
+	require.Equal(t, "./note.txt", resp.Path)
 	require.Equal(t, want, resp.Content)
 	require.Equal(t, "utf-8", resp.Encoding)
 	require.False(t, resp.Truncated)
@@ -126,7 +126,7 @@ func TestDeleteToolDeletesFile(t *testing.T) {
 
 	resp := respAny.(deleteResult)
 	require.True(t, resp.OK)
-	require.Equal(t, "old.txt", resp.Path)
+	require.Equal(t, "./old.txt", resp.Path)
 	require.True(t, resp.Deleted)
 	require.False(t, resp.WasDir)
 

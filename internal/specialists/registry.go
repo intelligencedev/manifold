@@ -114,10 +114,11 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 		return prov, cfg.Model
 	default:
 		oc := base.OpenAI
-		if strings.ToLower(provider) == "local" {
+		isLocalProvider := strings.EqualFold(provider, "local")
+		if isLocalProvider {
 			oc.API = "completions"
 		}
-		if strings.TrimSpace(sc.API) != "" {
+		if !isLocalProvider && strings.TrimSpace(sc.API) != "" {
 			oc.API = strings.TrimSpace(sc.API)
 		}
 		if strings.TrimSpace(sc.BaseURL) != "" {

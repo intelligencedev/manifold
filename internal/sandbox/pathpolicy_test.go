@@ -54,6 +54,19 @@ func TestSanitizeArg(t *testing.T) {
 	if _, err := SanitizeArg(wd, "otherdir/file"); err != nil {
 		t.Fatalf("expected subpath to be allowed, got err=%v", err)
 	}
+	// preserve explicit local directory prefix
+	r, err = SanitizeArg(wd, "./...")
+	if err != nil || r != "./..." {
+		t.Fatalf("expected ./..., got %q err=%v", r, err)
+	}
+	r, err = SanitizeArg(wd, "./internal/agent")
+	if err != nil || r != "./internal/agent" {
+		t.Fatalf("expected ./internal/agent, got %q err=%v", r, err)
+	}
+	r, err = SanitizeArg(wd, "./")
+	if err != nil || r != "./" {
+		t.Fatalf("expected ./, got %q err=%v", r, err)
+	}
 }
 
 func TestSanitizeArgBlocksSymlinkEscape(t *testing.T) {

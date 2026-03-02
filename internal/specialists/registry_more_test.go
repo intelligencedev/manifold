@@ -2,9 +2,13 @@ package specialists
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"net/http/httptest"
 
 	"manifold/internal/config"
 )
@@ -67,5 +71,67 @@ func TestRegistry_AppendsSpecialistsToSystemPrompt(t *testing.T) {
 	a, _ := r.Get("alpha")
 	if !strings.Contains(a.System, "Available specialists you can invoke:") {
 		t.Fatalf("agent system prompt missing specialist addendum: %q", a.System)
+	}
+}
+
+func TestLocalSpecialistIgnoresResponsesAPIOverride(t *testing.T) {
+	t.Parallel()
+
+	var paths []string
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/chat/completions":
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"chat-ok","tool_calls":[]}}]}`))
+		case "/responses":
+			resp := map[string]any{
+				"output": []map[string]any{{"type": "message", "content": []map[string]any{{"type": "output_text", "text": "responses-ok"}}}},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	base := config.LLMClientConfig{
+		Provider: "openai",
+		OpenAI: config.OpenAIConfig{
+			APIKey:  "test",
+			Model:   "m",
+			BaseURL: srv.URL,
+			API:     "responses",
+		},
+	}
+	list := []config.SpecialistConfig{{
+		Name:     "local-s",
+		Provider: "local",
+		API:      "responses",
+	}}
+
+	r := NewRegistry(base, list, srv.Client(), nil)
+	a, ok := r.Get("local-s")
+	if !ok {
+		t.Fatalf("expected local specialist present")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := a.Inference(ctx, "hello", nil)
+	if err != nil {
+		t.Fatalf("unexpected inference error: %v", err)
+	}
+	if out != "chat-ok" {
+		t.Fatalf("expected chat completion output, got %q", out)
+	}
+	if len(paths) == 0 || paths[0] != "/chat/completions" {
+		t.Fatalf("expected first request to /chat/completions, got %#v", paths)
+	}
+	for _, p := range paths {
+		if p == "/responses" {
+			t.Fatalf("unexpected call to /responses for local specialist: %#v", paths)
+		}
 	}
 }

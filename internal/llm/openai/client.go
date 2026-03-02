@@ -224,6 +224,42 @@ func buildPromptText(msgs []llm.Message) string {
 	return sb.String()
 }
 
+// normalizeSelfHostedChatMessages rewrites message history for strict self-hosted
+// chat templates (e.g., llama.cpp) that require the system message to be first.
+// It merges all system messages into a single leading system message while
+// preserving the order of all non-system messages.
+func normalizeSelfHostedChatMessages(msgs []llm.Message) []llm.Message {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	var systemParts []string
+	out := make([]llm.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if strings.EqualFold(strings.TrimSpace(m.Role), "system") {
+			if c := strings.TrimSpace(m.Content); c != "" {
+				systemParts = append(systemParts, c)
+			}
+			continue
+		}
+		out = append(out, m)
+	}
+
+	if len(systemParts) == 0 {
+		return out
+	}
+
+	merged := llm.Message{Role: "system", Content: strings.Join(systemParts, "\n\n")}
+	return append([]llm.Message{merged}, out...)
+}
+
+func (c *Client) chatCompletionMessages(msgs []llm.Message) []llm.Message {
+	if !c.isSelfHosted() {
+		return msgs
+	}
+	return normalizeSelfHostedChatMessages(msgs)
+}
+
 // removeUnsupportedSchema recursively deletes keys we know llama.cpp cannot
 // handle (currently: "not") and returns the cleaned map.
 func removeUnsupportedSchema(in map[string]any) map[string]any {
@@ -448,7 +484,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		Model: sdk.ChatModel(effectiveModel),
 	}
 	// messages
-	params.Messages = AdaptMessages(string(params.Model), msgs)
+	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
 	// tools: include only when provided to avoid sending an empty array
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
@@ -595,7 +631,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	params := sdk.ChatCompletionNewParams{
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
-	params.Messages = AdaptMessages(string(params.Model), msgs)
+	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
 			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
@@ -743,7 +779,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
 	// messages
-	params.Messages = AdaptMessages(string(params.Model), msgs)
+	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
 	// tools
 	if len(tools) > 0 {
 		if c.isSelfHosted() {
@@ -941,7 +977,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	// Build body
 	body := map[string]any{
 		"model":    firstNonEmpty(model, c.model),
-		"messages": AdaptMessages(model, msgs),
+		"messages": AdaptMessages(model, c.chatCompletionMessages(msgs)),
 		"stream":   true,
 	}
 	if len(tools) > 0 {
@@ -1230,7 +1266,7 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	}
 
 	// Convert all messages except the last user message, then replace it with image content
-	adaptedMsgs := AdaptMessages(model, msgs)
+	adaptedMsgs := AdaptMessages(model, c.chatCompletionMessages(msgs))
 	if len(adaptedMsgs) > 0 {
 		// Find the last user message and replace it with image content
 		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
@@ -1362,7 +1398,7 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	}
 
 	// Convert messages, then replace the last user message with text+image content parts
-	adaptedMsgs := AdaptMessages(model, msgs)
+	adaptedMsgs := AdaptMessages(model, c.chatCompletionMessages(msgs))
 	if len(adaptedMsgs) > 0 {
 		for i := len(adaptedMsgs) - 1; i >= 0; i-- {
 			if adaptedMsgs[i].OfUser != nil {

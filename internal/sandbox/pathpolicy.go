@@ -46,6 +46,12 @@ func SanitizeArg(workdir, arg string) (string, error) {
 
 	rel := filepath.Clean(arg)
 	if rel == "." {
+		if strings.HasPrefix(arg, "./") {
+			return "./", nil
+		}
+		if runtime.GOOS == "windows" && strings.HasPrefix(arg, ".\\") {
+			return ".\\", nil
+		}
 		return rel, nil
 	}
 	if !filepath.IsLocal(rel) {
@@ -54,6 +60,14 @@ func SanitizeArg(workdir, arg string) (string, error) {
 	if err := ensureWithinRoot(workdir, rel); err != nil {
 		return "", err
 	}
+
+	if strings.HasPrefix(arg, "./") {
+		return "./" + filepath.ToSlash(rel), nil
+	}
+	if runtime.GOOS == "windows" && strings.HasPrefix(arg, ".\\") {
+		return ".\\" + rel, nil
+	}
+
 	return rel, nil
 }
 

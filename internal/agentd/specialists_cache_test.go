@@ -37,6 +37,7 @@ func TestInvalidateSpecialistsCacheRefreshesSystemPrompt(t *testing.T) {
 	cfg := config.Config{
 		SystemPrompt: "base prompt",
 		Workdir:      ".",
+		Auth:         config.AuthConfig{Enabled: true},
 		LLMClient:    config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{Model: "m"}},
 	}
 	baseTools := tools.NewRegistry()
@@ -66,6 +67,7 @@ func TestComposeSystemPromptForUserScopesCatalog(t *testing.T) {
 	cfg := config.Config{
 		SystemPrompt: "base prompt",
 		Workdir:      ".",
+		Auth:         config.AuthConfig{Enabled: true},
 		LLMClient:    config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{Model: "m"}},
 	}
 	baseTools := tools.NewRegistry()

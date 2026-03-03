@@ -170,12 +170,49 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	}
 
 	start := time.Now()
-	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, toolDecls, toolCfg))
+	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildVisionContentConfig(effectiveModel, toolDecls, toolCfg))
 	dur := time.Since(start)
 	if err != nil {
-		span.RecordError(err)
-		log.Error().Err(err).Str("model", effectiveModel).Dur("duration", dur).Msg("google_chat_with_images_error")
-		return llm.Message{}, err
+		log.Warn().Err(err).Str("model", effectiveModel).Dur("duration", dur).Msg("google_chat_with_images_non_stream_error_retrying_stream")
+
+		stream := c.client.Models.GenerateContentStream(ctx, effectiveModel, contents, c.buildVisionContentConfig(effectiveModel, toolDecls, toolCfg))
+		var text strings.Builder
+		var imagesOut []llm.GeneratedImage
+		var calls []llm.ToolCall
+		for chunk, streamErr := range stream {
+			if streamErr != nil {
+				span.RecordError(streamErr)
+				log.Error().Err(streamErr).Str("model", effectiveModel).Dur("duration", time.Since(start)).Msg("google_chat_with_images_error")
+				return llm.Message{}, streamErr
+			}
+			msg, _, skip, parseErr := messageFromStreamResponse(chunk)
+			if parseErr != nil {
+				span.RecordError(parseErr)
+				log.Error().Err(parseErr).Str("model", effectiveModel).Dur("duration", time.Since(start)).Msg("google_chat_with_images_stream_parse_error")
+				return llm.Message{}, parseErr
+			}
+			if skip {
+				continue
+			}
+			if msg.Content != "" {
+				text.WriteString(msg.Content)
+			}
+			if len(msg.Images) > 0 {
+				imagesOut = append(imagesOut, msg.Images...)
+			}
+			if len(msg.ToolCalls) > 0 {
+				calls = append(calls, msg.ToolCalls...)
+			}
+		}
+		out := llm.Message{Role: "assistant", Content: text.String()}
+		if len(imagesOut) > 0 {
+			out.Images = imagesOut
+		}
+		if len(calls) > 0 {
+			out.ToolCalls = calls
+		}
+		log.Debug().Str("model", effectiveModel).Dur("duration", time.Since(start)).Int("tool_calls", len(out.ToolCalls)).Msg("google_chat_with_images_stream_fallback_ok")
+		return out, nil
 	}
 
 	msg, err := messageFromResponse(resp)
@@ -189,6 +226,25 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Dur("duration", dur).Int("tool_calls", len(msg.ToolCalls)).Msg("google_chat_with_images_ok")
 
 	return msg, nil
+}
+
+func (c *Client) buildVisionContentConfig(model string, tools []*genai.Tool, toolCfg *genai.ToolConfig) *genai.GenerateContentConfig {
+	httpOpts := c.httpOptions
+	if extraBody := c.buildExtraBody(); extraBody != nil {
+		if httpOpts.ExtraBody != nil {
+			httpOpts.ExtraBody = mergeAnyMap(httpOpts.ExtraBody, extraBody)
+		} else {
+			httpOpts.ExtraBody = extraBody
+		}
+	}
+
+	// Vision understanding requests use a minimal config: no image-generation modalities
+	// and no thinking flags to maximize compatibility across Gemini endpoints/models.
+	return &genai.GenerateContentConfig{
+		HTTPOptions: &httpOpts,
+		Tools:       tools,
+		ToolConfig:  toolCfg,
+	}
 }
 
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {

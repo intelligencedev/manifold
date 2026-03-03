@@ -170,7 +170,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 				return
 			}
 			mt := http.DetectContentType(data)
-			if mt != "image/png" && mt != "image/jpeg" && mt != "image/jpg" {
+			if mt != "image/png" && mt != "image/jpeg" && mt != "image/jpg" && mt != "image/webp" {
 				http.Error(w, "unsupported image type", http.StatusBadRequest)
 				return
 			}

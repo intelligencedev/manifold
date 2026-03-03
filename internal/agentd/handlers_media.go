@@ -17,10 +17,18 @@ import (
 
 	"manifold/internal/auth"
 	llmpkg "manifold/internal/llm"
+	anthropicllm "manifold/internal/llm/anthropic"
 	openaillm "manifold/internal/llm/openai"
 	persist "manifold/internal/persistence"
 	"manifold/internal/specialists"
 )
+
+type visionClientSelection struct {
+	Provider  string
+	Model     string
+	OpenAI    *openaillm.Client
+	Anthropic *anthropicllm.Client
+}
 
 func (a *app) agentVisionHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +114,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			specOwner = *userID
 		}
 
-		visionClient, visionModel, statusCode, resolveErr := a.resolveVisionClientAndModel(
+		visionSel, statusCode, resolveErr := a.resolveVisionClientAndModel(
 			r.Context(),
 			specOwner,
 			specialistName,
@@ -117,11 +125,11 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			return
 		}
 
-		if strings.TrimSpace(visionModel) == "" {
-			visionModel = strings.TrimSpace(a.cfg.OpenAI.Model)
+		if strings.TrimSpace(visionSel.Model) == "" {
+			visionSel.Model = strings.TrimSpace(a.cfg.OpenAI.Model)
 		}
 
-		if specialistName == "" && teamName == "" && a.cfg.OpenAI.APIKey == "" {
+		if specialistName == "" && teamName == "" && strings.EqualFold(visionSel.Provider, "openai") && a.cfg.OpenAI.APIKey == "" {
 			vrun := a.runs.create("[vision] " + prompt)
 			if r.Header.Get("Accept") == "text/event-stream" {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -189,9 +197,22 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 		}
 
 		vrun := a.runs.create("[vision] " + prompt)
-		out, err := visionClient.ChatWithImageAttachments(ctx, msgs, images, nil, visionModel)
-		if err != nil {
-			log.Error().Err(err).Msg("vision chat error")
+		var out llmpkg.Message
+		var callErr error
+		switch {
+		case visionSel.OpenAI != nil:
+			out, callErr = visionSel.OpenAI.ChatWithImageAttachments(ctx, msgs, images, nil, visionSel.Model)
+		case visionSel.Anthropic != nil:
+			anthropicImages := make([]anthropicllm.ImageAttachment, 0, len(atts))
+			for _, att := range atts {
+				anthropicImages = append(anthropicImages, anthropicllm.ImageAttachment{MimeType: att.mime, Base64Data: att.b64})
+			}
+			out, callErr = visionSel.Anthropic.ChatWithImageAttachments(ctx, msgs, anthropicImages, nil, visionSel.Model)
+		default:
+			callErr = errors.New("vision provider unavailable")
+		}
+		if callErr != nil {
+			log.Error().Err(callErr).Msg("vision chat error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			a.runs.updateStatus(vrun.ID, "failed", 0)
 			return
@@ -210,7 +231,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(vrun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, visionModel); err != nil {
+			if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, visionSel.Model); err != nil {
 				log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision_stream")
 			}
 			return
@@ -218,58 +239,116 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": out.Content})
 		a.runs.updateStatus(vrun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, visionModel); err != nil {
+		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, visionSel.Model); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision")
 		}
 	}
 }
 
-func (a *app) resolveVisionClientAndModel(ctx context.Context, owner int64, specialistName, teamName string) (*openaillm.Client, string, int, error) {
+func (a *app) resolveVisionClientAndModel(ctx context.Context, owner int64, specialistName, teamName string) (visionClientSelection, int, error) {
+	unsupportedErr := errors.New("vision requires an OpenAI-compatible or Anthropic provider")
+	empty := visionClientSelection{}
+
 	if teamName != "" {
 		if a.teamStore == nil {
-			return nil, "", http.StatusInternalServerError, errors.New("teams unavailable")
+			return empty, http.StatusInternalServerError, errors.New("teams unavailable")
 		}
 		team, ok, err := a.teamStore.GetByName(ctx, owner, teamName)
 		if err != nil {
-			return nil, "", http.StatusInternalServerError, errors.New("failed to load team")
+			return empty, http.StatusInternalServerError, errors.New("failed to load team")
 		}
 		if !ok {
-			return nil, "", http.StatusNotFound, errors.New("team not found")
+			return empty, http.StatusNotFound, errors.New("team not found")
 		}
 		llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, team.Orchestrator)
 		provider = strings.ToLower(strings.TrimSpace(provider))
-		if provider != "" && provider != "openai" && provider != "local" {
-			return nil, "", http.StatusBadRequest, errors.New("vision requires an OpenAI-compatible provider")
+		if provider == "" {
+			provider = strings.ToLower(strings.TrimSpace(llmCfg.Provider))
 		}
-		model := strings.TrimSpace(team.Orchestrator.Model)
-		if model == "" {
-			model = strings.TrimSpace(llmCfg.OpenAI.Model)
+		switch provider {
+		case "", "openai", "local":
+			model := strings.TrimSpace(team.Orchestrator.Model)
+			if model == "" {
+				model = strings.TrimSpace(llmCfg.OpenAI.Model)
+			}
+			return visionClientSelection{
+				Provider: "openai",
+				Model:    model,
+				OpenAI:   openaillm.New(llmCfg.OpenAI, a.httpClient),
+			}, 0, nil
+		case "anthropic":
+			model := strings.TrimSpace(team.Orchestrator.Model)
+			if model == "" {
+				model = strings.TrimSpace(llmCfg.Anthropic.Model)
+			}
+			return visionClientSelection{
+				Provider:  "anthropic",
+				Model:     model,
+				Anthropic: anthropicllm.New(llmCfg.Anthropic, a.httpClient),
+			}, 0, nil
+		default:
+			return empty, http.StatusBadRequest, unsupportedErr
 		}
-		return openaillm.New(llmCfg.OpenAI, a.httpClient), model, 0, nil
 	}
 
 	if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
 		reg, err := a.specialistsRegistryForUser(ctx, owner)
 		if err != nil {
-			return nil, "", http.StatusInternalServerError, errors.New("specialist registry unavailable")
+			return empty, http.StatusInternalServerError, errors.New("specialist registry unavailable")
 		}
 		sp, ok := reg.Get(specialistName)
 		if !ok || sp == nil {
-			return nil, "", http.StatusNotFound, errors.New("specialist not found")
+			return empty, http.StatusNotFound, errors.New("specialist not found")
 		}
-		client, ok := sp.Provider().(*openaillm.Client)
-		if !ok {
-			return nil, "", http.StatusBadRequest, errors.New("vision requires an OpenAI-compatible provider")
+		switch client := sp.Provider().(type) {
+		case *openaillm.Client:
+			return visionClientSelection{
+				Provider: "openai",
+				Model:    strings.TrimSpace(sp.Model),
+				OpenAI:   client,
+			}, 0, nil
+		case *anthropicllm.Client:
+			return visionClientSelection{
+				Provider:  "anthropic",
+				Model:     strings.TrimSpace(sp.Model),
+				Anthropic: client,
+			}, 0, nil
+		default:
+			return empty, http.StatusBadRequest, unsupportedErr
 		}
-		return client, strings.TrimSpace(sp.Model), 0, nil
 	}
 
-	if client, ok := a.llm.(*openaillm.Client); ok {
-		return client, strings.TrimSpace(a.cfg.OpenAI.Model), 0, nil
+	llmCfg := a.cfg.LLMClient
+	provider := strings.ToLower(strings.TrimSpace(llmCfg.Provider))
+	if provider == "" {
+		provider = "openai"
+	}
+	if a.specStore != nil {
+		if orch, ok, _ := a.specStore.GetByName(ctx, owner, specialists.OrchestratorName); ok {
+			var resolved string
+			llmCfg, resolved = specialists.ApplyLLMClientOverride(llmCfg, orch)
+			if strings.TrimSpace(resolved) != "" {
+				provider = strings.ToLower(strings.TrimSpace(resolved))
+			}
+		}
 	}
 
-	defaultCfg := a.cfg.LLMClient.OpenAI
-	return openaillm.New(defaultCfg, a.httpClient), strings.TrimSpace(defaultCfg.Model), 0, nil
+	switch provider {
+	case "", "openai", "local":
+		return visionClientSelection{
+			Provider: "openai",
+			Model:    strings.TrimSpace(llmCfg.OpenAI.Model),
+			OpenAI:   openaillm.New(llmCfg.OpenAI, a.httpClient),
+		}, 0, nil
+	case "anthropic":
+		return visionClientSelection{
+			Provider:  "anthropic",
+			Model:     strings.TrimSpace(llmCfg.Anthropic.Model),
+			Anthropic: anthropicllm.New(llmCfg.Anthropic, a.httpClient),
+		}, 0, nil
+	default:
+		return empty, http.StatusBadRequest, unsupportedErr
+	}
 }
 
 func (a *app) audioServeHandler() http.HandlerFunc {

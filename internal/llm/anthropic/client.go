@@ -37,6 +37,11 @@ type Client struct {
 	extra     map[string]any
 }
 
+type ImageAttachment struct {
+	MimeType   string
+	Base64Data string
+}
+
 func New(cfg config.AnthropicConfig, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -159,6 +164,184 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		Str("stop_reason", stopReason).
 		Str("stop_sequence", resp.StopSequence).
 		Msg("anthropic_chat_ok")
+
+	return out, nil
+}
+
+func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Message, images []ImageAttachment, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	sys, converted, err := adaptMessages(msgs, c.cacheCfg)
+	if err != nil {
+		return llm.Message{}, err
+	}
+
+	toolDefs, err := adaptTools(tools, c.cacheCfg)
+	if err != nil {
+		return llm.Message{}, err
+	}
+
+	imageBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(images))
+	for _, img := range images {
+		mime := strings.ToLower(strings.TrimSpace(img.MimeType))
+		if mime == "image/jpg" {
+			mime = "image/jpeg"
+		}
+		if mime == "" || strings.TrimSpace(img.Base64Data) == "" {
+			continue
+		}
+		imageBlocks = append(imageBlocks, anthropic.NewImageBlockBase64(mime, img.Base64Data))
+	}
+
+	if len(imageBlocks) > 0 {
+		lastUserIdx := -1
+		for i := len(converted) - 1; i >= 0; i-- {
+			if converted[i].Role == anthropic.MessageParamRoleUser {
+				lastUserIdx = i
+				break
+			}
+		}
+		if lastUserIdx >= 0 {
+			converted[lastUserIdx].Content = append(converted[lastUserIdx].Content, imageBlocks...)
+		} else {
+			converted = append(converted, anthropic.NewUserMessage(imageBlocks...))
+		}
+	}
+
+	params := anthropic.MessageNewParams{
+		Model:     anthropic.Model(c.pickModel(model)),
+		Messages:  converted,
+		System:    sys,
+		Tools:     toolDefs,
+		MaxTokens: c.maxTokens,
+	}
+	if shouldIncludeThoughtSummaries(string(params.Model)) {
+		const thinkingBudget int64 = 1024
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
+		if params.MaxTokens <= thinkingBudget {
+			params.MaxTokens = thinkingBudget + 1024
+		}
+	}
+	extra := llm.NormalizeExtraParams(c.extra)
+	if v, found, ok := llm.PopIntExtraParam(extra, "max_tokens", "maxTokens"); found {
+		if ok {
+			params.MaxTokens = v
+		} else {
+			log.Warn().Msg("anthropic_invalid_extra_max_tokens")
+		}
+	}
+	if len(extra) > 0 {
+		params.SetExtraFields(extra)
+	}
+
+	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatWithImageAttachments", string(params.Model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+	logger := observability.LoggerWithTrace(ctx)
+
+	start := time.Now()
+	stream := c.sdk.Messages.NewStreaming(ctx, params)
+	defer func() { _ = stream.Close() }()
+
+	var acc anthropic.Message
+	var usage anthropic.MessageDeltaUsage
+	toolBuffers := map[int]*toolBuffer{}
+	var textBuf strings.Builder
+
+	for stream.Next() {
+		event := stream.Current()
+		if err := acc.Accumulate(event); err != nil {
+			logger.Debug().Err(err).Msg("anthropic_accumulate_error")
+		}
+
+		switch ev := event.AsAny().(type) {
+		case anthropic.ContentBlockStartEvent:
+			switch block := ev.ContentBlock.AsAny().(type) {
+			case anthropic.ToolUseBlock:
+				id := strings.TrimSpace(block.ID)
+				if id == "" {
+					id = fmt.Sprintf("call-%d", len(toolBuffers)+1)
+				}
+				tb := &toolBuffer{name: block.Name, id: id}
+				tb.appendInitial(block.Input)
+				toolBuffers[int(ev.Index)] = tb
+			}
+		case anthropic.ContentBlockDeltaEvent:
+			switch delta := ev.Delta.AsAny().(type) {
+			case anthropic.TextDelta:
+				if delta.Text != "" {
+					textBuf.WriteString(delta.Text)
+				}
+			case anthropic.InputJSONDelta:
+				if tb := toolBuffers[int(ev.Index)]; tb != nil {
+					tb.appendPartial(delta.PartialJSON)
+				}
+			}
+		case anthropic.MessageDeltaEvent:
+			usage = ev.Usage
+		}
+	}
+
+	dur := time.Since(start)
+	if err := stream.Err(); err != nil {
+		span.RecordError(err)
+		logger.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("anthropic_chat_with_images_error")
+		return llm.Message{}, err
+	}
+
+	out := messageFromResponse(&acc)
+	if strings.TrimSpace(out.Content) == "" && textBuf.Len() > 0 {
+		out.Content = textBuf.String()
+	}
+
+	if len(toolBuffers) > 0 {
+		hasStreamedDeltas := false
+		for _, tb := range toolBuffers {
+			if tb != nil && tb.hasDeltas {
+				hasStreamedDeltas = true
+				break
+			}
+		}
+		if hasStreamedDeltas {
+			indices := make([]int, 0, len(toolBuffers))
+			for idx := range toolBuffers {
+				indices = append(indices, idx)
+			}
+			sort.Ints(indices)
+			calls := make([]llm.ToolCall, 0, len(indices))
+			for _, idx := range indices {
+				if tb := toolBuffers[idx]; tb != nil {
+					calls = append(calls, tb.toToolCall())
+				}
+			}
+			if len(calls) > 0 {
+				out.ToolCalls = calls
+			}
+		}
+	}
+
+	llm.LogRedactedResponse(ctx, acc)
+
+	promptTokens := usagePromptTokens(usage.CacheCreationInputTokens, usage.CacheReadInputTokens, usage.InputTokens)
+	completionTokens := int(usage.OutputTokens)
+	totalTokens := promptTokens + completionTokens
+
+	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+	llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
+
+	stopReason := string(acc.StopReason)
+	if stopReason == "" {
+		stopReason = "unknown"
+	}
+
+	logger.Debug().
+		Str("model", string(params.Model)).
+		Int("tools", len(tools)).
+		Dur("duration", dur).
+		Int("prompt_tokens", promptTokens).
+		Int("completion_tokens", completionTokens).
+		Int("total_tokens", totalTokens).
+		Str("stop_reason", stopReason).
+		Str("stop_sequence", acc.StopSequence).
+		Msg("anthropic_chat_with_images_ok")
 
 	return out, nil
 }

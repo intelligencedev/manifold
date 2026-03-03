@@ -111,6 +111,88 @@ func TestChatToolCall(t *testing.T) {
 	}
 }
 
+func TestChatWithImageAttachmentsIncludesImageBlock(t *testing.T) {
+	var reqBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		writeEvent(w, flusher, "message_start", map[string]any{"message": minimalMessage()})
+		writeEvent(w, flusher, "content_block_start", map[string]any{
+			"index":         0,
+			"content_block": map[string]any{"type": "text", "text": ""},
+		})
+		writeEvent(w, flusher, "content_block_delta", map[string]any{
+			"index": 0,
+			"delta": map[string]any{"type": "text_delta", "text": "looks good"},
+		})
+		writeEvent(w, flusher, "message_delta", map[string]any{
+			"delta": map[string]any{"stop_reason": "end_turn", "stop_sequence": ""},
+			"usage": minimalDeltaUsage(),
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.AnthropicConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	msg, err := client.ChatWithImageAttachments(
+		context.Background(),
+		[]llm.Message{{Role: "user", Content: "what is in this image?"}},
+		[]ImageAttachment{{MimeType: "image/png", Base64Data: "Zm9v"}},
+		nil,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("ChatWithImageAttachments returned error: %v", err)
+	}
+	if msg.Content != "looks good" {
+		t.Fatalf("unexpected content %q", msg.Content)
+	}
+
+	if stream, _ := reqBody["stream"].(bool); !stream {
+		t.Fatalf("expected stream=true in request, got %#v", reqBody["stream"])
+	}
+
+	messagesAny, ok := reqBody["messages"]
+	if !ok {
+		t.Fatalf("expected messages in request, got %#v", reqBody)
+	}
+	messages, ok := messagesAny.([]any)
+	if !ok || len(messages) == 0 {
+		t.Fatalf("expected non-empty messages array, got %#v", messagesAny)
+	}
+	lastMsg, ok := messages[len(messages)-1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected message object, got %#v", messages[len(messages)-1])
+	}
+	contentAny, ok := lastMsg["content"]
+	if !ok {
+		t.Fatalf("expected content blocks in message, got %#v", lastMsg)
+	}
+	content, ok := contentAny.([]any)
+	if !ok || len(content) < 2 {
+		t.Fatalf("expected text + image content blocks, got %#v", contentAny)
+	}
+	imgBlock, ok := content[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected image block object, got %#v", content[1])
+	}
+	if typ, _ := imgBlock["type"].(string); typ != "image" {
+		t.Fatalf("expected image block type, got %#v", imgBlock)
+	}
+	source, ok := imgBlock["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected image source object, got %#v", imgBlock["source"])
+	}
+	if mediaType, _ := source["media_type"].(string); mediaType != "image/png" {
+		t.Fatalf("expected media_type image/png, got %#v", source)
+	}
+	if data, _ := source["data"].(string); data != "Zm9v" {
+		t.Fatalf("expected base64 data preserved, got %#v", source)
+	}
+}
+
 func TestChatPromptCacheAddsCacheControlToSystemAndTools(t *testing.T) {
 	var reqBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ import (
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
 	persist "manifold/internal/persistence"
+	"manifold/internal/specialists"
 )
 
 func (a *app) agentVisionHandler() http.HandlerFunc {
@@ -94,7 +95,33 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			return
 		}
 
-		if a.cfg.OpenAI.APIKey == "" {
+		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
+		teamName := strings.TrimSpace(r.URL.Query().Get("team"))
+		if teamName == "" {
+			teamName = strings.TrimSpace(r.URL.Query().Get("group"))
+		}
+
+		specOwner := systemUserID
+		if userID != nil {
+			specOwner = *userID
+		}
+
+		visionClient, visionModel, statusCode, resolveErr := a.resolveVisionClientAndModel(
+			r.Context(),
+			specOwner,
+			specialistName,
+			teamName,
+		)
+		if resolveErr != nil {
+			http.Error(w, resolveErr.Error(), statusCode)
+			return
+		}
+
+		if strings.TrimSpace(visionModel) == "" {
+			visionModel = strings.TrimSpace(a.cfg.OpenAI.Model)
+		}
+
+		if specialistName == "" && teamName == "" && a.cfg.OpenAI.APIKey == "" {
 			vrun := a.runs.create("[vision] " + prompt)
 			if r.Header.Get("Accept") == "text/event-stream" {
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -162,14 +189,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 		}
 
 		vrun := a.runs.create("[vision] " + prompt)
-
-		openaiClient, ok := a.llm.(*openaillm.Client)
-		if !ok {
-			http.Error(w, "vision is only supported with the OpenAI provider", http.StatusBadRequest)
-			a.runs.updateStatus(vrun.ID, "failed", 0)
-			return
-		}
-		out, err := openaiClient.ChatWithImageAttachments(ctx, msgs, images, nil, a.cfg.OpenAI.Model)
+		out, err := visionClient.ChatWithImageAttachments(ctx, msgs, images, nil, visionModel)
 		if err != nil {
 			log.Error().Err(err).Msg("vision chat error")
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -190,7 +210,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
 			a.runs.updateStatus(vrun.ID, "completed", 0)
-			if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, a.cfg.OpenAI.Model); err != nil {
+			if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, visionModel); err != nil {
 				log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision_stream")
 			}
 			return
@@ -198,10 +218,58 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"result": out.Content})
 		a.runs.updateStatus(vrun.ID, "completed", 0)
-		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, a.cfg.OpenAI.Model); err != nil {
+		if err := storeChatTurn(r.Context(), a.chatStore, userID, sessionID, prompt, out.Content, visionModel); err != nil {
 			log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_vision")
 		}
 	}
+}
+
+func (a *app) resolveVisionClientAndModel(ctx context.Context, owner int64, specialistName, teamName string) (*openaillm.Client, string, int, error) {
+	if teamName != "" {
+		if a.teamStore == nil {
+			return nil, "", http.StatusInternalServerError, errors.New("teams unavailable")
+		}
+		team, ok, err := a.teamStore.GetByName(ctx, owner, teamName)
+		if err != nil {
+			return nil, "", http.StatusInternalServerError, errors.New("failed to load team")
+		}
+		if !ok {
+			return nil, "", http.StatusNotFound, errors.New("team not found")
+		}
+		llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, team.Orchestrator)
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		if provider != "" && provider != "openai" && provider != "local" {
+			return nil, "", http.StatusBadRequest, errors.New("vision requires an OpenAI-compatible provider")
+		}
+		model := strings.TrimSpace(team.Orchestrator.Model)
+		if model == "" {
+			model = strings.TrimSpace(llmCfg.OpenAI.Model)
+		}
+		return openaillm.New(llmCfg.OpenAI, a.httpClient), model, 0, nil
+	}
+
+	if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
+		reg, err := a.specialistsRegistryForUser(ctx, owner)
+		if err != nil {
+			return nil, "", http.StatusInternalServerError, errors.New("specialist registry unavailable")
+		}
+		sp, ok := reg.Get(specialistName)
+		if !ok || sp == nil {
+			return nil, "", http.StatusNotFound, errors.New("specialist not found")
+		}
+		client, ok := sp.Provider().(*openaillm.Client)
+		if !ok {
+			return nil, "", http.StatusBadRequest, errors.New("vision requires an OpenAI-compatible provider")
+		}
+		return client, strings.TrimSpace(sp.Model), 0, nil
+	}
+
+	if client, ok := a.llm.(*openaillm.Client); ok {
+		return client, strings.TrimSpace(a.cfg.OpenAI.Model), 0, nil
+	}
+
+	defaultCfg := a.cfg.LLMClient.OpenAI
+	return openaillm.New(defaultCfg, a.httpClient), strings.TrimSpace(defaultCfg.Model), 0, nil
 }
 
 func (a *app) audioServeHandler() http.HandlerFunc {

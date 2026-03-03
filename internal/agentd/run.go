@@ -46,6 +46,7 @@ import (
 	codeevolvetool "manifold/internal/tools/codeevolve"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
+	"manifold/internal/tools/llmparallel"
 	"manifold/internal/tools/patchtool"
 	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/tools/textsplitter"
@@ -358,6 +359,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(utility.NewAgentResponseTool())
+	toolRegistry.Register(llmparallel.New(httpClient, cfg.OpenAI.BaseURL, cfg.OpenAI.Model, cfg.OpenAI.APIKey))
 	toolRegistry.Register(tts.New(*cfg, httpClient))
 
 	// Register RAG tools backed by the internal rag service.

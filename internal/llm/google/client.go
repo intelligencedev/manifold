@@ -25,6 +25,11 @@ type Client struct {
 	extra       map[string]any
 }
 
+type ImageAttachment struct {
+	MimeType   string
+	Base64Data string
+}
+
 func New(cfg config.GoogleConfig, httpClient *http.Client) (*Client, error) {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -107,6 +112,81 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 
 	llm.LogRedactedResponse(ctx, resp)
 	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Dur("duration", dur).Int("tool_calls", len(msg.ToolCalls)).Msg("google_chat_ok")
+
+	return msg, nil
+}
+
+func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Message, images []ImageAttachment, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	effectiveModel := c.pickModel(model)
+
+	ctx, span := llm.StartRequestSpan(ctx, "Google ChatWithImageAttachments", effectiveModel, len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+	log := observability.LoggerWithTrace(ctx)
+
+	contents, err := toContents(msgs)
+	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Msg("google_chat_with_images_toContents_error")
+		return llm.Message{}, err
+	}
+
+	imageParts := make([]*genai.Part, 0, len(images))
+	for _, img := range images {
+		mime := strings.ToLower(strings.TrimSpace(img.MimeType))
+		if mime == "image/jpg" {
+			mime = "image/jpeg"
+		}
+		if mime == "" || strings.TrimSpace(img.Base64Data) == "" {
+			continue
+		}
+		data, decodeErr := base64.StdEncoding.DecodeString(img.Base64Data)
+		if decodeErr != nil {
+			return llm.Message{}, fmt.Errorf("decode image attachment: %w", decodeErr)
+		}
+		imageParts = append(imageParts, &genai.Part{InlineData: &genai.Blob{Data: data, MIMEType: mime}})
+	}
+
+	if len(imageParts) > 0 {
+		lastUserIdx := -1
+		for i := len(contents) - 1; i >= 0; i-- {
+			if contents[i] != nil && contents[i].Role == genai.RoleUser {
+				lastUserIdx = i
+				break
+			}
+		}
+		if lastUserIdx >= 0 {
+			contents[lastUserIdx].Parts = append(contents[lastUserIdx].Parts, imageParts...)
+		} else {
+			contents = append(contents, genai.NewContentFromParts(imageParts, genai.RoleUser))
+		}
+	}
+
+	toolDecls, toolCfg, err := adaptTools(tools)
+	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Msg("google_chat_with_images_adaptTools_error")
+		return llm.Message{}, err
+	}
+
+	start := time.Now()
+	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, toolDecls, toolCfg))
+	dur := time.Since(start)
+	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Str("model", effectiveModel).Dur("duration", dur).Msg("google_chat_with_images_error")
+		return llm.Message{}, err
+	}
+
+	msg, err := messageFromResponse(resp)
+	if err != nil {
+		span.RecordError(err)
+		log.Error().Err(err).Dur("duration", dur).Msg("google_chat_with_images_response_parse_error")
+		return llm.Message{}, err
+	}
+
+	llm.LogRedactedResponse(ctx, resp)
+	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Dur("duration", dur).Int("tool_calls", len(msg.ToolCalls)).Msg("google_chat_with_images_ok")
 
 	return msg, nil
 }

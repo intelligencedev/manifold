@@ -456,6 +456,63 @@ func TestChatImageInlineData(t *testing.T) {
 	}
 }
 
+func TestChatWithImageAttachmentsIncludesInlineData(t *testing.T) {
+	t.Parallel()
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"described"}]}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	msg, err := client.ChatWithImageAttachments(
+		context.Background(),
+		[]llm.Message{{Role: "user", Content: "describe this"}},
+		[]ImageAttachment{{MimeType: "image/png", Base64Data: "aGVsbG8="}},
+		nil,
+		"",
+	)
+	if err != nil {
+		t.Fatalf("ChatWithImageAttachments returned error: %v", err)
+	}
+	if msg.Content != "described" {
+		t.Fatalf("unexpected content %q", msg.Content)
+	}
+
+	contents, ok := body["contents"].([]any)
+	if !ok || len(contents) == 0 {
+		t.Fatalf("expected contents in request, got %#v", body["contents"])
+	}
+	last, ok := contents[len(contents)-1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected last content object, got %#v", contents[len(contents)-1])
+	}
+	parts, ok := last["parts"].([]any)
+	if !ok || len(parts) < 2 {
+		t.Fatalf("expected text and inline image parts, got %#v", last["parts"])
+	}
+	inlinePart, ok := parts[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected inline image part object, got %#v", parts[1])
+	}
+	inlineData, ok := inlinePart["inlineData"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected inlineData block, got %#v", inlinePart)
+	}
+	if mime, _ := inlineData["mimeType"].(string); mime != "image/png" {
+		t.Fatalf("expected mimeType image/png, got %#v", inlineData)
+	}
+	if data, _ := inlineData["data"].(string); data != "aGVsbG8=" {
+		t.Fatalf("expected encoded image data, got %#v", inlineData)
+	}
+}
+
 func TestChatStreamEmitsImages(t *testing.T) {
 	t.Parallel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

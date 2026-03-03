@@ -18,6 +18,7 @@ import (
 	"manifold/internal/auth"
 	llmpkg "manifold/internal/llm"
 	anthropicllm "manifold/internal/llm/anthropic"
+	googlellm "manifold/internal/llm/google"
 	openaillm "manifold/internal/llm/openai"
 	persist "manifold/internal/persistence"
 	"manifold/internal/specialists"
@@ -28,6 +29,7 @@ type visionClientSelection struct {
 	Model     string
 	OpenAI    *openaillm.Client
 	Anthropic *anthropicllm.Client
+	Google    *googlellm.Client
 }
 
 func (a *app) agentVisionHandler() http.HandlerFunc {
@@ -208,6 +210,12 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 				anthropicImages = append(anthropicImages, anthropicllm.ImageAttachment{MimeType: att.mime, Base64Data: att.b64})
 			}
 			out, callErr = visionSel.Anthropic.ChatWithImageAttachments(ctx, msgs, anthropicImages, nil, visionSel.Model)
+		case visionSel.Google != nil:
+			googleImages := make([]googlellm.ImageAttachment, 0, len(atts))
+			for _, att := range atts {
+				googleImages = append(googleImages, googlellm.ImageAttachment{MimeType: att.mime, Base64Data: att.b64})
+			}
+			out, callErr = visionSel.Google.ChatWithImageAttachments(ctx, msgs, googleImages, nil, visionSel.Model)
 		default:
 			callErr = errors.New("vision provider unavailable")
 		}
@@ -246,7 +254,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 }
 
 func (a *app) resolveVisionClientAndModel(ctx context.Context, owner int64, specialistName, teamName string) (visionClientSelection, int, error) {
-	unsupportedErr := errors.New("vision requires an OpenAI-compatible or Anthropic provider")
+	unsupportedErr := errors.New("vision requires an OpenAI-compatible, Anthropic, or Google provider")
 	empty := visionClientSelection{}
 
 	if teamName != "" {
@@ -286,6 +294,20 @@ func (a *app) resolveVisionClientAndModel(ctx context.Context, owner int64, spec
 				Model:     model,
 				Anthropic: anthropicllm.New(llmCfg.Anthropic, a.httpClient),
 			}, 0, nil
+		case "google":
+			model := strings.TrimSpace(team.Orchestrator.Model)
+			if model == "" {
+				model = strings.TrimSpace(llmCfg.Google.Model)
+			}
+			client, buildErr := googlellm.New(llmCfg.Google, a.httpClient)
+			if buildErr != nil {
+				return empty, http.StatusInternalServerError, errors.New("team orchestrator not configured")
+			}
+			return visionClientSelection{
+				Provider: "google",
+				Model:    model,
+				Google:   client,
+			}, 0, nil
 		default:
 			return empty, http.StatusBadRequest, unsupportedErr
 		}
@@ -312,6 +334,12 @@ func (a *app) resolveVisionClientAndModel(ctx context.Context, owner int64, spec
 				Provider:  "anthropic",
 				Model:     strings.TrimSpace(sp.Model),
 				Anthropic: client,
+			}, 0, nil
+		case *googlellm.Client:
+			return visionClientSelection{
+				Provider: "google",
+				Model:    strings.TrimSpace(sp.Model),
+				Google:   client,
 			}, 0, nil
 		default:
 			return empty, http.StatusBadRequest, unsupportedErr
@@ -345,6 +373,16 @@ func (a *app) resolveVisionClientAndModel(ctx context.Context, owner int64, spec
 			Provider:  "anthropic",
 			Model:     strings.TrimSpace(llmCfg.Anthropic.Model),
 			Anthropic: anthropicllm.New(llmCfg.Anthropic, a.httpClient),
+		}, 0, nil
+	case "google":
+		client, err := googlellm.New(llmCfg.Google, a.httpClient)
+		if err != nil {
+			return empty, http.StatusInternalServerError, errors.New("orchestrator not configured")
+		}
+		return visionClientSelection{
+			Provider: "google",
+			Model:    strings.TrimSpace(llmCfg.Google.Model),
+			Google:   client,
 		}, 0, nil
 	default:
 		return empty, http.StatusBadRequest, unsupportedErr

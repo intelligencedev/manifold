@@ -42,11 +42,14 @@ type FileEntry struct {
 
 // Service provides filesystem-backed project operations under a WORKDIR.
 type Service struct {
-	workdir string
+	workdir          string
+	defaultSkillsDir string
 }
 
 // NewService creates a new filesystem-backed projects service.
-func NewService(workdir string) *Service { return &Service{workdir: workdir} }
+func NewService(workdir, defaultSkillsDir string) *Service {
+	return &Service{workdir: workdir, defaultSkillsDir: defaultSkillsDir}
+}
 
 func (s *Service) userRoot(userID int64) string {
 	return filepath.Join(s.workdir, "users", fmt.Sprint(userID), "projects")
@@ -134,12 +137,17 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 	}
 	now := time.Now().UTC()
 	meta := projectMeta{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Generation: 0, SkillsGeneration: 0}
+	// Seed helper files (best-effort)
+	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("# Project\n\nThis directory is managed by the platform.\n"), 0o644)
+	if strings.TrimSpace(s.defaultSkillsDir) != "" {
+		if err := copyDir(s.defaultSkillsDir, filepath.Join(root, ".skills")); err == nil {
+			meta.SkillsGeneration = 1
+		}
+	}
 	if b, err := json.MarshalIndent(meta, "", "  "); err == nil {
 		_ = os.WriteFile(s.metaPath(root), b, 0o644)
 	}
-	// Seed helper files (best-effort)
-	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("# Project\n\nThis directory is managed by the platform.\n"), 0o644)
-	return Project{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Bytes: 0, FileCount: 0, Generation: 0, SkillsGeneration: 0}, nil
+	return Project{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Bytes: 0, FileCount: 0, Generation: 0, SkillsGeneration: meta.SkillsGeneration}, nil
 }
 
 // DeleteProject recursively deletes the project directory for a user.

@@ -12,6 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/joho/godotenv v1.5.1
+	github.com/matrix-org/gomatrix v0.0.0-20220926102614-ceba4d9f7530
 	github.com/modelcontextprotocol/go-sdk v1.1.0
 	github.com/openai/openai-go/v2 v2.0.2
 	github.com/qdrant/go-client v1.16.2

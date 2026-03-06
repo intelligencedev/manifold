@@ -700,6 +700,7 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 		cutIndex = start
 	}
 	cutIndex = e.adjustCutIndexForToolDeps(msgs, start, cutIndex)
+	cutIndex = e.adjustCutIndexForLatestUser(msgs, start, cutIndex)
 	if cutIndex < start {
 		cutIndex = start
 	}
@@ -766,6 +767,30 @@ func (e *Engine) adjustCutIndexForToolDeps(msgs []llm.Message, start, cutIndex i
 	}
 
 	return earliestNeeded
+}
+
+// adjustCutIndexForLatestUser ensures the kept "recent" tail contains at least
+// one user message when one exists. Some model/provider prompt templates expect
+// a user query to be present and can fail when the tail contains only
+// assistant/tool turns after summarization.
+func (e *Engine) adjustCutIndexForLatestUser(msgs []llm.Message, start, cutIndex int) int {
+	if cutIndex <= start || cutIndex >= len(msgs) {
+		return cutIndex
+	}
+
+	latestUserIdx := -1
+	for i := len(msgs) - 1; i >= start; i-- {
+		if msgs[i].Role == "user" {
+			latestUserIdx = i
+			break
+		}
+	}
+
+	if latestUserIdx == -1 || latestUserIdx >= cutIndex {
+		return cutIndex
+	}
+
+	return latestUserIdx
 }
 
 // buildSummarizedMessages constructs a summary prompt, calls the LLM, and

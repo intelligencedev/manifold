@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -676,7 +677,22 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	app.playgroundHandler = httpapi.NewServer(playgroundService)
 
 	// Filesystem backend only.
-	fsService := projects.NewService(cfg.Workdir)
+	defaultSkillsDir := ""
+	if cwd, err := os.Getwd(); err != nil {
+		log.Warn().Err(err).Msg("unable_to_resolve_cwd_for_default_skills")
+	} else {
+		skillsPath := filepath.Join(cwd, ".skills")
+		if fi, err := os.Stat(skillsPath); err == nil && fi.IsDir() {
+			defaultSkillsDir = skillsPath
+			log.Info().Str("skillsPath", defaultSkillsDir).Msg("default_skills_source_enabled")
+		} else if err == nil {
+			log.Warn().Str("skillsPath", skillsPath).Msg("default_skills_source_not_directory")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			log.Warn().Err(err).Str("skillsPath", skillsPath).Msg("default_skills_source_check_failed")
+		}
+	}
+
+	fsService := projects.NewService(cfg.Workdir, defaultSkillsDir)
 	app.projectsService = fsService
 	log.Info().Str("workdir", cfg.Workdir).Msg("projects_filesystem_backend_initialized")
 

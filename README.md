@@ -54,3 +54,34 @@ For step-by-step quick start instructions, see the repository Quick Start guide:
 ## API Docs
 
 OpenAPI generation and API docs publishing workflow is documented in [docs/openapi.md](./docs/openapi.md).
+
+## Matrix bot CLI (`manibot`)
+
+Manifold includes a Matrix bot CLI that forwards room messages to the Manifold backend (`/api/prompt`), so responses can use your configured specialists, internal tools, MCP servers, and project skills.
+
+Detailed setup, `.env` template, and a minimal Docker Compose service example are in [cmd/manibot/README.md](./cmd/manibot/README.md).
+
+Run:
+
+```bash
+go run ./cmd/manibot
+```
+
+Required environment variables:
+
+- `MATRIX_HOMESERVER_URL`
+- `MATRIX_BOT_USER_ID`
+- `MATRIX_ACCESS_TOKEN`
+
+Optional variables:
+
+- `BOT_PREFIX` (default: `!bot`)
+- `MANIFOLD_BASE_URL` (default: `http://localhost:32180`)
+- `MANIFOLD_PROMPT_PATH` (default: `/api/prompt`)
+- `MANIFOLD_PROJECT_ID` (bind all prompts to one project/workspace)
+- `MANIFOLD_SESSION_PREFIX` (default: `matrix`)
+- `MANIFOLD_REQUEST_TIMEOUT_SECONDS` (default: `180`)
+- `MATRIX_SYNC_TIMEOUT_SECONDS` (default: `30`)
+- `MATRIX_SYNC_RETRY_DELAY_SECONDS` (default: `3`)
+- `MANIFOLD_SESSION_COOKIE` and `MANIFOLD_SESSION_COOKIE_NAME` (for auth-enabled agentd cookie auth)
+- `MANIFOLD_AUTH_BEARER_TOKEN` (optional bearer header passthrough)

@@ -2,6 +2,7 @@ package projects
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,7 @@ import (
 func TestServiceCRUD(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	svc := NewService(tmp)
+	svc := NewService(tmp, "")
 	userID := int64(1)
 
 	ctx := context.TODO()
@@ -109,7 +110,7 @@ func TestServiceCRUD(t *testing.T) {
 func TestServiceMove(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
-	svc := NewService(tmp)
+	svc := NewService(tmp, "")
 	userID := int64(7)
 
 	ctx := context.TODO()
@@ -165,5 +166,81 @@ func TestServiceMove(t *testing.T) {
 	}
 	if err := svc.MovePath(ctx, userID, proj.ID, "assets/nested.txt", "a.txt"); err == nil {
 		t.Fatalf("expected error when destination exists")
+	}
+}
+
+func TestCreateProject_SeedsDefaultSkills(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+
+	sourceSkills := filepath.Join(tmp, "source", ".skills")
+	if err := os.MkdirAll(filepath.Join(sourceSkills, "skill-a", "references"), 0o755); err != nil {
+		t.Fatalf("MkdirAll source skills error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceSkills, "skill-a", "SKILL.md"), []byte("---\nname: skill-a\ndescription: test skill\n---\n\n# Skill A\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile SKILL.md error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceSkills, "skill-a", "references", "ref.txt"), []byte("reference"), 0o644); err != nil {
+		t.Fatalf("WriteFile reference error: %v", err)
+	}
+
+	svc := NewService(tmp, sourceSkills)
+	userID := int64(9)
+
+	ctx := context.TODO()
+	p, err := svc.CreateProject(ctx, userID, "With Skills")
+	if err != nil {
+		t.Fatalf("CreateProject error: %v", err)
+	}
+	if p.SkillsGeneration != 1 {
+		t.Fatalf("expected SkillsGeneration=1, got %d", p.SkillsGeneration)
+	}
+
+	projectRoot := filepath.Join(tmp, "users", "9", "projects", p.ID)
+	skillFile := filepath.Join(projectRoot, ".skills", "skill-a", "SKILL.md")
+	if _, err := os.Stat(skillFile); err != nil {
+		t.Fatalf("seeded SKILL.md not found: %v", err)
+	}
+	referenceFile := filepath.Join(projectRoot, ".skills", "skill-a", "references", "ref.txt")
+	b, err := os.ReadFile(referenceFile)
+	if err != nil {
+		t.Fatalf("seeded reference file not found: %v", err)
+	}
+	if string(b) != "reference" {
+		t.Fatalf("unexpected seeded reference contents: %q", string(b))
+	}
+
+	metaPath := filepath.Join(projectRoot, ".meta", "project.json")
+	metaBytes, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("ReadFile project meta error: %v", err)
+	}
+	var meta struct {
+		SkillsGeneration int64 `json:"skillsGeneration"`
+	}
+	if err := json.Unmarshal(metaBytes, &meta); err != nil {
+		t.Fatalf("Unmarshal project meta error: %v", err)
+	}
+	if meta.SkillsGeneration != 1 {
+		t.Fatalf("expected meta skillsGeneration=1, got %d", meta.SkillsGeneration)
+	}
+}
+
+func TestCreateProject_NoDefaultSkills(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	svc := NewService(tmp, "")
+
+	p, err := svc.CreateProject(context.TODO(), 11, "No Skills")
+	if err != nil {
+		t.Fatalf("CreateProject error: %v", err)
+	}
+
+	projectRoot := filepath.Join(tmp, "users", "11", "projects", p.ID)
+	if _, err := os.Stat(filepath.Join(projectRoot, ".skills")); !os.IsNotExist(err) {
+		t.Fatalf("expected no .skills directory, stat err=%v", err)
+	}
+	if p.SkillsGeneration != 0 {
+		t.Fatalf("expected SkillsGeneration=0, got %d", p.SkillsGeneration)
 	}
 }

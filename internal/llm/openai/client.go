@@ -1553,10 +1553,6 @@ const (
 	responsesMinInputBudgetTokens        = 8_000
 )
 
-func boundedResponsesToolOutput(content string) string {
-	return boundedResponsesToolOutputWithLimit(content, maxResponsesToolOutputChars)
-}
-
 func boundedResponsesToolOutputWithLimit(content string, maxChars int) string {
 	out := strings.TrimSpace(content)
 	if out == "" {
@@ -1791,11 +1787,6 @@ func adaptResponsesTools(schemas []llm.ToolSchema) []rs.ToolUnionParam {
 		out = append(out, rs.ToolUnionParam{OfFunction: &fn})
 	}
 	return out
-}
-
-// adaptResponsesInput builds the Responses Input item list and returns any combined instructions.
-func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instructions string) {
-	return adaptResponsesInputWithLimit(msgs, maxResponsesToolOutputChars)
 }
 
 func adaptResponsesInputWithLimit(msgs []llm.Message, toolOutputMaxChars int) (items rs.ResponseInputParam, instructions string) {
@@ -2588,10 +2579,6 @@ func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, 
 		}
 	}
 	return nil, errors.New("responses compact returned no compaction item")
-}
-
-func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]any, string) {
-	return buildCompactionInputWithLimit(msgs, previous, maxResponsesToolOutputChars)
 }
 
 func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionItem, toolOutputMaxChars int) ([]any, string) {

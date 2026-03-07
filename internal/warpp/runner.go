@@ -111,7 +111,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 	//   placeholders ${A.<stepID>.first_url} when a prior step is known to
 	//   produce that alias.
 	// - Normalize write-file paths that are absolute into a safe relative tmp/ path.
-	w = preprocessWorkflow(w, A)
+	w = preprocessWorkflow(w)
 	if A["sources"] == nil {
 		A["sources"] = []map[string]string{}
 	} else {
@@ -453,7 +453,7 @@ func (r *Runner) executeInternal(ctx context.Context, w Workflow, allowed map[st
 //   - auto-aliasing of per-step produced keys (e.g., first_url) to
 //     fully-qualified attributes when a producing step exists in the plan;
 //   - normalizing write-file targets to a safe relative path under tmp/.
-func preprocessWorkflow(w Workflow, A Attrs) Workflow {
+func preprocessWorkflow(w Workflow) Workflow {
 	// To avoid mutating the caller's workflow (which may be shared across
 	// concurrent runs), deep-copy the workflow structure (steps + tool args)
 	// and operate on the copy. This prevents concurrent map writes when the

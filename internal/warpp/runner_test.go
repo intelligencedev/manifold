@@ -115,8 +115,7 @@ func TestRunnerDetectPersonalizeExecute(t *testing.T) {
 			{ID: "s4", Text: "write", Tool: &ToolRef{Name: "write_file", Args: map[string]any{"path": "report.md", "content": "${A.report_md}"}}},
 		},
 	}
-	reg := tools.NewRecordingRegistry(base, nil)
-	runner := Runner{Workflows: &Registry{byIntent: map[string]Workflow{"test_intent": w}}, Tools: reg}
+	runner := Runner{Workflows: &Registry{byIntent: map[string]Workflow{"test_intent": w}}, Tools: base}
 
 	ctx := context.Background()
 	intent := runner.DetectIntent(ctx, "Please write a research report")
@@ -136,16 +135,16 @@ func TestRunnerDetectPersonalizeExecute(t *testing.T) {
 	allowed := map[string]bool{"web_search": true, "web_fetch": true, "llm_transform": true, "write_file": true}
 
 	// To simulate specific payloads, register functional tools that return controlled responses
-	reg.Register(newFunctionalTool("web_search", func(ctx context.Context, raw json.RawMessage) (any, error) {
+	base.Register(newFunctionalTool("web_search", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return map[string]any{"ok": true, "results": []map[string]any{{"url": "http://a", "title": "A"}, {"url": "http://b", "title": "B"}}}, nil
 	}))
-	reg.Register(newFunctionalTool("web_fetch", func(ctx context.Context, raw json.RawMessage) (any, error) {
+	base.Register(newFunctionalTool("web_fetch", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return map[string]any{"ok": true, "title": "T", "markdown": "MD", "final_url": "http://final", "input_url": "http://in", "used_readable": true}, nil
 	}))
-	reg.Register(newFunctionalTool("llm_transform", func(ctx context.Context, raw json.RawMessage) (any, error) {
+	base.Register(newFunctionalTool("llm_transform", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		return map[string]any{"ok": true, "output": "# Report\nContent"}, nil
 	}))
-	reg.Register(newFunctionalTool("write_file", func(ctx context.Context, raw json.RawMessage) (any, error) {
+	base.Register(newFunctionalTool("write_file", func(ctx context.Context, raw json.RawMessage) (any, error) {
 		// verify content contains the report path
 		var args map[string]any
 		_ = json.Unmarshal(raw, &args)

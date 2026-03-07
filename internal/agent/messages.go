@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"strings"
 
 	"manifold/internal/llm"
@@ -79,23 +78,4 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 	}
 
 	return msgs
-}
-
-// FormatHistorySummary creates a concise summary of the conversation history
-// that can be used in prompts. This is useful for debugging and logging.
-func FormatHistorySummary(history []llm.Message) string {
-	if len(history) == 0 {
-		return "(no history)"
-	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%d messages in history:\n", len(history)))
-	for i, m := range history {
-		preview := m.Content
-		if len(preview) > 50 {
-			preview = preview[:50] + "..."
-		}
-		preview = strings.ReplaceAll(preview, "\n", " ")
-		b.WriteString(fmt.Sprintf("  [%d] %s: %s\n", i+1, m.Role, preview))
-	}
-	return b.String()
 }

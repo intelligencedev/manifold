@@ -13,7 +13,7 @@ func TestRetrieve_EmitsDiagnosticsAndMetrics(t *testing.T) {
 	// Setup memory backends
 	mgr := databases.Manager{Search: databases.NewMemorySearch(), Vector: databases.NewMemoryVector(), Graph: databases.NewMemoryGraph()}
 	metrics := obs.NewMockMetrics()
-	s := New(mgr, WithMetrics(metrics))
+	s := New(mgr, func(s *Service) { s.metrics = metrics })
 
 	// Seed minimal content
 	ctx := context.Background()

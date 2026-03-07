@@ -45,20 +45,8 @@ func New(mgr databases.Manager, opts ...Option) *Service {
 // Option configures the Service during construction.
 type Option func(*Service)
 
-// WithLogger sets a custom logger.
-func WithLogger(l Logger) Option { return func(s *Service) { s.log = l } }
-
-// WithMetrics sets a custom metrics collector.
-func WithMetrics(m Metrics) Option { return func(s *Service) { s.metrics = m } }
-
-// WithClock sets a custom clock implementation.
-func WithClock(c Clock) Option { return func(s *Service) { s.clock = c } }
-
 // WithEmbedder sets a custom embedder implementation used during ingestion.
 func WithEmbedder(e embedder.Embedder) Option { return func(s *Service) { s.emb = e } }
-
-// WithReranker sets a reranker implementation used during retrieval.
-func WithReranker(r retrieve.Reranker) Option { return func(s *Service) { s.rerank = r } }
 
 // Ingest performs chunk-centric ingestion. Stubbed for Milestone 3.
 func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.IngestResponse, error) {

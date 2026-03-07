@@ -144,29 +144,6 @@ func NewTool(searxngURL string) *tool {
 	}
 }
 
-// NewToolWithConfig constructs the web_search tool with custom rate limiting config.
-func NewToolWithConfig(searxngURL string, cfg RateLimitConfig) *tool {
-	refillRate := time.Duration(float64(time.Second) / cfg.RequestsPerSecond)
-
-	uaList := []string{
-		// Chrome (macOS)
-		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-		// Firefox (macOS)
-		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:102.0) Gecko/20100101 Firefox/102.0",
-		// Safari (macOS)
-		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.1 Safari/605.1.15",
-		// Edge (Windows)
-		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.0.0",
-	}
-	return &tool{
-		http:         &http.Client{Timeout: 12 * time.Second},
-		searxngURL:   strings.TrimSuffix(searxngURL, "/"),
-		rateLimiter:  newTokenBucket(cfg.BurstSize, refillRate),
-		rateLimitCfg: cfg,
-		uaList:       uaList,
-	}
-}
-
 func (t *tool) Name() string { return "web_search" }
 
 func (t *tool) JSONSchema() map[string]any {

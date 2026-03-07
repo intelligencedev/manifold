@@ -51,7 +51,7 @@ func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 	})
 
 	// Evolve (adding memories)
-	if err := em.Evolve(ctx, "test task 1", "solution 1", "success"); err != nil {
+	if err := em.EvolveEnhanced(ctx, "test task 1", "solution 1", "success", nil, nil, ""); err != nil {
 		t.Fatalf("Evolve failed: %v", err)
 	}
 	if got := len(em.entries); got != 1 {
@@ -136,7 +136,7 @@ func TestEvolvingMemory_CallbacksFire(t *testing.T) {
 		},
 	})
 
-	if err := em.Evolve(ctx, "do thing", "done", "success"); err != nil {
+	if err := em.EvolveEnhanced(ctx, "do thing", "done", "success", nil, nil, ""); err != nil {
 		t.Fatalf("evolve failed: %v", err)
 	}
 

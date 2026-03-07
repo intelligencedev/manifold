@@ -192,11 +192,11 @@ func TestExtractReasoningSummary_TopLevelSummaryAliasRemoved(t *testing.T) {
 }
 
 func TestAdaptResponsesInputFiltersOrphanToolOutputs(t *testing.T) {
-	input, _ := adaptResponsesInput([]llm.Message{
+	input, _ := adaptResponsesInputWithLimit([]llm.Message{
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "fetch", Args: []byte(`{"url":"https://example.com"}`)}}},
 		{Role: "tool", ToolID: "call_1", Content: `{"ok":true}`},
 		{Role: "tool", ToolID: "call_orphan", Content: `{"ok":false}`},
-	})
+	}, maxResponsesToolOutputChars)
 
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -212,10 +212,10 @@ func TestAdaptResponsesInputFiltersOrphanToolOutputs(t *testing.T) {
 }
 
 func TestBoundedResponsesToolOutputTruncatesOversizedPayload(t *testing.T) {
-	input, _ := adaptResponsesInput([]llm.Message{
+	input, _ := adaptResponsesInputWithLimit([]llm.Message{
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "fetch", Args: []byte(`{"url":"https://example.com"}`)}}},
 		{Role: "tool", ToolID: "call_1", Content: strings.Repeat("x", maxResponsesToolOutputChars+500)},
-	})
+	}, maxResponsesToolOutputChars)
 
 	raw, err := json.Marshal(input)
 	if err != nil {
@@ -228,7 +228,7 @@ func TestBoundedResponsesToolOutputTruncatesOversizedPayload(t *testing.T) {
 }
 
 func TestBoundedResponsesToolOutputKeepsEmptyAsJSONObj(t *testing.T) {
-	if got := boundedResponsesToolOutput("   "); got != "{}" {
+	if got := boundedResponsesToolOutputWithLimit("   ", maxResponsesToolOutputChars); got != "{}" {
 		t.Fatalf("expected {}, got %q", got)
 	}
 }
@@ -299,9 +299,9 @@ func TestTrimOldestNonSystemKeepsSystemMessages(t *testing.T) {
 }
 
 func TestBuildCompactionInputFiltersMissingToolOutputs(t *testing.T) {
-	items, _ := buildCompactionInput([]llm.Message{
+	items, _ := buildCompactionInputWithLimit([]llm.Message{
 		{Role: "assistant", Content: "hi", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "run", Args: []byte(`{"cmd":"ls"}`)}}},
-	}, nil)
+	}, nil, maxResponsesToolOutputChars)
 
 	raw, err := json.Marshal(items)
 	if err != nil {

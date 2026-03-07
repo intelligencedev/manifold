@@ -179,19 +179,6 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 	return m
 }
 
-// BuildContext assembles the conversation history that should be sent to the orchestrator
-// by combining a persisted summary (if any) with the most recent chat turns.
-// Returns the messages and a SummaryResult indicating if summarization was triggered.
-//
-// Deprecated: Use BuildContextForProvider instead, which properly handles compaction
-// compatibility with the target LLM provider.
-func (m *Manager) BuildContext(ctx context.Context, userID *int64, sessionID string) ([]llm.Message, *SummaryResult, error) {
-	// Default to compaction support based on the manager's global setting.
-	// This maintains backward compatibility but callers should migrate to
-	// BuildContextForProvider for proper cross-provider support.
-	return m.BuildContextForProvider(ctx, userID, sessionID, m.useResponsesCompaction)
-}
-
 // BuildContextForProvider assembles the conversation history that should be sent to the
 // orchestrator by combining a persisted summary (if any) with the most recent chat turns.
 // The targetSupportsCompaction parameter indicates whether the target LLM provider supports

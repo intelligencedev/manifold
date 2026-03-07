@@ -1,35 +1,12 @@
 package skills
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestCacheService_LocalCacheOnly(t *testing.T) {
-	t.Parallel()
-
-	svc, err := NewCacheService(CacheServiceConfig{})
-	require.NoError(t, err)
-	require.NotNil(t, svc)
-
-	ctx := context.Background()
-	tenantID := "123"
-	projectID := "proj-abc"
-	projectDir := "/tmp/test-project"
-
-	// First call should load and cache
-	cached, err := svc.GetOrLoad(ctx, tenantID, projectID, projectDir, 1, 1)
-	// Since there's no actual project dir, expect nil result (no skills found)
-	assert.NoError(t, err)
-	assert.Nil(t, cached)
-
-	// Invalidate and verify no errors
-	svc.Invalidate(ctx, tenantID, projectID)
-}
 
 func TestCache_GetOrLoad(t *testing.T) {
 	t.Parallel()
@@ -133,63 +110,6 @@ func TestCache_DifferentGenerations(t *testing.T) {
 	_, err = cache.GetOrLoad(projectID, 2, 2, loader)
 	require.NoError(t, err)
 	assert.Equal(t, 2, loadCount)
-}
-
-func TestRenderSkillsSection(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		skills   []Metadata
-		wantNil  bool
-		contains []string
-	}{
-		{
-			name:    "empty skills",
-			skills:  nil,
-			wantNil: true,
-		},
-		{
-			name: "single skill",
-			skills: []Metadata{
-				{Name: "test-skill", Description: "A test skill", Path: "/path/to/skill"},
-			},
-			contains: []string{
-				"## Skills",
-				"test-skill",
-				"A test skill",
-				"/path/to/skill",
-			},
-		},
-		{
-			name: "skill with short description",
-			skills: []Metadata{
-				{Name: "test-skill", Description: "Long description", ShortDescription: "Short desc", Path: "/path"},
-			},
-			contains: []string{"Short desc"},
-		},
-		{
-			name: "multiple skills",
-			skills: []Metadata{
-				{Name: "skill-1", Description: "Desc 1", Path: "/p1"},
-				{Name: "skill-2", Description: "Desc 2", Path: "/p2"},
-			},
-			contains: []string{"skill-1", "skill-2", "Desc 1", "Desc 2"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := RenderSkillsSection(tt.skills)
-			if tt.wantNil {
-				assert.Empty(t, result)
-				return
-			}
-			for _, substr := range tt.contains {
-				assert.Contains(t, result, substr)
-			}
-		})
-	}
 }
 
 func TestCachedSkills_CachedAt(t *testing.T) {

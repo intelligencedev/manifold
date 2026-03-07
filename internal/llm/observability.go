@@ -157,14 +157,6 @@ func ensureTraceProcessor() {
 	})
 }
 
-// RecordTokenMetrics records token usage for a model and updates in-process
-// cumulative totals used by the /api/metrics/tokens endpoint. This supplements
-// OTel export (we can't easily pull data back from the exporter) while still
-// leveraging standard metric instruments for external backends.
-func RecordTokenMetrics(model string, promptTokens, completionTokens int) {
-	recordTokenMetrics(model, promptTokens, completionTokens, timeNow())
-}
-
 func recordTokenMetrics(model string, promptTokens, completionTokens int, ts time.Time) {
 	if model == "" || (promptTokens == 0 && completionTokens == 0) {
 		return
@@ -197,18 +189,6 @@ type TokenTotal struct {
 	Prompt     int64  `json:"prompt"`
 	Completion int64  `json:"completion"`
 	Total      int64  `json:"total"`
-}
-
-// TokenTotalsSnapshot returns a stable snapshot of current cumulative totals.
-func TokenTotalsSnapshot() []TokenTotal {
-	totalsMu.RLock()
-	defer totalsMu.RUnlock()
-	out := make([]TokenTotal, 0, len(modelTotals))
-	for model, v := range modelTotals {
-		out = append(out, TokenTotal{Model: model, Prompt: v.Prompt, Completion: v.Completion, Total: v.Prompt + v.Completion})
-	}
-	sortTokenTotals(out)
-	return out
 }
 
 // TokenTotalsForWindow returns token aggregates limited to the requested
@@ -311,13 +291,6 @@ func sortTokenTotals(totals []TokenTotal) {
 		}
 		return totals[i].Total > totals[j].Total
 	})
-}
-
-func resetTokenMetricsState() {
-	totalsMu.Lock()
-	defer totalsMu.Unlock()
-	modelTotals = map[string]struct{ Prompt, Completion int64 }{}
-	modelBuckets = map[string]map[int64]*tokenBucket{}
 }
 
 // ConfigureLogging sets global behavior for prompt/response logging.
@@ -518,12 +491,6 @@ func recordTrace(rec traceRecord) {
 	if len(traceRecords) > maxTraceEntries {
 		traceRecords = traceRecords[:maxTraceEntries]
 	}
-}
-
-func resetTraceMetricsState() {
-	tracesMu.Lock()
-	defer tracesMu.Unlock()
-	traceRecords = nil
 }
 
 type llmTraceProcessor struct{}

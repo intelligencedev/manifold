@@ -151,9 +151,6 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 
 	timeout := time.Duration(args.TimeoutMS) * time.Millisecond
 
-	// Subtool observability sink, if present in context
-	sink := tools.SubtoolSinkFromContext(ctx)
-
 	results := make([]callResult, len(args.ToolUses))
 	var (
 		errs []string
@@ -219,11 +216,6 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 				defer cancel()
 			}
 
-			// Emit a subtool start event for observability
-			if sink != nil {
-				sink(tools.SubtoolEvent{Phase: "start", Name: name, Args: argsPayload, ToolCallID: callID})
-			}
-
 			start := time.Now()
 			payload, err := reg.Dispatch(dispatchCtx, name, argsPayload)
 			elapsed := time.Since(start)
@@ -252,15 +244,6 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 				copy(cp, payload)
 				res.Payload = json.RawMessage(cp)
 			}
-			// Emit a subtool end event for observability
-			if sink != nil {
-				var pay []byte
-				if res.Payload != nil {
-					pay = []byte(res.Payload)
-				}
-				sink(tools.SubtoolEvent{Phase: "end", Name: name, Args: argsPayload, Payload: pay, Error: res.Error, DurationMS: res.DurationMS, ToolCallID: callID})
-			}
-
 			results[i] = res
 		}(idx, call, toolName, toolCallID)
 	}
@@ -289,9 +272,7 @@ func normalizeRecipient(v string) (string, error) {
 	if v == "" {
 		return "", errors.New("recipient_name is empty")
 	}
-	if strings.HasPrefix(v, "functions.") {
-		v = strings.TrimPrefix(v, "functions.")
-	}
+	v = strings.TrimPrefix(v, "functions.")
 	if v == "multi_tool_use.parallel" {
 		v = ToolName
 	}

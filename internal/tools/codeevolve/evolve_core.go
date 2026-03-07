@@ -208,13 +208,14 @@ func BuildLLMPrompt(parent Program, inspirations []Program, context, meta string
 	}
 
 	// Add diverse optimization strategies based on generation and attempt type.
-	if attemptType == "radical_refactor" {
+	switch attemptType {
+	case "radical_refactor":
 		b.WriteString("IMPORTANT: The current approach is stagnating. Please provide a RADICAL REFACTOR with completely different logic.\n\n")
-	} else if attemptType == "alternative_algorithm" {
+	case "alternative_algorithm":
 		b.WriteString("IMPORTANT: Try a completely different algorithmic approach (e.g., iterative vs recursive, different data structures).\n\n")
-	} else if attemptType == "complete_redesign" {
+	case "complete_redesign":
 		b.WriteString("IMPORTANT: Completely redesign the solution from scratch with a fresh perspective.\n\n")
-	} else {
+	default:
 		strategies := []string{
 			"Focus on performance optimization with memoization or caching",
 			"Simplify the algorithm and reduce complexity",
@@ -283,21 +284,6 @@ func ApplyDiffsToCode(code string, diffs []DiffBlock) (string, error) {
 		}
 	}
 	return updated, nil
-}
-
-// SelectBestProgram returns the program with highest score for metric "score".
-func SelectBestProgram(db ProgramDatabase, metric string) (Program, error) {
-	all := db.GetAll()
-	if len(all) == 0 {
-		return Program{}, fmt.Errorf("database empty")
-	}
-	best := all[0]
-	for _, p := range all {
-		if p.Scores[metric] > best.Scores[metric] {
-			best = p
-		}
-	}
-	return best, nil
 }
 
 // RunAlphaEvolve executes a simplified evolutionary loop.

@@ -23,7 +23,6 @@ func TestRoute_ContainsMatchAndCaseInsensitive(t *testing.T) {
 		{Name: "caps", Contains: []string{"HELLO"}},
 		{Name: "other", Contains: []string{"bye"}},
 	}
-	// should match case-insensitively
 	if got := Route(routes, "well hello there"); got != "caps" {
 		t.Fatalf("expected caps, got %s", got)
 	}
@@ -37,7 +36,6 @@ func TestRoute_RegexMatchAndInvalidRegex(t *testing.T) {
 	if got := Route(routes, "contains 12345 here"); got != "r1" {
 		t.Fatalf("expected r1, got %s", got)
 	}
-	// invalid regex should be ignored and not panic
 	if got := Route(routes, "no digits"); got != "" {
 		t.Fatalf("expected empty for no match with invalid regex present, got %s", got)
 	}

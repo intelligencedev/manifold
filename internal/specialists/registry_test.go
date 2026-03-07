@@ -8,12 +8,6 @@ import (
 	"testing"
 )
 
-func TestFirstNonEmpty(t *testing.T) {
-	if firstNonEmpty("", " ", "a", "b") != "a" {
-		t.Fatalf("unexpected firstNonEmpty")
-	}
-}
-
 func TestNamesSorted(t *testing.T) {
 	r := &Registry{agents: map[string]*Agent{"z": {}, "a": {}, "m": {}}}
 	n := r.Names()

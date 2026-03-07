@@ -1263,15 +1263,6 @@ func parseCommaSeparatedList(s string) []string {
 	return out
 }
 
-func intFromEnv(key string, def int) int {
-	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-		if n, err := parseInt(v); err == nil {
-			return n
-		}
-	}
-	return def
-}
-
 func parseInt(s string) (int, error) {
 	return strconv.Atoi(strings.TrimSpace(s))
 }

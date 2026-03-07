@@ -31,23 +31,6 @@ func TestParseInt(t *testing.T) {
 	})
 }
 
-func TestIntFromEnv(t *testing.T) {
-	key := "SIO_TEST_INT_FROM_ENV"
-	old := os.Getenv(key)
-	defer func() {
-		_ = os.Setenv(key, old)
-	}()
-
-	_ = os.Unsetenv(key)
-	if got := intFromEnv(key, 7); got != 7 {
-		t.Fatalf("expected default 7, got %d", got)
-	}
-	_ = os.Setenv(key, "123")
-	if got := intFromEnv(key, 7); got != 123 {
-		t.Fatalf("expected 123, got %d", got)
-	}
-}
-
 func TestLoadSpecialists_WrapperAndListAndDisabled(t *testing.T) {
 	// Prepare wrapper-style YAML file
 	wrapper := `specialists:

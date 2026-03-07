@@ -21,11 +21,6 @@ func ProjectID(projectID string) (string, error) {
 	return validatePathSegment(projectID, ErrInvalidProjectID)
 }
 
-// SessionID checks if a session ID is safe for use as a single filesystem path segment.
-func SessionID(sessionID string) (string, error) {
-	return validatePathSegment(sessionID, ErrInvalidSessionID)
-}
-
 func validatePathSegment(value string, invalidErr error) (string, error) {
 	if value == "" {
 		return "", nil

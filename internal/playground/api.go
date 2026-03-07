@@ -7,11 +7,9 @@ import (
 	"time"
 
 	"manifold/internal/auth"
-	"manifold/internal/playground/artifacts"
 	"manifold/internal/playground/dataset"
 	"manifold/internal/playground/eval"
 	"manifold/internal/playground/experiment"
-	"manifold/internal/playground/provider"
 	"manifold/internal/playground/registry"
 	"manifold/internal/playground/worker"
 )
@@ -362,18 +360,4 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-// NewMockService wires an in-memory instance useful for unit tests and fast prototyping.
-func NewMockService(provider provider.Provider) *Service {
-	artifactStore := artifacts.NewInMemoryStore()
-	datasetStore := dataset.NewInMemoryStore()
-	datasetSvc := dataset.NewService(datasetStore)
-	reg := registry.New(registry.NewInMemoryStore())
-	repo := experiment.NewRepository()
-	planner := experiment.NewPlanner(experiment.PlannerConfig{MaxRowsPerShard: 32, MaxVariantsPerShard: 4})
-	exec := worker.NewWorker(provider, artifactStore)
-	evals := eval.NewRunner(eval.NewRegistry(), provider)
-	runStore := NewInMemoryRunStore()
-	return NewService(Config{MaxConcurrentShards: 1}, reg, datasetSvc, repo, planner, exec, evals, runStore)
 }

@@ -124,14 +124,6 @@ type LegacyWorkspaceManager struct {
 	mode    string
 }
 
-// NewLegacyManager creates a LegacyWorkspaceManager with the given workdir.
-func NewLegacyManager(workdir string) *LegacyWorkspaceManager {
-	return &LegacyWorkspaceManager{
-		workdir: workdir,
-		mode:    "legacy",
-	}
-}
-
 // Mode returns "legacy".
 func (m *LegacyWorkspaceManager) Mode() string {
 	return m.mode
@@ -207,10 +199,4 @@ func (m *LegacyWorkspaceManager) Cleanup(ctx context.Context, ws Workspace) erro
 // Deprecated: Use validation.ProjectID directly for new code.
 func ValidateProjectID(projectID string) (string, error) {
 	return validation.ProjectID(projectID)
-}
-
-// ValidateSessionID checks if a session ID is safe for use as a single filesystem path segment.
-// Deprecated: Use validation.SessionID directly for new code.
-func ValidateSessionID(sessionID string) (string, error) {
-	return validation.SessionID(sessionID)
 }

@@ -48,7 +48,9 @@ import (
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
 	"manifold/internal/tools/llmparallel"
+	matrixroomtool "manifold/internal/tools/matrixroom"
 	"manifold/internal/tools/patchtool"
+	pulsetool "manifold/internal/tools/pulse"
 	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/tools/textsplitter"
 	"manifold/internal/tools/tts"
@@ -360,6 +362,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(utility.NewAgentResponseTool())
+	toolRegistry.Register(matrixroomtool.New())
+	toolRegistry.Register(pulsetool.New(mgr.Pulse))
 	toolRegistry.Register(llmparallel.New(httpClient, cfg.OpenAI.BaseURL, cfg.OpenAI.Model, cfg.OpenAI.APIKey))
 	toolRegistry.Register(tts.New(*cfg, httpClient))
 

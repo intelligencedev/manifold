@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/matrix-org/gomatrix"
+
+	persist "manifold/internal/persistence"
+	"manifold/internal/persistence/databases"
+	pulsecore "manifold/internal/pulse"
 )
 
 type config struct {
@@ -28,25 +33,38 @@ type config struct {
 	ManifoldBaseURL           string
 	ManifoldPromptPath        string
 	ManifoldProjectID         string
+	ManifoldSystemPrompt      string
 	ManifoldSessionPrefix     string
 	ManifoldSessionCookie     string
 	ManifoldSessionCookieName string
 	ManifoldAuthBearerToken   string
 
-	SyncTimeoutSeconds    int
-	SyncRetryDelaySeconds int
-	RequestTimeoutSeconds int
+	SyncTimeoutSeconds       int
+	SyncRetryDelaySeconds    int
+	RequestTimeoutSeconds    int
+	PulseEnabled             bool
+	PulsePollIntervalSeconds int
+	PulseLeaseSeconds        int
+	PulseDatabaseDSN         string
 }
 
 type manifoldPromptRequest struct {
-	Prompt    string `json:"prompt"`
-	SessionID string `json:"session_id,omitempty"`
-	ProjectID string `json:"project_id,omitempty"`
+	Prompt       string `json:"prompt"`
+	RoomID       string `json:"room_id,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
+	ProjectID    string `json:"project_id,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
 }
 
 type manifoldPromptResponse struct {
-	Result string `json:"result"`
-	Error  string `json:"error,omitempty"`
+	Result         string                  `json:"result"`
+	Error          string                  `json:"error,omitempty"`
+	MatrixMessages []manifoldMatrixMessage `json:"matrix_messages,omitempty"`
+}
+
+type manifoldMatrixMessage struct {
+	RoomID string `json:"room_id"`
+	Text   string `json:"text"`
 }
 
 func main() {
@@ -63,6 +81,20 @@ func main() {
 	}
 
 	httpClient := &http.Client{Timeout: time.Duration(cfg.RequestTimeoutSeconds) * time.Second}
+
+	var pulseStore persist.PulseStore
+	if cfg.PulseEnabled {
+		pool, err := databases.OpenPool(context.Background(), cfg.PulseDatabaseDSN)
+		if err != nil {
+			log.Fatalf("failed to connect pulse store: %v", err)
+		}
+		defer pool.Close()
+		pulseStore = databases.NewPulseStore(pool)
+		if err := pulseStore.Init(context.Background()); err != nil {
+			log.Fatalf("failed to init pulse store: %v", err)
+		}
+		go runPulseLoop(matrixClient, httpClient, cfg, pulseStore, pulsecore.NewService())
+	}
 
 	log.Printf("manibot started as %s, homeserver=%s, manifold=%s%s", cfg.MatrixBotUserID, cfg.MatrixHomeserverURL, cfg.ManifoldBaseURL, cfg.ManifoldPromptPath)
 
@@ -120,26 +152,25 @@ func main() {
 					continue
 				}
 
-				trimmed := strings.TrimSpace(body)
-				if !strings.HasPrefix(trimmed, cfg.BotPrefix) {
+				prompt, matched := promptFromMessage(body, cfg.BotPrefix)
+				if !matched {
 					continue
 				}
-
-				prompt := strings.TrimSpace(strings.TrimPrefix(trimmed, cfg.BotPrefix))
-				if prompt == "" {
+				if strings.TrimSpace(cfg.BotPrefix) != "" && prompt == "" {
 					_, _ = matrixClient.SendText(roomID, fmt.Sprintf("Usage: %s <your question>", cfg.BotPrefix))
 					continue
 				}
 
 				sessionID := sessionIDForRoom(cfg.ManifoldSessionPrefix, roomID)
-				answer, err := callManifold(httpClient, cfg, sessionID, prompt)
+				projectID := resolveRoomProjectID(context.Background(), pulseStore, roomID, cfg.ManifoldProjectID)
+				response, err := callManifold(httpClient, cfg, roomID, sessionID, projectID, prompt)
 				if err != nil {
 					log.Printf("manifold prompt error (room=%s session=%s): %v", roomID, sessionID, err)
 					_, _ = matrixClient.SendText(roomID, "Sorry, I hit an upstream error talking to Manifold.")
 					continue
 				}
 
-				if _, err := matrixClient.SendText(roomID, answer); err != nil {
+				if _, err := matrixClient.SendText(roomID, response.Result); err != nil {
 					log.Printf("send message error (room=%s): %v", roomID, err)
 				}
 			}
@@ -148,6 +179,11 @@ func main() {
 }
 
 func loadConfig() (config, error) {
+	systemPrompt, err := loadMatrixSystemPrompt()
+	if err != nil {
+		return config{}, err
+	}
+
 	c := config{
 		MatrixHomeserverURL: strings.TrimSpace(os.Getenv("MATRIX_HOMESERVER_URL")),
 		MatrixBotUserID:     strings.TrimSpace(os.Getenv("MATRIX_BOT_USER_ID")),
@@ -158,19 +194,26 @@ func loadConfig() (config, error) {
 		ManifoldBaseURL:           strings.TrimSpace(os.Getenv("MANIFOLD_BASE_URL")),
 		ManifoldPromptPath:        strings.TrimSpace(os.Getenv("MANIFOLD_PROMPT_PATH")),
 		ManifoldProjectID:         strings.TrimSpace(os.Getenv("MANIFOLD_PROJECT_ID")),
+		ManifoldSystemPrompt:      systemPrompt,
 		ManifoldSessionPrefix:     strings.TrimSpace(os.Getenv("MANIFOLD_SESSION_PREFIX")),
 		ManifoldSessionCookie:     strings.TrimSpace(os.Getenv("MANIFOLD_SESSION_COOKIE")),
 		ManifoldSessionCookieName: strings.TrimSpace(os.Getenv("MANIFOLD_SESSION_COOKIE_NAME")),
 		ManifoldAuthBearerToken:   strings.TrimSpace(os.Getenv("MANIFOLD_AUTH_BEARER_TOKEN")),
 
-		SyncTimeoutSeconds:    intEnv("MATRIX_SYNC_TIMEOUT_SECONDS", 30),
-		SyncRetryDelaySeconds: intEnv("MATRIX_SYNC_RETRY_DELAY_SECONDS", 3),
-		RequestTimeoutSeconds: intEnv("MANIFOLD_REQUEST_TIMEOUT_SECONDS", 180),
+		SyncTimeoutSeconds:       intEnv("MATRIX_SYNC_TIMEOUT_SECONDS", 30),
+		SyncRetryDelaySeconds:    intEnv("MATRIX_SYNC_RETRY_DELAY_SECONDS", 3),
+		RequestTimeoutSeconds:    intEnv("MANIFOLD_REQUEST_TIMEOUT_SECONDS", 180),
+		PulseEnabled:             boolEnv("MATRIX_PULSE_ENABLED", false),
+		PulsePollIntervalSeconds: intEnv("MATRIX_PULSE_POLL_INTERVAL_SECONDS", 300),
+		PulseLeaseSeconds:        intEnv("MATRIX_PULSE_LEASE_SECONDS", 240),
+		PulseDatabaseDSN: strings.TrimSpace(firstNonEmpty(
+			os.Getenv("PULSE_DATABASE_DSN"),
+			os.Getenv("DATABASE_URL"),
+			os.Getenv("DB_URL"),
+			os.Getenv("POSTGRES_DSN"),
+		)),
 	}
 
-	if c.BotPrefix == "" {
-		c.BotPrefix = "!bot"
-	}
 	if c.ManifoldBaseURL == "" {
 		c.ManifoldBaseURL = "http://localhost:32180"
 	}
@@ -183,30 +226,38 @@ func loadConfig() (config, error) {
 	if c.ManifoldSessionCookieName == "" {
 		c.ManifoldSessionCookieName = "sio_session"
 	}
+	if c.PulseLeaseSeconds <= 0 {
+		c.PulseLeaseSeconds = c.RequestTimeoutSeconds + 60
+	}
 
 	if c.MatrixHomeserverURL == "" || c.MatrixBotUserID == "" || c.MatrixAccessToken == "" {
 		return c, errors.New("missing required env vars: MATRIX_HOMESERVER_URL, MATRIX_BOT_USER_ID, MATRIX_ACCESS_TOKEN")
+	}
+	if c.PulseEnabled && strings.TrimSpace(c.PulseDatabaseDSN) == "" {
+		return c, errors.New("MATRIX_PULSE_ENABLED requires PULSE_DATABASE_DSN or DATABASE_URL/DB_URL/POSTGRES_DSN")
 	}
 
 	return c, nil
 }
 
-func callManifold(httpClient *http.Client, cfg config, sessionID, prompt string) (string, error) {
+func callManifold(httpClient *http.Client, cfg config, roomID, sessionID, projectID, prompt string) (manifoldPromptResponse, error) {
 	reqBody := manifoldPromptRequest{
-		Prompt:    prompt,
-		SessionID: sessionID,
-		ProjectID: cfg.ManifoldProjectID,
+		Prompt:       prompt,
+		RoomID:       roomID,
+		SessionID:    sessionID,
+		ProjectID:    firstNonEmpty(strings.TrimSpace(projectID), cfg.ManifoldProjectID),
+		SystemPrompt: strings.TrimSpace(cfg.ManifoldSystemPrompt),
 	}
 
 	b, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", err
+		return manifoldPromptResponse{}, err
 	}
 
 	url := strings.TrimRight(cfg.ManifoldBaseURL, "/") + "/" + strings.TrimLeft(cfg.ManifoldPromptPath, "/")
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
 	if err != nil {
-		return "", err
+		return manifoldPromptResponse{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
@@ -220,7 +271,7 @@ func callManifold(httpClient *http.Client, cfg config, sessionID, prompt string)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return manifoldPromptResponse{}, err
 	}
 	defer resp.Body.Close()
 
@@ -231,15 +282,15 @@ func callManifold(httpClient *http.Client, cfg config, sessionID, prompt string)
 	return decodeJSONPromptResponse(resp)
 }
 
-func decodeSSEPromptResponse(resp *http.Response) (string, error) {
+func decodeSSEPromptResponse(resp *http.Response) (manifoldPromptResponse, error) {
 	reader := bufio.NewReader(resp.Body)
-	var final string
+	out := manifoldPromptResponse{}
 	var lastError string
 
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return "", err
+			return manifoldPromptResponse{}, err
 		}
 
 		trimmedLine := strings.TrimSpace(line)
@@ -252,7 +303,10 @@ func decodeSSEPromptResponse(resp *http.Response) (string, error) {
 					switch eventType {
 					case "final":
 						if data, ok := event["data"].(string); ok {
-							final = strings.TrimSpace(data)
+							out.Result = strings.TrimSpace(data)
+						}
+						if rawMessages, ok := event["matrix_messages"].([]any); ok {
+							out.MatrixMessages = decodeMatrixMessages(rawMessages)
 						}
 					case "error":
 						if data, ok := event["data"].(string); ok {
@@ -275,27 +329,27 @@ func decodeSSEPromptResponse(resp *http.Response) (string, error) {
 
 	if resp.StatusCode >= 300 {
 		if lastError != "" {
-			return "", fmt.Errorf("manifold status %d: %s", resp.StatusCode, lastError)
+			return manifoldPromptResponse{}, fmt.Errorf("manifold status %d: %s", resp.StatusCode, lastError)
 		}
-		return "", fmt.Errorf("manifold returned status %d", resp.StatusCode)
+		return manifoldPromptResponse{}, fmt.Errorf("manifold returned status %d", resp.StatusCode)
 	}
 
-	if final != "" {
-		return final, nil
+	if out.Result != "" || len(out.MatrixMessages) > 0 {
+		return out, nil
 	}
 
 	if lastError != "" {
-		return "", fmt.Errorf("manifold stream error: %s", lastError)
+		return manifoldPromptResponse{}, fmt.Errorf("manifold stream error: %s", lastError)
 	}
 
-	return "", errors.New("empty response from manifold stream")
+	return manifoldPromptResponse{}, errors.New("empty response from manifold stream")
 }
 
-func decodeJSONPromptResponse(resp *http.Response) (string, error) {
+func decodeJSONPromptResponse(resp *http.Response) (manifoldPromptResponse, error) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return manifoldPromptResponse{}, err
 	}
 
 	var decoded manifoldPromptResponse
@@ -305,23 +359,58 @@ func decodeJSONPromptResponse(resp *http.Response) (string, error) {
 			if trimmed == "" {
 				trimmed = http.StatusText(resp.StatusCode)
 			}
-			return "", fmt.Errorf("manifold status %d: %s", resp.StatusCode, trimmed)
+			return manifoldPromptResponse{}, fmt.Errorf("manifold status %d: %s", resp.StatusCode, trimmed)
 		}
-		return "", fmt.Errorf("failed to decode manifold response (status=%d): %w", resp.StatusCode, err)
+		return manifoldPromptResponse{}, fmt.Errorf("failed to decode manifold response (status=%d): %w", resp.StatusCode, err)
 	}
 
 	if resp.StatusCode >= 300 {
 		if strings.TrimSpace(decoded.Error) != "" {
-			return "", fmt.Errorf("manifold status %d: %s", resp.StatusCode, decoded.Error)
+			return manifoldPromptResponse{}, fmt.Errorf("manifold status %d: %s", resp.StatusCode, decoded.Error)
 		}
-		return "", fmt.Errorf("manifold returned status %d", resp.StatusCode)
+		return manifoldPromptResponse{}, fmt.Errorf("manifold returned status %d", resp.StatusCode)
 	}
 
-	if strings.TrimSpace(decoded.Result) == "" {
-		return "", errors.New("empty response from manifold")
+	decoded.Result = strings.TrimSpace(decoded.Result)
+	decoded.MatrixMessages = pulseMessages(decoded.MatrixMessages, "")
+	if decoded.Result == "" && len(decoded.MatrixMessages) == 0 {
+		return manifoldPromptResponse{}, errors.New("empty response from manifold")
 	}
 
-	return strings.TrimSpace(decoded.Result), nil
+	return decoded, nil
+}
+
+func decodeMatrixMessages(raw []any) []manifoldMatrixMessage {
+	out := make([]manifoldMatrixMessage, 0, len(raw))
+	for _, item := range raw {
+		decoded, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		roomID, _ := decoded["room_id"].(string)
+		text, _ := decoded["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		out = append(out, manifoldMatrixMessage{RoomID: strings.TrimSpace(roomID), Text: strings.TrimSpace(text)})
+	}
+	return out
+}
+
+func pulseMessages(messages []manifoldMatrixMessage, fallbackRoomID string) []manifoldMatrixMessage {
+	out := make([]manifoldMatrixMessage, 0, len(messages))
+	for _, message := range messages {
+		roomID := strings.TrimSpace(message.RoomID)
+		text := strings.TrimSpace(message.Text)
+		if roomID == "" {
+			roomID = strings.TrimSpace(fallbackRoomID)
+		}
+		if roomID == "" || text == "" {
+			continue
+		}
+		out = append(out, manifoldMatrixMessage{RoomID: roomID, Text: text})
+	}
+	return out
 }
 
 func sessionIDForRoom(prefix, roomID string) string {
@@ -331,6 +420,92 @@ func sessionIDForRoom(prefix, roomID string) string {
 	}
 	namespaceSeed := strings.TrimSpace(prefix) + ":" + cleaned
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(namespaceSeed)).String()
+}
+
+func runPulseLoop(matrixClient *gomatrix.Client, httpClient *http.Client, cfg config, store persist.PulseStore, service *pulsecore.Service) {
+	if store == nil || service == nil {
+		return
+	}
+	interval := time.Duration(cfg.PulsePollIntervalSeconds) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Minute
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	runPulseIteration(matrixClient, httpClient, cfg, store, service)
+	for range ticker.C {
+		runPulseIteration(matrixClient, httpClient, cfg, store, service)
+	}
+}
+
+func runPulseIteration(matrixClient *gomatrix.Client, httpClient *http.Client, cfg config, store persist.PulseStore, service *pulsecore.Service) {
+	ctx := context.Background()
+	rooms, err := store.ListRooms(ctx)
+	if err != nil {
+		log.Printf("pulse list rooms error: %v", err)
+		return
+	}
+	now := time.Now().UTC()
+	for _, room := range rooms {
+		if !room.Enabled {
+			continue
+		}
+		tasks, err := store.ListTasks(ctx, room.RoomID)
+		if err != nil {
+			log.Printf("pulse list tasks error (room=%s): %v", room.RoomID, err)
+			continue
+		}
+		plan := service.EvaluateRoom(now, room, tasks)
+		if len(plan.DueTasks) == 0 {
+			continue
+		}
+		claimToken := uuid.NewString()
+		claimed, err := store.ClaimRoom(ctx, room.RoomID, claimToken, now.Add(time.Duration(cfg.PulseLeaseSeconds)*time.Second))
+		if err != nil {
+			log.Printf("pulse claim error (room=%s): %v", room.RoomID, err)
+			continue
+		}
+		if !claimed {
+			continue
+		}
+
+		prompt := service.BuildPrompt(now, plan, time.Duration(cfg.PulsePollIntervalSeconds)*time.Second)
+		sessionID := pulsecore.PulseSessionID(cfg.ManifoldSessionPrefix, room.RoomID)
+		projectID := firstNonEmpty(strings.TrimSpace(room.ProjectID), cfg.ManifoldProjectID)
+		response, runErr := callManifold(httpClient, cfg, room.RoomID, sessionID, projectID, prompt)
+		pulseErr := ""
+		dueTaskIDs := []string{}
+		if runErr != nil {
+			pulseErr = runErr.Error()
+			log.Printf("pulse manifold error (room=%s session=%s): %v", room.RoomID, sessionID, runErr)
+		} else {
+			for _, task := range plan.DueTasks {
+				dueTaskIDs = append(dueTaskIDs, task.ID)
+			}
+			for _, message := range pulseMessages(response.MatrixMessages, room.RoomID) {
+				if _, err := matrixClient.SendText(message.RoomID, message.Text); err != nil {
+					pulseErr = err.Error()
+					log.Printf("pulse send message error (room=%s): %v", message.RoomID, err)
+					break
+				}
+			}
+		}
+		if err := store.CompleteRoomPulse(ctx, room.RoomID, claimToken, time.Now().UTC(), response.Result, pulseErr, dueTaskIDs); err != nil {
+			log.Printf("pulse completion error (room=%s): %v", room.RoomID, err)
+		}
+	}
+}
+
+func resolveRoomProjectID(ctx context.Context, store persist.PulseStore, roomID, fallback string) string {
+	if store == nil {
+		return fallback
+	}
+	room, err := store.GetRoom(ctx, roomID)
+	if err != nil {
+		return fallback
+	}
+	return firstNonEmpty(strings.TrimSpace(room.ProjectID), fallback)
 }
 
 func intEnv(name string, fallback int) int {
@@ -355,4 +530,13 @@ func boolEnv(name string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

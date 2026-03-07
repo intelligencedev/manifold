@@ -710,11 +710,13 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			Prompt    string `json:"prompt"`
-			SessionID string `json:"session_id,omitempty"`
-			ProjectID string `json:"project_id,omitempty"`
-			Image     bool   `json:"image,omitempty"`
-			ImageSize string `json:"image_size,omitempty"`
+			Prompt       string `json:"prompt"`
+			SessionID    string `json:"session_id,omitempty"`
+			ProjectID    string `json:"project_id,omitempty"`
+			RoomID       string `json:"room_id,omitempty"`
+			SystemPrompt string `json:"system_prompt,omitempty"`
+			Image        bool   `json:"image,omitempty"`
+			ImageSize    string `json:"image_size,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
@@ -761,6 +763,11 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 
 		// Attach session ID to context so tools like ask_agent can inherit it.
 		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
+		if roomID := strings.TrimSpace(req.RoomID); roomID != "" {
+			ctx := sandbox.WithRoomID(r.Context(), roomID)
+			ctx = sandbox.WithMatrixOutbox(ctx, sandbox.NewMatrixOutbox())
+			r = r.WithContext(ctx)
+		}
 
 		// Forward auth cookie to context so tools like delegate_to_team can authenticate
 		// internal service calls.
@@ -1218,11 +1225,13 @@ func (a *app) promptHandler() http.HandlerFunc {
 		defer r.Body.Close()
 
 		var req struct {
-			Prompt    string `json:"prompt"`
-			SessionID string `json:"session_id,omitempty"`
-			ProjectID string `json:"project_id,omitempty"`
-			Image     bool   `json:"image,omitempty"`
-			ImageSize string `json:"image_size,omitempty"`
+			Prompt       string `json:"prompt"`
+			SessionID    string `json:"session_id,omitempty"`
+			ProjectID    string `json:"project_id,omitempty"`
+			RoomID       string `json:"room_id,omitempty"`
+			SystemPrompt string `json:"system_prompt,omitempty"`
+			Image        bool   `json:"image,omitempty"`
+			ImageSize    string `json:"image_size,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Printf("decode prompt: %v", err)
@@ -1235,6 +1244,11 @@ func (a *app) promptHandler() http.HandlerFunc {
 
 		// Attach session ID to context so tools like ask_agent can inherit it.
 		r = r.WithContext(sandbox.WithSessionID(r.Context(), req.SessionID))
+		if roomID := strings.TrimSpace(req.RoomID); roomID != "" {
+			ctx := sandbox.WithRoomID(r.Context(), roomID)
+			ctx = sandbox.WithMatrixOutbox(ctx, sandbox.NewMatrixOutbox())
+			r = r.WithContext(ctx)
+		}
 
 		// Forward auth cookie to context so tools like delegate_to_team can authenticate
 		// internal service calls.
@@ -1332,6 +1346,9 @@ func (a *app) promptHandler() http.HandlerFunc {
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
 			return
+		}
+		if override := strings.TrimSpace(req.SystemPrompt); override != "" {
+			eng.System = a.composeSystemPromptForUserWithOverride(r.Context(), orchUserID, override)
 		}
 		ctx := llm.WithUserID(r.Context(), orchUserID)
 
@@ -1471,7 +1488,12 @@ func (a *app) promptHandler() http.HandlerFunc {
 			if len(savedImages) > 0 {
 				res = appendImageSummary(res, savedImages)
 			}
-			payload := map[string]string{"type": "final", "data": res}
+			payload := map[string]any{"type": "final", "data": res}
+			if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
+				if messages := outbox.Messages(); len(messages) > 0 {
+					payload["matrix_messages"] = messages
+				}
+			}
 			b, _ := json.Marshal(payload)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			fl.Flush()
@@ -1525,8 +1547,14 @@ func (a *app) promptHandler() http.HandlerFunc {
 		if len(savedImages) > 0 {
 			result = appendImageSummary(result, savedImages)
 		}
+		response := map[string]any{"result": result}
+		if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
+			if messages := outbox.Messages(); len(messages) > 0 {
+				response["matrix_messages"] = messages
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"result": result})
+		json.NewEncoder(w).Encode(response)
 		// Commit workspace changes after successful run
 		a.commitWorkspace(ctx, checkedOutWorkspace)
 	}

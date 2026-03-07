@@ -83,5 +83,28 @@ Optional variables:
 - `MANIFOLD_REQUEST_TIMEOUT_SECONDS` (default: `180`)
 - `MATRIX_SYNC_TIMEOUT_SECONDS` (default: `30`)
 - `MATRIX_SYNC_RETRY_DELAY_SECONDS` (default: `3`)
+- `MATRIX_PULSE_ENABLED` (default: `false`; enables the background pulse loop)
+- `MATRIX_PULSE_POLL_INTERVAL_SECONDS` (default: `300`; how often the bot checks all room task lists)
+- `MATRIX_PULSE_LEASE_SECONDS` (default: `MANIFOLD_REQUEST_TIMEOUT_SECONDS + 60`; claim window to prevent duplicate pulse runs)
+- `PULSE_DATABASE_DSN` (required when pulse is enabled unless one of `DATABASE_URL`, `DB_URL`, or `POSTGRES_DSN` is already set)
 - `MANIFOLD_SESSION_COOKIE` and `MANIFOLD_SESSION_COOKIE_NAME` (for auth-enabled agentd cookie auth)
 - `MANIFOLD_AUTH_BEARER_TOKEN` (optional bearer header passthrough)
+
+### Matrix Pulse Automation
+
+`manibot` can run a background pulse loop that checks room-scoped recurring tasks and submits due work to the Manifold orchestrator as an automated prompt.
+
+Operator model:
+
+- Pulse is room-scoped. Each Matrix room has its own task list.
+- Pulse runs use a separate session from normal room chat, so automated context does not pollute human chat history.
+- Due-task state is persisted in the shared database and claimed with a lease so multiple bot instances do not run the same room pulse simultaneously.
+- The agent can manage tasks through the `pulse_tasks` tool during both manual chat runs and automated pulse runs.
+
+Recommended setup:
+
+- Enable pulse only when `manibot` can reach the same Postgres database used by Manifold persistence.
+- Set `PULSE_DATABASE_DSN` explicitly in deployments where the bot process does not already inherit `DATABASE_URL`.
+- Keep `MATRIX_PULSE_POLL_INTERVAL_SECONDS` shorter than the longest task cadence you care about; per-task intervals are enforced independently of the poll interval.
+
+The `pulse_tasks` tool currently supports `list`, `configure_room`, `upsert_task`, `delete_task`, `enable_task`, `disable_task`, and `set_interval`.

@@ -35,6 +35,50 @@ type UserPreferencesStore interface {
 	SetActiveProject(ctx context.Context, userID int64, projectID string) error
 }
 
+// PulseRoom stores per-Matrix-room automation settings.
+type PulseRoom struct {
+	RoomID               string    `json:"roomId"`
+	ProjectID            string    `json:"projectId,omitempty"`
+	Enabled              bool      `json:"enabled"`
+	Revision             int64     `json:"revision"`
+	ActiveClaimToken     string    `json:"activeClaimToken,omitempty"`
+	ActiveClaimUntil     time.Time `json:"activeClaimUntil,omitempty"`
+	LastPulseAttemptAt   time.Time `json:"lastPulseAttemptAt,omitempty"`
+	LastPulseCompletedAt time.Time `json:"lastPulseCompletedAt,omitempty"`
+	LastPulseSummary     string    `json:"lastPulseSummary,omitempty"`
+	LastPulseError       string    `json:"lastPulseError,omitempty"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
+}
+
+// PulseTask stores a recurring automated task for a Matrix room.
+type PulseTask struct {
+	ID                string    `json:"id"`
+	RoomID            string    `json:"roomId"`
+	Title             string    `json:"title"`
+	Prompt            string    `json:"prompt"`
+	IntervalSeconds   int       `json:"intervalSeconds"`
+	Enabled           bool      `json:"enabled"`
+	LastRunAt         time.Time `json:"lastRunAt,omitempty"`
+	LastResultSummary string    `json:"lastResultSummary,omitempty"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+}
+
+// PulseStore persists room-scoped automation tasks used by the Matrix pulse loop.
+type PulseStore interface {
+	Init(ctx context.Context) error
+	EnsureRoom(ctx context.Context, roomID string) (PulseRoom, error)
+	GetRoom(ctx context.Context, roomID string) (PulseRoom, error)
+	ListRooms(ctx context.Context) ([]PulseRoom, error)
+	UpsertRoom(ctx context.Context, room PulseRoom) (PulseRoom, error)
+	ListTasks(ctx context.Context, roomID string) ([]PulseTask, error)
+	UpsertTask(ctx context.Context, task PulseTask) (PulseTask, error)
+	DeleteTask(ctx context.Context, roomID, taskID string) error
+	ClaimRoom(ctx context.Context, roomID, token string, leaseUntil time.Time) (bool, error)
+	CompleteRoomPulse(ctx context.Context, roomID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
+}
+
 // Specialist represents a stored specialist configuration for CRUD.
 type Specialist struct {
 	ID          int64  `json:"id"`

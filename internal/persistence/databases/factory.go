@@ -229,6 +229,23 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 	}
 	m.UserPreferences = userPrefsStore
 
+	// Pulse Store
+	// Use default DSN if available, otherwise memory.
+	var pulseStore persistence.PulseStore
+	if cfg.DefaultDSN != "" {
+		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
+			pulseStore = NewPulseStore(p)
+		} else {
+			pulseStore = NewPulseStore(nil)
+		}
+	} else {
+		pulseStore = NewPulseStore(nil)
+	}
+	if err := pulseStore.Init(ctx); err != nil {
+		return Manager{}, fmt.Errorf("init pulse store: %w", err)
+	}
+	m.Pulse = pulseStore
+
 	return m, nil
 }
 

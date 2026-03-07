@@ -67,6 +67,7 @@ type Manager struct {
 	MCP             persistence.MCPStore
 	Projects        persistence.ProjectsStore
 	UserPreferences persistence.UserPreferencesStore
+	Pulse           persistence.PulseStore
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -96,6 +97,9 @@ func (m Manager) Close() {
 		c.Close()
 	}
 	if c, ok := any(m.UserPreferences).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.Pulse).(interface{ Close() }); ok {
 		c.Close()
 	}
 }

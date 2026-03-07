@@ -84,6 +84,10 @@ func (t *AskAgentTool) JSONSchema() map[string]any {
 					"type":        "string",
 					"description": "Optional project ID to scope the remote agent's sandbox (passed through to /agent/run). This must be the project ID/UUID, not the display name.",
 				},
+				"room_id": map[string]any{
+					"type":        "string",
+					"description": "Optional Matrix room ID to preserve room-scoped tools like pulse_tasks.",
+				},
 				"timeout_ms": map[string]any{
 					"type":        "integer",
 					"description": "Optional timeout in milliseconds for the HTTP call.",
@@ -102,6 +106,7 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		TimeoutMS int           `json:"timeout_ms"`
 		SessionID string        `json:"session_id"`
 		ProjectID string        `json:"project_id"`
+		RoomID    string        `json:"room_id"`
 	}
 	// Handle empty or nil JSON gracefully
 	if len(raw) == 0 {
@@ -142,6 +147,12 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 			projectID = ctxPID
 		}
 	}
+	roomID := strings.TrimSpace(args.RoomID)
+	if roomID == "" {
+		if ctxRID, ok := sandbox.RoomIDFromContext(ctx); ok {
+			roomID = ctxRID
+		}
+	}
 
 	body := map[string]any{"prompt": args.Prompt, "session_id": sessionID}
 	if len(args.History) > 0 {
@@ -149,6 +160,9 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 	if projectID != "" {
 		body["project_id"] = projectID
+	}
+	if roomID != "" {
+		body["room_id"] = roomID
 	}
 	b, _ := json.Marshal(body)
 	// Build endpoint URL; force non-stream JSON via stream=0; include specialist when provided

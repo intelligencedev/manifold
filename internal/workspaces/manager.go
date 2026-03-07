@@ -24,8 +24,9 @@ var ErrInvalidSessionID = validation.ErrInvalidSessionID
 var ErrProjectNotFound = errors.New("project not found")
 
 // SkillsInvalidationFunc is called when skills need to be invalidated for a project.
-// Local-only builds keep this as a no-op hook for compatibility.
-type SkillsInvalidationFunc func(projectID string)
+// The callback receives the cache key to invalidate, which may be a logical
+// project ID or a workspace path fallback.
+type SkillsInvalidationFunc func(cacheKey string)
 
 // globalSkillsInvalidator can be set by the skills package during initialization.
 var globalSkillsInvalidator SkillsInvalidationFunc
@@ -34,6 +35,24 @@ var globalSkillsInvalidator SkillsInvalidationFunc
 // In local-only mode this is optional and may be unused.
 func SetSkillsInvalidator(fn SkillsInvalidationFunc) {
 	globalSkillsInvalidator = fn
+}
+
+func notifySkillsInvalidation(ws Workspace) {
+	if globalSkillsInvalidator == nil {
+		return
+	}
+
+	seen := make(map[string]struct{}, 2)
+	for _, cacheKey := range []string{ws.ProjectID, ws.BaseDir} {
+		if cacheKey == "" {
+			continue
+		}
+		if _, ok := seen[cacheKey]; ok {
+			continue
+		}
+		seen[cacheKey] = struct{}{}
+		globalSkillsInvalidator(cacheKey)
+	}
 }
 
 // CheckoutCallback is called after a workspace is successfully checked out.
@@ -174,6 +193,7 @@ func (m *LegacyWorkspaceManager) Checkout(ctx context.Context, userID int64, pro
 
 // Commit is a no-op for legacy workspaces since changes are written directly to disk.
 func (m *LegacyWorkspaceManager) Commit(ctx context.Context, ws Workspace) error {
+	notifySkillsInvalidation(ws)
 	return nil
 }
 

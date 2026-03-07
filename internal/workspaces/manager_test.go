@@ -131,6 +131,31 @@ func TestLegacyWorkspaceManager_Commit_Noop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestLegacyWorkspaceManager_Commit_InvalidatesSkillsCache(t *testing.T) {
+	mgr := NewLegacyManager("/tmp/test-workdir")
+	previous := globalSkillsInvalidator
+	t.Cleanup(func() {
+		globalSkillsInvalidator = previous
+	})
+
+	var invalidated []string
+	SetSkillsInvalidator(func(cacheKey string) {
+		invalidated = append(invalidated, cacheKey)
+	})
+
+	ws := Workspace{
+		UserID:    123,
+		ProjectID: "test-project",
+		SessionID: "session-1",
+		BaseDir:   "/tmp/test-workdir/users/123/projects/test-project",
+		Mode:      "legacy",
+	}
+
+	err := mgr.Commit(context.Background(), ws)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"test-project", "/tmp/test-workdir/users/123/projects/test-project"}, invalidated)
+}
+
 func TestLegacyWorkspaceManager_Cleanup_Noop(t *testing.T) {
 	mgr := NewLegacyManager("/tmp/test-workdir")
 

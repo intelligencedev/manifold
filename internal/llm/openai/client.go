@@ -1868,11 +1868,6 @@ func adaptResponsesInputWithLimit(msgs []llm.Message, toolOutputMaxChars int) (i
 	}
 	return items, instructions
 }
-
-func adaptResponsesInputWithImages(msgs []llm.Message, images []ImageAttachment) (items rs.ResponseInputParam, instructions string) {
-	return adaptResponsesInputWithImagesAndLimit(msgs, images, maxResponsesToolOutputChars)
-}
-
 func adaptResponsesInputWithImagesAndLimit(msgs []llm.Message, images []ImageAttachment, toolOutputMaxChars int) (items rs.ResponseInputParam, instructions string) {
 	if len(images) == 0 {
 		return adaptResponsesInputWithLimit(msgs, toolOutputMaxChars)

@@ -6,11 +6,24 @@ import (
 	"time"
 )
 
+func resetTokenMetricsStateForTest() {
+	totalsMu.Lock()
+	defer totalsMu.Unlock()
+	modelTotals = map[string]struct{ Prompt, Completion int64 }{}
+	modelBuckets = map[string]map[int64]*tokenBucket{}
+}
+
+func resetTraceMetricsStateForTest() {
+	tracesMu.Lock()
+	defer tracesMu.Unlock()
+	traceRecords = nil
+}
+
 func TestTokenTotalsForWindow(t *testing.T) {
-	resetTokenMetricsState()
-	defer resetTokenMetricsState()
-	resetTraceMetricsState()
-	defer resetTraceMetricsState()
+	resetTokenMetricsStateForTest()
+	defer resetTokenMetricsStateForTest()
+	resetTraceMetricsStateForTest()
+	defer resetTraceMetricsStateForTest()
 
 	base := time.Date(2024, 1, 12, 12, 0, 0, 0, time.UTC)
 	prevNow := timeNow
@@ -45,10 +58,10 @@ func TestTokenTotalsForWindow(t *testing.T) {
 }
 
 func TestTokenTotalsRetention(t *testing.T) {
-	resetTokenMetricsState()
-	defer resetTokenMetricsState()
-	resetTraceMetricsState()
-	defer resetTraceMetricsState()
+	resetTokenMetricsStateForTest()
+	defer resetTokenMetricsStateForTest()
+	resetTraceMetricsStateForTest()
+	defer resetTraceMetricsStateForTest()
 
 	base := time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC)
 	prevNow := timeNow
@@ -74,8 +87,8 @@ func TestTokenTotalsRetention(t *testing.T) {
 }
 
 func TestTracesForWindow(t *testing.T) {
-	resetTraceMetricsState()
-	defer resetTraceMetricsState()
+	resetTraceMetricsStateForTest()
+	defer resetTraceMetricsStateForTest()
 
 	base := time.Date(2024, 4, 10, 10, 0, 0, 0, time.UTC)
 	prevNow := timeNow
@@ -116,8 +129,8 @@ func TestTracesForWindow(t *testing.T) {
 }
 
 func TestTraceRetentionAndLimit(t *testing.T) {
-	resetTraceMetricsState()
-	defer resetTraceMetricsState()
+	resetTraceMetricsStateForTest()
+	defer resetTraceMetricsStateForTest()
 
 	base := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
 	prevNow := timeNow

@@ -2,27 +2,6 @@ package agentd
 
 import "testing"
 
-func TestSanitizeGeneratedTitle(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{name: "strips quotes and whitespace", input: "\"  Launch Plan\nOverview  \"", expected: "Launch Plan Overview"},
-		{name: "truncates long titles", input: "This is a very long proposed title that should be trimmed at some point", expected: truncateRunes("This is a very long proposed title that should be trimmed at some point", chatTitleMaxRunes)},
-		{name: "removes punctuation", input: "-Deep Dive!?", expected: "Deep Dive"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := sanitizeGeneratedTitle(tc.input)
-			if got != tc.expected {
-				t.Fatalf("sanitizeGeneratedTitle(%q) = %q, want %q", tc.input, got, tc.expected)
-			}
-		})
-	}
-}
-
 func TestFallbackChatTitle(t *testing.T) {
 	testCases := []struct {
 		name     string

@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -477,12 +476,6 @@ func formatExperience(entry *MemoryEntry) string {
 	return s
 }
 
-// Evolve implements U(M_t, m_t): update memory with new experience.
-// This appends the new entry and optionally prunes if max size is exceeded.
-func (em *EvolvingMemory) Evolve(ctx context.Context, input, output, feedback string) error {
-	return em.EvolveEnhanced(ctx, input, output, feedback, nil, nil, "")
-}
-
 // EvolveEnhanced is the full-featured Evolve that accepts structured feedback,
 // reasoning trace, and strategy card. This implements the paper's complete
 // experience storage with distinction between factual and procedural memory.
@@ -524,7 +517,7 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	}
 
 	// Classify memory type based on content analysis
-	memType := em.classifyMemoryType(ctx, input, output, summary)
+	memType := em.classifyMemoryType(input, output, summary)
 
 	// Build raw trace from reasoning trace
 	rawTrace := ""
@@ -605,7 +598,7 @@ func (em *EvolvingMemory) EvolveEnhanced(
 
 // classifyMemoryType determines if the memory is factual, procedural, or episodic.
 // This implements the paper's distinction between conversational recall and experience reuse.
-func (em *EvolvingMemory) classifyMemoryType(ctx context.Context, input, output, summary string) MemoryType {
+func (em *EvolvingMemory) classifyMemoryType(input, output, summary string) MemoryType {
 	// Simple heuristic-based classification
 	// In production, this could use an LLM call for more accurate classification
 
@@ -972,216 +965,7 @@ func (em *EvolvingMemory) updateTag(ids []string, tag string) {
 	}
 }
 
-// ExportMemories returns all memory entries (for debugging/persistence).
+// ExportMemories returns all memory entries for inspection endpoints.
 func (em *EvolvingMemory) ExportMemories() []*MemoryEntry {
 	return em.entries
-}
-
-// ImportMemories loads memory entries (for persistence/restore).
-func (em *EvolvingMemory) ImportMemories(entries []*MemoryEntry) {
-	em.entries = entries
-}
-
-// MarshalJSON serializes the memory state.
-func (em *EvolvingMemory) MarshalJSON() ([]byte, error) {
-	return json.Marshal(em.entries)
-}
-
-// UnmarshalJSON deserializes the memory state.
-func (em *EvolvingMemory) UnmarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &em.entries)
-}
-
-// TaskSimilarityMetrics provides analysis of task similarity within the memory.
-// This implements the paper's analysis of within-dataset task similarity correlation
-// with memory improvement effectiveness.
-type TaskSimilarityMetrics struct {
-	AverageSimilarity     float64            `json:"average_similarity"`  // Mean pairwise similarity
-	ClusterRatio          float64            `json:"cluster_ratio"`       // Higher = more clustered/similar
-	DomainDistribution    map[string]int     `json:"domain_distribution"` // Count by domain
-	TypeDistribution      map[MemoryType]int `json:"type_distribution"`   // Count by memory type
-	TotalEntries          int                `json:"total_entries"`
-	EntriesWithEmbedding  int                `json:"entries_with_embedding"`
-	PruningRecommendation string             `json:"pruning_recommendation"` // Suggested pruning action
-}
-
-// ComputeTaskSimilarityMetrics analyzes the memory store for task similarity patterns.
-// Higher similarity scores suggest the memory can benefit more from experience reuse.
-func (em *EvolvingMemory) ComputeTaskSimilarityMetrics(ctx context.Context) (*TaskSimilarityMetrics, error) {
-	em.mu.RLock()
-	defer em.mu.RUnlock()
-
-	metrics := &TaskSimilarityMetrics{
-		DomainDistribution: make(map[string]int),
-		TypeDistribution:   make(map[MemoryType]int),
-		TotalEntries:       len(em.entries),
-	}
-
-	if len(em.entries) == 0 {
-		return metrics, nil
-	}
-
-	// Collect entries with embeddings and count distributions
-	var entriesWithEmbed []*MemoryEntry
-	for _, e := range em.entries {
-		// Count by type
-		metrics.TypeDistribution[e.MemoryType]++
-
-		// Count by domain
-		if domain, ok := e.Metadata["domain"].(string); ok {
-			metrics.DomainDistribution[domain]++
-		}
-
-		if len(e.Embedding) > 0 {
-			entriesWithEmbed = append(entriesWithEmbed, e)
-		}
-	}
-	metrics.EntriesWithEmbedding = len(entriesWithEmbed)
-
-	if len(entriesWithEmbed) < 2 {
-		metrics.PruningRecommendation = "insufficient entries for similarity analysis"
-		return metrics, nil
-	}
-
-	// Compute pairwise similarities (sample if too many)
-	maxPairs := 1000 // limit computation for large stores
-	var totalSim float64
-	var pairCount int
-
-	// For small stores, compute all pairs; for large, sample
-	if len(entriesWithEmbed) <= 50 {
-		// Full pairwise computation
-		for i := 0; i < len(entriesWithEmbed); i++ {
-			for j := i + 1; j < len(entriesWithEmbed); j++ {
-				sim := cosineSimilarity(entriesWithEmbed[i].Embedding, entriesWithEmbed[j].Embedding)
-				totalSim += sim
-				pairCount++
-			}
-		}
-	} else {
-		// Sample-based estimation
-		for p := 0; p < maxPairs; p++ {
-			i := p % len(entriesWithEmbed)
-			j := (p*7 + 13) % len(entriesWithEmbed) // pseudo-random different index
-			if i == j {
-				j = (j + 1) % len(entriesWithEmbed)
-			}
-			sim := cosineSimilarity(entriesWithEmbed[i].Embedding, entriesWithEmbed[j].Embedding)
-			totalSim += sim
-			pairCount++
-		}
-	}
-
-	if pairCount > 0 {
-		metrics.AverageSimilarity = totalSim / float64(pairCount)
-	}
-
-	// Compute cluster ratio: compare average similarity to expected random similarity (~0.0 for normalized embeddings)
-	// Higher ratio means more clustered/coherent tasks
-	metrics.ClusterRatio = metrics.AverageSimilarity * 10 // Scale for readability
-
-	// Generate pruning recommendation based on metrics
-	if metrics.AverageSimilarity > 0.8 {
-		metrics.PruningRecommendation = "high similarity detected - consider aggressive smart pruning to merge duplicates"
-	} else if metrics.AverageSimilarity > 0.5 {
-		metrics.PruningRecommendation = "moderate similarity - smart pruning will be effective for experience reuse"
-	} else if metrics.AverageSimilarity > 0.3 {
-		metrics.PruningRecommendation = "diverse tasks - maintain larger memory for broader coverage"
-	} else {
-		metrics.PruningRecommendation = "low similarity - tasks are diverse, focus on domain-specific retrieval"
-	}
-
-	return metrics, nil
-}
-
-// GetMemoryStats returns aggregate statistics about the memory store.
-func (em *EvolvingMemory) GetMemoryStats() map[string]interface{} {
-	em.mu.RLock()
-	defer em.mu.RUnlock()
-
-	stats := map[string]interface{}{
-		"total_entries":   len(em.entries),
-		"max_size":        em.maxSize,
-		"top_k":           em.topK,
-		"window_size":     em.windowSz,
-		"smart_prune":     em.enableSmartPrune,
-		"prune_threshold": em.pruneThreshold,
-		"relevance_decay": em.relevanceDecay,
-		"min_relevance":   em.minRelevance,
-	}
-
-	// Count by type
-	typeCounts := make(map[MemoryType]int)
-	var totalAccess int
-	var entriesWithStrategyCard int
-	var entriesWithStructuredFB int
-
-	for _, e := range em.entries {
-		typeCounts[e.MemoryType]++
-		totalAccess += e.AccessCount
-		if e.StrategyCard != "" {
-			entriesWithStrategyCard++
-		}
-		if e.StructuredFeedback != nil {
-			entriesWithStructuredFB++
-		}
-	}
-
-	stats["type_distribution"] = typeCounts
-	stats["total_accesses"] = totalAccess
-	stats["entries_with_strategy_card"] = entriesWithStrategyCard
-	stats["entries_with_structured_feedback"] = entriesWithStructuredFB
-
-	if len(em.entries) > 0 {
-		stats["avg_accesses_per_entry"] = float64(totalAccess) / float64(len(em.entries))
-	}
-
-	return stats
-}
-
-// SearchByType retrieves memories filtered by memory type.
-// Useful for distinguishing between procedural (how-to) and factual (what) recall.
-func (em *EvolvingMemory) SearchByType(ctx context.Context, query string, memType MemoryType) ([]*MemoryEntry, error) {
-	all, err := em.Search(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	var filtered []*MemoryEntry
-	for _, e := range all {
-		if e.MemoryType == memType {
-			filtered = append(filtered, e)
-		}
-	}
-	return filtered, nil
-}
-
-// GetProceduralMemories returns only procedural/strategic memories.
-// These represent "how-to" knowledge suitable for experience reuse.
-func (em *EvolvingMemory) GetProceduralMemories() []*MemoryEntry {
-	em.mu.RLock()
-	defer em.mu.RUnlock()
-
-	var procedural []*MemoryEntry
-	for _, e := range em.entries {
-		if e.MemoryType == MemoryProcedural {
-			procedural = append(procedural, e)
-		}
-	}
-	return procedural
-}
-
-// GetFactualMemories returns only factual memories.
-// These represent "what" knowledge suitable for conversational recall.
-func (em *EvolvingMemory) GetFactualMemories() []*MemoryEntry {
-	em.mu.RLock()
-	defer em.mu.RUnlock()
-
-	var factual []*MemoryEntry
-	for _, e := range em.entries {
-		if e.MemoryType == MemoryFactual {
-			factual = append(factual, e)
-		}
-	}
-	return factual
 }

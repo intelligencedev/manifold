@@ -242,11 +242,12 @@ that can be reused for similar tasks. Format: "When confronted with <pattern>, d
 
 	user := fmt.Sprintf(`Task: %s
 Outcome: %s
+Output: %s
 Reasoning trace:
 %s
 
 Produce a strategy card (max 100 words).`,
-		truncate(task, 200), feedback, traceText)
+		truncate(task, 200), feedback, truncate(output, 300), traceText)
 
 	msgs := []llm.Message{
 		{Role: "system", Content: sys},

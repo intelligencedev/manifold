@@ -2,7 +2,6 @@ package specialists
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"sort"
@@ -277,12 +276,6 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	}
 
 	if a.EnableTools && a.tools != nil {
-		var sink ToolSink
-		if v := ctx.Value(toolSinkKey{}); v != nil {
-			if f, ok := v.(ToolSink); ok {
-				sink = f
-			}
-		}
 		msg, err := callWithOptions(ctx, msgs, schemas)
 		if err != nil {
 			return "", err
@@ -295,9 +288,6 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 		payload, err := a.tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
 		if err != nil {
 			payload = []byte("{" + strconv.Quote("error") + ":" + strconv.Quote(err.Error()) + "}")
-		}
-		if sink != nil {
-			sink(tc.Name, payload, tc.Args)
 		}
 		return string(payload), nil
 	}
@@ -345,15 +335,6 @@ func (a *Agent) mergedExtraParams() map[string]any {
 		extra["reasoning_effort"] = a.ReasoningEffort
 	}
 	return extra
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func combineSystemPrompts(base, addition string) string {
@@ -414,12 +395,4 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		r.Header.Set(k, v)
 	}
 	return t.base.RoundTrip(r)
-}
-
-// Tool sink plumbing to surface specialist tool calls to UIs
-type ToolSink func(name string, payload []byte, args json.RawMessage)
-type toolSinkKey struct{}
-
-func WithToolSink(ctx context.Context, sink ToolSink) context.Context {
-	return context.WithValue(ctx, toolSinkKey{}, sink)
 }

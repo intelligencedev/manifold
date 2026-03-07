@@ -1553,10 +1553,6 @@ const (
 	responsesMinInputBudgetTokens        = 8_000
 )
 
-func boundedResponsesToolOutput(content string) string {
-	return boundedResponsesToolOutputWithLimit(content, maxResponsesToolOutputChars)
-}
-
 func boundedResponsesToolOutputWithLimit(content string, maxChars int) string {
 	out := strings.TrimSpace(content)
 	if out == "" {
@@ -1793,11 +1789,6 @@ func adaptResponsesTools(schemas []llm.ToolSchema) []rs.ToolUnionParam {
 	return out
 }
 
-// adaptResponsesInput builds the Responses Input item list and returns any combined instructions.
-func adaptResponsesInput(msgs []llm.Message) (items rs.ResponseInputParam, instructions string) {
-	return adaptResponsesInputWithLimit(msgs, maxResponsesToolOutputChars)
-}
-
 func adaptResponsesInputWithLimit(msgs []llm.Message, toolOutputMaxChars int) (items rs.ResponseInputParam, instructions string) {
 	// The Responses API requires each function_call_output item to correspond to a
 	// function_call item with the same call_id in the provided input.
@@ -1868,11 +1859,6 @@ func adaptResponsesInputWithLimit(msgs []llm.Message, toolOutputMaxChars int) (i
 	}
 	return items, instructions
 }
-
-func adaptResponsesInputWithImages(msgs []llm.Message, images []ImageAttachment) (items rs.ResponseInputParam, instructions string) {
-	return adaptResponsesInputWithImagesAndLimit(msgs, images, maxResponsesToolOutputChars)
-}
-
 func adaptResponsesInputWithImagesAndLimit(msgs []llm.Message, images []ImageAttachment, toolOutputMaxChars int) (items rs.ResponseInputParam, instructions string) {
 	if len(images) == 0 {
 		return adaptResponsesInputWithLimit(msgs, toolOutputMaxChars)
@@ -2593,10 +2579,6 @@ func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, 
 		}
 	}
 	return nil, errors.New("responses compact returned no compaction item")
-}
-
-func buildCompactionInput(msgs []llm.Message, previous *llm.CompactionItem) ([]any, string) {
-	return buildCompactionInputWithLimit(msgs, previous, maxResponsesToolOutputChars)
 }
 
 func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionItem, toolOutputMaxChars int) ([]any, string) {

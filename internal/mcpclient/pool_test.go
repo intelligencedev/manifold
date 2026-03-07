@@ -133,9 +133,8 @@ func TestMCPServerPool_SimpleMode_SkipsPerUserSetup(t *testing.T) {
 		t.Errorf("EnsureUserSession() error = %v, want nil", err)
 	}
 
-	// Should not have any per-user sessions
-	if pool.ActiveUserCount() != 0 {
-		t.Errorf("ActiveUserCount() = %d, want 0", pool.ActiveUserCount())
+	if got := len(pool.perUser); got != 0 {
+		t.Errorf("len(pool.perUser) = %d, want 0", got)
 	}
 }
 
@@ -167,16 +166,12 @@ func TestMCPServerPool_PathDependentServerCategorization(t *testing.T) {
 }
 
 func TestMCPServerPool_UserSessionTracking(t *testing.T) {
-	pool := &MCPServerPool{
-		perUser: make(map[int64]*userMCPState),
-	}
+	pool := &MCPServerPool{perUser: make(map[int64]*userMCPState)}
 
-	// Initially no sessions
-	if pool.UserHasSession(1) {
+	if _, exists := pool.perUser[1]; exists {
 		t.Error("Expected no session for user 1")
 	}
 
-	// Add a session
 	pool.perUser[1] = &userMCPState{
 		projectID:     "proj-a",
 		workspacePath: "/tmp/ws/1",
@@ -184,37 +179,14 @@ func TestMCPServerPool_UserSessionTracking(t *testing.T) {
 		manager:       NewManager(),
 	}
 
-	// Check session exists
-	if !pool.UserHasSession(1) {
-		t.Error("Expected session for user 1")
+	state, exists := pool.perUser[1]
+	if !exists {
+		t.Fatal("Expected session for user 1")
 	}
-
-	// Check project ID
-	projectID, ok := pool.GetUserProjectID(1)
-	if !ok || projectID != "proj-a" {
-		t.Errorf("GetUserProjectID(1) = %q, %v; want %q, true", projectID, ok, "proj-a")
+	if state.projectID != "proj-a" {
+		t.Errorf("state.projectID = %q, want %q", state.projectID, "proj-a")
 	}
-
-	// Check active count
-	if pool.ActiveUserCount() != 1 {
-		t.Errorf("ActiveUserCount() = %d, want 1", pool.ActiveUserCount())
-	}
-}
-
-func TestMCPServerPool_Close(t *testing.T) {
-	pool := &MCPServerPool{
-		shared:  NewManager(),
-		perUser: make(map[int64]*userMCPState),
-	}
-
-	// Add some user sessions
-	pool.perUser[1] = &userMCPState{manager: NewManager()}
-	pool.perUser[2] = &userMCPState{manager: NewManager()}
-
-	pool.Close()
-
-	// Should have no per-user sessions after close
-	if len(pool.perUser) != 0 {
-		t.Errorf("Expected 0 per-user sessions after Close, got %d", len(pool.perUser))
+	if got := len(pool.perUser); got != 1 {
+		t.Errorf("len(pool.perUser) = %d, want 1", got)
 	}
 }

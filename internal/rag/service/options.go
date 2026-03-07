@@ -1,9 +1,6 @@
 package service
 
-import (
-	"context"
-	"time"
-)
+import "time"
 
 // Clock abstracts time to make the service testable.
 type Clock interface {
@@ -37,14 +34,3 @@ type NoopMetrics struct{}
 
 func (NoopMetrics) IncCounter(string, map[string]string)                {}
 func (NoopMetrics) ObserveHistogram(string, float64, map[string]string) {}
-
-// CtxKey typed context key for request-scoped values.
-type CtxKey string
-
-// WithTenant returns a context that carries the tenant identifier.
-func WithTenant(ctx context.Context, tenant string) context.Context {
-	if tenant == "" {
-		return ctx
-	}
-	return context.WithValue(ctx, CtxKey("tenant"), tenant)
-}

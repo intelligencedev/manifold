@@ -9,7 +9,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"manifold/internal/auth"
 	"manifold/internal/config"
 	"manifold/internal/persistence"
 	"manifold/internal/tools"
@@ -153,17 +152,6 @@ func (p *MCPServerPool) RegisterFromConfig(ctx context.Context, reg tools.Regist
 	return nil
 }
 
-// PathDependentServerNames returns the names of path-dependent MCP servers.
-// These servers are only available when a project is selected.
-// Useful for UI to show which MCP servers will be available.
-func (p *MCPServerPool) PathDependentServerNames() []string {
-	names := make([]string, 0, len(p.pathDependentServers))
-	for _, srv := range p.pathDependentServers {
-		names = append(names, srv.Name)
-	}
-	return names
-}
-
 // RegisterPathDependentToolsForDiscovery temporarily starts path-dependent MCP servers
 // with a temp directory to enumerate their tools for UI display.
 // The servers are immediately closed after enumeration; actual tool execution
@@ -302,60 +290,9 @@ func (p *MCPServerPool) resolveServerConfig(srv config.MCPServerConfig, projectD
 	return resolved
 }
 
-// GetSession returns the appropriate MCP session for a tool call.
-// It routes to shared or per-user sessions based on server configuration.
-func (p *MCPServerPool) GetSession(ctx context.Context, serverName string) (*Manager, error) {
-	// Find the server config to check if it's path-dependent
-	var isPathDependent bool
-	for _, srv := range p.cfg.MCP.Servers {
-		if srv.Name == serverName {
-			isPathDependent = srv.PathDependent
-			break
-		}
-	}
-
-	if !isPathDependent || !p.RequiresPerUserMCP() {
-		// Return shared session manager
-		return p.shared, nil
-	}
-
-	// Get user from context for per-user session
-	user, ok := auth.CurrentUser(ctx)
-	if !ok {
-		log.Warn().Str("server", serverName).Msg("user_context_required_for_path_dependent_mcp")
-		// Fall back to shared session (may fail if server not registered there)
-		return p.shared, nil
-	}
-
-	p.mu.RLock()
-	state, exists := p.perUser[user.ID]
-	p.mu.RUnlock()
-
-	if !exists {
-		log.Warn().Int64("userID", user.ID).Str("server", serverName).Msg("no_mcp_session_for_user")
-		// Return shared manager as fallback - the tool call may fail
-		return p.shared, nil
-	}
-
-	state.lastAccess = time.Now()
-	return state.manager, nil
-}
-
-// CleanupUser removes all MCP sessions for a user (called on logout).
-func (p *MCPServerPool) CleanupUser(reg tools.Registry, userID int64) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if state, exists := p.perUser[userID]; exists {
-		p.cleanupUserStateLocked(reg, userID, state)
-		delete(p.perUser, userID)
-		log.Info().Int64("userID", userID).Msg("user_mcp_sessions_cleaned_up")
-	}
-}
-
 // cleanupUserStateLocked closes user MCP sessions and unregisters tools.
 // Caller must hold p.mu lock.
-func (p *MCPServerPool) cleanupUserStateLocked(reg tools.Registry, userID int64, state *userMCPState) {
+func (p *MCPServerPool) cleanupUserStateLocked(reg tools.Registry, _ int64, state *userMCPState) {
 	if state == nil {
 		return
 	}
@@ -407,44 +344,4 @@ func (p *MCPServerPool) reapIdleSessions(reg tools.Registry, maxIdle time.Durati
 			log.Info().Int64("userID", userID).Dur("idleTime", now.Sub(state.lastAccess)).Msg("reaped_idle_user_mcp_session")
 		}
 	}
-}
-
-// Close closes all MCP sessions (shared and per-user).
-func (p *MCPServerPool) Close() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Close shared sessions
-	p.shared.Close()
-
-	// Close all per-user sessions
-	for _, state := range p.perUser {
-		state.manager.Close()
-	}
-	p.perUser = make(map[int64]*userMCPState)
-}
-
-// ActiveUserCount returns the number of users with active MCP sessions.
-func (p *MCPServerPool) ActiveUserCount() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return len(p.perUser)
-}
-
-// UserHasSession checks if a user has an active MCP session.
-func (p *MCPServerPool) UserHasSession(userID int64) bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	_, exists := p.perUser[userID]
-	return exists
-}
-
-// GetUserProjectID returns the project ID for a user's current MCP session.
-func (p *MCPServerPool) GetUserProjectID(userID int64) (string, bool) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if state, exists := p.perUser[userID]; exists {
-		return state.projectID, true
-	}
-	return "", false
 }

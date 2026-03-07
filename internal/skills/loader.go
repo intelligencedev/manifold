@@ -20,12 +20,6 @@ const (
 	maxShortDescLen = maxDescLen
 )
 
-// Loader discovers and parses skills from the project .skills folder.
-type Loader struct {
-	// Workdir is the cwd for the current request; repo skills are discovered relative to it.
-	Workdir string
-}
-
 // LoadFromDir directly loads skills from {dir}/.skills without walking up
 // the directory tree. This is the preferred method for project-scoped skills.
 func LoadFromDir(dir string) LoadOutcome {
@@ -55,58 +49,6 @@ func LoadFromDir(dir string) LoadOutcome {
 
 	return outcome
 }
-
-// Load returns discovered skills from the project .skills folder.
-func (l Loader) Load() LoadOutcome {
-	var outcome LoadOutcome
-
-	root := l.repoSkillsRoot()
-	if root == "" {
-		return outcome
-	}
-
-	for _, path := range discoverSkillFiles(root) {
-		md, err := parseSkill(path, ScopeRepo)
-		if err != nil {
-			outcome.Errors = append(outcome.Errors, Error{Path: path, Message: err.Error()})
-			continue
-		}
-		outcome.Skills = append(outcome.Skills, md)
-	}
-
-	return outcome
-}
-
-func (l Loader) repoSkillsRoot() string {
-	wd := strings.TrimSpace(l.Workdir)
-	if wd == "" {
-		return ""
-	}
-
-	dir := wd
-	for {
-		candidate := filepath.Join(dir, skillsDirName)
-		log.Debug().Str("checking", candidate).Msg("skills_loader_checking_path")
-		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
-			log.Debug().Str("found", candidate).Msg("skills_loader_found_skills_dir")
-			return candidate
-		}
-
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			log.Debug().Str("dir", dir).Msg("skills_loader_reached_root")
-			break
-		}
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-			log.Debug().Str("dir", dir).Msg("skills_loader_stopped_at_git")
-			break
-		}
-		dir = parent
-	}
-	log.Debug().Str("workdir", wd).Msg("skills_loader_no_skills_found")
-	return ""
-}
-
 func discoverSkillFiles(root string) []string {
 	var paths []string
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

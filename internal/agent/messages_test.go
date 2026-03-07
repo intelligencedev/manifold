@@ -89,24 +89,3 @@ func TestBuildInitialLLMMessagesHistoryAnnotation(t *testing.T) {
 		t.Fatalf("current request should be annotated: %s", msgs[5].Content)
 	}
 }
-
-func TestFormatHistorySummary(t *testing.T) {
-	// Empty history
-	summary := FormatHistorySummary(nil)
-	if summary != "(no history)" {
-		t.Fatalf("expected no history message, got: %s", summary)
-	}
-
-	// With history
-	hist := []llm.Message{
-		{Role: "user", Content: "hello"},
-		{Role: "assistant", Content: "hi there"},
-	}
-	summary = FormatHistorySummary(hist)
-	if !strings.Contains(summary, "2 messages") {
-		t.Fatalf("expected message count in summary: %s", summary)
-	}
-	if !strings.Contains(summary, "user") || !strings.Contains(summary, "assistant") {
-		t.Fatalf("expected roles in summary: %s", summary)
-	}
-}

@@ -1,11 +1,13 @@
+//go:build ignore
+
 package main
 
 import (
-"fmt"
-"os"
-"path/filepath"
-"io/fs"
-"errors"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 )
 
 func ensureWithinRoot(workdir, rel string) error {

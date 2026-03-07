@@ -246,7 +246,7 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 		ContextWindowTokens: 50, // Smaller than total tokens to trigger summarization
 		SummaryModel:        "stub",
 	})
-	history, summaryResult, err := manager.BuildContext(ctx, nil, "sess")
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", false)
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 		UseResponsesCompaction: true,
 	})
 
-	history, summaryResult, err := manager.BuildContext(ctx, nil, "sess")
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", true)
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestManagerBuildContextForcesSummaryWhenTailTooLong(t *testing.T) {
 		SummaryModel:        "stub",
 	})
 
-	history, summaryResult, err := manager.BuildContext(ctx, nil, "sess")
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", false)
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}

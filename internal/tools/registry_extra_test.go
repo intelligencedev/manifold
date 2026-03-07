@@ -59,25 +59,3 @@ func TestRegistrySchemasAndDispatch(t *testing.T) {
 		t.Fatalf("expected echo field in response")
 	}
 }
-
-func TestRecordingRegistryInvokesCallback(t *testing.T) {
-	r := NewRegistry()
-	ft := &fakeTool{name: "spy", schema: map[string]any{"description": "spy"}}
-	r.Register(ft)
-
-	called := false
-	rec := NewRecordingRegistry(r, func(e DispatchEvent) {
-		called = true
-		if e.Name != "spy" {
-			t.Fatalf("expected spy name, got %s", e.Name)
-		}
-	})
-
-	_, err := rec.Dispatch(context.Background(), "spy", nil)
-	if err != nil {
-		t.Fatalf("dispatch failed: %v", err)
-	}
-	if !called {
-		t.Fatalf("expected recording callback to be called")
-	}
-}

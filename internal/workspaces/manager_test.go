@@ -12,6 +12,10 @@ import (
 	"manifold/internal/config"
 )
 
+func newLegacyManager(workdir string) *LegacyWorkspaceManager {
+	return &LegacyWorkspaceManager{workdir: workdir, mode: "legacy"}
+}
+
 func TestNewManager_LegacyMode(t *testing.T) {
 	cfg := &config.Config{
 		Workdir: "/tmp/test-workdir",
@@ -33,7 +37,7 @@ func TestNewManager_DefaultMode(t *testing.T) {
 }
 
 func TestLegacyWorkspaceManager_Checkout_EmptyProjectID(t *testing.T) {
-	mgr := NewLegacyManager("/tmp/test-workdir")
+	mgr := newLegacyManager("/tmp/test-workdir")
 
 	ws, err := mgr.Checkout(context.Background(), 123, "", "session-1")
 	require.NoError(t, err)
@@ -45,7 +49,7 @@ func TestLegacyWorkspaceManager_Checkout_EmptyProjectID(t *testing.T) {
 }
 
 func TestLegacyWorkspaceManager_Checkout_InvalidProjectID(t *testing.T) {
-	mgr := NewLegacyManager("/tmp/test-workdir")
+	mgr := newLegacyManager("/tmp/test-workdir")
 
 	tests := []struct {
 		name      string
@@ -68,7 +72,7 @@ func TestLegacyWorkspaceManager_Checkout_InvalidProjectID(t *testing.T) {
 
 func TestLegacyWorkspaceManager_Checkout_ProjectNotFound(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr := NewLegacyManager(tmpDir)
+	mgr := newLegacyManager(tmpDir)
 
 	// Create the users/123/projects directory but not the project itself
 	projectsDir := filepath.Join(tmpDir, "users", "123", "projects")
@@ -80,7 +84,7 @@ func TestLegacyWorkspaceManager_Checkout_ProjectNotFound(t *testing.T) {
 
 func TestLegacyWorkspaceManager_Checkout_Success(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr := NewLegacyManager(tmpDir)
+	mgr := newLegacyManager(tmpDir)
 
 	// Create the project directory structure
 	projectDir := filepath.Join(tmpDir, "users", "42", "projects", "my-project")
@@ -101,7 +105,7 @@ func TestLegacyWorkspaceManager_Checkout_Success(t *testing.T) {
 
 func TestLegacyWorkspaceManager_Checkout_WithUserID0(t *testing.T) {
 	tmpDir := t.TempDir()
-	mgr := NewLegacyManager(tmpDir)
+	mgr := newLegacyManager(tmpDir)
 
 	// Create project for system user (ID 0)
 	projectDir := filepath.Join(tmpDir, "users", "0", "projects", "system-project")
@@ -116,7 +120,7 @@ func TestLegacyWorkspaceManager_Checkout_WithUserID0(t *testing.T) {
 }
 
 func TestLegacyWorkspaceManager_Commit_Noop(t *testing.T) {
-	mgr := NewLegacyManager("/tmp/test-workdir")
+	mgr := newLegacyManager("/tmp/test-workdir")
 
 	ws := Workspace{
 		UserID:    123,
@@ -131,8 +135,33 @@ func TestLegacyWorkspaceManager_Commit_Noop(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestLegacyWorkspaceManager_Commit_InvalidatesSkillsCache(t *testing.T) {
+	mgr := newLegacyManager("/tmp/test-workdir")
+	previous := globalSkillsInvalidator
+	t.Cleanup(func() {
+		globalSkillsInvalidator = previous
+	})
+
+	var invalidated []string
+	SetSkillsInvalidator(func(cacheKey string) {
+		invalidated = append(invalidated, cacheKey)
+	})
+
+	ws := Workspace{
+		UserID:    123,
+		ProjectID: "test-project",
+		SessionID: "session-1",
+		BaseDir:   "/tmp/test-workdir/users/123/projects/test-project",
+		Mode:      "legacy",
+	}
+
+	err := mgr.Commit(context.Background(), ws)
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"test-project", "/tmp/test-workdir/users/123/projects/test-project"}, invalidated)
+}
+
 func TestLegacyWorkspaceManager_Cleanup_Noop(t *testing.T) {
-	mgr := NewLegacyManager("/tmp/test-workdir")
+	mgr := newLegacyManager("/tmp/test-workdir")
 
 	ws := Workspace{
 		UserID:    123,
@@ -179,38 +208,7 @@ func TestValidateProjectID(t *testing.T) {
 	}
 }
 
-func TestValidateSessionID(t *testing.T) {
-	tests := []struct {
-		name      string
-		sessionID string
-		want      string
-		wantErr   error
-	}{
-		{"empty string", "", "", nil},
-		{"simple", "session-1", "session-1", nil},
-		{"generated style", "ses-123", "ses-123", nil},
-		{"path separators", "a/b", "", ErrInvalidSessionID},
-		{"windows separators", `a\\b`, "", ErrInvalidSessionID},
-		{"path traversal", "../escape", "", ErrInvalidSessionID},
-		{"absolute path", "/etc/passwd", "", ErrInvalidSessionID},
-		{"double dots", "..", "", ErrInvalidSessionID},
-		{"dot", ".", "", ErrInvalidSessionID},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ValidateSessionID(tt.sessionID)
-			if tt.wantErr != nil {
-				assert.ErrorIs(t, err, tt.wantErr)
-				return
-			}
-			assert.NoError(t, err)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestLegacyWorkspaceManager_Mode(t *testing.T) {
-	mgr := NewLegacyManager("/tmp/workdir")
+	mgr := newLegacyManager("/tmp/workdir")
 	assert.Equal(t, "legacy", mgr.Mode())
 }

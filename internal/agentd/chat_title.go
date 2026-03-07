@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"unicode/utf8"
 )
 
 const (
@@ -40,25 +39,6 @@ func (a *app) generateChatTitle(ctx context.Context, prompt string) (string, err
 		return fallbackChatTitle(prompt), nil
 	}
 	return truncateRunes(sentence, chatTitleMaxRunes), nil
-}
-
-func sanitizeGeneratedTitle(raw string) string {
-	if strings.TrimSpace(raw) == "" {
-		return ""
-	}
-
-	trimmed := strings.Trim(raw, " \n\r\t\"'`“”‘’")
-	trimmed = strings.Trim(trimmed, "-–—•")
-	trimmed = collapseWhitespace(trimmed)
-	trimmed = strings.Trim(trimmed, ".!?,")
-	trimmed = strings.TrimSpace(trimmed)
-	if trimmed == "" {
-		return ""
-	}
-	if utf8.RuneCountInString(trimmed) > chatTitleMaxRunes {
-		trimmed = truncateRunes(trimmed, chatTitleMaxRunes)
-	}
-	return trimmed
 }
 
 func fallbackChatTitle(prompt string) string {

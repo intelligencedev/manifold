@@ -52,7 +52,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 FROM ubuntu:22.04 AS runtime
 ARG GO_VERSION=1.25.0
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl dumb-init docker.io \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl dumb-init docker.io gnupg \
+  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get update && apt-get install -y --no-install-recommends nodejs \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

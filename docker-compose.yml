@@ -8,7 +8,6 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/cpu.Dockerfile
-    platform: linux/amd64
     container_name: agentd
     user: "0:0"
     ports:
@@ -25,7 +24,6 @@ services:
       - ./.:/app/manifold
       - ${WORKDIR}:${WORKDIR}
       - /var/run/docker.sock:/var/run/docker.sock
-      - /Users/art/Downloads/caddy/caddy/pki/authorities/local:/caddy-local-ca:ro
 
   pg-manifold:
     build:

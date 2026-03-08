@@ -10,17 +10,22 @@ services:
       dockerfile: deploy/docker/cpu.Dockerfile
     platform: linux/amd64
     container_name: agentd
+    user: "0:0"
     ports:
       - "32180:32180"
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      SSL_CERT_DIR: /etc/ssl/certs:/caddy-local-ca
+    restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - ./.env:/app/.env
       - ./config.yaml:/app/config.yaml
       - ./.:/app/manifold
       - ${WORKDIR}:${WORKDIR}
       - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-    env_file:
-      - .env
+      - /Users/art/Downloads/caddy/caddy/pki/authorities/local:/caddy-local-ca:ro
 
   pg-manifold:
     build:

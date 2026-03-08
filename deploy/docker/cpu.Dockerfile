@@ -2,7 +2,7 @@
 
 FROM ubuntu:22.04 AS builder
 
-ARG GO_VERSION=1.24.5
+ARG GO_VERSION=1.25.0
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Base toolchain + Node 20 + pnpm
@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-distutils openssl gnupg \
   && rm -rf /var/lib/apt/lists/*
 
-# Install Go (explicit 1.24.x)
+# Install Go toolchain used by both the build and the runtime image.
 RUN curl -fsSL https:/go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xz
 ENV PATH=/usr/local/go/bin:/go/bin:${PATH} \
     GOPATH=/go
@@ -50,11 +50,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # Runtime image
 FROM ubuntu:22.04 AS runtime
+ARG GO_VERSION=1.25.0
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl dumb-init docker.io \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY --from=builder /usr/local/go /usr/local/go
+ENV PATH=/usr/local/go/bin:${PATH}
 COPY --from=builder /src/app/dist/agentd /app/agentd
 COPY --from=builder /src/app/example.env /app/example.env
 COPY --from=builder /src/app/config.yaml.example /app/config.yaml.example

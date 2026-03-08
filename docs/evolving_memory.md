@@ -50,6 +50,7 @@ EVOLVING_MEMORY_WINDOW_SIZE=20         # Sliding window size for ExpRecent mode
 EVOLVING_MEMORY_ENABLE_RAG=true        # Enable ExpRAG similarity-based retrieval
 EVOLVING_MEMORY_REMEM_ENABLED=false    # Enable Think-Act-Refine mode (advanced)
 EVOLVING_MEMORY_MAX_INNER_STEPS=5      # Maximum THINK/REFINE loops in ReMem mode
+EVOLVING_MEMORY_PROVIDER=openai        # Optional provider override: openai, anthropic, google, or local
 EVOLVING_MEMORY_MODEL=gpt-4o-mini      # Model for memory summarization
 
 # Smart pruning (advanced)
@@ -65,6 +66,15 @@ EVOLVING_MEMORY_MIN_RELEVANCE=0.1        # Minimum relevance to avoid pruning (0
 # Evolving memory configuration
 evolvingMemory:
   enabled: true              # Enable the evolving memory system
+  provider: openai           # Optional override: openai, anthropic, google, or local
+  # Optional dedicated provider config for evolving memory only.
+  # This is the way to give memory its own local baseURL or credentials.
+  # llmClient:
+  #   provider: local
+  #   openai:
+  #     baseURL: http://localhost:11434/v1
+  #     model: qwen-memory
+  #     api: completions
   maxSize: 1000              # Maximum number of memory entries to retain
   topK: 4                    # Number of similar experiences to retrieve
   windowSize: 20             # Size of sliding window for ExpRecent
@@ -179,6 +189,23 @@ evolvingMemory:
 - Learns from both successes and failures
 - Requires embedding service
 - Tracks access patterns for relevance scoring
+
+### Dedicated Memory Provider
+
+If you want evolving memory to use a different provider endpoint than the main chat orchestrator, configure a dedicated client under `evolvingMemory.llmClient`:
+
+```yaml
+evolvingMemory:
+  enabled: true
+  llmClient:
+    provider: local
+    openai:
+      baseURL: http://localhost:11434/v1
+      model: qwen-memory
+      api: completions
+```
+
+The legacy `evolvingMemory.provider` and `evolvingMemory.model` fields still work as shorthand overrides, but `evolvingMemory.llmClient` takes precedence when present.
 
 ### 3. ReMem (Advanced)
 

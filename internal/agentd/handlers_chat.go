@@ -1316,6 +1316,18 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
+		specOwner := systemUserID
+		if userID != nil {
+			specOwner = *userID
+		}
+
+		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
+		if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
+			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
+				return
+			}
+		}
+
 		if a.cfg.OpenAI.APIKey == "" {
 			prun := a.runs.create(req.Prompt)
 			if r.Header.Get("Accept") == "text/event-stream" {
@@ -1337,11 +1349,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
-		// Determine user ID for per-user orchestrator config
-		var orchUserID int64 = systemUserID
-		if userID != nil {
-			orchUserID = *userID
-		}
+		orchUserID := specOwner
 		eng := a.cloneEngineForUser(r.Context(), orchUserID, req.SessionID)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)

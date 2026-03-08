@@ -148,6 +148,15 @@ obs:
 # Requires embedding service configured below
 evolvingMemory:
   enabled: false             # Enable evolving memory system
+  provider: openai           # Optional override: openai, anthropic, google, or local
+  # Optional dedicated provider config for evolving memory.
+  # When set, this overrides the shared top-level llm_client for memory/ReMem only.
+  # llmClient:
+  #   provider: local
+  #   openai:
+  #     baseURL: http://localhost:11434/v1
+  #     model: qwen-memory
+  #     api: completions
   maxSize: 1000              # Max memory entries (automatic pruning)
   topK: 4                    # Number of similar experiences to retrieve
   windowSize: 20             # Sliding window size for ExpRecent mode

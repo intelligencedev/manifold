@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"github.com/matrix-org/gomatrix"
+	"github.com/yuin/goldmark"
 
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
@@ -33,6 +35,7 @@ type config struct {
 	ManifoldBaseURL           string
 	ManifoldPromptPath        string
 	ManifoldProjectID         string
+	ManifoldSpecialist        string
 	ManifoldSystemPrompt      string
 	ManifoldSessionPrefix     string
 	ManifoldSessionCookie     string
@@ -65,6 +68,32 @@ type manifoldPromptResponse struct {
 type manifoldMatrixMessage struct {
 	RoomID string `json:"room_id"`
 	Text   string `json:"text"`
+}
+
+type matrixMessageSender interface {
+	SendText(roomID, text string) (*gomatrix.RespSendEvent, error)
+	SendFormattedText(roomID, text, formattedText string) (*gomatrix.RespSendEvent, error)
+}
+
+func renderMatrixHTML(text string) (string, error) {
+	if strings.TrimSpace(text) == "" {
+		return "", nil
+	}
+	var buf bytes.Buffer
+	if err := goldmark.Convert([]byte(text), &buf); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(buf.String()), nil
+}
+
+func sendMatrixMessage(client matrixMessageSender, roomID, text string) error {
+	formatted, err := renderMatrixHTML(text)
+	if err == nil && formatted != "" {
+		_, err = client.SendFormattedText(roomID, text, formatted)
+		return err
+	}
+	_, err = client.SendText(roomID, text)
+	return err
 }
 
 func main() {
@@ -157,7 +186,7 @@ func main() {
 					continue
 				}
 				if strings.TrimSpace(cfg.BotPrefix) != "" && prompt == "" {
-					_, _ = matrixClient.SendText(roomID, fmt.Sprintf("Usage: %s <your question>", cfg.BotPrefix))
+					_ = sendMatrixMessage(matrixClient, roomID, fmt.Sprintf("Usage: %s <your question>", cfg.BotPrefix))
 					continue
 				}
 
@@ -166,11 +195,11 @@ func main() {
 				response, err := callManifold(httpClient, cfg, roomID, sessionID, projectID, prompt)
 				if err != nil {
 					log.Printf("manifold prompt error (room=%s session=%s): %v", roomID, sessionID, err)
-					_, _ = matrixClient.SendText(roomID, "Sorry, I hit an upstream error talking to Manifold.")
+					_ = sendMatrixMessage(matrixClient, roomID, "Sorry, I hit an upstream error talking to Manifold.")
 					continue
 				}
 
-				if _, err := matrixClient.SendText(roomID, response.Result); err != nil {
+				if err := sendMatrixMessage(matrixClient, roomID, response.Result); err != nil {
 					log.Printf("send message error (room=%s): %v", roomID, err)
 				}
 			}
@@ -194,6 +223,7 @@ func loadConfig() (config, error) {
 		ManifoldBaseURL:           strings.TrimSpace(os.Getenv("MANIFOLD_BASE_URL")),
 		ManifoldPromptPath:        strings.TrimSpace(os.Getenv("MANIFOLD_PROMPT_PATH")),
 		ManifoldProjectID:         strings.TrimSpace(os.Getenv("MANIFOLD_PROJECT_ID")),
+		ManifoldSpecialist:        strings.TrimSpace(os.Getenv("MANIFOLD_SPECIALIST")),
 		ManifoldSystemPrompt:      systemPrompt,
 		ManifoldSessionPrefix:     strings.TrimSpace(os.Getenv("MANIFOLD_SESSION_PREFIX")),
 		ManifoldSessionCookie:     strings.TrimSpace(os.Getenv("MANIFOLD_SESSION_COOKIE")),
@@ -254,8 +284,16 @@ func callManifold(httpClient *http.Client, cfg config, roomID, sessionID, projec
 		return manifoldPromptResponse{}, err
 	}
 
-	url := strings.TrimRight(cfg.ManifoldBaseURL, "/") + "/" + strings.TrimLeft(cfg.ManifoldPromptPath, "/")
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	endpoint, err := url.Parse(strings.TrimRight(cfg.ManifoldBaseURL, "/") + "/" + strings.TrimLeft(cfg.ManifoldPromptPath, "/"))
+	if err != nil {
+		return manifoldPromptResponse{}, err
+	}
+	if specialist := strings.TrimSpace(cfg.ManifoldSpecialist); specialist != "" {
+		query := endpoint.Query()
+		query.Set("specialist", specialist)
+		endpoint.RawQuery = query.Encode()
+	}
+	req, err := http.NewRequest(http.MethodPost, endpoint.String(), bytes.NewReader(b))
 	if err != nil {
 		return manifoldPromptResponse{}, err
 	}
@@ -484,7 +522,7 @@ func runPulseIteration(matrixClient *gomatrix.Client, httpClient *http.Client, c
 				dueTaskIDs = append(dueTaskIDs, task.ID)
 			}
 			for _, message := range pulseMessages(response.MatrixMessages, room.RoomID) {
-				if _, err := matrixClient.SendText(message.RoomID, message.Text); err != nil {
+				if err := sendMatrixMessage(matrixClient, message.RoomID, message.Text); err != nil {
 					pulseErr = err.Error()
 					log.Printf("pulse send message error (room=%s): %v", message.RoomID, err)
 					break

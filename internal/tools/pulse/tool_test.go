@@ -122,6 +122,69 @@ func TestToolEnableDisableAndSetInterval(t *testing.T) {
 	}
 }
 
+func TestToolConfigureRoomPreservesProjectWhenOmitted(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithProjectID(sandbox.WithRoomID(context.Background(), "!room:test"), "project-123")
+
+	setProjectRaw, err := json.Marshal(map[string]any{
+		"action":     "configure_room",
+		"project_id": "project-123",
+	})
+	if err != nil {
+		t.Fatalf("marshal configure args: %v", err)
+	}
+	if _, err := tool.Call(ctx, setProjectRaw); err != nil {
+		t.Fatalf("configure room with project: %v", err)
+	}
+
+	enableOnlyRaw, err := json.Marshal(map[string]any{
+		"action":  "configure_room",
+		"enabled": true,
+	})
+	if err != nil {
+		t.Fatalf("marshal enable args: %v", err)
+	}
+	resp, err := tool.Call(ctx, enableOnlyRaw)
+	if err != nil {
+		t.Fatalf("configure room enable only: %v", err)
+	}
+	respMap := resp.(map[string]any)
+	room := respMap["room"].(persistence.PulseRoom)
+	if room.ProjectID != "project-123" {
+		t.Fatalf("expected project_id to be preserved, got %q", room.ProjectID)
+	}
+}
+
+func TestToolConfigureRoomRejectsMismatchedProject(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithProjectID(sandbox.WithRoomID(context.Background(), "!room:test"), "project-123")
+
+	raw, err := json.Marshal(map[string]any{
+		"action":     "configure_room",
+		"project_id": "35749",
+	})
+	if err != nil {
+		t.Fatalf("marshal configure args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("configure room mismatch: %v", err)
+	}
+	respMap := resp.(map[string]any)
+	if ok, _ := respMap["ok"].(bool); ok {
+		t.Fatalf("expected configure_room mismatch to fail, got %#v", respMap)
+	}
+	if got, _ := respMap["error"].(string); got != "project_id must match the current request project context" {
+		t.Fatalf("unexpected error: %q", got)
+	}
+}
+
 func createTestTask(t *testing.T, tool *Tool, ctx context.Context) persistence.PulseTask {
 	t.Helper()
 	upsertRaw, err := json.Marshal(map[string]any{

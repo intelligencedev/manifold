@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"manifold/internal/config"
@@ -59,6 +60,20 @@ func NewExecutor(cfg config.ExecConfig, workdir string, outLimit int) *ExecutorI
 	return &ExecutorImpl{cfg: cfg, workdir: workdir, blocked: blocked, outLimit: outLimit}
 }
 
+func normalizeCommandArgs(command string, args []string) (string, []string) {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return "", args
+	}
+	if len(parts) == 1 {
+		return parts[0], args
+	}
+	merged := make([]string, 0, len(parts)-1+len(args))
+	merged = append(merged, parts[1:]...)
+	merged = append(merged, args...)
+	return parts[0], merged
+}
+
 func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, error) {
 	tracer := otel.Tracer("tools/cli")
 	meter := otel.Meter("tools/cli")
@@ -68,6 +83,10 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	cmdCounter, _ := meter.Int64Counter("cli.commands.total")
 	durHist, _ := meter.Int64Histogram("cli.command.duration.ms")
 
+	if req.Command == "" {
+		return ExecResult{}, errors.New("command is required")
+	}
+	req.Command, req.Args = normalizeCommandArgs(req.Command, req.Args)
 	if req.Command == "" {
 		return ExecResult{}, errors.New("command is required")
 	}

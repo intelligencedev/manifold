@@ -1802,7 +1802,12 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		if len(savedImages) > 0 {
 			res = appendImageSummary(res, savedImages)
 		}
-		payload := map[string]string{"type": "final", "data": res}
+		payload := map[string]any{"type": "final", "data": res}
+		if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
+			if messages := outbox.Messages(); len(messages) > 0 {
+				payload["matrix_messages"] = messages
+			}
+		}
 		writeSSE(payload)
 		a.runs.updateStatus(prun.ID, "completed", 0)
 		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
@@ -1852,7 +1857,13 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		out = appendImageSummary(out, savedImages)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"result": out})
+	response := map[string]any{"result": out}
+	if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
+		if messages := outbox.Messages(); len(messages) > 0 {
+			response["matrix_messages"] = messages
+		}
+	}
+	json.NewEncoder(w).Encode(response)
 	a.runs.updateStatus(prun.ID, "completed", 0)
 	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, out, modelLabel); err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")

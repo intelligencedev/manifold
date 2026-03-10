@@ -2,7 +2,7 @@
 
 This guide describes the current deployment model for Manifold as shipped in this repository.
 
-Manifold currently stores projects on the local filesystem under `WORKDIR`. The runtime path for S3-backed or Vault-encrypted project storage is not implemented in the current server.
+Manifold currently stores projects on the local filesystem under `WORKDIR`.
 
 ## Deployment Modes
 
@@ -17,7 +17,6 @@ Optional services can be added later:
 
 - `keycloak-db` and `keycloak` for authentication testing
 - `clickhouse` and `otel-collector` for observability
-- `zookeeper`, `kafka`, and `redis` for distributed or experimental setups
 
 ### Local Host Builds
 
@@ -81,7 +80,6 @@ Optional services:
 - `otel-collector`: OTLP ingestion pipeline
 - `keycloak-db`: Postgres for Keycloak
 - `keycloak`: local OIDC provider for auth testing
-- `zookeeper`, `kafka`, `redis`: optional infrastructure for advanced deployments
 
 ## Ports
 

@@ -90,49 +90,6 @@ services:
       retries: 3
     restart: unless-stopped
 
-#####################################################################
-# Message Queue and Cache - Not Required, only for distributed setups
-#####################################################################
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    container_name: manifold_zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    restart: unless-stopped
-
-  kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: manifold_kafka
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Expose two listeners: PLAINTEXT for host access (localhost:9092) and INTERNAL for container network (kafka:29092)
-      KAFKA_LISTENERS: LOCAL://0.0.0.0:9092,INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: LOCAL://localhost:9092,INTERNAL://kafka:29092,EXTERNAL://192.168.1.203:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LOCAL:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-    restart: unless-stopped
-
-  redis:
-    image: redis:7
-    container_name: manifold_redis
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
-    restart: unless-stopped
-
 ###############################################################################
 # Authentication - Not required, disable auth in config.yaml to run without it
 ###############################################################################

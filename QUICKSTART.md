@@ -83,7 +83,6 @@ Optional compose services:
 
 - `keycloak-db` and `keycloak` for local auth testing
 - `clickhouse` and `otel-collector` for observability
-- `zookeeper`, `kafka`, and `redis` for distributed or experimental setups
 
 Example:
 

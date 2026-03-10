@@ -15,6 +15,30 @@ func TestPromptFromMessage_WithPrefix(t *testing.T) {
 	}
 }
 
+func TestPromptFromMessage_MatrixMentionMatchesAnywhere(t *testing.T) {
+	prompt, matched := promptFromMessage("Hello @gpt_bot and @razer_bot. What are you up to?", "@gpt_bot")
+	if !matched {
+		t.Fatalf("expected inline mention match")
+	}
+	if prompt != "Hello @gpt_bot and @razer_bot. What are you up to?" {
+		t.Fatalf("unexpected prompt: %q", prompt)
+	}
+}
+
+func TestPromptFromMessage_MatrixMentionRequiresStandaloneTag(t *testing.T) {
+	_, matched := promptFromMessage("Hello @gpt_bot_ops, are you there?", "@gpt_bot")
+	if matched {
+		t.Fatalf("expected partial mention to be ignored")
+	}
+}
+
+func TestPromptFromMessage_CommandPrefixStillRequiresStart(t *testing.T) {
+	_, matched := promptFromMessage("hello !manibot status", "!manibot")
+	if matched {
+		t.Fatalf("expected command prefix in the middle to be ignored")
+	}
+}
+
 func TestPromptFromMessage_WithoutPrefixConfiguredMatchesAll(t *testing.T) {
 	prompt, matched := promptFromMessage("what changed today?", "")
 	if !matched {

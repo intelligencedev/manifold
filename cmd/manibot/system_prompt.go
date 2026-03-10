@@ -6,6 +6,15 @@ import (
 	"strings"
 )
 
+const matrixMultiBotPromptSuffix = `
+
+Multi-bot rooms
+
+- When multiple bots are tagged, answer only for yourself.
+- Do not claim to speak for another bot, user, team, or system unless you are explicitly reporting quoted text from them.
+- If another bot is mentioned, you may acknowledge that they were tagged, but do not guess what they think, know, or will do.
+- If a user asks a group of bots the same question, give your own answer and let the others answer separately.`
+
 const defaultMatrixSystemPrompt = `You are Manifold, a capable general-purpose assistant for a private Matrix chat and for scheduled pulse tasks.
 
 Core identity
@@ -100,7 +109,7 @@ Output standard
 - Keep formatting lightweight and readable.
 - For substantial tasks, include what you did, the result, and any important caveats.
 - For simple requests, answer directly.
-- Suggest next actions only when they are genuinely useful and strongly implied by the situation.`
+- Suggest next actions only when they are genuinely useful and strongly implied by the situation.` + matrixMultiBotPromptSuffix
 
 func loadMatrixSystemPrompt() (string, error) {
 	if path := strings.TrimSpace(os.Getenv("MANIFOLD_SYSTEM_PROMPT_FILE")); path != "" {
@@ -109,14 +118,22 @@ func loadMatrixSystemPrompt() (string, error) {
 			return "", fmt.Errorf("read MANIFOLD_SYSTEM_PROMPT_FILE: %w", err)
 		}
 		if prompt := strings.TrimSpace(string(data)); prompt != "" {
-			return prompt, nil
+			return appendMatrixPromptSuffix(prompt), nil
 		}
 		return "", fmt.Errorf("MANIFOLD_SYSTEM_PROMPT_FILE is empty: %s", path)
 	}
 
 	if prompt := strings.TrimSpace(os.Getenv("MANIFOLD_SYSTEM_PROMPT")); prompt != "" {
-		return prompt, nil
+		return appendMatrixPromptSuffix(prompt), nil
 	}
 
 	return defaultMatrixSystemPrompt, nil
+}
+
+func appendMatrixPromptSuffix(prompt string) string {
+	trimmed := strings.TrimSpace(prompt)
+	if trimmed == "" || strings.Contains(trimmed, strings.TrimSpace(matrixMultiBotPromptSuffix)) {
+		return trimmed
+	}
+	return trimmed + matrixMultiBotPromptSuffix
 }

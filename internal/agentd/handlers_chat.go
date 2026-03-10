@@ -868,7 +868,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 
 		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
 		if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
-			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
+			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, req.SystemPrompt, history, userID, specOwner); handled {
 				return
 			}
 		}
@@ -1323,7 +1323,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 
 		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
 		if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
-			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
+			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, req.SystemPrompt, history, userID, specOwner); handled {
 				return
 			}
 		}
@@ -1568,7 +1568,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 	}
 }
 
-func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
+func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID, systemPromptOverride string, history []llm.Message, userID *int64, owner int64) bool {
 	reg, err := a.specialistsRegistryForUser(r.Context(), owner)
 	if err != nil {
 		http.Error(w, "specialist registry unavailable", http.StatusInternalServerError)
@@ -1615,6 +1615,9 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			summaryCtxSize = ctxSize
 		}
 		systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
+		if override := strings.TrimSpace(systemPromptOverride); override != "" {
+			systemPrompt = prompts.EnsureMemoryInstructions(override)
+		}
 		if skillsSection != "" {
 			systemPrompt = systemPrompt + "\n\n" + skillsSection
 		}

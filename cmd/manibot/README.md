@@ -3,6 +3,8 @@
 `manibot` listens in Matrix rooms and forwards prefixed messages to Manifold `/api/prompt`.
 That means replies use your existing Manifold orchestrator setup (tools, MCP servers, specialists, and project skills).
 
+If `BOT_PREFIX` starts with `@`, `manibot` treats it like a Matrix mention and matches it anywhere in the message as a standalone tag. For example, `Hello @gpt_bot and @razer_bot` will trigger both bots. Non-mention prefixes such as `!bot` still only match at the start of the message.
+
 ## Run locally
 
 ```bash

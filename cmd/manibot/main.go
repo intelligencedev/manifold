@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -48,6 +49,10 @@ type config struct {
 	PulseEnabled             bool
 	PulsePollIntervalSeconds int
 	PulseLeaseSeconds        int
+	ReactiveLeaseEnabled     bool
+	ReactiveLeaseSeconds     int
+	ReactiveWaitSeconds      int
+	ReactiveContextMessages  int
 	PulseDatabaseDSN         string
 }
 
@@ -112,17 +117,27 @@ func main() {
 	httpClient := &http.Client{Timeout: time.Duration(cfg.RequestTimeoutSeconds) * time.Second}
 
 	var pulseStore persist.PulseStore
-	if cfg.PulseEnabled {
+	var reactiveClaimStore persist.ReactiveClaimStore
+	roomHistory := newRoomEventHistory(32)
+	if cfg.PulseEnabled || cfg.ReactiveLeaseEnabled {
 		pool, err := databases.OpenPool(context.Background(), cfg.PulseDatabaseDSN)
 		if err != nil {
 			log.Fatalf("failed to connect pulse store: %v", err)
 		}
 		defer pool.Close()
-		pulseStore = databases.NewPulseStore(pool)
-		if err := pulseStore.Init(context.Background()); err != nil {
-			log.Fatalf("failed to init pulse store: %v", err)
+		if cfg.PulseEnabled {
+			pulseStore = databases.NewPulseStore(pool)
+			if err := pulseStore.Init(context.Background()); err != nil {
+				log.Fatalf("failed to init pulse store: %v", err)
+			}
+			go runPulseLoop(matrixClient, httpClient, cfg, pulseStore, pulsecore.NewService())
 		}
-		go runPulseLoop(matrixClient, httpClient, cfg, pulseStore, pulsecore.NewService())
+		if cfg.ReactiveLeaseEnabled {
+			reactiveClaimStore = databases.NewReactiveClaimStore(pool)
+			if err := reactiveClaimStore.Init(context.Background()); err != nil {
+				log.Fatalf("failed to init reactive claim store: %v", err)
+			}
+		}
 	}
 
 	log.Printf("manibot started as %s, homeserver=%s, manifold=%s%s", cfg.MatrixBotUserID, cfg.MatrixHomeserverURL, cfg.ManifoldBaseURL, cfg.ManifoldPromptPath)
@@ -163,9 +178,6 @@ func main() {
 				if ev.Type != "m.room.message" {
 					continue
 				}
-				if ev.Sender == cfg.MatrixBotUserID {
-					continue
-				}
 				if ev.ID != "" {
 					if _, ok := seen[ev.ID]; ok {
 						continue
@@ -174,6 +186,10 @@ func main() {
 					if len(seen) > 10000 {
 						seen = map[string]struct{}{}
 					}
+				}
+				roomHistory.Add(roomID, ev)
+				if ev.Sender == cfg.MatrixBotUserID {
+					continue
 				}
 
 				body, ok := ev.Content["body"].(string)
@@ -189,19 +205,12 @@ func main() {
 					_ = sendMatrixMessage(matrixClient, roomID, fmt.Sprintf("Usage: %s <your question>", cfg.BotPrefix))
 					continue
 				}
-
-				sessionID := sessionIDForRoom(cfg.ManifoldSessionPrefix, roomID)
-				projectID := resolveRoomProjectID(context.Background(), pulseStore, roomID, cfg.ManifoldProjectID)
-				response, err := callManifold(httpClient, cfg, roomID, sessionID, projectID, prompt)
-				if err != nil {
-					log.Printf("manifold prompt error (room=%s session=%s): %v", roomID, sessionID, err)
-					_ = sendMatrixMessage(matrixClient, roomID, "Sorry, I hit an upstream error talking to Manifold.")
+				if cfg.ReactiveLeaseEnabled && reactiveClaimStore != nil {
+					go handleReactiveMessage(matrixClient, httpClient, cfg, pulseStore, reactiveClaimStore, roomHistory, roomID, ev, body, prompt)
 					continue
 				}
 
-				if err := sendMatrixMessage(matrixClient, roomID, response.Result); err != nil {
-					log.Printf("send message error (room=%s): %v", roomID, err)
-				}
+				handleDirectMessage(matrixClient, httpClient, cfg, pulseStore, roomID, prompt)
 			}
 		}
 	}
@@ -236,6 +245,10 @@ func loadConfig() (config, error) {
 		PulseEnabled:             boolEnv("MATRIX_PULSE_ENABLED", false),
 		PulsePollIntervalSeconds: intEnv("MATRIX_PULSE_POLL_INTERVAL_SECONDS", 300),
 		PulseLeaseSeconds:        intEnv("MATRIX_PULSE_LEASE_SECONDS", 240),
+		ReactiveLeaseEnabled:     boolEnv("MATRIX_REACTIVE_LEASE_ENABLED", false),
+		ReactiveLeaseSeconds:     intEnv("MATRIX_REACTIVE_LEASE_SECONDS", 90),
+		ReactiveWaitSeconds:      intEnv("MATRIX_REACTIVE_WAIT_TIMEOUT_SECONDS", 180),
+		ReactiveContextMessages:  intEnv("MATRIX_REACTIVE_CONTEXT_MESSAGES", 12),
 		PulseDatabaseDSN: strings.TrimSpace(firstNonEmpty(
 			os.Getenv("PULSE_DATABASE_DSN"),
 			os.Getenv("DATABASE_URL"),
@@ -259,12 +272,21 @@ func loadConfig() (config, error) {
 	if c.PulseLeaseSeconds <= 0 {
 		c.PulseLeaseSeconds = c.RequestTimeoutSeconds + 60
 	}
+	if c.ReactiveLeaseSeconds <= 0 {
+		c.ReactiveLeaseSeconds = 90
+	}
+	if c.ReactiveWaitSeconds <= 0 {
+		c.ReactiveWaitSeconds = c.ReactiveLeaseSeconds * 2
+	}
+	if c.ReactiveContextMessages <= 0 {
+		c.ReactiveContextMessages = 12
+	}
 
 	if c.MatrixHomeserverURL == "" || c.MatrixBotUserID == "" || c.MatrixAccessToken == "" {
 		return c, errors.New("missing required env vars: MATRIX_HOMESERVER_URL, MATRIX_BOT_USER_ID, MATRIX_ACCESS_TOKEN")
 	}
-	if c.PulseEnabled && strings.TrimSpace(c.PulseDatabaseDSN) == "" {
-		return c, errors.New("MATRIX_PULSE_ENABLED requires PULSE_DATABASE_DSN or DATABASE_URL/DB_URL/POSTGRES_DSN")
+	if (c.PulseEnabled || c.ReactiveLeaseEnabled) && strings.TrimSpace(c.PulseDatabaseDSN) == "" {
+		return c, errors.New("MATRIX_PULSE_ENABLED or MATRIX_REACTIVE_LEASE_ENABLED requires PULSE_DATABASE_DSN or DATABASE_URL/DB_URL/POSTGRES_DSN")
 	}
 
 	return c, nil
@@ -544,6 +566,54 @@ func resolveRoomProjectID(ctx context.Context, store persist.PulseStore, roomID,
 		return fallback
 	}
 	return firstNonEmpty(strings.TrimSpace(room.ProjectID), fallback)
+}
+
+type roomEventHistory struct {
+	mu    sync.RWMutex
+	limit int
+	rooms map[string][]gomatrix.Event
+}
+
+func newRoomEventHistory(limit int) *roomEventHistory {
+	if limit <= 0 {
+		limit = 32
+	}
+	return &roomEventHistory{
+		limit: limit,
+		rooms: map[string][]gomatrix.Event{},
+	}
+}
+
+func (h *roomEventHistory) Add(roomID string, event gomatrix.Event) {
+	roomID = strings.TrimSpace(roomID)
+	if roomID == "" {
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	events := append(h.rooms[roomID], event)
+	if len(events) > h.limit {
+		events = append([]gomatrix.Event(nil), events[len(events)-h.limit:]...)
+	} else {
+		events = append([]gomatrix.Event(nil), events...)
+	}
+	h.rooms[roomID] = events
+}
+
+func (h *roomEventHistory) Snapshot(roomID string, limit int) []gomatrix.Event {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	events := h.rooms[strings.TrimSpace(roomID)]
+	if len(events) == 0 {
+		return nil
+	}
+	if limit <= 0 || limit > len(events) {
+		limit = len(events)
+	}
+	return append([]gomatrix.Event(nil), events[len(events)-limit:]...)
 }
 
 func intEnv(name string, fallback int) int {

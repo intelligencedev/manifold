@@ -38,8 +38,8 @@ Also ensure `databases.defaultDSN` is set to your Postgres DSN.
 This repo includes a Keycloak service in `docker-compose.yml`.
 
 - Start infra: `docker compose up -d keycloak-db keycloak`
-- Admin console: <http://localhost:8080> (admin / admin)
-- A sample realm is auto-imported from `configs/keycloak/realm.json` with a client `agentd` and redirect `http://localhost:32180/*`.
+- Admin console: <http://localhost:8083> (admin / admin)
+- A sample realm is auto-imported from `deploy/configs/keycloak/realm.json` into the `keycloak` service with a client `agentd` and redirect `http://localhost:32180/*`.
 
 Set the following in `config.yaml` to use Keycloak:
 
@@ -47,7 +47,7 @@ Set the following in `config.yaml` to use Keycloak:
 auth:
   enabled: true
   provider: oidc
-  issuerURL: "http://localhost:8080/realms/sio-local"
+  issuerURL: "http://localhost:8083/realms/sio-local"
   clientID: "agentd"
   clientSecret: "dev-agentd-secret"
   redirectURL: "http://localhost:32180/auth/callback"
@@ -86,17 +86,17 @@ The OAuth2 block tells agentd how to exchange codes and which JSON fields to rea
 
 ## Endpoints & Auth Flow
 
-| Method | Path           | Purpose |
-|--------|----------------|---------|
-| GET    | /auth/login    | Start OIDC Authorization Code + PKCE flow |
-| GET    | /auth/callback | Complete code exchange, create session |
-| GET    | /auth/logout   | Application + RP‑initiated IdP logout (ends SSO) |
-| GET    | /api/me        | Current user JSON or 401 |
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | /auth/login | Start OIDC Authorization Code + PKCE flow |
+| GET | /auth/callback | Complete code exchange, create session |
+| GET | /auth/logout | Application + RP-initiated IdP logout (ends SSO) |
+| GET | /api/me | Current user JSON or 401 |
 
 ### Logout Semantics
 
 The logout endpoint now performs **RP-initiated logout** against the IdP (Keycloak) so that:
- 
+
 1. The local session row (and httpOnly cookie) are deleted.
 2. We redirect the browser to the IdP end-session endpoint with:
     - `client_id`

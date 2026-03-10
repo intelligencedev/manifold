@@ -5,12 +5,12 @@ Use the included Keycloak + Postgres services in docker-compose for local login 
 ## Start services
 
 ```bash
-docker compose up -d app-postgres keycloak-db keycloak
+docker compose up -d pg-manifold keycloak-db keycloak
 ```
 
 Admin console: <http://localhost:8083> (defaults: `admin` / `admin` for dev)
 
-A sample realm is auto-imported from `configs/keycloak/realm.json` with client `agentd` and redirect `http://localhost:32180/*`.
+A sample realm is auto-imported from `deploy/configs/keycloak/realm.json` with client `agentd` and redirect `http://localhost:32180/*`.
 
 ## App configuration (config.yaml)
 

@@ -1,10 +1,12 @@
 # MCP Client
 
-manifold includes a Model Context Protocol (MCP) client to register external server tools. This allows you to extend manifold's capabilities by connecting to external tool providers.
+Manifold includes a Model Context Protocol (MCP) client that can register external server tools. This lets you extend the orchestrator with stdio-based or remote HTTP MCP servers.
+
+For a fresh clone, MCP is optional. The default deployment works without any extra MCP services.
 
 ## Configuration
 
-Configure MCP servers in your `config.yaml`. You can use either local stdio servers (Command) or remote HTTP servers (URL).
+Configure MCP servers in `config.yaml`. You can use either local stdio servers or remote HTTP servers.
 
 Local stdio example:
 
@@ -19,7 +21,7 @@ mcp:
         DATABASE_URL: "postgresql://user:pass@localhost/db"
 ```
 
-Remote HTTP (Streamable) example:
+Remote HTTP example:
 
 ```yaml
 mcp:
@@ -45,6 +47,13 @@ mcp:
 - Environment variable passing to stdio servers
 - Process lifecycle management (stdio)
 - Remote servers over Streamable HTTP transport
+
+## Deployment Notes
+
+- If you use Docker-based stdio servers, make sure the `manifold` container can reach the Docker socket. The included compose file already mounts `/var/run/docker.sock` into the `manifold` service.
+- Path-dependent MCP servers rely on the active project workspace path under `WORKDIR`.
+- If auth is disabled, MCP servers are typically shared across the process.
+- If auth is enabled and `pathDependent: true` is set, Manifold can instantiate per-user servers tied to the active project.
 
 ## Example MCP Servers
 

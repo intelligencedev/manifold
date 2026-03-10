@@ -1,53 +1,75 @@
-# Deploy Postgres with PGVector, PostGIS and PGRouting
+# Manual Docker Database Instructions
 
-## Build Image
-```
-docker build -f postgres.Dockerfile -t localhost/pg-manifold .
+These instructions are only needed if you are not using the repository root `docker compose` flow.
+
+For most users, the recommended path is still:
+
+```bash
+docker compose up -d pg-manifold manifold
 ```
 
-### Create a volume for persistent data
-```
+## Build The Postgres Image Manually
+
+From the repository root:
+
+```bash
+docker build -f deploy/docker/postgres.Dockerfile -t localhost/pg-manifold .
 docker volume create pg-manifold-data
 ```
 
-### Run the container with persistent storage
-```
+## Run PostgreSQL Manually
+
+```bash
 docker run -d \
   --name pg-manifold \
   -e POSTGRES_DB=manifold \
-  -e POSTGRES_USER=intelligence_dev \
-  -e POSTGRES_PASSWORD=intelligence_dev \
-  -p 5432:5432 \
+  -e POSTGRES_USER=manifold \
+  -e POSTGRES_PASSWORD=manifold \
+  -p 5433:5432 \
   -v pg-manifold-data:/var/lib/postgresql/data \
   localhost/pg-manifold:latest
 ```
 
-### Configure in config.yaml
-```
+Host access:
+
+- PostgreSQL will be reachable at `localhost:5433`
+
+Container-to-container access:
+
+- Other containers should still use port `5432` on the Postgres container hostname
+
+## Configure Manifold To Use The Manual Database
+
+If Manifold is running outside Docker on the host:
+
+```yaml
 databases:
-  defaultDSN: "postgres://intelligence_dev:intelligence_dev@localhost:5432/manifold?sslmode=disable"
+  defaultDSN: "postgres://manifold:manifold@localhost:5433/manifold?sslmode=disable"
 ```
 
----
+If Manifold is running in Docker Compose beside `pg-manifold`, keep using:
 
-# Deploy With Qdrant Vector Search
-
-You can use [Qdrant](https://qdrant.tech/) as an alternate vector search provider.
-
-### Run the container
-
-```
-docker run -d -p 6334:6334 qdrant/qdrant
+```yaml
+databases:
+  defaultDSN: "postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
 ```
 
-### Configure in config.yaml
+## Optional: Qdrant As A Vector Backend
+
+You can use [Qdrant](https://qdrant.tech/) instead of Postgres vector storage.
+
+```bash
+docker run -d --name qdrant -p 6334:6333 qdrant/qdrant
 ```
+
+Example configuration:
+
+```yaml
 databases:
   vector:
     backend: qdrant
     dsn: "http://localhost:6334"
-    # With API key: "http://localhost:6334?api_key=your-secret-api-key"
-    index: "embeddings"  # collection name
-    dimensions: 1536     # vector dimensions
-    metric: cosine       # cosine | dot | l2 | manhattan
+    index: "embeddings"
+    dimensions: 1536
+    metric: cosine
 ```

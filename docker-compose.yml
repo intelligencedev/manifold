@@ -180,7 +180,7 @@ services:
       - "8083:8080" # Keycloak (host 8083 to avoid conflicts)
     volumes:
       - keycloak_data:/opt/keycloak/data
-      - ./configs/keycloak:/opt/keycloak/data/import:ro
+      - ./deploy/configs/keycloak:/opt/keycloak/data/import:ro
     restart: unless-stopped
 
 volumes:

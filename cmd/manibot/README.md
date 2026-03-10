@@ -106,7 +106,7 @@ services:
 Then run:
 
 ```bash
-docker compose up -d manifold manibot
+docker compose up -d pg-manifold manifold manibot
 ```
 
 If your Matrix server is reachable only from host networking, set `MANIFOLD_BASE_URL` and Matrix URL values accordingly for container networking.
@@ -119,3 +119,4 @@ If your Matrix server is reachable only from host networking, set `MANIFOLD_BASE
 - `MANIFOLD_SPECIALIST` is optional and lets you bind one bot instance to a named specialist such as `researcher` or `support`.
 - A room pulse can override the global project by storing a room-specific `project_id` through the `pulse_tasks` tool.
 - If auth is enabled in `agentd`, configure either cookie or bearer env vars above.
+- If pulse automation is enabled, make sure the bot can reach the same Postgres deployment used by Manifold.

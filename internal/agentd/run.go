@@ -918,6 +918,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	// Ensure ClickHouse tables exist before initializing metrics providers.
+	if strings.TrimSpace(cfg.Obs.ClickHouse.DSN) == "" {
+		log.Warn().Msg("clickhouse dashboard queries disabled: CLICKHOUSE_DSN is not set")
+	}
+
 	if err := ensureClickHouseTables(ctx, cfg.Obs.ClickHouse); err != nil {
 		log.Warn().Err(err).Msg("failed to ensure clickhouse tables")
 	}

@@ -44,13 +44,37 @@ To enable the included local observability stack, start:
 docker compose up -d clickhouse otel-collector
 ```
 
+The collector supports two log ingestion paths:
+
+- Direct `agentd` runs export logs over OTLP when `OTEL_LOGS_EXPORTER=otlp` is set.
+- Docker deployments can tail container `stdout` and `stderr` with the `filelog`
+  receiver and the OpenTelemetry container parser.
+
+For the included Compose deployment, the `manifold` service forces `LOG_PATH` to
+empty so structured logs stay on `stdout`. To let the collector read Docker
+container logs on a Linux host, set `OTEL_DOCKER_CONTAINER_LOG_DIR` before
+starting Compose:
+
+```bash
+export OTEL_DOCKER_CONTAINER_LOG_DIR=/var/lib/docker/containers
+docker compose up -d manifold clickhouse otel-collector
+```
+
+The collector reads whichever Docker JSON log files are mounted at that path. If
+you need to limit ingestion to the `manifold` container only, mount a narrowed
+directory that contains just that container's JSON log file instead of the full
+Docker containers directory.
+
+If `OTEL_DOCKER_CONTAINER_LOG_DIR` is unset, the collector still accepts OTLP
+logs, traces, and metrics, but it will not see Docker-managed container logs.
+
 Then set the corresponding `.env` values if you want the app to export telemetry:
 
 ```env
 OTEL_SERVICE_NAME=manifold
 SERVICE_VERSION=1.0.0
 ENVIRONMENT=production
-OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4318
 ```
 
 The included compose file exposes the collector on host ports `4417` and `4418`, but the `manifold` container should use the compose service name `otel-collector`.

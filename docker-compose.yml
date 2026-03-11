@@ -14,6 +14,7 @@ services:
       - "32180:32180"
     environment:
       DOCKER_HOST: unix:///var/run/docker.sock
+      LOG_PATH: ""
       SSL_CERT_DIR: /etc/ssl/certs:/caddy-local-ca
     restart: unless-stopped
     env_file:
@@ -77,6 +78,7 @@ services:
       - clickhouse
     volumes:
       - ./deploy/configs/otel/collector.yaml:/etc/otelcol/config.yaml:ro
+      - ${OTEL_DOCKER_CONTAINER_LOG_DIR:-./tmp/otel/docker-containers}:/var/lib/docker/containers:ro
     command:
       - "--config=/etc/otelcol/config.yaml"
     ports:

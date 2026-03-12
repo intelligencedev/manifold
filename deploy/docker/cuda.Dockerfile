@@ -64,7 +64,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         curl \
         dumb-init \
         git \
-        gnupg; \
+        gnupg \
+        openssh-client; \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash -; \
     apt-get update; \
     apt-get install -y --no-install-recommends nodejs; \

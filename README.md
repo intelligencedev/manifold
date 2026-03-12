@@ -97,6 +97,7 @@ For deployment details, optional auth, storage behavior, observability, and trou
 - [docs/storage.md](./docs/storage.md)
 - [docs/observability.md](./docs/observability.md)
 - [docs/mcp.md](./docs/mcp.md)
+- [docs/transit.md](./docs/transit.md)
 
 ## API Docs
 

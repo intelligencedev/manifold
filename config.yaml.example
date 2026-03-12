@@ -170,6 +170,14 @@ evolvingMemory:
   relevanceDecay: 0.99       # Daily decay factor for relevance scores (0.0-1.0)
   minRelevance: 0.1          # Minimum relevance to avoid pruning (0.0-1.0)
 
+# Transit shared memory (durable, key-addressable agent coordination state)
+transit:
+  enabled: false
+  defaultSearchLimit: 10
+  defaultListLimit: 100
+  maxBatchSize: 100
+  enableVectorSearch: true
+
 # Embedding service (required for evolving memory)
 embedding:
   baseURL: "http://localhost:11434"

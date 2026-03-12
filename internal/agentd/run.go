@@ -53,10 +53,12 @@ import (
 	pulsetool "manifold/internal/tools/pulse"
 	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/tools/textsplitter"
+	transittools "manifold/internal/tools/transit"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
 	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/tools/web"
+	transitdomain "manifold/internal/transit"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
 	"manifold/internal/workspaces"
@@ -103,12 +105,67 @@ type app struct {
 	traceMetrics       *clickhouseTraceMetrics
 	runMetrics         *clickhouseRunMetrics
 	logMetrics         *clickhouseLogMetrics
+	transitService     *transitdomain.Service
 }
 
 type tokenMetricsProvider interface {
 	TokenTotals(ctx context.Context, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
 	TokenTotalsForUser(ctx context.Context, userID int64, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
 	Source() string
+}
+
+type searchIndexerAdapter struct{ search databases.FullTextSearch }
+
+func (a searchIndexerAdapter) Index(ctx context.Context, id string, text string, metadata map[string]string) error {
+	return a.search.Index(ctx, id, text, metadata)
+}
+
+func (a searchIndexerAdapter) Remove(ctx context.Context, id string) error {
+	return a.search.Remove(ctx, id)
+}
+
+func (a searchIndexerAdapter) Search(ctx context.Context, query string, limit int) ([]transitdomain.SearchIndexResult, error) {
+	results, err := a.search.Search(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]transitdomain.SearchIndexResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, transitdomain.SearchIndexResult{
+			ID:       result.ID,
+			Score:    result.Score,
+			Snippet:  result.Snippet,
+			Text:     result.Text,
+			Metadata: result.Metadata,
+		})
+	}
+	return out, nil
+}
+
+type vectorIndexerAdapter struct{ vector databases.VectorStore }
+
+func (a vectorIndexerAdapter) Upsert(ctx context.Context, id string, vector []float32, metadata map[string]string) error {
+	return a.vector.Upsert(ctx, id, vector, metadata)
+}
+
+func (a vectorIndexerAdapter) Delete(ctx context.Context, id string) error {
+	return a.vector.Delete(ctx, id)
+}
+
+func (a vectorIndexerAdapter) SimilaritySearch(ctx context.Context, vector []float32, k int, filter map[string]string) ([]transitdomain.VectorIndexResult, error) {
+	results, err := a.vector.SimilaritySearch(ctx, vector, k, filter)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]transitdomain.VectorIndexResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, transitdomain.VectorIndexResult{
+			ID:       result.ID,
+			Score:    result.Score,
+			Metadata: result.Metadata,
+		})
+	}
+	return out, nil
 }
 
 // cloneEngine returns a shallow copy of the base orchestrator engine so that
@@ -581,6 +638,28 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))
 
+	var transitSvc *transitdomain.Service
+	if cfg.Transit.Enabled && mgr.Transit != nil {
+		transitSvc = transitdomain.NewService(transitdomain.ServiceConfig{
+			Store:              mgr.Transit,
+			Search:             searchIndexerAdapter{search: mgr.Search},
+			Vector:             vectorIndexerAdapter{vector: mgr.Vector},
+			EmbeddingConfig:    cfg.Embedding,
+			DefaultSearchLimit: cfg.Transit.DefaultSearchLimit,
+			DefaultListLimit:   cfg.Transit.DefaultListLimit,
+			MaxBatchSize:       cfg.Transit.MaxBatchSize,
+			EnableVectorSearch: cfg.Transit.EnableVectorSearch,
+		})
+		toolRegistry.Register(transittools.NewCreateTool(transitSvc))
+		toolRegistry.Register(transittools.NewGetTool(transitSvc))
+		toolRegistry.Register(transittools.NewUpdateTool(transitSvc))
+		toolRegistry.Register(transittools.NewDeleteTool(transitSvc))
+		toolRegistry.Register(transittools.NewSearchTool(transitSvc))
+		toolRegistry.Register(transittools.NewDiscoverTool(transitSvc))
+		toolRegistry.Register(transittools.NewListKeysTool(transitSvc))
+		toolRegistry.Register(transittools.NewListRecentTool(transitSvc))
+	}
+
 	newProv := func(baseURL string) llmpkg.Provider {
 		switch cfg.LLMClient.Provider {
 		case "", "openai", "local":
@@ -734,6 +813,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		mcpManager:       mcpMgr,
 		mcpPool:          mcpPool,
 		workspaceManager: wsMgr,
+		transitService:   transitSvc,
 	}
 
 	systemPrompt := app.composeSystemPrompt()

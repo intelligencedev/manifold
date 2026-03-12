@@ -72,6 +72,8 @@ type Config struct {
 	Embedding EmbeddingConfig
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
 	EvolvingMemory EvolvingMemoryConfig
+	// Transit configures the shared durable memory system.
+	Transit TransitConfig `yaml:"transit" json:"transit"`
 	// TTS configures text-to-speech defaults and endpoint.
 	TTS TTSConfig `yaml:"tts" json:"tts"`
 	// STT configures speech-to-text defaults and endpoint.
@@ -437,4 +439,13 @@ type EvolvingMemoryConfig struct {
 	PruneThreshold   float64 `yaml:"pruneThreshold" json:"pruneThreshold"`     // similarity threshold for duplicate detection (default 0.95)
 	RelevanceDecay   float64 `yaml:"relevanceDecay" json:"relevanceDecay"`     // daily decay factor for relevance (default 0.99)
 	MinRelevance     float64 `yaml:"minRelevance" json:"minRelevance"`         // minimum relevance to avoid pruning (default 0.1)
+}
+
+// TransitConfig configures the shared durable memory system.
+type TransitConfig struct {
+	Enabled            bool `yaml:"enabled" json:"enabled"`
+	DefaultSearchLimit int  `yaml:"defaultSearchLimit" json:"defaultSearchLimit"`
+	DefaultListLimit   int  `yaml:"defaultListLimit" json:"defaultListLimit"`
+	MaxBatchSize       int  `yaml:"maxBatchSize" json:"maxBatchSize"`
+	EnableVectorSearch bool `yaml:"enableVectorSearch" json:"enableVectorSearch"`
 }

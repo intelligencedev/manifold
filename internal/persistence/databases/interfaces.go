@@ -5,6 +5,7 @@ import (
 
 	"manifold/internal/agent/memory"
 	"manifold/internal/persistence"
+	"manifold/internal/transit"
 )
 
 // SearchResult represents a single hit from the full-text search backend.
@@ -68,6 +69,7 @@ type Manager struct {
 	Projects        persistence.ProjectsStore
 	UserPreferences persistence.UserPreferencesStore
 	Pulse           persistence.PulseStore
+	Transit         transit.Store
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -100,6 +102,9 @@ func (m Manager) Close() {
 		c.Close()
 	}
 	if c, ok := any(m.Pulse).(interface{ Close() }); ok {
+		c.Close()
+	}
+	if c, ok := any(m.Transit).(interface{ Close() }); ok {
 		c.Close()
 	}
 }

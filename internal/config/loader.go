@@ -301,6 +301,27 @@ func Load() (Config, error) {
 			cfg.EvolvingMemory.MinRelevance = f
 		}
 	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_ENABLED")); v != "" {
+		cfg.Transit.Enabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_DEFAULT_SEARCH_LIMIT")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Transit.DefaultSearchLimit = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_DEFAULT_LIST_LIMIT")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Transit.DefaultListLimit = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_MAX_BATCH_SIZE")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Transit.MaxBatchSize = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_ENABLE_VECTOR_SEARCH")); v != "" {
+		cfg.Transit.EnableVectorSearch = strings.EqualFold(v, "true") || v == "1"
+	}
 
 	// Optionally load specialist agents from YAML.
 	if err := loadSpecialists(&cfg); err != nil {
@@ -418,6 +439,15 @@ func Load() (Config, error) {
 	// Apply tokenization defaults
 	if cfg.Tokenization.CacheSize <= 0 {
 		cfg.Tokenization.CacheSize = 1000
+	}
+	if cfg.Transit.DefaultSearchLimit <= 0 {
+		cfg.Transit.DefaultSearchLimit = 10
+	}
+	if cfg.Transit.DefaultListLimit <= 0 {
+		cfg.Transit.DefaultListLimit = 100
+	}
+	if cfg.Transit.MaxBatchSize <= 0 {
+		cfg.Transit.MaxBatchSize = 100
 	}
 	if cfg.Tokenization.CacheTTLSeconds <= 0 {
 		cfg.Tokenization.CacheTTLSeconds = 3600 // 1 hour
@@ -716,6 +746,13 @@ func loadSpecialists(cfg *Config) error {
 		RelevanceDecay   float64       `yaml:"relevanceDecay"`
 		MinRelevance     float64       `yaml:"minRelevance"`
 	}
+	type transitYAML struct {
+		Enabled            bool `yaml:"enabled"`
+		DefaultSearchLimit int  `yaml:"defaultSearchLimit"`
+		DefaultListLimit   int  `yaml:"defaultListLimit"`
+		MaxBatchSize       int  `yaml:"maxBatchSize"`
+		EnableVectorSearch bool `yaml:"enableVectorSearch"`
+	}
 	type ttsYAML struct {
 		BaseURL string `yaml:"baseURL"`
 		Model   string `yaml:"model"`
@@ -793,6 +830,7 @@ func loadSpecialists(cfg *Config) error {
 		MCP                          mcpYAML            `yaml:"mcp"`
 		Embedding                    embeddingYAML      `yaml:"embedding"`
 		EvolvingMemory               evolvingMemoryYAML `yaml:"evolvingMemory"`
+		Transit                      transitYAML        `yaml:"transit"`
 		TTS                          ttsYAML            `yaml:"tts"`
 		STT                          sttYAML            `yaml:"stt"`
 		Projects                     projectsYAML       `yaml:"projects"`
@@ -1134,6 +1172,21 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if len(cfg.EvolvingMemory.LLMClient.OpenAI.ExtraParams) == 0 && len(w.EvolvingMemory.LLMClient.OpenAI.ExtraParams) > 0 {
 			cfg.EvolvingMemory.LLMClient.OpenAI.ExtraParams = w.EvolvingMemory.LLMClient.OpenAI.ExtraParams
+		}
+		if w.Transit.Enabled {
+			cfg.Transit.Enabled = true
+		}
+		if cfg.Transit.DefaultSearchLimit == 0 && w.Transit.DefaultSearchLimit > 0 {
+			cfg.Transit.DefaultSearchLimit = w.Transit.DefaultSearchLimit
+		}
+		if cfg.Transit.DefaultListLimit == 0 && w.Transit.DefaultListLimit > 0 {
+			cfg.Transit.DefaultListLimit = w.Transit.DefaultListLimit
+		}
+		if cfg.Transit.MaxBatchSize == 0 && w.Transit.MaxBatchSize > 0 {
+			cfg.Transit.MaxBatchSize = w.Transit.MaxBatchSize
+		}
+		if w.Transit.EnableVectorSearch {
+			cfg.Transit.EnableVectorSearch = true
 		}
 		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Anthropic.APIKey) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.APIKey) != "" {
 			cfg.EvolvingMemory.LLMClient.Anthropic.APIKey = strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.APIKey)

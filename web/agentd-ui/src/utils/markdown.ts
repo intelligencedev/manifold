@@ -51,6 +51,25 @@ const defaultFence =
   ((tokens: any[], idx: number, options: any, env: any, self: any) =>
     self.renderToken(tokens, idx, options));
 
+function normalizeIndentedHtmlBlocks(value: string): string {
+  const lines = value.split("\n");
+  let inFence = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^ {0,3}```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (!/^\s{4,}(?:<|<!--)/.test(line)) continue;
+
+    lines[index] = line.trimStart();
+  }
+
+  return lines.join("\n");
+}
+
 md.renderer.rules.fence = (
   tokens: any[],
   idx: number,
@@ -76,7 +95,7 @@ export function renderMarkdown(value: string): string {
   // During streaming, the content may include an unclosed fenced code block (```)
   // which prevents proper formatting until the final chunk arrives. To improve
   // UX, temporarily close an unbalanced fence before rendering.
-  let text = value;
+  let text = normalizeIndentedHtmlBlocks(value);
   try {
     const re = /(^|\n)```/g;
     let count = 0;

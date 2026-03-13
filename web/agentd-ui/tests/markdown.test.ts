@@ -55,4 +55,13 @@ describe("renderMarkdown", () => {
     expect(html).toContain("div");
     expect(html).toContain("partial");
   });
+
+  it("normalizes indented HTML lines so nested markup still renders", () => {
+    const html = renderMarkdown(`Step 3\n\n<div style="display:flex"><div>a</div></div>\n\n    <!-- Token row -->\n    <div style="display:flex">\n      <div>nested</div>\n    </div>`);
+
+    expect(html).not.toContain("&lt;!-- Token row --&gt;");
+    expect(html).not.toContain("<pre><code>");
+    expect(html).toContain("nested");
+    expect(html).toContain("display:flex");
+  });
 });

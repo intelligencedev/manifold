@@ -189,6 +189,7 @@
                   class="min-w-[180px]"
                 />
               </div>
+              <!-- Render mode dropdown retained for future use.
               <div class="flex flex-col items-start gap-1">
                 <span
                   class="ml-1 text-[10px] font-medium leading-none text-faint-foreground"
@@ -203,6 +204,7 @@
                   aria-label="Render mode"
                 />
               </div>
+              -->
             </div>
           </div>
         </header>

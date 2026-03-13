@@ -55,7 +55,7 @@ type Step struct {
 	Guard string   `json:"guard,omitempty"`
 	Tool  *ToolRef `json:"tool,omitempty"`
 	// PublishResult controls whether the result payload of this step should
-	// be published to Kafka (or any configured publisher) as it completes.
+	// be published through the configured result publisher as it completes.
 	PublishResult bool `json:"publish_result,omitempty"`
 	// DAG: optional list of step IDs this step depends on
 	DependsOn []string `json:"depends_on,omitempty"`

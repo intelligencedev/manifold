@@ -1,5 +1,10 @@
 import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
+import DOMPurify from "dompurify";
+
+const SANITIZE_OPTIONS = {
+  ALLOW_DATA_ATTR: true,
+};
 
 function wrapHighlighted(value: string, language?: string) {
   const languageClass = language ? ` language-${language}` : "";
@@ -18,7 +23,7 @@ function wrapHighlighted(value: string, language?: string) {
 }
 
 const md = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   typographer: true,
   breaks: true,
@@ -46,6 +51,25 @@ const defaultFence =
   ((tokens: any[], idx: number, options: any, env: any, self: any) =>
     self.renderToken(tokens, idx, options));
 
+function normalizeIndentedHtmlBlocks(value: string): string {
+  const lines = value.split("\n");
+  let inFence = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^ {0,3}```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    if (!/^\s{4,}(?:<|<!--)/.test(line)) continue;
+
+    lines[index] = line.trimStart();
+  }
+
+  return lines.join("\n");
+}
+
 md.renderer.rules.fence = (
   tokens: any[],
   idx: number,
@@ -71,7 +95,7 @@ export function renderMarkdown(value: string): string {
   // During streaming, the content may include an unclosed fenced code block (```)
   // which prevents proper formatting until the final chunk arrives. To improve
   // UX, temporarily close an unbalanced fence before rendering.
-  let text = value;
+  let text = normalizeIndentedHtmlBlocks(value);
   try {
     const re = /(^|\n)```/g;
     let count = 0;
@@ -82,5 +106,5 @@ export function renderMarkdown(value: string): string {
   } catch {
     // no-op: fallback to raw value
   }
-  return md.render(text);
+  return DOMPurify.sanitize(md.render(text), SANITIZE_OPTIONS);
 }

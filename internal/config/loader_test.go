@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -153,5 +154,92 @@ func TestLoad_AllowToolsEnv(t *testing.T) {
 		if cfg.ToolAllowList[i] != want[i] {
 			t.Fatalf("unexpected allow list: got %#v want %#v", cfg.ToolAllowList, want)
 		}
+	}
+}
+
+func TestLoad_EvolvingMemoryProviderEnv(t *testing.T) {
+	oldOpenAI := os.Getenv("OPENAI_API_KEY")
+	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
+	_ = os.Setenv("OPENAI_API_KEY", "dummy")
+
+	oldWorkdir := os.Getenv("WORKDIR")
+	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
+	_ = os.Setenv("WORKDIR", ".")
+
+	oldProvider := os.Getenv("EVOLVING_MEMORY_PROVIDER")
+	defer func() { _ = os.Setenv("EVOLVING_MEMORY_PROVIDER", oldProvider) }()
+	_ = os.Setenv("EVOLVING_MEMORY_PROVIDER", "LOCAL")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.EvolvingMemory.Provider != "local" {
+		t.Fatalf("expected evolving memory provider local, got %q", cfg.EvolvingMemory.Provider)
+	}
+}
+
+func TestLoad_EvolvingMemoryProviderEnv_Invalid(t *testing.T) {
+	oldOpenAI := os.Getenv("OPENAI_API_KEY")
+	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
+	_ = os.Setenv("OPENAI_API_KEY", "dummy")
+
+	oldWorkdir := os.Getenv("WORKDIR")
+	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
+	_ = os.Setenv("WORKDIR", ".")
+
+	oldProvider := os.Getenv("EVOLVING_MEMORY_PROVIDER")
+	defer func() { _ = os.Setenv("EVOLVING_MEMORY_PROVIDER", oldProvider) }()
+	_ = os.Setenv("EVOLVING_MEMORY_PROVIDER", "bogus")
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected invalid evolving memory provider to fail")
+	}
+}
+
+func TestLoad_EvolvingMemoryLLMClientFromYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	configText := `evolvingMemory:
+  enabled: true
+  llmClient:
+    provider: local
+    openai:
+      baseURL: http://localhost:11434/v1
+      model: qwen-memory
+`
+	if err := os.WriteFile(configPath, []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	oldCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer func() { _ = os.Chdir(oldCwd) }()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	oldOpenAI := os.Getenv("OPENAI_API_KEY")
+	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
+	_ = os.Setenv("OPENAI_API_KEY", "dummy")
+
+	oldWorkdir := os.Getenv("WORKDIR")
+	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
+	_ = os.Setenv("WORKDIR", tmpDir)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.EvolvingMemory.LLMClient.Provider != "local" {
+		t.Fatalf("expected evolving memory llmClient provider local, got %q", cfg.EvolvingMemory.LLMClient.Provider)
+	}
+	if cfg.EvolvingMemory.LLMClient.OpenAI.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("unexpected evolving memory llmClient baseURL: %q", cfg.EvolvingMemory.LLMClient.OpenAI.BaseURL)
+	}
+	if cfg.EvolvingMemory.LLMClient.OpenAI.Model != "qwen-memory" {
+		t.Fatalf("unexpected evolving memory llmClient model: %q", cfg.EvolvingMemory.LLMClient.OpenAI.Model)
 	}
 }

@@ -1,68 +1,130 @@
-# Manifold Deployment Guide (Local Filesystem)
+# Manifold Deployment Guide
 
-This guide describes the local-only deployment of Manifold. Projects are stored on the local filesystem under `WORKDIR`.
+This guide describes the current deployment model for Manifold as shipped in this repository.
+
+Manifold currently stores projects on the local filesystem under `WORKDIR`.
+
+## Deployment Modes
+
+### Recommended: Docker Compose
+
+For a fresh clone, the supported first-run path is:
+
+- `pg-manifold` for PostgreSQL
+- `manifold` for `agentd` and the embedded frontend
+
+Optional services can be added later:
+
+- `keycloak-db` and `keycloak` for authentication testing
+- `clickhouse` and `otel-collector` for observability
+
+### Local Host Builds
+
+Local host builds are supported through the Makefile, but they are a developer workflow, not the simplest deployment path. Use them when you want to:
+
+- iterate on Go code with `make build-agentd` or `make build-manifold`
+- run the frontend separately with `pnpm -C web/agentd-ui dev`
+- build `manibot` directly on the host
 
 ## Prerequisites
 
-- Docker and Docker Compose
-- PostgreSQL
-- OpenAI API key (or compatible LLM endpoint)
+Required for Docker deployment:
 
-## Quick Start
+- Docker with Docker Compose support
+- A valid LLM API key or a reachable OpenAI-compatible endpoint
+- A writable absolute host path for `WORKDIR`
 
-1. **Clone and configure**:
-   ```bash
-   git clone https://github.com/intelligencedev/manifold.git
-   cd manifold
-   cp example.env .env
-   cp config.yaml.example config.yaml
-   ```
+Required only for local development outside Docker:
 
-2. **Edit `.env`** with required values:
-   ```env
-   OPENAI_API_KEY=sk-...
-   WORKDIR=/absolute/path/to/manifold-workdir
-   DATABASE_URL=postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable
-   ```
+- Go 1.25
+- Node 20
+- `pnpm`
+- Chrome or another Chromium-compatible browser for browser-driven tools
 
-3. **Start services**:
-   ```bash
-   docker-compose up -d pg-manifold manifold
-   ```
+## First Run
 
-4. **Access the UI**:
-   Open http://localhost:32180
+1. Copy the templates:
 
-## How Storage Works (Local Only)
-
-Projects are stored directly on disk under:
-
-```
-$WORKDIR/users/<user-id>/projects/<project-id>
+```bash
+cp example.env .env
+cp config.yaml.example config.yaml
+mkdir -p ./tmp/manifold-workdir
 ```
 
-Metadata lives in `.meta/project.json` inside each project directory. No additional storage services are required.
+1. Edit `.env` and set at minimum:
+
+```dotenv
+OPENAI_API_KEY="your_real_api_key"
+WORKDIR="/absolute/path/to/your/manifold/tmp/manifold-workdir"
+DATABASE_URL="postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+```
+
+1. Start the required services:
+
+```bash
+docker compose up -d pg-manifold manifold
+```
+
+1. Open the UI at <http://localhost:32180>.
+
+## Service Map
+
+Core services:
+
+- `manifold`: the main `agentd` container with the embedded web UI
+- `pg-manifold`: PostgreSQL with pgvector, PostGIS, and pgRouting
+
+Optional services:
+
+- `clickhouse`: metrics, traces, and logs query backend
+- `otel-collector`: OTLP ingestion pipeline
+- `keycloak-db`: Postgres for Keycloak
+- `keycloak`: local OIDC provider for auth testing
+
+## Ports
+
+- `32180`: Manifold UI and API
+- `5433`: PostgreSQL exposed on the host
+- `8083`: Keycloak admin and auth UI when enabled
+- `8123` and `9000`: ClickHouse HTTP and native ports when enabled
+- `4417` and `4418`: OTLP collector ports when enabled
+
+Inside the compose network, Manifold connects to Postgres at `pg-manifold:5432`. Host tools should use `localhost:5433`.
 
 ## Configuration Notes
 
-- `workdir` in [config.yaml](../config.yaml) should point to the same `WORKDIR` you set in `.env`.
-- Database DSNs are required for chat history, search, vector, and graph services. Use the same Postgres instance for local development.
-- **Speech-to-text (STT)**: Voice input in the Chat view requires an OpenAI API-compatible transcription endpoint. Configure `STT_BASE_URL` and `STT_MODEL` in `.env` if using a custom endpoint. The API key is taken from the user's orchestrator specialist configuration in the database.
-- **OpenAI Responses context management**: If you use `llm_client.openai.api: responses`, you can tune proactive trimming and overflow retry behavior via `llm_client.openai.extraParams` (for example: `context_input_tokens_limit`, `tool_output_char_limit`, `context_overflow_retries`). See [config.yaml.example](../config.yaml.example) for all knobs and defaults.
+- `WORKDIR` is read from the environment first. The example `config.yaml` does not require a `workdir:` entry for the default path.
+- The runtime validates that `WORKDIR` exists and is a directory.
+- `databases.defaultDSN` and the per-subsystem DSNs in `config.yaml.example` are already set to `pg-manifold:5432` for the compose network.
+- If you use `llm_client.openai.api: responses`, you can tune context-management behavior through `llm_client.openai.extraParams` in [config.yaml.example](../config.yaml.example).
+- Voice input requires an OpenAI-compatible transcription endpoint through `STT_BASE_URL` and `STT_MODEL`.
 
-## Observability (Optional)
+## Storage Model
 
-Logging and OpenTelemetry are optional in local deployments. Configure with:
+Projects are stored directly on disk under:
 
-```env
-LOG_PATH=./agent.log
-LOG_LEVEL=info
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+```text
+$WORKDIR/users/<user-id>/projects/<project-id>
 ```
 
-## Backups
+Metadata is stored at:
 
-To back up local deployments:
+```text
+$WORKDIR/users/<user-id>/projects/<project-id>/.meta/project.json
+```
 
-- **PostgreSQL**: use `pg_dump` on the database.
-- **Projects**: back up the `WORKDIR` directory.
+See [storage.md](./storage.md) for details.
+
+## Auth And Observability
+
+- Authentication is optional and disabled by default. See [auth.md](./auth.md).
+- Observability is optional and disabled unless you start the extra services and configure OTLP or ClickHouse. See [observability.md](./observability.md).
+
+## Backup And Recovery
+
+Back up:
+
+- PostgreSQL data from `pg-manifold`
+- the entire `WORKDIR`
+
+At minimum, a recoverable local deployment needs both the database state and the project filesystem.

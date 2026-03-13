@@ -2,9 +2,17 @@ receivers:
   otlp:
     protocols:
       grpc:
-        endpoint: "0.0.0.0:4317"
+        endpoint: "otel-collector:4317"
       http:
-        endpoint: "0.0.0.0:4318"
+        endpoint: "otel-collector:4318"
+  filelog/manifold_container:
+    include:
+      - /var/lib/docker/containers/*/*-json.log
+    include_file_path: true
+    start_at: end
+    operators:
+      - id: container-parser
+        type: container
 
 processors:
   batch:
@@ -50,6 +58,6 @@ service:
       processors: [memory_limiter, resource, batch]
       exporters: [clickhouse, logging]
     logs:
-      receivers: [otlp]
+      receivers: [otlp, filelog/manifold_container]
       processors: [memory_limiter, resource, batch]
       exporters: [clickhouse, logging]

@@ -53,10 +53,12 @@ import (
 	pulsetool "manifold/internal/tools/pulse"
 	ragtool "manifold/internal/tools/rag"
 	"manifold/internal/tools/textsplitter"
+	transittools "manifold/internal/tools/transit"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
 	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/tools/web"
+	transitdomain "manifold/internal/transit"
 	"manifold/internal/warpp"
 	"manifold/internal/webui"
 	"manifold/internal/workspaces"
@@ -103,12 +105,67 @@ type app struct {
 	traceMetrics       *clickhouseTraceMetrics
 	runMetrics         *clickhouseRunMetrics
 	logMetrics         *clickhouseLogMetrics
+	transitService     *transitdomain.Service
 }
 
 type tokenMetricsProvider interface {
 	TokenTotals(ctx context.Context, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
 	TokenTotalsForUser(ctx context.Context, userID int64, window time.Duration) ([]llmpkg.TokenTotal, time.Duration, error)
 	Source() string
+}
+
+type searchIndexerAdapter struct{ search databases.FullTextSearch }
+
+func (a searchIndexerAdapter) Index(ctx context.Context, id string, text string, metadata map[string]string) error {
+	return a.search.Index(ctx, id, text, metadata)
+}
+
+func (a searchIndexerAdapter) Remove(ctx context.Context, id string) error {
+	return a.search.Remove(ctx, id)
+}
+
+func (a searchIndexerAdapter) Search(ctx context.Context, query string, limit int) ([]transitdomain.SearchIndexResult, error) {
+	results, err := a.search.Search(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]transitdomain.SearchIndexResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, transitdomain.SearchIndexResult{
+			ID:       result.ID,
+			Score:    result.Score,
+			Snippet:  result.Snippet,
+			Text:     result.Text,
+			Metadata: result.Metadata,
+		})
+	}
+	return out, nil
+}
+
+type vectorIndexerAdapter struct{ vector databases.VectorStore }
+
+func (a vectorIndexerAdapter) Upsert(ctx context.Context, id string, vector []float32, metadata map[string]string) error {
+	return a.vector.Upsert(ctx, id, vector, metadata)
+}
+
+func (a vectorIndexerAdapter) Delete(ctx context.Context, id string) error {
+	return a.vector.Delete(ctx, id)
+}
+
+func (a vectorIndexerAdapter) SimilaritySearch(ctx context.Context, vector []float32, k int, filter map[string]string) ([]transitdomain.VectorIndexResult, error) {
+	results, err := a.vector.SimilaritySearch(ctx, vector, k, filter)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]transitdomain.VectorIndexResult, 0, len(results))
+	for _, result := range results {
+		out = append(out, transitdomain.VectorIndexResult{
+			ID:       result.ID,
+			Score:    result.Score,
+			Metadata: result.Metadata,
+		})
+	}
+	return out, nil
 }
 
 // cloneEngine returns a shallow copy of the base orchestrator engine so that
@@ -324,6 +381,208 @@ func loadEnv() error {
 	return nil
 }
 
+func resolveLLMClientModel(cfg config.LLMClientConfig) string {
+	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	case "anthropic":
+		return strings.TrimSpace(cfg.Anthropic.Model)
+	case "google":
+		return strings.TrimSpace(cfg.Google.Model)
+	default:
+		return strings.TrimSpace(cfg.OpenAI.Model)
+	}
+}
+
+func mergeStringMap(base, override map[string]string) map[string]string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(override))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range override {
+		out[key] = value
+	}
+	return out
+}
+
+func mergeAnyMap(base, override map[string]any) map[string]any {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(base)+len(override))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range override {
+		out[key] = value
+	}
+	return out
+}
+
+func hasLLMClientOverride(cfg config.LLMClientConfig) bool {
+	if strings.TrimSpace(cfg.Provider) != "" {
+		return true
+	}
+	if strings.TrimSpace(cfg.OpenAI.APIKey) != "" || strings.TrimSpace(cfg.OpenAI.Model) != "" || strings.TrimSpace(cfg.OpenAI.BaseURL) != "" || strings.TrimSpace(cfg.OpenAI.SummaryModel) != "" || strings.TrimSpace(cfg.OpenAI.SummaryBaseURL) != "" || strings.TrimSpace(cfg.OpenAI.API) != "" || len(cfg.OpenAI.ExtraHeaders) > 0 || len(cfg.OpenAI.ExtraParams) > 0 || cfg.OpenAI.LogPayloads {
+		return true
+	}
+	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" || strings.TrimSpace(cfg.Anthropic.Model) != "" || strings.TrimSpace(cfg.Anthropic.BaseURL) != "" || cfg.Anthropic.MaxTokens != 0 || len(cfg.Anthropic.ExtraParams) > 0 || cfg.Anthropic.PromptCache.Enabled || cfg.Anthropic.PromptCache.CacheSystem || cfg.Anthropic.PromptCache.CacheTools || cfg.Anthropic.PromptCache.CacheMessages {
+		return true
+	}
+	if strings.TrimSpace(cfg.Google.APIKey) != "" || strings.TrimSpace(cfg.Google.Model) != "" || strings.TrimSpace(cfg.Google.BaseURL) != "" || cfg.Google.Timeout != 0 || len(cfg.Google.ExtraParams) > 0 {
+		return true
+	}
+	return false
+}
+
+func mergeLLMClientConfig(base, override config.LLMClientConfig) config.LLMClientConfig {
+	out := base
+	if provider := strings.TrimSpace(override.Provider); provider != "" {
+		out.Provider = strings.ToLower(provider)
+	}
+	if value := strings.TrimSpace(override.OpenAI.APIKey); value != "" {
+		out.OpenAI.APIKey = value
+	}
+	if value := strings.TrimSpace(override.OpenAI.Model); value != "" {
+		out.OpenAI.Model = value
+	}
+	if value := strings.TrimSpace(override.OpenAI.BaseURL); value != "" {
+		out.OpenAI.BaseURL = value
+	}
+	if value := strings.TrimSpace(override.OpenAI.SummaryModel); value != "" {
+		out.OpenAI.SummaryModel = value
+	}
+	if value := strings.TrimSpace(override.OpenAI.SummaryBaseURL); value != "" {
+		out.OpenAI.SummaryBaseURL = value
+	}
+	if value := strings.TrimSpace(override.OpenAI.API); value != "" {
+		out.OpenAI.API = value
+	}
+	if len(override.OpenAI.ExtraHeaders) > 0 {
+		out.OpenAI.ExtraHeaders = mergeStringMap(out.OpenAI.ExtraHeaders, override.OpenAI.ExtraHeaders)
+	}
+	if len(override.OpenAI.ExtraParams) > 0 {
+		out.OpenAI.ExtraParams = mergeAnyMap(out.OpenAI.ExtraParams, override.OpenAI.ExtraParams)
+	}
+	if override.OpenAI.LogPayloads {
+		out.OpenAI.LogPayloads = true
+	}
+
+	if value := strings.TrimSpace(override.Anthropic.APIKey); value != "" {
+		out.Anthropic.APIKey = value
+	}
+	if value := strings.TrimSpace(override.Anthropic.Model); value != "" {
+		out.Anthropic.Model = value
+	}
+	if value := strings.TrimSpace(override.Anthropic.BaseURL); value != "" {
+		out.Anthropic.BaseURL = value
+	}
+	if override.Anthropic.MaxTokens != 0 {
+		out.Anthropic.MaxTokens = override.Anthropic.MaxTokens
+	}
+	if len(override.Anthropic.ExtraParams) > 0 {
+		out.Anthropic.ExtraParams = mergeAnyMap(out.Anthropic.ExtraParams, override.Anthropic.ExtraParams)
+	}
+	if override.Anthropic.PromptCache.Enabled {
+		out.Anthropic.PromptCache.Enabled = true
+	}
+	if override.Anthropic.PromptCache.CacheSystem {
+		out.Anthropic.PromptCache.CacheSystem = true
+	}
+	if override.Anthropic.PromptCache.CacheTools {
+		out.Anthropic.PromptCache.CacheTools = true
+	}
+	if override.Anthropic.PromptCache.CacheMessages {
+		out.Anthropic.PromptCache.CacheMessages = true
+	}
+
+	if value := strings.TrimSpace(override.Google.APIKey); value != "" {
+		out.Google.APIKey = value
+	}
+	if value := strings.TrimSpace(override.Google.Model); value != "" {
+		out.Google.Model = value
+	}
+	if value := strings.TrimSpace(override.Google.BaseURL); value != "" {
+		out.Google.BaseURL = value
+	}
+	if override.Google.Timeout != 0 {
+		out.Google.Timeout = override.Google.Timeout
+	}
+	if len(override.Google.ExtraParams) > 0 {
+		out.Google.ExtraParams = mergeAnyMap(out.Google.ExtraParams, override.Google.ExtraParams)
+	}
+
+	return out
+}
+
+func llmClientHasExplicitModel(cfg config.LLMClientConfig, providerName string) bool {
+	switch strings.ToLower(strings.TrimSpace(providerName)) {
+	case "anthropic":
+		return strings.TrimSpace(cfg.Anthropic.Model) != ""
+	case "google":
+		return strings.TrimSpace(cfg.Google.Model) != ""
+	default:
+		return strings.TrimSpace(cfg.OpenAI.Model) != ""
+	}
+}
+
+func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summaryLLM llmpkg.Provider, httpClient *http.Client) (llmpkg.Provider, string, string, error) {
+	if hasLLMClientOverride(cfg.EvolvingMemory.LLMClient) {
+		llmCfg := mergeLLMClientConfig(cfg.LLMClient, cfg.EvolvingMemory.LLMClient)
+		if providerName := strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.Provider)); providerName != "" && strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider) == "" {
+			llmCfg.Provider = providerName
+		}
+		if model := strings.TrimSpace(cfg.EvolvingMemory.Model); model != "" && !llmClientHasExplicitModel(cfg.EvolvingMemory.LLMClient, llmCfg.Provider) {
+			switch strings.ToLower(strings.TrimSpace(llmCfg.Provider)) {
+			case "anthropic":
+				llmCfg.Anthropic.Model = model
+			case "google":
+				llmCfg.Google.Model = model
+			default:
+				llmCfg.OpenAI.Model = model
+			}
+		}
+
+		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return provider, resolveLLMClientModel(llmCfg), strings.ToLower(strings.TrimSpace(llmCfg.Provider)), nil
+	}
+
+	providerName := strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.Provider))
+	if providerName != "" {
+		llmCfg := cfg.LLMClient
+		llmCfg.Provider = providerName
+		if model := strings.TrimSpace(cfg.EvolvingMemory.Model); model != "" {
+			switch providerName {
+			case "anthropic":
+				llmCfg.Anthropic.Model = model
+			case "google":
+				llmCfg.Google.Model = model
+			default:
+				llmCfg.OpenAI.Model = model
+			}
+		}
+
+		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return provider, resolveLLMClientModel(llmCfg), providerName, nil
+	}
+
+	memModel := strings.TrimSpace(cfg.EvolvingMemory.Model)
+	if memModel != "" {
+		return mainLLM, memModel, strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+	}
+	if summaryLLM != nil && strings.TrimSpace(cfg.OpenAI.SummaryModel) != "" {
+		return summaryLLM, strings.TrimSpace(cfg.OpenAI.SummaryModel), "openai-summary", nil
+	}
+	return mainLLM, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+}
+
 func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	httpClient := observability.NewHTTPClient(nil)
 	if len(cfg.OpenAI.ExtraHeaders) > 0 {
@@ -378,6 +637,28 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))
+
+	var transitSvc *transitdomain.Service
+	if cfg.Transit.Enabled && mgr.Transit != nil {
+		transitSvc = transitdomain.NewService(transitdomain.ServiceConfig{
+			Store:              mgr.Transit,
+			Search:             searchIndexerAdapter{search: mgr.Search},
+			Vector:             vectorIndexerAdapter{vector: mgr.Vector},
+			EmbeddingConfig:    cfg.Embedding,
+			DefaultSearchLimit: cfg.Transit.DefaultSearchLimit,
+			DefaultListLimit:   cfg.Transit.DefaultListLimit,
+			MaxBatchSize:       cfg.Transit.MaxBatchSize,
+			EnableVectorSearch: cfg.Transit.EnableVectorSearch,
+		})
+		toolRegistry.Register(transittools.NewCreateTool(transitSvc))
+		toolRegistry.Register(transittools.NewGetTool(transitSvc))
+		toolRegistry.Register(transittools.NewUpdateTool(transitSvc))
+		toolRegistry.Register(transittools.NewDeleteTool(transitSvc))
+		toolRegistry.Register(transittools.NewSearchTool(transitSvc))
+		toolRegistry.Register(transittools.NewDiscoverTool(transitSvc))
+		toolRegistry.Register(transittools.NewListKeysTool(transitSvc))
+		toolRegistry.Register(transittools.NewListRecentTool(transitSvc))
+	}
 
 	newProv := func(baseURL string) llmpkg.Provider {
 		switch cfg.LLMClient.Provider {
@@ -532,6 +813,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		mcpManager:       mcpMgr,
 		mcpPool:          mcpPool,
 		workspaceManager: wsMgr,
+		transitService:   transitSvc,
 	}
 
 	systemPrompt := app.composeSystemPrompt()
@@ -565,13 +847,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Initialize evolving memory if enabled
 	if cfg.EvolvingMemory.Enabled {
-		// Prefer OpenAI summary client for evolving memory if available,
-		// to avoid provider/model mismatches (e.g., Google v1beta vs OpenAI models).
-		memLLM := llm
-		memModel := cfg.EvolvingMemory.Model
-		if summaryLLM != nil && strings.TrimSpace(cfg.OpenAI.SummaryModel) != "" {
-			memLLM = summaryLLM
-			memModel = cfg.OpenAI.SummaryModel
+		memLLM, memModel, memProvider, err := resolveEvolvingMemoryLLM(cfg, llm, summaryLLM, httpClient)
+		if err != nil {
+			return nil, fmt.Errorf("build evolving memory llm provider: %w", err)
 		}
 
 		var evStore memory.EvolvingMemoryStore
@@ -613,6 +891,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		})
 		log.Info().
 			Bool("enabled", true).
+			Str("provider", memProvider).
+			Str("model", memModel).
 			Int("maxSize", cfg.EvolvingMemory.MaxSize).
 			Int("topK", cfg.EvolvingMemory.TopK).
 			Bool("rag", cfg.EvolvingMemory.EnableRAG).
@@ -718,6 +998,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	// Ensure ClickHouse tables exist before initializing metrics providers.
+	if strings.TrimSpace(cfg.Obs.ClickHouse.DSN) == "" {
+		log.Warn().Msg("clickhouse dashboard queries disabled: CLICKHOUSE_DSN is not set")
+	}
+
 	if err := ensureClickHouseTables(ctx, cfg.Obs.ClickHouse); err != nil {
 		log.Warn().Err(err).Msg("failed to ensure clickhouse tables")
 	}

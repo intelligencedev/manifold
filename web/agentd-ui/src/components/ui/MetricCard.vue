@@ -3,16 +3,16 @@
     <div class="flex items-start justify-between gap-3">
       <div class="space-y-1">
         <p
-          class="text-[11px] font-semibold uppercase tracking-wide text-subtle-foreground"
+          class="text-[10px] font-bold uppercase tracking-[0.22em] text-faint-foreground"
         >
           {{ label }}
         </p>
         <p
-          class="text-3xl font-semibold leading-tight text-foreground tabular-nums"
+          class="text-[2.4rem] font-extrabold leading-none text-foreground tabular-nums"
         >
           {{ formattedValue }}
         </p>
-        <p v-if="secondary" class="text-xs text-faint-foreground">
+        <p v-if="secondary" class="max-w-[18rem] text-sm text-subtle-foreground">
           {{ secondary }}
         </p>
       </div>
@@ -24,7 +24,7 @@
     <div
       v-if="deltaText"
       :class="deltaClasses"
-      class="mt-4 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
+      class="mt-5 inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold"
     >
       <span v-if="trend === 'up'" aria-hidden="true">▲</span>
       <span v-else-if="trend === 'down'" aria-hidden="true">▼</span>

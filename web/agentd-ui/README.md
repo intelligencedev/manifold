@@ -1,23 +1,42 @@
-# agentd-ui routes
+# agentd-ui
 
-This UI now includes multiple views:
+This directory contains the frontend bundled into the `manifold` container and embedded into `agentd` for production-style runs.
 
-- Overview (existing dashboard) at `/`
-- Chat (LLM chat placeholder) at `/chat`
-- Flow (VueFlow canvas) at `/flow`
-- Runs at `/runs`
-- Settings at `/settings`
+For a normal Docker deployment from the repository root, you do not need to build this directory manually. The Docker build handles the frontend bundle.
 
-A top navigation bar provides links to these routes. The Flow view uses VueFlow core with background, controls, and minimap.
+## Local Frontend Development
 
-Dev server:
+Requirements:
+
+- Node 20
+- `pnpm`
+
+Install dependencies:
+
+```bash
+pnpm -C web/agentd-ui install
+```
+
+Run the dev server:
 
 ```bash
 pnpm -C web/agentd-ui dev
 ```
 
-Build:
+Build the production bundle:
 
 ```bash
 pnpm -C web/agentd-ui build
 ```
+
+Or copy the built assets into the Go embed directory through the repository Makefile:
+
+```bash
+make frontend
+```
+
+## Notes
+
+- The embedded production UI is served by `agentd` on port `32180`.
+- The Vite dev server uses its own port during frontend development.
+- API routes still target the running `agentd` instance.

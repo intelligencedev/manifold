@@ -44,6 +44,14 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/runs", a.runsHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())
 	mux.HandleFunc("/api/chat/sessions/", a.chatSessionDetailHandler())
+	if a.cfg.Transit.Enabled {
+		mux.HandleFunc("/api/transit/memories", a.transitMemoriesHandler())
+		mux.HandleFunc("/api/transit/memories/", a.transitMemoryDetailHandler())
+		mux.HandleFunc("/api/transit/keys", a.transitKeysHandler())
+		mux.HandleFunc("/api/transit/recent", a.transitRecentHandler())
+		mux.HandleFunc("/api/transit/search", a.transitSearchHandler())
+		mux.HandleFunc("/api/transit/discover", a.transitDiscoverHandler())
+	}
 
 	if a.cfg.Auth.Enabled && a.authStore != nil {
 		mux.HandleFunc("/api/users", a.usersHandler())

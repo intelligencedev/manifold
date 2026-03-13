@@ -3,6 +3,8 @@
 `manibot` listens in Matrix rooms and forwards prefixed messages to Manifold `/api/prompt`.
 That means replies use your existing Manifold orchestrator setup (tools, MCP servers, specialists, and project skills).
 
+If `BOT_PREFIX` starts with `@`, `manibot` treats it like a Matrix mention and matches it anywhere in the message as a standalone tag. For example, `Hello @gpt_bot and @razer_bot` will trigger both bots. Non-mention prefixes such as `!bot` still only match at the start of the message.
+
 ## Run locally
 
 ```bash
@@ -42,6 +44,7 @@ PULSE_DATABASE_DSN="postgres://manifold:manifold@pg-manifold:5432/manifold?sslmo
 MANIFOLD_BASE_URL="http://localhost:32180"
 MANIFOLD_PROMPT_PATH="/api/prompt"
 MANIFOLD_PROJECT_ID=""
+MANIFOLD_SPECIALIST=""
 MANIFOLD_SYSTEM_PROMPT_FILE="./cmd/manibot/matrix-system-prompt.txt"
 # Alternative for short prompts only:
 # MANIFOLD_SYSTEM_PROMPT="You are Manifold in Matrix chat..."
@@ -51,6 +54,8 @@ MANIFOLD_REQUEST_TIMEOUT_SECONDS="180"
 
 `manibot` sends a dedicated system prompt with each Matrix chat turn and pulse run.
 If neither `MANIFOLD_SYSTEM_PROMPT_FILE` nor `MANIFOLD_SYSTEM_PROMPT` is set, it uses a built-in prompt tuned for plain-text Matrix conversations and scheduled pulse runs.
+
+Set `MANIFOLD_SPECIALIST` when a specific `manibot` instance should always run a named specialist instead of the default orchestrator. Leave it empty to keep the current orchestrator behavior.
 
 Use `MANIFOLD_SYSTEM_PROMPT_FILE` for real prompt customization. It is easier to maintain than a giant single-line env var.
 
@@ -101,7 +106,7 @@ services:
 Then run:
 
 ```bash
-docker compose up -d manifold manibot
+docker compose up -d pg-manifold manifold manibot
 ```
 
 If your Matrix server is reachable only from host networking, set `MANIFOLD_BASE_URL` and Matrix URL values accordingly for container networking.
@@ -111,5 +116,7 @@ If your Matrix server is reachable only from host networking, set `MANIFOLD_BASE
 - Session continuity is room-scoped: `manibot` maps each room to a deterministic Manifold `session_id`.
 - Pulse continuity is also room-scoped, but uses a separate deterministic pulse session ID.
 - `MANIFOLD_PROJECT_ID` is optional but useful when you want all room prompts to run against one project/workspace context.
+- `MANIFOLD_SPECIALIST` is optional and lets you bind one bot instance to a named specialist such as `researcher` or `support`.
 - A room pulse can override the global project by storing a room-specific `project_id` through the `pulse_tasks` tool.
 - If auth is enabled in `agentd`, configure either cookie or bearer env vars above.
+- If pulse automation is enabled, make sure the bot can reach the same Postgres deployment used by Manifold.

@@ -5,7 +5,7 @@ This tutorial walks through the full workflow for the Manifold playground: creat
 > **Prerequisites**
 >
 > - `agentd` is running with database access (set `databases.defaultDSN` in `config.yaml` or env).
-> - The web UI is accessible (default `http://localhost:8081`).
+> - The web UI is accessible at `http://localhost:32180`.
 > - Administration access to the UI (if authentication is enabled).
 
 ## 1. Create a Prompt and Version
@@ -16,26 +16,31 @@ This tutorial walks through the full workflow for the Manifold playground: creat
    - **Description**: `Greets a customer and echoes their issue.`
    - **Tags**: `support,greeting`
    - Click **Create**.
-3. In the prompt list, select **Support Greeting**. On the detail page fill the **Create Version** form:
+3. In the prompt list, select **Support Greeting**.
+4. On the detail page fill the **Create Version** form with:
    - **Version**: `1.0.0`
-   - **Template**:
-     ```
-     Hello {{customerName}},
+   - **Guardrails**: leave blank
+5. Use this template:
 
-     Thanks for contacting us about {{issue}}. Let me look into that for you.
+```text
+Hello {{customerName}},
 
-     Summary: {{summary}}
-     ```
-   - **Variables** (JSON):
-     ```json
-     {
-       "customerName": {"type": "string", "description": "Name of the customer", "required": true},
-       "issue": {"type": "string", "required": true},
-       "summary": {"type": "string", "required": false}
-     }
-     ```
-   - **Guardrails** (optional) – leave blank.
-   - Click **Create version**. The version appears in the list with its content hash.
+Thanks for contacting us about {{issue}}. Let me look into that for you.
+
+Summary: {{summary}}
+```
+
+1. Use these variables:
+
+```json
+{
+  "customerName": {"type": "string", "description": "Name of the customer", "required": true},
+  "issue": {"type": "string", "required": true},
+  "summary": {"type": "string", "required": false}
+}
+```
+
+1. Click **Create version**. The version appears in the list with its content hash.
 
 ## 2. Upload a Dataset
 
@@ -43,32 +48,34 @@ This tutorial walks through the full workflow for the Manifold playground: creat
 2. In **Upload Dataset**, enter:
    - **Name**: `Support Samples`
    - **Tags**: `support`
-   - **Rows (JSON array)**:
-     ```json
-     [
-       {
-         "id": "ticket-1",
-         "inputs": {
-           "customerName": "Alice",
-           "issue": "billing discrepancy",
-           "summary": "Customer was double-charged."
-         },
-         "expected": "Acknowledge the billing issue and promise a fix.",
-         "split": "validation"
-       },
-       {
-         "id": "ticket-2",
-         "inputs": {
-           "customerName": "Bob",
-           "issue": "password reset",
-           "summary": "Customer forgot password and requests reset link."
-         },
-         "expected": "Guide user through secure reset steps.",
-         "split": "validation"
-       }
-     ]
-     ```
-3. Click **Create dataset**. The dataset appears in the list and is available for experiments.
+3. Use this JSON array for **Rows**:
+
+```json
+[
+  {
+    "id": "ticket-1",
+    "inputs": {
+      "customerName": "Alice",
+      "issue": "billing discrepancy",
+      "summary": "Customer was double-charged."
+    },
+    "expected": "Acknowledge the billing issue and promise a fix.",
+    "split": "validation"
+  },
+  {
+    "id": "ticket-2",
+    "inputs": {
+      "customerName": "Bob",
+      "issue": "password reset",
+      "summary": "Customer forgot password and requests reset link."
+    },
+    "expected": "Guide user through secure reset steps.",
+    "split": "validation"
+  }
+]
+```
+
+1. Click **Create dataset**. The dataset appears in the list and is available for experiments.
 
 ## 3. Configure an Experiment
 
@@ -93,7 +100,7 @@ This tutorial walks through the full workflow for the Manifold playground: creat
 
 - **Runs Table**: shows the plan status with start/end times.
 - **Metrics (coming soon)**: aggregated evaluator scores appear under the run entry once evaluators complete.
-- **Artifacts (coming soon)**: rendered prompts and outputs are stored in the configured artifact directory (`workdir/playground-artifacts`).
+- **Artifacts**: rendered prompts and outputs are stored in the configured artifact directory, which defaults to `./tmp/playground-artifacts` in `.env` for local runs.
 
 ## API Reference (Quick Shell)
 
@@ -101,24 +108,24 @@ You can drive the same flow via HTTP requests:
 
 ```bash
 # Create prompt
-curl -X POST http://localhost:8081/api/v1/playground/prompts \
+curl -X POST http://localhost:32180/api/v1/playground/prompts \
   -H 'Content-Type: application/json' \
   -d '{"name":"Support Greeting","description":"Greets customers"}'
 
 # Create prompt version
-curl -X POST http://localhost:8081/api/v1/playground/prompts/<prompt-id>/versions \
+curl -X POST http://localhost:32180/api/v1/playground/prompts/<prompt-id>/versions \
   -H 'Content-Type: application/json' \
   -d '{"template":"Hello {{name}}", "variables":{"name":{"type":"string"}}}'
 
 # Create dataset (same JSON shown above)
-curl -X POST http://localhost:8081/api/v1/playground/datasets -H 'Content-Type: application/json' -d @dataset.json
+curl -X POST http://localhost:32180/api/v1/playground/datasets -H 'Content-Type: application/json' -d @dataset.json
 
 # Create experiment
-curl -X POST http://localhost:8081/api/v1/playground/experiments \
+curl -X POST http://localhost:32180/api/v1/playground/experiments \
   -H 'Content-Type: application/json' -d @experiment.json
 
 # Start run
-curl -X POST http://localhost:8081/api/v1/playground/experiments/<experiment-id>/runs
+curl -X POST http://localhost:32180/api/v1/playground/experiments/<experiment-id>/runs
 ```
 
 ## Troubleshooting
@@ -126,6 +133,6 @@ curl -X POST http://localhost:8081/api/v1/playground/experiments/<experiment-id>
 - **Prompt version creation fails**: ensure the Variables JSON is valid and references all `{{ }}` placeholders.
 - **Dataset upload error**: verify the payload is JSON with an array of rows; each row should include an `id` or one is auto-generated.
 - **Experiment run stuck**: check `agentd` logs for provider errors; the mock adapter is deterministic and returns instantly.
-- **Artifacts missing**: make sure the agent process can write to `<workdir>/playground-artifacts`.
+- **Artifacts missing**: make sure the `manifold` process can write to the configured playground artifact directory.
 
 The playground is designed to be iterative—create new prompt versions, rerun experiments, and compare outputs quickly. As evaluator support expands, this flow will automatically surface additional quality metrics in the same UI.

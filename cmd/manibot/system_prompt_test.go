@@ -43,8 +43,11 @@ func TestLoadMatrixSystemPrompt_FromEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMatrixSystemPrompt() error: %v", err)
 	}
-	if prompt != "custom matrix prompt" {
+	if !strings.HasPrefix(prompt, "custom matrix prompt") {
 		t.Fatalf("unexpected prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "When multiple bots are tagged, answer only for yourself.") {
+		t.Fatalf("expected multi-bot guidance in prompt: %q", prompt)
 	}
 }
 
@@ -68,8 +71,18 @@ func TestLoadMatrixSystemPrompt_FromFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadMatrixSystemPrompt() error: %v", err)
 	}
-	if prompt != "prompt from file" {
+	if !strings.HasPrefix(prompt, "prompt from file") {
 		t.Fatalf("unexpected prompt: %q", prompt)
+	}
+	if !strings.Contains(prompt, "Do not claim to speak for another bot") {
+		t.Fatalf("expected multi-bot guidance in prompt: %q", prompt)
+	}
+}
+
+func TestAppendMatrixPromptSuffix_DoesNotDuplicateGuidance(t *testing.T) {
+	prompt := appendMatrixPromptSuffix("custom matrix prompt" + matrixMultiBotPromptSuffix)
+	if strings.Count(prompt, "When multiple bots are tagged, answer only for yourself.") != 1 {
+		t.Fatalf("expected multi-bot guidance once, got %q", prompt)
 	}
 }
 

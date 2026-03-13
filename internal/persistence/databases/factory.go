@@ -246,6 +246,21 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
 	}
 	m.Pulse = pulseStore
 
+	if cfg.DefaultDSN != "" {
+		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
+			m.Transit = NewPostgresTransitStore(p)
+		} else {
+			m.Transit = NewMemoryTransitStore()
+		}
+	} else {
+		m.Transit = NewMemoryTransitStore()
+	}
+	if m.Transit != nil {
+		if err := m.Transit.Init(ctx); err != nil {
+			return Manager{}, fmt.Errorf("init transit store: %w", err)
+		}
+	}
+
 	return m, nil
 }
 

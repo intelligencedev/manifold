@@ -65,6 +65,16 @@ type PulseTask struct {
 	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
+// ReactiveClaim stores a short-lived room-scoped lease for chat responses.
+type ReactiveClaim struct {
+	RoomID         string    `json:"roomId"`
+	BotID          string    `json:"botId"`
+	ClaimToken     string    `json:"claimToken"`
+	TriggerEventID string    `json:"triggerEventId,omitempty"`
+	ClaimedAt      time.Time `json:"claimedAt"`
+	ExpiresAt      time.Time `json:"expiresAt"`
+}
+
 // PulseStore persists room-scoped automation tasks used by the Matrix pulse loop.
 type PulseStore interface {
 	Init(ctx context.Context) error
@@ -77,6 +87,14 @@ type PulseStore interface {
 	DeleteTask(ctx context.Context, roomID, taskID string) error
 	ClaimRoom(ctx context.Context, roomID, token string, leaseUntil time.Time) (bool, error)
 	CompleteRoomPulse(ctx context.Context, roomID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
+}
+
+// ReactiveClaimStore persists short-lived room leases for reactive Matrix replies.
+type ReactiveClaimStore interface {
+	Init(ctx context.Context) error
+	TryClaim(ctx context.Context, roomID, botID, token, triggerEventID string, leaseUntil time.Time) (bool, error)
+	GetActiveClaim(ctx context.Context, roomID string) (ReactiveClaim, error)
+	Release(ctx context.Context, roomID, token string) error
 }
 
 // Specialist represents a stored specialist configuration for CRUD.

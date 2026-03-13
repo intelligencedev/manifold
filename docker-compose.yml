@@ -8,19 +8,23 @@ services:
     build:
       context: .
       dockerfile: deploy/docker/cpu.Dockerfile
-    platform: linux/amd64
     container_name: agentd
+    user: "0:0"
     ports:
       - "32180:32180"
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      LOG_PATH: ""
+      SSL_CERT_DIR: /etc/ssl/certs:/caddy-local-ca
+    restart: unless-stopped
+    env_file:
+      - .env
     volumes:
       - ./.env:/app/.env
       - ./config.yaml:/app/config.yaml
       - ./.:/app/manifold
       - ${WORKDIR}:${WORKDIR}
       - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-    env_file:
-      - .env
 
   pg-manifold:
     build:
@@ -74,6 +78,7 @@ services:
       - clickhouse
     volumes:
       - ./deploy/configs/otel/collector.yaml:/etc/otelcol/config.yaml:ro
+      - ${OTEL_DOCKER_CONTAINER_LOG_DIR:-./tmp/otel/docker-containers}:/var/lib/docker/containers:ro
     command:
       - "--config=/etc/otelcol/config.yaml"
     ports:
@@ -86,139 +91,6 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
-
-#####################################################################
-# Message Queue and Cache - Not Required, only for distributed setups
-#####################################################################
-
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.4.0
-    container_name: manifold_zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
-    restart: unless-stopped
-
-  kafka:
-    image: confluentinc/cp-kafka:7.4.0
-    container_name: manifold_kafka
-    depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
-      - "9093:9093"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      # Expose two listeners: PLAINTEXT for host access (localhost:9092) and INTERNAL for container network (kafka:29092)
-      KAFKA_LISTENERS: LOCAL://0.0.0.0:9092,INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: LOCAL://localhost:9092,INTERNAL://kafka:29092,EXTERNAL://192.168.1.203:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LOCAL:PLAINTEXT,INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-    restart: unless-stopped
-
-  redis:
-    image: redis:7
-    container_name: manifold_redis
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
-    restart: unless-stopped
-
-###############################################################################
-# Object Storage - MinIO (S3-compatible) for project file storage
-# Not required for default filesystem mode. Enable with PROJECTS_BACKEND=s3
-###############################################################################
-
-  minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z
-    container_name: manifold_minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-    ports:
-      - "9002:9000"   # S3 API
-      - "9003:9001"   # MinIO Console
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
-    restart: unless-stopped
-
-  minio-init:
-    image: minio/mc:RELEASE.2024-11-05T11-29-45Z
-    container_name: manifold_minio_init
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set manifold http://minio:9000 $${MINIO_ROOT_USER:-minioadmin} $${MINIO_ROOT_PASSWORD:-minioadmin};
-      mc mb --ignore-existing manifold/$${MINIO_BUCKET:-manifold-workspaces};
-      mc anonymous set none manifold/$${MINIO_BUCKET:-manifold-workspaces};
-      echo 'Bucket ready: $${MINIO_BUCKET:-manifold-workspaces}';
-      exit 0;
-      "
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      MINIO_BUCKET: ${PROJECTS_S3_BUCKET:-manifold-workspaces}
-
-###############################################################################
-# Secrets Management - HashiCorp Vault for encryption key management
-# Not required for default file-based encryption. Enable with PROJECTS_ENCRYPTION_PROVIDER=vault
-###############################################################################
-
-  vault:
-    image: hashicorp/vault:1.15
-    container_name: manifold_vault
-    cap_add:
-      - IPC_LOCK
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-      VAULT_ADDR: "http://127.0.0.1:8200"
-    ports:
-      - "8200:8200"
-    healthcheck:
-      test: ["CMD", "vault", "status"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
-    restart: unless-stopped
-
-  # One-shot container to enable Transit secrets engine and create encryption key
-  vault-init:
-    image: hashicorp/vault:1.15
-    container_name: manifold_vault_init
-    depends_on:
-      vault:
-        condition: service_healthy
-    environment:
-      VAULT_ADDR: "http://vault:8200"
-      VAULT_TOKEN: ${VAULT_DEV_ROOT_TOKEN:-dev-only-token}
-    entrypoint: >
-      /bin/sh -c "
-      echo 'Waiting for Vault...';
-      sleep 2;
-      echo 'Enabling Transit secrets engine...';
-      vault secrets enable transit 2>/dev/null || echo 'Transit already enabled';
-      echo 'Creating encryption key...';
-      vault write -f transit/keys/$${VAULT_KEY_NAME:-manifold-kek} 2>/dev/null || echo 'Key already exists';
-      echo 'Vault initialized with Transit key: $${VAULT_KEY_NAME:-manifold-kek}';
-      exit 0;
-      "
 
 ###############################################################################
 # Authentication - Not required, disable auth in config.yaml to run without it
@@ -267,7 +139,7 @@ services:
       - "8083:8080" # Keycloak (host 8083 to avoid conflicts)
     volumes:
       - keycloak_data:/opt/keycloak/data
-      - ./configs/keycloak:/opt/keycloak/data/import:ro
+      - ./deploy/configs/keycloak:/opt/keycloak/data/import:ro
     restart: unless-stopped
 
 volumes:
@@ -276,5 +148,3 @@ volumes:
   keycloak_data:
   clickhouse_data:
   clickhouse_logs:
-  minio_data:
-  vault_data:

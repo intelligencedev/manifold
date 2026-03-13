@@ -8,6 +8,6 @@ For local development, a sample realm `realm.json` can be provided to auto-impor
 - Redirect URIs: `http://localhost:32180/*`
 - Web origins: `http://localhost:32180`
 
-Keycloak in this compose is exposed at <http://localhost:8080>.
+Keycloak in the repository root compose file is exposed at <http://localhost:8083>.
 
 Default admin: `admin` / `admin` (dev only)

@@ -20,7 +20,7 @@ import (
 
 // AskAgentTool performs a synchronous HTTP call to the local /agent/run endpoint
 // to invoke another agent (optionally a named specialist) and returns its output.
-// This is a simple RPC-style delegator for Phase 1 (no Kafka/bus yet).
+// This is a simple RPC-style delegator for local, in-process orchestration.
 type AskAgentTool struct {
 	httpClient *http.Client
 	baseURL    string // e.g., http://127.0.0.1:32180

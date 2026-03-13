@@ -23,8 +23,8 @@ const props = defineProps({
 });
 
 const toneClasses: Record<PillTone, string> = {
-  accent: "bg-accent/15 text-accent border border-accent/30",
-  neutral: "bg-surface-muted/70 text-subtle-foreground border border-white/10",
+  accent: "bg-accent/12 text-accent border border-accent/24",
+  neutral: "bg-surface-muted/55 text-subtle-foreground border border-border/45",
   success: "bg-success/15 text-success border border-success/30",
   danger: "bg-danger/15 text-danger border border-danger/30",
   warning: "bg-warning/15 text-warning border border-warning/30",
@@ -32,7 +32,7 @@ const toneClasses: Record<PillTone, string> = {
 };
 
 const classes = computed(() => [
-  "inline-flex items-center gap-1 rounded-full font-semibold leading-none tracking-tight",
+  "inline-flex items-center gap-1 rounded-full font-semibold leading-none tracking-[0.01em]",
   props.size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs",
   toneClasses[props.tone],
   props.glow ? "pill-glow" : "",

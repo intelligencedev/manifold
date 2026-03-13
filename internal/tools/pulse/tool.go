@@ -11,18 +11,19 @@ import (
 	pulsecore "manifold/internal/pulse"
 	"manifold/internal/sandbox"
 	"manifold/internal/tools"
+	"manifold/internal/validation"
 )
 
 const toolName = "pulse_tasks"
 
 type toolArgs struct {
-	Action          string `json:"action"`
-	TaskID          string `json:"task_id"`
-	Title           string `json:"title"`
-	Prompt          string `json:"prompt"`
-	IntervalSeconds int    `json:"interval_seconds"`
-	Enabled         *bool  `json:"enabled"`
-	ProjectID       string `json:"project_id"`
+	Action          string  `json:"action"`
+	TaskID          string  `json:"task_id"`
+	Title           string  `json:"title"`
+	Prompt          string  `json:"prompt"`
+	IntervalSeconds int     `json:"interval_seconds"`
+	Enabled         *bool   `json:"enabled"`
+	ProjectID       *string `json:"project_id"`
 }
 
 type Tool struct {
@@ -69,7 +70,7 @@ func (t *Tool) JSONSchema() map[string]any {
 				},
 				"project_id": map[string]any{
 					"type":        "string",
-					"description": "Optional project ID associated with the room pulse.",
+					"description": "Optional room project ID. When provided, it must match the current request's active project context.",
 				},
 			},
 			"required": []string{"action"},
@@ -129,12 +130,30 @@ func (t *Tool) handleList(ctx context.Context, roomID string) (any, error) {
 	}, nil
 }
 
-func (t *Tool) handleConfigureRoom(ctx context.Context, roomID, projectID string, enabled *bool) (any, error) {
+func (t *Tool) handleConfigureRoom(ctx context.Context, roomID string, projectID *string, enabled *bool) (any, error) {
 	room, err := t.store.EnsureRoom(ctx, roomID)
 	if err != nil {
 		return nil, err
 	}
-	room.ProjectID = strings.TrimSpace(projectID)
+	if projectID != nil {
+		cleanProjectID := strings.TrimSpace(*projectID)
+		if cleanProjectID != "" {
+			validatedProjectID, err := validation.ProjectID(cleanProjectID)
+			if err != nil {
+				return map[string]any{"ok": false, "error": "invalid project_id"}, nil
+			}
+			ctxProjectID, ok := sandbox.ProjectIDFromContext(ctx)
+			if !ok || strings.TrimSpace(ctxProjectID) == "" {
+				return map[string]any{"ok": false, "error": "project_id changes require an active project-scoped request"}, nil
+			}
+			if validatedProjectID != strings.TrimSpace(ctxProjectID) {
+				return map[string]any{"ok": false, "error": "project_id must match the current request project context"}, nil
+			}
+			room.ProjectID = validatedProjectID
+		} else {
+			room.ProjectID = ""
+		}
+	}
 	if enabled != nil {
 		room.Enabled = *enabled
 	}

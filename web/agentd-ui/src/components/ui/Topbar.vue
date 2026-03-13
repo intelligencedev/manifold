@@ -29,8 +29,8 @@ type TopbarProps = {
 const props = defineProps<TopbarProps>();
 
 const wrapperClasses = computed(() => [
-  "glass-surface border border-white/10 shadow-[0_12px_60px_rgba(0,0,0,0.35)]",
-  "px-4 py-3 md:px-6 md:py-4 rounded-[var(--radius-lg,26px)] backdrop-saturate-150",
+  "glass-surface border border-border/60",
+  "px-4 py-3 md:px-6 md:py-4 rounded-[var(--radius-lg,26px)]",
   "w-full",
   props.sticky === false ? "" : "sticky top-0 z-30",
 ]);

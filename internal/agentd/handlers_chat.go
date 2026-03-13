@@ -868,7 +868,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 
 		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
 		if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
-			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, history, userID, specOwner); handled {
+			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, req.SystemPrompt, history, userID, specOwner); handled {
 				return
 			}
 		}
@@ -1316,6 +1316,18 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
+		specOwner := systemUserID
+		if userID != nil {
+			specOwner = *userID
+		}
+
+		specialistName := strings.TrimSpace(r.URL.Query().Get("specialist"))
+		if specialistName != "" && !strings.EqualFold(specialistName, specialists.OrchestratorName) {
+			if handled := a.handleSpecialistChat(w, r, specialistName, req.Prompt, req.SessionID, req.SystemPrompt, history, userID, specOwner); handled {
+				return
+			}
+		}
+
 		if a.cfg.OpenAI.APIKey == "" {
 			prun := a.runs.create(req.Prompt)
 			if r.Header.Get("Accept") == "text/event-stream" {
@@ -1337,11 +1349,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 
-		// Determine user ID for per-user orchestrator config
-		var orchUserID int64 = systemUserID
-		if userID != nil {
-			orchUserID = *userID
-		}
+		orchUserID := specOwner
 		eng := a.cloneEngineForUser(r.Context(), orchUserID, req.SessionID)
 		if eng == nil {
 			http.Error(w, "agent unavailable", http.StatusServiceUnavailable)
@@ -1560,7 +1568,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 	}
 }
 
-func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID string, history []llm.Message, userID *int64, owner int64) bool {
+func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name, prompt, sessionID, systemPromptOverride string, history []llm.Message, userID *int64, owner int64) bool {
 	reg, err := a.specialistsRegistryForUser(r.Context(), owner)
 	if err != nil {
 		http.Error(w, "specialist registry unavailable", http.StatusInternalServerError)
@@ -1607,6 +1615,9 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 			summaryCtxSize = ctxSize
 		}
 		systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
+		if override := strings.TrimSpace(systemPromptOverride); override != "" {
+			systemPrompt = prompts.EnsureMemoryInstructions(override)
+		}
 		if skillsSection != "" {
 			systemPrompt = systemPrompt + "\n\n" + skillsSection
 		}
@@ -1791,7 +1802,12 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		if len(savedImages) > 0 {
 			res = appendImageSummary(res, savedImages)
 		}
-		payload := map[string]string{"type": "final", "data": res}
+		payload := map[string]any{"type": "final", "data": res}
+		if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
+			if messages := outbox.Messages(); len(messages) > 0 {
+				payload["matrix_messages"] = messages
+			}
+		}
 		writeSSE(payload)
 		a.runs.updateStatus(prun.ID, "completed", 0)
 		if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, res, modelLabel); err != nil {
@@ -1841,7 +1857,13 @@ func (a *app) handleSpecialistChat(w http.ResponseWriter, r *http.Request, name,
 		out = appendImageSummary(out, savedImages)
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"result": out})
+	response := map[string]any{"result": out}
+	if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
+		if messages := outbox.Messages(); len(messages) > 0 {
+			response["matrix_messages"] = messages
+		}
+	}
+	json.NewEncoder(w).Encode(response)
 	a.runs.updateStatus(prun.ID, "completed", 0)
 	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, sessionID, prompt, turnMessages, out, modelLabel); err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("store_chat_turn_specialist")

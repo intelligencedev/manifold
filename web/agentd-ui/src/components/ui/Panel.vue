@@ -28,7 +28,7 @@
 
     <slot />
 
-    <footer v-if="$slots.footer" class="mt-6 border-t border-white/10 pt-4">
+    <footer v-if="$slots.footer" class="mt-6 border-t border-border/45 pt-4">
       <slot name="footer" />
     </footer>
   </component>
@@ -55,9 +55,9 @@ const hasHeader = computed(() =>
 );
 
 const panelClass = computed(() => [
-  "glass-surface relative w-full rounded-[var(--radius-lg,26px)] border border-white/12 text-foreground shadow-[0_20px_70px_rgba(0,0,0,0.35)]",
-  "supports-[backdrop-filter]:backdrop-blur-xl",
-  props.padded === false ? "p-0" : "p-5 md:p-6",
+  "glass-surface relative w-full rounded-[24px] border border-border/60 text-foreground",
+  "supports-[backdrop-filter]:backdrop-blur-lg",
+  props.padded === false ? "p-0" : "p-6 md:p-7",
 ]);
 
 const eyebrow = computed(() => props.eyebrow ?? "");

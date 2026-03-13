@@ -18,6 +18,7 @@ require (
 	github.com/qdrant/go-client v1.17.1
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
+	github.com/yuin/goldmark v1.7.13
 	go.opentelemetry.io/contrib/instrumentation/host v0.67.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 	go.opentelemetry.io/otel v1.42.0

@@ -1,64 +1,90 @@
-# Build agentd for Linux (CPU-only, usable on macOS hosts via Docker Desktop)
+# syntax=docker/dockerfile:1.7
 
-FROM ubuntu:22.04 AS builder
-
-ARG GO_VERSION=1.24.5
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Base toolchain + Node 20 + pnpm
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git make pkg-config curl ca-certificates \
-    python3 python3-distutils openssl gnupg \
-  && rm -rf /var/lib/apt/lists/*
-
-# Install Go (explicit 1.24.x)
-RUN curl -fsSL https:/go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz | tar -C /usr/local -xz
-ENV PATH=/usr/local/go/bin:/go/bin:${PATH} \
-    GOPATH=/go
-
-# Node 20 + pnpm@9
-RUN curl -fsSL https:/deb.nodesource.com/setup_20.x | bash - \
-  && apt-get update && apt-get install -y --no-install-recommends nodejs \
-  && corepack enable \
-  && corepack prepare pnpm@9 --activate \
-  && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src/app
-
-# Prime go mod cache first
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Bring the full workspace
-COPY . .
-
-# Build frontend assets and agentd binary using make target
-# Use npm instead of pnpm to avoid platform-specific lockfile issues
-RUN rm -rf node_modules pnpm-lock.yaml web/agentd-ui/node_modules \
-  && cd web/agentd-ui \
-  && npm install \
-  && npm run build \
-  && mkdir -p /src/app/internal/webui/dist \
-  && rm -rf /src/app/internal/webui/dist/* \
-  && cp -R /src/app/web/agentd-ui/dist/. /src/app/internal/webui/dist/
-
-# Build agentd for linux/amd64
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    mkdir -p dist && go build -v -o dist/agentd ./cmd/agentd
+ARG NODE_IMAGE=node:20-bookworm-slim
+ARG GO_IMAGE=golang:1.25.0-bookworm
 
 
-# Runtime image
-FROM ubuntu:22.04 AS runtime
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl dumb-init docker.io \
-  && rm -rf /var/lib/apt/lists/*
+FROM ${NODE_IMAGE} AS ui-base
+ENV PNPM_HOME=/pnpm \
+  PATH=/pnpm:${PATH}
+RUN corepack enable \
+  && pnpm config set store-dir /pnpm/store
+WORKDIR /src/web/agentd-ui
+
+
+FROM ui-base AS ui-deps
+COPY --link web/agentd-ui/package.json web/agentd-ui/pnpm-lock.yaml ./
+RUN --mount=type=cache,id=manifold-pnpm-store,target=/pnpm/store \
+  pnpm fetch --frozen-lockfile
+
+
+FROM ui-deps AS ui-build
+COPY --link web/agentd-ui/package.json web/agentd-ui/pnpm-lock.yaml ./
+RUN --mount=type=cache,id=manifold-pnpm-store,target=/pnpm/store \
+  pnpm install --frozen-lockfile --offline
+COPY --link web/agentd-ui/ ./
+RUN --mount=type=cache,id=manifold-pnpm-store,target=/pnpm/store \
+  pnpm run build
+
+
+FROM ${GO_IMAGE} AS go-base
+WORKDIR /src
+
+
+FROM go-base AS go-deps
+COPY --link go.mod go.sum ./
+RUN --mount=type=cache,id=manifold-go-mod,target=/go/pkg/mod \
+  go mod download
+
+
+FROM go-deps AS go-build
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+COPY --link cmd/ ./cmd/
+COPY --link internal/ ./internal/
+COPY --from=ui-build /src/web/agentd-ui/dist/ ./internal/webui/dist/
+RUN --mount=type=cache,id=manifold-go-mod,target=/go/pkg/mod \
+  --mount=type=cache,id=manifold-go-build,target=/root/.cache/go-build \
+  CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+  go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/agentd ./cmd/agentd
+
+
+FROM ${NODE_IMAGE} AS runtime
+ENV DEBIAN_FRONTEND=noninteractive \
+  HOME=/home/manifold \
+  PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+  --mount=type=cache,target=/var/lib/apt,sharing=locked \
+  set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    bash \
+    ca-certificates \
+    curl \
+    dumb-init \
+    git \
+    gnupg \
+    openssh-client; \
+  install -m 0755 -d /etc/apt/keyrings; \
+  curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg; \
+  chmod a+r /etc/apt/keyrings/docker.gpg; \
+  . /etc/os-release; \
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    docker-ce-cli \
+    docker-compose-plugin; \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /src/app/dist/agentd /app/agentd
-COPY --from=builder /src/app/example.env /app/example.env
-COPY --from=builder /src/app/config.yaml.example /app/config.yaml.example
-COPY --from=builder /src/app/docs /app/docs
+COPY --from=go-base /usr/local/go /usr/local/go
+COPY --from=go-build /out/agentd /app/agentd
+COPY --link example.env config.yaml.example ./
+COPY --link docs/ ./docs/
+RUN ln -sf /usr/local/go/bin/go /usr/local/bin/go \
+  && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt \
+  && install -d -o 65532 -g 65532 /home/manifold \
+  && chown -R 65532:65532 /app
 
 USER 65532:65532
 ENTRYPOINT ["dumb-init", "--", "/app/agentd"]

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"manifold/internal/config"
@@ -22,6 +23,34 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 )
+
+func hasScheme(endpoint string) bool {
+	return strings.Contains(strings.TrimSpace(endpoint), "://")
+}
+
+func traceExporterOptions(endpoint string) []otlptracehttp.Option {
+	endpoint = strings.TrimSpace(endpoint)
+	if hasScheme(endpoint) {
+		return []otlptracehttp.Option{otlptracehttp.WithEndpointURL(endpoint)}
+	}
+	return []otlptracehttp.Option{otlptracehttp.WithEndpoint(endpoint), otlptracehttp.WithInsecure()}
+}
+
+func metricExporterOptions(endpoint string) []otlpmetrichttp.Option {
+	endpoint = strings.TrimSpace(endpoint)
+	if hasScheme(endpoint) {
+		return []otlpmetrichttp.Option{otlpmetrichttp.WithEndpointURL(endpoint)}
+	}
+	return []otlpmetrichttp.Option{otlpmetrichttp.WithEndpoint(endpoint), otlpmetrichttp.WithInsecure()}
+}
+
+func logExporterOptions(endpoint string) []otlploghttp.Option {
+	endpoint = strings.TrimSpace(endpoint)
+	if hasScheme(endpoint) {
+		return []otlploghttp.Option{otlploghttp.WithEndpointURL(endpoint)}
+	}
+	return []otlploghttp.Option{otlploghttp.WithEndpoint(endpoint), otlploghttp.WithInsecure()}
+}
 
 // InitOTel configures tracing and metrics exporters. Returns a shutdown func.
 func InitOTel(ctx context.Context, obs config.ObsConfig) (func(context.Context) error, error) {
@@ -44,7 +73,7 @@ func InitOTel(ctx context.Context, obs config.ObsConfig) (func(context.Context) 
 		return nil, fmt.Errorf("init resource: %w", err)
 	}
 
-	trExp, err := otlptracehttp.New(ctx, otlptracehttp.WithEndpoint(obs.OTLP), otlptracehttp.WithInsecure())
+	trExp, err := otlptracehttp.New(ctx, traceExporterOptions(obs.OTLP)...)
 	if err != nil {
 		return nil, fmt.Errorf("init trace exporter: %w", err)
 	}
@@ -53,7 +82,7 @@ func InitOTel(ctx context.Context, obs config.ObsConfig) (func(context.Context) 
 		sdktrace.WithResource(res),
 	)
 
-	mExp, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpoint(obs.OTLP), otlpmetrichttp.WithInsecure())
+	mExp, err := otlpmetrichttp.New(ctx, metricExporterOptions(obs.OTLP)...)
 	if err != nil {
 		return nil, fmt.Errorf("init metrics exporter: %w", err)
 	}
@@ -68,7 +97,7 @@ func InitOTel(ctx context.Context, obs config.ObsConfig) (func(context.Context) 
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	// Initialize OTLP log exporter
-	logExp, err := otlploghttp.New(ctx, otlploghttp.WithEndpoint(obs.OTLP), otlploghttp.WithInsecure())
+	logExp, err := otlploghttp.New(ctx, logExporterOptions(obs.OTLP)...)
 	if err != nil {
 		return nil, fmt.Errorf("init log exporter: %w", err)
 	}

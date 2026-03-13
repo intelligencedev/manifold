@@ -223,6 +223,9 @@ PNPM := pnpm
 build-manifold: frontend | $(DIST)
 	@echo "Building agentd with embedded frontend into $(DIST)/"
 	go build -o $(DIST)/agentd ./cmd/agentd
+	@echo "Building manibot into $(DIST)/manibot/"
+	mkdir -p $(DIST)/manibot
+	go build -o $(DIST)/manibot/manibot ./cmd/manibot
 	@echo "agentd with frontend build complete"
 
 

@@ -279,6 +279,9 @@ func Load() (Config, error) {
 	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_MODEL")); v != "" {
 		cfg.EvolvingMemory.Model = v
 	}
+	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_PROVIDER")); v != "" {
+		cfg.EvolvingMemory.Provider = strings.ToLower(v)
+	}
 	// Smart pruning env vars
 	if v := strings.TrimSpace(os.Getenv("EVOLVING_MEMORY_ENABLE_SMART_PRUNE")); v != "" {
 		cfg.EvolvingMemory.EnableSmartPrune = strings.EqualFold(v, "true") || v == "1"
@@ -297,6 +300,27 @@ func Load() (Config, error) {
 		if f, err := parseFloat(v); err == nil {
 			cfg.EvolvingMemory.MinRelevance = f
 		}
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_ENABLED")); v != "" {
+		cfg.Transit.Enabled = strings.EqualFold(v, "true") || v == "1"
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_DEFAULT_SEARCH_LIMIT")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Transit.DefaultSearchLimit = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_DEFAULT_LIST_LIMIT")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Transit.DefaultListLimit = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_MAX_BATCH_SIZE")); v != "" {
+		if n, err := parseInt(v); err == nil {
+			cfg.Transit.MaxBatchSize = n
+		}
+	}
+	if v := strings.TrimSpace(os.Getenv("TRANSIT_ENABLE_VECTOR_SEARCH")); v != "" {
+		cfg.Transit.EnableVectorSearch = strings.EqualFold(v, "true") || v == "1"
 	}
 
 	// Optionally load specialist agents from YAML.
@@ -329,6 +353,22 @@ func Load() (Config, error) {
 		cfg.LLMClient.Provider = provider
 	default:
 		return Config{}, fmt.Errorf("llm provider must be one of openai, anthropic, google, or local (got %q)", provider)
+	}
+	if p := strings.TrimSpace(cfg.EvolvingMemory.Provider); p != "" {
+		switch p {
+		case "openai", "anthropic", "google", "local":
+			cfg.EvolvingMemory.Provider = p
+		default:
+			return Config{}, fmt.Errorf("evolvingMemory.provider must be one of openai, anthropic, google, or local (got %q)", p)
+		}
+	}
+	if p := strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider); p != "" {
+		switch p {
+		case "openai", "anthropic", "google", "local":
+			cfg.EvolvingMemory.LLMClient.Provider = p
+		default:
+			return Config{}, fmt.Errorf("evolvingMemory.llmClient.provider must be one of openai, anthropic, google, or local (got %q)", p)
+		}
 	}
 	if cfg.LLMClient.Provider == "local" {
 		cfg.OpenAI.API = "completions"
@@ -399,6 +439,15 @@ func Load() (Config, error) {
 	// Apply tokenization defaults
 	if cfg.Tokenization.CacheSize <= 0 {
 		cfg.Tokenization.CacheSize = 1000
+	}
+	if cfg.Transit.DefaultSearchLimit <= 0 {
+		cfg.Transit.DefaultSearchLimit = 10
+	}
+	if cfg.Transit.DefaultListLimit <= 0 {
+		cfg.Transit.DefaultListLimit = 100
+	}
+	if cfg.Transit.MaxBatchSize <= 0 {
+		cfg.Transit.MaxBatchSize = 100
 	}
 	if cfg.Tokenization.CacheTTLSeconds <= 0 {
 		cfg.Tokenization.CacheTTLSeconds = 3600 // 1 hour
@@ -682,18 +731,27 @@ func loadSpecialists(cfg *Config) error {
 		TimeoutSeconds int    `yaml:"timeoutSeconds"`
 	}
 	type evolvingMemoryYAML struct {
-		Enabled          bool    `yaml:"enabled"`
-		MaxSize          int     `yaml:"maxSize"`
-		TopK             int     `yaml:"topK"`
-		WindowSize       int     `yaml:"windowSize"`
-		EnableRAG        bool    `yaml:"enableRAG"`
-		ReMemEnabled     bool    `yaml:"reMemEnabled"`
-		MaxInnerSteps    int     `yaml:"maxInnerSteps"`
-		Model            string  `yaml:"model"`
-		EnableSmartPrune bool    `yaml:"enableSmartPrune"`
-		PruneThreshold   float64 `yaml:"pruneThreshold"`
-		RelevanceDecay   float64 `yaml:"relevanceDecay"`
-		MinRelevance     float64 `yaml:"minRelevance"`
+		Enabled          bool          `yaml:"enabled"`
+		Provider         string        `yaml:"provider"`
+		LLMClient        llmClientYAML `yaml:"llmClient"`
+		MaxSize          int           `yaml:"maxSize"`
+		TopK             int           `yaml:"topK"`
+		WindowSize       int           `yaml:"windowSize"`
+		EnableRAG        bool          `yaml:"enableRAG"`
+		ReMemEnabled     bool          `yaml:"reMemEnabled"`
+		MaxInnerSteps    int           `yaml:"maxInnerSteps"`
+		Model            string        `yaml:"model"`
+		EnableSmartPrune bool          `yaml:"enableSmartPrune"`
+		PruneThreshold   float64       `yaml:"pruneThreshold"`
+		RelevanceDecay   float64       `yaml:"relevanceDecay"`
+		MinRelevance     float64       `yaml:"minRelevance"`
+	}
+	type transitYAML struct {
+		Enabled            bool `yaml:"enabled"`
+		DefaultSearchLimit int  `yaml:"defaultSearchLimit"`
+		DefaultListLimit   int  `yaml:"defaultListLimit"`
+		MaxBatchSize       int  `yaml:"maxBatchSize"`
+		EnableVectorSearch bool `yaml:"enableVectorSearch"`
 	}
 	type ttsYAML struct {
 		BaseURL string `yaml:"baseURL"`
@@ -772,6 +830,7 @@ func loadSpecialists(cfg *Config) error {
 		MCP                          mcpYAML            `yaml:"mcp"`
 		Embedding                    embeddingYAML      `yaml:"embedding"`
 		EvolvingMemory               evolvingMemoryYAML `yaml:"evolvingMemory"`
+		Transit                      transitYAML        `yaml:"transit"`
 		TTS                          ttsYAML            `yaml:"tts"`
 		STT                          sttYAML            `yaml:"stt"`
 		Projects                     projectsYAML       `yaml:"projects"`
@@ -1083,6 +1142,69 @@ func loadSpecialists(cfg *Config) error {
 		}
 		if cfg.EvolvingMemory.Model == "" && strings.TrimSpace(w.EvolvingMemory.Model) != "" {
 			cfg.EvolvingMemory.Model = strings.TrimSpace(w.EvolvingMemory.Model)
+		}
+		if cfg.EvolvingMemory.Provider == "" && strings.TrimSpace(w.EvolvingMemory.Provider) != "" {
+			cfg.EvolvingMemory.Provider = strings.ToLower(strings.TrimSpace(w.EvolvingMemory.Provider))
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Provider) != "" {
+			cfg.EvolvingMemory.LLMClient.Provider = strings.ToLower(strings.TrimSpace(w.EvolvingMemory.LLMClient.Provider))
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.OpenAI.APIKey) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.APIKey) != "" {
+			cfg.EvolvingMemory.LLMClient.OpenAI.APIKey = strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.APIKey)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.OpenAI.Model) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.Model) != "" {
+			cfg.EvolvingMemory.LLMClient.OpenAI.Model = strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.Model)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.OpenAI.BaseURL) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.BaseURL) != "" {
+			cfg.EvolvingMemory.LLMClient.OpenAI.BaseURL = strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.BaseURL)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.OpenAI.SummaryModel) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.SummaryModel) != "" {
+			cfg.EvolvingMemory.LLMClient.OpenAI.SummaryModel = strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.SummaryModel)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.OpenAI.SummaryBaseURL) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.SummaryBaseURL) != "" {
+			cfg.EvolvingMemory.LLMClient.OpenAI.SummaryBaseURL = strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.SummaryBaseURL)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.OpenAI.API) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.API) != "" {
+			cfg.EvolvingMemory.LLMClient.OpenAI.API = strings.TrimSpace(w.EvolvingMemory.LLMClient.OpenAI.API)
+		}
+		if len(cfg.EvolvingMemory.LLMClient.OpenAI.ExtraHeaders) == 0 && len(w.EvolvingMemory.LLMClient.OpenAI.ExtraHeaders) > 0 {
+			cfg.EvolvingMemory.LLMClient.OpenAI.ExtraHeaders = w.EvolvingMemory.LLMClient.OpenAI.ExtraHeaders
+		}
+		if len(cfg.EvolvingMemory.LLMClient.OpenAI.ExtraParams) == 0 && len(w.EvolvingMemory.LLMClient.OpenAI.ExtraParams) > 0 {
+			cfg.EvolvingMemory.LLMClient.OpenAI.ExtraParams = w.EvolvingMemory.LLMClient.OpenAI.ExtraParams
+		}
+		if w.Transit.Enabled {
+			cfg.Transit.Enabled = true
+		}
+		if cfg.Transit.DefaultSearchLimit == 0 && w.Transit.DefaultSearchLimit > 0 {
+			cfg.Transit.DefaultSearchLimit = w.Transit.DefaultSearchLimit
+		}
+		if cfg.Transit.DefaultListLimit == 0 && w.Transit.DefaultListLimit > 0 {
+			cfg.Transit.DefaultListLimit = w.Transit.DefaultListLimit
+		}
+		if cfg.Transit.MaxBatchSize == 0 && w.Transit.MaxBatchSize > 0 {
+			cfg.Transit.MaxBatchSize = w.Transit.MaxBatchSize
+		}
+		if w.Transit.EnableVectorSearch {
+			cfg.Transit.EnableVectorSearch = true
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Anthropic.APIKey) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.APIKey) != "" {
+			cfg.EvolvingMemory.LLMClient.Anthropic.APIKey = strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.APIKey)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Anthropic.Model) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.Model) != "" {
+			cfg.EvolvingMemory.LLMClient.Anthropic.Model = strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.Model)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Anthropic.BaseURL) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.BaseURL) != "" {
+			cfg.EvolvingMemory.LLMClient.Anthropic.BaseURL = strings.TrimSpace(w.EvolvingMemory.LLMClient.Anthropic.BaseURL)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Google.APIKey) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Google.APIKey) != "" {
+			cfg.EvolvingMemory.LLMClient.Google.APIKey = strings.TrimSpace(w.EvolvingMemory.LLMClient.Google.APIKey)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Google.Model) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Google.Model) != "" {
+			cfg.EvolvingMemory.LLMClient.Google.Model = strings.TrimSpace(w.EvolvingMemory.LLMClient.Google.Model)
+		}
+		if strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Google.BaseURL) == "" && strings.TrimSpace(w.EvolvingMemory.LLMClient.Google.BaseURL) != "" {
+			cfg.EvolvingMemory.LLMClient.Google.BaseURL = strings.TrimSpace(w.EvolvingMemory.LLMClient.Google.BaseURL)
 		}
 		// Smart pruning config from YAML
 		if w.EvolvingMemory.EnableSmartPrune {

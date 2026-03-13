@@ -75,5 +75,6 @@ internal/webui/dist/
 !internal/webui/dist/index.html
 playground-artifacts
 .github/chatmodes/ManifoldAgent.chatmode.md
-manibot
 agentd
+docker-compose.manibots.yml
+docker-compose.matrixfold.yml

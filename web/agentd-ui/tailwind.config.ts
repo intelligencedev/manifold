@@ -86,20 +86,20 @@ export default {
         ".bg-grain": {
           backgroundImage: "url(/assets/noise.png)",
           mixBlendMode: "soft-light",
-          opacity: "0.35",
+          opacity: "0.05",
         },
         ".glass-surface": {
           padding: "16px",
-          backgroundImage:
-            "linear-gradient(120deg, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface-muted) / 0.76))",
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow: `${theme("boxShadow.3")}, inset 0 1px 0 rgba(255,255,255,0.04)`,
-          backdropFilter: "blur(18px)",
-          WebkitBackdropFilter: "blur(18px)",
+          backgroundColor: "rgb(var(--color-surface) / 0.88)",
+          backgroundImage: "none",
+          border: "1px solid rgb(var(--color-border) / 0.56)",
+          boxShadow: `${theme("boxShadow.1")}, inset 0 1px 0 rgba(255,255,255,0.03)`,
+          backdropFilter: "blur(10px) saturate(108%)",
+          WebkitBackdropFilter: "blur(10px) saturate(108%)",
         },
         ".pill-glow": {
           boxShadow:
-            "0 0 0 1px rgba(var(--color-accent), 0.35), 0 10px 34px rgba(var(--color-accent), 0.18), 0 1px 0 rgba(255,255,255,0.08)",
+            "0 0 0 1px rgba(var(--color-accent), 0.18), 0 6px 16px rgba(var(--color-accent), 0.08)",
         },
       });
     },

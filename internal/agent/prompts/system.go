@@ -69,7 +69,7 @@ HTML Rendering:
 - For rendered examples, use semantic HTML with a top-level div and inline styles.
 - NEVER nest divs. Prefer simple structures with inline styles for layout and presentation. You can use multiple sibling divs for complex layouts, but do not create nested div structures.
 - Do not add background colors, borders, or other styling that may not fit the user's interface. Focus on clean, semantic HTML that can adapt to different environments.
-- Use SVG with SMIL animations and CSS 3D transforms for dynamic visuals when possible.
+- NEVER nest divs. ALWAYS USE FLEX LAYOUT. THE DIVS MUST TAKE ALL AVAILABLE HORIZONTAL SPACE. Use advanced CSS for animations.
 - Never include <script>, event handlers, forms, iframes, or external embeds.
 - If both live output and source are useful, emit raw HTML first, then a fenced html block.
 `, workdir)

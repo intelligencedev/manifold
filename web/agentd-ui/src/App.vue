@@ -1,17 +1,13 @@
 <template>
   <div
     :class="[
-      'relative h-screen min-w-[1280px] overflow-hidden bg-background text-foreground',
+      'aperture relative h-screen min-w-[1280px] overflow-hidden bg-background text-foreground',
       isObsDash ? 'theme-obsdash' : '',
     ]"
   >
     <div
       v-if="isObsDash"
-      class="pointer-events-none absolute inset-0 opacity-90"
-    ></div>
-    <div
-      v-if="isObsDash"
-      class="pointer-events-none absolute inset-0 bg-grain mix-blend-soft-light opacity-35"
+      class="pointer-events-none absolute inset-0 bg-grain mix-blend-soft-light opacity-10"
     ></div>
 
     <div class="relative z-10 flex h-full flex-col">
@@ -127,11 +123,11 @@ function navClass(path: string, dense = false) {
   ];
   if (isActive(path)) {
     base.push(
-      "border-white/12 bg-surface-muted/80 text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.30)]",
+      "border-border/60 bg-surface-muted/72 text-foreground",
     );
   } else {
     base.push(
-      "border-transparent text-subtle-foreground hover:border-white/10 hover:text-foreground hover:bg-surface-muted/60",
+      "border-transparent text-subtle-foreground hover:border-border/50 hover:text-foreground hover:bg-surface-muted/48",
     );
   }
   return base;

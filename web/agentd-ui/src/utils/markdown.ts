@@ -1,5 +1,10 @@
 import MarkdownIt from "markdown-it";
 import hljs from "highlight.js";
+import DOMPurify from "dompurify";
+
+const SANITIZE_OPTIONS = {
+  ALLOW_DATA_ATTR: true,
+};
 
 function wrapHighlighted(value: string, language?: string) {
   const languageClass = language ? ` language-${language}` : "";
@@ -18,7 +23,7 @@ function wrapHighlighted(value: string, language?: string) {
 }
 
 const md = new MarkdownIt({
-  html: false,
+  html: true,
   linkify: true,
   typographer: true,
   breaks: true,
@@ -82,5 +87,5 @@ export function renderMarkdown(value: string): string {
   } catch {
     // no-op: fallback to raw value
   }
-  return md.render(text);
+  return DOMPurify.sanitize(md.render(text), SANITIZE_OPTIONS);
 }

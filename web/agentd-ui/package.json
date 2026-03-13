@@ -23,6 +23,7 @@
     "@vue-flow/node-resizer": "^1.5.0",
     "axios": "^1.6.8",
     "dagre": "^0.8.5",
+    "dompurify": "^3.3.3",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.0",
     "pinia": "^2.1.7",

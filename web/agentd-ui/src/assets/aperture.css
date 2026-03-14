@@ -1,15 +1,9 @@
 /* Manifold Aperture Theme
-   Refined, high-performance gradient system + balanced color surfaces.
+   Flat color surfaces for clean rendering (no banding).
    Principles:
-     • Subtle vertical (symmetrical) gradients only where they add depth.
-     • Avoid heavy multi-layer radial backgrounds (performance + visual noise).
+     • Solid backgrounds — no gradients.
      • Keep contrast by pairing low-chroma neutrals with brand accent lines.
      • No shadow stacking; rely on color, spacing, hierarchy.
-   Performance notes (see: tryhoverify.com blog on gradient optimization):
-     • Use a SINGLE linear-gradient per element instead of multiple stacked layers.
-     • Prefer linear-gradient over large radial backgrounds (cheaper to paint).
-     • Avoid background-attachment: fixed (triggers repaint on scroll).
-     • Reuse CSS vars so the browser can optimize caching.
 */
 
 /* ============================================================================
@@ -41,48 +35,18 @@
   /* Edge highlight color for caustic panel border */
   --edge-highlight-color: 255 255 255;
 
-  /* Surface gradient tokens (vertical for symmetry) */
-  /* Using low-contrast stops to avoid banding while adding depth. */
-  /* Contrast tuned: widened stop deltas for clearer hierarchy (panel < card < input < muted) */
-  --grad-panel: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface) / 0.7),
-    rgb(var(--color-surface) / 0.58)
-  );
-  --grad-card: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface) / 0.88),
-    rgb(var(--color-surface) / 0.7)
-  );
-  --grad-muted: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface-muted) / 0.6),
-    rgb(var(--color-surface-muted) / 0.44)
-  );
-  --grad-input: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface-muted) / 0.42),
-    rgb(var(--color-surface-muted) / 0.28)
-  );
-  --grad-bg: linear-gradient(
-    to bottom,
-    rgb(var(--color-background) / 1),
-    rgb(var(--color-background) / 0.9)
-  );
+  /* Flat surface tokens */
+  --grad-panel: rgb(var(--color-surface) / 0.64);
+  --grad-card: rgb(var(--color-surface) / 0.79);
+  --grad-muted: rgb(var(--color-surface-muted) / 0.52);
+  --grad-input: rgb(var(--color-surface-muted) / 0.35);
+  --grad-bg: rgb(var(--color-background));
 
   background: var(--grad-bg);
 
-  /* Accent sprinkles: ultra-light overlay and selection */
-  --accent-sprinkle: linear-gradient(
-    to bottom,
-    rgb(var(--color-accent) / 0.06),
-    transparent 30%
-  );
-  --accent-underline: linear-gradient(
-    to right,
-    rgb(var(--color-accent) / 0.6),
-    rgb(var(--color-accent) / 0.2)
-  );
+  /* Accent tokens */
+  --accent-sprinkle: rgb(var(--color-accent) / 0.06);
+  --accent-underline: rgb(var(--color-accent) / 0.4);
 }
 [data-theme="aperture-dark"] .aperture ::selection {
   background: rgb(var(--color-accent) / 0.25);
@@ -153,11 +117,7 @@
 
 [data-theme="aperture-dark"] .aperture .ap-input:focus-within,
 [data-theme="aperture-dark"] .aperture .ap-input:focus {
-  background: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface-muted) / 0.46),
-    rgb(var(--color-surface-muted) / 0.38)
-  );
+  background: rgb(var(--color-surface-muted) / 0.42);
   border-color: rgb(var(--color-accent) / 0.6);
   outline: none;
 }
@@ -264,47 +224,18 @@
   /* Edge highlight color for caustic panel border (still light; very faint) */
   --edge-highlight-color: 255 255 255;
 
-  /* Light surface gradient tokens — stronger separation */
-  /* Contrast tuned for light theme: widened gradients & deeper page bg */
-  --grad-panel: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface) / 1),
-    rgb(var(--color-surface) / 0.92)
-  );
-  --grad-card: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface) / 1),
-    rgb(var(--color-surface) / 0.985)
-  );
-  --grad-muted: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface-muted) / 0.7),
-    rgb(var(--color-surface-muted) / 0.54)
-  );
-  --grad-input: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface-muted) / 0.52),
-    rgb(var(--color-surface-muted) / 0.38)
-  );
-  --grad-bg: linear-gradient(
-    to bottom,
-    rgb(var(--color-background) / 1),
-    rgb(var(--color-background) / 0.94)
-  );
+  /* Flat surface tokens (light) */
+  --grad-panel: rgb(var(--color-surface) / 0.96);
+  --grad-card: rgb(var(--color-surface));
+  --grad-muted: rgb(var(--color-surface-muted) / 0.62);
+  --grad-input: rgb(var(--color-surface-muted) / 0.45);
+  --grad-bg: rgb(var(--color-background));
 
   background: var(--grad-bg);
 
-  /* Accent sprinkles for light theme */
-  --accent-sprinkle: linear-gradient(
-    to bottom,
-    rgb(var(--color-accent) / 0.04),
-    transparent 30%
-  );
-  --accent-underline: linear-gradient(
-    to right,
-    rgb(var(--color-accent) / 0.7),
-    rgb(var(--color-accent) / 0.25)
-  );
+  /* Accent tokens (light) */
+  --accent-sprinkle: rgb(var(--color-accent) / 0.04);
+  --accent-underline: rgb(var(--color-accent) / 0.48);
 }
 [data-theme="aperture-light"] .aperture ::selection {
   background: rgb(var(--color-accent) / 0.2);
@@ -373,11 +304,7 @@
 
 [data-theme="aperture-light"] .aperture .ap-input:focus-within,
 [data-theme="aperture-light"] .aperture .ap-input:focus {
-  background: linear-gradient(
-    to bottom,
-    rgb(var(--color-surface-muted) / 0.5),
-    rgb(var(--color-surface-muted) / 0.42)
-  );
+  background: rgb(var(--color-surface-muted) / 0.46);
   border-color: rgb(var(--color-accent) / 0.6);
   outline: none;
 }

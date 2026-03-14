@@ -2927,11 +2927,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding: 0.75rem;
   border-radius: 0.9rem;
   border: 1px solid rgb(var(--color-border) / 0.6);
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-surface-muted) / 0.92),
-    rgb(var(--color-surface) / 0.96)
-  );
+  background: rgb(var(--color-surface-muted) / 0.94);
   box-shadow: 0 18px 35px -30px rgb(0 0 0 / 0.6);
 }
 
@@ -2941,11 +2937,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .active-specialist-card--delegated {
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-accent) / 0.12),
-    rgb(var(--color-surface) / 0.96)
-  );
+  background: rgb(var(--color-accent) / 0.12);
 }
 
 .active-specialist-avatar {
@@ -2957,11 +2949,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 0.85rem;
   font-weight: 700;
   color: rgb(var(--color-foreground));
-  background: linear-gradient(
-    145deg,
-    rgb(var(--color-accent) / 0.35),
-    rgb(var(--color-surface-muted) / 0.85)
-  );
+  background: rgb(var(--color-accent) / 0.28);
   border: 1px solid rgb(var(--color-border) / 0.6);
 }
 
@@ -3051,11 +3039,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding: 0.7rem 0.85rem;
   border-radius: 0.9rem;
   border: 1px solid rgb(var(--color-border) / 0.6);
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-surface-muted) / 0.9),
-    rgb(var(--color-surface) / 0.95)
-  );
+  background: rgb(var(--color-surface-muted) / 0.92);
   box-shadow: 0 14px 32px -24px rgb(0 0 0 / 0.6);
 }
 
@@ -3306,10 +3290,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
-  background: linear-gradient(
-    rgb(var(--color-surface-muted) / 0.95),
-    rgb(var(--color-surface-muted) / 0.6)
-  );
+  background: rgb(var(--color-surface-muted) / 0.78);
   border-top-left-radius: 0.5rem;
   border-top-right-radius: 0.5rem;
   z-index: 1;

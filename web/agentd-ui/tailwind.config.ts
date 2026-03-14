@@ -90,8 +90,8 @@ export default {
         },
         ".glass-surface": {
           padding: "16px",
-          backgroundImage:
-            "linear-gradient(120deg, rgb(var(--color-surface) / 0.82), rgb(var(--color-surface-muted) / 0.76))",
+          background:
+            "rgb(var(--color-surface) / 0.79)",
           border: "1px solid rgba(255,255,255,0.08)",
           boxShadow: `${theme("boxShadow.3")}, inset 0 1px 0 rgba(255,255,255,0.04)`,
           backdropFilter: "blur(18px)",

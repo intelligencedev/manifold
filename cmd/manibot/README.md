@@ -77,6 +77,7 @@ The agent manages tasks with the `pulse_tasks` tool. Supported actions are:
 
 - `list`
 - `configure_room`
+- `clear_claim`
 - `upsert_task`
 - `delete_task`
 - `enable_task`

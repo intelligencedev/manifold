@@ -676,8 +676,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	wsMgr := workspaces.NewManager(cfg)
 	log.Info().Str("mode", wsMgr.Mode()).Msg("workspace_manager_initialized")
 
-	specReg := specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry)
-	specReg.SetWorkdir(cfg.Workdir)
+	specReg := specialists.NewRegistryWithWorkdir(cfg.LLMClient, cfg.Specialists, httpClient, toolRegistry, cfg.Workdir)
 
 	// Register specialist routing tools.
 	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, wsMgr)
@@ -689,20 +688,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// own timeout management via the parent context.
 	toolRegistry.Register(agenttools.NewDelegateToTeamTool(httpClient, "http://127.0.0.1:32180", 0))
 
-	if !cfg.EnableTools {
-		toolRegistry = tools.NewRegistry()
-	} else if len(cfg.ToolAllowList) > 0 {
-		allowList := append([]string{}, cfg.ToolAllowList...)
-		toolRegistry = tools.NewFilteredRegistry(baseToolRegistry, allowList)
-	}
+	toolRegistry = tools.ApplyTopLevelPolicy(baseToolRegistry, cfg.EnableTools, cfg.ToolAllowList)
 
-	{
-		names := make([]string, 0, len(toolRegistry.Schemas()))
-		for _, s := range toolRegistry.Schemas() {
-			names = append(names, s.Name)
-		}
-		log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents")
-	}
+	log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(toolRegistry)).Msg("tool_registry_contents")
 
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)

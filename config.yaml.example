@@ -220,7 +220,7 @@ databases:
 # Recommended values:
 #   MATRIX_PULSE_ENABLED=true
 #   MATRIX_PULSE_POLL_INTERVAL_SECONDS=300
-#   MATRIX_PULSE_LEASE_SECONDS=240
+#   MATRIX_PULSE_LEASE_SECONDS=300
 #   PULSE_DATABASE_DSN="postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
 #   MANIFOLD_SYSTEM_PROMPT_FILE="./cmd/manibot/matrix-system-prompt.txt"
 #

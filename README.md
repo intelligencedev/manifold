@@ -170,6 +170,7 @@ The `pulse_tasks` tool currently supports:
 
 - `list`
 - `configure_room`
+- `clear_claim`
 - `upsert_task`
 - `delete_task`
 - `enable_task`

@@ -135,13 +135,7 @@ func run(cfg *config.Config, query string, maxSteps int, warppEnabled bool, spec
 
 	// Build specialists registry from DB (fallback to YAML) so the CLI resolves
 	// the same set as agentd.
-	var specReg *specialists.Registry
-	if specListErr == nil {
-		specReg = specialists.NewRegistry(cfg.LLMClient, specialists.ConfigsFromStore(specList), httpClient, nil)
-	} else {
-		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, nil)
-	}
-	specReg.SetWorkdir(cfg.Workdir)
+	specReg := specialists.NewRegistryFromStore(cfg.LLMClient, cfg.Specialists, specList, specListErr, httpClient, nil, cfg.Workdir)
 
 	// If a specialist was requested, route the query directly and exit.
 	if strings.TrimSpace(specialistName) != "" {
@@ -179,30 +173,13 @@ func run(cfg *config.Config, query string, maxSteps int, warppEnabled bool, spec
 	registry.Register(tts.New(*cfg, httpClient))
 
 	// Register specialists tool for LLM-driven routing (prefer DB-backed registry to stay in sync with agentd).
-	if specListErr == nil {
-		specReg = specialists.NewRegistry(cfg.LLMClient, specialists.ConfigsFromStore(specList), httpClient, registry)
-	} else {
-		specReg = specialists.NewRegistry(cfg.LLMClient, cfg.Specialists, httpClient, registry)
-	}
-	specReg.SetWorkdir(cfg.Workdir)
+	specReg = specialists.NewRegistryFromStore(cfg.LLMClient, cfg.Specialists, specList, specListErr, httpClient, registry, cfg.Workdir)
 
 	// If tools are globally disabled, use an empty registry.
-	if !cfg.EnableTools {
-		registry = tools.NewRegistry() // Empty registry
-	} else if len(cfg.ToolAllowList) > 0 {
-		// If a top-level tool allow-list is configured, expose only those tools
-		// to the main orchestrator agent by wrapping the registry.
-		registry = tools.NewFilteredRegistry(registry, cfg.ToolAllowList)
-	}
+	registry = tools.ApplyTopLevelPolicy(registry, cfg.EnableTools, cfg.ToolAllowList)
 
 	// Log which tools are exposed after filtering to diagnose missing registrations at runtime.
-	{
-		names := make([]string, 0, len(registry.Schemas()))
-		for _, s := range registry.Schemas() {
-			names = append(names, s.Name)
-		}
-		log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", names).Msg("tool_registry_contents")
-	}
+	log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(registry)).Msg("tool_registry_contents")
 
 	// Connect to configured MCP servers and register their tools.
 	mcpMgr := mcpclient.NewManager()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
@@ -119,6 +120,46 @@ func TestToolEnableDisableAndSetInterval(t *testing.T) {
 	updatedTask := intervalMap["task"].(persistence.PulseTask)
 	if updatedTask.IntervalSeconds != 1200 {
 		t.Fatalf("expected interval 1200, got %d", updatedTask.IntervalSeconds)
+	}
+}
+
+func TestToolClearClaim(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithRoomID(context.Background(), "!room:test")
+
+	room, err := store.EnsureRoom(ctx, "!room:test")
+	if err != nil {
+		t.Fatalf("ensure room: %v", err)
+	}
+	claimed, err := store.ClaimRoom(ctx, room.RoomID, "claim-token", room.CreatedAt.Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("claim room: %v", err)
+	}
+	if !claimed {
+		t.Fatalf("expected claim to succeed")
+	}
+
+	clearRaw, err := json.Marshal(map[string]any{"action": "clear_claim"})
+	if err != nil {
+		t.Fatalf("marshal clear args: %v", err)
+	}
+	clearResp, err := tool.Call(ctx, clearRaw)
+	if err != nil {
+		t.Fatalf("clear claim: %v", err)
+	}
+	clearMap := clearResp.(map[string]any)
+	if ok, _ := clearMap["ok"].(bool); !ok {
+		t.Fatalf("expected clear response ok=true, got %#v", clearMap)
+	}
+	clearedRoom := clearMap["room"].(persistence.PulseRoom)
+	if clearedRoom.ActiveClaimToken != "" {
+		t.Fatalf("expected room claim token to be cleared, got %q", clearedRoom.ActiveClaimToken)
+	}
+	if !clearedRoom.ActiveClaimUntil.IsZero() {
+		t.Fatalf("expected room claim expiry to be cleared, got %v", clearedRoom.ActiveClaimUntil)
 	}
 }
 

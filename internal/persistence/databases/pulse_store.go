@@ -210,6 +210,22 @@ func (s *memPulseStore) ClaimRoom(ctx context.Context, roomID, token string, lea
 	return true, nil
 }
 
+func (s *memPulseStore) ClearRoomClaim(ctx context.Context, roomID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	room, ok := s.rooms[strings.TrimSpace(roomID)]
+	if !ok {
+		return persistence.ErrNotFound
+	}
+	now := time.Now().UTC()
+	room.ActiveClaimToken = ""
+	room.ActiveClaimUntil = time.Time{}
+	room.UpdatedAt = now
+	room.Revision++
+	s.rooms[room.RoomID] = room
+	return nil
+}
+
 func (s *memPulseStore) CompleteRoomPulse(ctx context.Context, roomID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -496,6 +512,24 @@ WHERE room_id = $1
 		return false, err
 	}
 	return cmd.RowsAffected() > 0, nil
+}
+
+func (s *pgPulseStore) ClearRoomClaim(ctx context.Context, roomID string) error {
+	cmd, err := s.pool.Exec(ctx, `
+UPDATE pulse_rooms
+SET active_claim_token = NULL,
+    active_claim_until = NULL,
+    updated_at = NOW(),
+    revision = revision + 1
+WHERE room_id = $1
+`, strings.TrimSpace(roomID))
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.ErrNotFound
+	}
+	return nil
 }
 
 func (s *pgPulseStore) CompleteRoomPulse(ctx context.Context, roomID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {

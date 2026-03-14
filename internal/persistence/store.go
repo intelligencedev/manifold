@@ -86,6 +86,7 @@ type PulseStore interface {
 	UpsertTask(ctx context.Context, task PulseTask) (PulseTask, error)
 	DeleteTask(ctx context.Context, roomID, taskID string) error
 	ClaimRoom(ctx context.Context, roomID, token string, leaseUntil time.Time) (bool, error)
+	ClearRoomClaim(ctx context.Context, roomID string) error
 	CompleteRoomPulse(ctx context.Context, roomID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
 }
 

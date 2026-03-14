@@ -3,10 +3,12 @@ package specialists
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 
 	"manifold/internal/config"
 	"manifold/internal/persistence"
+	"manifold/internal/tools"
 )
 
 // OrchestratorName is the reserved specialist name for the main orchestrator.
@@ -37,6 +39,30 @@ func ConfigsFromStore(list []persistence.Specialist) []config.SpecialistConfig {
 		})
 	}
 	return out
+}
+
+// ConfigsOrDefaults converts persisted specialists when available and otherwise
+// falls back to the provided default configs.
+func ConfigsOrDefaults(defaults []config.SpecialistConfig, list []persistence.Specialist, err error) []config.SpecialistConfig {
+	if err == nil {
+		return ConfigsFromStore(list)
+	}
+	return cloneSpecialistConfigs(defaults)
+}
+
+// NewRegistryFromStore builds a registry from persisted specialists when the
+// store query succeeds, or from the provided defaults otherwise.
+func NewRegistryFromStore(base config.LLMClientConfig, defaults []config.SpecialistConfig, list []persistence.Specialist, err error, httpClient *http.Client, toolsReg tools.Registry, workdir string) *Registry {
+	return NewRegistryWithWorkdir(base, ConfigsOrDefaults(defaults, list, err), httpClient, toolsReg, workdir)
+}
+
+// ReplaceFromStore refreshes an existing registry from persisted specialists
+// when available, or from defaults otherwise.
+func ReplaceFromStore(reg *Registry, base config.LLMClientConfig, defaults []config.SpecialistConfig, list []persistence.Specialist, err error, httpClient *http.Client, toolsReg tools.Registry) {
+	if reg == nil {
+		return
+	}
+	reg.ReplaceFromConfigs(base, ConfigsOrDefaults(defaults, list, err), httpClient, toolsReg)
 }
 
 // SeedStore persists default specialists that are missing from the store.

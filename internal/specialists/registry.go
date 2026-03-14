@@ -44,14 +44,32 @@ type Registry struct {
 	agents               map[string]*Agent
 	systemPromptAddendum string
 	workdir              string
+	base                 config.LLMClientConfig
+	configs              []config.SpecialistConfig
+	httpClient           *http.Client
+	toolsReg             tools.Registry
 }
 
 // NewRegistry builds a registry from config.SpecialistConfig entries.
 // The base OpenAI config is used as a default for API key/model unless
 // overridden per specialist.
 func NewRegistry(base config.LLMClientConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) *Registry {
-	reg := &Registry{agents: make(map[string]*Agent, len(list)), workdir: ""}
-	reg.ReplaceFromConfigs(base, list, httpClient, toolsReg)
+	return NewRegistryWithWorkdir(base, list, httpClient, toolsReg, "")
+
+}
+
+// NewRegistryWithWorkdir builds a registry with the provided workdir available
+// during initial system prompt composition.
+func NewRegistryWithWorkdir(base config.LLMClientConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry, workdir string) *Registry {
+	reg := &Registry{
+		agents:     make(map[string]*Agent, len(list)),
+		workdir:    workdir,
+		base:       base,
+		configs:    cloneSpecialistConfigs(list),
+		httpClient: httpClient,
+		toolsReg:   toolsReg,
+	}
+	reg.rebuildLocked()
 	return reg
 }
 
@@ -59,7 +77,11 @@ func NewRegistry(base config.LLMClientConfig, list []config.SpecialistConfig, ht
 func (r *Registry) SetWorkdir(workdir string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.workdir == workdir {
+		return
+	}
 	r.workdir = workdir
+	r.rebuildLocked()
 }
 
 func buildProvider(provider string, base config.LLMClientConfig, sc config.SpecialistConfig, httpClient *http.Client) (llm.Provider, string) {
@@ -153,22 +175,30 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 func (r *Registry) ReplaceFromConfigs(base config.LLMClientConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	agents := make(map[string]*Agent, len(list))
-	for _, sc := range list {
+	r.base = base
+	r.configs = cloneSpecialistConfigs(list)
+	r.httpClient = httpClient
+	r.toolsReg = toolsReg
+	r.rebuildLocked()
+}
+
+func (r *Registry) rebuildLocked() {
+	agents := make(map[string]*Agent, len(r.configs))
+	for _, sc := range r.configs {
 		if sc.Paused {
 			continue
 		}
 		provName := strings.TrimSpace(sc.Provider)
 		if provName == "" {
-			provName = base.Provider
+			provName = r.base.Provider
 		}
-		prov, model := buildProvider(provName, base, sc, httpClient)
+		prov, model := buildProvider(provName, r.base, sc, r.httpClient)
 		if prov == nil || model == "" {
 			continue
 		}
 		var toolsView tools.Registry
-		if sc.EnableTools && toolsReg != nil {
-			toolsView = tools.NewFilteredRegistry(toolsReg, sc.AllowTools)
+		if sc.EnableTools && r.toolsReg != nil {
+			toolsView = tools.NewFilteredRegistry(r.toolsReg, sc.AllowTools)
 		} else {
 			toolsView = nil
 		}
@@ -205,6 +235,34 @@ func (r *Registry) ReplaceFromConfigs(base config.LLMClientConfig, list []config
 	}
 	r.agents = agents
 	r.systemPromptAddendum = addendum
+}
+
+func cloneSpecialistConfigs(list []config.SpecialistConfig) []config.SpecialistConfig {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]config.SpecialistConfig, 0, len(list))
+	for _, sc := range list {
+		clone := sc
+		if len(sc.AllowTools) > 0 {
+			clone.AllowTools = append([]string(nil), sc.AllowTools...)
+		}
+		clone.ExtraHeaders = copyStringMap(sc.ExtraHeaders)
+		clone.ExtraParams = copyAnyMap(sc.ExtraParams)
+		out = append(out, clone)
+	}
+	return out
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 // Names returns sorted agent names.

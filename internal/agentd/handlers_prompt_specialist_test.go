@@ -242,6 +242,45 @@ func TestPromptHandlerSystemPromptOverridesDirectSpecialistPrompt(t *testing.T) 
 	}
 }
 
+func TestPromptHandlerUsesSharedDevMockFallback(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	baseProvider := &testhelpers.FakeProvider{Resp: llm.Message{Role: "assistant", Content: "orchestrator response"}}
+	a := &app{
+		cfg:              &config.Config{},
+		llm:              baseProvider,
+		baseToolRegistry: tools.NewRegistry(),
+		chatStore:        chatStore,
+		chatMemory:       memory.NewManager(chatStore, baseProvider, memory.Config{}),
+		runs:             newRunStore(),
+	}
+
+	body := bytes.NewBufferString(`{"prompt":"hello","session_id":"sess-dev"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/prompt", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	a.promptHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got := resp["result"]; got != "(dev) mock response: hello" {
+		t.Fatalf("expected dev mock response, got %q", got)
+	}
+	if len(a.runs.list()) != 1 {
+		t.Fatalf("expected one recorded run, got %d", len(a.runs.list()))
+	}
+	if got := a.runs.list()[0].Status; got != "completed" {
+		t.Fatalf("expected completed run, got %q", got)
+	}
+}
+
 func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	t.Parallel()
 

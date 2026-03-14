@@ -18,7 +18,6 @@ import (
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
-	"manifold/internal/warpp"
 	"manifold/internal/workspaces"
 )
 
@@ -679,143 +678,18 @@ func toolIDFromMessage(msg persist.ChatMessage) string {
 
 func (a *app) agentRunHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var (
-			userID      *int64
-			currentUser *auth.User
-		)
-		if a.cfg.Auth.Enabled {
-			u, ok := auth.CurrentUser(r.Context())
-			if !ok {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			currentUser = u
-			id, _, err := resolveChatAccess(r.Context(), a.authStore, u)
-			if err != nil {
-				log.Error().Err(err).Msg("resolve_chat_access")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			userID = id
-		}
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		req, ok := prepareChatTransport(w, r, chatTransportOptions{})
+		if !ok {
 			return
 		}
-		var req chatRunRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
+		state, ok := a.prepareChatHandlerState(w, r, req, true)
+		if !ok {
 			return
 		}
-		req.normalize()
-		r, checkedOutWorkspace, statusCode, err := a.prepareChatRunRequest(r, userID, req)
-		if err != nil {
-			switch statusCode {
-			case http.StatusBadRequest:
-				if errors.Is(err, workspaces.ErrInvalidProjectID) {
-					http.Error(w, "invalid project_id", http.StatusBadRequest)
-					return
-				}
-				if errors.Is(err, workspaces.ErrProjectNotFound) {
-					http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
-					return
-				}
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			case http.StatusInternalServerError:
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			default:
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-		}
+		r = state.Request
+		specOwner := state.Owner
 
-		currentRun := a.runs.create(req.Prompt)
-
-		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
-			if errors.Is(err, persist.ErrForbidden) {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		// Check if the main LLM provider supports compaction (OpenAI Responses API).
-		// Non-OpenAI providers cannot use encrypted compaction summaries.
-		targetSupportsCompaction := providerSupportsCompaction(a.llm)
-		history, memorySummaryResult, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, req.SessionID, targetSupportsCompaction)
-		if err != nil {
-			if errors.Is(err, persist.ErrForbidden) {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		if req.Image {
-			r = r.WithContext(llm.WithImagePrompt(r.Context(), llm.ImagePromptOptions{Size: req.ImageSize}))
-		}
-		if req.Image {
-			r = r.WithContext(llm.WithImagePrompt(r.Context(), llm.ImagePromptOptions{Size: req.ImageSize}))
-		}
-
-		specOwner := systemUserID
-		if currentUser != nil {
-			specOwner = currentUser.ID
-		} else if userID != nil {
-			specOwner = *userID
-		}
-
-		if r.URL.Query().Get("warpp") == "true" {
-			seconds := a.cfg.WorkflowTimeoutSeconds
-			if seconds <= 0 {
-				seconds = a.cfg.AgentRunTimeoutSeconds
-			}
-			ctx, cancel, dur := withMaybeTimeout(r.Context(), seconds)
-			defer cancel()
-
-			if dur > 0 {
-				log.Debug().Dur("timeout", dur).Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("using configured workflow timeout")
-			} else {
-				log.Debug().Str("endpoint", "/agent/run").Str("mode", "warpp").Msg("no timeout configured; running until completion")
-			}
-			runner, err := a.warppRunnerForUser(ctx, specOwner)
-			if err != nil {
-				log.Error().Err(err).Msg("warpp_runner_for_user")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			intent := runner.DetectIntent(ctx, req.Prompt)
-			wf, err := runner.Workflows.Get(intent)
-			if err != nil {
-				http.Error(w, "workflow not found", http.StatusNotFound)
-				return
-			}
-			attrs := warpp.Attrs{"utter": req.Prompt}
-			wfStar, _, attrs, err := runner.Personalize(ctx, wf, attrs)
-			if err != nil {
-				log.Error().Err(err).Msg("personalize")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			allow := map[string]bool{}
-			for _, s := range wfStar.Steps {
-				if s.Tool != nil {
-					allow[s.Tool.Name] = true
-				}
-			}
-			final, err := runner.Execute(ctx, wfStar, allow, attrs, nil)
-			if err != nil {
-				log.Error().Err(err).Msg("warpp")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{"result": final})
+		if handled := a.handleWarppAgentRun(w, r, req, specOwner); handled {
 			return
 		}
 
@@ -823,25 +697,10 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		_, hasCustomTarget := a.describeChatTarget(target, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
-			if r.Header.Get("Accept") == "text/event-stream" {
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				fl, _ := w.(http.Flusher)
-				if b, err := json.Marshal("(dev) mock response: " + req.Prompt); err == nil {
-					fmt.Fprintf(w, "event: final\ndata: %s\n\n", b)
-				} else {
-					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock response")
-				}
-				fl.Flush()
-				a.runs.updateStatus(currentRun.ID, "completed", 0)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock response: " + req.Prompt})
-			a.runs.updateStatus(currentRun.ID, "completed", 0)
+			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, history, userID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, checkedOutWorkspace, memorySummaryResult)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, state.History, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace, state.MemorySummary)); handled {
 			return
 		}
 	}
@@ -864,119 +723,29 @@ func (a *app) commitWorkspace(ctx context.Context, ws *workspaces.Workspace) {
 
 func (a *app) promptHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var userID *int64
-		if a.cfg.Auth.Enabled {
-			u, ok := auth.CurrentUser(r.Context())
-			if !ok {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			id, _, err := resolveChatAccess(r.Context(), a.authStore, u)
-			if err != nil {
-				log.Error().Err(err).Msg("resolve_chat_access")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			userID = id
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Vary", "Origin")
-		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
-			w.WriteHeader(http.StatusNoContent)
+		req, ok := prepareChatTransport(w, r, chatTransportOptions{
+			EnablePromptCORS: true,
+			MaxBodyBytes:     64 * 1024,
+			DecodeErrorLabel: "decode prompt",
+		})
+		if !ok {
 			return
 		}
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		state, ok := a.prepareChatHandlerState(w, r, req, false)
+		if !ok {
 			return
 		}
-		r.Body = http.MaxBytesReader(w, r.Body, 64*1024)
-		defer r.Body.Close()
-
-		var req chatRunRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			log.Printf("decode prompt: %v", err)
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		req.normalize()
-		r, checkedOutWorkspace, statusCode, err := a.prepareChatRunRequest(r, userID, req)
-		if err != nil {
-			switch statusCode {
-			case http.StatusBadRequest:
-				if errors.Is(err, workspaces.ErrInvalidProjectID) {
-					http.Error(w, "invalid project_id", http.StatusBadRequest)
-					return
-				}
-				if errors.Is(err, workspaces.ErrProjectNotFound) {
-					http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
-					return
-				}
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			case http.StatusInternalServerError:
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			default:
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
-			if errors.Is(err, persist.ErrForbidden) {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		// Check if the main LLM provider supports compaction (OpenAI Responses API).
-		// Non-OpenAI providers cannot use encrypted compaction summaries.
-		targetSupportsCompaction := providerSupportsCompaction(a.llm)
-		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, req.SessionID, targetSupportsCompaction)
-		if err != nil {
-			if errors.Is(err, persist.ErrForbidden) {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		specOwner := systemUserID
-		if userID != nil {
-			specOwner = *userID
-		}
+		r = state.Request
+		specOwner := state.Owner
 
 		target := resolveChatDispatchTarget(r.URL.Query())
 		_, hasCustomTarget := a.describeChatTarget(target, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
-			prun := a.runs.create(req.Prompt)
-			if r.Header.Get("Accept") == "text/event-stream" {
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				fl, _ := w.(http.Flusher)
-				if b, err := json.Marshal("(dev) mock response: " + req.Prompt); err == nil {
-					fmt.Fprintf(w, "event: final\ndata: %s\n\n", b)
-				} else {
-					fmt.Fprintf(w, "event: final\ndata: %q\n\n", "(dev) mock response")
-				}
-				fl.Flush()
-				a.runs.updateStatus(prun.ID, "completed", 0)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock response: " + req.Prompt})
-			a.runs.updateStatus(prun.ID, "completed", 0)
+			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, history, userID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, checkedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, state.History, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
 			return
 		}
 	}

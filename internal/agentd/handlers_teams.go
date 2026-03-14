@@ -21,7 +21,7 @@ func (a *app) teamsHandler() http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			list, err := a.teamStore.List(r.Context(), userID)
+			list, err := a.listTeamsForUser(r.Context(), userID)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -36,14 +36,7 @@ func (a *app) teamsHandler() http.HandlerFunc {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			g.Name = strings.TrimSpace(g.Name)
-			if g.Name == "" {
-				http.Error(w, "name required", http.StatusBadRequest)
-				return
-			}
-			g.UserID = userID
-			g.Orchestrator = a.normalizeTeamOrchestrator(g.Name, g.Orchestrator)
-			saved, err := a.teamStore.Upsert(r.Context(), userID, g)
+			saved, err := a.createTeamForUser(r.Context(), userID, g)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -69,20 +62,14 @@ func (a *app) teamDetailHandler() http.HandlerFunc {
 		}
 		path := strings.TrimPrefix(r.URL.Path, "/api/teams/")
 		if strings.Contains(path, "/members/") {
-			parts := strings.SplitN(path, "/members/", 2)
-			if len(parts) != 2 {
-				http.NotFound(w, r)
-				return
-			}
-			teamName := strings.TrimSpace(parts[0])
-			specialistName := strings.TrimSpace(parts[1])
-			if teamName == "" || specialistName == "" {
+			teamName, specialistName, ok := parseTeamMemberPath(path)
+			if !ok {
 				http.NotFound(w, r)
 				return
 			}
 			switch r.Method {
 			case http.MethodPut:
-				if err := a.teamStore.AddMember(r.Context(), userID, teamName, specialistName); err != nil {
+				if err := a.addSpecialistToTeamForUser(r.Context(), userID, teamName, specialistName); err != nil {
 					if err == persistence.ErrNotFound {
 						http.NotFound(w, r)
 						return
@@ -92,7 +79,7 @@ func (a *app) teamDetailHandler() http.HandlerFunc {
 				}
 				w.WriteHeader(http.StatusNoContent)
 			case http.MethodDelete:
-				if err := a.teamStore.RemoveMember(r.Context(), userID, teamName, specialistName); err != nil {
+				if err := a.removeSpecialistFromTeamForUser(r.Context(), userID, teamName, specialistName); err != nil {
 					http.Error(w, "internal server error", http.StatusInternalServerError)
 					return
 				}
@@ -111,7 +98,7 @@ func (a *app) teamDetailHandler() http.HandlerFunc {
 
 		switch r.Method {
 		case http.MethodGet:
-			g, ok, err := a.teamStore.GetByName(r.Context(), userID, name)
+			g, ok, err := a.getTeamForUser(r.Context(), userID, name)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -130,10 +117,7 @@ func (a *app) teamDetailHandler() http.HandlerFunc {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			g.Name = name
-			g.UserID = userID
-			g.Orchestrator = a.normalizeTeamOrchestrator(name, g.Orchestrator)
-			saved, err := a.teamStore.Upsert(r.Context(), userID, g)
+			saved, err := a.updateTeamForUser(r.Context(), userID, name, g)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
@@ -141,7 +125,7 @@ func (a *app) teamDetailHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
 		case http.MethodDelete:
-			if err := a.teamStore.Delete(r.Context(), userID, name); err != nil {
+			if err := a.deleteTeamForUser(r.Context(), userID, name); err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}

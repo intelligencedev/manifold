@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"manifold/internal/config"
@@ -88,4 +89,105 @@ func TestFactory_DefaultsAndNone(t *testing.T) {
 	_ = mgr.Vector.Upsert(ctx, "x", []float32{1}, nil)
 	_, _ = mgr.Vector.SimilaritySearch(ctx, []float32{1}, 1, nil)
 	_ = mgr.Graph.UpsertNode(ctx, "n", nil, nil)
+}
+
+func TestFactory_RejectsPostgresWithoutDSN(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	_, err := NewManager(ctx, config.DBConfig{
+		Search: config.SearchConfig{Backend: "postgres"},
+	})
+	if err == nil || err.Error() != "search backend postgres requires DSN" {
+		t.Fatalf("expected search DSN error, got %v", err)
+	}
+
+	_, err = NewManager(ctx, config.DBConfig{
+		Vector: config.VectorConfig{Backend: "postgres"},
+	})
+	if err == nil || err.Error() != "vector backend postgres requires DSN" {
+		t.Fatalf("expected vector DSN error, got %v", err)
+	}
+
+	_, err = NewManager(ctx, config.DBConfig{
+		Graph: config.GraphConfig{Backend: "postgres"},
+	})
+	if err == nil || err.Error() != "graph backend postgres requires DSN" {
+		t.Fatalf("expected graph DSN error, got %v", err)
+	}
+
+	_, err = NewManager(ctx, config.DBConfig{
+		Chat: config.ChatConfig{Backend: "postgres"},
+	})
+	if err == nil || err.Error() != "chat backend postgres requires DSN" {
+		t.Fatalf("expected chat DSN error, got %v", err)
+	}
+}
+
+func TestFactory_RejectsUnsupportedBackends(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	_, err := NewManager(ctx, config.DBConfig{
+		Search: config.SearchConfig{Backend: "bogus"},
+	})
+	if err == nil || err.Error() != "unsupported search backend: bogus" {
+		t.Fatalf("expected unsupported search backend error, got %v", err)
+	}
+
+	_, err = NewManager(ctx, config.DBConfig{
+		Vector: config.VectorConfig{Backend: "bogus"},
+	})
+	if err == nil || err.Error() != "unsupported vector backend: bogus" {
+		t.Fatalf("expected unsupported vector backend error, got %v", err)
+	}
+
+	_, err = NewManager(ctx, config.DBConfig{
+		Graph: config.GraphConfig{Backend: "bogus"},
+	})
+	if err == nil || err.Error() != "unsupported graph backend: bogus" {
+		t.Fatalf("expected unsupported graph backend error, got %v", err)
+	}
+
+	_, err = NewManager(ctx, config.DBConfig{
+		Chat: config.ChatConfig{Backend: "bogus"},
+	})
+	if err == nil || err.Error() != "unsupported chat backend: bogus" {
+		t.Fatalf("expected unsupported chat backend error, got %v", err)
+	}
+}
+
+func TestCloseIfPossible_IgnoresTypedNilAndCallsClosers(t *testing.T) {
+	t.Parallel()
+
+	var nilPlayground *PlaygroundStore
+	closeIfPossible(nilPlayground)
+
+	called := 0
+	closeIfPossible(testCloser{called: &called})
+	if called != 1 {
+		t.Fatalf("expected Close() closer to be called once, got %d", called)
+	}
+
+	closeIfPossible(testErrorCloser{called: &called})
+	if called != 2 {
+		t.Fatalf("expected Close() error closer to be called once, got %d", called)
+	}
+}
+
+type testCloser struct {
+	called *int
+}
+
+func (c testCloser) Close() {
+	*c.called = *c.called + 1
+}
+
+type testErrorCloser struct {
+	called *int
+}
+
+func (c testErrorCloser) Close() error {
+	*c.called = *c.called + 1
+	return errors.New("boom")
 }

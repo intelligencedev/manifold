@@ -13,255 +13,239 @@ import (
 
 // NewManager constructs database backends based on configuration.
 // Supported backends: memory, none, auto, postgres.
-func NewManager(ctx context.Context, cfg config.DBConfig) (Manager, error) {
-	var m Manager
+func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error) {
+	defer func() {
+		if err != nil {
+			m.Close()
+		}
+	}()
+
 	// Resolve DSNs with default fallback
 	searchDSN := firstNonEmpty(cfg.Search.DSN, cfg.DefaultDSN)
 	vectorDSN := firstNonEmpty(cfg.Vector.DSN, cfg.DefaultDSN)
 	graphDSN := firstNonEmpty(cfg.Graph.DSN, cfg.DefaultDSN)
 	chatDSN := firstNonEmpty(cfg.Chat.DSN, cfg.DefaultDSN)
 
-	// Full-text search
-	switch cfg.Search.Backend {
-	case "", "memory":
-		m.Search = NewMemorySearch()
-	case "auto":
-		if searchDSN != "" {
-			if p, err := newPgPool(ctx, searchDSN); err == nil {
-				m.Search = NewPostgresSearch(p)
-			} else {
-				m.Search = NewMemorySearch()
-			}
-		} else {
-			m.Search = NewMemorySearch()
-		}
-	case "postgres", "pg":
-		if searchDSN == "" {
-			return Manager{}, fmt.Errorf("search backend postgres requires DSN")
-		}
-		p, err := newPgPool(ctx, searchDSN)
-		if err != nil {
-			return Manager{}, fmt.Errorf("connect postgres (search): %w", err)
-		}
-		m.Search = NewPostgresSearch(p)
-	case "none", "disabled":
-		m.Search = noopSearch{}
-	default:
-		return Manager{}, fmt.Errorf("unsupported search backend: %s", cfg.Search.Backend)
-	}
-	// Vector store
-	switch cfg.Vector.Backend {
-	case "", "memory":
-		m.Vector = NewMemoryVector()
-	case "auto":
-		if vectorDSN != "" {
-			if p, err := newPgPool(ctx, vectorDSN); err == nil {
-				m.Vector = NewPostgresVector(p, cfg.Vector.Dimensions, cfg.Vector.Metric)
-			} else {
-				m.Vector = NewMemoryVector()
-			}
-		} else {
-			m.Vector = NewMemoryVector()
-		}
-	case "postgres", "pgvector", "pg":
-		if vectorDSN == "" {
-			return Manager{}, fmt.Errorf("vector backend postgres requires DSN")
-		}
-		p, err := newPgPool(ctx, vectorDSN)
-		if err != nil {
-			return Manager{}, fmt.Errorf("connect postgres (vector): %w", err)
-		}
-		m.Vector = NewPostgresVector(p, cfg.Vector.Dimensions, cfg.Vector.Metric)
-	case "qdrant":
-		if vectorDSN == "" {
-			return Manager{}, fmt.Errorf("vector backend qdrant requires DSN")
-		}
-		vs, err := NewQdrantVector(vectorDSN, cfg.Vector.Index, cfg.Vector.Dimensions, cfg.Vector.Metric)
-		if err != nil {
-			return Manager{}, fmt.Errorf("connect qdrant (vector): %w", err)
-		}
-		m.Vector = vs
-	case "none", "disabled":
-		m.Vector = noopVector{}
-	default:
-		return Manager{}, fmt.Errorf("unsupported vector backend: %s", cfg.Vector.Backend)
-	}
-	// Graph DB
-	switch cfg.Graph.Backend {
-	case "", "memory":
-		m.Graph = NewMemoryGraph()
-	case "auto":
-		if graphDSN != "" {
-			if p, err := newPgPool(ctx, graphDSN); err == nil {
-				m.Graph = NewPostgresGraph(p)
-			} else {
-				m.Graph = NewMemoryGraph()
-			}
-		} else {
-			m.Graph = NewMemoryGraph()
-		}
-	case "postgres", "pg":
-		if graphDSN == "" {
-			return Manager{}, fmt.Errorf("graph backend postgres requires DSN")
-		}
-		p, err := newPgPool(ctx, graphDSN)
-		if err != nil {
-			return Manager{}, fmt.Errorf("connect postgres (graph): %w", err)
-		}
-		m.Graph = NewPostgresGraph(p)
-	case "none", "disabled":
-		m.Graph = noopGraph{}
-	default:
-		return Manager{}, fmt.Errorf("unsupported graph backend: %s", cfg.Graph.Backend)
+	m.Search, err = buildSearchStore(ctx, cfg.Search.Backend, searchDSN)
+	if err != nil {
+		return Manager{}, err
 	}
 
-	switch cfg.Chat.Backend {
-	case "", "memory":
-		m.Chat = newMemoryChatStore()
-	case "auto":
-		if chatDSN != "" {
-			if p, err := newPgPool(ctx, chatDSN); err == nil {
-				m.Chat = NewPostgresChatStore(p)
-			} else {
-				m.Chat = newMemoryChatStore()
-			}
-		} else {
-			m.Chat = newMemoryChatStore()
-		}
-	case "postgres", "pg":
-		if chatDSN == "" {
-			return Manager{}, fmt.Errorf("chat backend postgres requires DSN")
-		}
-		p, err := newPgPool(ctx, chatDSN)
-		if err != nil {
-			return Manager{}, fmt.Errorf("connect postgres (chat): %w", err)
-		}
-		m.Chat = NewPostgresChatStore(p)
-	case "none", "disabled":
-		m.Chat = newMemoryChatStore()
-	default:
-		return Manager{}, fmt.Errorf("unsupported chat backend: %s", cfg.Chat.Backend)
+	m.Vector, err = buildVectorStore(ctx, cfg.Vector, vectorDSN)
+	if err != nil {
+		return Manager{}, err
+	}
+
+	m.Graph, err = buildGraphStore(ctx, cfg.Graph.Backend, graphDSN)
+	if err != nil {
+		return Manager{}, err
+	}
+
+	m.Chat, err = buildChatStore(ctx, cfg.Chat.Backend, chatDSN)
+	if err != nil {
+		return Manager{}, err
 	}
 
 	if m.Chat == nil {
 		m.Chat = newMemoryChatStore()
 	}
-
-	// WARPP workflow persistence: prefer Postgres when a default DSN is configured.
-	if cfg.DefaultDSN != "" {
-		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
-			m.Warpp = NewPostgresWarppStore(p)
-			_ = m.Warpp.Init(ctx)
-			// Also expose a Postgres-backed evolving memory store.
-			m.EvolvingMemory = NewPostgresEvolvingMemoryStore(p)
-			if em, ok := m.EvolvingMemory.(interface{ Init(context.Context) error }); ok {
-				_ = em.Init(ctx)
-			}
-		}
+	if err := initStore(ctx, "chat store", m.Chat); err != nil {
+		return Manager{}, err
 	}
+
+	if err := initializeDefaultStores(ctx, &m, cfg, chatDSN); err != nil {
+		return Manager{}, err
+	}
+
+	return m, nil
+}
+
+func buildSearchStore(ctx context.Context, backend, dsn string) (FullTextSearch, error) {
+	switch backend {
+	case "", "memory":
+		return NewMemorySearch(), nil
+	case "auto":
+		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			return NewPostgresSearch(pool), nil
+		}
+		return NewMemorySearch(), nil
+	case "postgres", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("search backend postgres requires DSN")
+		}
+		pool, err := newPgPool(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (search): %w", err)
+		}
+		return NewPostgresSearch(pool), nil
+	case "none", "disabled":
+		return noopSearch{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported search backend: %s", backend)
+	}
+}
+
+func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) (VectorStore, error) {
+	switch cfg.Backend {
+	case "", "memory":
+		return NewMemoryVector(), nil
+	case "auto":
+		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			return NewPostgresVector(pool, cfg.Dimensions, cfg.Metric), nil
+		}
+		return NewMemoryVector(), nil
+	case "postgres", "pgvector", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("vector backend postgres requires DSN")
+		}
+		pool, err := newPgPool(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (vector): %w", err)
+		}
+		return NewPostgresVector(pool, cfg.Dimensions, cfg.Metric), nil
+	case "qdrant":
+		if dsn == "" {
+			return nil, fmt.Errorf("vector backend qdrant requires DSN")
+		}
+		store, err := NewQdrantVector(dsn, cfg.Index, cfg.Dimensions, cfg.Metric)
+		if err != nil {
+			return nil, fmt.Errorf("connect qdrant (vector): %w", err)
+		}
+		return store, nil
+	case "none", "disabled":
+		return noopVector{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported vector backend: %s", cfg.Backend)
+	}
+}
+
+func buildGraphStore(ctx context.Context, backend, dsn string) (GraphDB, error) {
+	switch backend {
+	case "", "memory":
+		return NewMemoryGraph(), nil
+	case "auto":
+		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			return NewPostgresGraph(pool), nil
+		}
+		return NewMemoryGraph(), nil
+	case "postgres", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("graph backend postgres requires DSN")
+		}
+		pool, err := newPgPool(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (graph): %w", err)
+		}
+		return NewPostgresGraph(pool), nil
+	case "none", "disabled":
+		return noopGraph{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported graph backend: %s", backend)
+	}
+}
+
+func buildChatStore(ctx context.Context, backend, dsn string) (persistence.ChatStore, error) {
+	switch backend {
+	case "", "memory", "none", "disabled":
+		return newMemoryChatStore(), nil
+	case "auto":
+		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			return NewPostgresChatStore(pool), nil
+		}
+		return newMemoryChatStore(), nil
+	case "postgres", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("chat backend postgres requires DSN")
+		}
+		pool, err := newPgPool(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (chat): %w", err)
+		}
+		return NewPostgresChatStore(pool), nil
+	default:
+		return nil, fmt.Errorf("unsupported chat backend: %s", backend)
+	}
+}
+
+func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, chatDSN string) error {
+	configureDefaultPostgresStores(ctx, m, cfg.DefaultDSN)
 
 	playgroundDSN := firstNonEmpty(chatDSN, cfg.DefaultDSN)
 	if playgroundDSN != "" {
 		store, err := NewPlaygroundStoreFromDSN(ctx, playgroundDSN)
 		if err != nil {
-			return Manager{}, fmt.Errorf("init playground store: %w", err)
+			return fmt.Errorf("init playground store: %w", err)
 		}
 		m.Playground = store
 	}
-	if err := m.Chat.Init(ctx); err != nil {
-		if c, ok := any(m.Chat).(interface{ Close() }); ok {
-			c.Close()
-		}
-		if m.Playground != nil {
-			m.Playground.Close()
-		}
-		return Manager{}, fmt.Errorf("init chat store: %w", err)
+
+	m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMCPStore)
+	if err := initStore(ctx, "mcp store", m.MCP); err != nil {
+		return err
 	}
 
-	// MCP Store
-	// Use default DSN if available, otherwise memory
-	var mcpStore persistence.MCPStore
-	if cfg.DefaultDSN != "" {
-		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
-			mcpStore = NewMCPStore(p)
-		} else {
-			mcpStore = NewMCPStore(nil)
-		}
-	} else {
-		mcpStore = NewMCPStore(nil)
-	}
-	if err := mcpStore.Init(ctx); err != nil {
-		return Manager{}, fmt.Errorf("init mcp store: %w", err)
-	}
-	m.MCP = mcpStore
-
-	// Projects Store
-	// Use default DSN if available, otherwise memory
-	var projectsStore persistence.ProjectsStore
-	if cfg.DefaultDSN != "" {
-		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
-			projectsStore = NewPostgresProjectsStore(p)
-		} else {
-			projectsStore = NewPostgresProjectsStore(nil)
-		}
-	} else {
-		projectsStore = NewPostgresProjectsStore(nil)
-	}
-	if err := projectsStore.Init(ctx); err != nil {
-		return Manager{}, fmt.Errorf("init projects store: %w", err)
-	}
-	m.Projects = projectsStore
-
-	// User Preferences Store
-	// Use default DSN if available, otherwise memory
-	var userPrefsStore persistence.UserPreferencesStore
-	if cfg.DefaultDSN != "" {
-		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
-			userPrefsStore = NewUserPreferencesStore(p)
-		} else {
-			userPrefsStore = NewUserPreferencesStore(nil)
-		}
-	} else {
-		userPrefsStore = NewUserPreferencesStore(nil)
-	}
-	if err := userPrefsStore.Init(ctx); err != nil {
-		return Manager{}, fmt.Errorf("init user preferences store: %w", err)
-	}
-	m.UserPreferences = userPrefsStore
-
-	// Pulse Store
-	// Use default DSN if available, otherwise memory.
-	var pulseStore persistence.PulseStore
-	if cfg.DefaultDSN != "" {
-		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
-			pulseStore = NewPulseStore(p)
-		} else {
-			pulseStore = NewPulseStore(nil)
-		}
-	} else {
-		pulseStore = NewPulseStore(nil)
-	}
-	if err := pulseStore.Init(ctx); err != nil {
-		return Manager{}, fmt.Errorf("init pulse store: %w", err)
-	}
-	m.Pulse = pulseStore
-
-	if cfg.DefaultDSN != "" {
-		if p, err := newPgPool(ctx, cfg.DefaultDSN); err == nil {
-			m.Transit = NewPostgresTransitStore(p)
-		} else {
-			m.Transit = NewMemoryTransitStore()
-		}
-	} else {
-		m.Transit = NewMemoryTransitStore()
-	}
-	if m.Transit != nil {
-		if err := m.Transit.Init(ctx); err != nil {
-			return Manager{}, fmt.Errorf("init transit store: %w", err)
-		}
+	m.Projects = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresProjectsStore)
+	if err := initStore(ctx, "projects store", m.Projects); err != nil {
+		return err
 	}
 
-	return m, nil
+	m.UserPreferences = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewUserPreferencesStore)
+	if err := initStore(ctx, "user preferences store", m.UserPreferences); err != nil {
+		return err
+	}
+
+	m.Pulse = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPulseStore)
+	if err := initStore(ctx, "pulse store", m.Pulse); err != nil {
+		return err
+	}
+
+	m.Transit = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresTransitStore)
+	if err := initStore(ctx, "transit store", m.Transit); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func configureDefaultPostgresStores(ctx context.Context, m *Manager, defaultDSN string) {
+	if defaultDSN == "" {
+		return
+	}
+
+	pool := openOptionalPostgresPool(ctx, defaultDSN)
+	if pool == nil {
+		return
+	}
+
+	m.Warpp = NewPostgresWarppStore(pool)
+	_ = m.Warpp.Init(ctx)
+
+	m.EvolvingMemory = NewPostgresEvolvingMemoryStore(pool)
+	if store, ok := m.EvolvingMemory.(interface{ Init(context.Context) error }); ok {
+		_ = store.Init(ctx)
+	}
+}
+
+func initStore(ctx context.Context, name string, store interface{ Init(context.Context) error }) error {
+	if err := store.Init(ctx); err != nil {
+		return fmt.Errorf("init %s: %w", name, err)
+	}
+	return nil
+}
+
+func newStoreWithOptionalPool[T any](ctx context.Context, dsn string, constructor func(*pgxpool.Pool) T) T {
+	return constructor(openOptionalPostgresPool(ctx, dsn))
+}
+
+func openOptionalPostgresPool(ctx context.Context, dsn string) *pgxpool.Pool {
+	if dsn == "" {
+		return nil
+	}
+	pool, err := newPgPool(ctx, dsn)
+	if err != nil {
+		return nil
+	}
+	return pool
 }
 
 // no-op backends for "none" configuration

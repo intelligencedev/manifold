@@ -78,3 +78,4 @@ playground-artifacts
 agentd
 docker-compose.manibots.yml
 docker-compose.matrixfold.yml
+docs/backend-rewrite.md

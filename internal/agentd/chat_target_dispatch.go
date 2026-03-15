@@ -5,17 +5,19 @@ import (
 	"net/http"
 	"strings"
 
-	agentmemory "manifold/internal/agent/memory"
 	"manifold/internal/llm"
+	persist "manifold/internal/persistence"
 	"manifold/internal/specialists"
 	"manifold/internal/workspaces"
+
+	"github.com/rs/zerolog/log"
 )
 
 type chatTargetDispatchOptions struct {
 	Prompt               string
 	SessionID            string
-	History              []llm.Message
 	UserID               *int64
+	IncludeSummary       bool
 	RunContext           context.Context
 	CheckedOutWorkspace  *workspaces.Workspace
 	Build                func(context.Context) chatEngineBuildResult
@@ -29,6 +31,7 @@ type chatTargetDescriptor struct {
 	Build                func(context.Context) chatEngineBuildResult
 	NotFoundMessage      string
 	InternalErrorMessage string
+	IncludeSummary       bool
 	RunContext           context.Context
 	CheckedOutWorkspace  *workspaces.Workspace
 	Stream               chatStreamOptions
@@ -106,12 +109,12 @@ func writeChatTargetBuildError(w http.ResponseWriter, build chatEngineBuildResul
 	}
 }
 
-func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sessionID string, history []llm.Message, userID *int64) chatTargetDispatchOptions {
+func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sessionID string, userID *int64) chatTargetDispatchOptions {
 	return chatTargetDispatchOptions{
 		Prompt:               prompt,
 		SessionID:            sessionID,
-		History:              history,
 		UserID:               userID,
+		IncludeSummary:       descriptor.IncludeSummary,
 		RunContext:           descriptor.RunContext,
 		CheckedOutWorkspace:  descriptor.CheckedOutWorkspace,
 		Build:                descriptor.Build,
@@ -122,12 +125,13 @@ func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sess
 	}
 }
 
-func (a *app) agentRunOrchestratorDescriptor(baseCtx context.Context, owner int64, req chatRunRequest, checkedOutWorkspace *workspaces.Workspace, initialSummary *agentmemory.SummaryResult) chatTargetDescriptor {
+func (a *app) agentRunOrchestratorDescriptor(baseCtx context.Context, owner int64, req chatRunRequest, checkedOutWorkspace *workspaces.Workspace) chatTargetDescriptor {
 	return chatTargetDescriptor{
 		Build: func(ctx context.Context) chatEngineBuildResult {
 			return a.buildOrchestratorChatEngine(ctx, owner, req.SessionID, "", checkedOutWorkspace)
 		},
 		InternalErrorMessage: "agent unavailable",
+		IncludeSummary:       true,
 		RunContext:           llm.WithUserID(baseCtx, owner),
 		CheckedOutWorkspace:  checkedOutWorkspace,
 		Stream: chatStreamOptions{
@@ -136,7 +140,6 @@ func (a *app) agentRunOrchestratorDescriptor(baseCtx context.Context, owner int6
 			EmitThoughtSummary: true,
 			EmitSummaryEvents:  true,
 			StructuredErrors:   true,
-			InitialSummary:     initialSummary,
 		},
 		JSON: chatJSONOptions{Endpoint: "/agent/run"},
 	}
@@ -166,6 +169,18 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		return true
 	}
 
+	targetSupportsCompaction := providerSupportsCompaction(build.Engine.LLM)
+	history, summary, err := a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, targetSupportsCompaction)
+	if err != nil {
+		if err == persist.ErrForbidden {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return true
+		}
+		log.Error().Err(err).Str("session", opts.SessionID).Msg("load_chat_history")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return true
+	}
+
 	runCtx := opts.RunContext
 	if runCtx == nil {
 		runCtx = r.Context()
@@ -180,10 +195,13 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		if streamOpts.StoreModel == "" {
 			streamOpts.StoreModel = build.ModelLabel
 		}
+		if opts.IncludeSummary {
+			streamOpts.InitialSummary = summary
+		}
 		if streamOpts.Tracer == nil {
 			streamOpts.Tracer = newAgentStreamTracer(w)
 		}
-		a.executeStreamChat(w, r, runCtx, build.Engine, req, opts.History, prun.ID, opts.UserID, opts.CheckedOutWorkspace, streamOpts)
+		a.executeStreamChat(w, r, runCtx, build.Engine, req, history, prun.ID, opts.UserID, opts.CheckedOutWorkspace, streamOpts)
 		return true
 	}
 
@@ -192,11 +210,11 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 	if jsonOpts.StoreModel == "" {
 		jsonOpts.StoreModel = build.ModelLabel
 	}
-	a.executeJSONChat(w, r, runCtx, build.Engine, req, opts.History, prun.ID, opts.UserID, opts.CheckedOutWorkspace, jsonOpts)
+	a.executeJSONChat(w, r, runCtx, build.Engine, req, history, prun.ID, opts.UserID, opts.CheckedOutWorkspace, jsonOpts)
 	return true
 }
 
-func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID, systemPromptOverride string, history []llm.Message, userID *int64, owner int64, fallback chatTargetDescriptor) bool {
+func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID, systemPromptOverride string, userID *int64, owner int64, fallback chatTargetDescriptor) bool {
 	descriptor, ok := a.describeChatTarget(target, systemPromptOverride, owner)
 	if !ok {
 		if fallback.Build == nil {
@@ -208,5 +226,5 @@ func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target ch
 	if descriptor.RunContext == nil {
 		descriptor.RunContext = r.Context()
 	}
-	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, prompt, sessionID, history, userID))
+	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, prompt, sessionID, userID))
 }

@@ -54,8 +54,12 @@ func (s *promptHandlerChatStore) ListSessions(context.Context, *int64) ([]persis
 	return out, nil
 }
 
-func (s *promptHandlerChatStore) GetSession(context.Context, *int64, string) (persistence.ChatSession, error) {
-	return persistence.ChatSession{}, nil
+func (s *promptHandlerChatStore) GetSession(_ context.Context, _ *int64, id string) (persistence.ChatSession, error) {
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	return sess, nil
 }
 
 func (s *promptHandlerChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
@@ -92,7 +96,14 @@ func (s *promptHandlerChatStore) AppendMessages(_ context.Context, _ *int64, ses
 	return nil
 }
 
-func (s *promptHandlerChatStore) UpdateSummary(context.Context, *int64, string, string, int) error {
+func (s *promptHandlerChatStore) UpdateSummary(_ context.Context, _ *int64, sessionID string, summary string, summarizedCount int) error {
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return persistence.ErrNotFound
+	}
+	sess.Summary = summary
+	sess.SummarizedCount = summarizedCount
+	s.sessions[sessionID] = sess
 	return nil
 }
 
@@ -303,7 +314,7 @@ func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=weather", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", "", nil, nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", "", nil, 0, chatTargetDescriptor{})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}
@@ -350,7 +361,7 @@ func TestHandleChatTarget_SSEIncludesQueuedMatrixMessages(t *testing.T) {
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", "", nil, nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", "", nil, 0, chatTargetDescriptor{})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}

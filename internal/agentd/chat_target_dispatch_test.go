@@ -6,9 +6,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	agentmemory "manifold/internal/agent/memory"
+	"manifold/internal/agent"
+	"manifold/internal/agent/memory"
+	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/persistence"
 	"manifold/internal/specialists"
+	"manifold/internal/testhelpers"
+	"manifold/internal/tools"
 )
 
 func TestDispatchBuiltChatTargetMapsNotFoundBuildError(t *testing.T) {
@@ -105,21 +110,104 @@ func TestDescribeChatTargetSkipsOrchestratorSpecialistForTeam(t *testing.T) {
 	}
 }
 
-func TestAgentRunOrchestratorDescriptorIncludesInitialSummary(t *testing.T) {
+func TestAgentRunOrchestratorDescriptorRequestsSummary(t *testing.T) {
 	t.Parallel()
 
 	a := &app{}
-	summary := &agentmemory.SummaryResult{Triggered: true, EstimatedTokens: 42}
-	descriptor := a.agentRunOrchestratorDescriptor(context.Background(), 7, chatRunRequest{Prompt: "hello", SessionID: "sess-1"}, nil, summary)
+	descriptor := a.agentRunOrchestratorDescriptor(context.Background(), 7, chatRunRequest{Prompt: "hello", SessionID: "sess-1"}, nil)
 	if descriptor.InternalErrorMessage != "agent unavailable" {
 		t.Fatalf("unexpected internal error message: %q", descriptor.InternalErrorMessage)
 	}
-	if descriptor.Stream.InitialSummary != summary {
-		t.Fatal("expected initial summary to be preserved")
+	if !descriptor.IncludeSummary {
+		t.Fatal("expected agent run orchestrator descriptor to request summary events")
 	}
 	if descriptor.JSON.IncludeMatrixMessages {
 		t.Fatal("expected agent run orchestrator JSON to omit matrix messages")
 	}
+}
+
+func TestDispatchOptionsFromDescriptorCarriesIncludeSummary(t *testing.T) {
+	t.Parallel()
+
+	userID := int64(7)
+	opts := dispatchOptionsFromDescriptor(chatTargetDescriptor{IncludeSummary: true}, "hello", "sess-1", &userID)
+	if !opts.IncludeSummary {
+		t.Fatal("expected include summary flag to be preserved")
+	}
+}
+
+func TestDispatchBuiltChatTargetUsesBuiltProviderForHistory(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	baseProvider := &testhelpers.FakeProvider{Resp: llm.Message{Role: "assistant", Content: "ignored"}}
+	if _, err := chatStore.EnsureSession(context.Background(), nil, "sess-provider", "sess-provider"); err != nil {
+		t.Fatalf("ensure session: %v", err)
+	}
+	if err := chatStore.AppendMessages(context.Background(), nil, "sess-provider", []persistence.ChatMessage{
+		{Role: "user", Content: "earlier turn"},
+		{Role: "assistant", Content: "stored reply"},
+	}, "stored reply", "test-model"); err != nil {
+		t.Fatalf("append messages: %v", err)
+	}
+	if err := chatStore.UpdateSummary(context.Background(), nil, "sess-provider", `{"type":"compaction","encrypted_content":"opaque"}`, 2); err != nil {
+		t.Fatalf("update summary: %v", err)
+	}
+
+	provider := &recordingProvider{resp: llm.Message{Role: "assistant", Content: "ok"}}
+	a := &app{
+		cfg:        &config.Config{Workdir: "."},
+		chatStore:  chatStore,
+		chatMemory: memory.NewManager(chatStore, baseProvider, memory.Config{}),
+		runs:       newRunStore(),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/agent/run", nil)
+	rec := httptest.NewRecorder()
+
+	handled := a.dispatchBuiltChatTarget(rec, req, chatTargetDispatchOptions{
+		Prompt:    "hello",
+		SessionID: "sess-provider",
+		Build: func(context.Context) chatEngineBuildResult {
+			return chatEngineBuildResult{
+				Engine:     &agent.Engine{LLM: provider, Tools: tools.NewRegistry(), MaxSteps: 1},
+				ModelLabel: "test-model",
+			}
+		},
+	})
+
+	if !handled {
+		t.Fatal("expected request to be handled")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(provider.lastMessages) == 0 {
+		t.Fatal("expected provider to receive messages")
+	}
+	for _, msg := range provider.lastMessages {
+		if msg.Compaction != nil {
+			t.Fatalf("expected non-compaction provider history, got compaction message: %#v", msg)
+		}
+		if msg.Content == "When continuing from prior context (including compacted context), do not restate prior final answers unless the user asks. Only provide new information, the next steps, or the requested delta." {
+			t.Fatal("expected compaction continuation rule to be omitted for non-compaction provider")
+		}
+	}
+}
+
+type recordingProvider struct {
+	resp         llm.Message
+	lastMessages []llm.Message
+}
+
+func (p *recordingProvider) Chat(_ context.Context, msgs []llm.Message, _ []llm.ToolSchema, _ string) (llm.Message, error) {
+	p.lastMessages = append([]llm.Message(nil), msgs...)
+	return p.resp, nil
+}
+
+func (p *recordingProvider) ChatStream(_ context.Context, msgs []llm.Message, _ []llm.ToolSchema, _ string, h llm.StreamHandler) error {
+	p.lastMessages = append([]llm.Message(nil), msgs...)
+	h.OnDelta(p.resp.Content)
+	return nil
 }
 
 func TestPromptOrchestratorDescriptorIncludesMatrixMessages(t *testing.T) {

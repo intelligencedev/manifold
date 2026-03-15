@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from "vue";
+import { onBeforeUnmount, onMounted, ref, computed, watch } from "vue";
 import { useProjectsStore } from "@/stores/projects";
 import { projectFileUrl, projectArchiveUrl } from "@/api/client";
 import Panel from "@/components/ui/Panel.vue";
@@ -8,12 +8,14 @@ import Pill from "@/components/ui/Pill.vue";
 import FileTree from "@/components/FileTree.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
+import { renderMarkdown } from "@/utils/markdown";
 import type { DropdownOption } from "@/types/dropdown";
 
 const store = useProjectsStore();
 const newProjectName = ref("");
 const uploadInput = ref<HTMLInputElement | null>(null);
 const treeRef = ref<InstanceType<typeof FileTree> | null>(null);
+const splitPaneRef = ref<HTMLElement | null>(null);
 const cwd = ref(".");
 const selectedFile = ref<string>("");
 const editorContent = ref("");
@@ -21,6 +23,9 @@ const editorDirty = ref(false);
 const editorLoading = ref(false);
 const editorSaving = ref(false);
 const editorError = ref("");
+const previewMode = ref<"raw" | "markdown">("raw");
+const leftPaneWidth = ref(38);
+const isResizingPanes = ref(false);
 const allowedTextExtensions = [
   ".txt",
   ".md",
@@ -41,6 +46,10 @@ const allowedTextExtensions = [
   ".csv",
 ];
 const isTextFile = computed(() => isTextFilePath(selectedFile.value));
+const isMarkdownFile = computed(() => /\.(md|markdown)$/i.test(selectedFile.value));
+const renderedMarkdown = computed(() => renderMarkdown(editorContent.value));
+const leftPaneStyle = computed(() => ({ flexBasis: `${leftPaneWidth.value}%` }));
+const rightPaneStyle = computed(() => ({ flexBasis: `${100 - leftPaneWidth.value}%` }));
 const previewUrl = computed(() => {
   if (!store.currentProjectId || !selectedFile.value) return "";
   return projectFileUrl(store.currentProjectId, selectedFile.value);
@@ -48,6 +57,10 @@ const previewUrl = computed(() => {
 
 onMounted(() => {
   void store.refresh().then(() => store.ensureTree(cwd.value));
+});
+
+onBeforeUnmount(() => {
+  stopPaneResize();
 });
 
 const current = computed(
@@ -306,6 +319,7 @@ watch(
 watch(
   () => selectedFile.value,
   (path) => {
+    previewMode.value = "raw";
     void loadEditorFile(path);
   },
 );
@@ -331,6 +345,36 @@ function onMoved(payload: { from: string; to: string }) {
   }
   // Ensure current directory reflects latest tree after a move.
   void store.ensureTree(cwd.value);
+}
+
+function updatePaneWidth(clientX: number) {
+  const container = splitPaneRef.value;
+  if (!container) return;
+  const bounds = container.getBoundingClientRect();
+  if (!bounds.width) return;
+  const nextPercent = ((clientX - bounds.left) / bounds.width) * 100;
+  leftPaneWidth.value = Math.min(70, Math.max(25, nextPercent));
+}
+
+function onPaneResize(event: PointerEvent) {
+  updatePaneWidth(event.clientX);
+}
+
+function stopPaneResize() {
+  if (!isResizingPanes.value) return;
+  isResizingPanes.value = false;
+  window.removeEventListener("pointermove", onPaneResize);
+  window.removeEventListener("pointerup", stopPaneResize);
+  document.body.classList.remove("projects-resizing");
+}
+
+function startPaneResize(event: PointerEvent) {
+  if (window.innerWidth < 1024) return;
+  isResizingPanes.value = true;
+  updatePaneWidth(event.clientX);
+  window.addEventListener("pointermove", onPaneResize);
+  window.addEventListener("pointerup", stopPaneResize);
+  document.body.classList.add("projects-resizing");
 }
 </script>
 
@@ -400,9 +444,13 @@ function onMoved(payload: { from: string; to: string }) {
 
     <div
       v-if="store.currentProjectId"
-      class="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-2"
+      ref="splitPaneRef"
+      class="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-0"
     >
-      <GlassCard class="flex min-h-0 flex-col p-4 lg:p-6">
+      <GlassCard
+        class="flex min-h-0 flex-col p-4 lg:min-w-0 lg:shrink-0 lg:p-6"
+        :style="leftPaneStyle"
+      >
         <div class="mb-4 flex items-center gap-3">
           <button
             class="h-9 rounded-full border border-white/10 px-3 text-sm text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
@@ -465,11 +513,52 @@ function onMoved(payload: { from: string; to: string }) {
         </div>
       </GlassCard>
 
-      <GlassCard class="flex min-h-0 flex-col p-4 lg:p-6">
+      <div class="hidden lg:flex lg:w-4 lg:shrink-0 lg:items-stretch lg:justify-center">
+        <button
+          type="button"
+          class="projects-splitter"
+          :class="{ 'projects-splitter-active': isResizingPanes }"
+          aria-label="Resize file tree and preview panes"
+          title="Drag to resize panes"
+          @pointerdown.prevent="startPaneResize"
+        >
+          <span class="projects-splitter-handle"></span>
+        </button>
+      </div>
+
+      <GlassCard
+        class="flex min-h-0 flex-col p-4 lg:min-w-0 lg:shrink-0 lg:p-6"
+        :style="rightPaneStyle"
+      >
         <div
           class="mb-3 flex items-center justify-between text-sm text-faint-foreground"
         >
-          <div class="uppercase tracking-wide">Preview</div>
+          <div class="flex items-center gap-3">
+            <div class="uppercase tracking-wide">Preview</div>
+            <div
+              v-if="isMarkdownFile"
+              class="inline-flex items-center rounded-full border border-white/10 bg-surface/70 p-1"
+            >
+              <button
+                class="rounded-full px-3 py-1 text-xs font-medium transition"
+                :class="previewMode === 'raw'
+                  ? 'bg-accent/90 text-accent-foreground shadow-[0_6px_20px_rgba(0,0,0,0.2)]'
+                  : 'text-subtle-foreground hover:text-foreground'"
+                @click="previewMode = 'raw'"
+              >
+                Raw
+              </button>
+              <button
+                class="rounded-full px-3 py-1 text-xs font-medium transition"
+                :class="previewMode === 'markdown'
+                  ? 'bg-accent/90 text-accent-foreground shadow-[0_6px_20px_rgba(0,0,0,0.2)]'
+                  : 'text-subtle-foreground hover:text-foreground'"
+                @click="previewMode = 'markdown'"
+              >
+                Markdown
+              </button>
+            </div>
+          </div>
           <div
             class="max-w-[70%] truncate text-subtle-foreground"
             v-if="selectedFile"
@@ -506,11 +595,21 @@ function onMoved(payload: { from: string; to: string }) {
                 >
               </div>
               <textarea
+                v-if="!isMarkdownFile || previewMode === 'raw'"
                 v-model="editorContent"
                 class="min-h-[360px] flex-1 resize-none rounded-3 border border-border bg-surface/70 p-3 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 spellcheck="false"
                 @input="editorDirty = true"
               />
+              <div
+                v-else
+                class="project-markdown-surface min-h-[360px] flex-1 rounded-3 border border-border bg-surface/70 shadow-inner"
+              >
+                <div
+                  class="project-markdown scrollbar-inset h-full overflow-auto p-4 text-sm text-foreground"
+                  v-html="renderedMarkdown"
+                ></div>
+              </div>
             </div>
             <div v-else-if="/\.(png|jpe?g|gif|svg|webp)$/i.test(selectedFile)">
               <img
@@ -614,5 +713,135 @@ function onMoved(payload: { from: string; to: string }) {
 </template>
 
 <style scoped>
-/* Use Tailwind utilities with theme tokens; no local component theming */
+.project-markdown-surface {
+  overflow: hidden;
+}
+
+.projects-splitter {
+  position: relative;
+  width: 100%;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.projects-splitter::before {
+  content: "";
+  position: absolute;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgb(var(--color-border));
+  transition: background-color 150ms ease;
+}
+
+.projects-splitter:hover::before,
+.projects-splitter-active::before {
+  background: rgb(var(--color-accent));
+}
+
+.projects-splitter-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  height: 3.5rem;
+  width: 0.4rem;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: rgb(var(--color-surface-muted));
+  border: 1px solid rgb(var(--color-border));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.project-markdown {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.project-markdown:deep(p) {
+  margin: 0 0 0.85rem;
+}
+
+.project-markdown:deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.project-markdown:deep(h1),
+.project-markdown:deep(h2),
+.project-markdown:deep(h3),
+.project-markdown:deep(h4),
+.project-markdown:deep(h5),
+.project-markdown:deep(h6) {
+  margin: 1.25rem 0 0.6rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.project-markdown:deep(h1) {
+  font-size: 1.5rem;
+}
+
+.project-markdown:deep(h2) {
+  font-size: 1.25rem;
+}
+
+.project-markdown:deep(h3) {
+  font-size: 1.125rem;
+}
+
+.project-markdown:deep(ul),
+.project-markdown:deep(ol) {
+  margin: 0 0 0.85rem;
+  padding-left: 1.35rem;
+}
+
+.project-markdown:deep(li) {
+  margin: 0.25rem 0;
+}
+
+.project-markdown:deep(a) {
+  color: rgb(var(--color-accent));
+  text-decoration: underline;
+}
+
+.project-markdown:deep(blockquote) {
+  margin: 0 0 0.85rem;
+  border-left: 3px solid rgb(var(--color-border));
+  padding-left: 0.85rem;
+  color: rgb(var(--color-subtle-foreground));
+}
+
+.project-markdown:deep(pre) {
+  margin: 0 0 0.85rem;
+  overflow-x: auto;
+}
+
+.project-markdown:deep(code) {
+  font-size: 0.875em;
+}
+
+.project-markdown:deep(img) {
+  max-width: 100%;
+  border-radius: 0.75rem;
+}
+
+.project-markdown:deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 0.85rem;
+}
+
+.project-markdown:deep(th),
+.project-markdown:deep(td) {
+  border: 1px solid rgb(var(--color-border));
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+:global(body.projects-resizing) {
+  cursor: col-resize;
+  user-select: none;
+}
 </style>

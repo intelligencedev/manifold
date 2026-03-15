@@ -3,7 +3,6 @@ package agentd
 import (
 	"net/http"
 
-	agentmemory "manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
@@ -18,8 +17,6 @@ type preparedChatHandlerState struct {
 	CurrentUser         *auth.User
 	Owner               int64
 	CheckedOutWorkspace *workspaces.Workspace
-	History             []llm.Message
-	MemorySummary       *agentmemory.SummaryResult
 }
 
 func chatRequestOwner(currentUser *auth.User, userID *int64) int64 {
@@ -32,7 +29,7 @@ func chatRequestOwner(currentUser *auth.User, userID *int64) int64 {
 	return systemUserID
 }
 
-func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, req chatRunRequest, includeSummary bool) (*preparedChatHandlerState, bool) {
+func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, req chatRunRequest) (*preparedChatHandlerState, bool) {
 	var (
 		userID      *int64
 		currentUser *auth.User
@@ -85,23 +82,8 @@ func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, re
 		return nil, false
 	}
 
-	targetSupportsCompaction := providerSupportsCompaction(a.llm)
-	history, summary, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, req.SessionID, targetSupportsCompaction)
-	if err != nil {
-		if err == persist.ErrForbidden {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return nil, false
-		}
-		log.Error().Err(err).Str("session", req.SessionID).Msg("load_chat_history")
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return nil, false
-	}
-
 	if req.Image {
 		r = r.WithContext(llm.WithImagePrompt(r.Context(), llm.ImagePromptOptions{Size: req.ImageSize}))
-	}
-	if !includeSummary {
-		summary = nil
 	}
 
 	return &preparedChatHandlerState{
@@ -110,7 +92,5 @@ func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, re
 		CurrentUser:         currentUser,
 		Owner:               chatRequestOwner(currentUser, userID),
 		CheckedOutWorkspace: checkedOutWorkspace,
-		History:             history,
-		MemorySummary:       summary,
 	}, true
 }

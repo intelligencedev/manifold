@@ -41,7 +41,7 @@ func TestPrepareChatHandlerStateUsesCurrentUserWhenAccessResolutionReturnsNil(t 
 	httpReq := httptest.NewRequest(http.MethodPost, "/agent/run", nil).WithContext(auth.WithUser(httptest.NewRequest(http.MethodPost, "/agent/run", nil).Context(), &auth.User{ID: 42}))
 	rr := httptest.NewRecorder()
 
-	state, ok := a.prepareChatHandlerState(rr, httpReq, req, true)
+	state, ok := a.prepareChatHandlerState(rr, httpReq, req)
 	if !ok {
 		t.Fatalf("expected prepareChatHandlerState to succeed: %d %s", rr.Code, rr.Body.String())
 	}
@@ -71,7 +71,7 @@ func TestPrepareChatHandlerStateAppliesImagePrompt(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/api/prompt", nil)
 	rr := httptest.NewRecorder()
 
-	state, ok := a.prepareChatHandlerState(rr, httpReq, req, false)
+	state, ok := a.prepareChatHandlerState(rr, httpReq, req)
 	if !ok {
 		t.Fatalf("expected prepareChatHandlerState to succeed: %d %s", rr.Code, rr.Body.String())
 	}
@@ -81,8 +81,5 @@ func TestPrepareChatHandlerStateAppliesImagePrompt(t *testing.T) {
 	}
 	if opts.Size != "1024x1024" {
 		t.Fatalf("expected image size 1024x1024, got %q", opts.Size)
-	}
-	if state.MemorySummary != nil {
-		t.Fatal("expected prompt-style setup to omit memory summary when not requested")
 	}
 }

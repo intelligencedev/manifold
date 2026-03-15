@@ -855,6 +855,7 @@
             @pointerdown="handlePanelSplitterPointerDown"
           >
             <span class="panel-splitter__line"></span>
+            <span class="panel-splitter__handle"></span>
           </div>
 
           <GlassCard
@@ -2895,6 +2896,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .panel-splitter {
+  position: relative;
   height: 12px;
   display: flex;
   align-items: center;
@@ -2916,7 +2918,30 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .panel-splitter:hover .panel-splitter__line,
 .panel-splitter--dragging .panel-splitter__line {
-  background: rgb(var(--color-accent) / 0.6);
+  background: rgb(var(--color-accent));
+}
+
+.panel-splitter__handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3.5rem;
+  height: 0.4rem;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: rgb(var(--color-surface-muted));
+  border: 1px solid rgb(var(--color-border));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.panel-splitter:hover .panel-splitter__handle,
+.panel-splitter--dragging .panel-splitter__handle {
+  border-color: rgb(var(--color-accent));
+  background: rgb(var(--color-surface));
   box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.18);
 }
 

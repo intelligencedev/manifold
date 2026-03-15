@@ -682,7 +682,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		state, ok := a.prepareChatHandlerState(w, r, req, true)
+		state, ok := a.prepareChatHandlerState(w, r, req)
 		if !ok {
 			return
 		}
@@ -700,7 +700,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, state.History, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace, state.MemorySummary)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
 			return
 		}
 	}
@@ -731,7 +731,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		state, ok := a.prepareChatHandlerState(w, r, req, false)
+		state, ok := a.prepareChatHandlerState(w, r, req)
 		if !ok {
 			return
 		}
@@ -745,7 +745,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, state.History, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
 			return
 		}
 	}

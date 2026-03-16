@@ -13,7 +13,9 @@ This project supports multi-user sign-in via OpenID Connect (OIDC) or plain OAut
 
 ## Configuration
 
-In `config.yaml` (or env), add an `auth` section:
+Configure authentication in `config.yaml`. If you want to keep secrets out of the file, reference environment variables with `${VAR}` and define those in `.env` or the host environment.
+
+Add an `auth` section like this:
 
 ```yaml
 auth:
@@ -31,7 +33,7 @@ auth:
   sessionTTLHours: 72
 ```
 
-Also ensure `databases.defaultDSN` is set to your Postgres DSN.
+Also ensure `databases.defaultDSN` is set in `config.yaml`, typically via `${DATABASE_URL}`.
 
 ### Using Keycloak (local dev)
 
@@ -49,7 +51,7 @@ auth:
   provider: oidc
   issuerURL: "http://localhost:8083/realms/sio-local"
   clientID: "agentd"
-  clientSecret: "dev-agentd-secret"
+  clientSecret: "${AUTH_CLIENT_SECRET}"
   redirectURL: "http://localhost:32180/auth/callback"
   cookieName: "sio_session"
   cookieSecure: false
@@ -57,12 +59,14 @@ auth:
   sessionTTLHours: 72
 ```
 
+For local dev, put `AUTH_CLIENT_SECRET="dev-agentd-secret"` in `.env`.
+
 ### Using a plain OAuth2 provider
 
 Set `provider: oauth2` and describe the authorization/token/user info endpoints manually:
 
 ```yaml
-Auth:
+auth:
   enabled: true
   provider: oauth2
   clientID: "${GITHUB_CLIENT_ID}"
@@ -133,6 +137,7 @@ Then wrap sensitive routes with `auth.RequireRoles(store, "admin")` (or explicit
 - Session cookie: httpOnly, SameSite=Lax (configure `cookieSecure` + `cookieDomain` for production).
 - ID token: persisted server-side only (`sessions.id_token`) to support RP-initiated logout; never exposed via API.
 - Logout: always a top-level navigation so browser follows IdP redirect chain; avoids stale SSO sessions.
+- The auth loader is YAML-first. `.env` values only matter when referenced from `config.yaml` via `${VAR}`.
 - Allowed domains (optional): restrict initial login population by email domain.
 - Chat history endpoints (`/api/chat/sessions*`) now scope results to the authenticated user. Admins continue to see all conversations, while standard users are limited to their own session IDs.
 - OIDC logins synchronise the `admin` role automatically; users must log out and back in for role changes at the identity provider to take effect. Ensure your IdP includes realm roles or groups in the ID token (e.g. in Keycloak add a group/role mapper to the `agentd` client) so the callback can observe them.

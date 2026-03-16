@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.16.0 <23"
+  },
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev": "vite",
@@ -35,7 +38,7 @@
     "@playwright/test": "^1.43.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/vue": "^8.0.3",
-    "@types/node": "^20.11.30",
+    "@types/node": "^22.16.0",
     "@vitejs/plugin-vue": "^5.0.4",
     "@vitejs/plugin-vue-jsx": "^4.0.1",
     "@vue/eslint-config-prettier": "^9.0.0",

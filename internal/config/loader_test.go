@@ -32,214 +32,396 @@ func TestParseInt(t *testing.T) {
 	})
 }
 
-func TestLoadSpecialists_WrapperAndListAndDisabled(t *testing.T) {
-	// Prepare wrapper-style YAML file
-	wrapper := `specialists:
-  - name: test-wrap
-    model: warp-model
-    baseURL: https://wrap.example
-`
-	file1 := "specialists_test_wrap.yaml"
-	if err := os.WriteFile(file1, []byte(wrapper), 0o644); err != nil {
-		t.Fatalf("write wrapper file: %v", err)
-	}
-	defer func() {
-		_ = os.Remove(file1)
-	}()
-
-	old := os.Getenv("SPECIALISTS_CONFIG")
-	defer func() {
-		_ = os.Setenv("SPECIALISTS_CONFIG", old)
-	}()
-	_ = os.Setenv("SPECIALISTS_CONFIG", file1)
-
-	var cfg Config
-	if err := loadSpecialists(&cfg); err != nil {
-		t.Fatalf("loadSpecialists(wrapper) returned error: %v", err)
-	}
-	if len(cfg.Specialists) != 1 || cfg.Specialists[0].Name != "test-wrap" {
-		t.Fatalf("unexpected specialists: %#v", cfg.Specialists)
-	}
-
-	// Now test direct-list YAML
-	list := `- name: direct-one
-  model: direct-model
-`
-	file2 := "specialists_test_list.yaml"
-	if err := os.WriteFile(file2, []byte(list), 0o644); err != nil {
-		t.Fatalf("write list file: %v", err)
-	}
-	defer func() {
-		_ = os.Remove(file2)
-	}()
-	_ = os.Setenv("SPECIALISTS_CONFIG", file2)
-	cfg = Config{}
-	if err := loadSpecialists(&cfg); err != nil {
-		t.Fatalf("loadSpecialists(list) returned error: %v", err)
-	}
-	if len(cfg.Specialists) != 1 || cfg.Specialists[0].Name != "direct-one" {
-		t.Fatalf("unexpected specialists from list: %#v", cfg.Specialists)
-	}
-
-	// Test SPECIALISTS_DISABLED
-	_ = os.Setenv("SPECIALISTS_DISABLED", "true")
-	cfg = Config{}
-	if err := loadSpecialists(&cfg); err != nil {
-		t.Fatalf("loadSpecialists(disabled) returned error: %v", err)
-	}
-	if len(cfg.Specialists) != 0 {
-		t.Fatalf("expected 0 specialists when disabled, got %d", len(cfg.Specialists))
-	}
-	_ = os.Unsetenv("SPECIALISTS_DISABLED")
-}
-
-func TestEmbedApiHeadersEnv_JSONAndCSV(t *testing.T) {
-	oldJSON := os.Getenv("EMBED_API_HEADERS")
-	defer func() { _ = os.Setenv("EMBED_API_HEADERS", oldJSON) }()
-
-	// Ensure required env for Load()
-	oldOpenAI := os.Getenv("OPENAI_API_KEY")
-	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
-	_ = os.Setenv("OPENAI_API_KEY", "dummy")
-	oldWorkdir := os.Getenv("WORKDIR")
-	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
-	_ = os.Setenv("WORKDIR", ".")
-
-	_ = os.Setenv("EMBED_API_HEADERS", `{"x-api-key":"abc"}`)
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if got := cfg.Embedding.Headers["x-api-key"]; got != "abc" {
-		t.Fatalf("expected x-api-key abc, got %q", got)
-	}
-
-	_ = os.Setenv("EMBED_API_HEADERS", "x-api-key:abc,foo=bar")
-	cfg, err = Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if got := cfg.Embedding.Headers["foo"]; got != "bar" {
-		t.Fatalf("expected foo bar, got %q", got)
-	}
-}
-
-func TestLoad_AllowToolsEnv(t *testing.T) {
-	// Ensure required env for Load()
-	oldOpenAI := os.Getenv("OPENAI_API_KEY")
-	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
-	_ = os.Setenv("OPENAI_API_KEY", "dummy")
-	oldWorkdir := os.Getenv("WORKDIR")
-	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
-	_ = os.Setenv("WORKDIR", ".")
-
-	oldAllow := os.Getenv("ALLOW_TOOLS")
-	oldSpecialistsConfig := os.Getenv("SPECIALISTS_CONFIG")
-	defer func() {
-		_ = os.Setenv("ALLOW_TOOLS", oldAllow)
-		_ = os.Setenv("SPECIALISTS_CONFIG", oldSpecialistsConfig)
-	}()
-	_ = os.Setenv("ALLOW_TOOLS", "a, b,,c")
-	_ = os.Unsetenv("SPECIALISTS_CONFIG")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	want := []string{"a", "b", "c"}
-	if got := cfg.ToolAllowList; len(got) != len(want) {
-		t.Fatalf("unexpected allow list: got %#v want %#v", got, want)
-	}
-	for i := range cfg.ToolAllowList {
-		if cfg.ToolAllowList[i] != want[i] {
-			t.Fatalf("unexpected allow list: got %#v want %#v", cfg.ToolAllowList, want)
-		}
-	}
-}
-
-func TestLoad_EvolvingMemoryProviderEnv(t *testing.T) {
-	oldOpenAI := os.Getenv("OPENAI_API_KEY")
-	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
-	_ = os.Setenv("OPENAI_API_KEY", "dummy")
-
-	oldWorkdir := os.Getenv("WORKDIR")
-	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
-	_ = os.Setenv("WORKDIR", ".")
-
-	oldProvider := os.Getenv("EVOLVING_MEMORY_PROVIDER")
-	defer func() { _ = os.Setenv("EVOLVING_MEMORY_PROVIDER", oldProvider) }()
-	_ = os.Setenv("EVOLVING_MEMORY_PROVIDER", "LOCAL")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if cfg.EvolvingMemory.Provider != "local" {
-		t.Fatalf("expected evolving memory provider local, got %q", cfg.EvolvingMemory.Provider)
-	}
-}
-
-func TestLoad_EvolvingMemoryProviderEnv_Invalid(t *testing.T) {
-	oldOpenAI := os.Getenv("OPENAI_API_KEY")
-	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
-	_ = os.Setenv("OPENAI_API_KEY", "dummy")
-
-	oldWorkdir := os.Getenv("WORKDIR")
-	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
-	_ = os.Setenv("WORKDIR", ".")
-
-	oldProvider := os.Getenv("EVOLVING_MEMORY_PROVIDER")
-	defer func() { _ = os.Setenv("EVOLVING_MEMORY_PROVIDER", oldProvider) }()
-	_ = os.Setenv("EVOLVING_MEMORY_PROVIDER", "bogus")
-
-	if _, err := Load(); err == nil {
-		t.Fatalf("expected invalid evolving memory provider to fail")
-	}
-}
-
-func TestLoad_EvolvingMemoryLLMClientFromYAML(t *testing.T) {
+func TestLoad_FromYAML(t *testing.T) {
 	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "config.yaml")
-	configText := `evolvingMemory:
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("AUTH_CLIENT_SECRET", "test-auth-secret")
+	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/manifold?sslmode=disable")
+	t.Setenv("CLICKHOUSE_DSN", "tcp://clickhouse:9000?database=otel")
+	t.Setenv("EMBED_API_KEY", "embed-secret")
+
+	configText := `workdir: .
+systemPrompt: Test prompt
+logPath: manifold.log
+logLevel: debug
+logPayloads: true
+outputTruncateBytes: 12345
+maxSteps: 42
+maxToolParallelism: 3
+enableTools: true
+allowTools:
+  - run_cli
+  - web_fetch
+summaryEnabled: true
+summaryContextWindowTokens: 32000
+summaryReserveBufferTokens: 25000
+summaryMinKeepLastMessages: 4
+summaryMaxKeepLastMessages: 12
+summaryMaxSummaryChunkTokens: 4096
+agentRunTimeoutSeconds: 60
+streamRunTimeoutSeconds: 75
+workflowTimeoutSeconds: 90
+exec:
+  blockBinaries: [rm, sudo]
+  maxCommandSeconds: 900
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+    baseURL: https://api.openai.com/v1
+    model: gpt-5-mini
+    summaryBaseURL: https://api.openai.com/v1
+    summaryModel: gpt-5-nano
+    api: responses
+    extraHeaders:
+      X-Test: yes
+    extraParams:
+      reasoning_effort: medium
+obs:
+  serviceName: manifold
+  serviceVersion: 1.2.3
+  environment: local
+  otlp: http://localhost:4318
+  clickhouse:
+    dsn: "${CLICKHOUSE_DSN}"
+    database: otel
+    metricsTable: metrics_sum
+    tracesTable: traces
+    logsTable: logs
+    timestampColumn: TimeUnix
+    valueColumn: Value
+    modelAttributeKey: llm.model
+    promptMetricName: llm.prompt_tokens
+    completionMetricName: llm.completion_tokens
+    lookbackHours: 24
+    timeoutSeconds: 5
+web:
+  searXNGURL: http://localhost:8080
+auth:
   enabled: true
+  provider: oauth2
+  clientID: manifold-client
+  clientSecret: "${AUTH_CLIENT_SECRET}"
+  redirectURL: http://localhost:32180/auth/callback
+  allowedDomains: [example.com]
+  cookieName: manifold_session
+  cookieSecure: false
+  cookieDomain: ""
+  stateTTLSeconds: 600
+  sessionTTLHours: 72
+  oauth2:
+    authURL: https://github.com/login/oauth/authorize
+    tokenURL: https://github.com/login/oauth/access_token
+    userInfoURL: https://api.github.com/user
+    logoutRedirectParam: redirect_uri
+    scopes: [read:user, user:email]
+    providerName: github
+    defaultRoles: [user]
+    emailField: email
+    nameField: name
+    pictureField: avatar_url
+    subjectField: id
+databases:
+  defaultDSN: "${DATABASE_URL}"
+  chat:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+  search:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+    index: docs
+  vector:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+    index: vectors
+    dimensions: 1536
+    metric: cosine
+  graph:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+embedding:
+  baseURL: https://api.openai.com
+  model: text-embedding-3-small
+  apiKey: "${EMBED_API_KEY}"
+  apiHeader: Authorization
+  headers:
+    X-Embed-Trace: abc123
+  path: /v1/embeddings
+  timeoutSeconds: 30
+evolvingMemory:
+  enabled: true
+  provider: openai
   llmClient:
     provider: local
     openai:
       baseURL: http://localhost:11434/v1
       model: qwen-memory
+      api: completions
+  maxSize: 1000
+  topK: 4
+  windowSize: 20
+  enableRAG: true
+  reMemEnabled: false
+  maxInnerSteps: 5
+  model: gpt-4o-mini
+  enableSmartPrune: true
+  pruneThreshold: 0.95
+  relevanceDecay: 0.99
+  minRelevance: 0.1
+transit:
+  enabled: true
+  defaultSearchLimit: 10
+  defaultListLimit: 100
+  maxBatchSize: 100
+  enableVectorSearch: true
+tts:
+  baseURL: https://api.openai.com/v1
+  model: gpt-4o-mini-tts
+  voice: alloy
+stt:
+  baseURL: https://api.openai.com
+  model: gpt-4o-mini-transcribe
+projects: {}
+tokenization:
+  enabled: true
+  cacheSize: 300
+  cacheTTLSeconds: 120
+  fallbackToHeuristic: false
 `
-	if err := os.WriteFile(configPath, []byte(configText), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configText), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-
-	oldCwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	defer func() { _ = os.Chdir(oldCwd) }()
-	if err := os.Chdir(tmpDir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-
-	oldOpenAI := os.Getenv("OPENAI_API_KEY")
-	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldOpenAI) }()
-	_ = os.Setenv("OPENAI_API_KEY", "dummy")
-
-	oldWorkdir := os.Getenv("WORKDIR")
-	defer func() { _ = os.Setenv("WORKDIR", oldWorkdir) }()
-	_ = os.Setenv("WORKDIR", tmpDir)
 
 	cfg, err := Load()
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
+	if cfg.Workdir != tmpDir {
+		t.Fatalf("expected absolute workdir %q, got %q", tmpDir, cfg.Workdir)
+	}
+	if cfg.SystemPrompt != "Test prompt" {
+		t.Fatalf("unexpected system prompt: %q", cfg.SystemPrompt)
+	}
+	if cfg.LLMClient.OpenAI.APIKey != "test-openai-key" {
+		t.Fatalf("expected expanded openai api key, got %q", cfg.LLMClient.OpenAI.APIKey)
+	}
+	if cfg.LLMClient.OpenAI.API != "responses" {
+		t.Fatalf("unexpected openai api: %q", cfg.LLMClient.OpenAI.API)
+	}
+	if cfg.Auth.ClientSecret != "test-auth-secret" {
+		t.Fatalf("expected expanded auth client secret, got %q", cfg.Auth.ClientSecret)
+	}
+	if cfg.Databases.Search.Index != "docs" || cfg.Databases.Vector.Index != "vectors" {
+		t.Fatalf("unexpected database config: %+v %+v", cfg.Databases.Search, cfg.Databases.Vector)
+	}
+	if cfg.Embedding.Headers["X-Embed-Trace"] != "abc123" {
+		t.Fatalf("unexpected embedding headers: %+v", cfg.Embedding.Headers)
+	}
 	if cfg.EvolvingMemory.LLMClient.Provider != "local" {
-		t.Fatalf("expected evolving memory llmClient provider local, got %q", cfg.EvolvingMemory.LLMClient.Provider)
+		t.Fatalf("unexpected evolving memory provider: %q", cfg.EvolvingMemory.LLMClient.Provider)
 	}
-	if cfg.EvolvingMemory.LLMClient.OpenAI.BaseURL != "http://localhost:11434/v1" {
-		t.Fatalf("unexpected evolving memory llmClient baseURL: %q", cfg.EvolvingMemory.LLMClient.OpenAI.BaseURL)
+	if !cfg.EnableTools || len(cfg.ToolAllowList) != 2 {
+		t.Fatalf("unexpected tool config: enabled=%v allow=%v", cfg.EnableTools, cfg.ToolAllowList)
 	}
-	if cfg.EvolvingMemory.LLMClient.OpenAI.Model != "qwen-memory" {
-		t.Fatalf("unexpected evolving memory llmClient model: %q", cfg.EvolvingMemory.LLMClient.OpenAI.Model)
+	if cfg.Tokenization.FallbackToHeuristic {
+		t.Fatalf("expected fallbackToHeuristic false")
+	}
+}
+
+func TestLoad_EnvVarExpansion(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "expanded-key")
+
+	configText := `workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.LLMClient.OpenAI.APIKey != "expanded-key" {
+		t.Fatalf("expected expanded key, got %q", cfg.LLMClient.OpenAI.APIKey)
+	}
+}
+
+func TestLoad_SpecialistsFromSeparateFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("SPECIALIST_API_KEY", "specialist-secret")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "specialists.yaml"), []byte(`specialists:
+  - name: coder
+    description: Code specialist
+    provider: openai
+    baseURL: https://example.com/v1
+    apiKey: "${SPECIALIST_API_KEY}"
+    model: gpt-5-mini
+    enableTools: true
+routes:
+  - name: coder
+    contains: [code, refactor]
+`), 0o644); err != nil {
+		t.Fatalf("write specialists: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(cfg.Specialists) != 1 || cfg.Specialists[0].APIKey != "specialist-secret" {
+		t.Fatalf("unexpected specialists: %+v", cfg.Specialists)
+	}
+	if len(cfg.SpecialistRoutes) != 1 || cfg.SpecialistRoutes[0].Name != "coder" {
+		t.Fatalf("unexpected routes: %+v", cfg.SpecialistRoutes)
+	}
+}
+
+func TestLoad_MCPFromSeparateFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ACME_MCP_TOKEN", "mcp-secret")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "mcp.yaml"), []byte(`servers:
+  - name: acme
+    url: https://mcp.acme.com/mcp
+    bearerToken: "${ACME_MCP_TOKEN}"
+    headers:
+      X-Client: Manifold
+    http:
+      timeoutSeconds: 30
+`), 0o644); err != nil {
+		t.Fatalf("write mcp: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(cfg.MCP.Servers) != 1 || cfg.MCP.Servers[0].BearerToken != "mcp-secret" {
+		t.Fatalf("unexpected mcp config: %+v", cfg.MCP.Servers)
+	}
+}
+
+func TestLoad_Defaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.LLMClient.OpenAI.Model != "gpt-4o-mini" {
+		t.Fatalf("expected default model, got %q", cfg.LLMClient.OpenAI.Model)
+	}
+	if cfg.Exec.MaxCommandSeconds != 30 {
+		t.Fatalf("expected default command timeout, got %d", cfg.Exec.MaxCommandSeconds)
+	}
+	if cfg.OutputTruncateByte != 64*1024 {
+		t.Fatalf("expected default output truncate bytes, got %d", cfg.OutputTruncateByte)
+	}
+	if cfg.Databases.Search.Backend != "memory" {
+		t.Fatalf("expected default search backend memory, got %q", cfg.Databases.Search.Backend)
+	}
+	if !cfg.Tokenization.FallbackToHeuristic {
+		t.Fatalf("expected default tokenization fallback true")
+	}
+}
+
+func TestLoad_MissingRequiredFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected missing api key to fail")
+	}
+}
+
+func TestLoad_SeparateFileOverridesMainConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+specialists:
+  - name: inline
+    model: inline-model
+mcp:
+  servers:
+    - name: inline
+      command: inline-command
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "specialists.yaml"), []byte(`specialists:
+  - name: external
+    model: external-model
+`), 0o644); err != nil {
+		t.Fatalf("write specialists: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "mcp.yaml"), []byte(`servers:
+  - name: external
+    command: external-command
+`), 0o644); err != nil {
+		t.Fatalf("write mcp: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(cfg.Specialists) != 1 || cfg.Specialists[0].Name != "external" {
+		t.Fatalf("expected external specialists to override inline config, got %+v", cfg.Specialists)
+	}
+	if len(cfg.MCP.Servers) != 1 || cfg.MCP.Servers[0].Name != "external" {
+		t.Fatalf("expected external mcp config to override inline config, got %+v", cfg.MCP.Servers)
 	}
 }

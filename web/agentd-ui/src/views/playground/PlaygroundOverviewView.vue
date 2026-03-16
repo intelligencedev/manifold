@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-6">
     <section class="grid gap-4 md:grid-cols-3">
-      <article class="rounded-2xl border border-border/70 bg-surface p-4">
+      <article class="p-1">
         <h2 class="text-sm text-subtle-foreground">Prompts</h2>
         <p class="mt-2 text-3xl font-semibold">{{ store.promptCount }}</p>
         <RouterLink
@@ -10,7 +10,7 @@
           >Manage prompts →</RouterLink
         >
       </article>
-      <article class="rounded-2xl border border-border/70 bg-surface p-4">
+      <article class="p-1">
         <h2 class="text-sm text-subtle-foreground">Datasets</h2>
         <p class="mt-2 text-3xl font-semibold">{{ store.datasetCount }}</p>
         <RouterLink
@@ -19,7 +19,7 @@
           >Upload data →</RouterLink
         >
       </article>
-      <article class="rounded-2xl border border-border/70 bg-surface p-4">
+      <article class="p-1">
         <h2 class="text-sm text-subtle-foreground">Experiments</h2>
         <p class="mt-2 text-3xl font-semibold">{{ store.experimentCount }}</p>
         <RouterLink
@@ -30,9 +30,7 @@
       </article>
     </section>
 
-    <section
-      class="rounded-2xl border border-border/70 bg-surface p-4 space-y-4"
-    >
+    <section class="space-y-4">
       <header class="flex items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Recent Prompts</h2>

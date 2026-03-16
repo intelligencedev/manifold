@@ -4,7 +4,7 @@
     class="flex h-full min-h-0 flex-col gap-6 overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"
   >
     <section
-      class="flex min-h-0 max-h-[55vh] flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 space-y-3 lg:h-full lg:max-h-none"
+      class="flex min-h-0 max-h-[55vh] flex-col overflow-hidden space-y-3 lg:h-full lg:max-h-none"
     >
       <header>
         <h2 class="text-lg font-semibold">New Experiment</h2>
@@ -117,7 +117,7 @@
     </section>
 
     <section
-      class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 gap-4 lg:h-full"
+      class="flex min-h-0 flex-1 flex-col overflow-hidden gap-4 lg:h-full"
     >
       <header class="flex items-center justify-between">
         <div>

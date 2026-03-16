@@ -5,7 +5,7 @@
   >
     <!-- Header / Summary -->
     <section
-      class="rounded-2xl border border-border/70 bg-surface p-4 space-y-2"
+      class="space-y-2"
     >
       <div class="flex items-center justify-between">
         <div>
@@ -34,7 +34,7 @@
       <div class="flex min-h-0 flex-col gap-6 overflow-hidden">
         <!-- Variants -->
         <section
-          class="rounded-2xl border border-border/70 bg-surface p-4 space-y-3"
+          class="space-y-3"
         >
           <header class="flex items-center justify-between">
             <h2 class="text-lg font-semibold">Variants</h2>
@@ -71,7 +71,7 @@
 
         <!-- Runs -->
         <section
-          class="flex min-h-0 flex-col rounded-2xl border border-border/70 bg-surface p-4 gap-3"
+          class="flex min-h-0 flex-col gap-3"
         >
           <header class="flex items-center justify-between">
             <h2 class="text-lg font-semibold">Runs</h2>
@@ -134,7 +134,7 @@
       <div class="flex min-h-0 flex-col overflow-hidden">
         <section
           v-if="selectedRun"
-          class="flex-1 min-h-0 flex flex-col rounded-2xl border border-border/70 bg-surface p-4 gap-4"
+          class="flex-1 min-h-0 flex flex-col gap-4"
         >
           <header class="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -335,7 +335,7 @@
         </section>
         <section
           v-else
-          class="rounded-2xl border border-border/70 bg-surface p-4 text-sm text-subtle-foreground"
+          class="text-sm text-subtle-foreground"
         >
           Select a run to view details.
         </section>

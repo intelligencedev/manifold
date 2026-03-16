@@ -133,6 +133,11 @@
   box-shadow: none;
 }
 
+[data-theme="aperture-dark"] .aperture .ap-hairline-r {
+  border-right: 1px solid rgb(var(--color-border) / 0.16);
+  box-shadow: none;
+}
+
 /* Rings - minimal, subtle */
 [data-theme="aperture-dark"] .aperture .ap-ring {
   border: 1px solid rgb(var(--color-border) / 0.2);
@@ -317,6 +322,11 @@
 /* Header separators */
 [data-theme="aperture-light"] .aperture .ap-hairline-b {
   border-bottom: 1px solid rgb(var(--color-border) / 0.18); /* slightly stronger */
+  box-shadow: none;
+}
+
+[data-theme="aperture-light"] .aperture .ap-hairline-r {
+  border-right: 1px solid rgb(var(--color-border) / 0.18);
   box-shadow: none;
 }
 

@@ -5,9 +5,9 @@
     </div>
 
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
-    <div class="flex flex-col xl:flex-row gap-4 flex-1 min-h-0">
+    <div class="flex flex-1 min-h-0 flex-col gap-6 xl:flex-row">
       <!-- left: card grid -->
-      <div class="scrollbar-inset xl:w-1/2 min-w-0 min-h-0 overflow-auto rounded-[var(--radius-lg,26px)] glass-surface p-4">
+      <div class="scrollbar-inset min-w-0 min-h-0 overflow-auto xl:w-1/2 xl:pr-6 xl:border-r xl:border-border/60">
         <div class="mb-4 flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold">Specialists & Teams</h2>
           <div class="flex items-center gap-2">
@@ -191,8 +191,8 @@
       </div>
 
       <!-- right: editor -->
-      <div class="xl:w-1/2 min-w-0 min-h-0">
-        <GlassCard v-if="editingType === 'specialist'" class="h-full min-h-0 overflow-hidden">
+      <div class="min-w-0 min-h-0 xl:w-1/2 xl:pl-6">
+        <GlassCard v-if="editingType === 'specialist'" flat :padded="false" class="h-full min-h-0 overflow-hidden">
           <EditSpecialistRoot
             :key="editorInitial?.name || 'new'"
             class="h-full"
@@ -206,7 +206,7 @@
             @saved="onSaved"
           />
         </GlassCard>
-        <GlassCard v-else-if="editingType === 'team'" class="h-full min-h-0 overflow-hidden">
+        <GlassCard v-else-if="editingType === 'team'" flat :padded="false" class="h-full min-h-0 overflow-hidden">
           <EditTeamRoot
             :key="teamEditorInitial?.name || 'new-team'"
             class="h-full"
@@ -219,7 +219,7 @@
             @saved="onTeamSaved"
           />
         </GlassCard>
-        <GlassCard v-else class="flex h-full min-h-0 items-center justify-center p-4 text-sm text-subtle-foreground">
+        <GlassCard v-else flat class="flex h-full min-h-0 items-center justify-center text-sm text-subtle-foreground">
           Select a specialist or team, or click New to create one.
         </GlassCard>
       </div>

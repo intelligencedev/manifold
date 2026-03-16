@@ -380,7 +380,7 @@ function startPaneResize(event: PointerEvent) {
 
 <template>
   <section class="flex min-h-0 flex-1 flex-col space-y-3">
-    <Panel title="Projects" :padded="true">
+    <Panel title="Projects" flat :padded="false" class="ap-hairline-b pb-3">
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <label class="sr-only" for="new-project">New project name</label>
@@ -448,7 +448,9 @@ function startPaneResize(event: PointerEvent) {
       class="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-0"
     >
       <GlassCard
+        flat
         class="flex min-h-0 flex-col p-4 lg:min-w-0 lg:shrink-0 lg:p-6"
+        :class="['lg:pr-6']"
         :style="leftPaneStyle"
       >
         <div class="mb-4 flex items-center gap-3">
@@ -527,7 +529,9 @@ function startPaneResize(event: PointerEvent) {
       </div>
 
       <GlassCard
+        flat
         class="flex min-h-0 flex-col p-4 lg:min-w-0 lg:shrink-0 lg:p-6"
+        :class="['lg:pl-6']"
         :style="rightPaneStyle"
       >
         <div
@@ -632,7 +636,7 @@ function startPaneResize(event: PointerEvent) {
       </GlassCard>
     </div>
 
-    <GlassCard v-else class="p-6 text-subtle-foreground">
+    <GlassCard v-else flat class="p-6 text-subtle-foreground">
       No project selected. Create one to get started.
     </GlassCard>
 

@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full flex-1 min-h-0 overflow-hidden gap-3 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full flex-1 min-h-0 overflow-hidden gap-4 lg:gap-0 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="glass-surface hidden h-full min-h-0 lg:flex flex-col gap-3 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
+        class="hidden h-full min-h-0 lg:flex flex-col gap-3 overflow-hidden p-4 lg:border-r lg:border-border/60 lg:pr-5"
       >
         <header class="flex items-center justify-between">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -123,7 +123,7 @@
 
       <!-- Chat pane -->
       <section
-        class="glass-surface relative flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/80 chat-pane"
+        class="relative flex h-full min-h-0 flex-col overflow-hidden chat-pane xl:px-5"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 pb-4 pt-1"
@@ -750,7 +750,7 @@
 
       <!-- Participants sidebar -->
       <aside
-        class="hidden h-full min-h-0 xl:flex flex-col text-sm text-subtle-foreground chat-side"
+        class="hidden h-full min-h-0 xl:flex xl:flex-col xl:border-l xl:border-border/60 xl:pl-5 text-sm text-subtle-foreground chat-side"
       >
         <div ref="sidePanelsPane" class="flex min-h-0 flex-1 flex-col">
           <div
@@ -759,7 +759,7 @@
             :style="activeSpecialistPaneStyle"
           >
             <GlassCard
-              :padded="false"
+              flat
               class="flex h-full flex-col overflow-hidden"
             >
               <div class="flex min-h-0 flex-1 flex-col">
@@ -859,7 +859,7 @@
           </div>
 
           <GlassCard
-            :padded="false"
+            flat
             class="flex min-h-0 flex-1 flex-col overflow-hidden"
             :style="participantsPaneStyle"
           >

@@ -42,6 +42,7 @@ type PanelProps = {
   description?: string;
   eyebrow?: string;
   padded?: boolean;
+  flat?: boolean;
   as?: keyof HTMLElementTagNameMap;
 };
 
@@ -55,8 +56,11 @@ const hasHeader = computed(() =>
 );
 
 const panelClass = computed(() => [
-  "glass-surface relative w-full rounded-[var(--radius-lg,26px)] border border-white/12 text-foreground shadow-[0_20px_70px_rgba(0,0,0,0.35)]",
-  "supports-[backdrop-filter]:backdrop-blur-xl",
+  "relative w-full text-foreground",
+  props.flat
+    ? ""
+    : "glass-surface rounded-[var(--radius-lg,26px)] border border-white/12 shadow-[0_20px_70px_rgba(0,0,0,0.35)]",
+  props.flat ? "" : "supports-[backdrop-filter]:backdrop-blur-xl",
   props.padded === false ? "p-0" : "p-5 md:p-6",
 ]);
 

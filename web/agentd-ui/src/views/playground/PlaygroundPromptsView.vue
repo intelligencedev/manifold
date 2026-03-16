@@ -1,8 +1,6 @@
 <template>
   <div class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
-    <section
-      class="rounded-2xl border border-border/70 bg-surface p-4 space-y-4"
-    >
+    <section class="space-y-4">
       <header>
         <h2 class="text-lg font-semibold">Create Prompt</h2>
         <p class="text-sm text-subtle-foreground">
@@ -50,9 +48,7 @@
       </form>
     </section>
 
-    <section
-      class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 gap-3"
-    >
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden gap-3">
       <header class="flex items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Prompts</h2>

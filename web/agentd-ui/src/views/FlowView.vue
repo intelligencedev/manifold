@@ -124,19 +124,6 @@
     </section>
 
     <div
-      v-if="runLogs.length"
-      class="max-h-[2.4rem] overflow-y-auto rounded-xl border border-border/50 bg-surface-muted/65 px-3 py-1.5 text-[11px] font-mono leading-relaxed space-y-0.5"
-    >
-      <div
-        v-for="(l, i) in runLogs"
-        :key="i"
-        class="whitespace-pre-wrap break-words"
-      >
-        {{ l }}
-      </div>
-    </div>
-
-    <div
       class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden"
     >
       <aside class="lg:w-72">
@@ -1230,10 +1217,8 @@ const saving = ref(false);
 // or re-wrap in computed to maintain reactivity across navigation
 const running = computed(() => flowRunStore.running);
 const runOutput = computed(() => flowRunStore.runOutput);
-const runLogs = computed(() => flowRunStore.runLogs);
 provide("flowEditorRunning", running);
 provide("flowEditorRunOutput", runOutput);
-provide("flowEditorRunLogs", runLogs);
 let runTraceTimers: ReturnType<typeof setTimeout>[] = [];
 const runStartTime = ref<number | null>(null);
 const liveRunElapsedMs = ref(0);
@@ -2745,10 +2730,6 @@ async function performSave(
         groups: groups.length ? groups : undefined,
       },
     };
-    runLogs.value.push(
-      "[save] PUT /api/flows/v2/workflows/" +
-        encodeURIComponent(payload.intent),
-    );
     console.log("[DEBUG] Payload groups:", payload.ui?.groups);
     console.log(
       "[DEBUG] Payload layout keys:",
@@ -2809,7 +2790,6 @@ async function performSave(
         groups: mergedUi.groups,
       });
     } catch {}
-    runLogs.value.push("[save] 200 OK");
     // If this workflow was locally-created, clear the local marker
     localWorkflows.value.delete(payload.intent);
     const listIdx = workflowList.value.findIndex(
@@ -2836,7 +2816,6 @@ async function performSave(
   } catch (err: any) {
     const msg = err?.message ?? "Failed to save workflow";
     error.value = msg;
-    runLogs.value.push("[save] error: " + msg);
     return null;
   } finally {
     saving.value = false;
@@ -2847,22 +2826,14 @@ async function onRun() {
   if (!activeWorkflow.value) return;
   flowRunStore.error = "";
   flowRunStore.runOutput = "";
-  flowRunStore.runLogs = [];
   editorMode.value = "run";
   clearRunTraceTimers();
   flowRunStore.runTrace = {};
   const intent = activeWorkflow.value.intent;
-  flowRunStore.runLogs.push(`▶ Starting run for intent "${intent}"`);
   // Capture need to save at start (canSave may change mid-process)
   const needSave = canSave.value;
   if (needSave) {
-    flowRunStore.runLogs.push("… Saving workflow before run");
-    const saved = await performSave();
-    if (saved) flowRunStore.runLogs.push("✓ Save complete");
-    else
-      flowRunStore.runLogs.push(
-        "✗ Save failed – proceeding with current in-memory workflow",
-      );
+    await performSave();
   }
   try {
     const res = await flowRunStore.startRun(

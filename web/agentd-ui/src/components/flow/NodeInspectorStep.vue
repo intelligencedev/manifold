@@ -61,41 +61,6 @@
       />
     </div>
 
-    <details class="mt-1" v-if="isDesignMode">
-      <summary class="cursor-pointer text-[11px] text-subtle-foreground">
-        Advanced (promote to attribute)
-      </summary>
-      <div class="mt-2 space-y-2">
-        <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-          Output Attribute
-          <input
-            v-model="outputAttr"
-            type="text"
-            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            placeholder="e.g. result"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-          Output From
-          <input
-            v-model="outputFrom"
-            type="text"
-            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            placeholder="payload | json.<path> | delta.<key> | inputs.<key>"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-          Output Value
-          <input
-            v-model="outputValue"
-            type="text"
-            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            placeholder="Literal override"
-          />
-        </label>
-      </div>
-    </details>
-
     <div class="pt-1 flex items-center justify-end gap-2">
       <button
         class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
@@ -109,7 +74,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, watch, type Ref } from "vue";
+import { computed, inject, provide, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import FlowInputBindingsEditor from "@/components/flow/FlowInputBindingsEditor.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -128,6 +93,8 @@ const modeRef = inject<Ref<"design" | "run">>(
   ref<"design" | "run">("design"),
 );
 const hydratingRef = inject<Ref<boolean>>("flowEditorHydrating", ref(false));
+
+provide("flowEditorNodeId", props.nodeId);
 
 const OUTPUT_KEYS = new Set(["output_attr", "output_from", "output_value"]);
 
@@ -154,9 +121,6 @@ const guardText = ref("");
 const publishResult = ref(false);
 const toolName = ref("");
 const argsState = ref<Record<string, unknown>>({});
-const outputAttr = ref("");
-const outputFrom = ref("");
-const outputValue = ref("");
 const isDirty = ref(false);
 
 const currentTool = computed(
@@ -193,13 +157,6 @@ watch(
     argsState.value = cloneArgs(next?.tool?.args);
     // Strip output keys
     for (const k of OUTPUT_KEYS) delete (argsState.value as any)[k];
-    const a = (next?.tool?.args ?? {}) as Record<string, unknown>;
-    outputAttr.value =
-      typeof a.output_attr === "string" ? (a.output_attr as string) : "";
-    outputFrom.value =
-      typeof a.output_from === "string" ? (a.output_from as string) : "";
-    outputValue.value =
-      typeof a.output_value === "string" ? (a.output_value as string) : "";
     isDirty.value = false;
     suppress = false;
   },
@@ -212,9 +169,6 @@ watch(
     guardText,
     publishResult,
     toolName,
-    outputAttr,
-    outputFrom,
-    outputValue,
   ],
   () => markDirty(),
 );
@@ -244,16 +198,6 @@ function applyChanges() {
 
 function buildStep(): FlowEditorStep {
   const built = buildToolPayload(toolName.value, argsState.value);
-  if (built) {
-    const merged: Record<string, unknown> = { ...(built.args ?? {}) };
-    const oa = outputAttr.value.trim();
-    const of = outputFrom.value.trim();
-    const ov = outputValue.value.trim();
-    if (oa) merged.output_attr = oa;
-    if (of) merged.output_from = of;
-    if (ov) merged.output_value = ov;
-    if (Object.keys(merged).length) built.args = merged;
-  }
   const next: FlowEditorStep = {
     ...(props.data?.step ?? ({} as FlowEditorStep)),
     id: props.nodeId,

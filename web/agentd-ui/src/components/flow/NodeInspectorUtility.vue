@@ -19,39 +19,37 @@
     </label>
 
     <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-      <div class="flex items-center justify-between gap-2">
-        <span>Textbox Content</span>
-        <div class="inline-flex rounded border border-border/60 bg-surface-muted p-0.5">
-          <button
-            type="button"
-            class="rounded px-2 py-0.5 text-[10px]"
-            :class="contentMode === 'literal' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground'"
-            :disabled="!isDesignMode || hydratingRef"
-            @click="setContentMode('literal')"
-          >
-            Literal
-          </button>
-          <button
-            type="button"
-            class="rounded px-2 py-0.5 text-[10px]"
-            :class="contentMode === 'binding' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground'"
-            :disabled="!isDesignMode || hydratingRef"
-            @click="setContentMode('binding')"
-          >
-            Binding
-          </button>
-        </div>
+      <span>Textbox Content</span>
+      <div class="relative">
+        <textarea
+          ref="contentTextareaEl"
+          v-model="contentText"
+          rows="4"
+          class="w-full rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto resize-none whitespace-pre-wrap break-words"
+          :class="isExpressionContent ? 'border-accent/60 bg-accent/5' : ''"
+          placeholder="Enter static text or use ={{$run.input.query}} bindings"
+          :disabled="!isDesignMode || hydratingRef"
+          @wheel.stop
+        />
+        <button
+          v-if="hasUpstream"
+          type="button"
+          class="absolute top-1 right-1 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
+          :class="contentPickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+          title="Insert reference from upstream node"
+          @click.prevent.stop="toggleContentPicker"
+        >
+          {x}
+        </button>
+        <ExpressionPicker
+          v-if="hasUpstream"
+          :open="contentPickerOpen"
+          :node-id="props.nodeId"
+          :anchor="contentTextareaEl"
+          @select="onPickExpression"
+          @close="contentPickerOpen = false"
+        />
       </div>
-      <textarea
-        v-model="contentText"
-        rows="4"
-        class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full h-[92px] resize-none whitespace-pre-wrap break-words"
-        :placeholder="contentPlaceholder"
-        :disabled="!isDesignMode || hydratingRef"
-      />
-      <p class="text-[10px] text-faint-foreground">
-        {{ contentHelpText }}
-      </p>
     </label>
 
     <label
@@ -75,46 +73,6 @@
       </p>
     </label>
 
-    <details class="mt-1" v-if="isDesignMode">
-      <summary class="cursor-pointer text-[11px] text-subtle-foreground">
-        Advanced (promote to attribute)
-      </summary>
-      <div class="mt-2 space-y-2">
-        <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-          Output Attribute
-          <input
-            v-model="outputAttr"
-            type="text"
-            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            :placeholder="`Defaults to ${defaultAttributeHint}`"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-          Output From
-          <input
-            v-model="outputFrom"
-            type="text"
-            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            placeholder="payload | json.<path> | delta.<key> | inputs.<key>"
-          />
-        </label>
-        <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-          Output Value
-          <input
-            v-model="outputValue"
-            type="text"
-            class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            placeholder="Literal override"
-          />
-        </label>
-        <p class="text-[10px] text-faint-foreground">
-          When left blank the value is published as
-          <code>{{ defaultAttributeHint }}</code
-          >.
-        </p>
-      </div>
-    </details>
-
     <div class="pt-1 flex items-center justify-end gap-2">
       <button
         class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
@@ -128,11 +86,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, watch, type Ref } from "vue";
+import { computed, inject, provide, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
+import type { Edge } from "@vue-flow/core";
 import type { StepNodeData } from "@/types/flow";
 import type { FlowEditorStep } from "@/types/flowEditor";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import ExpressionPicker from "@/components/flow/ExpressionPicker.vue";
 
 const TOOL_NAME_FALLBACK = "utility_textbox";
 const AGENT_RESPONSE_TOOL = "agent_response";
@@ -145,31 +105,29 @@ const modeRef = inject<Ref<"design" | "run">>(
   ref<"design" | "run">("design"),
 );
 const hydratingRef = inject<Ref<boolean>>("flowEditorHydrating", ref(false));
+const edgesRef = inject<Ref<Edge[]>>("flowEditorEdges", ref([]));
+
+provide("flowEditorNodeId", props.nodeId);
 
 const isDesignMode = computed(() => modeRef.value === "design");
 const labelText = ref("");
 const contentText = ref("");
-const contentMode = ref<"literal" | "binding">("literal");
+const contentTextareaEl = ref<HTMLTextAreaElement | null>(null);
+const contentPickerOpen = ref(false);
 const renderMode = ref<RenderMode>("markdown");
-const outputAttr = ref("");
-const outputFrom = ref("");
-const outputValue = ref("");
 const isDirty = ref(false);
-const bindingExample = "={{$run.input.query}}";
-const contentPlaceholder = computed(() =>
-  contentMode.value === "binding" ? bindingExample : "Enter static text",
+
+const hasUpstream = computed(() =>
+  edgesRef.value.some((e) => e.target === props.nodeId),
 );
-const contentHelpText = computed(() =>
-  contentMode.value === "binding"
-    ? `Binding mode stores a Flow expression such as ${bindingExample}.`
-    : "Literal mode stores plain text exactly as written.",
+const isExpressionContent = computed(() =>
+  looksLikeExpression(contentText.value),
 );
 
 const toolName = computed(
   () => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBACK,
 );
 const isAgentResponse = computed(() => toolName.value === AGENT_RESPONSE_TOOL);
-const defaultAttributeHint = computed(() => `${props.nodeId}_text`);
 
 function parseRenderMode(value: unknown): RenderMode {
   const mode = typeof value === "string" ? (value as RenderMode) : "markdown";
@@ -191,16 +149,7 @@ watch(
     const args = (step?.tool?.args ?? {}) as Record<string, unknown>;
     labelText.value = String(args.label ?? step?.text ?? "");
     contentText.value = String(args.text ?? "");
-    contentMode.value = looksLikeExpression(args.text) ? "binding" : "literal";
     renderMode.value = parseRenderMode(args.render_mode);
-    outputAttr.value =
-      typeof args.output_attr === "string" ? (args.output_attr as string) : "";
-    outputFrom.value =
-      typeof args.output_from === "string" ? (args.output_from as string) : "";
-    outputValue.value =
-      typeof args.output_value === "string"
-        ? (args.output_value as string)
-        : "";
     isDirty.value = false;
     suppress = false;
   },
@@ -208,7 +157,7 @@ watch(
 );
 
 watch(
-  [labelText, contentText, outputAttr, outputFrom, outputValue, renderMode],
+  [labelText, contentText, renderMode],
   () => {
     if (suppress || hydratingRef.value || !isDesignMode.value) return;
     isDirty.value = true;
@@ -234,27 +183,24 @@ function applyChanges() {
   isDirty.value = false;
 }
 
+function toggleContentPicker() {
+  contentPickerOpen.value = !contentPickerOpen.value;
+}
+
+function onPickExpression(expression: string) {
+  const current = contentText.value;
+  contentText.value = current ? `${current}\n${expression}` : expression;
+  isDirty.value = true;
+}
+
 function buildArgs(): Record<string, unknown> {
   const args: Record<string, unknown> = {};
   const label = labelText.value.trim();
   const text = contentText.value;
-  const attr = outputAttr.value.trim();
-  const from = outputFrom.value.trim();
-  const val = outputValue.value.trim();
   if (label) args.label = label;
   if (text) args.text = text;
   if (isAgentResponse.value) args.render_mode = renderMode.value;
-  if (attr) args.output_attr = attr;
-  if (from) args.output_from = from;
-  if (val) args.output_value = val;
   return args;
-}
-
-function setContentMode(mode: "literal" | "binding") {
-  if (!isDesignMode.value || hydratingRef.value) return;
-  if (contentMode.value === mode) return;
-  contentMode.value = mode;
-  isDirty.value = true;
 }
 
 function prettifyName(name: string): string {

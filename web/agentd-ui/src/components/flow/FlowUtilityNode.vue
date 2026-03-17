@@ -10,7 +10,6 @@
     :min-width-px="nodeMinWidthPx"
     :min-height-px="nodeMinHeightPx"
     :show-resizer="isDesignMode"
-    :show-back="showBack"
     :root-class="rootClass"
     :selected="props.selected"
     @resize-end="onResizeEnd"
@@ -49,14 +48,6 @@
             class="text-[10px] uppercase tracking-wide text-faint-foreground"
             >Utility</span
           >
-          <button
-            class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
-            title="Advanced (promote to attribute)"
-            aria-label="Advanced (promote to attribute)"
-            @click.prevent.stop="toggleBack(true)"
-          >
-            <GearIcon class="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
       <!-- Node ID chip row (below header, always visible) -->
@@ -296,93 +287,6 @@
         </div>
       </div>
     </template>
-
-    <template #back>
-      <div class="flex items-start justify-between gap-2">
-        <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
-          >Advanced • Promote to attribute (optional)</span
-        >
-        <button
-          class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
-          title="Back"
-          aria-label="Back"
-          @click.prevent.stop="toggleBack(false)"
-        >
-          <GearIcon class="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
-        <div class="space-y-2">
-          <p class="text-[10px] text-faint-foreground">
-            Prefer referencing prior step data with
-            <code>{{ outputReferenceExample }}</code
-            >. Promote to an attribute when you want a short, stable name
-            (useful for guards and reuse).
-          </p>
-          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Output Attribute
-            <input
-              v-model="outputAttr"
-              type="text"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              :placeholder="`Defaults to ${defaultAttributeHint}`"
-              :disabled="!isDesignMode"
-              @input="markDirty"
-            />
-          </label>
-          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Output From
-            <input
-              v-model="outputFrom"
-              type="text"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              placeholder="payload | json.<path> | delta.<key> | inputs.<key>"
-              :disabled="!isDesignMode"
-              @input="markDirty"
-            />
-          </label>
-          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Output Value
-            <input
-              v-model="outputValue"
-              type="text"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              placeholder="Literal override"
-              :disabled="!isDesignMode"
-              @input="markDirty"
-            />
-          </label>
-          <p class="text-[10px] text-faint-foreground">
-            <template v-if="isDesignMode">
-              When left blank the value is published as
-              <code>{{ defaultAttributeHint }}</code
-              >.
-            </template>
-            <template v-else>
-              Value published as <code>{{ runtimeOutputAttr }}</code
-              >.
-            </template>
-          </p>
-          <div
-            v-if="isDesignMode"
-            class="pt-1 flex items-center justify-end gap-2"
-          >
-            <span
-              v-if="isDirty"
-              class="text-[10px] italic text-warning-foreground"
-              >Unsaved</span
-            >
-            <button
-              class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-              :disabled="!isDirty"
-              @click="applyChanges"
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      </div>
-    </template>
   </FlowBaseNode>
 </template>
 
@@ -403,7 +307,6 @@ import FlowBaseNode from "./FlowBaseNode.vue";
 import type { StepNodeData } from "@/types/flow";
 import type { FlowEditorStep, FlowEditorStepTrace } from "@/types/flowEditor";
 import type { Ref } from "vue";
-import GearIcon from "@/components/icons/Gear.vue";
 import {
   FLOW_UTILITY_NODE_DIMENSIONS,
   FLOW_UTILITY_NODE_COLLAPSED,
@@ -486,10 +389,6 @@ function parseRenderMode(value: unknown): RenderMode {
 const labelText = ref("");
 const contentText = ref("");
 const renderMode = ref<RenderMode>("markdown");
-const outputAttr = ref("");
-const outputFrom = ref("");
-const outputValue = ref("");
-const showBack = ref(false);
 const rootClass = computed(() => [
   collapsed.value
     ? "min-w-[220px] min-h-[72px]"
@@ -507,7 +406,6 @@ const toolName = computed(
   () => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBACK,
 );
 const isAgentResponse = computed(() => toolName.value === AGENT_RESPONSE_TOOL);
-const defaultAttributeHint = computed(() => `${props.id}_text`);
 const headerLabel = computed(
   () => labelText.value.trim() || prettifyName(toolName.value),
 );
@@ -545,16 +443,6 @@ const renderedContent = computed(() => {
       return text;
   }
 });
-const runtimeOutputAttr = computed(() => {
-  const trace = runtimeTrace.value;
-  if (
-    trace?.renderedArgs &&
-    typeof trace.renderedArgs.output_attr === "string"
-  ) {
-    return trace.renderedArgs.output_attr;
-  }
-  return defaultAttributeHint.value;
-});
 const runtimeStatus = computed(() => {
   if (runtimeTrace.value?.status) return runtimeTrace.value.status;
   if (modeRef.value === "run" && runningRef.value && !runtimeTrace.value)
@@ -588,14 +476,6 @@ watch(
     labelText.value = String(args.label ?? step?.text ?? "");
     contentText.value = String(args.text ?? "");
     renderMode.value = parseRenderMode(args.render_mode);
-    outputAttr.value =
-      typeof args.output_attr === "string" ? (args.output_attr as string) : "";
-    outputFrom.value =
-      typeof args.output_from === "string" ? (args.output_from as string) : "";
-    outputValue.value =
-      typeof args.output_value === "string"
-        ? (args.output_value as string)
-        : "";
     isDirty.value = false;
     suppressCommit = false;
   },
@@ -603,7 +483,7 @@ watch(
 );
 
 watch(
-  [labelText, contentText, outputAttr, outputFrom, outputValue, renderMode],
+  [labelText, contentText, renderMode],
   () => {
     if (suppressCommit || hydratingRef.value || !isDesignMode.value) return;
     isDirty.value = true;
@@ -644,15 +524,9 @@ function buildArgs(): Record<string, unknown> {
   const args: Record<string, unknown> = {};
   const label = labelText.value.trim();
   const text = contentText.value;
-  const attr = outputAttr.value.trim();
-  const from = outputFrom.value.trim();
-  const val = outputValue.value.trim();
   if (label) args.label = label;
   if (text) args.text = text;
   if (isAgentResponse.value) args.render_mode = renderMode.value;
-  if (attr) args.output_attr = attr;
-  if (from) args.output_from = from;
-  if (val) args.output_value = val;
   return args;
 }
 
@@ -677,10 +551,6 @@ function prettifyName(name: string): string {
 function viewRuntimeDetails() {
   if (!runtimeTrace.value) return;
   openResultModal(props.id, headerLabel.value);
-}
-
-function toggleBack(v?: boolean) {
-  showBack.value = typeof v === "boolean" ? v : !showBack.value;
 }
 
 // Remember last expanded size per node so we can restore on expand

@@ -1,6 +1,6 @@
 <template>
   <div
-    class="relative w-full flip-root text-xs text-muted-foreground overflow-visible"
+    class="relative w-full text-xs text-muted-foreground overflow-visible"
     :class="rootClasses"
     :style="rootStyle"
   >
@@ -13,8 +13,7 @@
       @resize-end="onResizeEnd"
     />
 
-    <!-- Flip card wrapper with handles anchored for connector alignment -->
-    <div class="relative h-full w-full" :class="flipCardClasses">
+    <div class="relative h-full w-full">
       <!-- Handles anchored to flip-card for proper centering in all states -->
       <Handle
         type="target"
@@ -47,21 +46,11 @@
         }"
       />
 
-      <!-- Front face -->
       <div
-        class="flip-face flip-front flex flex-col overflow-hidden rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
+        class="node-face h-full w-full flex flex-col overflow-hidden rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
       >
         <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           <slot name="front" />
-        </div>
-      </div>
-
-      <!-- Back face -->
-      <div
-        class="flip-face flip-back flex flex-col overflow-hidden rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
-      >
-        <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-          <slot name="back" />
         </div>
       </div>
     </div>
@@ -83,9 +72,7 @@ const props = defineProps<{
   minWidthPx?: string;
   minHeightPx?: string;
   showResizer?: boolean;
-  showBack?: boolean;
   rootClass?: string | string[] | Record<string, boolean>;
-  flipCardClass?: string | string[] | Record<string, boolean>;
   selected?: boolean;
 }>();
 
@@ -115,55 +102,13 @@ const rootClasses = computed(() => [
   { "is-selected": Boolean(props.selected) },
 ]);
 
-const flipCardClasses = computed(() => [
-  "flip-card",
-  { "is-flipped": Boolean(props.showBack) },
-  props.flipCardClass,
-]);
-
 function onResizeEnd(data: OnResizeEnd) {
   emit("resize-end", data);
 }
 </script>
 
 <style scoped>
-.flip-root {
-  perspective: 800px;
-}
-.flip-card {
-  display: grid;
-  transform-style: preserve-3d;
-  transition: transform 200ms ease;
-}
-.flip-face {
-  grid-area: 1 / 1;
-  backface-visibility: hidden;
-  transform-origin: center;
-  transform-style: preserve-3d;
-  transition:
-    transform 200ms ease,
-    opacity 200ms ease;
-}
-.flip-front {
-  transform: rotateX(0deg);
-  opacity: 1;
-}
-.flip-back {
-  transform: rotateX(180deg);
-  opacity: 0;
-  pointer-events: none;
-}
-.flip-card.is-flipped .flip-front {
-  transform: rotateX(180deg);
-  opacity: 0;
-  pointer-events: none;
-}
-.flip-card.is-flipped .flip-back {
-  transform: rotateX(0deg);
-  opacity: 1;
-  pointer-events: auto;
-}
-.is-selected .flip-face {
+.is-selected .node-face {
   border-color: var(--color-accent, #38bdf8);
 }
 </style>

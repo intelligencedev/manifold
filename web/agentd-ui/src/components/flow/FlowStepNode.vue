@@ -6,7 +6,6 @@
     :min-width-px="nodeMinWidthPx"
     :min-height-px="nodeMinHeightPx"
     :show-resizer="isDesignMode"
-    :show-back="showBack"
     :root-class="rootClass"
     :selected="props.selected"
     @resize-end="onResizeEnd"
@@ -46,14 +45,6 @@
             class="text-[10px] uppercase tracking-wide text-faint-foreground"
             >#{{ orderLabel }}</span
           >
-          <button
-            class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
-            title="Advanced (promote to attribute)"
-            aria-label="Advanced (promote to attribute)"
-            @click.prevent.stop="toggleBack(true)"
-          >
-            <GearIcon class="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
       <!-- Step ID chip row (below header, always visible) -->
@@ -238,86 +229,6 @@
         </div>
       </div>
     </template>
-
-    <template #back>
-      <!-- Back header -->
-      <div class="flex items-start justify-between gap-2">
-        <span class="text-[10px] uppercase tracking-wide text-faint-foreground"
-          >Advanced • Promote to attribute (optional)</span
-        >
-        <button
-          class="inline-flex h-5 w-5 items-center justify-center rounded hover:bg-muted/60 text-foreground/80"
-          title="Back"
-          aria-label="Back"
-          @click.prevent.stop="toggleBack(false)"
-        >
-          <GearIcon class="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <!-- Back content -->
-      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
-        <div class="space-y-2">
-          <p class="text-[10px] text-faint-foreground">
-            Prefer referencing prior step data with
-            <code>{{ outputReferenceExample }}</code
-            >. Promote to an attribute when you want a short, stable name
-            (useful for guards and reuse).
-          </p>
-          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Output Attribute
-            <input
-              v-model="outputAttr"
-              type="text"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              placeholder="e.g. result"
-              :disabled="!isDesignMode"
-              @input="markDirty"
-            />
-          </label>
-          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Output From
-            <input
-              v-model="outputFrom"
-              type="text"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              placeholder="payload | json.<path> | delta.<key> | inputs.<key>"
-              :disabled="!isDesignMode"
-              @input="markDirty"
-            />
-          </label>
-          <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-            Output Value
-            <input
-              v-model="outputValue"
-              type="text"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              placeholder="Literal override"
-              :disabled="!isDesignMode"
-              @input="markDirty"
-            />
-          </label>
-
-          <div
-            v-show="isDesignMode"
-            class="pt-1 flex items-center justify-end gap-2"
-          >
-            <span
-              v-if="isDirty"
-              class="text-[10px] italic text-warning-foreground"
-              >Unsaved</span
-            >
-            <button
-              class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-              :disabled="!isDirty"
-              @click="applyChanges"
-            >
-              Apply
-            </button>
-          </div>
-        </div>
-      </div>
-    </template>
   </FlowBaseNode>
 </template>
 
@@ -339,7 +250,6 @@ import ParameterFormField from "@/components/flow/ParameterFormField.vue";
 import type { StepNodeData } from "@/types/flow";
 import type { FlowEditorTool, FlowEditorStepTrace } from "@/types/flowEditor";
 import type { Ref } from "vue";
-import GearIcon from "@/components/icons/Gear.vue";
 import {
   FLOW_STEP_NODE_DIMENSIONS,
   FLOW_STEP_NODE_COLLAPSED,
@@ -405,14 +315,7 @@ const rootClass = computed(() => [
     : "min-w-[320px] min-h-[260px] h-full",
   "transition-colors duration-150 ease-out",
 ]);
-const showBack = ref(false);
-const outputAttr = ref("");
-const outputFrom = ref("");
-const outputValue = ref("");
 const copied = ref(false);
-const outputReferenceExample = computed(
-  () => `={{$node.${props.id}.output...}}`,
-);
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1);
 const isDesignMode = computed(() => modeRef.value === "design");
@@ -426,9 +329,7 @@ const runtimeArgs = computed(() => {
   if (!trace?.renderedArgs) {
     return [] as Array<[string, unknown]>;
   }
-  return Object.entries(trace.renderedArgs as Record<string, unknown>).filter(
-    ([key]) => !OUTPUT_KEYS.has(key),
-  );
+  return Object.entries(trace.renderedArgs as Record<string, unknown>);
 });
 const runtimeError = computed(() => runtimeTrace.value?.error);
 const runtimeStatus = computed(() => {
@@ -457,28 +358,18 @@ const currentTool = computed(
   () => toolOptions.value.find((tool) => tool.name === toolName.value) ?? null,
 );
 const parameterSchema = computed(() => currentTool.value?.parameters ?? null);
-const OUTPUT_KEYS = new Set(["output_attr", "output_from", "output_value"]);
 
 const parameterSchemaFiltered = computed(() => {
   const schema = parameterSchema.value as any;
   if (!schema || typeof schema !== "object") return schema;
-  const cloned: any = { ...schema };
-  if (schema.properties && typeof schema.properties === "object") {
-    cloned.properties = { ...schema.properties };
-    for (const k of Object.keys(cloned.properties)) {
-      if (OUTPUT_KEYS.has(k)) delete cloned.properties[k];
-    }
-    if (Object.keys(cloned.properties).length === 0) {
-      // No visible fields left; hide the parameters form entirely.
-      return null;
-    }
+  if (
+    schema.properties &&
+    typeof schema.properties === "object" &&
+    Object.keys(schema.properties).length === 0
+  ) {
+    return null;
   }
-  if (Array.isArray(schema.required)) {
-    cloned.required = schema.required.filter(
-      (k: string) => !OUTPUT_KEYS.has(k),
-    );
-  }
-  return cloned;
+  return schema;
 });
 
 const showParamsSection = computed(() => {
@@ -508,36 +399,13 @@ watch(
     publishResult.value = Boolean(nextStep?.publish_result);
     toolName.value = nextStep?.tool?.name ?? "";
     argsState.value = cloneArgs(nextStep?.tool?.args);
-    // Strip output config keys from the front-side args editor state
-    if (argsState.value && typeof argsState.value === "object") {
-      for (const k of OUTPUT_KEYS) {
-        if (k in (argsState.value as Record<string, unknown>)) {
-          delete (argsState.value as Record<string, unknown>)[k];
-        }
-      }
-    }
-    const a = (nextStep?.tool?.args ?? {}) as Record<string, unknown>;
-    outputAttr.value =
-      typeof a.output_attr === "string" ? (a.output_attr as string) : "";
-    outputFrom.value =
-      typeof a.output_from === "string" ? (a.output_from as string) : "";
-    outputValue.value =
-      typeof a.output_value === "string" ? (a.output_value as string) : "";
     suppressCommit = false;
   },
   { immediate: true, deep: true },
 );
 
 watch(
-  [
-    stepText,
-    guardText,
-    publishResult,
-    toolName,
-    outputAttr,
-    outputFrom,
-    outputValue,
-  ],
+  [stepText, guardText, publishResult, toolName],
   () => markDirty(),
 );
 watch(argsState, () => markDirty(), { deep: true });
@@ -559,17 +427,6 @@ function commit() {
     return;
   }
   const toolPayload = buildToolPayload(toolName.value, argsState.value);
-  // Merge output config into args
-  if (toolPayload) {
-    const merged: Record<string, unknown> = { ...(toolPayload.args ?? {}) };
-    const oa = outputAttr.value.trim();
-    const of = outputFrom.value.trim();
-    const ov = outputValue.value.trim();
-    if (oa) merged.output_attr = oa;
-    if (of) merged.output_from = of;
-    if (ov) merged.output_value = ov;
-    if (Object.keys(merged).length) toolPayload.args = merged;
-  }
   const nextStep = {
     ...(props.data?.step ?? {}),
     id: props.id,
@@ -606,10 +463,6 @@ function applyChanges() {
 
 function toggleCollapsed() {
   applyCollapsedStyle(!collapsed.value);
-}
-
-function toggleBack(v?: boolean) {
-  showBack.value = typeof v === "boolean" ? v : !showBack.value;
 }
 
 function onResizeEnd(event: OnResizeEnd) {

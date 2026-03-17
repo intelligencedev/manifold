@@ -13,6 +13,13 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+func workflowLikeTimeout(workflowSeconds, fallbackSeconds int) int {
+	if workflowSeconds > 0 {
+		return workflowSeconds
+	}
+	return fallbackSeconds
+}
+
 type chatTargetDispatchOptions struct {
 	Prompt               string
 	SessionID            string
@@ -64,6 +71,7 @@ func (a *app) describeChatTarget(target chatDispatchTarget, systemPromptOverride
 	}
 
 	if target.TeamName != "" {
+		teamTimeout := workflowLikeTimeout(a.cfg.WorkflowTimeoutSeconds, a.cfg.AgentRunTimeoutSeconds)
 		return chatTargetDescriptor{
 			Build: func(ctx context.Context) chatEngineBuildResult {
 				return a.buildTeamChatEngine(ctx, target.TeamName, owner)
@@ -77,10 +85,12 @@ func (a *app) describeChatTarget(target chatDispatchTarget, systemPromptOverride
 				EmitSummaryEvents:  true,
 				StructuredErrors:   true,
 				InheritImagePrompt: true,
+				TimeoutSeconds:     teamTimeout,
 			},
 			JSON: chatJSONOptions{
 				Endpoint:           "/agent/run",
 				InheritImagePrompt: true,
+				TimeoutSeconds:     teamTimeout,
 			},
 		}, true
 	}

@@ -177,12 +177,16 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 
 	// Team delegation is a long-running operation. Unlike other tools, we detach
 	// from the parent context's deadline to allow the team to work without timeout.
-	// The team's internal agent runs have their own timeout management.
-	// Only apply a timeout if explicitly requested via timeout_ms argument.
+	// The team's internal agent runs have their own timeout management. Only apply
+	// a timeout when explicitly requested or when a tool default timeout is set.
 	runCtx := context.WithoutCancel(ctx)
 	if args.TimeoutMS > 0 {
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithTimeout(runCtx, time.Duration(args.TimeoutMS)*time.Millisecond)
+		defer cancel()
+	} else if t.defaultTimeout > 0 {
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(runCtx, t.defaultTimeout)
 		defer cancel()
 	}
 
@@ -198,17 +202,23 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 		req.Header.Set("Cookie", cookie)
 	}
 
-	client := t.httpClient
+	c := *t.httpClient
+	client := &c
 	if args.TimeoutMS > 0 {
-		c := *t.httpClient
-		c.Timeout = time.Duration(args.TimeoutMS) * time.Millisecond
-		client = &c
+		client.Timeout = time.Duration(args.TimeoutMS) * time.Millisecond
+	} else if t.defaultTimeout > 0 {
+		client.Timeout = t.defaultTimeout
+	} else {
+		// Team delegation is intentionally long-running. Clear any inherited
+		// client timeout so the shared HTTP client cannot silently bound the call.
+		client.Timeout = 0
 	}
-	// No default timeout for team delegation - teams are long-running workflows
+	// Observability: include whether the parent context arrived with a deadline.
 	{
 		log := observability.LoggerWithTrace(ctx)
 		eff := int(client.Timeout / time.Millisecond)
-		log.Debug().Int("args_timeout_ms", args.TimeoutMS).Int("effective_timeout_ms", eff).Str("endpoint", u.String()).Msg("delegate_to_team_call")
+		_, has := ctx.Deadline()
+		log.Debug().Int("args_timeout_ms", args.TimeoutMS).Int("effective_timeout_ms", eff).Bool("parent_has_deadline", has).Str("endpoint", u.String()).Msg("delegate_to_team_call")
 	}
 
 	resp, err := client.Do(req)

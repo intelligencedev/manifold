@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
+	"time"
 
 	"manifold/internal/sandbox"
 )
@@ -137,5 +139,67 @@ func TestDelegateToTeam_NoCookieWhenNotInContext(t *testing.T) {
 
 	if gotCookie != "" {
 		t.Fatalf("expected no Cookie header, got %q", gotCookie)
+	}
+}
+
+func TestDelegateToTeam_ClearsInheritedClientTimeoutWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":"ok"}`))
+	}))
+	defer srv.Close()
+
+	baseClient := srv.Client()
+	baseClient.Timeout = 10 * time.Millisecond
+
+	tool := NewDelegateToTeamTool(baseClient, srv.URL, 0)
+	raw, _ := json.Marshal(map[string]any{
+		"team":   "epsilon",
+		"prompt": "long running",
+	})
+
+	out, err := tool.Call(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("call err: %v", err)
+	}
+	resp, ok := out.(map[string]any)
+	if !ok || resp["ok"] != true {
+		t.Fatalf("unexpected response: %#v", out)
+	}
+}
+
+func TestDelegateToTeam_DefaultTimeoutIsApplied(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(1200 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":"late"}`))
+	}))
+	defer srv.Close()
+
+	tool := NewDelegateToTeamTool(srv.Client(), srv.URL, 1)
+	raw, _ := json.Marshal(map[string]any{
+		"team":   "zeta",
+		"prompt": "bounded",
+	})
+
+	out, err := tool.Call(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("call err: %v", err)
+	}
+	resp, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected response shape: %#v", out)
+	}
+	if resp["ok"] != false {
+		t.Fatalf("expected timeout payload, got %#v", out)
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "Client.Timeout exceeded") && !strings.Contains(errMsg, "context deadline exceeded") {
+		t.Fatalf("expected timeout error, got %q", errMsg)
 	}
 }

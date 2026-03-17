@@ -97,7 +97,7 @@ func TestDescribeChatTargetPrefersSpecialistOverTeam(t *testing.T) {
 func TestDescribeChatTargetSkipsOrchestratorSpecialistForTeam(t *testing.T) {
 	t.Parallel()
 
-	a := &app{}
+	a := &app{cfg: &config.Config{WorkflowTimeoutSeconds: 90, AgentRunTimeoutSeconds: 30}}
 	descriptor, ok := a.describeChatTarget(chatDispatchTarget{SpecialistName: specialists.OrchestratorName, TeamName: "ops"}, "", 7)
 	if !ok {
 		t.Fatal("expected team target descriptor")
@@ -107,6 +107,12 @@ func TestDescribeChatTargetSkipsOrchestratorSpecialistForTeam(t *testing.T) {
 	}
 	if descriptor.JSON.IncludeMatrixMessages {
 		t.Fatal("expected team JSON matrix messages to remain disabled")
+	}
+	if descriptor.JSON.TimeoutSeconds != 90 {
+		t.Fatalf("expected workflow timeout for team JSON, got %d", descriptor.JSON.TimeoutSeconds)
+	}
+	if descriptor.Stream.TimeoutSeconds != 90 {
+		t.Fatalf("expected workflow timeout for team stream, got %d", descriptor.Stream.TimeoutSeconds)
 	}
 }
 

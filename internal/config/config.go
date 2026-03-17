@@ -185,12 +185,12 @@ type AnthropicConfig struct {
 type AnthropicPromptCacheConfig struct {
 	// Enabled turns on prompt caching directives in outgoing requests.
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// CacheSystem applies cache_control to system prompt blocks.
+	// CacheSystem applies cache_control to the final system prompt block.
 	CacheSystem bool `yaml:"cacheSystem" json:"cacheSystem"`
-	// CacheTools applies cache_control to tool definitions (schema).
+	// CacheTools applies cache_control to the final tool definition.
 	CacheTools bool `yaml:"cacheTools" json:"cacheTools"`
-	// CacheMessages applies cache_control to message text blocks.
-	// This is usually only useful when sending large, static context content.
+	// CacheMessages applies cache_control to the latest eligible message text block.
+	// This is usually only useful when sending large, stable context content.
 	CacheMessages bool `yaml:"cacheMessages" json:"cacheMessages"`
 }
 

@@ -26,6 +26,7 @@ type chatStreamOptions struct {
 	EmitSummaryEvents     bool
 	StructuredErrors      bool
 	InheritImagePrompt    bool
+	TimeoutSeconds        int
 	StoreModel            string
 	InitialSummary        *agentmemory.SummaryResult
 	Tracer                *agentStreamTracer
@@ -35,6 +36,7 @@ type chatJSONOptions struct {
 	Endpoint              string
 	IncludeMatrixMessages bool
 	InheritImagePrompt    bool
+	TimeoutSeconds        int
 	StoreModel            string
 }
 
@@ -269,9 +271,12 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 		})
 	}
 
-	seconds := a.cfg.StreamRunTimeoutSeconds
+	seconds := opts.TimeoutSeconds
 	if seconds <= 0 {
-		seconds = a.cfg.AgentRunTimeoutSeconds
+		seconds = a.cfg.StreamRunTimeoutSeconds
+		if seconds <= 0 {
+			seconds = a.cfg.AgentRunTimeoutSeconds
+		}
 	}
 	ctx, cancel, dur := withMaybeTimeout(runCtx, seconds)
 	defer cancel()
@@ -325,7 +330,11 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 }
 
 func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) {
-	ctx, cancel, dur := withMaybeTimeout(runCtx, a.cfg.AgentRunTimeoutSeconds)
+	seconds := opts.TimeoutSeconds
+	if seconds <= 0 {
+		seconds = a.cfg.AgentRunTimeoutSeconds
+	}
+	ctx, cancel, dur := withMaybeTimeout(runCtx, seconds)
 	defer cancel()
 	ctx = applyChatImagePrompt(ctx, runCtx, req, opts.InheritImagePrompt)
 	logChatRunTimeout(opts.Endpoint, false, dur)

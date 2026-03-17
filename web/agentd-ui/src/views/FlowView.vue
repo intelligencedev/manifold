@@ -1,269 +1,131 @@
 <template>
-  <div class="flex h-full min-h-0 flex-col space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
-      <label class="text-sm text-muted-foreground">
-        Workflow
+  <div class="flex h-full min-h-0 flex-col gap-2">
+    <section class="rounded-xl border border-border/60 bg-surface/90 px-3 py-2 shadow-[0_14px_34px_-26px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Workflow selector -->
         <DropdownSelect
           v-model="selectedIntent"
           size="sm"
-          class="ml-2 text-sm"
+          class="min-w-[11rem] max-w-[16rem] shrink-0 text-sm"
           :options="[
             { id: '', label: 'Select workflow', value: '', disabled: true },
-            ...workflowList.map((wf) => ({
-              id: wf.intent,
-              label: wf.intent,
-              value: wf.intent,
-            })),
+            ...workflowList.map((wf) => ({ id: wf.intent, label: wf.intent, value: wf.intent })),
           ]"
+          aria-label="Workflow"
+          title="Select workflow"
         />
-      </label>
 
-      <label class="text-sm text-muted-foreground">
-        Project
+        <!-- Project selector -->
         <DropdownSelect
           v-model="selectedWorkflowProjectId"
           size="sm"
-          class="ml-2 text-sm"
+          class="min-w-[9rem] max-w-[13rem] shrink-0 text-sm"
           :options="projectOptions"
-          title="Optional project assignment for this workflow"
           aria-label="Project"
+          title="Optional project assignment"
         />
-      </label>
 
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
-        title="Create new workflow"
-        aria-label="New workflow"
-        @click="onNew"
-      >
-        New
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-accent text-accent-foreground hover:bg-accent/90 plain-link"
-        :disabled="!canSave"
-        title="Save workflow"
-        aria-label="Save workflow"
-        @click="onSave"
-      >
-        Save
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-danger text-danger-foreground hover:bg-danger/90 plain-link"
-        :disabled="!canDelete"
-        title="Delete workflow"
-        aria-label="Delete workflow"
-        @click="onDelete"
-      >
-        Delete
-      </button>
-
-      <!-- Import button placed to the left of Export -->
-      <input
-        ref="importInput"
-        type="file"
-        accept="application/json,.json"
-        class="hidden"
-        @change="onImportSelected"
-      />
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
-        title="Import workflow from JSON"
-        aria-label="Import workflow"
-        @click="triggerImport"
-      >
-        Import
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
-        :disabled="!canExport"
-        title="Export workflow as JSON"
-        aria-label="Export workflow"
-        @click="exportWorkflow"
-      >
-        Export
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-primary text-primary-foreground hover:bg-primary/90 plain-link"
-        :disabled="!canRun"
-        title="Run workflow"
-        aria-label="Run workflow"
-        @click="onRun"
-      >
-        <span v-if="!running">Run</span>
-        <span v-else class="inline-flex items-center gap-1">
-          <svg
-            class="h-3 w-3 animate-spin"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <circle class="opacity-25" cx="12" cy="12" r="10" />
-            <path class="opacity-75" d="M4 12a8 8 0 018-8" />
-          </svg>
-          Running…
-        </span>
-      </button>
-      <button
-        v-if="running"
-        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80 plain-link"
-        @click="onCancelRun"
-      >
-        Cancel
-      </button>
-      <div class="flex flex-wrap items-center gap-3 ml-auto">
-        <span v-if="loading" class="text-sm text-subtle-foreground"
-          >Loading…</span
-        >
-        <span v-else-if="error" class="text-sm text-danger-foreground">{{
-          error
-        }}</span>
-        <span v-else class="text-sm text-faint-foreground"
-          >Tools: {{ tools.length }}</span
-        >
-        <span
-          v-if="runOutput"
-          class="text-xs italic text-subtle-foreground truncate max-w-[320px]"
-          :title="runOutput"
-        >
-          Result: {{ runOutput }}
-        </span>
-        <span
-          v-if="runTimerLabel"
-          class="text-sm font-semibold text-warning whitespace-nowrap"
-          :title="
-            running ? 'Workflow runtime' : 'Duration of the most recent run'
-          "
-        >
-          {{ runTimerLabel }}
-        </span>
-        <div class="flex items-center gap-1">
-          <span
-            class="text-[10px] uppercase tracking-wide text-faint-foreground"
-            >Mode</span
-          >
-          <div
-            class="inline-flex overflow-hidden rounded border border-border/60 text-xs"
-          >
-            <button
-              type="button"
-              class="px-2 py-1 transition"
-              :class="
-                editorMode === 'design'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-subtle-foreground hover:text-foreground'
-              "
-              @click="setEditorMode('design')"
-            >
-              Design
-            </button>
-            <button
-              type="button"
-              class="border-l border-border/60 px-2 py-1 transition disabled:opacity-40"
-              :class="
-                editorMode === 'run'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-subtle-foreground hover:text-foreground'
-              "
-              :disabled="!hasRunTrace && !running"
-              @click="setEditorMode('run')"
-            >
-              Run
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Workflow metadata summary -->
-    <div v-if="activeWorkflow" class="text-xs text-subtle-foreground -mt-2">
-      <span v-if="activeWorkflow?.description"
-        >Description: {{ activeWorkflow?.description }}</span
-      >
-      <span v-if="activeWorkflow?.keywords?.length" class="ml-3"
-        >Keywords: {{ activeWorkflow?.keywords?.join(", ") }}</span
-      >
-      <span v-if="activeWorkflowProjectName" class="ml-3"
-        >Project: {{ activeWorkflowProjectName }}</span
-      >
-      <span class="ml-3">Trigger: {{ triggerSummary }}</span>
-    </div>
-
-    <div
-      v-if="activeWorkflow"
-      class="rounded-xl border border-border/60 bg-surface-muted/40 px-4 py-3"
-    >
-      <div class="flex flex-wrap items-start gap-4">
-        <label class="flex min-w-[12rem] flex-col gap-1 text-[11px] text-muted-foreground">
-          Trigger
+        <!-- Trigger selector + help -->
+        <div class="flex shrink-0 items-center gap-1">
           <DropdownSelect
             v-model="selectedTriggerType"
             size="sm"
-            class="text-sm"
+            class="min-w-[7.5rem] text-sm"
             :options="triggerTypeOptions"
+            aria-label="Trigger type"
           />
-        </label>
+          <button
+            type="button"
+            class="toolbar-icon-btn"
+            aria-label="Trigger help"
+            title="Trigger help"
+            @click="openHelpModal"
+          >
+            <HelpIcon class="h-4 w-4" />
+          </button>
+        </div>
 
-        <label
-          v-if="selectedTriggerType === 'schedule'"
-          class="flex min-w-[18rem] flex-1 flex-col gap-1 text-[11px] text-muted-foreground"
+        <div class="h-5 w-px shrink-0 bg-border/50" />
+
+        <!-- Action buttons -->
+        <input
+          ref="importInput"
+          type="file"
+          accept="application/json,.json"
+          class="hidden"
+          @change="onImportSelected"
+        />
+        <button class="toolbar-btn shrink-0" title="Create new workflow" aria-label="New workflow" @click="onNew">New</button>
+        <button class="toolbar-btn toolbar-btn-accent shrink-0" :disabled="!canSave" title="Save workflow" aria-label="Save workflow" @click="onSave">Save</button>
+        <button class="toolbar-btn toolbar-btn-danger shrink-0" :disabled="!canDelete" title="Delete workflow" aria-label="Delete workflow" @click="onDelete">Delete</button>
+        <button class="toolbar-btn shrink-0" title="Import workflow from JSON" aria-label="Import workflow" @click="triggerImport">Import</button>
+        <button class="toolbar-btn shrink-0" :disabled="!canExport" title="Export workflow as JSON" aria-label="Export workflow" @click="exportWorkflow">Export</button>
+        <button class="toolbar-btn toolbar-btn-run shrink-0" :disabled="!canRun" title="Run workflow" aria-label="Run workflow" @click="onRun">
+          <span v-if="!running">Run</span>
+          <span v-else class="inline-flex items-center gap-1">
+            <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle class="opacity-25" cx="12" cy="12" r="10" />
+              <path class="opacity-75" d="M4 12a8 8 0 018-8" />
+            </svg>
+            Running
+          </span>
+        </button>
+
+        <!-- Spacer -->
+        <div class="min-w-0 flex-1" />
+
+        <!-- Status pills -->
+        <span
+          v-if="loading"
+          class="shrink-0 rounded-full border border-border/60 bg-surface-muted/70 px-2.5 py-1 text-[11px] font-medium text-subtle-foreground"
+          >Loading…</span
         >
-          Cron Schedule
-          <input
-            v-model="triggerCron"
-            type="text"
-            class="rounded border border-border/60 bg-surface px-3 py-2 text-sm text-foreground"
-            placeholder="0 * * * *"
-          />
-        </label>
-
-        <template v-else-if="selectedTriggerType === 'webhook'">
-          <label class="flex min-w-[10rem] flex-col gap-1 text-[11px] text-muted-foreground">
-            Method
-            <DropdownSelect
-              v-model="triggerWebhookMethod"
-              size="sm"
-              class="text-sm"
-              :options="triggerMethodOptions"
-            />
-          </label>
-          <label class="flex min-w-[18rem] flex-1 flex-col gap-1 text-[11px] text-muted-foreground">
-            Path
-            <input
-              v-model="triggerWebhookPath"
-              type="text"
-              class="rounded border border-border/60 bg-surface px-3 py-2 text-sm text-foreground"
-              placeholder="/flows/inbound"
-            />
-          </label>
-        </template>
-
-        <label
-          v-else-if="selectedTriggerType === 'event'"
-          class="flex min-w-[18rem] flex-1 flex-col gap-1 text-[11px] text-muted-foreground"
+        <span
+          v-else-if="error"
+          class="shrink-0 rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 text-[11px] font-medium text-danger-foreground"
+          >{{ error }}</span
         >
-          Event Name
-          <input
-            v-model="triggerEventName"
-            type="text"
-            class="rounded border border-border/60 bg-surface px-3 py-2 text-sm text-foreground"
-            placeholder="project.updated"
-          />
-        </label>
+        <span
+          v-else
+          class="shrink-0 rounded-full border border-border/60 bg-surface-muted/70 px-2.5 py-1 text-[11px] font-medium text-faint-foreground"
+          >{{ tools.length }} tools</span
+        >
+        <span
+          v-if="runTimerLabel"
+          class="shrink-0 whitespace-nowrap rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning"
+          :title="running ? 'Workflow runtime' : 'Duration of the most recent run'"
+          >{{ runTimerLabel }}</span
+        >
+        <button v-if="running" class="toolbar-btn toolbar-btn-ghost shrink-0" @click="onCancelRun">Cancel</button>
 
-        <p class="min-w-[14rem] flex-1 text-[11px] text-faint-foreground">
-          Manual workflows run from the editor. Scheduled, webhook, and event triggers are persisted now so the editor authors the canonical Flow v2 trigger model directly.
-        </p>
+        <div class="h-5 w-px shrink-0 bg-border/50" />
+
+        <!-- Mode toggle -->
+        <div class="inline-flex shrink-0 overflow-hidden rounded-lg border border-border/60 bg-surface-muted/50 text-xs shadow-inner">
+          <button
+            type="button"
+            class="px-3 py-1.5 transition"
+            :class="editorMode === 'design' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground hover:text-foreground'"
+            @click="setEditorMode('design')"
+          >
+            Design
+          </button>
+          <button
+            type="button"
+            class="border-l border-border/60 px-3 py-1.5 transition disabled:opacity-40"
+            :class="editorMode === 'run' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground hover:text-foreground'"
+            :disabled="!hasRunTrace && !running"
+            @click="setEditorMode('run')"
+          >
+            Run
+          </button>
+        </div>
       </div>
-    </div>
+    </section>
 
     <div
       v-if="runLogs.length"
-      class="max-h-[3.6rem] overflow-y-auto rounded border border-border/50 bg-surface-muted px-3 py-2 text-xs font-mono leading-relaxed space-y-0.5"
+      class="max-h-[2.4rem] overflow-y-auto rounded-xl border border-border/50 bg-surface-muted/65 px-3 py-1.5 text-[11px] font-mono leading-relaxed space-y-0.5"
     >
       <div
         v-for="(l, i) in runLogs"
@@ -662,17 +524,6 @@
               </button>
             </Panel>
 
-            <Panel position="top-right">
-              <button
-                type="button"
-                class="ap-chip inline-flex items-center justify-center rounded-md p-1.5 text-subtle-foreground hover:text-foreground"
-                aria-label="Workflow help"
-                title="Workflow help"
-                @click="openHelpModal"
-              >
-                <HelpIcon class="h-5 w-5" />
-              </button>
-            </Panel>
           </VueFlow>
         </div>
       </div>
@@ -847,37 +698,34 @@
             id="flow-help-title"
             class="text-base font-semibold text-foreground"
           >
-            Flow Help
+            Trigger Types
           </h3>
         </div>
         <div class="px-5 py-4 space-y-4 text-sm text-foreground/90">
           <p class="text-xs uppercase tracking-wide text-faint-foreground">
-            Controls and Hotkeys
+            Choose how the workflow starts
           </p>
           <ul class="list-disc space-y-2 pl-5 text-sm text-subtle-foreground">
             <li>
-              <span class="font-medium text-foreground"
-                >Shift + click &amp; drag</span
-              >
-              draws a selection box so you can move or delete multiple nodes
-              together.
+              <span class="font-medium text-foreground">Manual</span>
+              runs only from the Flow editor when you click Run.
             </li>
             <li>
-              <span class="font-medium text-foreground">Cmd/Ctrl + click</span>
-              adds or removes individual nodes from the current selection.
+              <span class="font-medium text-foreground">Schedule</span>
+              is for timed execution using a cron expression.
             </li>
             <li>
-              <span class="font-medium text-foreground">Backspace/Delete</span>
-              removes the currently selected nodes or edges.
+              <span class="font-medium text-foreground">Webhook</span>
+              exposes an HTTP endpoint so an external system can start the workflow.
             </li>
             <li>
-              <span class="font-medium text-foreground"
-                >Drag on empty canvas space</span
-              >
-              to pan the view; use your mouse wheel or trackpad gestures to
-              zoom.
+              <span class="font-medium text-foreground">Event</span>
+              starts the workflow when a named application event is emitted.
             </li>
           </ul>
+          <p class="rounded-lg border border-border/60 bg-surface-muted/60 px-3 py-2 text-xs text-subtle-foreground">
+            The toolbar dropdown changes the trigger type quickly. Advanced trigger details use the workflow defaults currently stored on the workflow.
+          </p>
         </div>
         <div
           class="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3"
@@ -1304,12 +1152,6 @@ const triggerTypeOptions: DropdownOption[] = [
   { id: "webhook", label: "Webhook", value: "webhook" },
   { id: "event", label: "Event", value: "event" },
 ];
-const triggerMethodOptions: DropdownOption[] = [
-  { id: "POST", label: "POST", value: "POST" },
-  { id: "GET", label: "GET", value: "GET" },
-  { id: "PUT", label: "PUT", value: "PUT" },
-  { id: "PATCH", label: "PATCH", value: "PATCH" },
-];
 
 const projectsStore = useProjectsStore();
 const projects = computed(() => projectsStore.projects);
@@ -1364,54 +1206,6 @@ const selectedTriggerType = computed<FlowV2TriggerType>({
   set: (value) => {
     if (!activeWorkflow.value) return;
     updateWorkflowTrigger({ type: value });
-  },
-});
-const triggerCron = computed({
-  get: () => normalizeTrigger(activeWorkflow.value?.trigger).schedule?.cron ?? "",
-  set: (value: string) => {
-    if (!activeWorkflow.value) return;
-    updateWorkflowTrigger({
-      type: "schedule",
-      schedule: { cron: value.trim() },
-    });
-  },
-});
-const triggerWebhookMethod = computed({
-  get: () => normalizeTrigger(activeWorkflow.value?.trigger).webhook?.method ?? "POST",
-  set: (value: string) => {
-    if (!activeWorkflow.value) return;
-    const current = normalizeTrigger(activeWorkflow.value.trigger).webhook;
-    updateWorkflowTrigger({
-      type: "webhook",
-      webhook: {
-        method: value.trim() || "POST",
-        path: current?.path || "/flows/inbound",
-      },
-    });
-  },
-});
-const triggerWebhookPath = computed({
-  get: () => normalizeTrigger(activeWorkflow.value?.trigger).webhook?.path ?? "/flows/inbound",
-  set: (value: string) => {
-    if (!activeWorkflow.value) return;
-    const current = normalizeTrigger(activeWorkflow.value.trigger).webhook;
-    updateWorkflowTrigger({
-      type: "webhook",
-      webhook: {
-        method: current?.method || "POST",
-        path: value.trim() || "/flows/inbound",
-      },
-    });
-  },
-});
-const triggerEventName = computed({
-  get: () => normalizeTrigger(activeWorkflow.value?.trigger).event?.name ?? "",
-  set: (value: string) => {
-    if (!activeWorkflow.value) return;
-    updateWorkflowTrigger({
-      type: "event",
-      event: { name: value.trim() },
-    });
   },
 });
 
@@ -3388,19 +3182,127 @@ async function onImportSelected(event: Event) {
 </script>
 
 <style scoped>
-/* Make workflow header buttons appear as plain text links with underline on hover */
-.plain-link {
-  background: none !important;
-  border: none !important;
-  padding: 0 !important;
-  color: inherit !important;
-  font: inherit !important;
-  text-decoration: none !important;
-  cursor: pointer !important;
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(var(--color-border) / 0.65);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease,
+    opacity 150ms ease;
 }
-.plain-link:hover {
-  text-decoration: underline !important;
-  background: none !important;
+
+.toolbar-btn:hover:enabled {
+  border-color: rgb(var(--color-accent) / 0.45);
+  background: rgb(var(--color-surface-muted) / 0.94);
+  transform: translateY(-1px);
+}
+
+.toolbar-btn:focus-visible {
+  outline: 2px solid rgb(var(--color-ring));
+  outline-offset: 2px;
+}
+
+.toolbar-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.toolbar-btn-accent {
+  border-color: rgb(var(--color-accent) / 0.42);
+  background: rgb(var(--color-accent) / 0.14);
+  color: rgb(var(--color-accent));
+}
+
+.toolbar-btn-accent:hover:enabled {
+  background: rgb(var(--color-accent) / 0.2);
+}
+
+.toolbar-btn-danger {
+  border-color: rgb(var(--color-danger) / 0.42);
+  background: rgb(var(--color-danger) / 0.14);
+  color: rgb(var(--color-danger));
+}
+
+.toolbar-btn-danger:hover:enabled {
+  background: rgb(var(--color-danger) / 0.2);
+}
+
+.toolbar-btn-run {
+  border-color: rgb(var(--color-accent) / 0.48);
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-accent) / 0.96),
+    rgb(var(--color-accent) / 0.74)
+  );
+  color: rgb(var(--color-accent-foreground));
+  box-shadow: 0 10px 24px -18px rgb(var(--color-accent) / 0.9);
+}
+
+.toolbar-btn-run:hover:enabled {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-accent) / 1),
+    rgb(var(--color-accent) / 0.82)
+  );
+}
+
+.toolbar-btn-ghost {
+  min-height: auto;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.toolbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(var(--color-border) / 0.65);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  color: rgb(var(--color-subtle-foreground));
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.toolbar-icon-btn:hover {
+  border-color: rgb(var(--color-accent) / 0.45);
+  background: rgb(var(--color-surface-muted) / 0.94);
+  color: rgb(var(--color-foreground));
+  transform: translateY(-1px);
+}
+
+.toolbar-icon-btn:focus-visible {
+  outline: 2px solid rgb(var(--color-ring));
+  outline-offset: 2px;
+}
+
+.workflow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.6);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  padding: 0.35rem 0.65rem;
+  font-size: 0.72rem;
+  color: rgb(var(--color-subtle-foreground));
 }
 </style>
 

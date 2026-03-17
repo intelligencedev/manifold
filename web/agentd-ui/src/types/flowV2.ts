@@ -103,6 +103,7 @@ export interface FlowV2CanvasNode {
   y: number;
   width?: number;
   height?: number;
+  collapsed?: boolean;
 }
 
 export interface FlowV2CanvasGroup {

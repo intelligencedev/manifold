@@ -667,6 +667,12 @@ onMounted(() => {
     typeof (props.data as any)?.collapsed === "boolean"
       ? (props.data as any).collapsed
       : true;
-  applyCollapsedStyle(initial);
+  if (initial) {
+    applyCollapsedStyle(true);
+  } else {
+    // Node was saved expanded — just set the flag without overwriting
+    // the style that buildNodeStyle already set with the correct restored dimensions
+    collapsed.value = false;
+  }
 });
 </script>

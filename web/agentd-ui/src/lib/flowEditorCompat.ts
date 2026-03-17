@@ -115,6 +115,7 @@ export function flowV2ToEditorWorkflow(
                 y: Number(node?.y ?? 0),
                 width: typeof node?.width === "number" ? node.width : undefined,
                 height: typeof node?.height === "number" ? node.height : undefined,
+                collapsed: typeof node?.collapsed === "boolean" ? node.collapsed : undefined,
               },
             ]),
           )
@@ -212,6 +213,7 @@ export function editorWorkflowToFlowV2(
                 width: typeof layout.width === "number" ? layout.width : undefined,
                 height:
                   typeof layout.height === "number" ? layout.height : undefined,
+                collapsed: typeof layout.collapsed === "boolean" ? layout.collapsed : undefined,
               },
             ]),
           )

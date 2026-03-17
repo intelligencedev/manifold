@@ -133,10 +133,11 @@ type WorkflowCanvas struct {
 }
 
 type CanvasNode struct {
-	X      float64  `json:"x"`
-	Y      float64  `json:"y"`
-	Width  *float64 `json:"width,omitempty"`
-	Height *float64 `json:"height,omitempty"`
+	X         float64  `json:"x"`
+	Y         float64  `json:"y"`
+	Width     *float64 `json:"width,omitempty"`
+	Height    *float64 `json:"height,omitempty"`
+	Collapsed *bool    `json:"collapsed,omitempty"`
 }
 
 type CanvasGroup struct {

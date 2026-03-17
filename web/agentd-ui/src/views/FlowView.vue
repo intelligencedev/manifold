@@ -900,6 +900,7 @@ type LayoutEntry = {
   y: number;
   width?: number;
   height?: number;
+  collapsed?: boolean;
 };
 
 type LayoutMap = Record<string, LayoutEntry>;
@@ -954,7 +955,11 @@ function parseDimension(value: unknown): number | undefined {
   return undefined;
 }
 
-function readNodeSize(node: FlowEditorNode) {
+function readNodeSize(
+  node: FlowEditorNode,
+  liveDimW?: number,
+  liveDimH?: number,
+) {
   const kind: NodeKind =
     node.data?.kind === "utility"
       ? "utility"
@@ -969,8 +974,16 @@ function readNodeSize(node: FlowEditorNode) {
       : node.style;
   const styledWidth = parseDimension((style as any)?.width);
   const styledHeight = parseDimension((style as any)?.height);
-  const dimsWidth = graphNode?.dimensions?.width;
-  const dimsHeight = graphNode?.dimensions?.height;
+  // Prefer live VueFlow-tracked dimensions (from ResizeObserver) over the internal property
+  // on nodes.value which may not include dimensions that aren't synced back through v-model
+  const dimsWidth =
+    liveDimW && liveDimW > 0
+      ? liveDimW
+      : (graphNode?.dimensions?.width ?? undefined);
+  const dimsHeight =
+    liveDimH && liveDimH > 0
+      ? liveDimH
+      : (graphNode?.dimensions?.height ?? undefined);
   // If node is collapsed and no explicit style width/height are present, use collapsed footprint
   const collapsed = (node.data as any)?.collapsed === true;
   const width =
@@ -1028,6 +1041,20 @@ type UiSnapshot = {
 };
 
 function collectUiState(allNodes: FlowEditorNode[]): UiSnapshot {
+  // Build a lookup from VueFlow's live internal node store so we can use ResizeObserver-tracked
+  // dimensions and the latest dragged positions (both may not be in nodes.value via v-model sync)
+  const liveMap = new Map<string, { x: number; y: number; dimW: number; dimH: number }>();
+  for (const gn of (getNodes.value as any[])) {
+    if (gn?.id && gn.position) {
+      liveMap.set(gn.id, {
+        x: gn.position.x ?? 0,
+        y: gn.position.y ?? 0,
+        dimW: gn.dimensions?.width ?? 0,
+        dimH: gn.dimensions?.height ?? 0,
+      });
+    }
+  }
+
   const layout: LayoutMap = {};
   const parents: Record<string, string> = {};
   const groups: FlowEditorGroupUIEntry[] = [];
@@ -1039,11 +1066,15 @@ function collectUiState(allNodes: FlowEditorNode[]): UiSnapshot {
   >();
 
   allNodes.forEach((node) => {
-    const position = node.position ?? { x: 0, y: 0 };
-    const size = readNodeSize(node);
+    const live = liveMap.get(node.id);
+    const position = live ? { x: live.x, y: live.y } : (node.position ?? { x: 0, y: 0 });
+    const size = readNodeSize(node, live?.dimW, live?.dimH);
     const entry: LayoutEntry = { x: position.x, y: position.y };
     if (Number.isFinite(size.width)) entry.width = size.width;
     if (Number.isFinite(size.height)) entry.height = size.height;
+    // Persist per-node collapsed state so it survives save/load
+    const nodeCollapsed = (node.data as any)?.collapsed;
+    if (typeof nodeCollapsed === "boolean") entry.collapsed = nodeCollapsed;
     layout[node.id] = entry;
 
     if (isGroupNode(node)) {
@@ -1114,7 +1145,7 @@ const nodeTypes = markRaw({
   flowSticky: markRaw(FlowStickyNoteNode),
 });
 
-const { project, zoomIn, zoomOut, fitView, nodesDraggable, updateNode } =
+const { project, zoomIn, zoomOut, fitView, nodesDraggable, updateNode, getNodes } =
   useVueFlow();
 
 const flowWrapper = ref<HTMLDivElement | null>(null);
@@ -2106,6 +2137,7 @@ function workflowToNodes(wf: FlowEditorWorkflow): FlowEditorNode[] {
         step: JSON.parse(JSON.stringify(step)) as FlowEditorStep,
         kind: utility ? "utility" : "step",
         groupId: parents[step.id],
+        collapsed: stored?.collapsed ?? true,
       },
     };
   });
@@ -2718,6 +2750,7 @@ async function performSave(
     const layout = snapshot.layout;
     const parents = snapshot.parents;
     const groups = snapshot.groups;
+    const notes = snapshot.notes;
     const payload: FlowEditorWorkflow = {
       ...activeWorkflow.value,
       description: description ?? activeWorkflow.value.description,
@@ -2728,6 +2761,7 @@ async function performSave(
         layout,
         parents: Object.keys(parents).length ? parents : undefined,
         groups: groups.length ? groups : undefined,
+        notes: notes.length ? notes : undefined,
       },
     };
     console.log("[DEBUG] Payload groups:", payload.ui?.groups);
@@ -2772,6 +2806,9 @@ async function performSave(
     if (!savedUi.layout && payloadUi.layout) {
       mergedUi.layout = payloadUi.layout;
     }
+    if (!savedUi.notes?.length && payloadUi.notes?.length) {
+      mergedUi.notes = payloadUi.notes;
+    }
     const normalizedSaved: FlowEditorWorkflow = {
       ...saved,
       project_id: saved.project_id ?? payload.project_id,
@@ -2788,6 +2825,7 @@ async function performSave(
         layout: mergedUi.layout,
         parents: mergedUi.parents,
         groups: mergedUi.groups,
+        notes: mergedUi.notes,
       });
     } catch {}
     // If this workflow was locally-created, clear the local marker

@@ -1,8 +1,8 @@
 <template>
-  <WarppBaseNode
+  <FlowBaseNode
     :collapsed="collapsed"
-    :min-width="collapsed ? WARPP_STEP_NODE_COLLAPSED.width : STEP_MIN_WIDTH"
-    :min-height="collapsed ? WARPP_STEP_NODE_COLLAPSED.height : STEP_MIN_HEIGHT"
+    :min-width="collapsed ? FLOW_STEP_NODE_COLLAPSED.width : STEP_MIN_WIDTH"
+    :min-height="collapsed ? FLOW_STEP_NODE_COLLAPSED.height : STEP_MIN_HEIGHT"
     :min-width-px="nodeMinWidthPx"
     :min-height-px="nodeMinHeightPx"
     :show-resizer="isDesignMode"
@@ -97,7 +97,7 @@
       </div>
 
       <!-- Content -->
-      <div class="mt-3" :class="collapsed ? 'hidden' : ''">
+      <div class="mt-3 flex flex-col min-h-0 flex-1 overflow-y-auto overflow-x-hidden" :class="collapsed ? 'hidden' : ''">
         <div class="space-y-2">
           <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
             Step Text
@@ -260,7 +260,7 @@
         <div class="space-y-2">
           <p class="text-[10px] text-faint-foreground">
             Prefer referencing prior step data with
-            <code>{{ `\${A.${props.id}.json...}` }}</code
+            <code>{{ outputReferenceExample }}</code
             >. Promote to an attribute when you want a short, stable name
             (useful for guards and reuse).
           </p>
@@ -281,7 +281,7 @@
               v-model="outputFrom"
               type="text"
               class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              placeholder="payload | json.<path> | delta.<key> | args.<key>"
+              placeholder="payload | json.<path> | delta.<key> | inputs.<key>"
               :disabled="!isDesignMode"
               @input="markDirty"
             />
@@ -318,13 +318,14 @@
         </div>
       </div>
     </template>
-  </WarppBaseNode>
+  </FlowBaseNode>
 </template>
 
 <script setup lang="ts">
 import {
   computed,
   inject,
+  provide,
   ref,
   watch,
   onMounted,
@@ -333,47 +334,52 @@ import {
 import { useVueFlow, type NodeProps } from "@vue-flow/core";
 import type { OnResizeEnd } from "@vue-flow/node-resizer";
 
-import WarppBaseNode from "./WarppBaseNode.vue";
+import FlowBaseNode from "./FlowBaseNode.vue";
 import ParameterFormField from "@/components/flow/ParameterFormField.vue";
 import type { StepNodeData } from "@/types/flow";
-import type { WarppTool, WarppStepTrace } from "@/types/warpp";
+import type { FlowEditorTool, FlowEditorStepTrace } from "@/types/flowEditor";
 import type { Ref } from "vue";
 import GearIcon from "@/components/icons/Gear.vue";
 import {
-  WARPP_STEP_NODE_DIMENSIONS,
-  WARPP_STEP_NODE_COLLAPSED,
-} from "@/constants/warppNodes";
+  FLOW_STEP_NODE_DIMENSIONS,
+  FLOW_STEP_NODE_COLLAPSED,
+} from "@/constants/flowNodes";
 
 const props = defineProps<NodeProps<StepNodeData>>();
 
 const { updateNodeData, updateNode } = useVueFlow();
 
-const STEP_MIN_WIDTH = WARPP_STEP_NODE_DIMENSIONS.minWidth;
-const STEP_MIN_HEIGHT = WARPP_STEP_NODE_DIMENSIONS.minHeight;
+const STEP_MIN_WIDTH = FLOW_STEP_NODE_DIMENSIONS.minWidth;
+const STEP_MIN_HEIGHT = FLOW_STEP_NODE_DIMENSIONS.minHeight;
 const nodeMinWidthPx = computed(() =>
   collapsed.value
-    ? `${WARPP_STEP_NODE_COLLAPSED.width}px`
+    ? `${FLOW_STEP_NODE_COLLAPSED.width}px`
     : `${STEP_MIN_WIDTH}px`,
 );
 const nodeMinHeightPx = computed(() =>
   collapsed.value
-    ? `${WARPP_STEP_NODE_COLLAPSED.height}px`
+    ? `${FLOW_STEP_NODE_COLLAPSED.height}px`
     : `${STEP_MIN_HEIGHT}px`,
 );
 
-const toolsRef = inject<Ref<WarppTool[]>>("warppTools", ref<WarppTool[]>([]));
-const hydratingRef = inject<Ref<boolean>>("warppHydrating", ref(false));
+provide("flowEditorNodeId", props.id);
+
+const toolsRef = inject<Ref<FlowEditorTool[]>>(
+  "flowEditorTools",
+  ref<FlowEditorTool[]>([]),
+);
+const hydratingRef = inject<Ref<boolean>>("flowEditorHydrating", ref(false));
 const modeRef = inject<Ref<"design" | "run">>(
-  "warppMode",
+  "flowEditorMode",
   ref<"design" | "run">("design"),
 );
-const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>(
-  "warppRunTrace",
-  ref<Record<string, WarppStepTrace>>({}),
+const runTraceRef = inject<Ref<Record<string, FlowEditorStepTrace>>>(
+  "flowEditorRunTrace",
+  ref<Record<string, FlowEditorStepTrace>>({}),
 );
-const runningRef = inject<Ref<boolean>>("warppRunning", ref(false));
+const runningRef = inject<Ref<boolean>>("flowEditorRunning", ref(false));
 const openResultModal = inject<(stepId: string, title: string) => void>(
-  "warppOpenResultModal",
+  "flowEditorOpenResultModal",
   () => {},
 );
 
@@ -404,6 +410,9 @@ const outputAttr = ref("");
 const outputFrom = ref("");
 const outputValue = ref("");
 const copied = ref(false);
+const outputReferenceExample = computed(
+  () => `={{$node.${props.id}.output...}}`,
+);
 
 const orderLabel = computed(() => (props.data?.order ?? 0) + 1);
 const isDesignMode = computed(() => modeRef.value === "design");
@@ -653,8 +662,8 @@ async function copyStepId() {
 }
 
 // Global expand/collapse signals injected from FlowView
-const collapseAllSeq = inject<Ref<number>>("warppCollapseAllSeq", ref(0));
-const expandAllSeq = inject<Ref<number>>("warppExpandAllSeq", ref(0));
+const collapseAllSeq = inject<Ref<number>>("flowEditorCollapseAllSeq", ref(0));
+const expandAllSeq = inject<Ref<number>>("flowEditorExpandAllSeq", ref(0));
 const lastCollapseSeen = ref(0);
 const lastExpandSeen = ref(0);
 watch(collapseAllSeq, (v) => {
@@ -758,25 +767,25 @@ function applyCollapsedStyle(next: boolean) {
       return {
         style: {
           ...baseStyle,
-          width: px(WARPP_STEP_NODE_COLLAPSED.width),
-          height: px(WARPP_STEP_NODE_COLLAPSED.height),
-          minWidth: px(WARPP_STEP_NODE_COLLAPSED.width),
-          minHeight: px(WARPP_STEP_NODE_COLLAPSED.height),
+          width: px(FLOW_STEP_NODE_COLLAPSED.width),
+          height: px(FLOW_STEP_NODE_COLLAPSED.height),
+          minWidth: px(FLOW_STEP_NODE_COLLAPSED.width),
+          minHeight: px(FLOW_STEP_NODE_COLLAPSED.height),
         },
       };
     }
 
     // expanding: try to restore previous explicit size, else defaults
     const restored = prevExpandedSize.get(nodeId);
-    const targetW = restored?.w ?? WARPP_STEP_NODE_DIMENSIONS.defaultWidth;
-    const targetH = restored?.h ?? WARPP_STEP_NODE_DIMENSIONS.defaultHeight;
+    const targetW = restored?.w ?? FLOW_STEP_NODE_DIMENSIONS.defaultWidth;
+    const targetH = restored?.h ?? FLOW_STEP_NODE_DIMENSIONS.defaultHeight;
     return {
       style: {
         ...baseStyle,
         width: px(targetW),
         height: px(targetH),
-        minWidth: px(WARPP_STEP_NODE_DIMENSIONS.minWidth),
-        minHeight: px(WARPP_STEP_NODE_DIMENSIONS.minHeight),
+        minWidth: px(FLOW_STEP_NODE_DIMENSIONS.minWidth),
+        minHeight: px(FLOW_STEP_NODE_DIMENSIONS.minHeight),
       },
     };
   });

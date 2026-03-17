@@ -1,27 +1,23 @@
 <template>
-  <div class="group-node relative h-full w-full">
+  <div class="sticky-note-node relative h-full w-full select-none">
     <NodeResizer
       v-if="isDesignMode"
-      :min-width="GROUP_MIN_WIDTH"
-      :min-height="GROUP_MIN_HEIGHT"
+      :min-width="NOTE_MIN_WIDTH"
+      :min-height="NOTE_MIN_HEIGHT"
       :handle-style="RESIZER_HANDLE_STYLE"
       :line-style="RESIZER_LINE_STYLE"
       @resize-end="onResizeEnd"
     />
-    <div class="group-surface" :style="groupSurfaceStyle" />
-    <div class="group-header" :class="{ 'pointer-events-none': !isDesignMode }">
-      <input
-        v-model="labelText"
-        :disabled="!isDesignMode"
-        class="group-title"
-        type="text"
-        :placeholder="defaultLabel"
-        spellcheck="false"
-      />
-      <div v-if="isDesignMode" class="flex items-center gap-1">
+    <div class="sticky-surface" :style="surfaceStyle" />
+    <div
+      class="sticky-header"
+      :class="{ 'pointer-events-none': !isDesignMode }"
+    >
+      <div class="text-sm font-semibold text-foreground select-none">Note</div>
+      <div v-if="isDesignMode" class="flex items-center gap-1 ml-auto">
         <button
           type="button"
-          class="group-color-picker"
+          class="note-color-picker"
           :title="showColorPicker ? 'Close color picker' : 'Choose color'"
           @click.stop.prevent="toggleColorPicker"
         >
@@ -49,13 +45,13 @@
             :key="preset.value"
             type="button"
             class="color-swatch"
-            :class="{ active: groupColor === preset.value }"
+            :class="{ active: noteColor === preset.value }"
             :style="{ backgroundColor: preset.display }"
             :title="preset.label"
             @click.stop.prevent="setColor(preset.value)"
           >
             <svg
-              v-if="groupColor === preset.value"
+              v-if="noteColor === preset.value"
               class="h-3 w-3 text-white drop-shadow"
               viewBox="0 0 24 24"
               fill="none"
@@ -68,14 +64,18 @@
             </svg>
           </button>
         </div>
-        <button
-          type="button"
-          class="group-ungroup"
-          @click.stop.prevent="requestUngroup"
-        >
-          Ungroup
-        </button>
       </div>
+    </div>
+
+    <div class="sticky-body" :class="{ 'pointer-events-none': !isDesignMode }">
+      <textarea
+        v-model="noteText"
+        :disabled="!isDesignMode"
+        class="sticky-textarea"
+        placeholder="Type a note…"
+        rows="4"
+        @wheel.stop
+      />
     </div>
   </div>
 </template>
@@ -92,29 +92,24 @@ import {
 import { NodeResizer, type OnResizeEnd } from "@vue-flow/node-resizer";
 import { useVueFlow, type NodeProps } from "@vue-flow/core";
 
-import type { GroupNodeData } from "@/types/flow";
-import { WARPP_GROUP_NODE_DIMENSIONS } from "@/constants/warppNodes";
+import type { StickyNoteNodeData } from "@/types/flow";
+import { FLOW_UTILITY_NODE_DIMENSIONS } from "@/constants/flowNodes";
 
-defineOptions({ name: "WarppGroupNode", inheritAttrs: false });
+defineOptions({ name: "FlowStickyNoteNode", inheritAttrs: false });
 
-const props = defineProps<NodeProps<GroupNodeData>>();
-const emit = defineEmits<{ (event: "request-ungroup", id: string): void }>();
+const props = defineProps<NodeProps<StickyNoteNodeData>>();
 
 const { updateNode, updateNodeData } = useVueFlow();
 
-const GROUP_MIN_WIDTH = WARPP_GROUP_NODE_DIMENSIONS.minWidth;
-const GROUP_MIN_HEIGHT = WARPP_GROUP_NODE_DIMENSIONS.minHeight;
-const defaultLabel = "Group";
+const NOTE_MIN_WIDTH = FLOW_UTILITY_NODE_DIMENSIONS.minWidth;
+const NOTE_MIN_HEIGHT = FLOW_UTILITY_NODE_DIMENSIONS.minHeight;
+const defaultLabel = "Sticky Note";
 
 const modeRef = inject<Ref<"design" | "run">>(
-  "warppMode",
+  "flowEditorMode",
   ref<"design" | "run">("design"),
 );
 const isDesignMode = computed(() => modeRef.value === "design");
-const ungroupHandler = inject<((id: string) => void) | null>(
-  "warppRequestUngroup",
-  null,
-);
 
 const RESIZER_HANDLE_STYLE = Object.freeze({
   width: "14px",
@@ -123,10 +118,9 @@ const RESIZER_HANDLE_STYLE = Object.freeze({
   border: "none",
   background: "transparent",
 });
-
 const RESIZER_LINE_STYLE = Object.freeze({ opacity: "0" });
 
-// Theme-aware color presets that work in both light and dark modes
+// Reuse group node color presets
 const colorPresets = [
   { value: "default", label: "Default", display: "rgba(148, 163, 184, 0.3)" },
   { value: "blue", label: "Blue", display: "rgba(56, 189, 248, 0.25)" },
@@ -137,47 +131,47 @@ const colorPresets = [
 ];
 
 const colorMap: Record<string, string> = {
-  default: "rgb(var(--color-surface) / 0.75)",
-  blue: "rgba(56, 189, 248, 0.2)",
-  green: "rgba(34, 197, 94, 0.2)",
-  amber: "rgba(251, 191, 36, 0.2)",
-  rose: "rgba(251, 113, 133, 0.2)",
-  purple: "rgba(168, 85, 247, 0.2)",
+  default: "rgb(var(--color-surface) / 0.85)",
+  blue: "rgba(56, 189, 248, 0.28)",
+  green: "rgba(34, 197, 94, 0.28)",
+  amber: "rgba(251, 191, 36, 0.28)",
+  rose: "rgba(251, 113, 133, 0.28)",
+  purple: "rgba(168, 85, 247, 0.28)",
 };
 
-const labelText = ref(defaultLabel);
+// Header is static: "Note" per design; no editable label
 const showColorPicker = ref(false);
-const groupColor = ref<string>("default");
+const noteColor = ref<string>("default");
+const noteText = ref("");
 let suppressCommit = false;
 
 watch(
-  () => props.data?.label,
+  () => props.data?.color,
+  (next) => {
+    noteColor.value = next || "default";
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.data?.note,
   (next) => {
     suppressCommit = true;
-    labelText.value = next?.trim() || defaultLabel;
+    noteText.value = next ?? "";
     suppressCommit = false;
   },
   { immediate: true },
 );
 
-watch(
-  () => props.data?.color,
-  (next) => {
-    groupColor.value = next || "default";
-  },
-  { immediate: true },
-);
-
-const groupSurfaceStyle = computed<CSSProperties>(() => ({
-  background: colorMap[groupColor.value] || colorMap.default,
+const surfaceStyle = computed<CSSProperties>(() => ({
+  background: colorMap[noteColor.value] || colorMap.default,
 }));
 
-watch(labelText, (next) => {
+watch(noteText, (next) => {
   if (suppressCommit) return;
-  const label = next.trim() || defaultLabel;
   updateNodeData(props.id, {
-    ...(props.data ?? { kind: "group", label }),
-    label,
+    ...(props.data ?? { kind: "utility", label: defaultLabel }),
+    note: next ?? "",
   });
 });
 
@@ -186,9 +180,9 @@ function toggleColorPicker() {
 }
 
 function setColor(color: string) {
-  groupColor.value = color;
+  noteColor.value = color;
   updateNodeData(props.id, {
-    ...(props.data ?? { kind: "group", label: defaultLabel }),
+    ...(props.data ?? { kind: "utility", label: defaultLabel, note: "" }),
     color,
   });
   showColorPicker.value = false;
@@ -196,8 +190,8 @@ function setColor(color: string) {
 
 function onResizeEnd(event: OnResizeEnd) {
   if (!isDesignMode.value) return;
-  const widthPx = `${Math.max(Math.round(event.params.width), GROUP_MIN_WIDTH)}px`;
-  const heightPx = `${Math.max(Math.round(event.params.height), GROUP_MIN_HEIGHT)}px`;
+  const widthPx = `${Math.max(Math.round(event.params.width), NOTE_MIN_WIDTH)}px`;
+  const heightPx = `${Math.max(Math.round(event.params.height), NOTE_MIN_HEIGHT)}px`;
   updateNode(props.id, (node) => {
     const baseStyle: CSSProperties =
       typeof node.style === "function"
@@ -212,29 +206,24 @@ function onResizeEnd(event: OnResizeEnd) {
     };
   });
 }
-
-function requestUngroup() {
-  ungroupHandler?.(props.id);
-  emit("request-ungroup", props.id);
-}
 </script>
 
 <style scoped>
-.group-node {
-  border-radius: 12px;
+.sticky-note-node {
+  border-radius: 10px;
 }
-.group-surface {
+.sticky-surface {
   position: absolute;
   inset: 0;
-  border-radius: 12px;
+  border-radius: 10px;
   background: color-mix(
     in srgb,
-    rgb(var(--color-surface) / 1) 75%,
-    transparent 25%
+    rgb(var(--color-surface) / 1) 80%,
+    transparent 20%
   );
   border: 1px dashed rgb(var(--color-border) / 0.65);
 }
-.group-header {
+.sticky-header {
   position: absolute;
   top: 0.35rem;
   left: 0.5rem;
@@ -244,35 +233,17 @@ function requestUngroup() {
   gap: 0.5rem;
   pointer-events: auto;
 }
-.group-title {
+.sticky-title {
   flex: 1;
   min-width: 0;
   border: 1px solid rgb(var(--color-border) / 0.75);
   border-radius: 0.5rem;
-  background: rgb(var(--color-surface) / 0.9);
+  background: rgb(var(--color-surface) / 0.92);
   padding: 0.25rem 0.5rem;
   font-size: 0.7rem;
   color: rgb(var(--color-foreground));
 }
-.group-title:disabled {
-  opacity: 0.7;
-  cursor: default;
-}
-.group-ungroup {
-  border-radius: 0.5rem;
-  border: 1px solid rgb(var(--color-border) / 0.7);
-  background: rgb(var(--color-surface-muted) / 0.9);
-  padding: 0.25rem 0.45rem;
-  font-size: 0.65rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: rgb(var(--color-subtle-foreground));
-}
-.group-ungroup:hover {
-  color: rgb(var(--color-foreground));
-  background: rgb(var(--color-surface-muted));
-}
-.group-color-picker {
+.note-color-picker {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -282,7 +253,7 @@ function requestUngroup() {
   padding: 0.25rem;
   color: rgb(var(--color-subtle-foreground));
 }
-.group-color-picker:hover {
+.note-color-picker:hover {
   color: rgb(var(--color-foreground));
   background: rgb(var(--color-surface-muted));
 }
@@ -318,5 +289,26 @@ function requestUngroup() {
 .color-swatch.active {
   border-color: rgb(var(--color-accent));
   box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.3);
+}
+.sticky-body {
+  position: absolute;
+  top: 2rem;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.5rem;
+}
+.sticky-textarea {
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-border) / 0.6);
+  background: rgb(var(--color-surface) / 0.85);
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  color: rgb(var(--color-foreground));
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 </style>

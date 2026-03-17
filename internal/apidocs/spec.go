@@ -157,7 +157,6 @@ func buildTags(tagSet map[string]struct{}) []map[string]any {
 		"Metrics":     "Token, trace, and log metrics APIs.",
 		"Media":       "Audio and image media endpoints.",
 		"MCP":         "Model Context Protocol server management APIs.",
-		"WARPP":       "Workflow (WARPP) APIs.",
 		"Flow":        "Flow v2 APIs.",
 		"Debug":       "Memory and observability debugging endpoints.",
 		"Playground":  "Prompt, dataset, and experiment playground APIs.",
@@ -174,7 +173,6 @@ func buildTags(tagSet map[string]struct{}) []map[string]any {
 		"Metrics",
 		"Media",
 		"MCP",
-		"WARPP",
 		"Flow",
 		"Debug",
 		"Playground",
@@ -482,7 +480,6 @@ func routeCatalog() []routeSpec {
 				qp("specialist", "string", "Force a specific specialist.", false),
 				qp("team", "string", "Route the run through a team orchestrator.", false),
 				qp("group", "string", "Legacy alias of team.", false),
-				qp("warpp", "boolean", "Route request through WARPP workflow execution.", false),
 			)),
 		}},
 		{path: "/agent/vision", operations: []operationSpec{
@@ -590,20 +587,6 @@ func routeCatalog() []routeSpec {
 		{path: "/api/teams/{name}/members/{specialist}", operations: []operationSpec{
 			jsonOp(http.MethodPut, "Teams", "Add specialist to team", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
 			jsonOp(http.MethodDelete, "Teams", "Remove specialist from team", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/warpp/tools", operations: []operationSpec{
-			jsonOp(http.MethodGet, "WARPP", "List tool schemas", true),
-		}},
-		{path: "/api/warpp/workflows", operations: []operationSpec{
-			jsonOp(http.MethodGet, "WARPP", "List WARPP workflows", true),
-		}},
-		{path: "/api/warpp/workflows/{intent}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "WARPP", "Get WARPP workflow", true),
-			jsonOp(http.MethodPut, "WARPP", "Create/update WARPP workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "WARPP", "Delete WARPP workflow", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/warpp/run", operations: []operationSpec{
-			jsonOp(http.MethodPost, "WARPP", "Execute WARPP workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
 		}},
 		{path: "/api/flows/v2/tools", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Flow", "List tool schemas for Flow v2", true),

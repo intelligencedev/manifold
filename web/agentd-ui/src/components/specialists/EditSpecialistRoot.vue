@@ -835,8 +835,8 @@ import {
   type Prompt,
   type PromptVersion,
 } from "@/api/playground";
-import { fetchWarppTools } from "@/api/warpp";
-import type { WarppTool } from "@/types/warpp";
+import { fetchFlowTools } from "@/api/flow";
+import type { FlowEditorTool } from "@/types/flowEditor";
 
 type TabId = "basics" | "prompt" | "tools" | "advanced";
 type ToolPolicy = "none" | "any" | "allow-list";
@@ -898,7 +898,7 @@ const extraParamsObj = ref<Record<string, any>>({});
 const headersOpen = ref(false);
 const paramsOpen = ref(false);
 const promptHelpOpen = ref(false);
-const tools = ref<WarppTool[]>([]);
+const tools = ref<FlowEditorTool[]>([]);
 const toolsLoading = ref(false);
 const toolsError = ref("");
 const toolsSearch = ref("");
@@ -1418,7 +1418,7 @@ async function loadTools() {
   toolsLoading.value = true;
   toolsError.value = "";
   try {
-    const resp = await fetchWarppTools().catch(() => [] as WarppTool[]);
+    const resp = await fetchFlowTools().catch(() => [] as FlowEditorTool[]);
     tools.value = resp
       .filter((t) => !!t?.name)
       .sort((a, b) =>

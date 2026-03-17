@@ -33,10 +33,10 @@ import type { StickyNoteNodeData } from "@/types/flow";
 const props = defineProps<{ nodeId: string; data: StickyNoteNodeData }>();
 const { updateNodeData } = useVueFlow();
 const modeRef = inject<Ref<"design" | "run">>(
-  "warppMode",
+  "flowEditorMode",
   ref<"design" | "run">("design"),
 );
-const hydratingRef = inject<Ref<boolean>>("warppHydrating", ref(false));
+const hydratingRef = inject<Ref<boolean>>("flowEditorHydrating", ref(false));
 
 const isDesignMode = computed(() => modeRef.value === "design");
 const noteText = ref("");

@@ -1,14 +1,14 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
-import type { WarppStepTrace } from "@/types/warpp";
-import { runWarppWorkflow, type WarppRunResponse } from "@/api/warpp";
+import type { FlowRunResult, FlowStepTrace } from "@/types/flowV2";
+import { runFlowWorkflow } from "@/api/flow";
 
-export const useWarppRunStore = defineStore("warpp-run", () => {
+export const useFlowRunStore = defineStore("flow-run", () => {
   const running = ref(false);
   const error = ref("");
   const runOutput = ref("");
   const runLogs = ref<string[]>([]);
-  const runTrace = ref<Record<string, WarppStepTrace>>({});
+  const runTrace = ref<Record<string, FlowStepTrace>>({});
   let runAbort: AbortController | null = null;
 
   function reset() {
@@ -19,29 +19,28 @@ export const useWarppRunStore = defineStore("warpp-run", () => {
   }
 
   async function startRun(
-    intent: string,
+    workflowId: string,
     prompt?: string,
     projectId?: string,
-  ): Promise<WarppRunResponse> {
+  ): Promise<FlowRunResult> {
     if (running.value) throw new Error("A run is already in progress");
     running.value = true;
     reset();
-    runLogs.value.push(`▶ Starting run for intent "${intent}"`);
+    runLogs.value.push(`▶ Starting run for workflow "${workflowId}"`);
     runAbort?.abort();
     runAbort = new AbortController();
     try {
       runLogs.value.push("→ POST /api/flows/v2/run");
-      const res = await runWarppWorkflow(
-        intent,
-        prompt ?? `Run workflow: ${intent}`,
+      const res = await runFlowWorkflow(
+        workflowId,
+        prompt ?? `Run workflow: ${workflowId}`,
         runAbort.signal,
         projectId,
       );
       runOutput.value = res.result || "";
-      // materialize trace into record for UI access
-      const rec: Record<string, WarppStepTrace> = {};
-      for (const t of res.trace ?? []) {
-        rec[t.stepId] = t;
+      const rec: Record<string, FlowStepTrace> = {};
+      for (const trace of res.trace ?? []) {
+        rec[trace.stepId] = trace;
       }
       runTrace.value = rec;
       runLogs.value.push("✓ Run finished");
@@ -51,7 +50,7 @@ export const useWarppRunStore = defineStore("warpp-run", () => {
           (runOutput.value.length > 160 ? "…" : "");
         runLogs.value.push("Result snippet: " + snippet);
       }
-      return { result: res.result, trace: res.trace };
+      return res;
     } catch (err: any) {
       if (err?.name === "AbortError") {
         error.value = "Run cancelled";

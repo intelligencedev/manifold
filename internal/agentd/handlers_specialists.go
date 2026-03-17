@@ -409,9 +409,6 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 			d.SetRegistry(a.toolRegistry)
 		}
 	}
-	a.warppMu.Lock()
-	a.warppRunner.Tools = a.toolRegistry
-	a.warppMu.Unlock()
 
 	toSave := persist.Specialist{
 		Name:                       specialists.OrchestratorName,

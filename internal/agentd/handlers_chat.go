@@ -689,10 +689,6 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		r = state.Request
 		specOwner := state.Owner
 
-		if handled := a.handleWarppAgentRun(w, r, req, specOwner); handled {
-			return
-		}
-
 		target := resolveChatDispatchTarget(r.URL.Query())
 		_, hasCustomTarget := a.describeChatTarget(target, req.SystemPrompt, specOwner)
 

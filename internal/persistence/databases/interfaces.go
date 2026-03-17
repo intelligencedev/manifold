@@ -65,7 +65,7 @@ type Manager struct {
 	Chat            persistence.ChatStore
 	EvolvingMemory  memory.EvolvingMemoryStore
 	Playground      *PlaygroundStore
-	Warpp           persistence.WarppWorkflowStore
+	FlowV2          persistence.FlowV2WorkflowStore
 	MCP             persistence.MCPStore
 	Projects        persistence.ProjectsStore
 	UserPreferences persistence.UserPreferencesStore

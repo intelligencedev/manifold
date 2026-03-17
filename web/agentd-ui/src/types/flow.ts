@@ -1,7 +1,7 @@
-import type { WarppStep } from "@/types/warpp";
+import type { FlowEditorStep } from "@/types/flowEditor";
 
 export interface StepNodeData {
-  step: WarppStep;
+  step: FlowEditorStep;
   order: number;
   kind?: "step" | "utility";
   // UI-only: whether the node card is collapsed to its header

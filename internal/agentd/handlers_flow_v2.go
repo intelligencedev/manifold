@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"manifold/internal/flow"
+	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 )
 
@@ -22,7 +23,12 @@ func (a *app) flowV2WorkflowsHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		resp := flow.ListWorkflowsResponse{Workflows: a.flowV2State().listWorkflowSummaries(userID)}
+		workflows, err := a.flowV2State().listWorkflowSummaries(r.Context(), userID)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		resp := flow.ListWorkflowsResponse{Workflows: workflows}
 		writeFlowV2JSON(w, http.StatusOK, resp)
 	}
 }
@@ -41,7 +47,11 @@ func (a *app) flowV2WorkflowDetailHandler() http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			wf, canvas, found := a.flowV2State().getWorkflow(userID, workflowID)
+			wf, canvas, found, err := a.flowV2State().getWorkflow(r.Context(), userID, workflowID)
+			if err != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
 			if !found {
 				http.Error(w, "workflow not found", http.StatusNotFound)
 				return
@@ -73,7 +83,11 @@ func (a *app) flowV2WorkflowDetailHandler() http.HandlerFunc {
 				})
 				return
 			}
-			saved, created := a.flowV2State().upsertWorkflow(userID, req.Workflow, req.Canvas)
+			saved, created, err := a.flowV2State().upsertWorkflow(r.Context(), userID, req.Workflow, req.Canvas)
+			if err != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
 			status := http.StatusOK
 			if created {
 				status = http.StatusCreated
@@ -83,7 +97,12 @@ func (a *app) flowV2WorkflowDetailHandler() http.HandlerFunc {
 				Canvas:   saved.Canvas,
 			})
 		case http.MethodDelete:
-			if !a.flowV2State().deleteWorkflow(userID, workflowID) {
+			deleted, err := a.flowV2State().deleteWorkflow(r.Context(), userID, workflowID)
+			if err != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !deleted {
 				http.Error(w, "workflow not found", http.StatusNotFound)
 				return
 			}
@@ -143,7 +162,11 @@ func (a *app) flowV2RunHandler() http.HandlerFunc {
 			http.Error(w, "workflow_id required", http.StatusBadRequest)
 			return
 		}
-		wf, _, found := a.flowV2State().getWorkflow(userID, req.WorkflowID)
+		wf, _, found, err := a.flowV2State().getWorkflow(r.Context(), userID, req.WorkflowID)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		if !found {
 			http.Error(w, "workflow not found", http.StatusNotFound)
 			return
@@ -295,7 +318,11 @@ func writeFlowV2SSE(w http.ResponseWriter, fl http.Flusher, event flow.RunEvent)
 
 func (a *app) flowV2State() *flowV2Runtime {
 	if a.flowV2 == nil {
-		a.flowV2 = newFlowV2Runtime()
+		var store persist.FlowV2WorkflowStore
+		if a.mgr != nil {
+			store = a.mgr.FlowV2
+		}
+		a.flowV2 = newFlowV2Runtime(store)
 	}
 	return a.flowV2
 }

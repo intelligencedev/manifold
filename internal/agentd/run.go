@@ -2,7 +2,6 @@ package agentd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -56,10 +55,8 @@ import (
 	transittools "manifold/internal/tools/transit"
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
-	warpptool "manifold/internal/tools/warpptool"
 	"manifold/internal/tools/web"
 	transitdomain "manifold/internal/transit"
-	"manifold/internal/warpp"
 	"manifold/internal/webui"
 	"manifold/internal/workspaces"
 )
@@ -77,10 +74,6 @@ type app struct {
 	specRegMu          sync.RWMutex
 	userSpecRegs       map[int64]*specialists.Registry
 	summaryLLM         llmpkg.Provider
-	warppMu            sync.RWMutex
-	warppRunner        *warpp.Runner
-	warppRegistries    map[int64]*warpp.Registry
-	warppStore         persist.WarppWorkflowStore
 	flowV2             *flowV2Runtime
 	evolvingMu         sync.RWMutex
 	userEvolving       map[int64]map[string]*memory.EvolvingMemory
@@ -795,7 +788,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		specRegistry:     specReg,
 		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:             newRunStore(),
-		flowV2:           newFlowV2Runtime(),
+		flowV2:           newFlowV2Runtime(mgr.FlowV2),
 		mcpStore:         mgr.MCP,
 		userPrefsStore:   mgr.UserPreferences,
 		mcpManager:       mcpMgr,
@@ -805,11 +798,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	systemPrompt := app.composeSystemPrompt()
-
-	// Register WARPP workflows as callable tools for the runtime.
-	if err := app.initWarpp(ctx, toolRegistry); err != nil {
-		return nil, err
-	}
 
 	// Detect an approximate context window for the main model so summarization
 	// auto-mode can size history appropriately.
@@ -1028,52 +1016,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	return app, nil
 }
-
-func (a *app) initWarpp(ctx context.Context, toolRegistry tools.Registry) error {
-	const workflowDir = "configs/workflows"
-	var wfreg *warpp.Registry
-	var wfStore persist.WarppWorkflowStore
-
-	if a.cfg.Databases.DefaultDSN != "" {
-		if p, errPool := databases.OpenPool(ctx, a.cfg.Databases.DefaultDSN); errPool == nil {
-			wfStore = databases.NewPostgresWarppStore(p)
-		}
-	}
-	if wfStore == nil {
-		wfStore = databases.NewPostgresWarppStore(nil)
-	}
-	_ = wfStore.Init(ctx)
-
-	warpp.SetDefaultStore(wfStore)
-
-	if list, err := wfStore.ListWorkflows(ctx, systemUserID); err == nil && len(list) > 0 {
-		wfreg = &warpp.Registry{}
-		for _, pw := range list {
-			b, _ := json.Marshal(pw)
-			var w warpp.Workflow
-			if err := json.Unmarshal(b, &w); err == nil {
-				wfreg.Upsert(w, "")
-			}
-		}
-	} else {
-		wfreg, _ = warpp.LoadFromDir(workflowDir)
-		for _, w := range wfreg.All() {
-			b, _ := json.Marshal(w)
-			var pw persist.WarppWorkflow
-			if err := json.Unmarshal(b, &pw); err == nil {
-				_, _ = wfStore.Upsert(ctx, systemUserID, pw)
-			}
-		}
-	}
-
-	a.warppRegistries = map[int64]*warpp.Registry{systemUserID: wfreg}
-	a.warppRunner = &warpp.Runner{Workflows: wfreg, Tools: toolRegistry}
-	a.warppStore = wfStore
-	// Register WARPP workflows as tools (warpp_<intent>) so they can be invoked directly.
-	warpptool.RegisterAll(toolRegistry, a.warppRunner)
-	return nil
-}
-
 func (a *app) initAuth(ctx context.Context) error {
 	if !a.cfg.Auth.Enabled {
 		return nil

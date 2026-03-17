@@ -2,6 +2,7 @@ package agentd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/flow"
+	"manifold/internal/persistence/databases"
 	"manifold/internal/tools"
 	"manifold/internal/tools/utility"
 )
@@ -19,7 +21,7 @@ func TestFlowV2WorkflowCRUD(t *testing.T) {
 
 	a := &app{
 		cfg:    &config.Config{},
-		flowV2: newFlowV2Runtime(),
+		flowV2: newFlowV2Runtime(nil),
 	}
 
 	putReqBody, _ := json.Marshal(flow.PutWorkflowRequest{
@@ -91,6 +93,72 @@ func TestFlowV2WorkflowCRUD(t *testing.T) {
 	}
 }
 
+func TestFlowV2WorkflowPersistsAcrossRuntimeRestart(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPostgresFlowV2Store(nil)
+	a := &app{
+		cfg:    &config.Config{},
+		flowV2: newFlowV2Runtime(store),
+	}
+
+	putReqBody, _ := json.Marshal(flow.PutWorkflowRequest{
+		Workflow: flow.Workflow{
+			ID:          "wf_restart",
+			Name:        "Restart Flow",
+			Description: "persists across runtime instances",
+			Trigger:     flow.Trigger{Type: flow.TriggerTypeSchedule, Schedule: &flow.ScheduleTrigger{Cron: "0 * * * *"}},
+			Nodes: []flow.Node{{
+				ID:   "n1",
+				Name: "Step One",
+				Kind: flow.NodeKindAction,
+				Type: "tool",
+				Tool: "utility_textbox",
+				Inputs: map[string]flow.InputBinding{
+					"text": {Expression: "$run.input.message"},
+				},
+			}},
+		},
+		Canvas: flow.WorkflowCanvas{
+			Nodes: map[string]flow.CanvasNode{"n1": {X: 48, Y: 96}},
+		},
+	})
+
+	detail := a.flowV2WorkflowDetailHandler()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/flows/v2/workflows/wf_restart", bytes.NewReader(putReqBody))
+	detail.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected 201 create, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	restarted := &app{
+		cfg:    &config.Config{},
+		flowV2: newFlowV2Runtime(store),
+	}
+
+	getRec := httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/api/flows/v2/workflows/wf_restart", nil)
+	restarted.flowV2WorkflowDetailHandler().ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 get after restart, got %d body=%s", getRec.Code, getRec.Body.String())
+	}
+
+	var getResp flow.GetWorkflowResponse
+	if err := json.Unmarshal(getRec.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("unmarshal get: %v", err)
+	}
+	if getResp.Workflow.Trigger.Type != flow.TriggerTypeSchedule {
+		t.Fatalf("unexpected trigger type after restart: %s", getResp.Workflow.Trigger.Type)
+	}
+	if getResp.Workflow.Nodes[0].Inputs["text"].Expression != "$run.input.message" {
+		t.Fatalf("unexpected input binding after restart: %+v", getResp.Workflow.Nodes[0].Inputs["text"])
+	}
+	if getResp.Canvas.Nodes["n1"].X != 48 || getResp.Canvas.Nodes["n1"].Y != 96 {
+		t.Fatalf("unexpected canvas after restart: %+v", getResp.Canvas.Nodes["n1"])
+	}
+}
+
 func TestFlowV2RunLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -99,10 +167,10 @@ func TestFlowV2RunLifecycle(t *testing.T) {
 	a := &app{
 		cfg:          &config.Config{},
 		toolRegistry: reg,
-		flowV2:       newFlowV2Runtime(),
+		flowV2:       newFlowV2Runtime(nil),
 	}
 
-	_, _ = a.flowV2.upsertWorkflow(0, flow.Workflow{
+	_, _, _ = a.flowV2.upsertWorkflow(context.Background(), 0, flow.Workflow{
 		ID:   "wf_run",
 		Name: "Run Flow",
 		Trigger: flow.Trigger{
@@ -190,10 +258,10 @@ func TestFlowV2RunUsesBaseToolRegistry(t *testing.T) {
 		cfg:              &config.Config{},
 		baseToolRegistry: baseReg,
 		toolRegistry:     filteredReg,
-		flowV2:           newFlowV2Runtime(),
+		flowV2:           newFlowV2Runtime(nil),
 	}
 
-	_, _ = a.flowV2.upsertWorkflow(0, flow.Workflow{
+	_, _, _ = a.flowV2.upsertWorkflow(context.Background(), 0, flow.Workflow{
 		ID:   "wf_base_tools",
 		Name: "Base Tool Flow",
 		Trigger: flow.Trigger{
@@ -266,10 +334,10 @@ func TestFlowV2RunAgentResponseTool(t *testing.T) {
 		cfg:              &config.Config{},
 		baseToolRegistry: reg,
 		toolRegistry:     reg,
-		flowV2:           newFlowV2Runtime(),
+		flowV2:           newFlowV2Runtime(nil),
 	}
 
-	_, _ = a.flowV2.upsertWorkflow(0, flow.Workflow{
+	_, _, _ = a.flowV2.upsertWorkflow(context.Background(), 0, flow.Workflow{
 		ID:   "wf_agent_response",
 		Name: "Agent Response Flow",
 		Trigger: flow.Trigger{

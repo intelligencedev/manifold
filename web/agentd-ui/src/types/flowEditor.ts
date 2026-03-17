@@ -1,73 +1,79 @@
-export interface WarppTool {
+import type { FlowV2Trigger } from "@/types/flowV2";
+
+export interface FlowEditorTool {
   name: string;
   description?: string;
   parameters?: Record<string, any>;
 }
 
-export interface WarppToolRef {
+export interface FlowEditorToolRef {
   name: string;
   args?: Record<string, any>;
 }
 
-export interface WarppNodeLayout {
+export interface FlowEditorNodeLayout {
   x: number;
   y: number;
   width?: number;
   height?: number;
 }
 
-export interface WarppGroupUIEntry {
+export interface FlowEditorGroupUIEntry {
   id: string;
   label: string;
   collapsed?: boolean;
   color?: string;
 }
 
-export interface WarppNoteUIEntry {
+export interface FlowEditorNoteUIEntry {
   id: string;
   label?: string;
   color?: string;
   note?: string;
 }
 
-export interface WarppWorkflowUI {
-  layout?: Record<string, WarppNodeLayout>;
+export interface FlowEditorWorkflowUI {
+  layout?: Record<string, FlowEditorNodeLayout>;
   parents?: Record<string, string>;
-  groups?: WarppGroupUIEntry[];
-  // editor-only notes; persisted client-side, optionally echoed to server ui
-  notes?: WarppNoteUIEntry[];
+  groups?: FlowEditorGroupUIEntry[];
+  notes?: FlowEditorNoteUIEntry[];
 }
 
-export interface WarppStep {
+export interface FlowEditorStep {
   id: string;
   text: string;
   guard?: string;
   publish_result?: boolean;
   publish_mode?: "immediate" | "topo";
   continue_on_error?: boolean;
-  tool?: WarppToolRef;
+  tool?: FlowEditorToolRef;
   depends_on?: string[];
 }
 
-export interface WarppWorkflow {
+export interface FlowEditorWorkflow {
   intent: string;
   description?: string;
   keywords?: string[];
   project_id?: string;
+  trigger?: FlowV2Trigger;
   max_concurrency?: number;
   fail_fast?: boolean;
-  steps: WarppStep[];
-  ui?: WarppWorkflowUI;
+  steps: FlowEditorStep[];
+  ui?: FlowEditorWorkflowUI;
 }
 
-export type WarppTraceStatus = "completed" | "skipped" | "noop" | "error";
+export type FlowEditorTraceStatus =
+  | "completed"
+  | "skipped"
+  | "noop"
+  | "error";
 
-export interface WarppStepTrace {
+export interface FlowEditorStepTrace {
   stepId: string;
   text?: string;
   renderedArgs?: Record<string, any>;
   delta?: Record<string, any>;
   payload?: unknown;
-  status?: WarppTraceStatus;
+  status?: FlowEditorTraceStatus;
   error?: string;
 }

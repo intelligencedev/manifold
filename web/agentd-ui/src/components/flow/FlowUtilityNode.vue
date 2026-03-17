@@ -1,11 +1,11 @@
 <template>
-  <WarppBaseNode
+  <FlowBaseNode
     :collapsed="collapsed"
     :min-width="
-      collapsed ? WARPP_UTILITY_NODE_COLLAPSED.width : UTILITY_MIN_WIDTH
+      collapsed ? FLOW_UTILITY_NODE_COLLAPSED.width : UTILITY_MIN_WIDTH
     "
     :min-height="
-      collapsed ? WARPP_UTILITY_NODE_COLLAPSED.height : UTILITY_MIN_HEIGHT
+      collapsed ? FLOW_UTILITY_NODE_COLLAPSED.height : UTILITY_MIN_HEIGHT
     "
     :min-width-px="nodeMinWidthPx"
     :min-height-px="nodeMinHeightPx"
@@ -101,10 +101,10 @@
 
       <!-- Front content -->
       <div
-        class="mt-3 warpp-utility-content flex flex-col h-full"
+        class="mt-3 flow-utility-content flex flex-col min-h-0 flex-1"
         :class="collapsed ? 'hidden' : ''"
       >
-        <div class="flex-1 space-y-2 overflow-auto">
+        <div class="flex-1 min-h-0 space-y-2 overflow-y-auto">
           <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
             Display Label
             <input
@@ -140,15 +140,38 @@
                 />
               </div>
             </div>
-            <textarea
-              v-if="isDesignMode"
-              v-model="contentText"
-              rows="4"
-              class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full flex-1 min-h-[92px] resize-none whitespace-pre-wrap break-words"
-              placeholder="Enter static text or use ${A.key} placeholders"
-              @input="markDirty"
-              @wheel.stop
-            ></textarea>
+            <div v-if="isDesignMode" class="relative">
+              <textarea
+                ref="utilTextareaEl"
+                v-model="contentText"
+                rows="4"
+                :class="[
+                  'rounded border bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full flex-1 min-h-[92px] resize-none whitespace-pre-wrap break-words',
+                  isExpressionContent ? 'border-accent/60 bg-accent/5' : 'border-border/60',
+                ]"
+                placeholder="Enter static text or use ={{$run.input.query}} bindings"
+                @input="markDirty"
+                @wheel.stop
+              ></textarea>
+              <button
+                v-if="hasUpstream"
+                type="button"
+                class="absolute top-1 right-1 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
+                :class="utilPickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+                title="Insert reference from upstream node"
+                @click.prevent.stop="toggleUtilPicker"
+              >
+                {x}
+              </button>
+              <ExpressionPicker
+                v-if="hasUpstream"
+                :open="utilPickerOpen"
+                :node-id="props.id"
+                :anchor="utilTextareaEl"
+                @select="onUtilPickExpression"
+                @close="utilPickerOpen = false"
+              />
+            </div>
             <div
               v-else
               :class="[
@@ -292,7 +315,7 @@
         <div class="space-y-2">
           <p class="text-[10px] text-faint-foreground">
             Prefer referencing prior step data with
-            <code>{{ `\${A.${props.id}.json...}` }}</code
+            <code>{{ outputReferenceExample }}</code
             >. Promote to an attribute when you want a short, stable name
             (useful for guards and reuse).
           </p>
@@ -313,7 +336,7 @@
               v-model="outputFrom"
               type="text"
               class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-              placeholder="payload | json.<path> | delta.<key> | args.<key>"
+              placeholder="payload | json.<path> | delta.<key> | inputs.<key>"
               :disabled="!isDesignMode"
               @input="markDirty"
             />
@@ -360,13 +383,14 @@
         </div>
       </div>
     </template>
-  </WarppBaseNode>
+  </FlowBaseNode>
 </template>
 
 <script setup lang="ts">
 import {
   computed,
   inject,
+  provide,
   ref,
   watch,
   onMounted,
@@ -375,52 +399,75 @@ import {
 import { useVueFlow, type NodeProps } from "@vue-flow/core";
 import type { OnResizeEnd } from "@vue-flow/node-resizer";
 
-import WarppBaseNode from "./WarppBaseNode.vue";
+import FlowBaseNode from "./FlowBaseNode.vue";
 import type { StepNodeData } from "@/types/flow";
-import type { WarppStep, WarppStepTrace } from "@/types/warpp";
+import type { FlowEditorStep, FlowEditorStepTrace } from "@/types/flowEditor";
 import type { Ref } from "vue";
 import GearIcon from "@/components/icons/Gear.vue";
 import {
-  WARPP_UTILITY_NODE_DIMENSIONS,
-  WARPP_UTILITY_NODE_COLLAPSED,
-} from "@/constants/warppNodes";
+  FLOW_UTILITY_NODE_DIMENSIONS,
+  FLOW_UTILITY_NODE_COLLAPSED,
+} from "@/constants/flowNodes";
 import { renderMarkdown } from "@/utils/markdown";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import ExpressionPicker from "./ExpressionPicker.vue";
+import type { Edge } from "@vue-flow/core";
 
 const TOOL_NAME_FALLBACK = "utility_textbox";
 const AGENT_RESPONSE_TOOL = "agent_response";
 type RenderMode = "raw" | "markdown" | "html";
 
 const props = defineProps<NodeProps<StepNodeData>>();
+provide("flowEditorNodeId", props.id);
 
 const { updateNodeData, updateNode } = useVueFlow();
 
-const UTILITY_MIN_WIDTH = WARPP_UTILITY_NODE_DIMENSIONS.minWidth;
-const UTILITY_MIN_HEIGHT = WARPP_UTILITY_NODE_DIMENSIONS.minHeight;
+const UTILITY_MIN_WIDTH = FLOW_UTILITY_NODE_DIMENSIONS.minWidth;
+const UTILITY_MIN_HEIGHT = FLOW_UTILITY_NODE_DIMENSIONS.minHeight;
 const nodeMinWidthPx = computed(() =>
   collapsed.value
-    ? `${WARPP_UTILITY_NODE_COLLAPSED.width}px`
+    ? `${FLOW_UTILITY_NODE_COLLAPSED.width}px`
     : `${UTILITY_MIN_WIDTH}px`,
 );
 const nodeMinHeightPx = computed(() =>
   collapsed.value
-    ? `${WARPP_UTILITY_NODE_COLLAPSED.height}px`
+    ? `${FLOW_UTILITY_NODE_COLLAPSED.height}px`
     : `${UTILITY_MIN_HEIGHT}px`,
 );
-const hydratingRef = inject<Ref<boolean>>("warppHydrating", ref(false));
+const hydratingRef = inject<Ref<boolean>>("flowEditorHydrating", ref(false));
 const modeRef = inject<Ref<"design" | "run">>(
-  "warppMode",
+  "flowEditorMode",
   ref<"design" | "run">("design"),
 );
-const runTraceRef = inject<Ref<Record<string, WarppStepTrace>>>(
-  "warppRunTrace",
-  ref<Record<string, WarppStepTrace>>({}),
+const runTraceRef = inject<Ref<Record<string, FlowEditorStepTrace>>>(
+  "flowEditorRunTrace",
+  ref<Record<string, FlowEditorStepTrace>>({}),
 );
-const runningRef = inject<Ref<boolean>>("warppRunning", ref(false));
+const runningRef = inject<Ref<boolean>>("flowEditorRunning", ref(false));
 const openResultModal = inject<(stepId: string, title: string) => void>(
-  "warppOpenResultModal",
+  "flowEditorOpenResultModal",
   () => {},
 );
+const edgesRef = inject<Ref<Edge[]>>("flowEditorEdges", ref([]));
+
+// Expression picker state
+const utilPickerOpen = ref(false);
+const utilTextareaEl = ref<HTMLTextAreaElement | null>(null);
+const hasUpstream = computed(() =>
+  edgesRef.value.some((e) => e.target === props.id),
+);
+const isExpressionContent = computed(() => {
+  const v = contentText.value;
+  return v.startsWith("={{") || v.startsWith("$node.") || v.startsWith("$run.");
+});
+function toggleUtilPicker() {
+  utilPickerOpen.value = !utilPickerOpen.value;
+}
+function onUtilPickExpression(expression: string) {
+  contentText.value = expression;
+  utilPickerOpen.value = false;
+  markDirty();
+}
 
 function normalizeDisplayText(value: unknown): string {
   if (value === null || value === undefined) return "";
@@ -452,6 +499,9 @@ const rootClass = computed(() => [
 const isDirty = ref(false);
 const collapsed = ref(true);
 const copied = ref(false);
+const outputReferenceExample = computed(
+  () => `={{$node.${props.id}.output...}}`,
+);
 
 const toolName = computed(
   () => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBACK,
@@ -574,8 +624,8 @@ function markDirty() {
 function commit() {
   if (hydratingRef.value || !isDesignMode.value) return;
   const args = buildArgs();
-  const nextStep: WarppStep = {
-    ...(props.data?.step ?? ({} as WarppStep)),
+  const nextStep: FlowEditorStep = {
+    ...(props.data?.step ?? ({} as FlowEditorStep)),
     id: props.id,
     text: labelText.value.trim() || prettifyName(toolName.value),
     publish_result: Boolean(props.data?.step?.publish_result),
@@ -606,9 +656,9 @@ function buildArgs(): Record<string, unknown> {
   return args;
 }
 
-function cloneStep(step: WarppStep) {
+function cloneStep(step: FlowEditorStep) {
   try {
-    return JSON.parse(JSON.stringify(step)) as WarppStep;
+    return JSON.parse(JSON.stringify(step)) as FlowEditorStep;
   } catch (err) {
     console.warn("Failed to clone utility step", err);
     return { ...step };
@@ -662,25 +712,25 @@ function applyCollapsedStyle(next: boolean) {
       return {
         style: {
           ...baseStyle,
-          width: px(WARPP_UTILITY_NODE_COLLAPSED.width),
-          height: px(WARPP_UTILITY_NODE_COLLAPSED.height),
-          minWidth: px(WARPP_UTILITY_NODE_COLLAPSED.width),
-          minHeight: px(WARPP_UTILITY_NODE_COLLAPSED.height),
+          width: px(FLOW_UTILITY_NODE_COLLAPSED.width),
+          height: px(FLOW_UTILITY_NODE_COLLAPSED.height),
+          minWidth: px(FLOW_UTILITY_NODE_COLLAPSED.width),
+          minHeight: px(FLOW_UTILITY_NODE_COLLAPSED.height),
         },
       };
     }
 
     // expanding: try to restore previous explicit size, else defaults
     const restored = prevExpandedSize.get(nodeId);
-    const targetW = restored?.w ?? WARPP_UTILITY_NODE_DIMENSIONS.defaultWidth;
-    const targetH = restored?.h ?? WARPP_UTILITY_NODE_DIMENSIONS.defaultHeight;
+    const targetW = restored?.w ?? FLOW_UTILITY_NODE_DIMENSIONS.defaultWidth;
+    const targetH = restored?.h ?? FLOW_UTILITY_NODE_DIMENSIONS.defaultHeight;
     return {
       style: {
         ...baseStyle,
         width: px(targetW),
         height: px(targetH),
-        minWidth: px(WARPP_UTILITY_NODE_DIMENSIONS.minWidth),
-        minHeight: px(WARPP_UTILITY_NODE_DIMENSIONS.minHeight),
+        minWidth: px(FLOW_UTILITY_NODE_DIMENSIONS.minWidth),
+        minHeight: px(FLOW_UTILITY_NODE_DIMENSIONS.minHeight),
       },
     };
   });
@@ -707,8 +757,8 @@ async function copyStepId() {
 }
 
 // Global expand/collapse signals injected from FlowView
-const collapseAllSeq = inject<Ref<number>>("warppCollapseAllSeq", ref(0));
-const expandAllSeq = inject<Ref<number>>("warppExpandAllSeq", ref(0));
+const collapseAllSeq = inject<Ref<number>>("flowEditorCollapseAllSeq", ref(0));
+const expandAllSeq = inject<Ref<number>>("flowEditorExpandAllSeq", ref(0));
 const lastCollapseSeen = ref(0);
 const lastExpandSeen = ref(0);
 watch(collapseAllSeq, (v) => {

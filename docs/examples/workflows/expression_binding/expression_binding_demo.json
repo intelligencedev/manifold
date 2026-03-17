@@ -1,0 +1,57 @@
+{
+  "intent": "expression-binding-demo",
+  "description": "Demonstrates how to bind upstream node outputs to downstream node inputs using expression references.",
+  "keywords": ["demo", "expression", "binding", "example"],
+  "trigger": {
+    "type": "manual"
+  },
+  "steps": [
+    {
+      "id": "prompt-input",
+      "text": "Research Topic",
+      "tool": {
+        "name": "utility_textbox",
+        "args": {
+          "label": "Research Topic",
+          "text": "What are the latest advancements in large language models?"
+        }
+      },
+      "depends_on": []
+    },
+    {
+      "id": "search-step",
+      "text": "Search the web for our topic",
+      "tool": {
+        "name": "web_search",
+        "args": {
+          "query": "={{$node.prompt-input.output.text}}",
+          "max_results": 3
+        }
+      },
+      "depends_on": [
+        "prompt-input"
+      ]
+    },
+    {
+      "id": "display-results",
+      "text": "Display Search Results",
+      "tool": {
+        "name": "utility_textbox",
+        "args": {
+          "label": "Search Results",
+          "text": "={{$node.search-step.output.payload}}"
+        }
+      },
+      "depends_on": [
+        "search-step"
+      ]
+    }
+  ],
+  "ui": {
+    "layout": {
+      "prompt-input": { "x": 50, "y": 200 },
+      "search-step": { "x": 450, "y": 200 },
+      "display-results": { "x": 850, "y": 200 }
+    }
+  }
+}

@@ -19,14 +19,39 @@
     </label>
 
     <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-      Textbox Content
+      <div class="flex items-center justify-between gap-2">
+        <span>Textbox Content</span>
+        <div class="inline-flex rounded border border-border/60 bg-surface-muted p-0.5">
+          <button
+            type="button"
+            class="rounded px-2 py-0.5 text-[10px]"
+            :class="contentMode === 'literal' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground'"
+            :disabled="!isDesignMode || hydratingRef"
+            @click="setContentMode('literal')"
+          >
+            Literal
+          </button>
+          <button
+            type="button"
+            class="rounded px-2 py-0.5 text-[10px]"
+            :class="contentMode === 'binding' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground'"
+            :disabled="!isDesignMode || hydratingRef"
+            @click="setContentMode('binding')"
+          >
+            Binding
+          </button>
+        </div>
+      </div>
       <textarea
         v-model="contentText"
         rows="4"
         class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full h-[92px] resize-none whitespace-pre-wrap break-words"
-        placeholder="Enter static text or use ${A.key} placeholders"
+        :placeholder="contentPlaceholder"
         :disabled="!isDesignMode || hydratingRef"
       />
+      <p class="text-[10px] text-faint-foreground">
+        {{ contentHelpText }}
+      </p>
     </label>
 
     <label
@@ -70,7 +95,7 @@
             v-model="outputFrom"
             type="text"
             class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            placeholder="payload | json.<path> | delta.<key> | args.<key>"
+            placeholder="payload | json.<path> | delta.<key> | inputs.<key>"
           />
         </label>
         <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -106,7 +131,7 @@
 import { computed, inject, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import type { StepNodeData } from "@/types/flow";
-import type { WarppStep } from "@/types/warpp";
+import type { FlowEditorStep } from "@/types/flowEditor";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 
 const TOOL_NAME_FALLBACK = "utility_textbox";
@@ -116,19 +141,29 @@ type RenderMode = "raw" | "markdown" | "html";
 const props = defineProps<{ nodeId: string; data: StepNodeData }>();
 const { updateNodeData } = useVueFlow();
 const modeRef = inject<Ref<"design" | "run">>(
-  "warppMode",
+  "flowEditorMode",
   ref<"design" | "run">("design"),
 );
-const hydratingRef = inject<Ref<boolean>>("warppHydrating", ref(false));
+const hydratingRef = inject<Ref<boolean>>("flowEditorHydrating", ref(false));
 
 const isDesignMode = computed(() => modeRef.value === "design");
 const labelText = ref("");
 const contentText = ref("");
+const contentMode = ref<"literal" | "binding">("literal");
 const renderMode = ref<RenderMode>("markdown");
 const outputAttr = ref("");
 const outputFrom = ref("");
 const outputValue = ref("");
 const isDirty = ref(false);
+const bindingExample = "={{$run.input.query}}";
+const contentPlaceholder = computed(() =>
+  contentMode.value === "binding" ? bindingExample : "Enter static text",
+);
+const contentHelpText = computed(() =>
+  contentMode.value === "binding"
+    ? `Binding mode stores a Flow expression such as ${bindingExample}.`
+    : "Literal mode stores plain text exactly as written.",
+);
 
 const toolName = computed(
   () => props.data?.step?.tool?.name ?? TOOL_NAME_FALLBACK,
@@ -143,6 +178,11 @@ function parseRenderMode(value: unknown): RenderMode {
     : "markdown";
 }
 
+function looksLikeExpression(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return value.trim().startsWith("=");
+}
+
 let suppress = false;
 watch(
   () => props.data?.step,
@@ -151,6 +191,7 @@ watch(
     const args = (step?.tool?.args ?? {}) as Record<string, unknown>;
     labelText.value = String(args.label ?? step?.text ?? "");
     contentText.value = String(args.text ?? "");
+    contentMode.value = looksLikeExpression(args.text) ? "binding" : "literal";
     renderMode.value = parseRenderMode(args.render_mode);
     outputAttr.value =
       typeof args.output_attr === "string" ? (args.output_attr as string) : "";
@@ -176,8 +217,8 @@ watch(
 
 function applyChanges() {
   if (!isDesignMode.value || !isDirty.value) return;
-  const nextStep: WarppStep = {
-    ...(props.data?.step ?? ({} as WarppStep)),
+  const nextStep: FlowEditorStep = {
+    ...(props.data?.step ?? ({} as FlowEditorStep)),
     id: props.nodeId,
     text: labelText.value.trim() || prettifyName(toolName.value),
     publish_result: Boolean(props.data?.step?.publish_result),
@@ -209,6 +250,13 @@ function buildArgs(): Record<string, unknown> {
   return args;
 }
 
+function setContentMode(mode: "literal" | "binding") {
+  if (!isDesignMode.value || hydratingRef.value) return;
+  if (contentMode.value === mode) return;
+  contentMode.value = mode;
+  isDirty.value = true;
+}
+
 function prettifyName(name: string): string {
   if (name === AGENT_RESPONSE_TOOL) return "Agent Response";
   if (!name.startsWith("utility_")) return name;
@@ -218,9 +266,9 @@ function prettifyName(name: string): string {
     .replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
-function cloneStep(step: WarppStep) {
+function cloneStep(step: FlowEditorStep) {
   try {
-    return JSON.parse(JSON.stringify(step)) as WarppStep;
+    return JSON.parse(JSON.stringify(step)) as FlowEditorStep;
   } catch {
     return { ...step };
   }

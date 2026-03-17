@@ -49,16 +49,20 @@
 
       <!-- Front face -->
       <div
-        class="flip-face flip-front rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
+        class="flip-face flip-front flex flex-col overflow-hidden rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
       >
-        <slot name="front" />
+        <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+          <slot name="front" />
+        </div>
       </div>
 
       <!-- Back face -->
       <div
-        class="flip-face flip-back rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
+        class="flip-face flip-back flex flex-col overflow-hidden rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
       >
-        <slot name="back" />
+        <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+          <slot name="back" />
+        </div>
       </div>
     </div>
   </div>
@@ -70,7 +74,7 @@ import { Handle, Position } from "@vue-flow/core";
 import { NodeResizer } from "@vue-flow/node-resizer";
 import type { OnResizeEnd } from "@vue-flow/node-resizer";
 
-defineOptions({ name: "WarppBaseNode" });
+defineOptions({ name: "FlowBaseNode" });
 
 const props = defineProps<{
   collapsed?: boolean;

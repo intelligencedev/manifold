@@ -1,23 +1,27 @@
 <template>
-  <div class="sticky-note-node relative h-full w-full select-none">
+  <div class="group-node relative h-full w-full">
     <NodeResizer
       v-if="isDesignMode"
-      :min-width="NOTE_MIN_WIDTH"
-      :min-height="NOTE_MIN_HEIGHT"
+      :min-width="GROUP_MIN_WIDTH"
+      :min-height="GROUP_MIN_HEIGHT"
       :handle-style="RESIZER_HANDLE_STYLE"
       :line-style="RESIZER_LINE_STYLE"
       @resize-end="onResizeEnd"
     />
-    <div class="sticky-surface" :style="surfaceStyle" />
-    <div
-      class="sticky-header"
-      :class="{ 'pointer-events-none': !isDesignMode }"
-    >
-      <div class="text-sm font-semibold text-foreground select-none">Note</div>
-      <div v-if="isDesignMode" class="flex items-center gap-1 ml-auto">
+    <div class="group-surface" :style="groupSurfaceStyle" />
+    <div class="group-header" :class="{ 'pointer-events-none': !isDesignMode }">
+      <input
+        v-model="labelText"
+        :disabled="!isDesignMode"
+        class="group-title"
+        type="text"
+        :placeholder="defaultLabel"
+        spellcheck="false"
+      />
+      <div v-if="isDesignMode" class="flex items-center gap-1">
         <button
           type="button"
-          class="note-color-picker"
+          class="group-color-picker"
           :title="showColorPicker ? 'Close color picker' : 'Choose color'"
           @click.stop.prevent="toggleColorPicker"
         >
@@ -45,13 +49,13 @@
             :key="preset.value"
             type="button"
             class="color-swatch"
-            :class="{ active: noteColor === preset.value }"
+            :class="{ active: groupColor === preset.value }"
             :style="{ backgroundColor: preset.display }"
             :title="preset.label"
             @click.stop.prevent="setColor(preset.value)"
           >
             <svg
-              v-if="noteColor === preset.value"
+              v-if="groupColor === preset.value"
               class="h-3 w-3 text-white drop-shadow"
               viewBox="0 0 24 24"
               fill="none"
@@ -64,18 +68,14 @@
             </svg>
           </button>
         </div>
+        <button
+          type="button"
+          class="group-ungroup"
+          @click.stop.prevent="requestUngroup"
+        >
+          Ungroup
+        </button>
       </div>
-    </div>
-
-    <div class="sticky-body" :class="{ 'pointer-events-none': !isDesignMode }">
-      <textarea
-        v-model="noteText"
-        :disabled="!isDesignMode"
-        class="sticky-textarea"
-        placeholder="Type a note…"
-        rows="4"
-        @wheel.stop
-      />
     </div>
   </div>
 </template>
@@ -92,24 +92,29 @@ import {
 import { NodeResizer, type OnResizeEnd } from "@vue-flow/node-resizer";
 import { useVueFlow, type NodeProps } from "@vue-flow/core";
 
-import type { StickyNoteNodeData } from "@/types/flow";
-import { WARPP_UTILITY_NODE_DIMENSIONS } from "@/constants/warppNodes";
+import type { GroupNodeData } from "@/types/flow";
+import { FLOW_GROUP_NODE_DIMENSIONS } from "@/constants/flowNodes";
 
-defineOptions({ name: "WarppStickyNoteNode", inheritAttrs: false });
+defineOptions({ name: "FlowGroupNode", inheritAttrs: false });
 
-const props = defineProps<NodeProps<StickyNoteNodeData>>();
+const props = defineProps<NodeProps<GroupNodeData>>();
+const emit = defineEmits<{ (event: "request-ungroup", id: string): void }>();
 
 const { updateNode, updateNodeData } = useVueFlow();
 
-const NOTE_MIN_WIDTH = WARPP_UTILITY_NODE_DIMENSIONS.minWidth;
-const NOTE_MIN_HEIGHT = WARPP_UTILITY_NODE_DIMENSIONS.minHeight;
-const defaultLabel = "Sticky Note";
+const GROUP_MIN_WIDTH = FLOW_GROUP_NODE_DIMENSIONS.minWidth;
+const GROUP_MIN_HEIGHT = FLOW_GROUP_NODE_DIMENSIONS.minHeight;
+const defaultLabel = "Group";
 
 const modeRef = inject<Ref<"design" | "run">>(
-  "warppMode",
+  "flowEditorMode",
   ref<"design" | "run">("design"),
 );
 const isDesignMode = computed(() => modeRef.value === "design");
+const ungroupHandler = inject<((id: string) => void) | null>(
+  "flowEditorRequestUngroup",
+  null,
+);
 
 const RESIZER_HANDLE_STYLE = Object.freeze({
   width: "14px",
@@ -118,9 +123,10 @@ const RESIZER_HANDLE_STYLE = Object.freeze({
   border: "none",
   background: "transparent",
 });
+
 const RESIZER_LINE_STYLE = Object.freeze({ opacity: "0" });
 
-// Reuse group node color presets
+// Theme-aware color presets that work in both light and dark modes
 const colorPresets = [
   { value: "default", label: "Default", display: "rgba(148, 163, 184, 0.3)" },
   { value: "blue", label: "Blue", display: "rgba(56, 189, 248, 0.25)" },
@@ -131,47 +137,47 @@ const colorPresets = [
 ];
 
 const colorMap: Record<string, string> = {
-  default: "rgb(var(--color-surface) / 0.85)",
-  blue: "rgba(56, 189, 248, 0.28)",
-  green: "rgba(34, 197, 94, 0.28)",
-  amber: "rgba(251, 191, 36, 0.28)",
-  rose: "rgba(251, 113, 133, 0.28)",
-  purple: "rgba(168, 85, 247, 0.28)",
+  default: "rgb(var(--color-surface) / 0.75)",
+  blue: "rgba(56, 189, 248, 0.2)",
+  green: "rgba(34, 197, 94, 0.2)",
+  amber: "rgba(251, 191, 36, 0.2)",
+  rose: "rgba(251, 113, 133, 0.2)",
+  purple: "rgba(168, 85, 247, 0.2)",
 };
 
-// Header is static: "Note" per design; no editable label
+const labelText = ref(defaultLabel);
 const showColorPicker = ref(false);
-const noteColor = ref<string>("default");
-const noteText = ref("");
+const groupColor = ref<string>("default");
 let suppressCommit = false;
 
 watch(
-  () => props.data?.color,
-  (next) => {
-    noteColor.value = next || "default";
-  },
-  { immediate: true },
-);
-
-watch(
-  () => props.data?.note,
+  () => props.data?.label,
   (next) => {
     suppressCommit = true;
-    noteText.value = next ?? "";
+    labelText.value = next?.trim() || defaultLabel;
     suppressCommit = false;
   },
   { immediate: true },
 );
 
-const surfaceStyle = computed<CSSProperties>(() => ({
-  background: colorMap[noteColor.value] || colorMap.default,
+watch(
+  () => props.data?.color,
+  (next) => {
+    groupColor.value = next || "default";
+  },
+  { immediate: true },
+);
+
+const groupSurfaceStyle = computed<CSSProperties>(() => ({
+  background: colorMap[groupColor.value] || colorMap.default,
 }));
 
-watch(noteText, (next) => {
+watch(labelText, (next) => {
   if (suppressCommit) return;
+  const label = next.trim() || defaultLabel;
   updateNodeData(props.id, {
-    ...(props.data ?? { kind: "utility", label: defaultLabel }),
-    note: next ?? "",
+    ...(props.data ?? { kind: "group", label }),
+    label,
   });
 });
 
@@ -180,9 +186,9 @@ function toggleColorPicker() {
 }
 
 function setColor(color: string) {
-  noteColor.value = color;
+  groupColor.value = color;
   updateNodeData(props.id, {
-    ...(props.data ?? { kind: "utility", label: defaultLabel, note: "" }),
+    ...(props.data ?? { kind: "group", label: defaultLabel }),
     color,
   });
   showColorPicker.value = false;
@@ -190,8 +196,8 @@ function setColor(color: string) {
 
 function onResizeEnd(event: OnResizeEnd) {
   if (!isDesignMode.value) return;
-  const widthPx = `${Math.max(Math.round(event.params.width), NOTE_MIN_WIDTH)}px`;
-  const heightPx = `${Math.max(Math.round(event.params.height), NOTE_MIN_HEIGHT)}px`;
+  const widthPx = `${Math.max(Math.round(event.params.width), GROUP_MIN_WIDTH)}px`;
+  const heightPx = `${Math.max(Math.round(event.params.height), GROUP_MIN_HEIGHT)}px`;
   updateNode(props.id, (node) => {
     const baseStyle: CSSProperties =
       typeof node.style === "function"
@@ -206,24 +212,29 @@ function onResizeEnd(event: OnResizeEnd) {
     };
   });
 }
+
+function requestUngroup() {
+  ungroupHandler?.(props.id);
+  emit("request-ungroup", props.id);
+}
 </script>
 
 <style scoped>
-.sticky-note-node {
-  border-radius: 10px;
+.group-node {
+  border-radius: 12px;
 }
-.sticky-surface {
+.group-surface {
   position: absolute;
   inset: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: color-mix(
     in srgb,
-    rgb(var(--color-surface) / 1) 80%,
-    transparent 20%
+    rgb(var(--color-surface) / 1) 75%,
+    transparent 25%
   );
   border: 1px dashed rgb(var(--color-border) / 0.65);
 }
-.sticky-header {
+.group-header {
   position: absolute;
   top: 0.35rem;
   left: 0.5rem;
@@ -233,17 +244,35 @@ function onResizeEnd(event: OnResizeEnd) {
   gap: 0.5rem;
   pointer-events: auto;
 }
-.sticky-title {
+.group-title {
   flex: 1;
   min-width: 0;
   border: 1px solid rgb(var(--color-border) / 0.75);
   border-radius: 0.5rem;
-  background: rgb(var(--color-surface) / 0.92);
+  background: rgb(var(--color-surface) / 0.9);
   padding: 0.25rem 0.5rem;
   font-size: 0.7rem;
   color: rgb(var(--color-foreground));
 }
-.note-color-picker {
+.group-title:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+.group-ungroup {
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-border) / 0.7);
+  background: rgb(var(--color-surface-muted) / 0.9);
+  padding: 0.25rem 0.45rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgb(var(--color-subtle-foreground));
+}
+.group-ungroup:hover {
+  color: rgb(var(--color-foreground));
+  background: rgb(var(--color-surface-muted));
+}
+.group-color-picker {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -253,7 +282,7 @@ function onResizeEnd(event: OnResizeEnd) {
   padding: 0.25rem;
   color: rgb(var(--color-subtle-foreground));
 }
-.note-color-picker:hover {
+.group-color-picker:hover {
   color: rgb(var(--color-foreground));
   background: rgb(var(--color-surface-muted));
 }
@@ -289,26 +318,5 @@ function onResizeEnd(event: OnResizeEnd) {
 .color-swatch.active {
   border-color: rgb(var(--color-accent));
   box-shadow: 0 0 0 2px rgb(var(--color-accent) / 0.3);
-}
-.sticky-body {
-  position: absolute;
-  top: 2rem;
-  left: 0.5rem;
-  right: 0.5rem;
-  bottom: 0.5rem;
-}
-.sticky-textarea {
-  width: 100%;
-  height: 100%;
-  resize: none;
-  border-radius: 0.5rem;
-  border: 1px solid rgb(var(--color-border) / 0.6);
-  background: rgb(var(--color-surface) / 0.85);
-  padding: 0.5rem;
-  font-size: 0.8rem;
-  color: rgb(var(--color-foreground));
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 </style>

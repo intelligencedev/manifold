@@ -279,7 +279,6 @@ function toggleSection(id: string) {
 
 function select(expression: string) {
   emit("select", expression);
-  emit("close");
 }
 
 function formatPreview(value: unknown): string {

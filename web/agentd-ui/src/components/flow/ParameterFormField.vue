@@ -231,8 +231,9 @@ function togglePicker() {
 }
 
 function onPickExpression(expression: string) {
-  emit("update:model-value", expression);
-  pickerOpen.value = false;
+  const current = stringValue.value;
+  const combined = current ? `${current}\n${expression}` : expression;
+  emit("update:model-value", combined);
 }
 
 const isExpressionValue = computed(() => {

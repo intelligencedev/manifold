@@ -1,6 +1,18 @@
 <template>
   <div class="space-y-3">
-    <div class="text-xs text-subtle-foreground">Sticky Note</div>
+    <div class="text-xs text-subtle-foreground">Group Container</div>
+
+    <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      Label
+      <input
+        v-model="labelText"
+        type="text"
+        class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+        placeholder="Group"
+        :disabled="!isDesignMode || hydratingRef"
+      />
+    </label>
+
     <div class="space-y-1 text-[11px] text-muted-foreground">
       <div>Color</div>
       <div class="flex flex-wrap gap-2">
@@ -9,14 +21,14 @@
           :key="preset.value"
           type="button"
           class="color-swatch"
-          :class="{ active: noteColor === preset.value }"
+          :class="{ active: groupColor === preset.value }"
           :style="{ backgroundColor: preset.display }"
           :title="preset.label"
           :disabled="!isDesignMode || hydratingRef"
-          @click="noteColor = preset.value"
+          @click="groupColor = preset.value"
         >
           <svg
-            v-if="noteColor === preset.value"
+            v-if="groupColor === preset.value"
             class="h-3 w-3 text-white drop-shadow"
             viewBox="0 0 24 24"
             fill="none"
@@ -30,15 +42,7 @@
         </button>
       </div>
     </div>
-    <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
-      Note
-      <textarea
-        v-model="noteText"
-        rows="6"
-        class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full resize-none whitespace-pre-wrap break-words"
-        :disabled="!isDesignMode || hydratingRef"
-      />
-    </label>
+
     <div class="pt-1 flex items-center justify-end gap-2">
       <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
         >Unsaved</span
@@ -57,9 +61,11 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
-import type { StickyNoteNodeData } from "@/types/flow";
 
-const props = defineProps<{ nodeId: string; data: StickyNoteNodeData }>();
+import type { GroupNodeData } from "@/types/flow";
+
+const props = defineProps<{ nodeId: string; data: GroupNodeData }>();
+
 const { updateNodeData } = useVueFlow();
 const modeRef = inject<Ref<"design" | "run">>(
   "flowEditorMode",
@@ -77,33 +83,24 @@ const colorPresets = [
 ];
 
 const isDesignMode = computed(() => modeRef.value === "design");
-const noteText = ref("");
-const noteColor = ref("default");
+const labelText = ref("Group");
+const groupColor = ref("default");
 const isDirty = ref(false);
 let suppress = false;
 
 watch(
-  () => props.data?.color,
+  () => props.data,
   (next) => {
     suppress = true;
-    noteColor.value = next ?? "default";
-    suppress = false;
-  },
-  { immediate: true },
-);
-
-watch(
-  () => props.data?.note,
-  (next) => {
-    suppress = true;
-    noteText.value = next ?? "";
+    labelText.value = next?.label?.trim() || "Group";
+    groupColor.value = next?.color || "default";
     isDirty.value = false;
     suppress = false;
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 );
 
-watch([noteText, noteColor], () => {
+watch([labelText, groupColor], () => {
   if (suppress || hydratingRef.value || !isDesignMode.value) return;
   isDirty.value = true;
 });
@@ -111,9 +108,10 @@ watch([noteText, noteColor], () => {
 function applyChanges() {
   if (!isDesignMode.value || !isDirty.value) return;
   updateNodeData(props.nodeId, {
-    ...(props.data ?? { kind: "utility" }),
-    note: noteText.value,
-    color: noteColor.value,
+    ...(props.data ?? { kind: "group" }),
+    kind: "group",
+    label: labelText.value.trim() || "Group",
+    color: groupColor.value,
   });
   isDirty.value = false;
 }

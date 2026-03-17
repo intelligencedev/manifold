@@ -464,8 +464,8 @@ function toggleUtilPicker() {
   utilPickerOpen.value = !utilPickerOpen.value;
 }
 function onUtilPickExpression(expression: string) {
-  contentText.value = expression;
-  utilPickerOpen.value = false;
+  const current = contentText.value;
+  contentText.value = current ? `${current}\n${expression}` : expression;
   markDirty();
 }
 

@@ -323,6 +323,28 @@ func TestFlowV2RunUsesBaseToolRegistry(t *testing.T) {
 	if eventsResp.Status != "completed" {
 		t.Fatalf("expected completed status, got %s with events=%+v", eventsResp.Status, eventsResp.Events)
 	}
+
+	var completed *flow.RunEvent
+	for i := range eventsResp.Events {
+		event := &eventsResp.Events[i]
+		if event.Type == flow.RunEventTypeNodeCompleted && event.NodeID == "agent_response" {
+			completed = event
+			break
+		}
+	}
+	if completed == nil {
+		t.Fatalf("expected node_completed event for agent_response, got %+v", eventsResp.Events)
+	}
+	inputs, ok := completed.Output["inputs"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected completed event inputs map, got %+v", completed.Output)
+	}
+	if got := inputs["text"]; got != "hello" {
+		t.Fatalf("expected rendered text input hello, got %#v", got)
+	}
+	if got := inputs["render_mode"]; got != "markdown" {
+		t.Fatalf("expected rendered mode markdown, got %#v", got)
+	}
 }
 
 func TestFlowV2RunAgentResponseTool(t *testing.T) {

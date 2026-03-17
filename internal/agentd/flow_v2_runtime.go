@@ -364,6 +364,7 @@ func (a *app) executeFlowV2Node(ctx context.Context, node flow.Node, inputs map[
 			return nil, err
 		}
 		out := map[string]any{
+			"inputs":  cloneMap(inputs),
 			"payload": string(payload),
 		}
 		var parsed any
@@ -451,6 +452,25 @@ func resolveNodeInputs(node flow.Node, incoming []flow.Edge, outputs map[string]
 }
 
 func evalFlowExpression(expr string, runInput map[string]any, outputs map[string]map[string]any) (any, error) {
+	// Multi-expression: multiple ={{ ... }} blocks separated by newlines.
+	// Evaluate each line independently and concatenate results with newlines.
+	if strings.Count(expr, "={{") > 1 {
+		lines := strings.Split(expr, "\n")
+		var parts []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			v, err := evalFlowExpression(trimmed, runInput, outputs)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, fmt.Sprintf("%v", v))
+		}
+		return strings.Join(parts, "\n"), nil
+	}
+
 	norm := normalizeFlowExpression(expr)
 	if strings.HasPrefix(norm, "$run.input") {
 		path := strings.TrimPrefix(norm, "$run.input")

@@ -331,6 +331,11 @@
                 :node-id="selectedNode.id"
                 :data="selectedNode.data as any"
               />
+              <NodeInspectorGroup
+                v-else-if="selectedNode.type === 'flowGroup'"
+                :node-id="selectedNode.id"
+                :data="selectedNode.data as any"
+              />
               <NodeInspectorSticky
                 v-else-if="selectedNode.type === 'flowSticky'"
                 :node-id="selectedNode.id"
@@ -1004,6 +1009,7 @@ import FlowStepNode from "@/components/flow/FlowStepNode.vue";
 import FlowUtilityNode from "@/components/flow/FlowUtilityNode.vue";
 import FlowStickyNoteNode from "@/components/flow/FlowStickyNoteNode.vue";
 import FlowGroupNode from "@/components/flow/FlowGroupNode.vue";
+import NodeInspectorGroup from "@/components/flow/NodeInspectorGroup.vue";
 import NodeInspectorStep from "@/components/flow/NodeInspectorStep.vue";
 import NodeInspectorUtility from "@/components/flow/NodeInspectorUtility.vue";
 import NodeInspectorSticky from "@/components/flow/NodeInspectorSticky.vue";

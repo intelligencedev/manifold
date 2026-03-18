@@ -126,6 +126,7 @@ export interface FlowV2WorkflowCanvas {
   parents?: Record<string, string>;
   groups?: FlowV2CanvasGroup[];
   notes?: FlowV2CanvasNote[];
+  edge_style?: string;
 }
 
 export interface FlowV2ListResponse {

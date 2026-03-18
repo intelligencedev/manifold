@@ -1331,6 +1331,7 @@ function getCachedUi(intent: string): {
   parents?: Record<string, string>;
   groups?: FlowEditorGroupUIEntry[];
   notes?: FlowEditorNoteUIEntry[];
+  edgeStyle?: string;
 } {
   const cache = readUiCache();
   return cache[intent] ?? {};
@@ -1342,6 +1343,7 @@ function setCachedUi(
     parents?: Record<string, string>;
     groups?: FlowEditorGroupUIEntry[];
     notes?: FlowEditorNoteUIEntry[];
+    edgeStyle?: string;
   },
 ) {
   const cache = readUiCache();
@@ -1549,6 +1551,17 @@ const edgeStyleAriaLabel = computed(
   () => `Switch edge style (current: ${edgeStyleLabel.value})`,
 );
 
+function parseEdgeStyle(value: unknown): EdgeStyle | undefined {
+  return typeof value === "string" && EDGE_STYLES.includes(value as EdgeStyle)
+    ? (value as EdgeStyle)
+    : undefined;
+}
+
+function setCurrentEdgeStyle(style?: string) {
+  const nextStyle = parseEdgeStyle(style) ?? "default";
+  edgeStyleIndex.value = EDGE_STYLES.indexOf(nextStyle);
+}
+
 function normalizeEdgesWithCurrentStyle(list: Edge[]): Edge[] {
   const type = currentEdgeStyle.value;
   return list.map((edge) => ({ ...edge, type }));
@@ -1561,6 +1574,16 @@ function applyEdgeStyleToExistingEdges() {
 
 function cycleEdgeStyle() {
   edgeStyleIndex.value = (edgeStyleIndex.value + 1) % EDGE_STYLES.length;
+  if (activeWorkflow.value) {
+    activeWorkflow.value = {
+      ...activeWorkflow.value,
+      ui: {
+        ...(activeWorkflow.value.ui ?? {}),
+        edgeStyle: EDGE_STYLES[edgeStyleIndex.value],
+      },
+    };
+  }
+  dirty.value = true;
 }
 
 watch(currentEdgeStyle, () => {
@@ -2018,6 +2041,7 @@ watch(selectedIntent, async (intent) => {
     nodes.value = [];
     edges.value = [];
     activeWorkflow.value = null;
+    setCurrentEdgeStyle();
     return;
   }
   // If this is a locally-created unsaved workflow, hydrate from local instead of fetching
@@ -2027,6 +2051,7 @@ watch(selectedIntent, async (intent) => {
     isHydrating.value = true;
     try {
       activeWorkflow.value = local;
+      setCurrentEdgeStyle(local.ui?.edgeStyle);
       nodes.value = [];
       edges.value = [];
       dirty.value = false;
@@ -2218,6 +2243,7 @@ async function loadWorkflow(intent: string) {
       parents: (wf.ui?.parents ?? cached.parents) as any,
       groups: (wf.ui?.groups ?? cached.groups) as any,
       notes: (wf.ui?.notes ?? cached.notes) as any,
+      edgeStyle: wf.ui?.edgeStyle ?? cached.edgeStyle,
     };
     const mergedWf: FlowEditorWorkflow = { ...wf, ui: mergedUi };
     // Seed latest snapshot so hydration can preserve sizes
@@ -2229,6 +2255,7 @@ async function loadWorkflow(intent: string) {
       notes: mergedUi.notes ?? [],
     };
     const nextNodes = workflowToNodes(mergedWf);
+    setCurrentEdgeStyle(mergedWf.ui?.edgeStyle);
     const nextEdges = workflowToEdges(mergedWf);
 
     activeWorkflow.value = mergedWf;
@@ -2406,6 +2433,7 @@ function syncWorkflowFromNodes() {
       parents: Object.keys(uiParents).length ? uiParents : undefined,
       groups: uiGroups.length ? uiGroups : undefined,
       notes: uiNotes.length ? uiNotes : undefined,
+      edgeStyle: currentEdgeStyle.value,
     },
   };
   // Persist UI snapshot locally for this intent for resilience across reloads
@@ -2416,6 +2444,7 @@ function syncWorkflowFromNodes() {
       parents: uiParents,
       groups: uiGroups,
       notes: uiNotes,
+      edgeStyle: currentEdgeStyle.value,
     });
   } catch {}
 }
@@ -2671,23 +2700,7 @@ function createUtilityNode(
 }
 
 function appendNode(node: FlowEditorNode) {
-  const previousStep = [...nodes.value]
-    .reverse()
-    .find((candidate) => isStepLikeNode(candidate));
   nodes.value = [...nodes.value, node];
-  const prevHasStep =
-    previousStep && Boolean((previousStep!.data as any)?.step);
-  const newHasStep = isStepLikeNode(node) && Boolean((node.data as any)?.step);
-  if (newHasStep && prevHasStep && isStepLikeNode(previousStep!)) {
-    edges.value = normalizeEdgesWithCurrentStyle([
-      ...edges.value,
-      {
-        id: `e-${previousStep.id}-${node.id}`,
-        source: previousStep.id,
-        target: node.id,
-      },
-    ]);
-  }
   refreshUiSnapshot();
 }
 
@@ -2757,6 +2770,7 @@ async function performSave(
         parents: Object.keys(parents).length ? parents : undefined,
         groups: groups.length ? groups : undefined,
         notes: notes.length ? notes : undefined,
+        edgeStyle: currentEdgeStyle.value,
       },
     };
     console.log("[DEBUG] Payload groups:", payload.ui?.groups);
@@ -2821,6 +2835,7 @@ async function performSave(
         parents: mergedUi.parents,
         groups: mergedUi.groups,
         notes: mergedUi.notes,
+        edgeStyle: mergedUi.edgeStyle,
       });
     } catch {}
     // If this workflow was locally-created, clear the local marker
@@ -2836,6 +2851,7 @@ async function performSave(
       // Seed latest snapshot so hydration preserves sizes/positions even if server omits them
       latestUiSnapshot.value = preSaveSnapshot;
       activeWorkflow.value = normalizedSaved;
+      setCurrentEdgeStyle(normalizedSaved.ui?.edgeStyle);
       nodes.value = workflowToNodes(normalizedSaved);
       edges.value = workflowToEdges(normalizedSaved);
       dirty.value = false;
@@ -3154,6 +3170,10 @@ async function onImportSelected(event: Event) {
                     collapsed: !!g.collapsed,
                   }))
               : undefined,
+            edgeStyle:
+              typeof data.ui.edgeStyle === "string"
+                ? data.ui.edgeStyle
+                : undefined,
           }
         : undefined,
   };
@@ -3174,6 +3194,7 @@ async function onImportSelected(event: Event) {
     selectedIntent.value = intent;
     await nextTick();
     activeWorkflow.value = wf;
+    setCurrentEdgeStyle(wf.ui?.edgeStyle);
     nodes.value = workflowToNodes(wf);
     edges.value = workflowToEdges(wf);
     dirty.value = false;

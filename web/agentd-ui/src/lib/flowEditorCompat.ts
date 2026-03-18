@@ -138,6 +138,8 @@ export function flowV2ToEditorWorkflow(
             note: note.note,
           }))
         : undefined,
+      edgeStyle:
+        typeof canvas?.edge_style === "string" ? canvas.edge_style : undefined,
     },
   };
 }
@@ -233,6 +235,7 @@ export function editorWorkflowToFlowV2(
         note: note.note,
         color: note.color,
       })),
+      edge_style: workflow.ui?.edgeStyle,
     },
   };
 }

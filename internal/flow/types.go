@@ -126,10 +126,11 @@ type WorkflowSettings struct {
 
 // WorkflowCanvas stores editor-only metadata separate from runtime definition.
 type WorkflowCanvas struct {
-	Nodes   map[string]CanvasNode `json:"nodes,omitempty"`
-	Parents map[string]string     `json:"parents,omitempty"`
-	Groups  []CanvasGroup         `json:"groups,omitempty"`
-	Notes   []CanvasNote          `json:"notes,omitempty"`
+	Nodes     map[string]CanvasNode `json:"nodes,omitempty"`
+	Parents   map[string]string     `json:"parents,omitempty"`
+	Groups    []CanvasGroup         `json:"groups,omitempty"`
+	Notes     []CanvasNote          `json:"notes,omitempty"`
+	EdgeStyle string                `json:"edge_style,omitempty"`
 }
 
 type CanvasNode struct {

@@ -89,7 +89,7 @@
         >
           <polyline points="9 18 15 12 9 6"></polyline>
         </svg>
-        <span class="truncate">{{ entry.label }}</span>
+        <span class="truncate font-mono text-[10px] text-foreground">{{ entry.nodeId }}</span>
         <span class="ml-auto shrink-0 text-[10px] font-normal text-faint-foreground">{{
           entry.toolName || "step"
         }}</span>
@@ -146,7 +146,6 @@ interface UpstreamOutputField {
 
 interface UpstreamEntry {
   nodeId: string;
-  label: string;
   toolName: string;
   outputFields: UpstreamOutputField[];
 }
@@ -174,7 +173,6 @@ const runTrace = inject<Ref<Record<string, FlowEditorStepTrace>>>(
   ref({}),
 );
 const activeWorkflow = inject<Ref<any>>("flowEditorActiveWorkflow", ref(null));
-
 const expandedSections = ref(new Set<string>());
 
 const hasTriggerInputs = computed(() => {
@@ -203,9 +201,6 @@ function getUpstreamNodeIds(targetId: string): string[] {
 
 const upstreamEntries = computed<UpstreamEntry[]>(() => {
   const upstreamIds = getUpstreamNodeIds(props.nodeId);
-  const toolMap = new Map<string, FlowEditorTool>();
-  for (const t of tools.value) toolMap.set(t.name, t);
-
   const trace: Record<string, FlowEditorStepTrace> =
     runTrace.value && typeof runTrace.value === "object" ? runTrace.value : {};
 
@@ -214,8 +209,6 @@ const upstreamEntries = computed<UpstreamEntry[]>(() => {
     const node = nodes.value.find((n: any) => n.id === id);
     const stepData = node?.data;
     const toolName = stepData?.step?.tool?.name ?? "";
-    const stepText = stepData?.step?.text ?? "";
-    const label = stepData?.label || toolName || id;
 
     // Discover output fields from runtime trace
     const stepTrace = trace[id];
@@ -245,7 +238,7 @@ const upstreamEntries = computed<UpstreamEntry[]>(() => {
       }
     }
 
-    return { nodeId: id, label, toolName, outputFields };
+    return { nodeId: id, toolName, outputFields };
   });
 });
 

@@ -5,6 +5,11 @@
       <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
         >Unsaved</span
       >
+      <span
+        v-else-if="showAppliedFeedback"
+        class="text-[10px] italic text-emerald-400"
+        >Applied</span
+      >
     </div>
 
     <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -74,18 +79,23 @@
 
     <div class="pt-1 flex items-center justify-end gap-2">
       <button
-        class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-        :disabled="!isDirty || !isDesignMode"
+        class="rounded px-2 py-1 text-[11px] font-medium transition"
+        :class="
+          showAppliedFeedback
+            ? 'bg-emerald-500 text-white shadow-[0_0_0_1px_rgba(16,185,129,0.3)]'
+            : 'bg-accent text-accent-foreground'
+        "
+        :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
         @click="applyChanges"
       >
-        Apply
+        {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, provide, ref, watch, type Ref } from "vue";
+import { computed, inject, onBeforeUnmount, provide, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import FlowInputBindingsEditor from "@/components/flow/FlowInputBindingsEditor.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -134,6 +144,8 @@ const publishResult = ref(false);
 const toolName = ref("");
 const argsState = ref<Record<string, unknown>>({});
 const isDirty = ref(false);
+const showAppliedFeedback = ref(false);
+let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 const currentTool = computed(
   () => toolOptions.value.find((t) => t.name === toolName.value) ?? null,
@@ -198,6 +210,7 @@ function onArgsUpdate(value: unknown) {
 
 function markDirty() {
   if (suppress || hydratingRef.value || !isDesignMode.value) return;
+  clearAppliedFeedback();
   isDirty.value = true;
 }
 
@@ -210,7 +223,29 @@ function applyChanges() {
     label: displayLabel.value.trim() || undefined,
   });
   isDirty.value = false;
+  triggerAppliedFeedback();
 }
+
+function triggerAppliedFeedback() {
+  showAppliedFeedback.value = true;
+  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
+  appliedFeedbackTimer = setTimeout(() => {
+    showAppliedFeedback.value = false;
+    appliedFeedbackTimer = null;
+  }, 1400);
+}
+
+function clearAppliedFeedback() {
+  showAppliedFeedback.value = false;
+  if (appliedFeedbackTimer) {
+    clearTimeout(appliedFeedbackTimer);
+    appliedFeedbackTimer = null;
+  }
+}
+
+onBeforeUnmount(() => {
+  clearAppliedFeedback();
+});
 
 function buildStep(): FlowEditorStep {
   const built = buildToolPayload(toolName.value, argsState.value);

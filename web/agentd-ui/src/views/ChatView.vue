@@ -74,7 +74,7 @@
             class="group rounded-lg border border-transparent px-3 py-2 transition"
             :class="
               sessionSelectMode && selectedSessionIds.includes(session.id)
-                ? 'border-danger/40 bg-danger/5'
+                ? 'border-danger/70 bg-danger/20'
                 : !sessionSelectMode && session.id === activeSessionId
                   ? 'border-accent/70 bg-surface-muted/60'
                   : 'hover:border-border hover:bg-surface-muted/40'
@@ -83,16 +83,7 @@
           >
             <div class="flex items-center justify-between gap-2">
               <template v-if="sessionSelectMode">
-                <label class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer" @click.stop="toggleSessionSelection(session.id)">
-                  <input
-                    type="checkbox"
-                    class="h-3.5 w-3.5 shrink-0 rounded border-border accent-danger cursor-pointer"
-                    :checked="selectedSessionIds.includes(session.id)"
-                    @change.stop
-                    @click.stop
-                  />
-                  <p class="truncate font-medium text-foreground">{{ session.name }}</p>
-                </label>
+                <p class="truncate font-medium text-foreground flex-1">{{ session.name }}</p>
               </template>
               <template v-else-if="renamingSessionId === session.id">
                 <input

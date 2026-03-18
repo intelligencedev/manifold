@@ -126,9 +126,9 @@
     <div
       class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden"
     >
-      <aside class="lg:w-72">
+      <aside class="min-w-0 lg:w-72">
         <div
-          class="glass-surface ap-hover flex min-h-0 flex-col rounded-xl !p-4 lg:h-full"
+          class="glass-surface ap-hover flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl !p-4 lg:h-full"
         >
           <!-- Conditional: Node Configuration when a single node is selected, else show Tool Palette -->
           <template
@@ -168,7 +168,7 @@
                 }}</span>
               </div>
             </div>
-            <div class="lg:flex-1 lg:min-h-0 overflow-y-auto pr-1">
+            <div class="min-w-0 overflow-y-auto overflow-x-hidden pr-1 lg:flex-1 lg:min-h-0">
               <NodeInspectorStep
                 v-if="selectedNode.type === 'flowStep'"
                 :node-id="selectedNode.id"
@@ -449,7 +449,7 @@
             <!-- Themed MiniMap -->
             <MiniMap
               v-if="showMiniMap"
-              class="ap-chip rounded-md p-1"
+              class="ap-chip flow-minimap rounded-md p-1"
               :position="'bottom-right'"
               :pannable="true"
               :zoomable="true"
@@ -462,7 +462,7 @@
               :node-color="miniMapNodeColor"
               :node-stroke-color="miniMapNodeStroke"
               :node-border-radius="6"
-              :node-stroke-width="1"
+                :node-stroke-width="1.5"
             />
 
             <!-- Close button overlay for MiniMap (top-left of the MiniMap) -->
@@ -1996,7 +1996,7 @@ function miniMapNodeColor() {
   return "rgb(var(--color-surface-muted))";
 }
 function miniMapNodeStroke() {
-  return "rgb(var(--color-border))";
+  return "rgb(203 213 225 / 0.9)";
 }
 
 onMounted(async () => {
@@ -3329,11 +3329,49 @@ async function onImportSelected(event: Event) {
   font-size: 0.72rem;
   color: rgb(var(--color-subtle-foreground));
 }
+
 </style>
 
 <style>
 /* ensure flow canvas fills area */
 .vue-flow__container {
   height: 100%;
+}
+
+.flow-minimap.vue-flow__minimap {
+  background: rgb(var(--color-surface) / 0.82) !important;
+  border: 1px solid rgb(var(--color-border) / 0.7);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 16px 32px -24px rgb(0 0 0 / 0.85),
+    inset 0 1px 0 rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(16px);
+}
+
+.flow-minimap.vue-flow__minimap svg {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-surface-muted) / 0.92),
+    rgb(var(--color-surface) / 0.96)
+  );
+  border-radius: 0.65rem;
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-mask {
+  fill: rgb(var(--color-surface) / 0.82);
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-mask-stroke {
+  stroke: rgb(var(--color-border) / 0.78);
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-node {
+  opacity: 0.95;
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-viewport {
+  fill: rgb(var(--color-accent) / 0.08);
+  stroke: rgb(var(--color-accent) / 0.72);
+  stroke-width: 1.25;
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-3">
+  <div class="min-w-0 space-y-3 overflow-x-hidden">
     <div class="flex items-center justify-between">
       <div class="text-xs text-subtle-foreground">Configure utility</div>
       <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
@@ -59,13 +59,13 @@
 
     <label
       v-if="isAgentResponse"
-      class="flex flex-col gap-1 text-[11px] text-muted-foreground"
+      class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground"
     >
       Render Mode
       <DropdownSelect
         v-model="renderMode"
         size="xs"
-        class="text-[11px]"
+        class="w-full min-w-0 text-[11px]"
         :disabled="!isDesignMode || hydratingRef"
         :options="[
           { id: 'raw', label: 'Raw text', value: 'raw' },

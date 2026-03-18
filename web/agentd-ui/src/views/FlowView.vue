@@ -776,6 +776,26 @@
               required.
             </p>
           </div>
+          <div>
+            <label
+              class="block text-sm font-medium text-foreground mb-1"
+              for="wf-max-concurrency"
+              >Max concurrency</label
+            >
+            <input
+              id="wf-max-concurrency"
+              v-model="metaMaxConcurrency"
+              type="number"
+              min="1"
+              step="1"
+              class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground"
+              placeholder="4"
+            />
+            <p class="mt-1 text-[10px] text-faint-foreground">
+              Leave blank to use the runtime default. Set to 1 to force serial
+              execution.
+            </p>
+          </div>
         </div>
         <div
           class="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3"
@@ -1929,6 +1949,7 @@ function formatJSON(value: unknown): string {
 const showMetaModal = ref(false);
 const metaDescription = ref("");
 const metaKeywords = ref("");
+const metaMaxConcurrency = ref("");
 const metaSaveDisabled = computed(
   () =>
     metaDescription.value.trim().length === 0 ||
@@ -1942,6 +1963,12 @@ function openMetaModal() {
   // Pre-fill from current workflow
   metaDescription.value = activeWorkflow.value.description ?? "";
   metaKeywords.value = (activeWorkflow.value.keywords ?? []).join(", ");
+  metaMaxConcurrency.value =
+    typeof activeWorkflow.value.max_concurrency === "number" &&
+    Number.isFinite(activeWorkflow.value.max_concurrency) &&
+    activeWorkflow.value.max_concurrency > 0
+      ? String(activeWorkflow.value.max_concurrency)
+      : "";
   showMetaModal.value = true;
 }
 function closeMetaModal() {
@@ -1961,6 +1988,14 @@ function parseKeywords(input: string): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+function parseMaxConcurrency(input: string): number | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) return undefined;
+  const value = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return value;
 }
 
 function normalizeTrigger(trigger?: FlowV2Trigger): FlowV2Trigger {
@@ -2007,7 +2042,10 @@ async function onSubmitMetadata() {
   if (metaSaveDisabled.value) return;
   const desc = metaDescription.value.trim();
   const kws = parseKeywords(metaKeywords.value);
-  const saved = await performSave(desc, kws);
+  const maxConcurrency = metaMaxConcurrency.value.trim()
+    ? parseMaxConcurrency(metaMaxConcurrency.value)
+    : null;
+  const saved = await performSave(desc, kws, maxConcurrency);
   if (saved) {
     closeMetaModal();
   }
@@ -2755,9 +2793,15 @@ async function onSave(): Promise<FlowEditorWorkflow | null> {
 async function performSave(
   description?: string,
   keywords?: string[],
+  maxConcurrency?: number | null,
 ): Promise<FlowEditorWorkflow | null> {
   if (!activeWorkflow.value) return null;
-  if (!dirty.value && description === undefined && keywords === undefined)
+  if (
+    !dirty.value &&
+    description === undefined &&
+    keywords === undefined &&
+    maxConcurrency === undefined
+  )
     return activeWorkflow.value;
   saving.value = true;
   error.value = "";
@@ -2786,6 +2830,10 @@ async function performSave(
       ...activeWorkflow.value,
       description: description ?? activeWorkflow.value.description,
       keywords: keywords ?? activeWorkflow.value.keywords,
+      max_concurrency:
+        maxConcurrency === undefined
+          ? activeWorkflow.value.max_concurrency
+          : maxConcurrency ?? undefined,
       steps,
       ui: {
         ...(activeWorkflow.value.ui ?? {}),

@@ -25,6 +25,7 @@ type Plan struct {
 	NodeOrder  []string          `json:"node_order"`
 	Incoming   map[string][]Edge `json:"incoming"`
 	Outgoing   map[string][]Edge `json:"outgoing"`
+	Indegree   map[string]int    `json:"indegree"`
 }
 
 // ValidateWorkflow validates a workflow definition and returns diagnostics.
@@ -312,6 +313,10 @@ func CompileWorkflow(wf Workflow) (*Plan, []Diagnostic) {
 		outgoing[e.Source.NodeID] = append(outgoing[e.Source.NodeID], e)
 		indegree[e.Target.NodeID]++
 	}
+	indegreeSnapshot := make(map[string]int, len(indegree))
+	for id, degree := range indegree {
+		indegreeSnapshot[id] = degree
+	}
 
 	// Preserve deterministic order by using node declaration order as tie-breaker.
 	nodeIndex := make(map[string]int, len(wf.Nodes))
@@ -352,6 +357,10 @@ func CompileWorkflow(wf Workflow) (*Plan, []Diagnostic) {
 		NodeOrder:  order,
 		Incoming:   incoming,
 		Outgoing:   outgoing,
+		Indegree:   make(map[string]int, len(indegreeSnapshot)),
+	}
+	for id, degree := range indegreeSnapshot {
+		plan.Indegree[id] = degree
 	}
 	return plan, diags
 }

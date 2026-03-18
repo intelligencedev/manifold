@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,6 +34,13 @@ type flowV2Runtime struct {
 	mu    sync.RWMutex
 	store persist.FlowV2WorkflowStore
 	runs  map[string]*flowV2RunRecord
+}
+
+type flowNodeResult struct {
+	nodeID  string
+	output  map[string]any
+	err     error
+	skipped bool
 }
 
 func newFlowV2Runtime(store persist.FlowV2WorkflowStore) *flowV2Runtime {
@@ -228,100 +236,194 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 		}
 	}
 
-	nodeOutputs := make(map[string]map[string]any, len(wf.Nodes))
 	defaultExec := wf.Settings.DefaultExecution
-	for _, nodeID := range plan.NodeOrder {
-		node, ok := nodeByID[nodeID]
-		if !ok {
-			emit(flow.RunEvent{
-				Type:    flow.RunEventTypeRunFailed,
-				Status:  "failed",
-				Error:   "execution plan referenced unknown node " + nodeID,
-				Message: "run failed",
-			})
-			return
-		}
-
-		emit(flow.RunEvent{
-			Type:    flow.RunEventTypeNodeStarted,
-			NodeID:  node.ID,
-			Status:  "running",
-			Message: "node started",
-		})
-
-		resolvedInputs, err := resolveNodeInputs(node, plan.Incoming[node.ID], nodeOutputs, input)
-		if err != nil {
-			emit(flow.RunEvent{
-				Type:    flow.RunEventTypeNodeFailed,
-				NodeID:  node.ID,
-				Status:  "failed",
-				Error:   err.Error(),
-				Message: "node input resolution failed",
-			})
-			if effectiveOnError(node, defaultExec) != flow.ErrorStrategyContinue {
-				emit(flow.RunEvent{
-					Type:    flow.RunEventTypeRunFailed,
-					Status:  "failed",
-					Error:   err.Error(),
-					Message: "run failed",
-				})
-				return
-			}
-			continue
-		}
-
-		attempts := effectiveRetries(node, defaultExec)
-		var output map[string]any
-		var runErr error
-		for attempt := 1; attempt <= attempts; attempt++ {
-			output, runErr = a.executeFlowV2Node(ctx, node, resolvedInputs, reg, toolSet, defaultExec)
-			if runErr == nil {
-				break
-			}
-			if attempt < attempts {
-				emit(flow.RunEvent{
-					Type:    flow.RunEventTypeNodeRetrying,
-					NodeID:  node.ID,
-					Status:  "retrying",
-					Message: fmt.Sprintf("retry %d/%d", attempt, attempts-1),
-					Error:   runErr.Error(),
-				})
-				if !sleepFlowRetry(ctx, node, defaultExec, attempt) {
-					runErr = context.Canceled
-					break
-				}
-			}
-		}
-		if runErr != nil {
-			emit(flow.RunEvent{
-				Type:    flow.RunEventTypeNodeFailed,
-				NodeID:  node.ID,
-				Status:  "failed",
-				Error:   runErr.Error(),
-				Message: "node failed",
-			})
-			if effectiveOnError(node, defaultExec) != flow.ErrorStrategyContinue {
-				emit(flow.RunEvent{
-					Type:    flow.RunEventTypeRunFailed,
-					Status:  "failed",
-					Error:   runErr.Error(),
-					Message: "run failed",
-				})
-				return
-			}
-			continue
-		}
-
-		nodeOutputs[node.ID] = cloneMap(output)
-		emit(flow.RunEvent{
-			Type:    flow.RunEventTypeNodeCompleted,
-			NodeID:  node.ID,
-			Status:  "completed",
-			Output:  cloneMap(output),
-			Message: "node completed",
-		})
+	maxConcurrency := wf.Settings.MaxConcurrency
+	if maxConcurrency <= 0 {
+		maxConcurrency = 4
 	}
 
+	nodeIndex := make(map[string]int, len(plan.NodeOrder))
+	for idx, nodeID := range plan.NodeOrder {
+		nodeIndex[nodeID] = idx
+	}
+
+	remaining := make(map[string]int, len(wf.Nodes))
+	for _, node := range wf.Nodes {
+		remaining[node.ID] = len(plan.Incoming[node.ID])
+	}
+	if len(plan.Indegree) > 0 {
+		for nodeID, degree := range plan.Indegree {
+			remaining[nodeID] = degree
+		}
+	}
+
+	nodeOutputs := make(map[string]map[string]any, len(wf.Nodes))
+	launched := make(map[string]bool, len(wf.Nodes))
+	var stateMu sync.RWMutex
+	var fatalErr error
+	var processed int
+	resultCh := make(chan flowNodeResult, len(wf.Nodes))
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	launchNode := func(nodeID string) {
+		node, ok := nodeByID[nodeID]
+		if !ok {
+			stateMu.Lock()
+			if fatalErr == nil {
+				fatalErr = fmt.Errorf("execution plan referenced unknown node %s", nodeID)
+				cancelRun()
+			}
+			stateMu.Unlock()
+			return
+		}
+		launched[nodeID] = true
+		go func(node flow.Node) {
+			if guard := strings.TrimSpace(node.Guard); guard != "" {
+				stateMu.RLock()
+				guardValue, guardErr := evalFlowExpression(guard, input, nodeOutputs)
+				stateMu.RUnlock()
+				if guardErr != nil {
+					resultCh <- flowNodeResult{nodeID: node.ID, err: fmt.Errorf("node %s guard: %w", node.ID, guardErr)}
+					return
+				}
+				if guardOK, ok := asBool(guardValue); ok && !guardOK {
+					resultCh <- flowNodeResult{nodeID: node.ID, skipped: true}
+					return
+				}
+			}
+
+			emit(flow.RunEvent{
+				Type:    flow.RunEventTypeNodeStarted,
+				NodeID:  node.ID,
+				Status:  "running",
+				Message: "node started",
+			})
+
+			stateMu.RLock()
+			resolvedInputs, err := resolveNodeInputs(node, plan.Incoming[node.ID], nodeOutputs, input)
+			stateMu.RUnlock()
+			if err != nil {
+				resultCh <- flowNodeResult{nodeID: node.ID, err: err}
+				return
+			}
+
+			output, err := a.executeFlowV2NodeWithRetries(runCtx, node, resolvedInputs, reg, toolSet, defaultExec, emit)
+			resultCh <- flowNodeResult{nodeID: node.ID, output: output, err: err}
+		}(node)
+	}
+
+	readyQueue := make([]string, 0, len(wf.Nodes))
+	pushReady := func(nodeIDs []string) {
+		slices.SortFunc(nodeIDs, func(left, right string) int {
+			if nodeIndex[left] < nodeIndex[right] {
+				return -1
+			}
+			if nodeIndex[left] > nodeIndex[right] {
+				return 1
+			}
+			return 0
+		})
+		for _, nodeID := range nodeIDs {
+			stateMu.RLock()
+			aborted := fatalErr != nil
+			stateMu.RUnlock()
+			if launched[nodeID] || aborted || runCtx.Err() != nil {
+				continue
+			}
+			readyQueue = append(readyQueue, nodeID)
+		}
+	}
+	launchReady := func(active *int) {
+		for *active < maxConcurrency && len(readyQueue) > 0 {
+			next := readyQueue[0]
+			readyQueue = readyQueue[1:]
+			launchNode(next)
+			*active = *active + 1
+		}
+	}
+
+	initialReady := make([]string, 0, len(wf.Nodes))
+	for _, node := range wf.Nodes {
+		if remaining[node.ID] == 0 {
+			initialReady = append(initialReady, node.ID)
+		}
+	}
+	pushReady(initialReady)
+	active := 0
+	launchReady(&active)
+
+	for active > 0 {
+		res := <-resultCh
+		active--
+		processed++
+		node := nodeByID[res.nodeID]
+
+		switch {
+		case res.skipped:
+			emit(flow.RunEvent{
+				Type:    flow.RunEventTypeNodeSkipped,
+				NodeID:  res.nodeID,
+				Status:  "skipped",
+				Message: "node skipped",
+			})
+		case res.err != nil:
+			message := "node failed"
+			if strings.Contains(res.err.Error(), "input ") || strings.Contains(res.err.Error(), "path not found") {
+				message = "node input resolution failed"
+			}
+			emit(flow.RunEvent{
+				Type:    flow.RunEventTypeNodeFailed,
+				NodeID:  res.nodeID,
+				Status:  "failed",
+				Error:   res.err.Error(),
+				Message: message,
+			})
+			if effectiveOnError(node, defaultExec) != flow.ErrorStrategyContinue && fatalErr == nil {
+				fatalErr = res.err
+				cancelRun()
+			}
+		default:
+			clonedOutput := cloneMap(res.output)
+			stateMu.Lock()
+			nodeOutputs[res.nodeID] = clonedOutput
+			stateMu.Unlock()
+			emit(flow.RunEvent{
+				Type:    flow.RunEventTypeNodeCompleted,
+				NodeID:  res.nodeID,
+				Status:  "completed",
+				Output:  cloneMap(clonedOutput),
+				Message: "node completed",
+			})
+		}
+
+		if fatalErr != nil {
+			continue
+		}
+
+		stateMu.Lock()
+		ready := make([]string, 0, len(plan.Outgoing[res.nodeID]))
+		for _, edge := range plan.Outgoing[res.nodeID] {
+			targetID := edge.Target.NodeID
+			remaining[targetID]--
+			if remaining[targetID] == 0 && !launched[targetID] {
+				ready = append(ready, targetID)
+			}
+		}
+		stateMu.Unlock()
+		pushReady(ready)
+		launchReady(&active)
+	}
+
+	if fatalErr != nil {
+		emit(flow.RunEvent{
+			Type:    flow.RunEventTypeRunFailed,
+			Status:  "failed",
+			Error:   fatalErr.Error(),
+			Message: "run failed",
+		})
+		return
+	}
 	if ctx.Err() != nil {
 		emit(flow.RunEvent{
 			Type:    flow.RunEventTypeRunFailed,
@@ -331,11 +433,53 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 		})
 		return
 	}
+	if processed != len(wf.Nodes) {
+		emit(flow.RunEvent{
+			Type:    flow.RunEventTypeRunFailed,
+			Status:  "failed",
+			Error:   fmt.Sprintf("workflow terminated early: processed %d of %d nodes", processed, len(wf.Nodes)),
+			Message: "run failed",
+		})
+		return
+	}
 	emit(flow.RunEvent{
 		Type:    flow.RunEventTypeRunCompleted,
 		Status:  "completed",
 		Message: "run completed",
 	})
+}
+
+func (a *app) executeFlowV2NodeWithRetries(
+	ctx context.Context,
+	node flow.Node,
+	inputs map[string]any,
+	reg tools.Registry,
+	toolSet map[string]bool,
+	defaults flow.NodeExecution,
+	emit func(flow.RunEvent),
+) (map[string]any, error) {
+	attempts := effectiveRetries(node, defaults)
+	var output map[string]any
+	var runErr error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		output, runErr = a.executeFlowV2Node(ctx, node, inputs, reg, toolSet, defaults)
+		if runErr == nil {
+			return output, nil
+		}
+		if attempt < attempts {
+			emit(flow.RunEvent{
+				Type:    flow.RunEventTypeNodeRetrying,
+				NodeID:  node.ID,
+				Status:  "retrying",
+				Message: fmt.Sprintf("retry %d/%d", attempt, attempts-1),
+				Error:   runErr.Error(),
+			})
+			if !sleepFlowRetry(ctx, node, defaults, attempt) {
+				return nil, context.Canceled
+			}
+		}
+	}
+	return nil, runErr
 }
 
 func (a *app) executeFlowV2Node(ctx context.Context, node flow.Node, inputs map[string]any, reg tools.Registry, toolSet map[string]bool, defaults flow.NodeExecution) (map[string]any, error) {

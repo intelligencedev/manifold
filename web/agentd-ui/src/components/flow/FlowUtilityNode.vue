@@ -396,7 +396,7 @@ const rootClass = computed(() => [
   "transition-colors duration-150 ease-out",
 ]);
 const isDirty = ref(false);
-const collapsed = ref(true);
+const collapsed = ref(false);
 const copied = ref(false);
 const outputReferenceExample = computed(
   () => `={{$node.${props.id}.output...}}`,
@@ -682,7 +682,7 @@ onMounted(() => {
   const initial =
     typeof (props.data as any)?.collapsed === "boolean"
       ? (props.data as any).collapsed
-      : true;
+      : false;
   if (initial) {
     applyCollapsedStyle(true);
   } else {

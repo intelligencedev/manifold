@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-full min-h-0 flex-col gap-2">
-    <section class="rounded-xl border border-border/60 bg-surface/90 px-3 py-2 shadow-[0_14px_34px_-26px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+    <section class="glass-surface !px-3 !py-2 rounded-xl">
       <div class="flex flex-wrap items-center gap-2">
         <!-- Workflow selector -->
         <DropdownSelect
@@ -128,7 +128,7 @@
     >
       <aside class="lg:w-72">
         <div
-          class="ap-panel ap-hover flex min-h-0 flex-col rounded-xl bg-surface p-4 lg:h-full"
+          class="glass-surface ap-hover flex min-h-0 flex-col rounded-xl !p-4 lg:h-full"
         >
           <!-- Conditional: Node Configuration when a single node is selected, else show Tool Palette -->
           <template
@@ -885,6 +885,7 @@ type LayoutEntry = {
   width?: number;
   height?: number;
   collapsed?: boolean;
+  label?: string;
 };
 
 type LayoutMap = Record<string, LayoutEntry>;
@@ -968,9 +969,10 @@ function readNodeSize(
     liveDimH && liveDimH > 0
       ? liveDimH
       : (graphNode?.dimensions?.height ?? undefined);
-  // Step nodes are always collapsed — use fixed collapsed footprint
+  // Step nodes are always collapsed — prefer live dimensions, fall back to min-width
   if (kind === "step") {
-    return { width: FLOW_STEP_NODE_COLLAPSED.width, height: FLOW_STEP_NODE_COLLAPSED.height };
+    const w = dimsWidth ?? styledWidth ?? FLOW_STEP_NODE_COLLAPSED.width;
+    return { width: w, height: FLOW_STEP_NODE_COLLAPSED.height };
   }
   // If node is collapsed and no explicit style width/height are present, use collapsed footprint
   const collapsed = (node.data as any)?.collapsed === true;
@@ -994,11 +996,12 @@ function readNodeSize(
 }
 
 function buildNodeStyle(kind: NodeKind, stored?: LayoutEntry) {
-  // Step nodes are always collapsed — use fixed collapsed footprint
+  // Step nodes are always collapsed — auto-width to fit label, fixed height
   if (kind === "step") {
     return {
-      width: toPx(FLOW_STEP_NODE_COLLAPSED.width),
+      minWidth: toPx(FLOW_STEP_NODE_COLLAPSED.width),
       height: toPx(FLOW_STEP_NODE_COLLAPSED.height),
+      width: "fit-content",
       zIndex: "10",
     } as Record<string, string>;
   }
@@ -1071,6 +1074,9 @@ function collectUiState(allNodes: FlowEditorNode[]): UiSnapshot {
     // Persist per-node collapsed state so it survives save/load
     const nodeCollapsed = (node.data as any)?.collapsed;
     if (typeof nodeCollapsed === "boolean") entry.collapsed = nodeCollapsed;
+    // Persist per-node display label override
+    const nodeLabel = (node.data as any)?.label;
+    if (typeof nodeLabel === "string" && nodeLabel) entry.label = nodeLabel;
     layout[node.id] = entry;
 
     if (isGroupNode(node)) {
@@ -2125,7 +2131,8 @@ function workflowToNodes(wf: FlowEditorWorkflow): FlowEditorNode[] {
         step: JSON.parse(JSON.stringify(step)) as FlowEditorStep,
         kind: utility ? "utility" : "step",
         groupId: parents[step.id],
-        collapsed: true,
+        collapsed: stored?.collapsed ?? !utility,
+        label: stored?.label,
       },
     };
   });

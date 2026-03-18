@@ -139,6 +139,41 @@ func (s *memChatStore) DeleteSession(ctx context.Context, userID *int64, id stri
 	return nil
 }
 
+func (s *memChatStore) DeleteMessageWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, relatedMessageIDs []string, resetSummary bool) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, msgs, err := s.mustAccessSessionLocked(userID, sessionID)
+	if err != nil {
+		return err
+	}
+	deleteIDs := uniqueChatMessageIDs(messageID, relatedMessageIDs)
+	msgSet := make(map[string]struct{}, len(deleteIDs))
+	for _, id := range deleteIDs {
+		msgSet[id] = struct{}{}
+	}
+	filtered := msgs[:0]
+	deletedTarget := false
+	for _, msg := range msgs {
+		if _, ok := msgSet[msg.ID]; ok {
+			if msg.ID == messageID {
+				deletedTarget = true
+			}
+			continue
+		}
+		filtered = append(filtered, msg)
+	}
+	if !deletedTarget {
+		return persistence.ErrNotFound
+	}
+	s.messages[sessionID] = filtered
+	s.finalizeDeleteLocked(sessionID, sess, filtered, resetSummary)
+	return nil
+}
+
 func (s *memChatStore) DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error {
 	if strings.TrimSpace(messageID) == "" {
 		return persistence.ErrNotFound
@@ -173,6 +208,61 @@ func (s *memChatStore) DeleteMessage(ctx context.Context, userID *int64, session
 	sess.LastMessagePreview = preview
 	sess.UpdatedAt = time.Now().UTC()
 	s.sessions[sessionID] = sess
+	return nil
+}
+
+func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool, relatedMessageIDs []string, resetSummary bool) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sess, msgs, err := s.mustAccessSessionLocked(userID, sessionID)
+	if err != nil {
+		return err
+	}
+	idx := -1
+	for i, msg := range msgs {
+		if msg.ID == messageID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return persistence.ErrNotFound
+	}
+
+	cut := idx + 1
+	if inclusive {
+		cut = idx
+	}
+	if cut < 0 {
+		cut = 0
+	}
+	if cut > len(msgs) {
+		cut = len(msgs)
+	}
+	filtered := append([]persistence.ChatMessage(nil), msgs[:cut]...)
+	if len(relatedMessageIDs) > 0 {
+		relatedSet := make(map[string]struct{}, len(relatedMessageIDs))
+		for _, id := range relatedMessageIDs {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				relatedSet[id] = struct{}{}
+			}
+		}
+		remaining := filtered[:0]
+		for _, msg := range filtered {
+			if _, ok := relatedSet[msg.ID]; ok {
+				continue
+			}
+			remaining = append(remaining, msg)
+		}
+		filtered = remaining
+	}
+	s.messages[sessionID] = filtered
+	s.finalizeDeleteLocked(sessionID, sess, filtered, resetSummary)
 	return nil
 }
 
@@ -293,4 +383,46 @@ func (s *memChatStore) UpdateSummary(ctx context.Context, userID *int64, session
 	sess.UpdatedAt = time.Now().UTC()
 	s.sessions[sessionID] = sess
 	return nil
+}
+
+func (s *memChatStore) mustAccessSessionLocked(userID *int64, sessionID string) (persistence.ChatSession, []persistence.ChatMessage, error) {
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return persistence.ChatSession{}, nil, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, nil, persistence.ErrForbidden
+	}
+	return sess, s.messages[sessionID], nil
+}
+
+func (s *memChatStore) finalizeDeleteLocked(sessionID string, sess persistence.ChatSession, msgs []persistence.ChatMessage, resetSummary bool) {
+	preview := ""
+	if len(msgs) > 0 {
+		preview = snippetForPreview(msgs[len(msgs)-1].Content)
+	}
+	if resetSummary {
+		sess.Summary = ""
+		sess.SummarizedCount = 0
+	}
+	sess.LastMessagePreview = preview
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[sessionID] = sess
+}
+
+func uniqueChatMessageIDs(primaryID string, extraIDs []string) []string {
+	seen := map[string]struct{}{}
+	ids := make([]string, 0, len(extraIDs)+1)
+	for _, id := range append([]string{primaryID}, extraIDs...) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
 }

@@ -6,6 +6,8 @@ export interface StepNodeData {
   kind?: "step" | "utility";
   // UI-only: whether the node card is collapsed to its header
   collapsed?: boolean;
+  // UI-only: optional display label override (defaults to tool name on canvas)
+  label?: string;
   groupId?: string;
 }
 

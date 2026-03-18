@@ -12,8 +12,8 @@
     <template #front>
       <!-- Header -->
       <div class="flex items-start justify-between gap-2">
-        <div class="flex-1">
-          <div class="text-sm font-semibold text-foreground select-none">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-semibold text-foreground select-none whitespace-nowrap">
             {{ headerLabel }}
           </div>
         </div>
@@ -95,7 +95,7 @@ const toolOptions = computed(() => {
 
 const toolName = ref("");
 const rootClass = computed(() => [
-  "min-w-[160px] min-h-[72px]",
+  "min-w-[160px] min-h-[72px] w-fit",
   "transition-colors duration-150 ease-out",
 ]);
 const copied = ref(false);
@@ -103,9 +103,13 @@ const copied = ref(false);
 const currentTool = computed(
   () => toolOptions.value.find((tool) => tool.name === toolName.value) ?? null,
 );
-const headerLabel = computed(() => currentTool.value?.name ?? "Workflow Step");
+const headerLabel = computed(() => {
+  const label = (props.data?.label ?? "").trim();
+  if (label) return label;
+  return currentTool.value?.name ?? "Workflow Step";
+});
 
-// Keep toolName in sync with step data so the header label stays current
+// Keep toolName in sync with step data
 watch(
   () => props.data?.step,
   (nextStep) => {

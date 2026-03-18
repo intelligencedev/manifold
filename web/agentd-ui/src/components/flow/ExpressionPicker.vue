@@ -215,7 +215,7 @@ const upstreamEntries = computed<UpstreamEntry[]>(() => {
     const stepData = node?.data;
     const toolName = stepData?.step?.tool?.name ?? "";
     const stepText = stepData?.step?.text ?? "";
-    const label = stepText || id;
+    const label = stepData?.label || toolName || id;
 
     // Discover output fields from runtime trace
     const stepTrace = trace[id];

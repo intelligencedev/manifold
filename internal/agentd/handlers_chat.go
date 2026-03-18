@@ -261,6 +261,26 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 					http.Error(w, "internal server error", http.StatusInternalServerError)
 					return
 				}
+				relatedMessageIDs := relatedToolMessageIDs(msgs, target)
+				resetSummary := sess.SummarizedCount > 0 && msgIndex < sess.SummarizedCount
+				if atomicStore, ok := a.chatStore.(atomicChatTurnDeleteStore); ok {
+					if err := atomicStore.DeleteMessageWithRelated(r.Context(), userID, id, subresourceID, relatedMessageIDs, resetSummary); err != nil {
+						if errors.Is(err, persist.ErrForbidden) {
+							http.Error(w, "forbidden", http.StatusForbidden)
+							return
+						}
+						if errors.Is(err, persist.ErrNotFound) {
+							http.NotFound(w, r)
+							return
+						}
+						log.Error().Err(err).Str("session", id).Msg("delete_chat_message")
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return
+					}
+
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
 
 				// Delete target message first.
 				if err := a.chatStore.DeleteMessage(r.Context(), userID, id, subresourceID); err != nil {
@@ -278,26 +298,20 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 				}
 
 				// Remove related tool outputs if the assistant message contained tool calls.
-				toolIDs := toolCallIDsFromMessage(target)
-				if len(toolIDs) > 0 {
-					toolSet := make(map[string]struct{}, len(toolIDs))
-					for _, id := range toolIDs {
-						toolSet[id] = struct{}{}
+				if len(relatedMessageIDs) > 0 {
+					relatedSet := make(map[string]struct{}, len(relatedMessageIDs))
+					for _, relatedID := range relatedMessageIDs {
+						relatedSet[relatedID] = struct{}{}
 					}
 					for _, m := range msgs {
-						if m.Role != "tool" {
-							continue
-						}
-						if toolID := toolIDFromMessage(m); toolID != "" {
-							if _, ok := toolSet[toolID]; ok {
-								_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
-							}
+						if _, ok := relatedSet[m.ID]; ok {
+							_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
 						}
 					}
 				}
 
 				// If the deleted message was part of the summarized range, clear summary.
-				if sess.SummarizedCount > 0 && msgIndex < sess.SummarizedCount {
+				if resetSummary {
 					if err := a.chatStore.UpdateSummary(r.Context(), userID, id, "", 0); err != nil {
 						log.Error().Err(err).Str("session", id).Msg("reset_chat_summary")
 					}
@@ -361,6 +375,34 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 					return
 				}
 
+				relatedMessageIDs := []string(nil)
+				if inclusive {
+					relatedMessageIDs = relatedToolMessageIDs(msgs, target)
+				}
+				remainingCount := msgIndex + 1
+				if inclusive {
+					remainingCount = msgIndex
+				}
+				resetSummary := sess.SummarizedCount > remainingCount
+				if atomicStore, ok := a.chatStore.(atomicChatTurnDeleteStore); ok {
+					if err := atomicStore.DeleteMessagesAfterWithRelated(r.Context(), userID, id, afterID, inclusive, relatedMessageIDs, resetSummary); err != nil {
+						if errors.Is(err, persist.ErrForbidden) {
+							http.Error(w, "forbidden", http.StatusForbidden)
+							return
+						}
+						if errors.Is(err, persist.ErrNotFound) {
+							http.NotFound(w, r)
+							return
+						}
+						log.Error().Err(err).Str("session", id).Msg("delete_chat_messages_after")
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return
+					}
+
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+
 				if err := a.chatStore.DeleteMessagesAfter(r.Context(), userID, id, afterID, inclusive); err != nil {
 					if errors.Is(err, persist.ErrForbidden) {
 						http.Error(w, "forbidden", http.StatusForbidden)
@@ -377,30 +419,20 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 
 				// Remove related tool outputs if the target assistant message contained tool calls.
 				if inclusive {
-					toolIDs := toolCallIDsFromMessage(target)
-					if len(toolIDs) > 0 {
-						toolSet := make(map[string]struct{}, len(toolIDs))
-						for _, id := range toolIDs {
-							toolSet[id] = struct{}{}
+					if len(relatedMessageIDs) > 0 {
+						relatedSet := make(map[string]struct{}, len(relatedMessageIDs))
+						for _, relatedID := range relatedMessageIDs {
+							relatedSet[relatedID] = struct{}{}
 						}
 						for _, m := range msgs {
-							if m.Role != "tool" {
-								continue
-							}
-							if toolID := toolIDFromMessage(m); toolID != "" {
-								if _, ok := toolSet[toolID]; ok {
-									_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
-								}
+							if _, ok := relatedSet[m.ID]; ok {
+								_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
 							}
 						}
 					}
 				}
 
-				remainingCount := msgIndex + 1
-				if inclusive {
-					remainingCount = msgIndex
-				}
-				if sess.SummarizedCount > remainingCount {
+				if resetSummary {
 					if err := a.chatStore.UpdateSummary(r.Context(), userID, id, "", 0); err != nil {
 						log.Error().Err(err).Str("session", id).Msg("reset_chat_summary")
 					}
@@ -630,6 +662,39 @@ func hydrateChatMessages(raw []persist.ChatMessage) []persist.ChatMessage {
 	}
 
 	return out
+}
+
+type atomicChatTurnDeleteStore interface {
+	DeleteMessageWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, relatedMessageIDs []string, resetSummary bool) error
+	DeleteMessagesAfterWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool, relatedMessageIDs []string, resetSummary bool) error
+}
+
+func relatedToolMessageIDs(msgs []persist.ChatMessage, target persist.ChatMessage) []string {
+	toolIDs := toolCallIDsFromMessage(target)
+	if len(toolIDs) == 0 {
+		return nil
+	}
+	toolSet := make(map[string]struct{}, len(toolIDs))
+	for _, id := range toolIDs {
+		toolSet[id] = struct{}{}
+	}
+	related := make([]string, 0, len(toolSet))
+	seen := make(map[string]struct{})
+	for _, msg := range msgs {
+		if msg.Role != "tool" {
+			continue
+		}
+		toolID := toolIDFromMessage(msg)
+		if _, ok := toolSet[toolID]; !ok {
+			continue
+		}
+		if _, ok := seen[msg.ID]; ok {
+			continue
+		}
+		seen[msg.ID] = struct{}{}
+		related = append(related, msg.ID)
+	}
+	return related
 }
 
 func toolCallIDsFromMessage(msg persist.ChatMessage) []string {

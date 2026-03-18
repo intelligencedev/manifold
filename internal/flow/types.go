@@ -138,6 +138,7 @@ type CanvasNode struct {
 	Width     *float64 `json:"width,omitempty"`
 	Height    *float64 `json:"height,omitempty"`
 	Collapsed *bool    `json:"collapsed,omitempty"`
+	Label     string   `json:"label,omitempty"`
 }
 
 type CanvasGroup struct {

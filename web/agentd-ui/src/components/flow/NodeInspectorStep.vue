@@ -19,12 +19,23 @@
     </label>
 
     <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      Display Label
+      <input
+        v-model="displayLabel"
+        type="text"
+        class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+        placeholder="Optional (defaults to tool name)"
+        :disabled="!isDesignMode || hydratingRef"
+      />
+    </label>
+
+    <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
       Step Text
       <input
         v-model="stepText"
         type="text"
         class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-        placeholder="Describe this step"
+        placeholder="Optional description"
         :disabled="!isDesignMode || hydratingRef"
       />
     </label>
@@ -117,6 +128,7 @@ const toolDropdownOptions = computed(() => [
 ]);
 
 const stepText = ref("");
+const displayLabel = ref("");
 const guardText = ref("");
 const publishResult = ref(false);
 const toolName = ref("");
@@ -147,9 +159,11 @@ const parameterSchemaFiltered = computed(() => {
 
 let suppress = false;
 watch(
-  () => props.data?.step,
-  (next) => {
+  () => props.data,
+  (data) => {
     suppress = true;
+    const next = data?.step;
+    displayLabel.value = data?.label ?? "";
     stepText.value = next?.text ?? "";
     guardText.value = next?.guard ?? "";
     publishResult.value = Boolean(next?.publish_result);
@@ -165,6 +179,7 @@ watch(
 
 watch(
   [
+    displayLabel,
     stepText,
     guardText,
     publishResult,
@@ -192,6 +207,7 @@ function applyChanges() {
   updateNodeData(props.nodeId, {
     ...(props.data ?? { order: 0 }),
     step: payload,
+    label: displayLabel.value.trim() || undefined,
   });
   isDirty.value = false;
 }

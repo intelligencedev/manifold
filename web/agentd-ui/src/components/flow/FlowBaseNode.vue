@@ -47,7 +47,7 @@
       />
 
       <div
-        class="node-face h-full w-full flex flex-col overflow-hidden rounded-lg border border-border/60 bg-surface/90 p-3 shadow-lg"
+        class="node-face glass-surface h-full w-full flex flex-col overflow-hidden rounded-lg !p-3"
       >
         <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
           <slot name="front" />

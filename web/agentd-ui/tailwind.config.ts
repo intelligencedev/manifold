@@ -86,7 +86,7 @@ export default {
         ".bg-grain": {
           backgroundImage: "url(/assets/noise.png)",
           mixBlendMode: "soft-light",
-          opacity: "0.35",
+          opacity: "0.05",
         },
         ".glass-surface": {
           padding: "16px",
@@ -99,7 +99,7 @@ export default {
         },
         ".pill-glow": {
           boxShadow:
-            "0 0 0 1px rgba(var(--color-accent), 0.35), 0 10px 34px rgba(var(--color-accent), 0.18), 0 1px 0 rgba(255,255,255,0.08)",
+            "0 0 0 1px rgba(var(--color-accent), 0.18), 0 6px 16px rgba(var(--color-accent), 0.08)",
         },
       });
     },

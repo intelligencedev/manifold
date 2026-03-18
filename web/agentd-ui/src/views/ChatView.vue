@@ -265,8 +265,11 @@
           <article
             v-for="message in chatMessages"
             :key="message.id"
-            class="relative max-w-[72ch] glass-surface rounded-[var(--radius,18px)] border border-white/12 p-5"
-            :class="message.role === 'user' ? 'ml-auto' : ''"
+            class="relative glass-surface rounded-[var(--radius,18px)] border border-white/12 p-5"
+            :class="[
+              message.role === 'user' ? 'ml-auto max-w-[72ch]' : 'max-w-[72ch]',
+              shouldExpandMessageWidth(message) ? 'w-full max-w-none' : '',
+            ]"
           >
             <header class="flex flex-wrap items-center gap-2">
               <template v-if="message.role === 'assistant'">
@@ -1540,6 +1543,21 @@ function renderMarkdownOrHtml(content: string) {
   }
   // Default: render as markdown
   return renderMarkdown(content);
+}
+
+function containsRenderedBlockHtml(content: string) {
+  if (!content) return false;
+
+  const withoutFences = content.replace(/```[\s\S]*?```/g, "");
+  return /(^|\n)\s*<(div|section|article|main|aside|header|footer|figure|figcaption|svg|table|details|blockquote|pre|ul|ol|dl)\b/i.test(
+    withoutFences,
+  );
+}
+
+function shouldExpandMessageWidth(message: ChatMessage) {
+  if (message.role !== "assistant") return false;
+  if (renderMode.value === "html") return true;
+  return containsRenderedBlockHtml(message.content || "");
 }
 
 const activeSession = computed(() => chat.activeSession);

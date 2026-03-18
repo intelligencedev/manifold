@@ -81,14 +81,15 @@ const baseClasses = computed(() =>
     "dropdown-select",
     "appearance-none",
     "border",
-    "border-white/12",
-    "bg-surface/70",
+    "border-border/60",
+    "bg-surface-muted/70",
     "text-foreground",
     "font-semibold",
+    "tracking-tight",
     "transition-colors",
     "focus:outline-none",
     "focus:ring-2",
-    "focus:ring-ring/60",
+    "focus:ring-ring/30",
   ].join(" "),
 );
 
@@ -96,15 +97,15 @@ const baseClasses = computed(() =>
 const sizeClasses = computed(() => {
   switch (props.size) {
     case "xs":
-      return "pl-2 pr-10 py-1 text-xs rounded-4";
+      return "pl-3 pr-10 py-2 text-xs rounded-[14px]";
     case "sm":
-      return "pl-2 pr-10 py-1 text-xs rounded-4";
+      return "pl-3 pr-10 py-2 text-xs rounded-[14px]";
     case "md":
-      return "pl-3 pr-10 py-2 text-sm rounded-4";
+      return "pl-3 pr-10 py-2.5 text-sm rounded-[16px]";
     case "lg":
-      return "pl-4 pr-10 py-3 text-base rounded-4";
+      return "pl-4 pr-10 py-3 text-base rounded-[18px]";
     default:
-      return "pl-3 pr-10 py-2 text-sm rounded-4";
+      return "pl-3 pr-10 py-2.5 text-sm rounded-[16px]";
   }
 });
 

@@ -28,7 +28,7 @@
 
     <slot />
 
-    <footer v-if="$slots.footer" class="mt-6 border-t border-white/10 pt-4">
+    <footer v-if="$slots.footer" class="mt-6 border-t border-border/45 pt-4">
       <slot name="footer" />
     </footer>
   </component>

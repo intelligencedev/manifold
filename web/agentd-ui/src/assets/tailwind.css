@@ -15,29 +15,35 @@
     --radius-lg: 26px;
     /* Default to system/store-driven tokens. These initial values are for SSR fallback only. */
     color-scheme: dark;
-    --color-background: 12 14 16; /* aperture-dark background */
-    --color-surface: 17 20 23;
-    --color-surface-muted: 22 26 30;
-    --color-border: 22 26 30; /* stroke-soft */
-    --color-input: 28 33 38;
-    --color-ring: 112 109 230; /* iris-8 */
-    --color-foreground: 231 235 239;
-    --color-muted-foreground: 138 151 163;
-    --color-subtle-foreground: 104 119 132;
-    --color-faint-foreground: 77 90 102;
-    --color-muted: 17 20 23;
-    --color-accent: 90 89 211; /* iris-9 */
+    --color-background: 15 16 19;
+    --color-surface: 24 26 31;
+    --color-surface-muted: 33 35 41;
+    --color-border: 70 74 84;
+    --color-input: 29 31 37;
+    --color-ring: 127 176 255;
+    --color-foreground: 238 241 246;
+    --color-muted-foreground: 171 179 191;
+    --color-subtle-foreground: 132 141 155;
+    --color-faint-foreground: 100 108 120;
+    --color-muted: 24 26 31;
+    --color-accent: 102 163 255;
     --color-accent-foreground: 255 255 255;
-    --color-destructive: 227 93 77;
-    --color-destructive-foreground: 24 24 27;
-    --color-success: 34 201 166;
-    --color-success-foreground: 15 23 42;
-    --color-info: 69 148 234;
-    --color-info-foreground: 15 23 42;
-    --color-warning: 232 177 9;
-    --color-warning-foreground: 24 24 27;
-    --color-danger: 227 93 77;
-    --color-danger-foreground: 24 24 27;
+    --color-destructive: 232 99 92;
+    --color-destructive-foreground: 255 255 255;
+    --color-success: 78 210 160;
+    --color-success-foreground: 10 31 24;
+    --color-info: 102 163 255;
+    --color-info-foreground: 11 19 33;
+    --color-warning: 238 184 71;
+    --color-warning-foreground: 43 30 0;
+    --color-danger: 232 99 92;
+    --color-danger-foreground: 255 255 255;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
   }
 
   body {
@@ -53,7 +59,7 @@
   /* Firefox */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(90, 89, 211, 0.8) transparent;
+    scrollbar-color: rgba(102, 163, 255, 0.7) transparent;
   }
 
   /* WebKit/Blink (Chrome, Edge, Safari) */
@@ -83,7 +89,7 @@
   body::-webkit-scrollbar-thumb,
   .aperture::-webkit-scrollbar-thumb,
   .aperture *::-webkit-scrollbar-thumb {
-    background-color: rgba(90, 89, 211, 0.8) !important;
+    background-color: rgba(102, 163, 255, 0.7) !important;
     border-radius: 9999px;
     border: 2px solid transparent;
     background-clip: padding-box;
@@ -93,13 +99,31 @@
   body::-webkit-scrollbar-thumb:hover,
   .aperture::-webkit-scrollbar-thumb:hover,
   .aperture *::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(90, 89, 211, 0.95) !important;
+    background-color: rgba(102, 163, 255, 0.9) !important;
   }
   html::-webkit-scrollbar-corner,
   body::-webkit-scrollbar-corner,
   .aperture::-webkit-scrollbar-corner,
   .aperture *::-webkit-scrollbar-corner {
     background-color: transparent !important;
+  }
+}
+
+@layer components {
+  .control-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-border/60 bg-surface/80 px-4 py-2.5 text-sm font-semibold text-foreground transition;
+  }
+
+  .control-button:hover {
+    @apply border-accent/45 text-foreground bg-surface-muted/70;
+  }
+
+  .control-button--primary {
+    @apply border-accent/60 bg-accent text-accent-foreground;
+  }
+
+  .control-button--primary:hover {
+    @apply bg-accent/90 text-accent-foreground;
   }
 }
 

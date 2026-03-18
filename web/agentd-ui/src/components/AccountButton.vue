@@ -3,22 +3,22 @@
     <button
       ref="btnRef"
       @click="onToggle"
-      class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-surface-muted/60"
+      class="flex items-center gap-2 rounded-2xl border border-border/60 bg-surface/70 px-3 py-2.5 text-sm font-semibold tracking-tight text-foreground transition hover:border-accent/40 hover:bg-surface-muted/70"
     >
       <img
         v-if="avatar"
         :src="avatar"
         alt="avatar"
-        class="h-6 w-6 rounded-full"
+        class="h-7 w-7 rounded-full"
       />
       <span
         v-else
-        class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-accent"
+        class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-accent/15 text-accent"
         >U</span
       >
       <span class="hidden sm:inline">{{ username || "Account" }}</span>
       <svg
-        class="h-4 w-4"
+        class="h-4 w-4 text-subtle-foreground"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -34,18 +34,18 @@
     <Teleport to="body">
       <div
         v-if="open"
-        class="fixed w-48 rounded-md border border-border/70 bg-surface py-1 shadow-lg z-50"
+        class="fixed z-50 w-56 rounded-[20px] border border-border/70 bg-surface p-1.5 shadow-[0_18px_50px_rgba(0,0,0,0.22)]"
         :style="menuStyle"
       >
         <a
           href="/api/me"
-          class="block px-4 py-2 text-sm hover:bg-surface-muted/60"
+          class="block rounded-2xl px-4 py-2.5 text-sm font-medium text-foreground transition hover:bg-surface-muted/60"
           >Profile</a
         >
         <!-- Use a JS navigation to force a full-page redirect so the backend can set cookies and redirect correctly -->
         <button
           @click="onLogout"
-          class="w-full text-left block px-4 py-2 text-sm hover:bg-surface-muted/60"
+          class="block w-full rounded-2xl px-4 py-2.5 text-left text-sm font-medium text-foreground transition hover:bg-surface-muted/60"
         >
           Logout
         </button>

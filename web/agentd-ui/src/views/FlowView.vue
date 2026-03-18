@@ -1249,6 +1249,9 @@ const saving = ref(false);
 // Pinia unwraps refs by default, so we need to access the underlying $state
 // or re-wrap in computed to maintain reactivity across navigation
 const running = computed(() => flowRunStore.running);
+const activeRunningNodeIds = computed(
+  () => new Set(flowRunStore.activeNodeIds ?? []),
+);
 const runOutput = computed(() => flowRunStore.runOutput);
 provide("flowEditorRunning", running);
 provide("flowEditorRunOutput", runOutput);
@@ -1564,7 +1567,16 @@ function setCurrentEdgeStyle(style?: string) {
 
 function normalizeEdgesWithCurrentStyle(list: Edge[]): Edge[] {
   const type = currentEdgeStyle.value;
-  return list.map((edge) => ({ ...edge, type }));
+  const animateActiveOutputs = running.value && activeRunningNodeIds.value.size > 0;
+  return list.map((edge) => {
+    const animated = animateActiveOutputs && activeRunningNodeIds.value.has(edge.source);
+    return {
+      ...edge,
+      type,
+      animated,
+      class: animated ? "flow-edge-active" : undefined,
+    };
+  });
 }
 
 function applyEdgeStyleToExistingEdges() {
@@ -1587,6 +1599,17 @@ function cycleEdgeStyle() {
 }
 
 watch(currentEdgeStyle, () => {
+  applyEdgeStyleToExistingEdges();
+});
+
+watch(
+  () => flowRunStore.activeNodeIds.slice(),
+  () => {
+    applyEdgeStyleToExistingEdges();
+  },
+);
+
+watch(running, () => {
   applyEdgeStyleToExistingEdges();
 });
 
@@ -3212,11 +3235,11 @@ async function onImportSelected(event: Event) {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  min-height: 2.25rem;
+  min-height: 2rem;
   border-radius: 0.75rem;
   border: 1px solid rgb(var(--color-border) / 0.65);
   background: rgb(var(--color-surface-muted) / 0.72);
-  padding: 0.45rem 0.9rem;
+  padding: 0.35rem 0.8rem;
   font-size: 0.8rem;
   font-weight: 600;
   color: rgb(var(--color-foreground));
@@ -3284,8 +3307,8 @@ async function onImportSelected(event: Event) {
 }
 
 .toolbar-btn-ghost {
-  min-height: auto;
-  padding: 0.35rem 0.75rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.8rem;
   font-size: 0.75rem;
 }
 
@@ -3293,8 +3316,8 @@ async function onImportSelected(event: Event) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: 0.75rem;
   border: 1px solid rgb(var(--color-border) / 0.65);
   background: rgb(var(--color-surface-muted) / 0.72);
@@ -3336,6 +3359,16 @@ async function onImportSelected(event: Event) {
 /* ensure flow canvas fills area */
 .vue-flow__container {
   height: 100%;
+}
+
+.vue-flow__edge.flow-edge-active {
+  z-index: 2;
+}
+
+.vue-flow__edge.flow-edge-active .vue-flow__edge-path {
+  stroke: rgb(var(--color-accent) / 0.92);
+  stroke-width: 2.25;
+  filter: drop-shadow(0 0 6px rgb(var(--color-accent) / 0.26));
 }
 
 .flow-minimap.vue-flow__minimap {

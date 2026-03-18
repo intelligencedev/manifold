@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { FlowRunResult, FlowStepTrace } from "@/types/flowV2";
 import { runFlowWorkflow } from "@/api/flow";
+import type { FlowRunProgress } from "@/api/flow";
 
 export const useFlowRunStore = defineStore("flow-run", () => {
   const running = ref(false);
@@ -9,6 +10,7 @@ export const useFlowRunStore = defineStore("flow-run", () => {
   const runOutput = ref("");
   const runLogs = ref<string[]>([]);
   const runTrace = ref<Record<string, FlowStepTrace>>({});
+  const activeNodeIds = ref<string[]>([]);
   let runAbort: AbortController | null = null;
 
   function reset() {
@@ -16,6 +18,16 @@ export const useFlowRunStore = defineStore("flow-run", () => {
     runOutput.value = "";
     runLogs.value = [];
     runTrace.value = {};
+    activeNodeIds.value = [];
+  }
+
+  function applyProgress(progress: FlowRunProgress) {
+    const rec: Record<string, FlowStepTrace> = {};
+    for (const trace of progress.trace ?? []) {
+      rec[trace.stepId] = trace;
+    }
+    runTrace.value = rec;
+    activeNodeIds.value = [...(progress.activeNodeIds ?? [])];
   }
 
   async function startRun(
@@ -36,6 +48,7 @@ export const useFlowRunStore = defineStore("flow-run", () => {
         prompt ?? `Run workflow: ${workflowId}`,
         runAbort.signal,
         projectId,
+        applyProgress,
       );
       runOutput.value = res.result || "";
       const rec: Record<string, FlowStepTrace> = {};
@@ -43,6 +56,7 @@ export const useFlowRunStore = defineStore("flow-run", () => {
         rec[trace.stepId] = trace;
       }
       runTrace.value = rec;
+      activeNodeIds.value = [];
       runLogs.value.push("✓ Run finished");
       if (runOutput.value) {
         const snippet =
@@ -54,15 +68,18 @@ export const useFlowRunStore = defineStore("flow-run", () => {
     } catch (err: any) {
       if (err?.name === "AbortError") {
         error.value = "Run cancelled";
+        activeNodeIds.value = [];
         runLogs.value.push("⚠ Run cancelled by user");
         return { result: "", trace: [] };
       }
       const msg = err?.message ?? "Failed to run workflow";
       error.value = msg;
+      activeNodeIds.value = [];
       runLogs.value.push("✗ Error: " + msg);
       throw err;
     } finally {
       running.value = false;
+      activeNodeIds.value = [];
     }
   }
 
@@ -70,5 +87,14 @@ export const useFlowRunStore = defineStore("flow-run", () => {
     if (running.value && runAbort) runAbort.abort();
   }
 
-  return { running, error, runOutput, runLogs, runTrace, startRun, cancelRun };
+  return {
+    running,
+    error,
+    runOutput,
+    runLogs,
+    runTrace,
+    activeNodeIds,
+    startRun,
+    cancelRun,
+  };
 });

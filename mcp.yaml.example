@@ -1,0 +1,61 @@
+# Example standalone MCP config loaded from mcp.yaml.
+# Root schema: MCPConfig
+servers:
+  # MCPServerConfig
+  # name: unique tool prefix
+  # command: stdio executable
+  # args: command arguments
+  # env: extra env for stdio process
+  # keepAliveSeconds: ping interval; 0 disables keepalive
+  # pathDependent: expand {{PROJECT_DIR}} in args and env
+  # url: remote MCP endpoint for HTTP transport
+  # headers: extra HTTP headers
+  # bearerToken: sent as Authorization: Bearer <token>
+  # origin: optional Origin header
+  # protocolVersion: optional MCP-Protocol-Version override
+  # http: MCPHTTPClientConfig for remote servers
+
+  - name: sequentialthinking
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - mcp/sequentialthinking
+    env: {}
+    keepAliveSeconds: 0
+    pathDependent: false
+
+  - name: filesystem
+    command: docker
+    args:
+      - run
+      - -i
+      - --rm
+      - -v
+      - "{{PROJECT_DIR}}:/workspace"
+      - mcp/filesystem
+      - /workspace
+    env:
+      WORKSPACE_ROOT: "{{PROJECT_DIR}}"
+    keepAliveSeconds: 15
+    pathDependent: true
+
+  - name: acme
+    url: https://mcp.acme.com/mcp
+    headers:
+      X-Client: Manifold
+      X-Env: production
+    bearerToken: ${ACME_MCP_TOKEN}
+    origin: https://manifold.local
+    protocolVersion: "2025-03-26"
+    http:
+      # MCPHTTPClientConfig
+      timeoutSeconds: 30
+      proxyURL: ""
+      tls:
+        # MCPTLSConfig
+        insecureSkipVerify: false
+        caFile: /etc/ssl/certs/acme-ca.pem
+        certFile: /etc/manifold/tls/client.crt
+        keyFile: /etc/manifold/tls/client.key

@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"reflect"
 
 	"manifold/internal/agent/memory"
 	"manifold/internal/persistence"
@@ -64,7 +65,7 @@ type Manager struct {
 	Chat            persistence.ChatStore
 	EvolvingMemory  memory.EvolvingMemoryStore
 	Playground      *PlaygroundStore
-	Warpp           persistence.WarppWorkflowStore
+	FlowV2          persistence.FlowV2WorkflowStore
 	MCP             persistence.MCPStore
 	Projects        persistence.ProjectsStore
 	UserPreferences persistence.UserPreferencesStore
@@ -74,37 +75,37 @@ type Manager struct {
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
 func (m Manager) Close() {
-	if c, ok := any(m.Search).(interface{ Close() }); ok {
-		c.Close()
+	closeIfPossible(m.Search)
+	closeIfPossible(m.Vector)
+	closeIfPossible(m.Graph)
+	closeIfPossible(m.Chat)
+	closeIfPossible(m.EvolvingMemory)
+	closeIfPossible(m.Playground)
+	closeIfPossible(m.MCP)
+	closeIfPossible(m.Projects)
+	closeIfPossible(m.UserPreferences)
+	closeIfPossible(m.Pulse)
+	closeIfPossible(m.Transit)
+}
+
+func closeIfPossible(value any) {
+	if value == nil {
+		return
 	}
-	if c, ok := any(m.Vector).(interface{ Close() }); ok {
-		c.Close()
+
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if rv.IsNil() {
+			return
+		}
 	}
-	if c, ok := any(m.Graph).(interface{ Close() }); ok {
-		c.Close()
+
+	if closer, ok := value.(interface{ Close() }); ok {
+		closer.Close()
+		return
 	}
-	if c, ok := any(m.Chat).(interface{ Close() }); ok {
-		c.Close()
-	}
-	if c, ok := any(m.EvolvingMemory).(interface{ Close() }); ok {
-		c.Close()
-	}
-	if c, ok := any(m.Playground).(interface{ Close() }); ok {
-		c.Close()
-	}
-	if c, ok := any(m.MCP).(interface{ Close() }); ok {
-		c.Close()
-	}
-	if c, ok := any(m.Projects).(interface{ Close() }); ok {
-		c.Close()
-	}
-	if c, ok := any(m.UserPreferences).(interface{ Close() }); ok {
-		c.Close()
-	}
-	if c, ok := any(m.Pulse).(interface{ Close() }); ok {
-		c.Close()
-	}
-	if c, ok := any(m.Transit).(interface{ Close() }); ok {
-		c.Close()
+	if closer, ok := value.(interface{ Close() error }); ok {
+		_ = closer.Close()
 	}
 }

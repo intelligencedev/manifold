@@ -32,6 +32,19 @@ type visionClientSelection struct {
 	Google    *googlellm.Client
 }
 
+func (v visionClientSelection) supportsCompaction() bool {
+	switch {
+	case v.OpenAI != nil:
+		return providerSupportsCompaction(v.OpenAI)
+	case v.Anthropic != nil:
+		return providerSupportsCompaction(v.Anthropic)
+	case v.Google != nil:
+		return providerSupportsCompaction(v.Google)
+	default:
+		return false
+	}
+}
+
 func (a *app) agentVisionHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var userID *int64
@@ -76,20 +89,6 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		// Check if the main LLM provider supports compaction (OpenAI Responses API).
-		// Non-OpenAI providers cannot use encrypted compaction summaries.
-		targetSupportsCompaction := providerSupportsCompaction(a.llm)
-		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
-		if err != nil {
-			if errors.Is(err, persist.ErrForbidden) {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-			log.Error().Err(err).Str("session", sessionID).Msg("load_chat_history")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-
 		form := r.MultipartForm
 		var files []*multipart.FileHeader
 		if form != nil {
@@ -149,6 +148,18 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]string{"result": "(dev) mock vision response: " + prompt})
 			a.runs.updateStatus(vrun.ID, "completed", 0)
+			return
+		}
+
+		targetSupportsCompaction := visionSel.supportsCompaction()
+		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
+		if err != nil {
+			if errors.Is(err, persist.ErrForbidden) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
+			log.Error().Err(err).Str("session", sessionID).Msg("load_chat_history")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 

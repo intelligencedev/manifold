@@ -1,10 +1,8 @@
 <template>
-  <div
-    class="glass-surface flex h-full min-h-0 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12"
-  >
+  <div class="flex h-full min-h-0 overflow-hidden">
     <!-- Sidebar navigation -->
     <aside
-      class="w-60 shrink-0 border-r border-white/10 bg-surface/40 backdrop-blur-md p-4 space-y-4 overflow-y-auto"
+      class="ap-hairline-r w-60 shrink-0 space-y-4 overflow-y-auto p-4 pr-5"
     >
       <h1 class="text-lg font-semibold text-foreground">Settings</h1>
       <nav class="space-y-1">
@@ -49,7 +47,7 @@
 
     <!-- Main content -->
     <form
-      class="flex-1 overflow-auto p-6 space-y-6"
+      class="flex-1 overflow-auto pl-6 pr-1 space-y-6"
       @submit.prevent="saveAgentdSettings"
     >
       <div class="flex items-center justify-between gap-4 flex-wrap">

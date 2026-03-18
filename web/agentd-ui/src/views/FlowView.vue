@@ -1,209 +1,127 @@
 <template>
-  <div class="flex h-full min-h-0 flex-col space-y-4">
-    <div class="flex flex-wrap items-center gap-3">
-      <label class="text-sm text-muted-foreground">
-        Workflow
+  <div class="flex h-full min-h-0 flex-col gap-2">
+    <section class="rounded-xl border border-border/60 bg-surface/90 px-3 py-2 shadow-[0_14px_34px_-26px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+      <div class="flex flex-wrap items-center gap-2">
+        <!-- Workflow selector -->
         <DropdownSelect
           v-model="selectedIntent"
           size="sm"
-          class="ml-2 text-sm"
+          class="min-w-[11rem] max-w-[16rem] shrink-0 text-sm"
           :options="[
             { id: '', label: 'Select workflow', value: '', disabled: true },
-            ...workflowList.map((wf) => ({
-              id: wf.intent,
-              label: wf.intent,
-              value: wf.intent,
-            })),
+            ...workflowList.map((wf) => ({ id: wf.intent, label: wf.intent, value: wf.intent })),
           ]"
+          aria-label="Workflow"
+          title="Select workflow"
         />
-      </label>
 
-      <label class="text-sm text-muted-foreground">
-        Project
+        <!-- Project selector -->
         <DropdownSelect
           v-model="selectedWorkflowProjectId"
           size="sm"
-          class="ml-2 text-sm"
+          class="min-w-[9rem] max-w-[13rem] shrink-0 text-sm"
           :options="projectOptions"
-          title="Optional project assignment for this workflow"
           aria-label="Project"
+          title="Optional project assignment"
         />
-      </label>
 
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
-        title="Create new workflow"
-        aria-label="New workflow"
-        @click="onNew"
-      >
-        New
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-accent text-accent-foreground hover:bg-accent/90 plain-link"
-        :disabled="!canSave"
-        title="Save workflow"
-        aria-label="Save workflow"
-        @click="onSave"
-      >
-        Save
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-danger text-danger-foreground hover:bg-danger/90 plain-link"
-        :disabled="!canDelete"
-        title="Delete workflow"
-        aria-label="Delete workflow"
-        @click="onDelete"
-      >
-        Delete
-      </button>
-
-      <!-- Import button placed to the left of Export -->
-      <input
-        ref="importInput"
-        type="file"
-        accept="application/json,.json"
-        class="hidden"
-        @change="onImportSelected"
-      />
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
-        title="Import workflow from JSON"
-        aria-label="Import workflow"
-        @click="triggerImport"
-      >
-        Import
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-muted text-foreground hover:bg-muted/80 plain-link"
-        :disabled="!canExport"
-        title="Export workflow as JSON"
-        aria-label="Export workflow"
-        @click="exportWorkflow"
-      >
-        Export
-      </button>
-
-      <button
-        class="inline-flex items-center gap-2 rounded px-3 py-1 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50 disabled:cursor-not-allowed bg-primary text-primary-foreground hover:bg-primary/90 plain-link"
-        :disabled="!canRun"
-        title="Run workflow"
-        aria-label="Run workflow"
-        @click="onRun"
-      >
-        <span v-if="!running">Run</span>
-        <span v-else class="inline-flex items-center gap-1">
-          <svg
-            class="h-3 w-3 animate-spin"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
+        <!-- Trigger selector + help -->
+        <div class="flex shrink-0 items-center gap-1">
+          <DropdownSelect
+            v-model="selectedTriggerType"
+            size="sm"
+            class="min-w-[7.5rem] text-sm"
+            :options="triggerTypeOptions"
+            aria-label="Trigger type"
+          />
+          <button
+            type="button"
+            class="toolbar-icon-btn"
+            aria-label="Trigger help"
+            title="Trigger help"
+            @click="openHelpModal"
           >
-            <circle class="opacity-25" cx="12" cy="12" r="10" />
-            <path class="opacity-75" d="M4 12a8 8 0 018-8" />
-          </svg>
-          Running…
-        </span>
-      </button>
-      <button
-        v-if="running"
-        class="rounded bg-muted px-3 py-1 text-sm font-medium text-foreground transition hover:bg-muted/80 plain-link"
-        @click="onCancelRun"
-      >
-        Cancel
-      </button>
-      <div class="flex flex-wrap items-center gap-3 ml-auto">
-        <span v-if="loading" class="text-sm text-subtle-foreground"
+            <HelpIcon class="h-4 w-4" />
+          </button>
+        </div>
+
+        <div class="h-5 w-px shrink-0 bg-border/50" />
+
+        <!-- Action buttons -->
+        <input
+          ref="importInput"
+          type="file"
+          accept="application/json,.json"
+          class="hidden"
+          @change="onImportSelected"
+        />
+        <button class="toolbar-btn shrink-0" title="Create new workflow" aria-label="New workflow" @click="onNew">New</button>
+        <button class="toolbar-btn toolbar-btn-accent shrink-0" :disabled="!canSave" title="Save workflow" aria-label="Save workflow" @click="onSave">Save</button>
+        <button class="toolbar-btn toolbar-btn-danger shrink-0" :disabled="!canDelete" title="Delete workflow" aria-label="Delete workflow" @click="onDelete">Delete</button>
+        <button class="toolbar-btn shrink-0" title="Import workflow from JSON" aria-label="Import workflow" @click="triggerImport">Import</button>
+        <button class="toolbar-btn shrink-0" :disabled="!canExport" title="Export workflow as JSON" aria-label="Export workflow" @click="exportWorkflow">Export</button>
+        <button class="toolbar-btn toolbar-btn-run shrink-0" :disabled="!canRun" title="Run workflow" aria-label="Run workflow" @click="onRun">
+          <span v-if="!running">Run</span>
+          <span v-else class="inline-flex items-center gap-1">
+            <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle class="opacity-25" cx="12" cy="12" r="10" />
+              <path class="opacity-75" d="M4 12a8 8 0 018-8" />
+            </svg>
+            Running
+          </span>
+        </button>
+
+        <!-- Spacer -->
+        <div class="min-w-0 flex-1" />
+
+        <!-- Status pills -->
+        <span
+          v-if="loading"
+          class="shrink-0 rounded-full border border-border/60 bg-surface-muted/70 px-2.5 py-1 text-[11px] font-medium text-subtle-foreground"
           >Loading…</span
         >
-        <span v-else-if="error" class="text-sm text-danger-foreground">{{
-          error
-        }}</span>
-        <span v-else class="text-sm text-faint-foreground"
-          >Tools: {{ tools.length }}</span
+        <span
+          v-else-if="error"
+          class="shrink-0 rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 text-[11px] font-medium text-danger-foreground"
+          >{{ error }}</span
         >
         <span
-          v-if="runOutput"
-          class="text-xs italic text-subtle-foreground truncate max-w-[320px]"
-          :title="runOutput"
+          v-else
+          class="shrink-0 rounded-full border border-border/60 bg-surface-muted/70 px-2.5 py-1 text-[11px] font-medium text-faint-foreground"
+          >{{ tools.length }} tools</span
         >
-          Result: {{ runOutput }}
-        </span>
         <span
           v-if="runTimerLabel"
-          class="text-sm font-semibold text-warning whitespace-nowrap"
-          :title="
-            running ? 'Workflow runtime' : 'Duration of the most recent run'
-          "
+          class="shrink-0 whitespace-nowrap rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-[11px] font-semibold text-warning"
+          :title="running ? 'Workflow runtime' : 'Duration of the most recent run'"
+          >{{ runTimerLabel }}</span
         >
-          {{ runTimerLabel }}
-        </span>
-        <div class="flex items-center gap-1">
-          <span
-            class="text-[10px] uppercase tracking-wide text-faint-foreground"
-            >Mode</span
+        <button v-if="running" class="toolbar-btn toolbar-btn-ghost shrink-0" @click="onCancelRun">Cancel</button>
+
+        <div class="h-5 w-px shrink-0 bg-border/50" />
+
+        <!-- Mode toggle -->
+        <div class="inline-flex shrink-0 overflow-hidden rounded-lg border border-border/60 bg-surface-muted/50 text-xs shadow-inner">
+          <button
+            type="button"
+            class="px-3 py-1.5 transition"
+            :class="editorMode === 'design' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground hover:text-foreground'"
+            @click="setEditorMode('design')"
           >
-          <div
-            class="inline-flex overflow-hidden rounded border border-border/60 text-xs"
+            Design
+          </button>
+          <button
+            type="button"
+            class="border-l border-border/60 px-3 py-1.5 transition disabled:opacity-40"
+            :class="editorMode === 'run' ? 'bg-accent text-accent-foreground' : 'text-subtle-foreground hover:text-foreground'"
+            :disabled="!hasRunTrace && !running"
+            @click="setEditorMode('run')"
           >
-            <button
-              type="button"
-              class="px-2 py-1 transition"
-              :class="
-                editorMode === 'design'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-subtle-foreground hover:text-foreground'
-              "
-              @click="setEditorMode('design')"
-            >
-              Design
-            </button>
-            <button
-              type="button"
-              class="border-l border-border/60 px-2 py-1 transition disabled:opacity-40"
-              :class="
-                editorMode === 'run'
-                  ? 'bg-accent text-accent-foreground'
-                  : 'text-subtle-foreground hover:text-foreground'
-              "
-              :disabled="!hasRunTrace && !running"
-              @click="setEditorMode('run')"
-            >
-              Run
-            </button>
-          </div>
+            Run
+          </button>
         </div>
       </div>
-    </div>
-
-    <!-- Workflow metadata summary -->
-    <div v-if="activeWorkflow" class="text-xs text-subtle-foreground -mt-2">
-      <span v-if="activeWorkflow?.description"
-        >Description: {{ activeWorkflow?.description }}</span
-      >
-      <span v-if="activeWorkflow?.keywords?.length" class="ml-3"
-        >Keywords: {{ activeWorkflow?.keywords?.join(", ") }}</span
-      >
-      <span v-if="activeWorkflowProjectName" class="ml-3"
-        >Project: {{ activeWorkflowProjectName }}</span
-      >
-    </div>
-
-    <div
-      v-if="runLogs.length"
-      class="max-h-[3.6rem] overflow-y-auto rounded border border-border/50 bg-surface-muted px-3 py-2 text-xs font-mono leading-relaxed space-y-0.5"
-    >
-      <div
-        v-for="(l, i) in runLogs"
-        :key="i"
-        class="whitespace-pre-wrap break-words"
-      >
-        {{ l }}
-      </div>
-    </div>
+    </section>
 
     <div
       class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden"
@@ -252,18 +170,23 @@
             </div>
             <div class="lg:flex-1 lg:min-h-0 overflow-y-auto pr-1">
               <NodeInspectorStep
-                v-if="selectedNode.type === 'warppStep'"
+                v-if="selectedNode.type === 'flowStep'"
                 :node-id="selectedNode.id"
                 :data="selectedNode.data as any"
                 :tools="tools"
               />
               <NodeInspectorUtility
-                v-else-if="selectedNode.type === 'warppUtility'"
+                v-else-if="selectedNode.type === 'flowUtility'"
+                :node-id="selectedNode.id"
+                :data="selectedNode.data as any"
+              />
+              <NodeInspectorGroup
+                v-else-if="selectedNode.type === 'flowGroup'"
                 :node-id="selectedNode.id"
                 :data="selectedNode.data as any"
               />
               <NodeInspectorSticky
-                v-else-if="selectedNode.type === 'warppSticky'"
+                v-else-if="selectedNode.type === 'flowSticky'"
                 :node-id="selectedNode.id"
                 :data="selectedNode.data as any"
               />
@@ -314,7 +237,7 @@
                   Utility Nodes
                 </h3>
                 <p class="text-[10px] text-subtle-foreground">
-                  Utility nodes provide editor-only helpers for WARPP workflows.
+                  Utility nodes provide editor-only helpers for Flow workflows.
                 </p>
                 <!-- Group Container and Sticky Note are utility items and appear first -->
                 <div
@@ -588,17 +511,6 @@
               </button>
             </Panel>
 
-            <Panel position="top-right">
-              <button
-                type="button"
-                class="ap-chip inline-flex items-center justify-center rounded-md p-1.5 text-subtle-foreground hover:text-foreground"
-                aria-label="Workflow help"
-                title="Workflow help"
-                @click="openHelpModal"
-              >
-                <HelpIcon class="h-5 w-5" />
-              </button>
-            </Panel>
           </VueFlow>
         </div>
       </div>
@@ -764,46 +676,43 @@
         class="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl"
         role="dialog"
         aria-modal="true"
-        aria-labelledby="warpp-help-title"
+        aria-labelledby="flow-help-title"
       >
         <div
           class="flex items-center justify-between border-b border-border/60 px-5 py-3"
         >
           <h3
-            id="warpp-help-title"
+            id="flow-help-title"
             class="text-base font-semibold text-foreground"
           >
-            Flow Help
+            Trigger Types
           </h3>
         </div>
         <div class="px-5 py-4 space-y-4 text-sm text-foreground/90">
           <p class="text-xs uppercase tracking-wide text-faint-foreground">
-            Controls and Hotkeys
+            Choose how the workflow starts
           </p>
           <ul class="list-disc space-y-2 pl-5 text-sm text-subtle-foreground">
             <li>
-              <span class="font-medium text-foreground"
-                >Shift + click &amp; drag</span
-              >
-              draws a selection box so you can move or delete multiple nodes
-              together.
+              <span class="font-medium text-foreground">Manual</span>
+              runs only from the Flow editor when you click Run.
             </li>
             <li>
-              <span class="font-medium text-foreground">Cmd/Ctrl + click</span>
-              adds or removes individual nodes from the current selection.
+              <span class="font-medium text-foreground">Schedule</span>
+              is for timed execution using a cron expression.
             </li>
             <li>
-              <span class="font-medium text-foreground">Backspace/Delete</span>
-              removes the currently selected nodes or edges.
+              <span class="font-medium text-foreground">Webhook</span>
+              exposes an HTTP endpoint so an external system can start the workflow.
             </li>
             <li>
-              <span class="font-medium text-foreground"
-                >Drag on empty canvas space</span
-              >
-              to pan the view; use your mouse wheel or trackpad gestures to
-              zoom.
+              <span class="font-medium text-foreground">Event</span>
+              starts the workflow when a named application event is emitted.
             </li>
           </ul>
+          <p class="rounded-lg border border-border/60 bg-surface-muted/60 px-3 py-2 text-xs text-subtle-foreground">
+            The toolbar dropdown changes the trigger type quickly. Advanced trigger details use the workflow defaults currently stored on the workflow.
+          </p>
         </div>
         <div
           class="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3"
@@ -931,10 +840,11 @@ import { MiniMap } from "@vue-flow/minimap";
 
 import DropdownSelect from "@/components/DropdownSelect.vue";
 
-import WarppStepNode from "@/components/flow/WarppStepNode.vue";
-import WarppUtilityNode from "@/components/flow/WarppUtilityNode.vue";
-import WarppStickyNoteNode from "@/components/flow/WarppStickyNoteNode.vue";
-import WarppGroupNode from "@/components/flow/WarppGroupNode.vue";
+import FlowStepNode from "@/components/flow/FlowStepNode.vue";
+import FlowUtilityNode from "@/components/flow/FlowUtilityNode.vue";
+import FlowStickyNoteNode from "@/components/flow/FlowStickyNoteNode.vue";
+import FlowGroupNode from "@/components/flow/FlowGroupNode.vue";
+import NodeInspectorGroup from "@/components/flow/NodeInspectorGroup.vue";
 import NodeInspectorStep from "@/components/flow/NodeInspectorStep.vue";
 import NodeInspectorUtility from "@/components/flow/NodeInspectorUtility.vue";
 import NodeInspectorSticky from "@/components/flow/NodeInspectorSticky.vue";
@@ -950,51 +860,60 @@ import CollapseIcon from "@/components/icons/Collapse.vue";
 import ExpandIcon from "@/components/icons/Expand.vue";
 import dagre from "dagre";
 import {
-  fetchWarppTools,
-  fetchWarppWorkflow,
-  fetchWarppWorkflows,
-  saveWarppWorkflow,
-  deleteWarppWorkflow,
-} from "@/api/warpp";
+  deleteFlowWorkflow,
+  fetchFlowTools,
+  fetchFlowWorkflow,
+  fetchFlowWorkflowList,
+  saveFlowWorkflow,
+} from "@/api/flow";
+import {
+  flowSummaryToListEntry,
+  flowToolToEditorTool,
+  flowV2ToEditorWorkflow,
+  editorWorkflowToFlowV2,
+  workflowToListEntry,
+} from "@/lib/flowEditorCompat";
+import type { WorkflowListEntry } from "@/lib/flowEditorCompat";
 import type {
-  WarppStep,
-  WarppTool,
-  WarppWorkflow,
-  WarppStepTrace,
-  WarppGroupUIEntry,
-  WarppWorkflowUI,
-  WarppNoteUIEntry,
-} from "@/types/warpp";
+  FlowEditorStep,
+  FlowEditorTool,
+  FlowEditorWorkflow,
+  FlowEditorStepTrace,
+  FlowEditorGroupUIEntry,
+  FlowEditorWorkflowUI,
+  FlowEditorNoteUIEntry,
+} from "@/types/flowEditor";
 import type { StepNodeData, GroupNodeData } from "@/types/flow";
-import { useWarppRunStore } from "@/stores/warpp";
+import { useFlowRunStore } from "@/stores/flowRun";
 import { useProjectsStore } from "@/stores/projects";
 import type { DropdownOption } from "@/types/dropdown";
 import {
-  WARPP_STEP_NODE_DIMENSIONS,
-  WARPP_UTILITY_NODE_DIMENSIONS,
-  WARPP_GROUP_NODE_DIMENSIONS,
-  WARPP_STEP_NODE_COLLAPSED,
-  WARPP_UTILITY_NODE_COLLAPSED,
-} from "@/constants/warppNodes";
+  FLOW_STEP_NODE_DIMENSIONS,
+  FLOW_UTILITY_NODE_DIMENSIONS,
+  FLOW_GROUP_NODE_DIMENSIONS,
+  FLOW_STEP_NODE_COLLAPSED,
+  FLOW_UTILITY_NODE_COLLAPSED,
+} from "@/constants/flowNodes";
 
 type LayoutEntry = {
   x: number;
   y: number;
   width?: number;
   height?: number;
+  collapsed?: boolean;
 };
 
 type LayoutMap = Record<string, LayoutEntry>;
 
-type WarppNodeData = StepNodeData | GroupNodeData;
-type WarppNode = Node<WarppNodeData>;
+type FlowEditorNodeData = StepNodeData | GroupNodeData;
+type FlowEditorNode = Node<FlowEditorNodeData>;
 type StepNode = Node<StepNodeData>;
 type GroupNode = Node<GroupNodeData>;
-type SelectableWarppNode = WarppNode & { selected?: boolean };
+type SelectableFlowEditorNode = FlowEditorNode & { selected?: boolean };
 
-const DRAG_DATA_TYPE = "application/warpp-tool";
-const GROUP_DRAG_TOKEN = "__warpp-group__";
-const STICKY_DRAG_TOKEN = "__warpp-sticky__";
+const DRAG_DATA_TYPE = "application/flow-tool";
+const GROUP_DRAG_TOKEN = "__flow-group__";
+const STICKY_DRAG_TOKEN = "__flow-sticky__";
 const DEFAULT_LAYOUT_START_X = 140;
 const DEFAULT_LAYOUT_START_Y = 160;
 const DEFAULT_LAYOUT_HORIZONTAL_GAP = 320;
@@ -1003,23 +922,23 @@ const AGENT_RESPONSE_TOOL = "agent_response";
 
 // Dagre layout sizing
 // Use measured node sizes when available; these are fallbacks when not yet measured
-const DAGRE_NODE_BASE_WIDTH = WARPP_STEP_NODE_DIMENSIONS.defaultWidth;
-const DAGRE_NODE_BASE_HEIGHT = WARPP_STEP_NODE_DIMENSIONS.defaultHeight;
+const DAGRE_NODE_BASE_WIDTH = FLOW_STEP_NODE_DIMENSIONS.defaultWidth;
+const DAGRE_NODE_BASE_HEIGHT = FLOW_STEP_NODE_DIMENSIONS.defaultHeight;
 
 type NodeKind = "step" | "utility" | "group";
 
 function getDefaultDimensions(kind: NodeKind) {
-  if (kind === "group") return WARPP_GROUP_NODE_DIMENSIONS;
+  if (kind === "group") return FLOW_GROUP_NODE_DIMENSIONS;
   return kind === "utility"
-    ? WARPP_UTILITY_NODE_DIMENSIONS
-    : WARPP_STEP_NODE_DIMENSIONS;
+    ? FLOW_UTILITY_NODE_DIMENSIONS
+    : FLOW_STEP_NODE_DIMENSIONS;
 }
 
-function isGroupNode(node: WarppNode): boolean {
-  return node.data?.kind === "group" || node.type === "warppGroup";
+function isGroupNode(node: FlowEditorNode): boolean {
+  return node.data?.kind === "group" || node.type === "flowGroup";
 }
 
-function isStepLikeNode(node: WarppNode): boolean {
+function isStepLikeNode(node: FlowEditorNode): boolean {
   return !isGroupNode(node);
 }
 
@@ -1036,7 +955,11 @@ function parseDimension(value: unknown): number | undefined {
   return undefined;
 }
 
-function readNodeSize(node: WarppNode) {
+function readNodeSize(
+  node: FlowEditorNode,
+  liveDimW?: number,
+  liveDimH?: number,
+) {
   const kind: NodeKind =
     node.data?.kind === "utility"
       ? "utility"
@@ -1051,8 +974,16 @@ function readNodeSize(node: WarppNode) {
       : node.style;
   const styledWidth = parseDimension((style as any)?.width);
   const styledHeight = parseDimension((style as any)?.height);
-  const dimsWidth = graphNode?.dimensions?.width;
-  const dimsHeight = graphNode?.dimensions?.height;
+  // Prefer live VueFlow-tracked dimensions (from ResizeObserver) over the internal property
+  // on nodes.value which may not include dimensions that aren't synced back through v-model
+  const dimsWidth =
+    liveDimW && liveDimW > 0
+      ? liveDimW
+      : (graphNode?.dimensions?.width ?? undefined);
+  const dimsHeight =
+    liveDimH && liveDimH > 0
+      ? liveDimH
+      : (graphNode?.dimensions?.height ?? undefined);
   // If node is collapsed and no explicit style width/height are present, use collapsed footprint
   const collapsed = (node.data as any)?.collapsed === true;
   const width =
@@ -1060,16 +991,16 @@ function readNodeSize(node: WarppNode) {
     dimsWidth ??
     (collapsed
       ? kind === "utility"
-        ? WARPP_UTILITY_NODE_COLLAPSED.width
-        : WARPP_STEP_NODE_COLLAPSED.width
+        ? FLOW_UTILITY_NODE_COLLAPSED.width
+        : FLOW_STEP_NODE_COLLAPSED.width
       : defaults.defaultWidth);
   const height =
     styledHeight ??
     dimsHeight ??
     (collapsed
       ? kind === "utility"
-        ? WARPP_UTILITY_NODE_COLLAPSED.height
-        : WARPP_STEP_NODE_COLLAPSED.height
+        ? FLOW_UTILITY_NODE_COLLAPSED.height
+        : FLOW_STEP_NODE_COLLAPSED.height
       : defaults.defaultHeight);
   return { width, height };
 }
@@ -1094,22 +1025,40 @@ function buildNodeStyle(kind: NodeKind, stored?: LayoutEntry) {
   if (kind === "group" && !style.height) {
     style.height = toPx(defaults.defaultHeight);
   }
+  // Ensure step/utility nodes always have a minimum height so content is contained
+  if (kind !== "group" && !style.height) {
+    style.minHeight = toPx(defaults.minHeight);
+  }
   return style;
 }
 
 type UiSnapshot = {
   layout: LayoutMap;
   parents: Record<string, string>;
-  groups: WarppGroupUIEntry[];
+  groups: FlowEditorGroupUIEntry[];
   memberships: Record<string, string | undefined>;
-  notes: WarppNoteUIEntry[];
+  notes: FlowEditorNoteUIEntry[];
 };
 
-function collectUiState(allNodes: WarppNode[]): UiSnapshot {
+function collectUiState(allNodes: FlowEditorNode[]): UiSnapshot {
+  // Build a lookup from VueFlow's live internal node store so we can use ResizeObserver-tracked
+  // dimensions and the latest dragged positions (both may not be in nodes.value via v-model sync)
+  const liveMap = new Map<string, { x: number; y: number; dimW: number; dimH: number }>();
+  for (const gn of (getNodes.value as any[])) {
+    if (gn?.id && gn.position) {
+      liveMap.set(gn.id, {
+        x: gn.position.x ?? 0,
+        y: gn.position.y ?? 0,
+        dimW: gn.dimensions?.width ?? 0,
+        dimH: gn.dimensions?.height ?? 0,
+      });
+    }
+  }
+
   const layout: LayoutMap = {};
   const parents: Record<string, string> = {};
-  const groups: WarppGroupUIEntry[] = [];
-  const notes: WarppNoteUIEntry[] = [];
+  const groups: FlowEditorGroupUIEntry[] = [];
+  const notes: FlowEditorNoteUIEntry[] = [];
   const memberships: Record<string, string | undefined> = {};
   const groupRects = new Map<
     string,
@@ -1117,11 +1066,15 @@ function collectUiState(allNodes: WarppNode[]): UiSnapshot {
   >();
 
   allNodes.forEach((node) => {
-    const position = node.position ?? { x: 0, y: 0 };
-    const size = readNodeSize(node);
+    const live = liveMap.get(node.id);
+    const position = live ? { x: live.x, y: live.y } : (node.position ?? { x: 0, y: 0 });
+    const size = readNodeSize(node, live?.dimW, live?.dimH);
     const entry: LayoutEntry = { x: position.x, y: position.y };
     if (Number.isFinite(size.width)) entry.width = size.width;
     if (Number.isFinite(size.height)) entry.height = size.height;
+    // Persist per-node collapsed state so it survives save/load
+    const nodeCollapsed = (node.data as any)?.collapsed;
+    if (typeof nodeCollapsed === "boolean") entry.collapsed = nodeCollapsed;
     layout[node.id] = entry;
 
     if (isGroupNode(node)) {
@@ -1132,8 +1085,8 @@ function collectUiState(allNodes: WarppNode[]): UiSnapshot {
         collapsed: data.collapsed,
         color: data.color,
       });
-      const width = entry.width ?? WARPP_GROUP_NODE_DIMENSIONS.defaultWidth;
-      const height = entry.height ?? WARPP_GROUP_NODE_DIMENSIONS.defaultHeight;
+      const width = entry.width ?? FLOW_GROUP_NODE_DIMENSIONS.defaultWidth;
+      const height = entry.height ?? FLOW_GROUP_NODE_DIMENSIONS.defaultHeight;
       groupRects.set(node.id, {
         left: position.x,
         top: position.y,
@@ -1141,7 +1094,7 @@ function collectUiState(allNodes: WarppNode[]): UiSnapshot {
         bottom: position.y + height,
       });
     } else if (
-      node.type === "warppSticky" ||
+      node.type === "flowSticky" ||
       (node.data as any)?.note !== undefined
     ) {
       const data = node.data as any as {
@@ -1186,13 +1139,13 @@ function collectUiState(allNodes: WarppNode[]): UiSnapshot {
 // markRaw prevents Vue from proxying the nodeTypes object/components which can
 // interfere with Vue Flow's dynamic component resolution in some cases
 const nodeTypes = markRaw({
-  warppStep: markRaw(WarppStepNode),
-  warppUtility: markRaw(WarppUtilityNode),
-  warppGroup: markRaw(WarppGroupNode),
-  warppSticky: markRaw(WarppStickyNoteNode),
+  flowStep: markRaw(FlowStepNode),
+  flowUtility: markRaw(FlowUtilityNode),
+  flowGroup: markRaw(FlowGroupNode),
+  flowSticky: markRaw(FlowStickyNoteNode),
 });
 
-const { project, zoomIn, zoomOut, fitView, nodesDraggable, updateNode } =
+const { project, zoomIn, zoomOut, fitView, nodesDraggable, updateNode, getNodes } =
   useVueFlow();
 
 const flowWrapper = ref<HTMLDivElement | null>(null);
@@ -1204,13 +1157,19 @@ const MINI_MAP_WIDTH = 180;
 const MINI_MAP_HEIGHT = 120;
 const MINI_MAP_INSET = 8;
 
-const nodes = ref<WarppNode[]>([]);
+const nodes = ref<FlowEditorNode[]>([]);
 const edges = ref<Edge[]>([]);
 const isHydrating = ref(false);
 
-const workflowList = ref<WarppWorkflow[]>([]);
+const workflowList = ref<WorkflowListEntry[]>([]);
 const selectedIntent = ref<string>("");
-const activeWorkflow = ref<WarppWorkflow | null>(null);
+const activeWorkflow = ref<FlowEditorWorkflow | null>(null);
+const triggerTypeOptions: DropdownOption[] = [
+  { id: "manual", label: "Manual", value: "manual" },
+  { id: "schedule", label: "Schedule", value: "schedule" },
+  { id: "webhook", label: "Webhook", value: "webhook" },
+  { id: "event", label: "Event", value: "event" },
+];
 
 const projectsStore = useProjectsStore();
 const projects = computed(() => projectsStore.projects);
@@ -1245,29 +1204,52 @@ const activeWorkflowProjectName = computed(() => {
   const match = projects.value.find((p) => p.id === pid);
   return match?.name || pid;
 });
+const triggerSummary = computed(() => {
+  const trigger = normalizeTrigger(activeWorkflow.value?.trigger);
+  switch (trigger.type) {
+    case "schedule":
+      return trigger.schedule?.cron?.trim() || "schedule";
+    case "webhook":
+      return `${trigger.webhook?.method || "POST"} ${
+        trigger.webhook?.path || "/flows/inbound"
+      }`;
+    case "event":
+      return trigger.event?.name?.trim() || "event";
+    default:
+      return "manual";
+  }
+});
+const selectedTriggerType = computed<FlowV2TriggerType>({
+  get: () => normalizeTrigger(activeWorkflow.value?.trigger).type,
+  set: (value) => {
+    if (!activeWorkflow.value) return;
+    updateWorkflowTrigger({ type: value });
+  },
+});
 
-const tools = ref<WarppTool[]>([]);
-provide("warppTools", tools);
-provide("warppHydrating", isHydrating);
+const tools = ref<FlowEditorTool[]>([]);
+provide("flowEditorTools", tools);
+provide("flowEditorHydrating", isHydrating);
+provide("flowEditorEdges", edges);
+provide("flowEditorNodes", nodes);
+provide("flowEditorActiveWorkflow", activeWorkflow);
 const editorMode = ref<"design" | "run">("design");
 // Pinia store for run state (persists across navigation)
-const warppRunStore = useWarppRunStore();
-provide("warppMode", editorMode);
+const flowRunStore = useFlowRunStore();
+provide("flowEditorMode", editorMode);
 // Wrap store values in computed to maintain reactivity when providing to children
-const runTraceComputed = computed(() => warppRunStore.runTrace);
-provide("warppRunTrace", runTraceComputed);
+const runTraceComputed = computed(() => flowRunStore.runTrace);
+provide("flowEditorRunTrace", runTraceComputed);
 
 const loading = ref(false);
 const error = ref("");
 const saving = ref(false);
 // Pinia unwraps refs by default, so we need to access the underlying $state
 // or re-wrap in computed to maintain reactivity across navigation
-const running = computed(() => warppRunStore.running);
-const runOutput = computed(() => warppRunStore.runOutput);
-const runLogs = computed(() => warppRunStore.runLogs);
-provide("warppRunning", running);
-provide("warppRunOutput", runOutput);
-provide("warppRunLogs", runLogs);
+const running = computed(() => flowRunStore.running);
+const runOutput = computed(() => flowRunStore.runOutput);
+provide("flowEditorRunning", running);
+provide("flowEditorRunOutput", runOutput);
 let runTraceTimers: ReturnType<typeof setTimeout>[] = [];
 const runStartTime = ref<number | null>(null);
 const liveRunElapsedMs = ref(0);
@@ -1276,8 +1258,8 @@ let runTimerInterval: ReturnType<typeof setInterval> | null = null;
 // Provide collapse/expand-all signals for nodes to react to
 const collapseAllSeq = ref(0);
 const expandAllSeq = ref(0);
-provide("warppCollapseAllSeq", collapseAllSeq);
-provide("warppExpandAllSeq", expandAllSeq);
+provide("flowEditorCollapseAllSeq", collapseAllSeq);
+provide("flowEditorExpandAllSeq", expandAllSeq);
 // Track global collapsed state for control icon
 const nodesCollapsed = ref(false);
 const resultModal = ref<{ stepId: string; title: string } | null>(null);
@@ -1287,10 +1269,10 @@ const collapsedDelta = ref(false);
 const collapsedPayload = ref(false);
 const activeModalTrace = computed(() => {
   if (!resultModal.value) return undefined;
-  return warppRunStore.runTrace[resultModal.value.stepId];
+  return flowRunStore.runTrace[resultModal.value.stepId];
 });
 function openResultModal(stepId: string, title: string) {
-  const hasTrace = warppRunStore.runTrace[stepId];
+  const hasTrace = flowRunStore.runTrace[stepId];
   if (!hasTrace) return;
   resultModal.value = { stepId, title };
   // Reset collapsible sections when opening
@@ -1305,24 +1287,24 @@ function closeResultModal() {
   collapsedDelta.value = false;
   collapsedPayload.value = false;
 }
-provide("warppOpenResultModal", openResultModal);
-provide("warppCloseResultModal", closeResultModal);
-provide("warppRequestUngroup", removeGroup);
+provide("flowEditorOpenResultModal", openResultModal);
+provide("flowEditorCloseResultModal", closeResultModal);
+provide("flowEditorRequestUngroup", removeGroup);
 const dirty = ref(false);
 // Track unsaved, locally-created workflows by intent
-const localWorkflows = ref(new Map<string, WarppWorkflow>());
+const localWorkflows = ref(new Map<string, FlowEditorWorkflow>());
 
 // Persist UI metadata (layout, parents, groups) client-side per intent so groups survive
 // backend omissions. This is a temporary resilience layer and can be removed when the
 // server persists full UI state.
-const UI_CACHE_KEY = "warpp.ui.cache.v2";
+const UI_CACHE_KEY = "flow.ui.cache.v2";
 type UiCacheRecord = Record<
   string,
   {
     layout?: LayoutMap;
     parents?: Record<string, string>;
-    groups?: WarppGroupUIEntry[];
-    notes?: WarppNoteUIEntry[];
+    groups?: FlowEditorGroupUIEntry[];
+    notes?: FlowEditorNoteUIEntry[];
   }
 >;
 function readUiCache(): UiCacheRecord {
@@ -1347,8 +1329,8 @@ function writeUiCache(cache: UiCacheRecord) {
 function getCachedUi(intent: string): {
   layout?: LayoutMap;
   parents?: Record<string, string>;
-  groups?: WarppGroupUIEntry[];
-  notes?: WarppNoteUIEntry[];
+  groups?: FlowEditorGroupUIEntry[];
+  notes?: FlowEditorNoteUIEntry[];
 } {
   const cache = readUiCache();
   return cache[intent] ?? {};
@@ -1358,8 +1340,8 @@ function setCachedUi(
   ui: {
     layout?: LayoutMap;
     parents?: Record<string, string>;
-    groups?: WarppGroupUIEntry[];
-    notes?: WarppNoteUIEntry[];
+    groups?: FlowEditorGroupUIEntry[];
+    notes?: FlowEditorNoteUIEntry[];
   },
 ) {
   const cache = readUiCache();
@@ -1374,7 +1356,7 @@ function setCachedUi(
 const importInput = ref<HTMLInputElement | null>(null);
 
 const toolMap = computed(() => {
-  const map = new Map<string, WarppTool>();
+  const map = new Map<string, FlowEditorTool>();
   tools.value.forEach((tool) => {
     map.set(tool.name, tool);
   });
@@ -1383,7 +1365,7 @@ const toolMap = computed(() => {
 
 // Selection state for showing Node Configuration panel
 const selectedNodes = computed(() =>
-  nodes.value.filter((n) => (n as SelectableWarppNode).selected),
+  nodes.value.filter((n) => (n as SelectableFlowEditorNode).selected),
 );
 const selectedCount = computed(() => selectedNodes.value.length);
 const selectedNode = computed(() =>
@@ -1452,7 +1434,7 @@ const paletteMatchesCount = computed(
     (showStickyNote.value ? 1 : 0),
 );
 const hasRunTrace = computed(() => {
-  const rec = warppRunStore.runTrace;
+  const rec = flowRunStore.runTrace;
   if (!rec || typeof rec !== "object") return false;
   try {
     return Object.keys(rec).length > 0;
@@ -1606,8 +1588,8 @@ function onAutoLayout(direction: DagreDirection) {
   // membership/delta translation during layout and finalize it afterward.
 
   // Separate nodes into top-level (including groups) and children (inside groups)
-  const topLevelNodes: WarppNode[] = [];
-  const childNodes: Map<string, WarppNode[]> = new Map();
+  const topLevelNodes: FlowEditorNode[] = [];
+  const childNodes: Map<string, FlowEditorNode[]> = new Map();
 
   for (const n of nodes.value) {
     if (isGroupNode(n)) {
@@ -1838,17 +1820,17 @@ function resetRunView() {
   closeResultModal();
 }
 
-function applyRunTrace(entries: WarppStepTrace[]) {
+function applyRunTrace(entries: FlowEditorStepTrace[]) {
   clearRunTraceTimers();
-  warppRunStore.runTrace = {};
+  flowRunStore.runTrace = {};
   if (!entries.length) {
     return;
   }
   entries.forEach((entry, index) => {
     const delay = Math.min(index * 150, 1500);
     const timer = setTimeout(() => {
-      warppRunStore.runTrace = {
-        ...warppRunStore.runTrace,
+      flowRunStore.runTrace = {
+        ...flowRunStore.runTrace,
         [entry.stepId]: entry,
       };
     }, delay);
@@ -1941,6 +1923,45 @@ function parseKeywords(input: string): string[] {
     .filter((s) => s.length > 0);
 }
 
+function normalizeTrigger(trigger?: FlowV2Trigger): FlowV2Trigger {
+  const type = trigger?.type ?? "manual";
+  if (type === "schedule") {
+    return {
+      type,
+      schedule: { cron: trigger?.schedule?.cron ?? "" },
+    };
+  }
+  if (type === "webhook") {
+    return {
+      type,
+      webhook: {
+        method: trigger?.webhook?.method ?? "POST",
+        path: trigger?.webhook?.path ?? "/flows/inbound",
+      },
+    };
+  }
+  if (type === "event") {
+    return {
+      type,
+      event: { name: trigger?.event?.name ?? "" },
+    };
+  }
+  return { type: "manual" };
+}
+
+function updateWorkflowTrigger(trigger: FlowV2Trigger) {
+  if (!activeWorkflow.value) return;
+  const next = normalizeTrigger(trigger);
+  const current = JSON.stringify(normalizeTrigger(activeWorkflow.value.trigger));
+  const incoming = JSON.stringify(next);
+  if (current === incoming) return;
+  activeWorkflow.value = {
+    ...activeWorkflow.value,
+    trigger: next,
+  };
+  dirty.value = true;
+}
+
 async function onSubmitMetadata() {
   if (!activeWorkflow.value) return;
   if (metaSaveDisabled.value) return;
@@ -1964,15 +1985,16 @@ function miniMapNodeStroke() {
 onMounted(async () => {
   loading.value = true;
   try {
-    const [toolResp, workflows] = await Promise.all([
-      fetchWarppTools(),
-      fetchWarppWorkflows(),
+    const [toolResp, workflowResp] = await Promise.all([
+      fetchFlowTools(),
+      fetchFlowWorkflowList(),
       projectsStore.refresh().catch((err) => {
         console.error("projects", err);
         return [];
       }),
     ]);
-    tools.value = toolResp;
+    const workflows = workflowResp.workflows.map(flowSummaryToListEntry);
+    tools.value = toolResp.map(flowToolToEditorTool);
     workflowList.value = workflows;
     if (selectedIntent.value) {
       await loadWorkflow(selectedIntent.value);
@@ -2066,13 +2088,13 @@ watch(
   { deep: true },
 );
 
-function workflowToNodes(wf: WarppWorkflow): WarppNode[] {
+function workflowToNodes(wf: FlowEditorWorkflow): FlowEditorNode[] {
   const layout = wf.ui?.layout ?? {};
   const parents = wf.ui?.parents ?? {};
   const groupsMeta = wf.ui?.groups ?? [];
   const notesMeta = (wf.ui as any)?.notes ?? latestUiSnapshot.value.notes ?? [];
 
-  const groupNodes: WarppNode[] = groupsMeta.map((group, idx) => {
+  const groupNodes: FlowEditorNode[] = groupsMeta.map((group, idx) => {
     // Prefer saved layout; if missing or partial, merge with last client snapshot to
     // retain width/height captured during editing.
     const clientStored = latestUiSnapshot.value?.layout?.[group.id];
@@ -2084,7 +2106,7 @@ function workflowToNodes(wf: WarppWorkflow): WarppNode[] {
     const style = buildNodeStyle("group", stored);
     return {
       id: group.id,
-      type: "warppGroup",
+      type: "flowGroup",
       position,
       style,
       draggable: true,
@@ -2098,35 +2120,36 @@ function workflowToNodes(wf: WarppWorkflow): WarppNode[] {
     };
   });
 
-  const stepNodes: WarppNode[] = wf.steps.map((step, idx) => {
+  const stepNodes: FlowEditorNode[] = wf.steps.map((step, idx) => {
     const stored = layout[step.id];
     const position = resolveNodePosition(stored, idx);
     const utility = isUtilityToolName(step.tool?.name);
     const style = buildNodeStyle(utility ? "utility" : "step", stored);
     return {
       id: step.id,
-      type: utility ? "warppUtility" : "warppStep",
+      type: utility ? "flowUtility" : "flowStep",
       position,
       style,
       draggable: true,
       selectable: true,
       data: {
         order: idx,
-        step: JSON.parse(JSON.stringify(step)) as WarppStep,
+        step: JSON.parse(JSON.stringify(step)) as FlowEditorStep,
         kind: utility ? "utility" : "step",
         groupId: parents[step.id],
+        collapsed: stored?.collapsed ?? true,
       },
     };
   });
 
-  const noteNodes: WarppNode[] = (notesMeta as any[]).map(
+  const noteNodes: FlowEditorNode[] = (notesMeta as any[]).map(
     (note: any, idx: number) => {
       const stored = layout[note.id];
       const position = resolveNodePosition(stored, idx + wf.steps.length);
       const style = buildNodeStyle("utility", stored);
       return {
         id: note.id,
-        type: "warppSticky",
+        type: "flowSticky",
         position,
         style,
         draggable: true,
@@ -2156,7 +2179,7 @@ function resolveNodePosition(stored: LayoutEntry | undefined, index: number) {
   };
 }
 
-function workflowToEdges(wf: WarppWorkflow): Edge[] {
+function workflowToEdges(wf: FlowEditorWorkflow): Edge[] {
   const out: Edge[] = [];
   // Prefer explicit depends_on if present on any step
   const hasDag = wf.steps.some(
@@ -2187,10 +2210,11 @@ function workflowToEdges(wf: WarppWorkflow): Edge[] {
 async function loadWorkflow(intent: string) {
   isHydrating.value = true;
   try {
-    const wf = await fetchWarppWorkflow(intent);
+    const response = await fetchFlowWorkflow(intent);
+    const wf = flowV2ToEditorWorkflow(response.workflow, response.canvas);
     // Merge server UI with locally cached UI for resilience (especially for groups)
     const cached = getCachedUi(intent);
-    const mergedUi: WarppWorkflowUI = {
+    const mergedUi: FlowEditorWorkflowUI = {
       ...(wf.ui ?? {}),
       layout: {
         ...(cached.layout ?? {}),
@@ -2200,7 +2224,7 @@ async function loadWorkflow(intent: string) {
       groups: (wf.ui?.groups ?? cached.groups) as any,
       notes: (wf.ui?.notes ?? cached.notes) as any,
     };
-    const mergedWf: WarppWorkflow = { ...wf, ui: mergedUi };
+    const mergedWf: FlowEditorWorkflow = { ...wf, ui: mergedUi };
     // Seed latest snapshot so hydration can preserve sizes
     latestUiSnapshot.value = {
       layout: mergedUi.layout ?? {},
@@ -2243,14 +2267,14 @@ function translateGroupChildren(
 ): boolean {
   if (!dx && !dy) return false;
   let changed = false;
-  const translated = nodes.value.map<WarppNode>((node) => {
+  const translated = nodes.value.map<FlowEditorNode>((node) => {
     if (!isStepLikeNode(node)) return node;
     const data = node.data as StepNodeData;
     if (data.groupId !== groupId) return node;
     const position = node.position ?? { x: 0, y: 0 };
     const newPosition = { x: position.x + dx, y: position.y + dy };
     changed = true;
-    return { ...node, position: newPosition } as WarppNode;
+    return { ...node, position: newPosition } as FlowEditorNode;
   });
   if (changed) {
     nodes.value = translated;
@@ -2261,7 +2285,7 @@ function translateGroupChildren(
 function applyMembership(snapshot: UiSnapshot) {
   const membership = snapshot.memberships;
   let changed = false;
-  const nextNodes = nodes.value.map<WarppNode>((node) => {
+  const nextNodes = nodes.value.map<FlowEditorNode>((node) => {
     if (!isStepLikeNode(node)) return node;
     const data = node.data as StepNodeData;
     const desired = membership[node.id];
@@ -2273,7 +2297,7 @@ function applyMembership(snapshot: UiSnapshot) {
     if (desired) nextData.groupId = desired;
     else delete nextData.groupId;
     changed = true;
-    return { ...node, data: nextData } as WarppNode;
+    return { ...node, data: nextData } as FlowEditorNode;
   });
   if (changed) {
     nodes.value = nextNodes;
@@ -2293,7 +2317,7 @@ const isApplyingLayout = ref(false);
 
 function removeGroup(groupId: string) {
   let changed = false;
-  const updatedNodes: WarppNode[] = [];
+  const updatedNodes: FlowEditorNode[] = [];
   nodes.value.forEach((node) => {
     if (node.id === groupId && isGroupNode(node)) {
       changed = true;
@@ -2304,7 +2328,7 @@ function removeGroup(groupId: string) {
       if (data.groupId === groupId) {
         const nextData: StepNodeData = { ...data };
         delete nextData.groupId;
-        updatedNodes.push({ ...node, data: nextData } as WarppNode);
+        updatedNodes.push({ ...node, data: nextData } as FlowEditorNode);
         changed = true;
         return;
       }
@@ -2369,7 +2393,7 @@ function syncWorkflowFromNodes() {
   }
   const steps = orderedNodes.map((node) => {
     const data = node.data as StepNodeData;
-    const step = { ...(data.step ?? ({} as WarppStep)) };
+    const step = { ...(data.step ?? ({} as FlowEditorStep)) };
     step.id = node.id;
     step.depends_on = (incoming[node.id] ?? []).slice();
     return step;
@@ -2446,7 +2470,7 @@ function onDrop(event: DragEvent) {
   addToolNode(tool, position);
 }
 
-function onPaletteDragStart(event: DragEvent, tool: WarppTool) {
+function onPaletteDragStart(event: DragEvent, tool: FlowEditorTool) {
   if (!event.dataTransfer) {
     return;
   }
@@ -2490,7 +2514,7 @@ function onConnect(connection: Connection) {
   ]);
 }
 
-function addToolNode(tool: WarppTool, position: { x: number; y: number }) {
+function addToolNode(tool: FlowEditorTool, position: { x: number; y: number }) {
   if (!activeWorkflow.value) {
     return;
   }
@@ -2506,8 +2530,8 @@ function findGroupAtPoint(point: { x: number; y: number }): string | undefined {
   for (const group of snapshot.groups) {
     const entry = snapshot.layout[group.id];
     if (!entry) continue;
-    const width = entry.width ?? WARPP_GROUP_NODE_DIMENSIONS.defaultWidth;
-    const height = entry.height ?? WARPP_GROUP_NODE_DIMENSIONS.defaultHeight;
+    const width = entry.width ?? FLOW_GROUP_NODE_DIMENSIONS.defaultWidth;
+    const height = entry.height ?? FLOW_GROUP_NODE_DIMENSIONS.defaultHeight;
     if (
       point.x >= entry.x &&
       point.x <= entry.x + width &&
@@ -2532,12 +2556,12 @@ function generateGroupId(): string {
   return candidate;
 }
 
-function createGroupNode(position: { x: number; y: number }): WarppNode {
+function createGroupNode(position: { x: number; y: number }): FlowEditorNode {
   const id = generateGroupId();
   const style = buildNodeStyle("group");
   return {
     id,
-    type: "warppGroup",
+    type: "flowGroup",
     position,
     style,
     draggable: true,
@@ -2562,7 +2586,7 @@ function generateStickyId(): string {
   return candidate;
 }
 
-function createStickyNode(position: { x: number; y: number }): WarppNode {
+function createStickyNode(position: { x: number; y: number }): FlowEditorNode {
   const id = generateStickyId();
   const style = buildNodeStyle("utility");
   // Ensure the sticky note has an explicit initial height since its children are absolutely positioned
@@ -2571,7 +2595,7 @@ function createStickyNode(position: { x: number; y: number }): WarppNode {
   const groupId = findGroupAtPoint(position);
   return {
     id,
-    type: "warppSticky",
+    type: "flowSticky",
     position,
     style,
     draggable: true,
@@ -2587,12 +2611,12 @@ function createStickyNode(position: { x: number; y: number }): WarppNode {
 }
 
 function createWorkflowNode(
-  tool: WarppTool,
+  tool: FlowEditorTool,
   position: { x: number; y: number },
-): WarppNode {
+): FlowEditorNode {
   const id = generateStepId(tool.name);
   const order = nextStepOrder();
-  const step: WarppStep = {
+  const step: FlowEditorStep = {
     id,
     text: tool.description ?? tool.name,
     publish_result: false,
@@ -2602,7 +2626,7 @@ function createWorkflowNode(
   const groupId = findGroupAtPoint(position);
   return {
     id,
-    type: "warppStep",
+    type: "flowStep",
     position,
     style,
     data: {
@@ -2611,13 +2635,13 @@ function createWorkflowNode(
       kind: "step",
       groupId: groupId ?? undefined,
     },
-  } as WarppNode;
+  } as FlowEditorNode;
 }
 
 function createUtilityNode(
-  tool: WarppTool,
+  tool: FlowEditorTool,
   position: { x: number; y: number },
-): WarppNode {
+): FlowEditorNode {
   const id = generateStepId(tool.name);
   const order = nextStepOrder();
   const displayName = prettyUtilityLabel(tool.name);
@@ -2629,7 +2653,7 @@ function createUtilityNode(
   if (tool.name === AGENT_RESPONSE_TOOL) {
     defaultArgs.render_mode = "markdown";
   }
-  const step: WarppStep = {
+  const step: FlowEditorStep = {
     id,
     text: displayName,
     publish_result: false,
@@ -2639,7 +2663,7 @@ function createUtilityNode(
   const groupId = findGroupAtPoint(position);
   return {
     id,
-    type: "warppUtility",
+    type: "flowUtility",
     position,
     style,
     data: {
@@ -2648,10 +2672,10 @@ function createUtilityNode(
       kind: "utility",
       groupId: groupId ?? undefined,
     },
-  } as WarppNode;
+  } as FlowEditorNode;
 }
 
-function appendNode(node: WarppNode) {
+function appendNode(node: FlowEditorNode) {
   const previousStep = [...nodes.value]
     .reverse()
     .find((candidate) => isStepLikeNode(candidate));
@@ -2689,7 +2713,7 @@ function generateStepId(toolName: string): string {
   return candidate;
 }
 
-async function onSave(): Promise<WarppWorkflow | null> {
+async function onSave(): Promise<FlowEditorWorkflow | null> {
   if (!activeWorkflow.value) return null;
   // Open metadata modal for user to confirm/edit description and keywords
   openMetaModal();
@@ -2700,7 +2724,7 @@ async function onSave(): Promise<WarppWorkflow | null> {
 async function performSave(
   description?: string,
   keywords?: string[],
-): Promise<WarppWorkflow | null> {
+): Promise<FlowEditorWorkflow | null> {
   if (!activeWorkflow.value) return null;
   if (!dirty.value && description === undefined && keywords === undefined)
     return activeWorkflow.value;
@@ -2718,15 +2742,16 @@ async function performSave(
     }
     const steps = orderedNodes.map((node) => {
       const data = node.data as StepNodeData;
-      const step = { ...(data.step ?? ({} as WarppStep)) };
+      const step = { ...(data.step ?? ({} as FlowEditorStep)) };
       step.id = node.id;
       step.depends_on = (incoming[node.id] ?? []).slice();
-      return step as WarppStep;
+      return step as FlowEditorStep;
     });
     const layout = snapshot.layout;
     const parents = snapshot.parents;
     const groups = snapshot.groups;
-    const payload: WarppWorkflow = {
+    const notes = snapshot.notes;
+    const payload: FlowEditorWorkflow = {
       ...activeWorkflow.value,
       description: description ?? activeWorkflow.value.description,
       keywords: keywords ?? activeWorkflow.value.keywords,
@@ -2736,12 +2761,9 @@ async function performSave(
         layout,
         parents: Object.keys(parents).length ? parents : undefined,
         groups: groups.length ? groups : undefined,
+        notes: notes.length ? notes : undefined,
       },
     };
-    runLogs.value.push(
-      "[save] PUT /api/flows/v2/workflows/" +
-        encodeURIComponent(payload.intent),
-    );
     console.log("[DEBUG] Payload groups:", payload.ui?.groups);
     console.log(
       "[DEBUG] Payload layout keys:",
@@ -2749,7 +2771,14 @@ async function performSave(
     );
     // Capture the exact snapshot we used for layout so we can seed hydration fallback
     const preSaveSnapshot = snapshot;
-    const saved = await saveWarppWorkflow(payload);
+    const savedResponse = await saveFlowWorkflow(
+      payload.intent,
+      editorWorkflowToFlowV2(payload),
+    );
+    const saved = flowV2ToEditorWorkflow(
+      savedResponse.workflow,
+      savedResponse.canvas,
+    );
     console.log("[DEBUG] Server returned groups:", saved.ui?.groups);
     console.log(
       "[DEBUG] Server returned layout keys:",
@@ -2761,7 +2790,7 @@ async function performSave(
       if (!payloadUi.layout && !savedUi.layout) return undefined;
       return { ...(payloadUi.layout ?? {}), ...(savedUi.layout ?? {}) };
     })();
-    const mergedUi: WarppWorkflow["ui"] = {
+    const mergedUi: FlowEditorWorkflow["ui"] = {
       ...payloadUi,
       ...savedUi,
       ...(mergedLayout ? { layout: mergedLayout } : {}),
@@ -2777,7 +2806,10 @@ async function performSave(
     if (!savedUi.layout && payloadUi.layout) {
       mergedUi.layout = payloadUi.layout;
     }
-    const normalizedSaved: WarppWorkflow = {
+    if (!savedUi.notes?.length && payloadUi.notes?.length) {
+      mergedUi.notes = payloadUi.notes;
+    }
+    const normalizedSaved: FlowEditorWorkflow = {
       ...saved,
       project_id: saved.project_id ?? payload.project_id,
       ui: mergedUi,
@@ -2793,16 +2825,17 @@ async function performSave(
         layout: mergedUi.layout,
         parents: mergedUi.parents,
         groups: mergedUi.groups,
+        notes: mergedUi.notes,
       });
     } catch {}
-    runLogs.value.push("[save] 200 OK");
     // If this workflow was locally-created, clear the local marker
     localWorkflows.value.delete(payload.intent);
     const listIdx = workflowList.value.findIndex(
       (wf) => wf.intent === normalizedSaved.intent,
     );
-    if (listIdx !== -1) workflowList.value.splice(listIdx, 1, normalizedSaved);
-    else workflowList.value.push(normalizedSaved);
+    const listEntry = workflowToListEntry(normalizedSaved);
+    if (listIdx !== -1) workflowList.value.splice(listIdx, 1, listEntry);
+    else workflowList.value.push(listEntry);
     isHydrating.value = true;
     try {
       // Seed latest snapshot so hydration preserves sizes/positions even if server omits them
@@ -2821,7 +2854,6 @@ async function performSave(
   } catch (err: any) {
     const msg = err?.message ?? "Failed to save workflow";
     error.value = msg;
-    runLogs.value.push("[save] error: " + msg);
     return null;
   } finally {
     saving.value = false;
@@ -2830,27 +2862,19 @@ async function performSave(
 
 async function onRun() {
   if (!activeWorkflow.value) return;
-  warppRunStore.error = "";
-  warppRunStore.runOutput = "";
-  warppRunStore.runLogs = [];
+  flowRunStore.error = "";
+  flowRunStore.runOutput = "";
   editorMode.value = "run";
   clearRunTraceTimers();
-  warppRunStore.runTrace = {};
+  flowRunStore.runTrace = {};
   const intent = activeWorkflow.value.intent;
-  warppRunStore.runLogs.push(`▶ Starting run for intent "${intent}"`);
   // Capture need to save at start (canSave may change mid-process)
   const needSave = canSave.value;
   if (needSave) {
-    warppRunStore.runLogs.push("… Saving workflow before run");
-    const saved = await performSave();
-    if (saved) warppRunStore.runLogs.push("✓ Save complete");
-    else
-      warppRunStore.runLogs.push(
-        "✗ Save failed – proceeding with current in-memory workflow",
-      );
+    await performSave();
   }
   try {
-    const res = await warppRunStore.startRun(
+    const res = await flowRunStore.startRun(
       intent,
       `Run workflow: ${intent}`,
       activeWorkflow.value.project_id || undefined,
@@ -2862,7 +2886,7 @@ async function onRun() {
 }
 
 function onCancelRun() {
-  warppRunStore.cancelRun();
+  flowRunStore.cancelRun();
 }
 
 async function onDelete() {
@@ -2873,7 +2897,7 @@ async function onDelete() {
   );
   if (!confirmed) return;
   try {
-    await deleteWarppWorkflow(intent);
+    await deleteFlowWorkflow(intent);
     // Remove from local list/maps and reset selection
     localWorkflows.value.delete(intent);
     const idx = workflowList.value.findIndex((w) => w.intent === intent);
@@ -2902,15 +2926,15 @@ function exportWorkflow() {
   }
   const steps = orderedNodes.map((node) => {
     const data = node.data as StepNodeData;
-    const step = { ...(data.step ?? ({} as WarppStep)) };
+    const step = { ...(data.step ?? ({} as FlowEditorStep)) };
     step.id = node.id;
     step.depends_on = (incoming[node.id] ?? []).slice();
-    return step as WarppStep;
+    return step as FlowEditorStep;
   });
   const layout = snapshot.layout;
   const parents = snapshot.parents;
   const groups = snapshot.groups;
-  const payload: WarppWorkflow = {
+  const payload: FlowEditorWorkflow = {
     ...activeWorkflow.value,
     steps,
     ui: {
@@ -2977,10 +3001,15 @@ async function onNew() {
     alert("A workflow with that name already exists");
     return;
   }
-  const wf: WarppWorkflow = { intent, description: "", steps: [] };
+  const wf: FlowEditorWorkflow = {
+    intent,
+    description: "",
+    trigger: { type: "manual" },
+    steps: [],
+  };
   // Track locally and show in dropdown immediately
   localWorkflows.value.set(intent, wf);
-  workflowList.value.push(wf);
+  workflowList.value.push(workflowToListEntry(wf));
   // Switch to the new workflow view
   isHydrating.value = true;
   try {
@@ -3064,7 +3093,7 @@ async function onImportSelected(event: Event) {
   }
 
   const steps = Array.isArray(data?.steps) ? data.steps : [];
-  const wf: WarppWorkflow = {
+  const wf: FlowEditorWorkflow = {
     intent,
     description: typeof data?.description === "string" ? data.description : "",
     keywords: Array.isArray(data?.keywords) ? data.keywords : undefined,
@@ -3080,6 +3109,10 @@ async function onImportSelected(event: Event) {
         : undefined,
     fail_fast:
       typeof data?.fail_fast === "boolean" ? data.fail_fast : undefined,
+    trigger:
+      data?.trigger && typeof data.trigger === "object"
+        ? normalizeTrigger(data.trigger as FlowV2Trigger)
+        : { type: "manual" },
     steps: steps.map((s: any) => ({
       id: String(s?.id ?? ""),
       text: String(s?.text ?? String(s?.id ?? "")),
@@ -3138,7 +3171,7 @@ async function onImportSelected(event: Event) {
 
   // Track locally and show in dropdown
   localWorkflows.value.set(intent, wf);
-  workflowList.value.push({ ...wf });
+  workflowList.value.push(workflowToListEntry(wf));
 
   // Switch selection to the imported workflow
   isHydrating.value = true;
@@ -3158,19 +3191,127 @@ async function onImportSelected(event: Event) {
 </script>
 
 <style scoped>
-/* Make workflow header buttons appear as plain text links with underline on hover */
-.plain-link {
-  background: none !important;
-  border: none !important;
-  padding: 0 !important;
-  color: inherit !important;
-  font: inherit !important;
-  text-decoration: none !important;
-  cursor: pointer !important;
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(var(--color-border) / 0.65);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  padding: 0.45rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: rgb(var(--color-foreground));
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease,
+    opacity 150ms ease;
 }
-.plain-link:hover {
-  text-decoration: underline !important;
-  background: none !important;
+
+.toolbar-btn:hover:enabled {
+  border-color: rgb(var(--color-accent) / 0.45);
+  background: rgb(var(--color-surface-muted) / 0.94);
+  transform: translateY(-1px);
+}
+
+.toolbar-btn:focus-visible {
+  outline: 2px solid rgb(var(--color-ring));
+  outline-offset: 2px;
+}
+
+.toolbar-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.toolbar-btn-accent {
+  border-color: rgb(var(--color-accent) / 0.42);
+  background: rgb(var(--color-accent) / 0.14);
+  color: rgb(var(--color-accent));
+}
+
+.toolbar-btn-accent:hover:enabled {
+  background: rgb(var(--color-accent) / 0.2);
+}
+
+.toolbar-btn-danger {
+  border-color: rgb(var(--color-danger) / 0.42);
+  background: rgb(var(--color-danger) / 0.14);
+  color: rgb(var(--color-danger));
+}
+
+.toolbar-btn-danger:hover:enabled {
+  background: rgb(var(--color-danger) / 0.2);
+}
+
+.toolbar-btn-run {
+  border-color: rgb(var(--color-accent) / 0.48);
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-accent) / 0.96),
+    rgb(var(--color-accent) / 0.74)
+  );
+  color: rgb(var(--color-accent-foreground));
+  box-shadow: 0 10px 24px -18px rgb(var(--color-accent) / 0.9);
+}
+
+.toolbar-btn-run:hover:enabled {
+  background: linear-gradient(
+    135deg,
+    rgb(var(--color-accent) / 1),
+    rgb(var(--color-accent) / 0.82)
+  );
+}
+
+.toolbar-btn-ghost {
+  min-height: auto;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+.toolbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(var(--color-border) / 0.65);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  color: rgb(var(--color-subtle-foreground));
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.toolbar-icon-btn:hover {
+  border-color: rgb(var(--color-accent) / 0.45);
+  background: rgb(var(--color-surface-muted) / 0.94);
+  color: rgb(var(--color-foreground));
+  transform: translateY(-1px);
+}
+
+.toolbar-icon-btn:focus-visible {
+  outline: 2px solid rgb(var(--color-ring));
+  outline-offset: 2px;
+}
+
+.workflow-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.6);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  padding: 0.35rem 0.65rem;
+  font-size: 0.72rem;
+  color: rgb(var(--color-subtle-foreground));
 }
 </style>
 

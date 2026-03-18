@@ -299,10 +299,6 @@ func parseLimitParam(r *http.Request, defaultValue int) int {
 	return defaultValue
 }
 
-func (a *app) warppToolsHandler() http.HandlerFunc {
-	return a.toolsCatalogHandler()
-}
-
 func (a *app) flowV2ToolsHandler() http.HandlerFunc {
 	return a.toolsCatalogHandler()
 }

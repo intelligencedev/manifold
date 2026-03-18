@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,34 @@ func TestRegistry_AppendsSpecialistsToSystemPrompt(t *testing.T) {
 	a, _ := r.Get("alpha")
 	if !strings.Contains(a.System, "Available specialists you can invoke:") {
 		t.Fatalf("agent system prompt missing specialist addendum: %q", a.System)
+	}
+}
+
+func TestSetWorkdirRebuildsSpecialistSystemPrompt(t *testing.T) {
+	t.Parallel()
+
+	base := config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{APIKey: "basekey", Model: "basemodel"}}
+	r := NewRegistry(base, []config.SpecialistConfig{{Name: "alpha", Description: "first", Model: "m", System: "mysys"}}, http.DefaultClient, nil)
+	r.SetWorkdir(filepath.Join("tmp", "workspace"))
+
+	a, ok := r.Get("alpha")
+	if !ok {
+		t.Fatalf("expected alpha present")
+	}
+	if !strings.Contains(a.System, "tmp/workspace") {
+		t.Fatalf("expected rebuilt system prompt to include workdir, got %q", a.System)
+	}
+	if !strings.Contains(a.System, "mysys") {
+		t.Fatalf("expected rebuilt system prompt to preserve specialist system, got %q", a.System)
+	}
+	if !strings.Contains(a.System, "Available specialists you can invoke:") {
+		t.Fatalf("expected rebuilt system prompt to preserve specialist catalog, got %q", a.System)
+	}
+	if !strings.Contains(a.System, "alpha: first") {
+		t.Fatalf("expected rebuilt system prompt to include specialist metadata, got %q", a.System)
+	}
+	if !strings.Contains(a.System, "locked working directory") {
+		t.Fatalf("expected rebuilt prompt to include default workdir guidance, got %q", a.System)
 	}
 }
 

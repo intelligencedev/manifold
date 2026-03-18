@@ -11,7 +11,7 @@
     <!-- Upload card: cap height on small screens so it never pushes past the viewport; full height on large screens -->
     <section
       v-if="!selectedDatasetId"
-      class="flex min-h-0 max-h-[50vh] flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full lg:max-h-none"
+      class="flex min-h-0 max-h-[50vh] flex-col overflow-hidden lg:h-full lg:max-h-none"
     >
       <header class="mb-4">
         <h2 class="text-lg font-semibold">Upload Dataset</h2>
@@ -79,7 +79,7 @@
     <div class="flex min-h-0 flex-1 flex-col lg:h-full">
       <section
         v-if="!selectedDatasetId"
-        class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full"
+        class="flex min-h-0 flex-1 flex-col overflow-hidden lg:h-full"
       >
         <header
           class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
@@ -169,11 +169,11 @@
 
       <section
         v-else
-        class="grid min-h-0 flex-1 grid-rows-[auto,1fr] gap-4 overflow-hidden rounded-2xl border border-border/70 bg-surface p-4 lg:h-full"
+        class="grid min-h-0 flex-1 grid-rows-[auto,1fr] gap-4 overflow-hidden lg:h-full"
       >
         <!-- Sticky header row -->
         <header
-          class="sticky top-0 z-10 grid grid-cols-1 items-start gap-3 bg-surface/95 pb-2 backdrop-blur lg:grid-cols-[1fr_auto]"
+          class="ap-hairline-b sticky top-0 z-10 grid grid-cols-1 items-start gap-3 pb-3 lg:grid-cols-[1fr_auto]"
         >
           <div class="flex items-start gap-3">
             <button

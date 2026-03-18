@@ -1,21 +1,53 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full flex-1 min-h-0 overflow-hidden gap-3 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full flex-1 min-h-0 overflow-hidden gap-4 lg:gap-0 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="glass-surface hidden h-full min-h-0 lg:flex flex-col gap-3 overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/70 p-4"
+        class="hidden h-full min-h-0 lg:flex flex-col gap-3 overflow-hidden p-4 lg:border-r lg:border-border/60 lg:pr-5"
       >
-        <header class="flex items-center justify-between">
+        <header class="flex items-center justify-between gap-2">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
-          <button
-            type="button"
-            class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-accent hover:text-accent"
-            @click="createSession()"
-          >
-            New
-          </button>
+          <div class="flex items-center gap-1.5">
+            <template v-if="!sessionSelectMode">
+              <button
+                type="button"
+                class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-border/80 hover:text-foreground/80"
+                title="Select conversations to delete"
+                @click="enterSessionSelectMode"
+              >
+                Select
+              </button>
+              <button
+                type="button"
+                class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-accent hover:text-accent"
+                @click="createSession()"
+              >
+                New
+              </button>
+            </template>
+            <template v-else>
+              <button
+                type="button"
+                class="rounded-4 border px-2 py-1 text-xs font-semibold transition"
+                :class="selectedSessionIds.length > 0
+                  ? 'border-danger/60 bg-danger/10 text-danger hover:bg-danger/20'
+                  : 'border-border/40 text-faint-foreground cursor-not-allowed opacity-50'"
+                :disabled="selectedSessionIds.length === 0"
+                @click="openBulkDeleteDialog"
+              >
+                Delete{{ selectedSessionIds.length > 0 ? ` (${selectedSessionIds.length})` : '' }}
+              </button>
+              <button
+                type="button"
+                class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-accent hover:text-accent"
+                @click="exitSessionSelectMode"
+              >
+                Cancel
+              </button>
+            </template>
+          </div>
         </header>
         <p
           v-if="sessionsError"
@@ -41,14 +73,19 @@
             :key="session.id"
             class="group rounded-lg border border-transparent px-3 py-2 transition"
             :class="
-              session.id === activeSessionId
-                ? 'border-accent/70 bg-surface-muted/60'
-                : 'hover:border-border hover:bg-surface-muted/40'
+              sessionSelectMode && selectedSessionIds.includes(session.id)
+                ? 'border-danger/70 bg-danger/20'
+                : !sessionSelectMode && session.id === activeSessionId
+                  ? 'border-accent/70 bg-surface-muted/60'
+                  : 'hover:border-border hover:bg-surface-muted/40'
             "
-            @click="selectSession(session.id)"
+            @click="sessionSelectMode ? toggleSessionSelection(session.id) : selectSession(session.id)"
           >
             <div class="flex items-center justify-between gap-2">
-              <template v-if="renamingSessionId === session.id">
+              <template v-if="sessionSelectMode">
+                <p class="truncate font-medium text-foreground flex-1">{{ session.name }}</p>
+              </template>
+              <template v-else-if="renamingSessionId === session.id">
                 <input
                   ref="renameInput"
                   v-model="renamingName"
@@ -76,6 +113,7 @@
               {{ session.lastMessagePreview || "No messages yet" }}
             </p>
             <div
+              v-if="!sessionSelectMode"
               class="mt-2 flex items-center justify-between text-[10px] text-faint-foreground"
             >
               <div class="flex items-center gap-2">
@@ -123,7 +161,7 @@
 
       <!-- Chat pane -->
       <section
-        class="glass-surface relative flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-lg,26px)] border border-white/12 bg-surface/80 chat-pane"
+        class="relative flex h-full min-h-0 flex-col overflow-hidden chat-pane xl:px-5"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 pb-4 pt-1"
@@ -751,9 +789,52 @@
         </div>
       </div>
 
+      <!-- Bulk delete dialog -->
+      <div
+        v-if="showBulkDeleteDialog"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bulk-delete-title"
+        @click.self="closeBulkDeleteDialog"
+        @keydown.esc.prevent="closeBulkDeleteDialog"
+      >
+        <div class="w-full max-w-md rounded-5 bg-surface p-5 shadow-3 ring-1 ring-border/60">
+          <h2 id="bulk-delete-title" class="text-base font-semibold text-danger">
+            Delete {{ selectedSessionIds.length }} Conversation{{ selectedSessionIds.length === 1 ? '' : 's' }}
+          </h2>
+          <p class="mt-2 text-sm text-subtle-foreground">
+            This permanently removes the selected
+            {{ selectedSessionIds.length === 1 ? 'conversation' : `${selectedSessionIds.length} conversations` }}
+            and all messages in them.
+          </p>
+          <form class="mt-4 space-y-3" @submit.prevent="confirmBulkDelete">
+            <p class="text-xs text-faint-foreground">This action cannot be undone.</p>
+            <p v-if="bulkDeleteError" class="text-xs text-danger">{{ bulkDeleteError }}</p>
+            <div class="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                class="h-9 rounded-full border border-white/15 px-3 text-sm text-subtle-foreground transition hover:border-white/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="bulkDeletePending"
+                @click="closeBulkDeleteDialog"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="h-9 rounded-full border border-danger/60 bg-danger/10 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="bulkDeletePending"
+              >
+                {{ bulkDeletePending ? 'Deleting...' : `Delete ${selectedSessionIds.length === 1 ? 'Conversation' : 'Conversations'}` }}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+
       <!-- Participants sidebar -->
       <aside
-        class="hidden h-full min-h-0 xl:flex flex-col text-sm text-subtle-foreground chat-side"
+        class="hidden h-full min-h-0 xl:flex xl:flex-col xl:border-l xl:border-border/60 xl:pl-5 text-sm text-subtle-foreground chat-side"
       >
         <div ref="sidePanelsPane" class="flex min-h-0 flex-1 flex-col">
           <div
@@ -762,7 +843,7 @@
             :style="activeSpecialistPaneStyle"
           >
             <GlassCard
-              :padded="false"
+              flat
               class="flex h-full flex-col overflow-hidden"
             >
               <div class="flex min-h-0 flex-1 flex-col">
@@ -858,10 +939,11 @@
             @pointerdown="handlePanelSplitterPointerDown"
           >
             <span class="panel-splitter__line"></span>
+            <span class="panel-splitter__handle"></span>
           </div>
 
           <GlassCard
-            :padded="false"
+            flat
             class="flex min-h-0 flex-1 flex-col overflow-hidden"
             :style="participantsPaneStyle"
           >
@@ -1082,6 +1164,13 @@ const deleteSessionError = ref("");
 const canConfirmDeleteSession = computed(
   () => !!deleteSessionTarget.value?.id && !deleteSessionPending.value,
 );
+
+// Multi-select state
+const sessionSelectMode = ref(false);
+const selectedSessionIds = ref<string[]>([]);
+const showBulkDeleteDialog = ref(false);
+const bulkDeletePending = ref(false);
+const bulkDeleteError = ref("");
 const sidePanelsPane = ref<HTMLElement | null>(null);
 const activeSpecialistPane = ref<HTMLElement | null>(null);
 const panelSplitter = ref<HTMLElement | null>(null);
@@ -2181,6 +2270,62 @@ async function createSession(name = "New Chat") {
   }
 }
 
+function enterSessionSelectMode() {
+  selectedSessionIds.value = [];
+  sessionSelectMode.value = true;
+}
+
+function exitSessionSelectMode() {
+  sessionSelectMode.value = false;
+  selectedSessionIds.value = [];
+}
+
+function toggleSessionSelection(id: string) {
+  const idx = selectedSessionIds.value.indexOf(id);
+  if (idx >= 0) {
+    selectedSessionIds.value.splice(idx, 1);
+  } else {
+    selectedSessionIds.value.push(id);
+  }
+}
+
+function openBulkDeleteDialog() {
+  if (selectedSessionIds.value.length === 0) return;
+  bulkDeleteError.value = "";
+  bulkDeletePending.value = false;
+  showBulkDeleteDialog.value = true;
+}
+
+function closeBulkDeleteDialog() {
+  if (bulkDeletePending.value) return;
+  showBulkDeleteDialog.value = false;
+  bulkDeleteError.value = "";
+}
+
+async function confirmBulkDelete() {
+  if (bulkDeletePending.value || selectedSessionIds.value.length === 0) return;
+  bulkDeletePending.value = true;
+  bulkDeleteError.value = "";
+  const ids = selectedSessionIds.value.slice();
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      await chat.deleteSession(id);
+    } catch {
+      failed++;
+    }
+  }
+  bulkDeletePending.value = false;
+  if (failed > 0) {
+    bulkDeleteError.value = `Failed to delete ${failed} conversation${failed === 1 ? "" : "s"}.`;
+    return;
+  }
+  showBulkDeleteDialog.value = false;
+  exitSessionSelectMode();
+  autoScrollEnabled.value = true;
+  nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
+}
+
 function resetDeleteSessionDialogState() {
   deleteSessionTarget.value = null;
   deleteSessionPending.value = false;
@@ -2913,6 +3058,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .panel-splitter {
+  position: relative;
   height: 12px;
   display: flex;
   align-items: center;
@@ -2934,7 +3080,30 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .panel-splitter:hover .panel-splitter__line,
 .panel-splitter--dragging .panel-splitter__line {
-  background: rgb(var(--color-accent) / 0.6);
+  background: rgb(var(--color-accent));
+}
+
+.panel-splitter__handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3.5rem;
+  height: 0.4rem;
+  transform: translate(-50%, -50%);
+  border-radius: 9999px;
+  background: rgb(var(--color-surface-muted));
+  border: 1px solid rgb(var(--color-border));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.panel-splitter:hover .panel-splitter__handle,
+.panel-splitter--dragging .panel-splitter__handle {
+  border-color: rgb(var(--color-accent));
+  background: rgb(var(--color-surface));
   box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.18);
 }
 
@@ -2945,11 +3114,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding: 0.75rem;
   border-radius: 0.9rem;
   border: 1px solid rgb(var(--color-border) / 0.6);
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-surface-muted) / 0.92),
-    rgb(var(--color-surface) / 0.96)
-  );
+  background: rgb(var(--color-surface-muted) / 0.94);
   box-shadow: 0 18px 35px -30px rgb(0 0 0 / 0.6);
 }
 
@@ -2959,11 +3124,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .active-specialist-card--delegated {
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-accent) / 0.12),
-    rgb(var(--color-surface) / 0.96)
-  );
+  background: rgb(var(--color-accent) / 0.12);
 }
 
 .active-specialist-avatar {
@@ -2975,11 +3136,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 0.85rem;
   font-weight: 700;
   color: rgb(var(--color-foreground));
-  background: linear-gradient(
-    145deg,
-    rgb(var(--color-accent) / 0.35),
-    rgb(var(--color-surface-muted) / 0.85)
-  );
+  background: rgb(var(--color-accent) / 0.28);
   border: 1px solid rgb(var(--color-border) / 0.6);
 }
 
@@ -3069,11 +3226,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding: 0.7rem 0.85rem;
   border-radius: 0.9rem;
   border: 1px solid rgb(var(--color-border) / 0.6);
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-surface-muted) / 0.9),
-    rgb(var(--color-surface) / 0.95)
-  );
+  background: rgb(var(--color-surface-muted) / 0.92);
   box-shadow: 0 14px 32px -24px rgb(0 0 0 / 0.6);
 }
 
@@ -3324,10 +3477,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
-  background: linear-gradient(
-    rgb(var(--color-surface-muted) / 0.95),
-    rgb(var(--color-surface-muted) / 0.6)
-  );
+  background: rgb(var(--color-surface-muted) / 0.78);
   border-top-left-radius: 0.5rem;
   border-top-right-radius: 0.5rem;
   z-index: 1;

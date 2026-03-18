@@ -29,38 +29,9 @@ x_t ->|  Search R |--R_t-> | Synthesis |--C_t-> |  LLM  F   |--> ŷ_t
 
 ## Configuration
 
-The evolving memory system uses your existing embedding service configuration automatically. No separate embedding setup is needed - it leverages the same `EMBED_*` environment variables used by pgvector and the vector search tool.
+The evolving memory system uses the shared `embedding` configuration from `config.yaml`. If you want to keep credentials out of YAML, reference them with `${VAR}` and define those in `.env` or the host environment.
 
-### Via Environment Variables (.env file)
-
-```bash
-# Embedding service (already configured for other features)
-EMBED_BASE_URL="http://192.168.1.244:32184"
-EMBED_MODEL="path/to/model.gguf"
-EMBED_API_KEY="your_api_key"
-EMBED_API_HEADER="Authorization"
-EMBED_PATH="/v1/embeddings"
-EMBED_TIMEOUT=30
-
-# Evolving Memory configuration
-EVOLVING_MEMORY_ENABLED=true           # Enable the evolving memory system
-EVOLVING_MEMORY_MAX_SIZE=1000          # Maximum memory entries to retain
-EVOLVING_MEMORY_TOP_K=4                # Number of similar experiences to retrieve
-EVOLVING_MEMORY_WINDOW_SIZE=20         # Sliding window size for ExpRecent mode
-EVOLVING_MEMORY_ENABLE_RAG=true        # Enable ExpRAG similarity-based retrieval
-EVOLVING_MEMORY_REMEM_ENABLED=false    # Enable Think-Act-Refine mode (advanced)
-EVOLVING_MEMORY_MAX_INNER_STEPS=5      # Maximum THINK/REFINE loops in ReMem mode
-EVOLVING_MEMORY_PROVIDER=openai        # Optional provider override: openai, anthropic, google, or local
-EVOLVING_MEMORY_MODEL=gpt-4o-mini      # Model for memory summarization
-
-# Smart pruning (advanced)
-EVOLVING_MEMORY_ENABLE_SMART_PRUNE=true  # Enable similarity-based dedup & relevance pruning
-EVOLVING_MEMORY_PRUNE_THRESHOLD=0.95     # Similarity threshold for duplicate detection (0.0-1.0)
-EVOLVING_MEMORY_RELEVANCE_DECAY=0.99     # Daily decay factor for relevance scores (0.0-1.0)
-EVOLVING_MEMORY_MIN_RELEVANCE=0.1        # Minimum relevance to avoid pruning (0.0-1.0)
-```
-
-### Via config.yaml
+Configure evolving memory directly in `config.yaml`:
 
 ```yaml
 # Evolving memory configuration
@@ -90,17 +61,13 @@ evolvingMemory:
 
 # Embedding service configuration (required for evolving memory)
 embedding:
-  baseURL: "http://localhost:11434"
-  model: "nomic-embed-text"
-  path: "/api/embeddings"
+  baseURL: "https://api.openai.com"
+  model: "text-embedding-3-small"
+  apiKey: "${EMBED_API_KEY}"
+  apiHeader: "Authorization"
+  headers: {}
+  path: "/v1/embeddings"
   timeoutSeconds: 30
-  # For OpenAI-compatible services:
-  # apiKey: "${OPENAI_API_KEY}"
-  # apiHeader: "Authorization"
-  # Optional: provide additional headers (map)
-  # headers:
-  #   x-trace-id: "abc123"
-  #   x-algo: "v2"
 ```
 
 ## Memory Entry Structure
@@ -266,7 +233,7 @@ Configuration defaults (programmatic):
 PruneThreshold:   0.95   // Similarity threshold for duplicate detection
 RelevanceDecay:   0.99   // Daily decay factor for relevance scores
 MinRelevance:     0.1    // Minimum relevance to avoid pruning
-EnableSmartPrune: false  // Enable via code (not yet in config.yaml)
+EnableSmartPrune: false  // Also available as evolvingMemory.enableSmartPrune in config.yaml
 ```
 
 ## Task Similarity Metrics
@@ -292,9 +259,9 @@ The memory system integrates seamlessly with the existing agent engine and **aut
 ```go
 import "manifold/internal/agent/memory"
 
-// Initialize evolving memory - uses cfg.Embedding from your .env file
+// Initialize evolving memory - uses cfg.Embedding from config.yaml
 memCfg := memory.EvolvingMemoryConfig{
-    EmbeddingConfig:  cfg.Embedding,  // Reuses EMBED_* environment variables
+  EmbeddingConfig:  cfg.Embedding,  // Reuses the shared embedding config
     LLM:              llmProvider,
     Model:            cfg.EvolvingMemory.Model,
     MaxSize:          cfg.EvolvingMemory.MaxSize,

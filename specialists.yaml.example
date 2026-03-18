@@ -1,0 +1,68 @@
+# Specialist agents and pre-dispatch routes.
+# Secrets use env expansion from the current shell or .env.
+
+specialists:
+  # Full SpecialistConfig example with every supported field.
+  - name: coder
+    description: Code-focused specialist for implementation and refactors.
+    provider: openai
+    baseURL: https://api.openai.com/v1
+    apiKey: "${SPECIALIST_CODER_API_KEY}"
+    model: gpt-5-mini
+    summaryContextWindowTokens: 64000
+    api: responses
+    enableTools: true
+    paused: false
+    allowTools:
+      - run_cli
+      - apply_patch
+      - web_fetch
+    reasoningEffort: medium
+    system: |
+      You are the coding specialist.
+      Prefer precise implementation details and minimal diffs.
+    extraHeaders:
+      X-Client-Name: manifold-coder
+      X-Debug-Key: "${SPECIALIST_CODER_API_KEY}"
+    extraParams:
+      temperature: 0.2
+      top_p: 0.95
+
+  # Second SpecialistConfig example with a narrower tool policy.
+  - name: researcher
+    description: Research specialist for synthesis, browsing, and summaries.
+    provider: openai
+    baseURL: https://api.openai.com/v1
+    apiKey: "${SPECIALIST_RESEARCH_API_KEY}"
+    model: gpt-5
+    summaryContextWindowTokens: 32000
+    api: completions
+    enableTools: false
+    paused: true
+    allowTools: []
+    reasoningEffort: high
+    system: |
+      You are the research specialist.
+      Focus on evidence, tradeoffs, and concise summaries.
+    extraHeaders:
+      X-Client-Name: manifold-research
+      Authorization: "Bearer ${SPECIALIST_RESEARCH_API_KEY}"
+    extraParams:
+      temperature: 0.0
+      max_output_tokens: 4096
+
+routes:
+  # Route by substring match.
+  - name: coder
+    contains:
+      - code
+      - refactor
+      - debug
+    regex: []
+
+  # Route by regex match.
+  - name: researcher
+    contains: []
+    regex:
+      - '(?i)\\b(research|compare|summarize|sources?)\\b'
+      - '(?i)\\bfind\\s+papers?\\b'

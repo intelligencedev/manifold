@@ -8,8 +8,10 @@ For a normal Docker deployment from the repository root, you do not need to buil
 
 Requirements:
 
-- Node 20
+- Node 22
 - `pnpm`
+
+If you use `nvm`, run `nvm use` from the repository root before working in this directory.
 
 Install dependencies:
 

@@ -24,7 +24,7 @@
     </header>
 
     <!-- Constrain child views height and prevent page scroll bleed -->
-    <div class="flex-1 min-h-0 overflow-hidden">
+    <div class="flex-1 min-h-0 overflow-hidden px-1 pb-1 md:px-1.5 md:pb-1.5">
       <RouterView />
     </div>
   </section>

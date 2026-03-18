@@ -106,24 +106,13 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			list, err := a.specStore.List(r.Context(), userID)
+			list, err := a.listSpecialistsForUser(r.Context(), userID)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			membership := a.teamMembershipsForUser(r.Context(), userID)
-			out := make([]persist.Specialist, 0, len(list)+1)
-			orchestrator := a.orchestratorSpecialist(r.Context(), userID)
-			orchestrator.Teams = membership[orchestrator.Name]
-			out = append(out, orchestrator)
-			out = append(out, list...)
-			for i := range out {
-				if teams, ok := membership[out[i].Name]; ok {
-					out[i].Teams = teams
-				}
-			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(out)
+			json.NewEncoder(w).Encode(list)
 
 		case http.MethodPost:
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -133,54 +122,14 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			name := strings.TrimSpace(sp.Name)
-			if name == "" {
-				http.Error(w, "name required", http.StatusBadRequest)
-				return
-			}
-			if strings.TrimSpace(sp.Provider) == "" {
-				sp.Provider = a.cfg.LLMClient.Provider
-			}
-			if name == specialists.OrchestratorName {
-				// Allow non-system users to persist a per-user orchestrator overlay
-				// without mutating the global engine/config.
-				if userID == systemUserID {
-					if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
-					return
-				}
-				sp.Name = specialists.OrchestratorName
-				sp.UserID = userID
-				if _, err := a.specStore.Upsert(r.Context(), userID, sp); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusCreated)
-				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
-				a.invalidateSpecialistsCache(r.Context(), userID)
-				return
-			}
-			sp.Name = name
-			sp.UserID = userID
-			saved, err := a.specStore.Upsert(r.Context(), userID, sp)
+			saved, status, err := a.createSpecialistForUser(r.Context(), userID, sp)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := a.applyTeamMemberships(r.Context(), userID, saved.Name, sp.Teams); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			saved.Teams = sp.Teams
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
+			w.WriteHeader(status)
 			json.NewEncoder(w).Encode(saved)
-			a.invalidateSpecialistsCache(r.Context(), userID)
 
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -207,14 +156,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 
 		switch r.Method {
 		case http.MethodGet:
-			if name == specialists.OrchestratorName {
-				sp := a.orchestratorSpecialist(r.Context(), userID)
-				sp.Teams = a.teamMembershipsForUser(r.Context(), userID)[sp.Name]
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(sp)
-				return
-			}
-			sp, ok, err := a.specStore.GetByName(r.Context(), userID, name)
+			sp, ok, err := a.getSpecialistForUser(r.Context(), userID, name)
 			if err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
@@ -223,7 +165,6 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.NotFound(w, r)
 				return
 			}
-			sp.Teams = a.teamMembershipsForUser(r.Context(), userID)[sp.Name]
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(sp)
 		case http.MethodPut:
@@ -234,59 +175,23 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			if strings.TrimSpace(sp.Provider) == "" {
-				sp.Provider = a.cfg.LLMClient.Provider
-			}
-			if name == specialists.OrchestratorName {
-				// Allow non-system users to update their per-user orchestrator overlay
-				// without mutating the global engine/config.
-				if userID == systemUserID {
-					if err := a.applyOrchestratorUpdate(r.Context(), sp); err != nil {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-						return
-					}
-					w.Header().Set("Content-Type", "application/json")
-					json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
-					return
-				}
-				sp.Name = specialists.OrchestratorName
-				sp.UserID = userID
-				if _, err := a.specStore.Upsert(r.Context(), userID, sp); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(a.orchestratorSpecialist(r.Context(), userID))
-				a.invalidateSpecialistsCache(r.Context(), userID)
-				return
-			}
-			sp.Name = name
-			sp.UserID = userID
-			saved, err := a.specStore.Upsert(r.Context(), userID, sp)
+			saved, err := a.updateSpecialistForUser(r.Context(), userID, name, sp)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if err := a.applyTeamMemberships(r.Context(), userID, saved.Name, sp.Teams); err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			saved.Teams = sp.Teams
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(saved)
-			a.invalidateSpecialistsCache(r.Context(), userID)
 		case http.MethodDelete:
-			if name == specialists.OrchestratorName {
-				http.Error(w, "cannot delete orchestrator", http.StatusBadRequest)
-				return
-			}
-			if err := a.specStore.Delete(r.Context(), userID, name); err != nil {
+			if err := a.deleteSpecialistForUser(r.Context(), userID, name); err != nil {
+				if err == errOrchestratorDelete {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
 				http.Error(w, "error", http.StatusInternalServerError)
 				return
 			}
-			_ = a.removeSpecialistFromTeams(r.Context(), userID, name)
 			w.WriteHeader(http.StatusNoContent)
-			a.invalidateSpecialistsCache(r.Context(), userID)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
@@ -504,9 +409,6 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 			d.SetRegistry(a.toolRegistry)
 		}
 	}
-	a.warppMu.Lock()
-	a.warppRunner.Tools = a.toolRegistry
-	a.warppMu.Unlock()
 
 	toSave := persist.Specialist{
 		Name:                       specialists.OrchestratorName,

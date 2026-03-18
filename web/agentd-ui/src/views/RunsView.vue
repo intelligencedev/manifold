@@ -24,7 +24,7 @@
       </div>
     </header>
 
-    <div class="ap-panel ap-hover rounded-2xl bg-surface p-4">
+    <div class="min-h-0 flex-1">
       <RunTable :runs="filteredRuns" />
     </div>
   </section>

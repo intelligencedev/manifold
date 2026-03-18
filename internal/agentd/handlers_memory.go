@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -157,9 +158,24 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Rebuild the LLM context for this session using the same logic as /agent/run
-	// Check if the main LLM provider supports compaction (OpenAI Responses API).
-	targetSupportsCompaction := providerSupportsCompaction(a.llm)
+	owner := systemUserID
+	if userID != nil {
+		owner = *userID
+	}
+	targetSupportsCompaction, statusCode, err := a.debugMemoryTargetSupportsCompaction(r.Context(), owner, sessionID, resolveChatDispatchTarget(r.URL.Query()))
+	if err != nil {
+		if statusCode == 0 {
+			statusCode = http.StatusInternalServerError
+		}
+		if statusCode >= http.StatusInternalServerError {
+			log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_resolve_target")
+			http.Error(w, "internal server error", statusCode)
+			return
+		}
+		http.Error(w, err.Error(), statusCode)
+		return
+	}
+
 	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
@@ -240,8 +256,24 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if the main LLM provider supports compaction (OpenAI Responses API).
-	targetSupportsCompaction := providerSupportsCompaction(a.llm)
+	owner := systemUserID
+	if userID != nil {
+		owner = *userID
+	}
+	targetSupportsCompaction, statusCode, err := a.debugMemoryTargetSupportsCompaction(r.Context(), owner, sessionID, resolveChatDispatchTarget(q))
+	if err != nil {
+		if statusCode == 0 {
+			statusCode = http.StatusInternalServerError
+		}
+		if statusCode >= http.StatusInternalServerError {
+			log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_resolve_target")
+			http.Error(w, "internal server error", statusCode)
+			return
+		}
+		http.Error(w, err.Error(), statusCode)
+		return
+	}
+
 	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
@@ -251,6 +283,31 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 
 	plan := a.deriveMemoryPlan(sess, ctxMsgs)
 	writeJSON(w, http.StatusOK, plan)
+}
+
+func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (bool, int, error) {
+	descriptor, ok := a.describeChatTarget(target, "", owner)
+	if !ok {
+		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", nil)
+		if build.Err != nil {
+			statusCode := build.StatusCode
+			if statusCode == 0 {
+				statusCode = http.StatusInternalServerError
+			}
+			return false, statusCode, build.Err
+		}
+		return providerSupportsCompaction(build.Engine.LLM), 0, nil
+	}
+
+	build := descriptor.Build(ctx)
+	if build.Err != nil {
+		statusCode := build.StatusCode
+		if statusCode == 0 {
+			statusCode = http.StatusInternalServerError
+		}
+		return false, statusCode, build.Err
+	}
+	return providerSupportsCompaction(build.Engine.LLM), 0, nil
 }
 
 func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message) memoryPlanResponse {

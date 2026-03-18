@@ -114,14 +114,34 @@
           :options="enumDropdownOptions"
           @update:modelValue="onSelectChange"
         />
-        <textarea
-          v-else-if="isMultilineString"
-          :value="stringValue"
-          :rows="multilineRows"
-          :class="textareaClass"
-          @input="onStringInput"
-          @wheel.stop
-        />
+        <div v-else-if="isMultilineString" class="relative">
+          <textarea
+            ref="fieldInputEl"
+            :value="stringValue"
+            :rows="multilineRows"
+            :class="[textareaClass, isExpressionValue ? 'border-accent/60 bg-accent/5' : '']"
+            @input="onStringInput"
+            @wheel.stop
+          />
+          <button
+            v-if="hasNodeContext"
+            type="button"
+            class="absolute top-1 right-1 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
+            :class="pickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+            title="Insert reference from upstream node"
+            @click.prevent.stop="togglePicker"
+          >
+            {x}
+          </button>
+          <ExpressionPicker
+            v-if="hasNodeContext"
+            :open="pickerOpen"
+            :node-id="currentNodeId"
+            :anchor="fieldInputEl"
+            @select="onPickExpression"
+            @close="pickerOpen = false"
+          />
+        </div>
         <input
           v-else-if="isNumeric"
           type="number"
@@ -142,13 +162,34 @@
           />
           <span>{{ schema.description ?? "Enabled" }}</span>
         </label>
-        <input
-          v-else
-          type="text"
-          :value="stringValue"
-          class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-          @input="onStringInput"
-        />
+        <div v-else class="relative">
+          <input
+            ref="fieldInputEl"
+            type="text"
+            :value="stringValue"
+            class="w-full rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+            :class="isExpressionValue ? 'border-accent/60 bg-accent/5 pr-8' : hasNodeContext ? 'pr-8' : ''"
+            @input="onStringInput"
+          />
+          <button
+            v-if="hasNodeContext"
+            type="button"
+            class="absolute top-1/2 right-1 -translate-y-1/2 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
+            :class="pickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+            title="Insert reference from upstream node"
+            @click.prevent.stop="togglePicker"
+          >
+            {x}
+          </button>
+          <ExpressionPicker
+            v-if="hasNodeContext"
+            :open="pickerOpen"
+            :node-id="currentNodeId"
+            :anchor="fieldInputEl"
+            @select="onPickExpression"
+            @close="pickerOpen = false"
+          />
+        </div>
       </label>
       <p
         v-if="schema.description && !isBoolean"
@@ -161,8 +202,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, inject, ref } from "vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import ExpressionPicker from "@/components/flow/ExpressionPicker.vue";
 
 defineOptions({ name: "ParameterFormField" });
 
@@ -177,6 +219,32 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: "update:model-value", value: unknown): void;
 }>();
+
+// Expression picker state
+const currentNodeId = inject<string>("flowEditorNodeId", "");
+const hasNodeContext = computed(() => Boolean(currentNodeId));
+const pickerOpen = ref(false);
+const fieldInputEl = ref<HTMLElement | null>(null);
+
+function togglePicker() {
+  pickerOpen.value = !pickerOpen.value;
+}
+
+function onPickExpression(expression: string) {
+  const current = stringValue.value;
+  const combined = current ? `${current}\n${expression}` : expression;
+  emit("update:model-value", combined);
+}
+
+const isExpressionValue = computed(() => {
+  if (typeof props.modelValue !== "string") return false;
+  const v = props.modelValue.trim();
+  return (
+    v.startsWith("={{") ||
+    v.startsWith("$node.") ||
+    v.startsWith("$run.")
+  );
+});
 
 function schemaType(
   schema: Record<string, any> | undefined,

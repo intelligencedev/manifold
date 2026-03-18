@@ -67,3 +67,41 @@ func TestMemPulseStoreClaimAndComplete(t *testing.T) {
 		t.Fatalf("expected last pulse summary to be recorded, got %q", updatedRoom.LastPulseSummary)
 	}
 }
+
+func TestMemPulseStoreClearRoomClaim(t *testing.T) {
+	t.Parallel()
+
+	store := NewPulseStore(nil)
+	ctx := context.Background()
+	room, err := store.EnsureRoom(ctx, "!room:test")
+	if err != nil {
+		t.Fatalf("ensure room: %v", err)
+	}
+
+	claimToken := uuid.NewString()
+	claimed, err := store.ClaimRoom(ctx, room.RoomID, claimToken, time.Now().Add(5*time.Minute))
+	if err != nil {
+		t.Fatalf("claim room: %v", err)
+	}
+	if !claimed {
+		t.Fatalf("expected claim to succeed")
+	}
+
+	if err := store.ClearRoomClaim(ctx, room.RoomID); err != nil {
+		t.Fatalf("clear room claim: %v", err)
+	}
+
+	updatedRoom, err := store.GetRoom(ctx, room.RoomID)
+	if err != nil {
+		t.Fatalf("get updated room: %v", err)
+	}
+	if updatedRoom.ActiveClaimToken != "" {
+		t.Fatalf("expected room claim token to be cleared, got %q", updatedRoom.ActiveClaimToken)
+	}
+	if !updatedRoom.ActiveClaimUntil.IsZero() {
+		t.Fatalf("expected room claim expiry to be cleared, got %v", updatedRoom.ActiveClaimUntil)
+	}
+	if updatedRoom.Revision <= room.Revision {
+		t.Fatalf("expected room revision to advance, got %d <= %d", updatedRoom.Revision, room.Revision)
+	}
+}

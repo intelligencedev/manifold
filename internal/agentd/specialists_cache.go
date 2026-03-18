@@ -26,7 +26,7 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 	if sp, ok, _ := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName); ok {
 		base, _ = specialists.ApplyLLMClientOverride(base, sp)
 	}
-	reg := specialists.NewRegistry(base, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
+	reg := specialists.NewRegistryFromStore(base, nil, list, nil, a.httpClient, a.baseToolRegistry, a.cfg.Workdir)
 
 	a.specRegMu.Lock()
 	if a.userSpecRegs == nil {
@@ -40,7 +40,7 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 func (a *app) invalidateSpecialistsCache(ctx context.Context, userID int64) {
 	if userID == systemUserID {
 		if list, err := a.specStore.List(ctx, systemUserID); err == nil {
-			a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
+			specialists.ReplaceFromStore(a.specRegistry, a.cfg.LLMClient, a.cfg.Specialists, list, nil, a.httpClient, a.baseToolRegistry)
 			a.specRegMu.Lock()
 			if a.userSpecRegs == nil {
 				a.userSpecRegs = map[int64]*specialists.Registry{}

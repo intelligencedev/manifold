@@ -162,8 +162,6 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
   .surface-noise {
-    background-image: radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
-    background-size: 3px 3px;
-    background-blend-mode: multiply;
+    background-color: rgba(0, 0, 0, 0.02);
   }
 }

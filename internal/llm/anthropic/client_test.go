@@ -266,6 +266,146 @@ func TestChatPromptCacheAddsCacheControlToSystemAndTools(t *testing.T) {
 	}
 }
 
+func TestChatPromptCacheUsesLastSystemAndToolBreakpoint(t *testing.T) {
+	var reqBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		w.Header().Set("Content-Type", "application/json")
+		resp := sdk.Message{
+			ID:           "msg_cache_sections",
+			Type:         constant.Message("message"),
+			Role:         constant.Assistant("assistant"),
+			Model:        sdk.ModelClaude3_7SonnetLatest,
+			StopReason:   sdk.StopReasonEndTurn,
+			StopSequence: "",
+			Content:      []sdk.ContentBlockUnion{{Type: "text", Text: "ok"}},
+			Usage:        minimalUsage(),
+		}
+		b, _ := json.Marshal(resp)
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.AnthropicConfig{
+		APIKey:  "k",
+		BaseURL: srv.URL,
+		PromptCache: config.AnthropicPromptCacheConfig{
+			Enabled:     true,
+			CacheSystem: true,
+			CacheTools:  true,
+		},
+	}, srv.Client())
+	_, err := client.Chat(
+		context.Background(),
+		[]llm.Message{
+			{Role: "system", Content: "system one"},
+			{Role: "system", Content: "system two"},
+			{Role: "user", Content: "hi"},
+		},
+		[]llm.ToolSchema{
+			{Name: "lookup", Parameters: map[string]any{"type": "object"}},
+			{Name: "search", Parameters: map[string]any{"type": "object"}},
+		},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	system := requestObjects(t, reqBody, "system")
+	if _, ok := system[0]["cache_control"]; ok {
+		t.Fatalf("expected only last system block to be cached, got %#v", system)
+	}
+	if _, ok := system[1]["cache_control"]; !ok {
+		t.Fatalf("expected last system block to be cached, got %#v", system)
+	}
+
+	tools := requestObjects(t, reqBody, "tools")
+	if _, ok := tools[0]["cache_control"]; ok {
+		t.Fatalf("expected only last tool definition to be cached, got %#v", tools)
+	}
+	if _, ok := tools[1]["cache_control"]; !ok {
+		t.Fatalf("expected last tool definition to be cached, got %#v", tools)
+	}
+}
+
+func TestChatPromptCacheMessagesUsesSingleMessageBreakpoint(t *testing.T) {
+	var reqBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		w.Header().Set("Content-Type", "application/json")
+		resp := sdk.Message{
+			ID:           "msg_cache_messages",
+			Type:         constant.Message("message"),
+			Role:         constant.Assistant("assistant"),
+			Model:        sdk.ModelClaude3_7SonnetLatest,
+			StopReason:   sdk.StopReasonEndTurn,
+			StopSequence: "",
+			Content:      []sdk.ContentBlockUnion{{Type: "text", Text: "ok"}},
+			Usage:        minimalUsage(),
+		}
+		b, _ := json.Marshal(resp)
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.AnthropicConfig{
+		APIKey:  "k",
+		BaseURL: srv.URL,
+		PromptCache: config.AnthropicPromptCacheConfig{
+			Enabled:       true,
+			CacheSystem:   true,
+			CacheTools:    true,
+			CacheMessages: true,
+		},
+	}, srv.Client())
+	_, err := client.Chat(
+		context.Background(),
+		[]llm.Message{
+			{Role: "system", Content: "system"},
+			{Role: "user", Content: "user one"},
+			{Role: "assistant", Content: "assistant one"},
+			{Role: "user", Content: "user two"},
+			{Role: "assistant", Content: "assistant two"},
+		},
+		[]llm.ToolSchema{{Name: "lookup", Parameters: map[string]any{"type": "object"}}},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	if total := countCacheControls(reqBody); total != 3 {
+		t.Fatalf("expected 3 total cache breakpoints (tool, system, last message), got %d in %#v", total, reqBody)
+	}
+
+	messages := requestObjects(t, reqBody, "messages")
+	messageCacheBlocks := 0
+	for _, msg := range messages {
+		content, ok := msg["content"].([]any)
+		if !ok {
+			continue
+		}
+		for _, blockAny := range content {
+			block, ok := blockAny.(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, ok := block["cache_control"]; ok {
+				messageCacheBlocks++
+				if text, _ := block["text"].(string); text != "assistant two" {
+					t.Fatalf("expected last message text block to be cached, got %#v", block)
+				}
+			}
+		}
+	}
+	if messageCacheBlocks != 1 {
+		t.Fatalf("expected exactly 1 cached message block, got %d in %#v", messageCacheBlocks, messages)
+	}
+}
+
 func TestChatStreamText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -435,6 +575,49 @@ func minimalDeltaUsage() map[string]any {
 		"output_tokens":               0,
 		"server_tool_use":             map[string]any{"web_search_requests": 0},
 	}
+}
+
+func requestObjects(t *testing.T, body map[string]any, key string) []map[string]any {
+	t.Helper()
+	raw, ok := body[key]
+	if !ok {
+		t.Fatalf("expected %s in request, got %#v", key, body)
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		t.Fatalf("expected %s array, got %#v", key, raw)
+	}
+	out := make([]map[string]any, 0, len(list))
+	for _, item := range list {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("expected %s object, got %#v", key, item)
+		}
+		out = append(out, obj)
+	}
+	return out
+}
+
+func countCacheControls(body map[string]any) int {
+	count := 0
+	var walk func(any)
+	walk = func(value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			if _, ok := typed["cache_control"]; ok {
+				count++
+			}
+			for _, nested := range typed {
+				walk(nested)
+			}
+		case []any:
+			for _, nested := range typed {
+				walk(nested)
+			}
+		}
+	}
+	walk(body)
+	return count
 }
 
 func TestThinkingBlockPreservation(t *testing.T) {

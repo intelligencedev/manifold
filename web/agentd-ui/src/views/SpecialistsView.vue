@@ -5,9 +5,9 @@
     </div>
 
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
-    <div class="flex flex-col xl:flex-row gap-4 flex-1 min-h-0">
+    <div class="flex flex-1 min-h-0 flex-col gap-6 xl:flex-row">
       <!-- left: card grid -->
-      <div class="scrollbar-inset xl:w-1/2 min-w-0 min-h-0 overflow-auto rounded-[var(--radius-lg,26px)] glass-surface p-4">
+      <div class="scrollbar-inset min-w-0 min-h-0 overflow-auto xl:w-1/2 xl:pr-6 xl:border-r xl:border-border/60">
         <div class="mb-4 flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold">Specialists & Teams</h2>
           <div class="flex items-center gap-2">
@@ -20,7 +20,34 @@
           </div>
         </div>
 
-        <div class="mb-6">
+        <div role="tablist" aria-label="Specialists and teams" class="mb-4 flex flex-wrap gap-2">
+          <button
+            role="tab"
+            :aria-selected="activeListTab === 'specialists' ? 'true' : 'false'"
+            :tabindex="activeListTab === 'specialists' ? 0 : -1"
+            type="button"
+            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+            :class="activeListTab === 'specialists' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="activeListTab = 'specialists'"
+          >
+            Specialists
+            <span class="ml-1 text-[11px] text-subtle-foreground">{{ filteredSpecialists.length }}</span>
+          </button>
+          <button
+            role="tab"
+            :aria-selected="activeListTab === 'teams' ? 'true' : 'false'"
+            :tabindex="activeListTab === 'teams' ? 0 : -1"
+            type="button"
+            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+            :class="activeListTab === 'teams' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+            @click="activeListTab = 'teams'"
+          >
+            Teams
+            <span class="ml-1 text-[11px] text-subtle-foreground">{{ teams.length }}</span>
+          </button>
+        </div>
+
+        <div v-show="activeListTab === 'teams'" role="tabpanel" class="mb-6">
           <div class="mb-2 flex items-center justify-between">
             <h3 class="text-sm font-semibold text-foreground">Teams</h3>
           </div>
@@ -68,131 +95,133 @@
           </div>
         </div>
 
-        <div class="mb-3 flex flex-wrap gap-2">
-          <button
-            type="button"
-            class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-            :class="teamFilter === 'all' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
-            @click="teamFilter = 'all'"
-          >
-            All
-          </button>
-          <button
-            type="button"
-            class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-            :class="teamFilter === 'unassigned' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
-            @click="teamFilter = 'unassigned'"
-          >
-            Unassigned
-          </button>
-          <button
-            v-for="t in teams"
-            :key="`filter-${t.name}`"
-            type="button"
-            class="rounded-full border px-3 py-1 text-xs font-semibold transition"
-            :class="teamFilter === t.name ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
-            @click="teamFilter = t.name"
-          >
-            {{ t.name }}
-          </button>
-        </div>
+        <div v-show="activeListTab === 'specialists'" role="tabpanel">
+          <div class="mb-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+              :class="teamFilter === 'all' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+              @click="teamFilter = 'all'"
+            >
+              All
+            </button>
+            <button
+              type="button"
+              class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+              :class="teamFilter === 'unassigned' ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+              @click="teamFilter = 'unassigned'"
+            >
+              Unassigned
+            </button>
+            <button
+              v-for="t in teams"
+              :key="`filter-${t.name}`"
+              type="button"
+              class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+              :class="teamFilter === t.name ? 'border-border/80 bg-surface-muted/60 text-foreground' : 'border-border/50 text-subtle-foreground hover:border-border'"
+              @click="teamFilter = t.name"
+            >
+              {{ t.name }}
+            </button>
+          </div>
 
-        <div v-if="loading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading specialists…</div>
-        <div v-else-if="error" class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load specialists.</div>
-        <div v-else-if="!filteredSpecialists.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No specialists match this filter.</div>
-        <div v-else class="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
-          <GlassCard
-            v-for="s in filteredSpecialists"
-            :key="s.name"
-            class="flex flex-col transition-all duration-200 cursor-pointer"
-            :class="{ 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface': isCurrentlyEditing(s.name) }"
-            interactive
-            @click="edit(s)"
-          >
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <h3 class="text-base font-semibold text-foreground">{{ s.name }}</h3>
-                <p class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground">Model</p>
-                <p class="text-sm text-muted-foreground">{{ s.model || '—' }}</p>
+          <div v-if="loading" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">Loading specialists…</div>
+          <div v-else-if="error" class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground">Failed to load specialists.</div>
+          <div v-else-if="!filteredSpecialists.length" class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground">No specialists match this filter.</div>
+          <div v-else class="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
+            <GlassCard
+              v-for="s in filteredSpecialists"
+              :key="s.name"
+              class="flex flex-col transition-all duration-200 cursor-pointer"
+              :class="{ 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface': isCurrentlyEditing(s.name) }"
+              interactive
+              @click="edit(s)"
+            >
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-base font-semibold text-foreground">{{ s.name }}</h3>
+                  <p class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground">Model</p>
+                  <p class="text-sm text-muted-foreground">{{ s.model || '—' }}</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span
+                    v-if="isCurrentlyEditing(s.name)"
+                    class="rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
+                  >
+                    Editing
+                  </span>
+                  <Pill :tone="s.paused ? 'danger' : 'success'" size="sm" :glow="!s.paused">
+                    {{ s.paused ? 'Paused' : 'Active' }}
+                  </Pill>
+                </div>
               </div>
-              <div class="flex items-center gap-2">
-                <span
-                  v-if="isCurrentlyEditing(s.name)"
-                  class="rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
-                >
-                  Editing
-                </span>
-                <Pill :tone="s.paused ? 'danger' : 'success'" size="sm" :glow="!s.paused">
-                  {{ s.paused ? 'Paused' : 'Active' }}
+
+              <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
+
+              <div class="mt-3 flex flex-wrap gap-2 text-xs">
+                <Pill v-if="!s.teams || !s.teams.length" tone="neutral" size="sm">Unassigned</Pill>
+                <Pill v-for="t in s.teams || []" :key="`${s.name}-${t}`" tone="neutral" size="sm">
+                  {{ t }}
                 </Pill>
               </div>
-            </div>
 
-            <p class="mt-4 text-sm leading-relaxed text-subtle-foreground line-clamp-4">{{ specialistDescription(s) }}</p>
+              <div class="flex-grow"></div>
 
-            <div class="mt-3 flex flex-wrap gap-2 text-xs">
-              <Pill v-if="!s.teams || !s.teams.length" tone="neutral" size="sm">Unassigned</Pill>
-              <Pill v-for="t in s.teams || []" :key="`${s.name}-${t}`" tone="neutral" size="sm">
-                {{ t }}
-              </Pill>
-            </div>
+              <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                <Pill :tone="s.enableTools ? 'accent' : 'neutral'" size="sm">
+                  {{ s.enableTools ? 'Tools enabled' : 'Tools disabled' }}
+                </Pill>
+                <span
+                  v-if="Array.isArray(s.allowTools) && s.allowTools.length > 0"
+                  class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
+                >
+                  Allow list · {{ s.allowTools.length }}
+                </span>
+              </div>
 
-            <div class="flex-grow"></div>
-
-            <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
-              <Pill :tone="s.enableTools ? 'accent' : 'neutral'" size="sm">
-                {{ s.enableTools ? 'Tools enabled' : 'Tools disabled' }}
-              </Pill>
-              <span
-                v-if="Array.isArray(s.allowTools) && s.allowTools.length > 0"
-                class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
-              >
-                Allow list · {{ s.allowTools.length }}
-              </span>
-            </div>
-
-            <div class="mt-4 flex flex-wrap gap-2" @click.stop>
-              <button
-                type="button"
-                @click="edit(s)"
-                class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                @click="cloneSpecialist(s)"
-                class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
-                title="Duplicate this specialist"
-              >
-                Clone
-              </button>
-              <button
-                type="button"
-                @click="togglePause(s)"
-                class="inline-flex items-center gap-1 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
-                :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
-                :aria-label="s.paused ? 'Resume specialist' : 'Pause specialist'"
-              >
-                <SolarPlay v-if="s.paused" class="h-4 w-4" />
-                <SolarPause v-else class="h-4 w-4" />
-                <span>{{ s.paused ? 'Resume' : 'Pause' }}</span>
-              </button>
-              <button
-                type="button"
-                @click="remove(s)"
-                class="rounded-full border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
-              >
-                Delete
-              </button>
-            </div>
-          </GlassCard>
+              <div class="mt-4 flex flex-wrap gap-2" @click.stop>
+                <button
+                  type="button"
+                  @click="edit(s)"
+                  class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  @click="cloneSpecialist(s)"
+                  class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  title="Duplicate this specialist"
+                >
+                  Clone
+                </button>
+                <button
+                  type="button"
+                  @click="togglePause(s)"
+                  class="inline-flex items-center gap-1 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
+                  :aria-label="s.paused ? 'Resume specialist' : 'Pause specialist'"
+                >
+                  <SolarPlay v-if="s.paused" class="h-4 w-4" />
+                  <SolarPause v-else class="h-4 w-4" />
+                  <span>{{ s.paused ? 'Resume' : 'Pause' }}</span>
+                </button>
+                <button
+                  type="button"
+                  @click="remove(s)"
+                  class="rounded-full border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
+                >
+                  Delete
+                </button>
+              </div>
+            </GlassCard>
+          </div>
         </div>
       </div>
 
       <!-- right: editor -->
-      <div class="xl:w-1/2 min-w-0 min-h-0">
-        <GlassCard v-if="editingType === 'specialist'" class="h-full min-h-0 overflow-hidden">
+      <div class="min-w-0 min-h-0 xl:w-1/2 xl:pl-6">
+        <GlassCard v-if="editingType === 'specialist'" flat :padded="false" class="h-full min-h-0 overflow-hidden">
           <EditSpecialistRoot
             :key="editorInitial?.name || 'new'"
             class="h-full"
@@ -206,7 +235,7 @@
             @saved="onSaved"
           />
         </GlassCard>
-        <GlassCard v-else-if="editingType === 'team'" class="h-full min-h-0 overflow-hidden">
+        <GlassCard v-else-if="editingType === 'team'" flat :padded="false" class="h-full min-h-0 overflow-hidden">
           <EditTeamRoot
             :key="teamEditorInitial?.name || 'new-team'"
             class="h-full"
@@ -219,7 +248,7 @@
             @saved="onTeamSaved"
           />
         </GlassCard>
-        <GlassCard v-else class="flex h-full min-h-0 items-center justify-center p-4 text-sm text-subtle-foreground">
+        <GlassCard v-else flat class="flex h-full min-h-0 items-center justify-center text-sm text-subtle-foreground">
           Select a specialist or team, or click New to create one.
         </GlassCard>
       </div>
@@ -298,6 +327,7 @@ const providerDropdownOptions = computed(() => providerOptions.value.map((opt) =
 const teamNames = computed(() => teams.value.map(team => team.name).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })))
 const specialistNames = computed(() => specialists.value.filter(sp => !isTeamOrchestratorName(sp.name)).map(sp => sp.name))
 
+const activeListTab = ref<'specialists' | 'teams'>('specialists')
 const teamFilter = ref<'all' | 'unassigned' | string>('all')
 
 const editingType = ref<'specialist' | 'team' | null>(null)
@@ -353,6 +383,7 @@ function setErr(e: unknown, fallback: string) {
 }
 
 function startCreate() {
+  activeListTab.value = 'specialists'
   const defaultProvider = providerOptions.value[0] || 'openai'
   editorInitial.value = { name: '', description: '', provider: defaultProvider, model: '', baseURL: '', enableTools: false, paused: false, system: '', allowTools: [], extraHeaders: {}, extraParams: {} }
   editorLockName.value = false
@@ -362,6 +393,7 @@ function startCreate() {
   teamEditorLockName.value = false
 }
 function edit(s: Specialist) {
+  activeListTab.value = 'specialists'
   // If already editing the same specialist, do nothing
   if (editingType.value === 'specialist' && editorInitial.value?.name === s.name) {
     return
@@ -374,6 +406,7 @@ function edit(s: Specialist) {
   teamEditorLockName.value = false
 }
 function cloneSpecialist(s: Specialist) {
+  activeListTab.value = 'specialists'
   const baseName = `${s.name || 'specialist'} copy`
   const uniqueName = generateUniqueName(baseName)
   const clonedHeaders = { ...(s.extraHeaders || {}) }
@@ -427,6 +460,7 @@ function closeEditor() {
 function onSaved(saved: Specialist) {
   // Clear any previous errors
   actionError.value = null
+  activeListTab.value = 'specialists'
   
   // Update the editor state to reflect the saved specialist
   // This keeps the editor showing the saved specialist with updated state
@@ -443,6 +477,7 @@ function onSaved(saved: Specialist) {
 }
 
 function startCreateTeam() {
+  activeListTab.value = 'teams'
   const defaultProvider = providerOptions.value[0] || 'openai'
   teamEditorInitial.value = {
     name: '',
@@ -470,6 +505,7 @@ function startCreateTeam() {
 }
 
 function editTeam(team: SpecialistTeam) {
+  activeListTab.value = 'teams'
   if (editingType.value === 'team' && teamEditorInitial.value?.name === team.name) {
     return
   }
@@ -488,6 +524,7 @@ function editTeam(team: SpecialistTeam) {
 
 function onTeamSaved(saved: SpecialistTeam) {
   actionError.value = null
+  activeListTab.value = 'teams'
   teamEditorInitial.value = {
     ...saved,
     description: saved.description ?? '',

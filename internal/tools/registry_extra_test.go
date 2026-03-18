@@ -59,3 +59,21 @@ func TestRegistrySchemasAndDispatch(t *testing.T) {
 		t.Fatalf("expected echo field in response")
 	}
 }
+
+func TestApplyTopLevelPolicy(t *testing.T) {
+	t.Parallel()
+
+	base := NewRegistry()
+	base.Register(&fakeTool{name: "one", schema: map[string]any{"description": "one", "parameters": map[string]any{"type": "object"}}})
+	base.Register(&fakeTool{name: "two", schema: map[string]any{"description": "two", "parameters": map[string]any{"type": "object"}}})
+
+	filtered := ApplyTopLevelPolicy(base, true, []string{"two"})
+	if got := SchemaNames(filtered); len(got) != 1 || got[0] != "two" {
+		t.Fatalf("expected only tool two after filtering, got %#v", got)
+	}
+
+	disabled := ApplyTopLevelPolicy(base, false, nil)
+	if got := SchemaNames(disabled); len(got) != 0 {
+		t.Fatalf("expected no tools when disabled, got %#v", got)
+	}
+}

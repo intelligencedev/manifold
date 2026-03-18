@@ -46,7 +46,7 @@ func (t *Tool) JSONSchema() map[string]any {
 			"properties": map[string]any{
 				"action": map[string]any{
 					"type":        "string",
-					"description": "One of: list, configure_room, upsert_task, delete_task, enable_task, disable_task, set_interval.",
+					"description": "One of: list, configure_room, upsert_task, delete_task, enable_task, disable_task, set_interval, clear_claim.",
 				},
 				"task_id": map[string]any{
 					"type":        "string",
@@ -97,6 +97,8 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		return t.handleList(ctx, roomID)
 	case "configure_room":
 		return t.handleConfigureRoom(ctx, roomID, args.ProjectID, args.Enabled)
+	case "clear_claim":
+		return t.handleClearClaim(ctx, roomID)
 	case "upsert_task":
 		return t.handleUpsertTask(ctx, roomID, args)
 	case "delete_task":
@@ -110,6 +112,17 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	default:
 		return map[string]any{"ok": false, "error": "unsupported action"}, nil
 	}
+}
+
+func (t *Tool) handleClearClaim(ctx context.Context, roomID string) (any, error) {
+	if err := t.store.ClearRoomClaim(ctx, roomID); err != nil {
+		return nil, err
+	}
+	room, err := t.store.GetRoom(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true, "room": room}, nil
 }
 
 func (t *Tool) handleList(ctx context.Context, roomID string) (any, error) {

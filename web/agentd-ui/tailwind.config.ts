@@ -90,12 +90,12 @@ export default {
         },
         ".glass-surface": {
           padding: "16px",
-          backgroundColor: "rgb(var(--color-surface) / 0.88)",
-          backgroundImage: "none",
-          border: "1px solid rgb(var(--color-border) / 0.56)",
-          boxShadow: `${theme("boxShadow.1")}, inset 0 1px 0 rgba(255,255,255,0.03)`,
-          backdropFilter: "blur(10px) saturate(108%)",
-          WebkitBackdropFilter: "blur(10px) saturate(108%)",
+          background:
+            "rgb(var(--color-surface) / 0.79)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: `${theme("boxShadow.3")}, inset 0 1px 0 rgba(255,255,255,0.04)`,
+          backdropFilter: "blur(18px)",
+          WebkitBackdropFilter: "blur(18px)",
         },
         ".pill-glow": {
           boxShadow:

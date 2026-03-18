@@ -2,11 +2,11 @@ package config
 
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
-	Workdir string
+	Workdir string `yaml:"workdir" json:"workdir"`
 	// If empty, the built-in hard-coded prompt is used.
-	SystemPrompt string
+	SystemPrompt string `yaml:"systemPrompt" json:"systemPrompt"`
 	// Rolling summarization config: enable and tuning knobs (token-based only)
-	SummaryEnabled bool
+	SummaryEnabled bool `yaml:"summaryEnabled" json:"summaryEnabled"`
 	// SummaryContextWindowTokens sets the context window size (in tokens) used for
 	// chat-memory budgeting and summarization triggering.
 	//
@@ -30,22 +30,22 @@ type Config struct {
 	SummaryMaxKeepLastMessages int `yaml:"summaryMaxKeepLastMessages" json:"summaryMaxKeepLastMessages"`
 	// SummaryMaxSummaryChunkTokens caps the size of the summary prompt in tokens.
 	SummaryMaxSummaryChunkTokens int `yaml:"summaryMaxSummaryChunkTokens" json:"summaryMaxSummaryChunkTokens"`
-	OutputTruncateByte           int
+	OutputTruncateByte           int `yaml:"outputTruncateBytes" json:"outputTruncateBytes"`
 	// Maximum number of reasoning steps the agent can take
-	MaxSteps int
+	MaxSteps int `yaml:"maxSteps" json:"maxSteps"`
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
 	// <= 0 means unbounded (run all tools in parallel); 1 forces sequential execution.
-	MaxToolParallelism int `yaml:"maxToolParallelism" json:"maxToolParallelism"`
-	LogPath            string
-	LogLevel           string
-	LogPayloads        bool
-	Exec               ExecConfig
+	MaxToolParallelism int        `yaml:"maxToolParallelism" json:"maxToolParallelism"`
+	LogPath            string     `yaml:"logPath" json:"logPath"`
+	LogLevel           string     `yaml:"logLevel" json:"logLevel"`
+	LogPayloads        bool       `yaml:"logPayloads" json:"logPayloads"`
+	Exec               ExecConfig `yaml:"exec" json:"exec"`
 	// LLMClient controls which LLM provider to use and holds provider-specific settings.
 	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
 	// OpenAI retains the active OpenAI-compatible configuration for backward compatibility.
-	OpenAI OpenAIConfig
-	Obs    ObsConfig
-	Web    WebConfig
+	OpenAI OpenAIConfig `yaml:"openai" json:"openai"`
+	Obs    ObsConfig    `yaml:"obs" json:"obs"`
+	Web    WebConfig    `yaml:"web" json:"web"`
 	// Auth configures optional user authentication (OIDC/OAuth2) and RBAC.
 	Auth AuthConfig
 	// MCP defines Model Context Protocol client configuration. If configured,
@@ -57,21 +57,21 @@ type Config struct {
 	// Each specialist may have its own base URL, API key, model, optional
 	// reasoning effort, and dedicated system instructions. Tools can be
 	// disabled per specialist so the request contains no tool schema at all.
-	Specialists      []SpecialistConfig
-	SpecialistRoutes []SpecialistRoute
+	Specialists      []SpecialistConfig `yaml:"specialists" json:"specialists"`
+	SpecialistRoutes []SpecialistRoute  `yaml:"routes" json:"routes"`
 	// Databases describes pluggable backends for search, vector embeddings,
 	// and graph operations. Each backend can be configured independently via
 	// YAML or environment variables.
-	Databases DBConfig
+	Databases DBConfig `yaml:"databases" json:"databases"`
 	// EnableTools globally enables/disables tool exposure to the main agent.
 	EnableTools bool `yaml:"enableTools" json:"enableTools"`
 	// Top-level allow list of tool names to expose to the main orchestrator agent.
 	// If empty or omitted, all registered tools are exposed.
 	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
-	Embedding EmbeddingConfig
+	Embedding EmbeddingConfig `yaml:"embedding" json:"embedding"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
-	EvolvingMemory EvolvingMemoryConfig
+	EvolvingMemory EvolvingMemoryConfig `yaml:"evolvingMemory" json:"evolvingMemory"`
 	// Transit configures the shared durable memory system.
 	Transit TransitConfig `yaml:"transit" json:"transit"`
 	// TTS configures text-to-speech defaults and endpoint.
@@ -133,8 +133,8 @@ type STTConfig struct {
 }
 
 type ExecConfig struct {
-	BlockBinaries     []string
-	MaxCommandSeconds int
+	BlockBinaries     []string `yaml:"blockBinaries" json:"blockBinaries"`
+	MaxCommandSeconds int      `yaml:"maxCommandSeconds" json:"maxCommandSeconds"`
 }
 
 // LLMClientConfig selects the LLM provider and holds provider-specific configs.
@@ -146,18 +146,18 @@ type LLMClientConfig struct {
 }
 
 type OpenAIConfig struct {
-	APIKey         string
-	Model          string
-	BaseURL        string
+	APIKey         string `yaml:"apiKey" json:"apiKey"`
+	Model          string `yaml:"model" json:"model"`
+	BaseURL        string `yaml:"baseURL" json:"baseURL"`
 	SummaryModel   string `yaml:"summaryModel" json:"summaryModel"`
 	SummaryBaseURL string `yaml:"summaryBaseURL" json:"summaryBaseURL"`
 	// API selects which OpenAI-compatible API surface to use for chat: "completions" or "responses".
 	// Defaults to "completions" if empty or unrecognized.
 	API string `yaml:"api" json:"api"`
 	// ExtraHeaders are added to every main agent HTTP request.
-	ExtraHeaders map[string]string
+	ExtraHeaders map[string]string `yaml:"extraHeaders" json:"extraHeaders"`
 	// ExtraParams are merged into the chat completions request for the main agent.
-	ExtraParams map[string]any
+	ExtraParams map[string]any `yaml:"extraParams" json:"extraParams"`
 	// LogPayloads enables verbose logging of request/response bodies with redaction.
 	LogPayloads bool `yaml:"logPayloads" json:"logPayloads"`
 }
@@ -185,12 +185,12 @@ type AnthropicConfig struct {
 type AnthropicPromptCacheConfig struct {
 	// Enabled turns on prompt caching directives in outgoing requests.
 	Enabled bool `yaml:"enabled" json:"enabled"`
-	// CacheSystem applies cache_control to system prompt blocks.
+	// CacheSystem applies cache_control to the final system prompt block.
 	CacheSystem bool `yaml:"cacheSystem" json:"cacheSystem"`
-	// CacheTools applies cache_control to tool definitions (schema).
+	// CacheTools applies cache_control to the final tool definition.
 	CacheTools bool `yaml:"cacheTools" json:"cacheTools"`
-	// CacheMessages applies cache_control to message text blocks.
-	// This is usually only useful when sending large, static context content.
+	// CacheMessages applies cache_control to the latest eligible message text block.
+	// This is usually only useful when sending large, stable context content.
 	CacheMessages bool `yaml:"cacheMessages" json:"cacheMessages"`
 }
 
@@ -256,15 +256,15 @@ type ClickHouseConfig struct {
 }
 
 type ObsConfig struct {
-	ServiceName    string
-	ServiceVersion string
-	Environment    string
-	OTLP           string
-	ClickHouse     ClickHouseConfig
+	ServiceName    string           `yaml:"serviceName" json:"serviceName"`
+	ServiceVersion string           `yaml:"serviceVersion" json:"serviceVersion"`
+	Environment    string           `yaml:"environment" json:"environment"`
+	OTLP           string           `yaml:"otlp" json:"otlp"`
+	ClickHouse     ClickHouseConfig `yaml:"clickhouse" json:"clickhouse"`
 }
 
 type WebConfig struct {
-	SearXNGURL string
+	SearXNGURL string `yaml:"searXNGURL" json:"searXNGURL"`
 }
 
 // AuthConfig holds OAuth2/OIDC and session cookie settings. If Enabled is true,

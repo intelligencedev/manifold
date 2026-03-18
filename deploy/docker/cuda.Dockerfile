@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG NODE_IMAGE=node:20-bookworm-slim
+ARG NODE_IMAGE=node:22.16.0-bookworm-slim
 ARG GO_IMAGE=golang:1.25.0-bookworm
 ARG CUDA_RUNTIME_IMAGE=nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
@@ -66,7 +66,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         git \
         gnupg \
         openssh-client; \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -; \
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; \
     apt-get update; \
     apt-get install -y --no-install-recommends nodejs; \
     install -m 0755 -d /etc/apt/keyrings; \

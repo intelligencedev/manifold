@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"manifold/internal/flow"
 )
 
 var (
@@ -86,6 +88,7 @@ type PulseStore interface {
 	UpsertTask(ctx context.Context, task PulseTask) (PulseTask, error)
 	DeleteTask(ctx context.Context, roomID, taskID string) error
 	ClaimRoom(ctx context.Context, roomID, token string, leaseUntil time.Time) (bool, error)
+	ClearRoomClaim(ctx context.Context, roomID string) error
 	CompleteRoomPulse(ctx context.Context, roomID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
 }
 
@@ -195,29 +198,22 @@ type ChatStore interface {
 	UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error
 }
 
-// WarppWorkflow is a minimal persistence representation of a WARPP workflow.
-// It mirrors internal/warpp.Workflow but uses flexible types for nested fields
-// to avoid import cycles.
-type WarppWorkflow struct {
-	UserID         int64            `json:"userId"`
-	Intent         string           `json:"intent"`
-	Description    string           `json:"description"`
-	Keywords       []string         `json:"keywords"`
-	ProjectID      string           `json:"project_id,omitempty"`
-	Steps          []map[string]any `json:"steps"`
-	UI             map[string]any   `json:"ui,omitempty"`
-	MaxConcurrency int              `json:"max_concurrency,omitempty"`
-	FailFast       bool             `json:"fail_fast,omitempty"`
+// FlowV2WorkflowRecord is the persisted representation of a Flow v2 workflow.
+type FlowV2WorkflowRecord struct {
+	UserID    int64               `json:"user_id"`
+	Workflow  flow.Workflow       `json:"workflow"`
+	Canvas    flow.WorkflowCanvas `json:"canvas,omitempty"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
 }
 
-// WarppWorkflowStore persists WARPP workflows by intent.
-type WarppWorkflowStore interface {
+// FlowV2WorkflowStore persists Flow v2 workflows by workflow id.
+type FlowV2WorkflowStore interface {
 	Init(ctx context.Context) error
-	List(ctx context.Context, userID int64) ([]any, error) // deprecated; use ListWorkflows
-	ListWorkflows(ctx context.Context, userID int64) ([]WarppWorkflow, error)
-	GetByIntent(ctx context.Context, userID int64, intent string) (WarppWorkflow, bool, error)
-	Upsert(ctx context.Context, userID int64, w WarppWorkflow) (WarppWorkflow, error)
-	Delete(ctx context.Context, userID int64, intent string) error
+	ListWorkflows(ctx context.Context, userID int64) ([]FlowV2WorkflowRecord, error)
+	GetWorkflow(ctx context.Context, userID int64, workflowID string) (FlowV2WorkflowRecord, bool, error)
+	UpsertWorkflow(ctx context.Context, userID int64, record FlowV2WorkflowRecord) (FlowV2WorkflowRecord, bool, error)
+	DeleteWorkflow(ctx context.Context, userID int64, workflowID string) error
 }
 
 // MCPServer represents a stored MCP server configuration.

@@ -56,6 +56,31 @@ func NewRegistryWithLogging(logPayloads bool) Registry {
 	return &defaultRegistry{byName: make(map[string]Tool), order: make([]string, 0, 64), logPayloads: logPayloads}
 }
 
+// ApplyTopLevelPolicy returns the registry view exposed to the orchestrator
+// after applying the top-level enabled flag and optional allow list.
+func ApplyTopLevelPolicy(base Registry, enableTools bool, allowList []string) Registry {
+	if !enableTools {
+		return NewRegistry()
+	}
+	if len(allowList) == 0 {
+		return base
+	}
+	return NewFilteredRegistry(base, append([]string(nil), allowList...))
+}
+
+// SchemaNames returns the currently exposed tool schema names.
+func SchemaNames(reg Registry) []string {
+	if reg == nil {
+		return nil
+	}
+	schemas := reg.Schemas()
+	out := make([]string, 0, len(schemas))
+	for _, schema := range schemas {
+		out = append(out, schema.Name)
+	}
+	return out
+}
+
 func (r *defaultRegistry) Register(t Tool) {
 	name := t.Name()
 	if _, exists := r.byName[name]; !exists {

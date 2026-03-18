@@ -10,15 +10,10 @@ import (
 	"time"
 
 	"manifold/internal/flow"
+	persist "manifold/internal/persistence"
+	"manifold/internal/persistence/databases"
 	"manifold/internal/tools"
 )
-
-type flowV2WorkflowRecord struct {
-	Workflow  flow.Workflow
-	Canvas    flow.WorkflowCanvas
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
 
 type flowV2RunRecord struct {
 	ID         string
@@ -35,27 +30,31 @@ type flowV2RunRecord struct {
 }
 
 type flowV2Runtime struct {
-	mu        sync.RWMutex
-	workflows map[int64]map[string]flowV2WorkflowRecord
-	runs      map[string]*flowV2RunRecord
+	mu    sync.RWMutex
+	store persist.FlowV2WorkflowStore
+	runs  map[string]*flowV2RunRecord
 }
 
-func newFlowV2Runtime() *flowV2Runtime {
+func newFlowV2Runtime(store persist.FlowV2WorkflowStore) *flowV2Runtime {
+	if store == nil {
+		store = databases.NewPostgresFlowV2Store(nil)
+	}
 	return &flowV2Runtime{
-		workflows: map[int64]map[string]flowV2WorkflowRecord{},
-		runs:      map[string]*flowV2RunRecord{},
+		store: store,
+		runs:  map[string]*flowV2RunRecord{},
 	}
 }
 
-func (s *flowV2Runtime) listWorkflowSummaries(userID int64) []flow.WorkflowSummary {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	userWf := s.workflows[userID]
-	if len(userWf) == 0 {
-		return []flow.WorkflowSummary{}
+func (s *flowV2Runtime) listWorkflowSummaries(ctx context.Context, userID int64) ([]flow.WorkflowSummary, error) {
+	records, err := s.store.ListWorkflows(ctx, userID)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]flow.WorkflowSummary, 0, len(userWf))
-	for _, rec := range userWf {
+	if len(records) == 0 {
+		return []flow.WorkflowSummary{}, nil
+	}
+	out := make([]flow.WorkflowSummary, 0, len(records))
+	for _, rec := range records {
 		out = append(out, flow.WorkflowSummary{
 			ID:          rec.Workflow.ID,
 			Name:        rec.Workflow.Name,
@@ -67,53 +66,40 @@ func (s *flowV2Runtime) listWorkflowSummaries(userID int64) []flow.WorkflowSumma
 			out[j], out[j-1] = out[j-1], out[j]
 		}
 	}
-	return out
+	return out, nil
 }
 
-func (s *flowV2Runtime) getWorkflow(userID int64, workflowID string) (flow.Workflow, flow.WorkflowCanvas, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	userWf := s.workflows[userID]
-	if userWf == nil {
-		return flow.Workflow{}, flow.WorkflowCanvas{}, false
+func (s *flowV2Runtime) getWorkflow(ctx context.Context, userID int64, workflowID string) (flow.Workflow, flow.WorkflowCanvas, bool, error) {
+	rec, ok, err := s.store.GetWorkflow(ctx, userID, workflowID)
+	if err != nil {
+		return flow.Workflow{}, flow.WorkflowCanvas{}, false, err
 	}
-	rec, ok := userWf[workflowID]
 	if !ok {
-		return flow.Workflow{}, flow.WorkflowCanvas{}, false
+		return flow.Workflow{}, flow.WorkflowCanvas{}, false, nil
 	}
-	return cloneWorkflow(rec.Workflow), cloneCanvas(rec.Canvas), true
+	return cloneWorkflow(rec.Workflow), cloneCanvas(rec.Canvas), true, nil
 }
 
-func (s *flowV2Runtime) upsertWorkflow(userID int64, wf flow.Workflow, canvas flow.WorkflowCanvas) (flowV2WorkflowRecord, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.workflows[userID] == nil {
-		s.workflows[userID] = map[string]flowV2WorkflowRecord{}
-	}
-	now := time.Now().UTC()
-	rec, existed := s.workflows[userID][wf.ID]
-	if !existed {
-		rec.CreatedAt = now
-	}
-	rec.Workflow = cloneWorkflow(wf)
-	rec.Canvas = cloneCanvas(canvas)
-	rec.UpdatedAt = now
-	s.workflows[userID][wf.ID] = rec
-	return rec, !existed
+func (s *flowV2Runtime) upsertWorkflow(ctx context.Context, userID int64, wf flow.Workflow, canvas flow.WorkflowCanvas) (persist.FlowV2WorkflowRecord, bool, error) {
+	return s.store.UpsertWorkflow(ctx, userID, persist.FlowV2WorkflowRecord{
+		UserID:   userID,
+		Workflow: cloneWorkflow(wf),
+		Canvas:   cloneCanvas(canvas),
+	})
 }
 
-func (s *flowV2Runtime) deleteWorkflow(userID int64, workflowID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	userWf := s.workflows[userID]
-	if userWf == nil {
-		return false
+func (s *flowV2Runtime) deleteWorkflow(ctx context.Context, userID int64, workflowID string) (bool, error) {
+	_, found, err := s.store.GetWorkflow(ctx, userID, workflowID)
+	if err != nil {
+		return false, err
 	}
-	if _, ok := userWf[workflowID]; !ok {
-		return false
+	if !found {
+		return false, nil
 	}
-	delete(userWf, workflowID)
-	return true
+	if err := s.store.DeleteWorkflow(ctx, userID, workflowID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *flowV2Runtime) createRun(userID int64, workflowID string, input map[string]any) string {
@@ -378,6 +364,7 @@ func (a *app) executeFlowV2Node(ctx context.Context, node flow.Node, inputs map[
 			return nil, err
 		}
 		out := map[string]any{
+			"inputs":  cloneMap(inputs),
 			"payload": string(payload),
 		}
 		var parsed any
@@ -465,6 +452,25 @@ func resolveNodeInputs(node flow.Node, incoming []flow.Edge, outputs map[string]
 }
 
 func evalFlowExpression(expr string, runInput map[string]any, outputs map[string]map[string]any) (any, error) {
+	// Multi-expression: multiple ={{ ... }} blocks separated by newlines.
+	// Evaluate each line independently and concatenate results with newlines.
+	if strings.Count(expr, "={{") > 1 {
+		lines := strings.Split(expr, "\n")
+		var parts []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			v, err := evalFlowExpression(trimmed, runInput, outputs)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, fmt.Sprintf("%v", v))
+		}
+		return strings.Join(parts, "\n"), nil
+	}
+
 	norm := normalizeFlowExpression(expr)
 	if strings.HasPrefix(norm, "$run.input") {
 		path := strings.TrimPrefix(norm, "$run.input")

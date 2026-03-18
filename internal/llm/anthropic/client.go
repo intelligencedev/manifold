@@ -660,13 +660,15 @@ func adaptTools(tools []llm.ToolSchema, cacheCfg config.AnthropicPromptCacheConf
 			Name:        name,
 			InputSchema: schema,
 		}
-		if cacheTools {
-			param.CacheControl = cacheControl
-		}
 		if desc := strings.TrimSpace(t.Description); desc != "" {
 			param.Description = anthropic.String(desc)
 		}
 		out = append(out, anthropic.ToolUnionParam{OfTool: &param})
+	}
+	if cacheTools {
+		if last := out[len(out)-1].OfTool; last != nil {
+			last.CacheControl = cacheControl
+		}
 	}
 	return out, nil
 }
@@ -681,11 +683,11 @@ func adaptMessages(msgs []llm.Message, cacheCfg config.AnthropicPromptCacheConfi
 	cacheSystem := cacheCfg.Enabled && cacheCfg.CacheSystem
 	cacheMessages := cacheCfg.Enabled && cacheCfg.CacheMessages
 	cacheControl := anthropic.CacheControlEphemeralParam{TTL: anthropic.CacheControlEphemeralTTLTTL5m}
+	var lastMessageText *anthropic.TextBlockParam
 	newTextBlock := func(text string) anthropic.ContentBlockParamUnion {
-		if !cacheMessages {
-			return anthropic.NewTextBlock(text)
-		}
-		return anthropic.ContentBlockParamUnion{OfText: &anthropic.TextBlockParam{Text: text, CacheControl: cacheControl}}
+		block := &anthropic.TextBlockParam{Text: text}
+		lastMessageText = block
+		return anthropic.ContentBlockParamUnion{OfText: block}
 	}
 
 	for _, m := range msgs {
@@ -693,11 +695,7 @@ func adaptMessages(msgs []llm.Message, cacheCfg config.AnthropicPromptCacheConfi
 		switch role {
 		case "system":
 			if strings.TrimSpace(m.Content) != "" {
-				if cacheSystem {
-					system = append(system, anthropic.TextBlockParam{Text: m.Content, CacheControl: cacheControl})
-				} else {
-					system = append(system, anthropic.TextBlockParam{Text: m.Content})
-				}
+				system = append(system, anthropic.TextBlockParam{Text: m.Content})
 			}
 		case "user":
 			blocks := []anthropic.ContentBlockParamUnion{}
@@ -742,6 +740,12 @@ func adaptMessages(msgs []llm.Message, cacheCfg config.AnthropicPromptCacheConfi
 		default:
 			return nil, nil, fmt.Errorf("unsupported role for anthropic provider: %s", m.Role)
 		}
+	}
+	if cacheSystem && len(system) > 0 {
+		system[len(system)-1].CacheControl = cacheControl
+	}
+	if cacheMessages && lastMessageText != nil {
+		lastMessageText.CacheControl = cacheControl
 	}
 	return system, out, nil
 }

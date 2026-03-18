@@ -340,20 +340,6 @@
             <!-- Themed Controls (replaces default Controls) -->
             <Panel position="bottom-left">
               <div class="ap-chip flex items-center gap-1 rounded-md p-1">
-                <!-- Expand/Collapse all -->
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  :aria-pressed="nodesCollapsed"
-                  :aria-label="
-                    nodesCollapsed ? 'Expand all nodes' : 'Collapse all nodes'
-                  "
-                  :title="nodesCollapsed ? 'Expand all' : 'Collapse all'"
-                  @click="toggleCollapseAll"
-                >
-                  <CollapseIcon v-if="!nodesCollapsed" class="h-4 w-4" />
-                  <ExpandIcon v-else class="h-4 w-4" />
-                </button>
                 <!-- Auto layout buttons -->
                 <button
                   type="button"
@@ -856,8 +842,6 @@ import UnlockedIcon from "@/components/icons/UnlockedBold.vue";
 import MapShowIcon from "@/components/icons/MapShow.vue";
 import HelpIcon from "@/components/icons/Help.vue";
 import LayoutIcon from "@/components/icons/FlowLayout.vue";
-import CollapseIcon from "@/components/icons/Collapse.vue";
-import ExpandIcon from "@/components/icons/Expand.vue";
 import dagre from "dagre";
 import {
   deleteFlowWorkflow,
@@ -984,6 +968,10 @@ function readNodeSize(
     liveDimH && liveDimH > 0
       ? liveDimH
       : (graphNode?.dimensions?.height ?? undefined);
+  // Step nodes are always collapsed — use fixed collapsed footprint
+  if (kind === "step") {
+    return { width: FLOW_STEP_NODE_COLLAPSED.width, height: FLOW_STEP_NODE_COLLAPSED.height };
+  }
   // If node is collapsed and no explicit style width/height are present, use collapsed footprint
   const collapsed = (node.data as any)?.collapsed === true;
   const width =
@@ -1006,6 +994,14 @@ function readNodeSize(
 }
 
 function buildNodeStyle(kind: NodeKind, stored?: LayoutEntry) {
+  // Step nodes are always collapsed — use fixed collapsed footprint
+  if (kind === "step") {
+    return {
+      width: toPx(FLOW_STEP_NODE_COLLAPSED.width),
+      height: toPx(FLOW_STEP_NODE_COLLAPSED.height),
+      zIndex: "10",
+    } as Record<string, string>;
+  }
   const defaults = getDefaultDimensions(kind);
   const storedWidth =
     typeof stored?.width === "number" ? stored.width : undefined;
@@ -1255,13 +1251,11 @@ const runStartTime = ref<number | null>(null);
 const liveRunElapsedMs = ref(0);
 const lastRunDurationMs = ref<number | null>(null);
 let runTimerInterval: ReturnType<typeof setInterval> | null = null;
-// Provide collapse/expand-all signals for nodes to react to
+// Provide collapse/expand-all signals for utility nodes to react to
 const collapseAllSeq = ref(0);
 const expandAllSeq = ref(0);
 provide("flowEditorCollapseAllSeq", collapseAllSeq);
 provide("flowEditorExpandAllSeq", expandAllSeq);
-// Track global collapsed state for control icon
-const nodesCollapsed = ref(false);
 const resultModal = ref<{ stepId: string; title: string } | null>(null);
 // Collapsible state for sections inside the result modal
 const collapsedArgs = ref(false);
@@ -1567,18 +1561,12 @@ watch(currentEdgeStyle, () => {
   applyEdgeStyleToExistingEdges();
 });
 
-// Expand/Collapse all nodes via provided signals
+// Expand/Collapse all utility nodes via provided signals
 function collapseAll() {
   collapseAllSeq.value += 1;
-  nodesCollapsed.value = true;
 }
 function expandAll() {
   expandAllSeq.value += 1;
-  nodesCollapsed.value = false;
-}
-function toggleCollapseAll() {
-  if (nodesCollapsed.value) expandAll();
-  else collapseAll();
 }
 
 type DagreDirection = "TB" | "LR";
@@ -2137,7 +2125,7 @@ function workflowToNodes(wf: FlowEditorWorkflow): FlowEditorNode[] {
         step: JSON.parse(JSON.stringify(step)) as FlowEditorStep,
         kind: utility ? "utility" : "step",
         groupId: parents[step.id],
-        collapsed: stored?.collapsed ?? true,
+        collapsed: true,
       },
     };
   });

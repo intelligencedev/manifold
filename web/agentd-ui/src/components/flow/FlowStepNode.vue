@@ -72,6 +72,7 @@ import type { StepNodeData } from "@/types/flow";
 import type { FlowEditorTool } from "@/types/flowEditor";
 import type { Ref } from "vue";
 import { FLOW_STEP_NODE_COLLAPSED } from "@/constants/flowNodes";
+import { useFlowRunStore } from "@/stores/flowRun";
 
 const props = defineProps<NodeProps<StepNodeData>>();
 
@@ -93,10 +94,16 @@ const toolOptions = computed(() => {
   return options;
 });
 
+const flowRunStore = useFlowRunStore();
+const isExecuting = computed(() =>
+  flowRunStore.activeNodeIds.includes(props.id),
+);
+
 const toolName = ref("");
 const rootClass = computed(() => [
   "min-w-[160px] min-h-[72px] w-fit",
   "transition-colors duration-150 ease-out",
+  { "node-executing": isExecuting.value },
 ]);
 const copied = ref(false);
 

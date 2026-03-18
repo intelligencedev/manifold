@@ -315,6 +315,7 @@ import { renderMarkdown } from "@/utils/markdown";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import ExpressionPicker from "./ExpressionPicker.vue";
 import type { Edge } from "@vue-flow/core";
+import { useFlowRunStore } from "@/stores/flowRun";
 
 const TOOL_NAME_FALLBACK = "utility_textbox";
 const AGENT_RESPONSE_TOOL = "agent_response";
@@ -386,6 +387,11 @@ function parseRenderMode(value: unknown): RenderMode {
     : "markdown";
 }
 
+const flowRunStore = useFlowRunStore();
+const isExecuting = computed(() =>
+  flowRunStore.activeNodeIds.includes(props.id),
+);
+
 const labelText = ref("");
 const contentText = ref("");
 const renderMode = ref<RenderMode>("markdown");
@@ -394,6 +400,7 @@ const rootClass = computed(() => [
     ? "min-w-[220px] min-h-[72px]"
     : "min-w-[320px] min-h-[200px] h-full",
   "transition-colors duration-150 ease-out",
+  { "node-executing": isExecuting.value },
 ]);
 const isDirty = ref(false);
 const collapsed = ref(false);

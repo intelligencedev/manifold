@@ -111,4 +111,28 @@ function onResizeEnd(data: OnResizeEnd) {
 .is-selected .node-face {
   border-color: var(--color-accent, #38bdf8);
 }
+
+.node-executing .node-face {
+  border-color: rgb(var(--color-accent));
+  box-shadow:
+    0 0 0 1.5px rgb(var(--color-accent) / 0.55),
+    0 0 20px rgb(var(--color-accent) / 0.28),
+    inset 0 0 12px rgb(var(--color-accent) / 0.07);
+  animation: node-executing-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes node-executing-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgb(var(--color-accent) / 0.45),
+      0 0 14px rgb(var(--color-accent) / 0.2),
+      inset 0 0 8px rgb(var(--color-accent) / 0.05);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2.5px rgb(var(--color-accent) / 0.85),
+      0 0 32px rgb(var(--color-accent) / 0.48),
+      inset 0 0 18px rgb(var(--color-accent) / 0.13);
+  }
+}
 </style>

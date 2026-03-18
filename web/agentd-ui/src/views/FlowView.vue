@@ -3414,9 +3414,11 @@ async function onImportSelected(event: Event) {
 }
 
 .vue-flow__edge.flow-edge-active .vue-flow__edge-path {
-  stroke: rgb(var(--color-accent) / 0.92);
-  stroke-width: 2.25;
-  filter: drop-shadow(0 0 6px rgb(var(--color-accent) / 0.26));
+  stroke: rgb(var(--color-accent));
+  stroke-width: 2.5;
+  filter:
+    drop-shadow(0 0 8px rgb(var(--color-accent) / 0.72))
+    drop-shadow(0 0 3px rgb(var(--color-accent) / 0.96));
 }
 
 .flow-minimap.vue-flow__minimap {

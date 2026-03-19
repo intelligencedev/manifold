@@ -59,6 +59,7 @@ type config struct {
 type manifoldPromptRequest struct {
 	Prompt       string `json:"prompt"`
 	RoomID       string `json:"room_id,omitempty"`
+	BotID        string `json:"bot_id,omitempty"`
 	SessionID    string `json:"session_id,omitempty"`
 	ProjectID    string `json:"project_id,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
@@ -296,6 +297,7 @@ func callManifold(httpClient *http.Client, cfg config, roomID, sessionID, projec
 	reqBody := manifoldPromptRequest{
 		Prompt:       prompt,
 		RoomID:       roomID,
+		BotID:        strings.TrimSpace(cfg.MatrixBotUserID),
 		SessionID:    sessionID,
 		ProjectID:    firstNonEmpty(strings.TrimSpace(projectID), cfg.ManifoldProjectID),
 		SystemPrompt: strings.TrimSpace(cfg.ManifoldSystemPrompt),
@@ -501,7 +503,7 @@ func runPulseLoop(matrixClient *gomatrix.Client, httpClient *http.Client, cfg co
 
 func runPulseIteration(matrixClient *gomatrix.Client, httpClient *http.Client, cfg config, store persist.PulseStore, service *pulsecore.Service) {
 	ctx := context.Background()
-	rooms, err := store.ListRooms(ctx)
+	rooms, err := store.ListRooms(ctx, cfg.MatrixBotUserID)
 	if err != nil {
 		log.Printf("pulse list rooms error: %v", err)
 		return
@@ -511,17 +513,17 @@ func runPulseIteration(matrixClient *gomatrix.Client, httpClient *http.Client, c
 		if !room.Enabled {
 			continue
 		}
-		tasks, err := store.ListTasks(ctx, room.RoomID)
+		tasks, err := store.ListTasks(ctx, room.RoomID, room.BotID)
 		if err != nil {
 			log.Printf("pulse list tasks error (room=%s): %v", room.RoomID, err)
 			continue
 		}
-		plan := service.EvaluateRoom(now, room, tasks)
+		plan := service.EvaluateRoom(now, room, tasks, cfg.MatrixBotUserID)
 		if len(plan.DueTasks) == 0 {
 			continue
 		}
 		claimToken := uuid.NewString()
-		claimed, err := store.ClaimRoom(ctx, room.RoomID, claimToken, now.Add(time.Duration(cfg.PulseLeaseSeconds)*time.Second))
+		claimed, err := store.ClaimRoom(ctx, room.RoomID, room.BotID, claimToken, now.Add(time.Duration(cfg.PulseLeaseSeconds)*time.Second))
 		if err != nil {
 			log.Printf("pulse claim error (room=%s): %v", room.RoomID, err)
 			continue
@@ -543,6 +545,14 @@ func runPulseIteration(matrixClient *gomatrix.Client, httpClient *http.Client, c
 			for _, task := range plan.DueTasks {
 				dueTaskIDs = append(dueTaskIDs, task.ID)
 			}
+			// Always send the main result to the Matrix room.
+			if result := strings.TrimSpace(response.Result); result != "" {
+				if err := sendMatrixMessage(matrixClient, room.RoomID, result); err != nil {
+					pulseErr = err.Error()
+					log.Printf("pulse send result error (room=%s): %v", room.RoomID, err)
+				}
+			}
+			// Also send any additional explicit matrix messages.
 			for _, message := range pulseMessages(response.MatrixMessages, room.RoomID) {
 				if err := sendMatrixMessage(matrixClient, message.RoomID, message.Text); err != nil {
 					pulseErr = err.Error()
@@ -551,17 +561,17 @@ func runPulseIteration(matrixClient *gomatrix.Client, httpClient *http.Client, c
 				}
 			}
 		}
-		if err := store.CompleteRoomPulse(ctx, room.RoomID, claimToken, time.Now().UTC(), response.Result, pulseErr, dueTaskIDs); err != nil {
+		if err := store.CompleteRoomPulse(ctx, room.RoomID, room.BotID, claimToken, time.Now().UTC(), response.Result, pulseErr, dueTaskIDs); err != nil {
 			log.Printf("pulse completion error (room=%s): %v", room.RoomID, err)
 		}
 	}
 }
 
-func resolveRoomProjectID(ctx context.Context, store persist.PulseStore, roomID, fallback string) string {
+func resolveRoomProjectID(ctx context.Context, store persist.PulseStore, roomID, botID, fallback string) string {
 	if store == nil {
 		return fallback
 	}
-	room, err := store.GetRoom(ctx, roomID)
+	room, err := store.GetRoom(ctx, roomID, botID)
 	if err != nil {
 		return fallback
 	}

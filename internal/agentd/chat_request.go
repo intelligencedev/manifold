@@ -17,6 +17,7 @@ type chatRunRequest struct {
 	SessionID    string `json:"session_id,omitempty"`
 	ProjectID    string `json:"project_id,omitempty"`
 	RoomID       string `json:"room_id,omitempty"`
+	BotID        string `json:"bot_id,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
 	Image        bool   `json:"image,omitempty"`
 	ImageSize    string `json:"image_size,omitempty"`
@@ -34,6 +35,7 @@ func (req *chatRunRequest) normalize() {
 	}
 	req.ProjectID = strings.TrimSpace(req.ProjectID)
 	req.RoomID = strings.TrimSpace(req.RoomID)
+	req.BotID = strings.TrimSpace(req.BotID)
 	req.SystemPrompt = strings.TrimSpace(req.SystemPrompt)
 	req.ImageSize = strings.TrimSpace(req.ImageSize)
 }
@@ -54,6 +56,9 @@ func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunR
 	if req.RoomID != "" {
 		ctx = sandbox.WithRoomID(ctx, req.RoomID)
 		ctx = sandbox.WithMatrixOutbox(ctx, sandbox.NewMatrixOutbox())
+	}
+	if req.BotID != "" {
+		ctx = sandbox.WithBotID(ctx, req.BotID)
 	}
 
 	if a.cfg.Auth.Enabled {

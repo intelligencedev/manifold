@@ -155,16 +155,22 @@ go run ./cmd/manibot
 
 #### Operator model
 
-- Pulse is room-scoped: each Matrix room has its own task list.
+- Pulse is bot-scoped within a Matrix room: each `(room_id, bot_id)` pair has its own task list and lease state.
 - Pulse runs use a separate session from normal room chat, so automated context does not pollute human chat history.
-- Due-task state is persisted in the shared database and claimed with a lease so multiple bot instances do not run the same room pulse simultaneously.
+- Due-task state is persisted in the shared database and claimed with a lease so duplicate instances of the same bot do not run the same pulse schedule simultaneously.
 - Agents can manage tasks through the `pulse_tasks` tool during both manual chat runs and automated pulse runs.
+
+Each `manibot` now sends its `MATRIX_BOT_USER_ID` to `/api/prompt` as `bot_id`. The pulse tool uses that as the default owner for room automation. Coordinators can assign scheduled work to another bot in the same room by passing `bot_id` explicitly to `pulse_tasks`.
 
 #### Recommended setup
 
 - Enable pulse only when `manibot` can reach the same Postgres database used by Manifold persistence.
 - Set `PULSE_DATABASE_DSN` explicitly if the bot process does not already inherit `DATABASE_URL`.
 - Keep `MATRIX_PULSE_POLL_INTERVAL_SECONDS` shorter than the longest task cadence you care about. Per-task intervals are enforced independently of the poll interval.
+- For multi-bot scheduled coordination in one Matrix room, enable pulse on every participating bot and keep each `MATRIX_BOT_USER_ID` unique.
+- Use `MATRIX_PULSE_LEASE_SECONDS="300"` and task `interval_seconds >= 300` when a pulse run may take about 2 minutes.
+- Use Transit for cross-bot memory and `matrix_room_message` for visible coordination in the shared room.
+- Legacy pulse rows created before bot-scoped scheduling keep `bot_id=""`; recreate or reassign those tasks so each room/task pair belongs to a concrete bot ID.
 
 The `pulse_tasks` tool currently supports:
 
@@ -176,3 +182,5 @@ The `pulse_tasks` tool currently supports:
 - `enable_task`
 - `disable_task`
 - `set_interval`
+
+`pulse_tasks` also accepts an optional `bot_id` field so one bot can inspect or schedule work for another bot in the same Matrix room.

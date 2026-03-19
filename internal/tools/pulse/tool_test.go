@@ -17,7 +17,7 @@ func TestToolUpsertListAndDeleteTask(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithRoomID(context.Background(), "!room:test")
+	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
 
 	upsertRaw, err := json.Marshal(map[string]any{
 		"action":           "upsert_task",
@@ -42,6 +42,9 @@ func TestToolUpsertListAndDeleteTask(t *testing.T) {
 	}
 	if createdTask.ID == "" {
 		t.Fatalf("expected task id in response")
+	}
+	if createdTask.BotID != "@manibot:matrix.test" {
+		t.Fatalf("expected task bot id to default from context, got %q", createdTask.BotID)
 	}
 
 	listRaw, err := json.Marshal(map[string]any{"action": "list"})
@@ -76,7 +79,7 @@ func TestToolEnableDisableAndSetInterval(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithRoomID(context.Background(), "!room:test")
+	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
 
 	created := createTestTask(t, tool, ctx)
 
@@ -128,13 +131,13 @@ func TestToolClearClaim(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithRoomID(context.Background(), "!room:test")
+	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
 
-	room, err := store.EnsureRoom(ctx, "!room:test")
+	room, err := store.EnsureRoom(ctx, "!room:test", "@manibot:matrix.test")
 	if err != nil {
 		t.Fatalf("ensure room: %v", err)
 	}
-	claimed, err := store.ClaimRoom(ctx, room.RoomID, "claim-token", room.CreatedAt.Add(5*time.Minute))
+	claimed, err := store.ClaimRoom(ctx, room.RoomID, room.BotID, "claim-token", room.CreatedAt.Add(5*time.Minute))
 	if err != nil {
 		t.Fatalf("claim room: %v", err)
 	}
@@ -168,7 +171,7 @@ func TestToolConfigureRoomPreservesProjectWhenOmitted(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithProjectID(sandbox.WithRoomID(context.Background(), "!room:test"), "project-123")
+	ctx := sandbox.WithProjectID(sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test"), "project-123")
 
 	setProjectRaw, err := json.Marshal(map[string]any{
 		"action":     "configure_room",
@@ -204,7 +207,7 @@ func TestToolConfigureRoomRejectsMismatchedProject(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithProjectID(sandbox.WithRoomID(context.Background(), "!room:test"), "project-123")
+	ctx := sandbox.WithProjectID(sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test"), "project-123")
 
 	raw, err := json.Marshal(map[string]any{
 		"action":     "configure_room",
@@ -247,4 +250,45 @@ func createTestTask(t *testing.T, tool *Tool, ctx context.Context) persistence.P
 		t.Fatalf("expected persistence.PulseTask in response, got %#v", upsertMap["task"])
 	}
 	return createdTask
+}
+
+func TestToolCanAssignTaskToAnotherBot(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@gpt_bot:matrix.test")
+
+	raw, err := json.Marshal(map[string]any{
+		"action":           "upsert_task",
+		"bot_id":           "@manibot:matrix.test",
+		"title":            "Review code",
+		"prompt":           "Check the latest patch",
+		"interval_seconds": 300,
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("upsert delegated task: %v", err)
+	}
+	respMap := resp.(map[string]any)
+	task := respMap["task"].(persistence.PulseTask)
+	if task.BotID != "@manibot:matrix.test" {
+		t.Fatalf("expected delegated bot id, got %q", task.BotID)
+	}
+
+	listRaw, err := json.Marshal(map[string]any{"action": "list", "bot_id": "@manibot:matrix.test"})
+	if err != nil {
+		t.Fatalf("marshal list args: %v", err)
+	}
+	listResp, err := tool.Call(ctx, listRaw)
+	if err != nil {
+		t.Fatalf("list delegated tasks: %v", err)
+	}
+	listMap := listResp.(map[string]any)
+	if count, _ := listMap["task_count"].(int); count != 1 {
+		t.Fatalf("expected task_count=1 for delegated bot, got %#v", listMap["task_count"])
+	}
 }

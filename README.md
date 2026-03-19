@@ -59,6 +59,14 @@ Use a traditional chat interface to assign objectives to specialists.
 
 _Specialists can collaborate across multiple turns. Manifold is designed to take advantage of the long-horizon capabilities of frontier models and can work on complex objectives for hours._
 
+### Workflow editor
+
+Design agent workflows with a visual flow editor.
+
+![workflow editor](docs/img/flow.webp)
+
+![workflow editor 2](docs/img/flow2.webp)
+
 ### Image generation
 
 Manifold supports image generation with OpenAI and Google models, as well as local image generation through a custom ComfyUI MCP client.
@@ -84,12 +92,6 @@ Configure projects as agent workspaces.
 Manifold includes built-in tools for agent workflows and supports MCP to extend agent capabilities. You can configure multiple MCP servers and enable tools individually to manage context size more precisely.
 
 ![mcp](docs/img/mcp.webp)
-
-### Workflow editor
-
-Design agent workflows with a visual flow editor.
-
-![workflow editor](docs/img/flow.webp)
 
 ### Prompts, datasets, and experiments playground
 

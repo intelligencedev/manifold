@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 ARG NODE_IMAGE=node:22.16.0-bookworm-slim
 ARG GO_IMAGE=golang:1.25.0-bookworm
 

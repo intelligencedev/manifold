@@ -41,7 +41,7 @@ help:
 	@echo "  make build-agentd       # build only the agentd binary"
 	@echo "  make build-manifold    # build agentd + embedded frontend"
 	@echo "  make build-agent        # build only the agent binary"
-	@echo "  make frontend           # build the Vue.js frontend assets"
+	@echo "  make frontend           # install frontend deps, then build Vue.js assets"
 	@echo "  make openapi            # generate docs/openapi/openapi.json"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
@@ -240,6 +240,8 @@ frontend:
 		echo "pnpm not found; install it from https://pnpm.io/"; \
 		exit 1; \
 	fi
+	@echo "Installing frontend dependencies in $(FRONTEND_DIR)"
+	cd $(FRONTEND_DIR) && $(PNPM) install --frozen-lockfile
 	@echo "Building frontend in $(FRONTEND_DIR)"
 	cd $(FRONTEND_DIR) && $(PNPM) run build
 	@if [ ! -d "$(FRONTEND_SRC_DIST)" ]; then \

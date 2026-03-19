@@ -216,13 +216,7 @@ func (a *app) chatSummaryContextSize(configured int, model string) int {
 }
 
 func (a *app) chatToolRegistry(enableTools bool, allowTools []string) tools.Registry {
-	if !enableTools {
-		return tools.NewRegistry()
-	}
-	if len(allowTools) > 0 {
-		return tools.NewFilteredRegistry(a.baseToolRegistry, allowTools)
-	}
-	return a.baseToolRegistry
+	return tools.ApplyTopLevelPolicy(a.baseToolRegistry, enableTools, allowTools)
 }
 
 func chatModelLabel(name, model string) string {

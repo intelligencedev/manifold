@@ -473,6 +473,8 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		return c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
 	}
 
+	tools = c.requestTools(tools)
+
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatResponses(ctx, msgs, tools, model, nil)
 	}
@@ -485,18 +487,11 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	}
 	// messages
 	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
-	// tools: include only when provided to avoid sending an empty array
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = AdaptSchemas(tools)
-		}
-	}
+	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
 	if len(c.extra) > 0 {
 		// When no tools are provided, ensure we don't forward tool-specific
 		// flags from the client extra params.
-		if len(tools) == 0 {
+		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
 			for k, v := range c.extra {
 				tmp[k] = v
@@ -620,6 +615,8 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 //   - inject provider-specific extra fields (e.g., reasoning_effort)
 //     via params.WithExtraField.
 func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error) {
+	tools = c.requestTools(tools)
+
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatResponses(ctx, msgs, tools, model, extra)
 	}
@@ -632,13 +629,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
 	}
 	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = AdaptSchemas(tools)
-		}
-	}
+	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
 	if len(c.extra) > 0 || len(extra) > 0 {
 		merged := make(map[string]any, len(c.extra)+len(extra))
 		for k, v := range c.extra {
@@ -650,7 +641,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		// Some provider-specific flags (e.g., parallel_tool_calls) are only
 		// valid when tools are actually provided. Remove those keys when no
 		// tools are present to avoid 400 errors from the API.
-		if len(tools) == 0 {
+		if !actualTools {
 			delete(merged, "parallel_tool_calls")
 		}
 		params.SetExtraFields(sanitizeExtraFields(merged))
@@ -760,6 +751,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		}
 		return nil
 	}
+	tools = c.requestTools(tools)
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatStreamResponses(ctx, msgs, tools, model, h)
 	}
@@ -780,18 +772,11 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	llm.LogRedactedPrompt(ctx, msgs)
 	// messages
 	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
-	// tools
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = AdaptSchemas(tools)
-		}
-	}
+	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
 	if len(c.extra) > 0 {
 		// When no tools are provided, ensure we don't forward tool-specific
 		// flags from the client extra params.
-		if len(tools) == 0 {
+		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
 			for k, v := range c.extra {
 				tmp[k] = v
@@ -980,20 +965,14 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 		"messages": AdaptMessages(model, c.chatCompletionMessages(msgs)),
 		"stream":   true,
 	}
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			body["tools"] = AdaptSchemas(sanitizeToolSchemas(tools))
-		} else {
-			body["tools"] = AdaptSchemas(tools)
-		}
-	}
+	actualTools := configureChatCompletionBodyTools(body, tools, c.isSelfHosted())
 	// Merge extra params, but drop tool flags if no tools
 	if len(c.extra) > 0 {
 		tmp := make(map[string]any, len(c.extra))
 		for k, v := range c.extra {
 			tmp[k] = v
 		}
-		if len(tools) == 0 {
+		if !actualTools {
 			delete(tmp, "parallel_tool_calls")
 		}
 		for k, v := range tmp {
@@ -1252,6 +1231,8 @@ func (c *Client) imageModel(model string) string {
 // ChatWithImageAttachment sends a chat completion with an image attachment.
 // This is a concrete method specific to the OpenAI provider.
 func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message, mimeType, base64Data string, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	tools = c.requestTools(tools)
+
 	if strings.EqualFold(c.api, "responses") {
 		images := []ImageAttachment{{MimeType: mimeType, Base64Data: base64Data}}
 		return c.chatResponsesWithImages(ctx, msgs, images, tools, model)
@@ -1309,15 +1290,9 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	}
 
 	params.Messages = adaptedMsgs
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = AdaptSchemas(tools)
-		}
-	}
+	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
 	if len(c.extra) > 0 {
-		if len(tools) == 0 {
+		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
 			for k, v := range c.extra {
 				tmp[k] = v
@@ -1384,6 +1359,8 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 // ChatWithImageAttachments sends a chat completion with one or more image attachments.
 // The images are included as content parts alongside the user's text.
 func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Message, images []ImageAttachment, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	tools = c.requestTools(tools)
+
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatResponsesWithImages(ctx, msgs, images, tools, model)
 	}
@@ -1438,15 +1415,9 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	}
 
 	params.Messages = adaptedMsgs
-	if len(tools) > 0 {
-		if c.isSelfHosted() {
-			params.Tools = AdaptSchemas(sanitizeToolSchemas(tools))
-		} else {
-			params.Tools = AdaptSchemas(tools)
-		}
-	}
+	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
 	if len(c.extra) > 0 {
-		if len(tools) == 0 {
+		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
 			for k, v := range c.extra {
 				tmp[k] = v
@@ -1503,6 +1474,59 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 		}
 	}
 	return out, nil
+}
+
+func configureChatCompletionTools(params *sdk.ChatCompletionNewParams, tools []llm.ToolSchema, selfHosted bool) bool {
+	if params == nil {
+		return false
+	}
+	if hasNativeWebSearchSchema(tools) {
+		params.WebSearchOptions = sdk.ChatCompletionNewParamsWebSearchOptions{
+			SearchContextSize: "medium",
+		}
+	}
+	if len(tools) == 0 {
+		return false
+	}
+	schemas := tools
+	if selfHosted {
+		schemas = sanitizeToolSchemas(tools)
+	}
+	adapted := AdaptSchemas(schemas)
+	if len(adapted) == 0 {
+		return false
+	}
+	params.Tools = adapted
+	return true
+}
+
+func configureChatCompletionBodyTools(body map[string]any, tools []llm.ToolSchema, selfHosted bool) bool {
+	if body == nil {
+		return false
+	}
+	if hasNativeWebSearchSchema(tools) {
+		body["web_search_options"] = map[string]any{"search_context_size": "medium"}
+	}
+	if len(tools) == 0 {
+		return false
+	}
+	schemas := tools
+	if selfHosted {
+		schemas = sanitizeToolSchemas(tools)
+	}
+	adapted := AdaptSchemas(schemas)
+	if len(adapted) == 0 {
+		return false
+	}
+	body["tools"] = adapted
+	return true
+}
+
+func (c *Client) requestTools(tools []llm.ToolSchema) []llm.ToolSchema {
+	if c == nil || c.isSelfHosted() {
+		return tools
+	}
+	return appendNativeWebSearchSchema(tools)
 }
 
 // isEmptyArgs reports whether the provided arguments string is effectively empty
@@ -1771,6 +1795,10 @@ func isContextLengthExceededErr(err error) bool {
 func adaptResponsesTools(schemas []llm.ToolSchema) []rs.ToolUnionParam {
 	out := make([]rs.ToolUnionParam, 0, len(schemas))
 	for _, s := range schemas {
+		if isNativeWebSearchSchema(s.Name) {
+			out = append(out, rs.ToolParamOfWebSearch(rs.WebSearchToolTypeWebSearch))
+			continue
+		}
 		params := s.Parameters
 		if params != nil {
 			params = ensureStrictJSONSchema(params).(map[string]any)

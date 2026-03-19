@@ -394,13 +394,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	}
 	a.engine.Model = currentModel
 
-	if !a.cfg.EnableTools {
-		a.toolRegistry = tools.NewRegistry()
-	} else if len(a.cfg.ToolAllowList) > 0 {
-		a.toolRegistry = tools.NewFilteredRegistry(a.baseToolRegistry, a.cfg.ToolAllowList)
-	} else {
-		a.toolRegistry = a.baseToolRegistry
-	}
+	a.toolRegistry = tools.ApplyTopLevelPolicy(a.baseToolRegistry, a.cfg.EnableTools, a.cfg.ToolAllowList)
 
 	a.engine.Tools = a.toolRegistry
 	// Propagate updated tool registry to the delegator (if present)

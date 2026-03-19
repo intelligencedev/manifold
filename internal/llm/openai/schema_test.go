@@ -39,6 +39,45 @@ func TestAdaptSchemas(t *testing.T) {
 	}
 }
 
+func TestAdaptSchemasSkipsNativeWebSearch(t *testing.T) {
+	out := AdaptSchemas([]llm.ToolSchema{nativeWebSearchSchema()})
+	if len(out) != 0 {
+		t.Fatalf("expected native web_search to be omitted from chat completion tools, got %d entries", len(out))
+	}
+}
+
+func TestHasNativeWebSearchSchema(t *testing.T) {
+	if !hasNativeWebSearchSchema([]llm.ToolSchema{nativeWebSearchSchema()}) {
+		t.Fatal("expected native web_search schema to be detected")
+	}
+	if hasNativeWebSearchSchema([]llm.ToolSchema{{Name: "other_tool"}}) {
+		t.Fatal("expected non-web-search schema to be ignored")
+	}
+}
+
+func TestAdaptResponsesToolsUsesNativeWebSearch(t *testing.T) {
+	out := adaptResponsesTools(appendNativeWebSearchSchema(nil))
+	if len(out) != 1 {
+		t.Fatalf("expected 1 responses tool, got %d", len(out))
+	}
+	typeName := out[0].GetType()
+	if typeName == nil || *typeName != "web_search" {
+		t.Fatalf("expected native responses web_search tool, got %v", typeName)
+	}
+}
+
+func TestAppendNativeWebSearchSchema(t *testing.T) {
+	base := []llm.ToolSchema{{Name: "run_cli"}}
+	got := appendNativeWebSearchSchema(base)
+	if len(got) != 2 || got[1].Name != "web_search" {
+		t.Fatalf("expected web_search appended once, got %#v", got)
+	}
+	got = appendNativeWebSearchSchema(got)
+	if len(got) != 2 {
+		t.Fatalf("expected append to be idempotent, got %#v", got)
+	}
+}
+
 func TestAdaptMessages(t *testing.T) {
 	msgs := []llm.Message{
 		{Role: "system", Content: ""},

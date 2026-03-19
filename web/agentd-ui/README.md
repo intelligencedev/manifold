@@ -37,6 +37,8 @@ Or copy the built assets into the Go embed directory through the repository Make
 make frontend
 ```
 
+That target installs frontend dependencies with `pnpm install --frozen-lockfile` before building and copying the embed assets.
+
 ## Notes
 
 - The embedded production UI is served by `agentd` on port `32180`.

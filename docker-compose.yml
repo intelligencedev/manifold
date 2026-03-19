@@ -75,7 +75,8 @@ services:
     image: otel/opentelemetry-collector-contrib:0.102.1
     container_name: manifold_otel_collector
     depends_on:
-      - clickhouse
+      clickhouse:
+        condition: service_healthy
     volumes:
       - ./deploy/configs/otel/collector.yaml:/etc/otelcol/config.yaml:ro
       - ${OTEL_DOCKER_CONTAINER_LOG_DIR:-./tmp/otel/docker-containers}:/var/lib/docker/containers:ro

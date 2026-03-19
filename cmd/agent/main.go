@@ -159,9 +159,9 @@ func run(cfg *config.Config, query string, maxSteps int, specialistName string) 
 	}
 	defer mgr.Close()
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
-	registry.Register(cli.NewTool(exec))               // provides run_cli
-	registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
-	registry.Register(web.NewFetchTool(mgr.Search))    // provides web_fetch
+	registry.Register(cli.NewTool(exec)) // provides run_cli
+	//registry.Register(web.NewTool(cfg.Web.SearXNGURL)) // provides web_search
+	registry.Register(web.NewFetchTool(mgr.Search)) // provides web_fetch
 	// Register patch application tool (unified diff).
 	registry.Register(patchtool.New(cfg.Workdir)) // provides apply_patch
 	// Register text splitting tool (RAG ingestion helpers).

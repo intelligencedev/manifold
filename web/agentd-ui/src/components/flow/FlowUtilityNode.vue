@@ -164,14 +164,23 @@
               />
             </div>
             <div
-              v-else
+              v-if="!isDesignMode || runtimeText"
               :class="[
                 'flex-1',
-                'rounded border border-border/60 bg-surface-muted px-2 py-2 text-[11px] text-foreground overflow-auto w-full',
+                'rounded border px-2 py-2 text-[11px] text-foreground overflow-auto w-full',
+                isDesignMode && runtimeText
+                  ? 'border-accent/30 bg-accent/5'
+                  : 'border-border/60 bg-surface-muted',
               ]"
               style="contain: content; overflow-wrap: anywhere"
               @wheel.stop
             >
+              <div
+                v-if="isDesignMode && runtimeText"
+                class="text-[10px] uppercase tracking-wide text-accent/70 mb-1.5"
+              >
+                Resolved output
+              </div>
               <template v-if="isAgentResponse">
                 <div
                   v-if="hasDisplayText"
@@ -197,7 +206,7 @@
                 </span>
               </template>
               <template v-else>
-                <span class="block">{{
+                <span class="block whitespace-pre-wrap break-words">{{
                   runtimeText || "Run the workflow to see resolved text."
                 }}</span>
               </template>
@@ -260,16 +269,26 @@
           class="mt-3 flex items-center justify-end gap-2"
         >
           <span
-            v-if="isDirty"
+            v-if="isDirty && !showAppliedFeedback"
             class="text-[10px] italic text-warning-foreground"
             >Unsaved</span
           >
+          <span
+            v-else-if="showAppliedFeedback"
+            class="text-[10px] italic text-emerald-400"
+            >Applied</span
+          >
           <button
-            class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-            :disabled="!isDirty"
+            class="rounded px-2 py-1 text-[11px] font-medium transition disabled:opacity-40"
+            :class="
+              showAppliedFeedback
+                ? 'bg-emerald-500 text-white shadow-[0_0_0_1px_rgba(16,185,129,0.3)]'
+                : 'bg-accent text-accent-foreground'
+            "
+            :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
             @click="applyChanges"
           >
-            Apply
+            {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
           </button>
         </div>
 
@@ -403,6 +422,8 @@ const rootClass = computed(() => [
   { "node-executing": isExecuting.value },
 ]);
 const isDirty = ref(false);
+const showAppliedFeedback = ref(false);
+let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 const collapsed = ref(false);
 const copied = ref(false);
 const outputReferenceExample = computed(
@@ -434,7 +455,7 @@ const designText = computed(() =>
     : contentText.value,
 );
 const displayText = computed(() =>
-  isDesignMode.value ? designText.value : runtimeText.value,
+  runtimeText.value || (isDesignMode.value ? designText.value : ""),
 );
 const hasDisplayText = computed(() => displayText.value.length > 0);
 const renderedContent = computed(() => {
@@ -501,10 +522,29 @@ function applyChanges() {
   if (!isDesignMode.value || !isDirty.value) return;
   commit();
   isDirty.value = false;
+  triggerAppliedFeedback();
+}
+
+function triggerAppliedFeedback() {
+  showAppliedFeedback.value = true;
+  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
+  appliedFeedbackTimer = setTimeout(() => {
+    showAppliedFeedback.value = false;
+    appliedFeedbackTimer = null;
+  }, 1400);
+}
+
+function clearAppliedFeedback() {
+  showAppliedFeedback.value = false;
+  if (appliedFeedbackTimer) {
+    clearTimeout(appliedFeedbackTimer);
+    appliedFeedbackTimer = null;
+  }
 }
 
 function markDirty() {
   if (suppressCommit || hydratingRef.value || !isDesignMode.value) return;
+  clearAppliedFeedback();
   isDirty.value = true;
 }
 

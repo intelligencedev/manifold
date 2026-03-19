@@ -64,14 +64,17 @@ Use `MANIFOLD_SYSTEM_PROMPT_FILE` for real prompt customization. It is easier to
 When `MATRIX_PULSE_ENABLED=true`, `manibot` starts a second loop alongside Matrix sync polling.
 
 - The sync loop continues handling normal prefixed room messages.
-- The pulse loop wakes up every `MATRIX_PULSE_POLL_INTERVAL_SECONDS` and checks the persisted room task lists.
+- The pulse loop wakes up every `MATRIX_PULSE_POLL_INTERVAL_SECONDS` and checks the persisted room task lists for the current bot identity.
 - Tasks execute only when their own `interval_seconds` has elapsed, even if the bot polls more frequently.
 - Pulse runs use a dedicated session per room, separate from manual chat history.
+- Pulse scheduling is bot-scoped by `MATRIX_BOT_USER_ID`, so multiple bots can now run pulse in the same Matrix room without contending for one shared room lease.
 - Pulse runs do not post routine summaries back to the room.
 - If a task explicitly needs to notify the room, the agent must use the `matrix_room_message` tool.
 - The same Matrix-specific system prompt is used for both direct room chats and pulse runs, so the assistant voice stays consistent.
 
 Pulse task state is stored in Postgres through `PULSE_DATABASE_DSN` or the normal shared database env vars. This is required for reliable leasing and multi-instance safety.
+
+`manibot` automatically sends its `MATRIX_BOT_USER_ID` to Manifold as `bot_id` on every `/api/prompt` request. The `pulse_tasks` tool uses that value as the default schedule owner for the current request.
 
 The agent manages tasks with the `pulse_tasks` tool. Supported actions are:
 
@@ -83,6 +86,49 @@ The agent manages tasks with the `pulse_tasks` tool. Supported actions are:
 - `enable_task`
 - `disable_task`
 - `set_interval`
+
+### Bot-scoped task ownership
+
+Pulse rooms and tasks are now keyed by both Matrix room ID and bot ID.
+
+- The default `bot_id` is the current `MATRIX_BOT_USER_ID`.
+- `pulse_tasks list` shows the current bot's schedule unless `bot_id` is explicitly supplied.
+- `pulse_tasks upsert_task` creates a task for the current bot unless `bot_id` is explicitly supplied.
+- Coordinators can delegate scheduled work by creating tasks for another bot in the same Matrix room with `bot_id="@other_bot:server"`.
+
+Example delegated task:
+
+```json
+{
+  "action": "upsert_task",
+  "bot_id": "@manibot:matrix.example.com",
+  "title": "Review auth patch",
+  "prompt": "Inspect the latest auth patch and write findings to Transit at coordination/results/auth-review.",
+  "interval_seconds": 300
+}
+```
+
+### Multi-bot configuration
+
+To run scheduled coordination across multiple bots in one Matrix room:
+
+1. Set `MATRIX_PULSE_ENABLED=true` on every bot that should own scheduled work.
+2. Point every bot at the same Postgres database with `PULSE_DATABASE_DSN` or `DATABASE_URL`.
+3. Keep each bot's `MATRIX_BOT_USER_ID` unique. That identity is the pulse ownership key.
+4. Use `pulse_tasks` with explicit `bot_id` when one bot should delegate scheduled work to another bot.
+5. Use Transit for durable handoffs and `matrix_room_message` only for room-visible coordination that humans should see.
+
+Migration note:
+
+- Existing pulse rows created before bot-scoped scheduling keep `bot_id=""` in Postgres.
+- New manibot builds only read schedules for their own `MATRIX_BOT_USER_ID`.
+- Recreate existing pulse tasks with `pulse_tasks upsert_task` or update the old rows in Postgres so each task and room is assigned to a concrete bot ID.
+
+Recommended starting values for scheduled multi-bot rooms:
+
+- `MATRIX_PULSE_POLL_INTERVAL_SECONDS="60"` to `"300"`
+- `MATRIX_PULSE_LEASE_SECONDS="300"`
+- task `interval_seconds >= 300` when a run may take around 2 minutes
 
 ## Docker Compose snippet (minimal)
 

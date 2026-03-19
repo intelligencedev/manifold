@@ -27,7 +27,6 @@ import (
 	"manifold/internal/tools/tts"
 	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
-	"manifold/internal/warpp"
 )
 
 const systemUserID int64 = 0
@@ -46,7 +45,6 @@ func main() {
 
 	q := flag.String("q", "", "User request")
 	maxSteps := flag.Int("max-steps", cfg.MaxSteps, "Max reasoning steps")
-	warppFlag := flag.Bool("warpp", false, "Run WARPP workflow instead of LLM agent")
 	specialist := flag.String("specialist", "", "Name of specialist agent to use (inference-only; no tool calls unless enabled)")
 	flag.Parse()
 	if *q == "" {
@@ -54,12 +52,12 @@ func main() {
 		os.Exit(2)
 	}
 
-	if err := run(&cfg, *q, *maxSteps, *warppFlag, *specialist); err != nil {
+	if err := run(&cfg, *q, *maxSteps, *specialist); err != nil {
 		log.Fatal().Err(err).Msg("agent")
 	}
 }
 
-func run(cfg *config.Config, query string, maxSteps int, warppEnabled bool, specialistName string) error {
+func run(cfg *config.Config, query string, maxSteps int, specialistName string) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")
 	}
@@ -189,41 +187,6 @@ func run(cfg *config.Config, query string, maxSteps int, warppEnabled bool, spec
 		log.Warn().Err(err).Msg("mcp init")
 	}
 	cancelInit()
-
-	// Run the WARPP workflow executor instead of the LLM loop when enabled.
-	if warppEnabled {
-		// Configure WARPP to source defaults from the database, not hard-coded values.
-		warpp.SetDefaultStore(mgr.Warpp)
-		wfreg, err := warpp.LoadFromStore(baseCtx, mgr.Warpp, systemUserID)
-		if err != nil {
-			return fmt.Errorf("load workflows: %w", err)
-		}
-		runner := &warpp.Runner{Workflows: wfreg, Tools: registry}
-		ctx, cancel := context.WithTimeout(baseCtx, defaultRunTimeout)
-		defer cancel()
-		intent := runner.DetectIntent(ctx, query)
-		wf, err := wfreg.Get(intent)
-		if err != nil {
-			return fmt.Errorf("workflow %q not found: %w", intent, err)
-		}
-		attrs := warpp.Attrs{"utter": query}
-		wfStar, _, attrs, err := runner.Personalize(ctx, wf, attrs)
-		if err != nil {
-			return fmt.Errorf("personalize workflow: %w", err)
-		}
-		allow := map[string]bool{}
-		for _, s := range wfStar.Steps {
-			if s.Tool != nil {
-				allow[s.Tool.Name] = true
-			}
-		}
-		final, err := runner.Execute(ctx, wfStar, allow, attrs, nil)
-		if err != nil {
-			return fmt.Errorf("execute workflow: %w", err)
-		}
-		fmt.Println(final)
-		return nil
-	}
 
 	// Call a specialist directly if a pre-dispatch route matches.
 	if name := specialists.Route(cfg.SpecialistRoutes, query); name != "" {

@@ -1,20 +1,36 @@
 <template>
-  <div class="space-y-3">
+  <div class="min-w-0 space-y-3 overflow-x-hidden">
     <div class="flex items-center justify-between">
       <div class="text-xs text-subtle-foreground">Configure workflow step</div>
       <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
         >Unsaved</span
       >
+      <span
+        v-else-if="showAppliedFeedback"
+        class="text-[10px] italic text-emerald-400"
+        >Applied</span
+      >
     </div>
 
-    <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+    <label class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground">
       Tool
       <DropdownSelect
         v-model="toolName"
         size="xs"
-        class="text-[11px]"
+        class="w-full min-w-0 text-[11px]"
         :disabled="!isDesignMode || hydratingRef"
         :options="toolDropdownOptions"
+      />
+    </label>
+
+    <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      Display Label
+      <input
+        v-model="displayLabel"
+        type="text"
+        class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
+        placeholder="Optional (defaults to tool name)"
+        :disabled="!isDesignMode || hydratingRef"
       />
     </label>
 
@@ -24,7 +40,7 @@
         v-model="stepText"
         type="text"
         class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-        placeholder="Describe this step"
+        placeholder="Optional description"
         :disabled="!isDesignMode || hydratingRef"
       />
     </label>
@@ -63,18 +79,23 @@
 
     <div class="pt-1 flex items-center justify-end gap-2">
       <button
-        class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-        :disabled="!isDirty || !isDesignMode"
+        class="rounded px-2 py-1 text-[11px] font-medium transition"
+        :class="
+          showAppliedFeedback
+            ? 'bg-emerald-500 text-white shadow-[0_0_0_1px_rgba(16,185,129,0.3)]'
+            : 'bg-accent text-accent-foreground'
+        "
+        :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
         @click="applyChanges"
       >
-        Apply
+        {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, provide, ref, watch, type Ref } from "vue";
+import { computed, inject, onBeforeUnmount, provide, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import FlowInputBindingsEditor from "@/components/flow/FlowInputBindingsEditor.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -117,11 +138,14 @@ const toolDropdownOptions = computed(() => [
 ]);
 
 const stepText = ref("");
+const displayLabel = ref("");
 const guardText = ref("");
 const publishResult = ref(false);
 const toolName = ref("");
 const argsState = ref<Record<string, unknown>>({});
 const isDirty = ref(false);
+const showAppliedFeedback = ref(false);
+let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 const currentTool = computed(
   () => toolOptions.value.find((t) => t.name === toolName.value) ?? null,
@@ -147,9 +171,11 @@ const parameterSchemaFiltered = computed(() => {
 
 let suppress = false;
 watch(
-  () => props.data?.step,
-  (next) => {
+  () => props.data,
+  (data) => {
     suppress = true;
+    const next = data?.step;
+    displayLabel.value = data?.label ?? "";
     stepText.value = next?.text ?? "";
     guardText.value = next?.guard ?? "";
     publishResult.value = Boolean(next?.publish_result);
@@ -165,6 +191,7 @@ watch(
 
 watch(
   [
+    displayLabel,
     stepText,
     guardText,
     publishResult,
@@ -183,6 +210,7 @@ function onArgsUpdate(value: unknown) {
 
 function markDirty() {
   if (suppress || hydratingRef.value || !isDesignMode.value) return;
+  clearAppliedFeedback();
   isDirty.value = true;
 }
 
@@ -192,9 +220,32 @@ function applyChanges() {
   updateNodeData(props.nodeId, {
     ...(props.data ?? { order: 0 }),
     step: payload,
+    label: displayLabel.value.trim() || undefined,
   });
   isDirty.value = false;
+  triggerAppliedFeedback();
 }
+
+function triggerAppliedFeedback() {
+  showAppliedFeedback.value = true;
+  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
+  appliedFeedbackTimer = setTimeout(() => {
+    showAppliedFeedback.value = false;
+    appliedFeedbackTimer = null;
+  }, 1400);
+}
+
+function clearAppliedFeedback() {
+  showAppliedFeedback.value = false;
+  if (appliedFeedbackTimer) {
+    clearTimeout(appliedFeedbackTimer);
+    appliedFeedbackTimer = null;
+  }
+}
+
+onBeforeUnmount(() => {
+  clearAppliedFeedback();
+});
 
 function buildStep(): FlowEditorStep {
   const built = buildToolPayload(toolName.value, argsState.value);

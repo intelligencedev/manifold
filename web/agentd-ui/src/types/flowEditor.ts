@@ -16,6 +16,8 @@ export interface FlowEditorNodeLayout {
   y: number;
   width?: number;
   height?: number;
+  collapsed?: boolean;
+  label?: string;
 }
 
 export interface FlowEditorGroupUIEntry {
@@ -37,6 +39,7 @@ export interface FlowEditorWorkflowUI {
   parents?: Record<string, string>;
   groups?: FlowEditorGroupUIEntry[];
   notes?: FlowEditorNoteUIEntry[];
+  edgeStyle?: string;
 }
 
 export interface FlowEditorStep {

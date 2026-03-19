@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-full min-h-0 flex-col gap-2">
-    <section class="rounded-xl border border-border/60 bg-surface/90 px-3 py-2 shadow-[0_14px_34px_-26px_rgba(0,0,0,0.6)] backdrop-blur-sm">
+    <section class="glass-surface !px-3 !py-2 rounded-xl">
       <div class="flex flex-wrap items-center gap-2">
         <!-- Workflow selector -->
         <DropdownSelect
@@ -126,9 +126,9 @@
     <div
       class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden"
     >
-      <aside class="lg:w-72">
+      <aside class="min-w-0 lg:w-72">
         <div
-          class="ap-panel ap-hover flex min-h-0 flex-col rounded-xl bg-surface p-4 lg:h-full"
+          class="glass-surface ap-hover flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl !p-4 lg:h-full"
         >
           <!-- Conditional: Node Configuration when a single node is selected, else show Tool Palette -->
           <template
@@ -168,7 +168,7 @@
                 }}</span>
               </div>
             </div>
-            <div class="lg:flex-1 lg:min-h-0 overflow-y-auto pr-1">
+            <div class="min-w-0 overflow-y-auto overflow-x-hidden pr-1 lg:flex-1 lg:min-h-0">
               <NodeInspectorStep
                 v-if="selectedNode.type === 'flowStep'"
                 :node-id="selectedNode.id"
@@ -340,20 +340,6 @@
             <!-- Themed Controls (replaces default Controls) -->
             <Panel position="bottom-left">
               <div class="ap-chip flex items-center gap-1 rounded-md p-1">
-                <!-- Expand/Collapse all -->
-                <button
-                  type="button"
-                  class="inline-flex items-center justify-center rounded p-2 text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                  :aria-pressed="nodesCollapsed"
-                  :aria-label="
-                    nodesCollapsed ? 'Expand all nodes' : 'Collapse all nodes'
-                  "
-                  :title="nodesCollapsed ? 'Expand all' : 'Collapse all'"
-                  @click="toggleCollapseAll"
-                >
-                  <CollapseIcon v-if="!nodesCollapsed" class="h-4 w-4" />
-                  <ExpandIcon v-else class="h-4 w-4" />
-                </button>
                 <!-- Auto layout buttons -->
                 <button
                   type="button"
@@ -463,7 +449,7 @@
             <!-- Themed MiniMap -->
             <MiniMap
               v-if="showMiniMap"
-              class="ap-chip rounded-md p-1"
+              class="ap-chip flow-minimap rounded-md p-1"
               :position="'bottom-right'"
               :pannable="true"
               :zoomable="true"
@@ -476,7 +462,7 @@
               :node-color="miniMapNodeColor"
               :node-stroke-color="miniMapNodeStroke"
               :node-border-radius="6"
-              :node-stroke-width="1"
+                :node-stroke-width="1.5"
             />
 
             <!-- Close button overlay for MiniMap (top-left of the MiniMap) -->
@@ -790,6 +776,26 @@
               required.
             </p>
           </div>
+          <div>
+            <label
+              class="block text-sm font-medium text-foreground mb-1"
+              for="wf-max-concurrency"
+              >Max concurrency</label
+            >
+            <input
+              id="wf-max-concurrency"
+              v-model="metaMaxConcurrency"
+              type="number"
+              min="1"
+              step="1"
+              class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground"
+              placeholder="4"
+            />
+            <p class="mt-1 text-[10px] text-faint-foreground">
+              Leave blank to use the runtime default. Set to 1 to force serial
+              execution.
+            </p>
+          </div>
         </div>
         <div
           class="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3"
@@ -856,8 +862,6 @@ import UnlockedIcon from "@/components/icons/UnlockedBold.vue";
 import MapShowIcon from "@/components/icons/MapShow.vue";
 import HelpIcon from "@/components/icons/Help.vue";
 import LayoutIcon from "@/components/icons/FlowLayout.vue";
-import CollapseIcon from "@/components/icons/Collapse.vue";
-import ExpandIcon from "@/components/icons/Expand.vue";
 import dagre from "dagre";
 import {
   deleteFlowWorkflow,
@@ -901,6 +905,7 @@ type LayoutEntry = {
   width?: number;
   height?: number;
   collapsed?: boolean;
+  label?: string;
 };
 
 type LayoutMap = Record<string, LayoutEntry>;
@@ -984,6 +989,11 @@ function readNodeSize(
     liveDimH && liveDimH > 0
       ? liveDimH
       : (graphNode?.dimensions?.height ?? undefined);
+  // Step nodes are always collapsed — prefer live dimensions, fall back to min-width
+  if (kind === "step") {
+    const w = dimsWidth ?? styledWidth ?? FLOW_STEP_NODE_COLLAPSED.width;
+    return { width: w, height: FLOW_STEP_NODE_COLLAPSED.height };
+  }
   // If node is collapsed and no explicit style width/height are present, use collapsed footprint
   const collapsed = (node.data as any)?.collapsed === true;
   const width =
@@ -1006,6 +1016,15 @@ function readNodeSize(
 }
 
 function buildNodeStyle(kind: NodeKind, stored?: LayoutEntry) {
+  // Step nodes are always collapsed — auto-width to fit label, fixed height
+  if (kind === "step") {
+    return {
+      minWidth: toPx(FLOW_STEP_NODE_COLLAPSED.width),
+      height: toPx(FLOW_STEP_NODE_COLLAPSED.height),
+      width: "fit-content",
+      zIndex: "10",
+    } as Record<string, string>;
+  }
   const defaults = getDefaultDimensions(kind);
   const storedWidth =
     typeof stored?.width === "number" ? stored.width : undefined;
@@ -1075,6 +1094,9 @@ function collectUiState(allNodes: FlowEditorNode[]): UiSnapshot {
     // Persist per-node collapsed state so it survives save/load
     const nodeCollapsed = (node.data as any)?.collapsed;
     if (typeof nodeCollapsed === "boolean") entry.collapsed = nodeCollapsed;
+    // Persist per-node display label override
+    const nodeLabel = (node.data as any)?.label;
+    if (typeof nodeLabel === "string" && nodeLabel) entry.label = nodeLabel;
     layout[node.id] = entry;
 
     if (isGroupNode(node)) {
@@ -1247,6 +1269,9 @@ const saving = ref(false);
 // Pinia unwraps refs by default, so we need to access the underlying $state
 // or re-wrap in computed to maintain reactivity across navigation
 const running = computed(() => flowRunStore.running);
+const activeRunningNodeIds = computed(
+  () => new Set(flowRunStore.activeNodeIds ?? []),
+);
 const runOutput = computed(() => flowRunStore.runOutput);
 provide("flowEditorRunning", running);
 provide("flowEditorRunOutput", runOutput);
@@ -1255,13 +1280,11 @@ const runStartTime = ref<number | null>(null);
 const liveRunElapsedMs = ref(0);
 const lastRunDurationMs = ref<number | null>(null);
 let runTimerInterval: ReturnType<typeof setInterval> | null = null;
-// Provide collapse/expand-all signals for nodes to react to
+// Provide collapse/expand-all signals for utility nodes to react to
 const collapseAllSeq = ref(0);
 const expandAllSeq = ref(0);
 provide("flowEditorCollapseAllSeq", collapseAllSeq);
 provide("flowEditorExpandAllSeq", expandAllSeq);
-// Track global collapsed state for control icon
-const nodesCollapsed = ref(false);
 const resultModal = ref<{ stepId: string; title: string } | null>(null);
 // Collapsible state for sections inside the result modal
 const collapsedArgs = ref(false);
@@ -1331,6 +1354,7 @@ function getCachedUi(intent: string): {
   parents?: Record<string, string>;
   groups?: FlowEditorGroupUIEntry[];
   notes?: FlowEditorNoteUIEntry[];
+  edgeStyle?: string;
 } {
   const cache = readUiCache();
   return cache[intent] ?? {};
@@ -1342,6 +1366,7 @@ function setCachedUi(
     parents?: Record<string, string>;
     groups?: FlowEditorGroupUIEntry[];
     notes?: FlowEditorNoteUIEntry[];
+    edgeStyle?: string;
   },
 ) {
   const cache = readUiCache();
@@ -1549,9 +1574,29 @@ const edgeStyleAriaLabel = computed(
   () => `Switch edge style (current: ${edgeStyleLabel.value})`,
 );
 
+function parseEdgeStyle(value: unknown): EdgeStyle | undefined {
+  return typeof value === "string" && EDGE_STYLES.includes(value as EdgeStyle)
+    ? (value as EdgeStyle)
+    : undefined;
+}
+
+function setCurrentEdgeStyle(style?: string) {
+  const nextStyle = parseEdgeStyle(style) ?? "default";
+  edgeStyleIndex.value = EDGE_STYLES.indexOf(nextStyle);
+}
+
 function normalizeEdgesWithCurrentStyle(list: Edge[]): Edge[] {
   const type = currentEdgeStyle.value;
-  return list.map((edge) => ({ ...edge, type }));
+  const animateActiveOutputs = running.value && activeRunningNodeIds.value.size > 0;
+  return list.map((edge) => {
+    const animated = animateActiveOutputs && activeRunningNodeIds.value.has(edge.source);
+    return {
+      ...edge,
+      type,
+      animated,
+      class: animated ? "flow-edge-active" : undefined,
+    };
+  });
 }
 
 function applyEdgeStyleToExistingEdges() {
@@ -1561,24 +1606,39 @@ function applyEdgeStyleToExistingEdges() {
 
 function cycleEdgeStyle() {
   edgeStyleIndex.value = (edgeStyleIndex.value + 1) % EDGE_STYLES.length;
+  if (activeWorkflow.value) {
+    activeWorkflow.value = {
+      ...activeWorkflow.value,
+      ui: {
+        ...(activeWorkflow.value.ui ?? {}),
+        edgeStyle: EDGE_STYLES[edgeStyleIndex.value],
+      },
+    };
+  }
+  dirty.value = true;
 }
 
 watch(currentEdgeStyle, () => {
   applyEdgeStyleToExistingEdges();
 });
 
-// Expand/Collapse all nodes via provided signals
+watch(
+  () => flowRunStore.activeNodeIds.slice(),
+  () => {
+    applyEdgeStyleToExistingEdges();
+  },
+);
+
+watch(running, () => {
+  applyEdgeStyleToExistingEdges();
+});
+
+// Expand/Collapse all utility nodes via provided signals
 function collapseAll() {
   collapseAllSeq.value += 1;
-  nodesCollapsed.value = true;
 }
 function expandAll() {
   expandAllSeq.value += 1;
-  nodesCollapsed.value = false;
-}
-function toggleCollapseAll() {
-  if (nodesCollapsed.value) expandAll();
-  else collapseAll();
 }
 
 type DagreDirection = "TB" | "LR";
@@ -1889,6 +1949,7 @@ function formatJSON(value: unknown): string {
 const showMetaModal = ref(false);
 const metaDescription = ref("");
 const metaKeywords = ref("");
+const metaMaxConcurrency = ref("");
 const metaSaveDisabled = computed(
   () =>
     metaDescription.value.trim().length === 0 ||
@@ -1902,6 +1963,12 @@ function openMetaModal() {
   // Pre-fill from current workflow
   metaDescription.value = activeWorkflow.value.description ?? "";
   metaKeywords.value = (activeWorkflow.value.keywords ?? []).join(", ");
+  metaMaxConcurrency.value =
+    typeof activeWorkflow.value.max_concurrency === "number" &&
+    Number.isFinite(activeWorkflow.value.max_concurrency) &&
+    activeWorkflow.value.max_concurrency > 0
+      ? String(activeWorkflow.value.max_concurrency)
+      : "";
   showMetaModal.value = true;
 }
 function closeMetaModal() {
@@ -1921,6 +1988,14 @@ function parseKeywords(input: string): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
+}
+
+function parseMaxConcurrency(input: string): number | undefined {
+  const trimmed = input.trim();
+  if (!trimmed) return undefined;
+  const value = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  return value;
 }
 
 function normalizeTrigger(trigger?: FlowV2Trigger): FlowV2Trigger {
@@ -1967,7 +2042,10 @@ async function onSubmitMetadata() {
   if (metaSaveDisabled.value) return;
   const desc = metaDescription.value.trim();
   const kws = parseKeywords(metaKeywords.value);
-  const saved = await performSave(desc, kws);
+  const maxConcurrency = metaMaxConcurrency.value.trim()
+    ? parseMaxConcurrency(metaMaxConcurrency.value)
+    : null;
+  const saved = await performSave(desc, kws, maxConcurrency);
   if (saved) {
     closeMetaModal();
   }
@@ -1979,7 +2057,7 @@ function miniMapNodeColor() {
   return "rgb(var(--color-surface-muted))";
 }
 function miniMapNodeStroke() {
-  return "rgb(var(--color-border))";
+  return "rgb(203 213 225 / 0.9)";
 }
 
 onMounted(async () => {
@@ -2024,6 +2102,7 @@ watch(selectedIntent, async (intent) => {
     nodes.value = [];
     edges.value = [];
     activeWorkflow.value = null;
+    setCurrentEdgeStyle();
     return;
   }
   // If this is a locally-created unsaved workflow, hydrate from local instead of fetching
@@ -2033,6 +2112,7 @@ watch(selectedIntent, async (intent) => {
     isHydrating.value = true;
     try {
       activeWorkflow.value = local;
+      setCurrentEdgeStyle(local.ui?.edgeStyle);
       nodes.value = [];
       edges.value = [];
       dirty.value = false;
@@ -2137,7 +2217,8 @@ function workflowToNodes(wf: FlowEditorWorkflow): FlowEditorNode[] {
         step: JSON.parse(JSON.stringify(step)) as FlowEditorStep,
         kind: utility ? "utility" : "step",
         groupId: parents[step.id],
-        collapsed: stored?.collapsed ?? true,
+        collapsed: stored?.collapsed ?? !utility,
+        label: stored?.label,
       },
     };
   });
@@ -2223,6 +2304,7 @@ async function loadWorkflow(intent: string) {
       parents: (wf.ui?.parents ?? cached.parents) as any,
       groups: (wf.ui?.groups ?? cached.groups) as any,
       notes: (wf.ui?.notes ?? cached.notes) as any,
+      edgeStyle: wf.ui?.edgeStyle ?? cached.edgeStyle,
     };
     const mergedWf: FlowEditorWorkflow = { ...wf, ui: mergedUi };
     // Seed latest snapshot so hydration can preserve sizes
@@ -2234,6 +2316,7 @@ async function loadWorkflow(intent: string) {
       notes: mergedUi.notes ?? [],
     };
     const nextNodes = workflowToNodes(mergedWf);
+    setCurrentEdgeStyle(mergedWf.ui?.edgeStyle);
     const nextEdges = workflowToEdges(mergedWf);
 
     activeWorkflow.value = mergedWf;
@@ -2411,6 +2494,7 @@ function syncWorkflowFromNodes() {
       parents: Object.keys(uiParents).length ? uiParents : undefined,
       groups: uiGroups.length ? uiGroups : undefined,
       notes: uiNotes.length ? uiNotes : undefined,
+      edgeStyle: currentEdgeStyle.value,
     },
   };
   // Persist UI snapshot locally for this intent for resilience across reloads
@@ -2421,6 +2505,7 @@ function syncWorkflowFromNodes() {
       parents: uiParents,
       groups: uiGroups,
       notes: uiNotes,
+      edgeStyle: currentEdgeStyle.value,
     });
   } catch {}
 }
@@ -2676,23 +2761,7 @@ function createUtilityNode(
 }
 
 function appendNode(node: FlowEditorNode) {
-  const previousStep = [...nodes.value]
-    .reverse()
-    .find((candidate) => isStepLikeNode(candidate));
   nodes.value = [...nodes.value, node];
-  const prevHasStep =
-    previousStep && Boolean((previousStep!.data as any)?.step);
-  const newHasStep = isStepLikeNode(node) && Boolean((node.data as any)?.step);
-  if (newHasStep && prevHasStep && isStepLikeNode(previousStep!)) {
-    edges.value = normalizeEdgesWithCurrentStyle([
-      ...edges.value,
-      {
-        id: `e-${previousStep.id}-${node.id}`,
-        source: previousStep.id,
-        target: node.id,
-      },
-    ]);
-  }
   refreshUiSnapshot();
 }
 
@@ -2724,9 +2793,15 @@ async function onSave(): Promise<FlowEditorWorkflow | null> {
 async function performSave(
   description?: string,
   keywords?: string[],
+  maxConcurrency?: number | null,
 ): Promise<FlowEditorWorkflow | null> {
   if (!activeWorkflow.value) return null;
-  if (!dirty.value && description === undefined && keywords === undefined)
+  if (
+    !dirty.value &&
+    description === undefined &&
+    keywords === undefined &&
+    maxConcurrency === undefined
+  )
     return activeWorkflow.value;
   saving.value = true;
   error.value = "";
@@ -2755,6 +2830,10 @@ async function performSave(
       ...activeWorkflow.value,
       description: description ?? activeWorkflow.value.description,
       keywords: keywords ?? activeWorkflow.value.keywords,
+      max_concurrency:
+        maxConcurrency === undefined
+          ? activeWorkflow.value.max_concurrency
+          : maxConcurrency ?? undefined,
       steps,
       ui: {
         ...(activeWorkflow.value.ui ?? {}),
@@ -2762,6 +2841,7 @@ async function performSave(
         parents: Object.keys(parents).length ? parents : undefined,
         groups: groups.length ? groups : undefined,
         notes: notes.length ? notes : undefined,
+        edgeStyle: currentEdgeStyle.value,
       },
     };
     console.log("[DEBUG] Payload groups:", payload.ui?.groups);
@@ -2826,6 +2906,7 @@ async function performSave(
         parents: mergedUi.parents,
         groups: mergedUi.groups,
         notes: mergedUi.notes,
+        edgeStyle: mergedUi.edgeStyle,
       });
     } catch {}
     // If this workflow was locally-created, clear the local marker
@@ -2841,6 +2922,7 @@ async function performSave(
       // Seed latest snapshot so hydration preserves sizes/positions even if server omits them
       latestUiSnapshot.value = preSaveSnapshot;
       activeWorkflow.value = normalizedSaved;
+      setCurrentEdgeStyle(normalizedSaved.ui?.edgeStyle);
       nodes.value = workflowToNodes(normalizedSaved);
       edges.value = workflowToEdges(normalizedSaved);
       dirty.value = false;
@@ -3159,6 +3241,10 @@ async function onImportSelected(event: Event) {
                     collapsed: !!g.collapsed,
                   }))
               : undefined,
+            edgeStyle:
+              typeof data.ui.edgeStyle === "string"
+                ? data.ui.edgeStyle
+                : undefined,
           }
         : undefined,
   };
@@ -3179,6 +3265,7 @@ async function onImportSelected(event: Event) {
     selectedIntent.value = intent;
     await nextTick();
     activeWorkflow.value = wf;
+    setCurrentEdgeStyle(wf.ui?.edgeStyle);
     nodes.value = workflowToNodes(wf);
     edges.value = workflowToEdges(wf);
     dirty.value = false;
@@ -3196,11 +3283,11 @@ async function onImportSelected(event: Event) {
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
-  min-height: 2.25rem;
+  min-height: 2rem;
   border-radius: 0.75rem;
   border: 1px solid rgb(var(--color-border) / 0.65);
   background: rgb(var(--color-surface-muted) / 0.72);
-  padding: 0.45rem 0.9rem;
+  padding: 0.35rem 0.8rem;
   font-size: 0.8rem;
   font-weight: 600;
   color: rgb(var(--color-foreground));
@@ -3268,8 +3355,8 @@ async function onImportSelected(event: Event) {
 }
 
 .toolbar-btn-ghost {
-  min-height: auto;
-  padding: 0.35rem 0.75rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.8rem;
   font-size: 0.75rem;
 }
 
@@ -3277,8 +3364,8 @@ async function onImportSelected(event: Event) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2rem;
+  height: 2rem;
   border-radius: 0.75rem;
   border: 1px solid rgb(var(--color-border) / 0.65);
   background: rgb(var(--color-surface-muted) / 0.72);
@@ -3313,11 +3400,61 @@ async function onImportSelected(event: Event) {
   font-size: 0.72rem;
   color: rgb(var(--color-subtle-foreground));
 }
+
 </style>
 
 <style>
 /* ensure flow canvas fills area */
 .vue-flow__container {
   height: 100%;
+}
+
+.vue-flow__edge.flow-edge-active {
+  z-index: 2;
+}
+
+.vue-flow__edge.flow-edge-active .vue-flow__edge-path {
+  stroke: rgb(var(--color-accent));
+  stroke-width: 2.5;
+  filter:
+    drop-shadow(0 0 8px rgb(var(--color-accent) / 0.72))
+    drop-shadow(0 0 3px rgb(var(--color-accent) / 0.96));
+}
+
+.flow-minimap.vue-flow__minimap {
+  background: rgb(var(--color-surface) / 0.82) !important;
+  border: 1px solid rgb(var(--color-border) / 0.7);
+  border-radius: 0.75rem;
+  box-shadow:
+    0 16px 32px -24px rgb(0 0 0 / 0.85),
+    inset 0 1px 0 rgb(255 255 255 / 0.04);
+  backdrop-filter: blur(16px);
+}
+
+.flow-minimap.vue-flow__minimap svg {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-surface-muted) / 0.92),
+    rgb(var(--color-surface) / 0.96)
+  );
+  border-radius: 0.65rem;
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-mask {
+  fill: rgb(var(--color-surface) / 0.82);
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-mask-stroke {
+  stroke: rgb(var(--color-border) / 0.78);
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-node {
+  opacity: 0.95;
+}
+
+.flow-minimap.vue-flow__minimap .vue-flow__minimap-viewport {
+  fill: rgb(var(--color-accent) / 0.08);
+  stroke: rgb(var(--color-accent) / 0.72);
+  stroke-width: 1.25;
 }
 </style>

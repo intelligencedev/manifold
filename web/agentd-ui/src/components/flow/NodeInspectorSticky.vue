@@ -43,19 +43,29 @@
       <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
         >Unsaved</span
       >
+      <span
+        v-else-if="showAppliedFeedback"
+        class="text-[10px] italic text-emerald-400"
+        >Applied</span
+      >
       <button
-        class="rounded bg-accent px-2 py-1 text-[11px] font-medium text-accent-foreground transition disabled:opacity-40"
-        :disabled="!isDirty || !isDesignMode"
+        class="rounded px-2 py-1 text-[11px] font-medium transition"
+        :class="
+          showAppliedFeedback
+            ? 'bg-emerald-500 text-white shadow-[0_0_0_1px_rgba(16,185,129,0.3)]'
+            : 'bg-accent text-accent-foreground'
+        "
+        :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
         @click="applyChanges"
       >
-        Apply
+        {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref, watch, type Ref } from "vue";
+import { computed, inject, onBeforeUnmount, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import type { StickyNoteNodeData } from "@/types/flow";
 
@@ -80,6 +90,8 @@ const isDesignMode = computed(() => modeRef.value === "design");
 const noteText = ref("");
 const noteColor = ref("default");
 const isDirty = ref(false);
+const showAppliedFeedback = ref(false);
+let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 let suppress = false;
 
 watch(
@@ -105,6 +117,7 @@ watch(
 
 watch([noteText, noteColor], () => {
   if (suppress || hydratingRef.value || !isDesignMode.value) return;
+  clearAppliedFeedback();
   isDirty.value = true;
 });
 
@@ -116,7 +129,29 @@ function applyChanges() {
     color: noteColor.value,
   });
   isDirty.value = false;
+  triggerAppliedFeedback();
 }
+
+function triggerAppliedFeedback() {
+  showAppliedFeedback.value = true;
+  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
+  appliedFeedbackTimer = setTimeout(() => {
+    showAppliedFeedback.value = false;
+    appliedFeedbackTimer = null;
+  }, 1400);
+}
+
+function clearAppliedFeedback() {
+  showAppliedFeedback.value = false;
+  if (appliedFeedbackTimer) {
+    clearTimeout(appliedFeedbackTimer);
+    appliedFeedbackTimer = null;
+  }
+}
+
+onBeforeUnmount(() => {
+  clearAppliedFeedback();
+});
 </script>
 
 <style scoped>

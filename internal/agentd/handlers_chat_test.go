@@ -99,3 +99,45 @@ func TestHydrateChatMessages_IgnoresPlainMessages(t *testing.T) {
 		t.Fatalf("expected no tool metadata on plain message")
 	}
 }
+
+func TestRelatedToolMessageIDs(t *testing.T) {
+	now := time.Now().UTC()
+	msgs := []persist.ChatMessage{
+		{
+			ID:        "assistant-1",
+			SessionID: "s",
+			Role:      "assistant",
+			Content:   `{"content":"Working","tool_calls":[{"name":"search_docs","id":"call-1","args":{"q":"foo"}},{"name":"lookup","id":"call-2","args":{"q":"bar"}}]}`,
+			CreatedAt: now,
+		},
+		{
+			ID:        "tool-1",
+			SessionID: "s",
+			Role:      "tool",
+			Content:   `{"content":"result 1","tool_id":"call-1"}`,
+			CreatedAt: now.Add(time.Second),
+		},
+		{
+			ID:        "tool-2",
+			SessionID: "s",
+			Role:      "tool",
+			Content:   `{"content":"result 2","tool_id":"call-2"}`,
+			CreatedAt: now.Add(2 * time.Second),
+		},
+		{
+			ID:        "tool-3",
+			SessionID: "s",
+			Role:      "tool",
+			Content:   `{"content":"ignored","tool_id":"call-3"}`,
+			CreatedAt: now.Add(3 * time.Second),
+		},
+	}
+
+	related := relatedToolMessageIDs(msgs, msgs[0])
+	if len(related) != 2 {
+		t.Fatalf("expected 2 related tool messages, got %d", len(related))
+	}
+	if related[0] != "tool-1" || related[1] != "tool-2" {
+		t.Fatalf("unexpected related tool messages: %#v", related)
+	}
+}

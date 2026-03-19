@@ -13,6 +13,12 @@ import type {
 const baseURL = (import.meta.env.VITE_AGENTD_BASE_URL || "").replace(/\/$/, "");
 const flowV2ApiBase = `${baseURL}/api/flows/v2`;
 
+export interface FlowRunProgress {
+  status: string;
+  trace: FlowStepTrace[];
+  activeNodeIds: string[];
+}
+
 async function handleResponse<T>(resp: Response): Promise<T> {
   if (!resp.ok) {
     const text = await resp.text();
@@ -71,6 +77,7 @@ export async function runFlowWorkflow(
   prompt?: string,
   signal?: AbortSignal,
   projectId?: string,
+  onProgress?: (progress: FlowRunProgress) => void,
 ): Promise<FlowRunResult> {
   const resp = await fetch(`${flowV2ApiBase}/run`, {
     method: "POST",
@@ -87,7 +94,7 @@ export async function runFlowWorkflow(
     signal,
   });
   const start = await handleResponse<FlowV2RunResponse>(resp);
-  const final = await waitForRunCompletion(start.run_id, signal);
+  const final = await waitForRunCompletion(start.run_id, signal, onProgress);
   return {
     result: extractRunResult(final.events ?? []),
     trace: eventsToTrace(final.events ?? []),
@@ -107,6 +114,7 @@ function buildRunInput(prompt?: string): Record<string, unknown> {
 async function waitForRunCompletion(
   runId: string,
   signal?: AbortSignal,
+  onProgress?: (progress: FlowRunProgress) => void,
 ): Promise<FlowV2RunEventsResponse> {
   const startedAt = Date.now();
   while (true) {
@@ -115,6 +123,12 @@ async function waitForRunCompletion(
       { signal },
     );
     const payload = await handleResponse<FlowV2RunEventsResponse>(resp);
+    const events = payload.events ?? [];
+    onProgress?.({
+      status: payload.status ?? "",
+      trace: eventsToTrace(events),
+      activeNodeIds: activeNodeIdsFromEvents(events),
+    });
     if (payload.status && payload.status !== "running") return payload;
     if (Date.now() - startedAt > 120_000) {
       throw new Error(`run timed out while waiting for completion (${runId})`);
@@ -180,6 +194,32 @@ function eventsToTrace(events: FlowV2RunEvent[]): FlowStepTrace[] {
     byStep.set(stepId, trace);
   }
   return Array.from(byStep.values());
+}
+
+function activeNodeIdsFromEvents(events: FlowV2RunEvent[]): string[] {
+  const active = new Set<string>();
+  for (const event of events) {
+    const stepId = String(event.node_id ?? "").trim();
+    switch (event.type) {
+      case "node_started":
+        if (stepId) active.add(stepId);
+        break;
+      case "node_completed":
+      case "node_failed":
+      case "node_skipped":
+      case "node_retrying":
+        if (stepId) active.delete(stepId);
+        break;
+      case "run_failed":
+      case "run_cancelled":
+      case "run_completed":
+        active.clear();
+        break;
+      default:
+        break;
+    }
+  }
+  return Array.from(active);
 }
 
 function extractRunResult(events: FlowV2RunEvent[]): string {

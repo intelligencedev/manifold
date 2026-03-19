@@ -13,6 +13,7 @@ type baseDirCtxKey struct{}
 type sessionIDCtxKey struct{}
 type projectIDCtxKey struct{}
 type roomIDCtxKey struct{}
+type botIDCtxKey struct{}
 type matrixOutboxCtxKey struct{}
 
 // Context key for forwarding auth cookies to internal service calls.
@@ -98,6 +99,14 @@ func WithRoomID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, roomIDCtxKey{}, id)
 }
 
+// WithBotID attaches a bot identifier to ctx.
+func WithBotID(ctx context.Context, id string) context.Context {
+	if ctx == nil {
+		return context.WithValue(context.Background(), botIDCtxKey{}, id)
+	}
+	return context.WithValue(ctx, botIDCtxKey{}, id)
+}
+
 // WithMatrixOutbox attaches a Matrix outbox to ctx.
 func WithMatrixOutbox(ctx context.Context, outbox *MatrixOutbox) context.Context {
 	if ctx == nil {
@@ -140,6 +149,19 @@ func RoomIDFromContext(ctx context.Context) (string, bool) {
 		return "", false
 	}
 	if v := ctx.Value(roomIDCtxKey{}); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// BotIDFromContext returns the bot ID previously set with WithBotID.
+func BotIDFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	if v := ctx.Value(botIDCtxKey{}); v != nil {
 		if s, ok := v.(string); ok && s != "" {
 			return s, true
 		}

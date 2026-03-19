@@ -146,3 +146,97 @@ func TestMemChatStoreEnsureSessionOwnership(t *testing.T) {
 		t.Fatalf("expected ErrForbidden when ensuring existing session for different user, got %v", err)
 	}
 }
+
+func TestMemChatStoreDeleteMessageWithRelated(t *testing.T) {
+	store := newMemoryChatStore().(*memChatStore)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := store.EnsureSession(ctx, nil, "session-atomic", "Atomic"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if err := store.AppendMessages(ctx, nil, "session-atomic", []persistence.ChatMessage{
+		{ID: "user-1", Role: "user", Content: "hello", CreatedAt: now},
+		{ID: "assistant-1", Role: "assistant", Content: `{"content":"Working","tool_calls":[{"name":"search_docs","id":"call-1","args":{"q":"foo"}}]}`, CreatedAt: now.Add(time.Second)},
+		{ID: "tool-1", Role: "tool", Content: `{"content":"result","tool_id":"call-1"}`, CreatedAt: now.Add(2 * time.Second)},
+		{ID: "assistant-2", Role: "assistant", Content: "done", CreatedAt: now.Add(3 * time.Second)},
+	}, "done", "test-model"); err != nil {
+		t.Fatalf("AppendMessages: %v", err)
+	}
+	if err := store.UpdateSummary(ctx, nil, "session-atomic", "summary", 3); err != nil {
+		t.Fatalf("UpdateSummary: %v", err)
+	}
+
+	if err := store.DeleteMessageWithRelated(ctx, nil, "session-atomic", "assistant-1", []string{"tool-1"}, true); err != nil {
+		t.Fatalf("DeleteMessageWithRelated: %v", err)
+	}
+
+	msgs, err := store.ListMessages(ctx, nil, "session-atomic", 0)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages after delete, got %d", len(msgs))
+	}
+	if msgs[0].ID != "user-1" || msgs[1].ID != "assistant-2" {
+		t.Fatalf("unexpected remaining messages: %#v", msgs)
+	}
+
+	sess, err := store.GetSession(ctx, nil, "session-atomic")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess.Summary != "" || sess.SummarizedCount != 0 {
+		t.Fatalf("expected cleared summary, got %#v", sess)
+	}
+	if sess.LastMessagePreview != "done" {
+		t.Fatalf("expected preview to follow remaining tail, got %q", sess.LastMessagePreview)
+	}
+}
+
+func TestMemChatStoreDeleteMessagesAfterWithRelated(t *testing.T) {
+	store := newMemoryChatStore().(*memChatStore)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if _, err := store.EnsureSession(ctx, nil, "session-tail", "Tail"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if err := store.AppendMessages(ctx, nil, "session-tail", []persistence.ChatMessage{
+		{ID: "user-1", Role: "user", Content: "hello", CreatedAt: now},
+		{ID: "assistant-1", Role: "assistant", Content: "working", CreatedAt: now.Add(time.Second)},
+		{ID: "tool-1", Role: "tool", Content: `{"content":"result","tool_id":"call-1"}`, CreatedAt: now.Add(2 * time.Second)},
+		{ID: "assistant-2", Role: "assistant", Content: "done", CreatedAt: now.Add(3 * time.Second)},
+	}, "done", "test-model"); err != nil {
+		t.Fatalf("AppendMessages: %v", err)
+	}
+	if err := store.UpdateSummary(ctx, nil, "session-tail", "summary", 4); err != nil {
+		t.Fatalf("UpdateSummary: %v", err)
+	}
+
+	if err := store.DeleteMessagesAfterWithRelated(ctx, nil, "session-tail", "assistant-1", false, nil, true); err != nil {
+		t.Fatalf("DeleteMessagesAfterWithRelated: %v", err)
+	}
+
+	msgs, err := store.ListMessages(ctx, nil, "session-tail", 0)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 remaining messages, got %d", len(msgs))
+	}
+	if msgs[0].ID != "user-1" || msgs[1].ID != "assistant-1" {
+		t.Fatalf("unexpected remaining messages: %#v", msgs)
+	}
+
+	sess, err := store.GetSession(ctx, nil, "session-tail")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess.Summary != "" || sess.SummarizedCount != 0 {
+		t.Fatalf("expected summary reset after tail delete, got %#v", sess)
+	}
+	if sess.LastMessagePreview != "working" {
+		t.Fatalf("expected preview to be 'working', got %q", sess.LastMessagePreview)
+	}
+}

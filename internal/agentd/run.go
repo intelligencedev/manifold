@@ -86,6 +86,8 @@ type app struct {
 	playgroundHandler  http.Handler
 	projectsService    projects.ProjectService
 	workspaceManager   workspaces.WorkspaceManager
+	warppToolMu        sync.Mutex
+	warppToolNames     []string
 	authStore          *auth.Store
 	authProvider       auth.Provider
 	specStore          persist.SpecialistsStore
@@ -1013,6 +1015,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		}
 		cancelRefresh()
 	}
+
+	app.syncWarppTools(context.Background())
 
 	return app, nil
 }

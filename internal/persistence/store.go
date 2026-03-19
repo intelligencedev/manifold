@@ -40,6 +40,7 @@ type UserPreferencesStore interface {
 // PulseRoom stores per-Matrix-room automation settings.
 type PulseRoom struct {
 	RoomID               string    `json:"roomId"`
+	BotID                string    `json:"botId,omitempty"`
 	ProjectID            string    `json:"projectId,omitempty"`
 	Enabled              bool      `json:"enabled"`
 	Revision             int64     `json:"revision"`
@@ -57,6 +58,7 @@ type PulseRoom struct {
 type PulseTask struct {
 	ID                string    `json:"id"`
 	RoomID            string    `json:"roomId"`
+	BotID             string    `json:"botId,omitempty"`
 	Title             string    `json:"title"`
 	Prompt            string    `json:"prompt"`
 	IntervalSeconds   int       `json:"intervalSeconds"`
@@ -80,16 +82,16 @@ type ReactiveClaim struct {
 // PulseStore persists room-scoped automation tasks used by the Matrix pulse loop.
 type PulseStore interface {
 	Init(ctx context.Context) error
-	EnsureRoom(ctx context.Context, roomID string) (PulseRoom, error)
-	GetRoom(ctx context.Context, roomID string) (PulseRoom, error)
-	ListRooms(ctx context.Context) ([]PulseRoom, error)
+	EnsureRoom(ctx context.Context, roomID, botID string) (PulseRoom, error)
+	GetRoom(ctx context.Context, roomID, botID string) (PulseRoom, error)
+	ListRooms(ctx context.Context, botID string) ([]PulseRoom, error)
 	UpsertRoom(ctx context.Context, room PulseRoom) (PulseRoom, error)
-	ListTasks(ctx context.Context, roomID string) ([]PulseTask, error)
+	ListTasks(ctx context.Context, roomID, botID string) ([]PulseTask, error)
 	UpsertTask(ctx context.Context, task PulseTask) (PulseTask, error)
-	DeleteTask(ctx context.Context, roomID, taskID string) error
-	ClaimRoom(ctx context.Context, roomID, token string, leaseUntil time.Time) (bool, error)
-	ClearRoomClaim(ctx context.Context, roomID string) error
-	CompleteRoomPulse(ctx context.Context, roomID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
+	DeleteTask(ctx context.Context, roomID, botID, taskID string) error
+	ClaimRoom(ctx context.Context, roomID, botID, token string, leaseUntil time.Time) (bool, error)
+	ClearRoomClaim(ctx context.Context, roomID, botID string) error
+	CompleteRoomPulse(ctx context.Context, roomID, botID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
 }
 
 // ReactiveClaimStore persists short-lived room leases for reactive Matrix replies.

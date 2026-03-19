@@ -88,6 +88,9 @@ func (a *app) flowV2WorkflowDetailHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
+			if userID == systemUserID {
+				a.syncWarppTools(r.Context())
+			}
 			status := http.StatusOK
 			if created {
 				status = http.StatusCreated
@@ -105,6 +108,9 @@ func (a *app) flowV2WorkflowDetailHandler() http.HandlerFunc {
 			if !deleted {
 				http.Error(w, "workflow not found", http.StatusNotFound)
 				return
+			}
+			if userID == systemUserID {
+				a.syncWarppTools(r.Context())
 			}
 			w.WriteHeader(http.StatusNoContent)
 		default:

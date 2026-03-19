@@ -1,5 +1,5 @@
 <template>
-  <div class="space-y-2">
+  <div class="min-w-0 space-y-2 overflow-x-hidden">
     <template v-if="isObject">
       <div
         v-if="fieldLabel"
@@ -99,7 +99,7 @@
       </div>
     </template>
     <template v-else>
-      <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
+      <label class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground">
         <span class="flex items-center gap-1">
           {{ fieldLabel }}
           <span v-if="required" class="text-[10px] text-danger-foreground"
@@ -110,7 +110,7 @@
           v-if="hasEnum"
           :model-value="selectValue"
           size="xs"
-          class="text-[11px]"
+          class="w-full min-w-0 text-[11px]"
           :options="enumDropdownOptions"
           @update:modelValue="onSelectChange"
         />

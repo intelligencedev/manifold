@@ -104,6 +104,7 @@ export interface FlowV2CanvasNode {
   width?: number;
   height?: number;
   collapsed?: boolean;
+  label?: string;
 }
 
 export interface FlowV2CanvasGroup {
@@ -125,6 +126,7 @@ export interface FlowV2WorkflowCanvas {
   parents?: Record<string, string>;
   groups?: FlowV2CanvasGroup[];
   notes?: FlowV2CanvasNote[];
+  edge_style?: string;
 }
 
 export interface FlowV2ListResponse {

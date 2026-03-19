@@ -327,13 +327,13 @@ func TestFlowV2RunUsesBaseToolRegistry(t *testing.T) {
 	var completed *flow.RunEvent
 	for i := range eventsResp.Events {
 		event := &eventsResp.Events[i]
-		if event.Type == flow.RunEventTypeNodeCompleted && event.NodeID == "agent_response" {
+		if event.Type == flow.RunEventTypeNodeCompleted && event.NodeID == "textbox" {
 			completed = event
 			break
 		}
 	}
 	if completed == nil {
-		t.Fatalf("expected node_completed event for agent_response, got %+v", eventsResp.Events)
+		t.Fatalf("expected node_completed event for textbox, got %+v", eventsResp.Events)
 	}
 	inputs, ok := completed.Output["inputs"].(map[string]any)
 	if !ok {
@@ -342,8 +342,8 @@ func TestFlowV2RunUsesBaseToolRegistry(t *testing.T) {
 	if got := inputs["text"]; got != "hello" {
 		t.Fatalf("expected rendered text input hello, got %#v", got)
 	}
-	if got := inputs["render_mode"]; got != "markdown" {
-		t.Fatalf("expected rendered mode markdown, got %#v", got)
+	if _, exists := inputs["render_mode"]; exists {
+		t.Fatalf("did not expect render_mode input for textbox workflow, got %+v", inputs)
 	}
 }
 

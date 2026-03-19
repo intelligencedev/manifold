@@ -20,7 +20,7 @@ type matrixTypingSender interface {
 
 func handleDirectMessage(matrixClient matrixMessageSender, httpClient *http.Client, cfg config, pulseStore persistence.PulseStore, roomID, prompt string) {
 	sessionID := sessionIDForRoom(cfg.ManifoldSessionPrefix, roomID)
-	projectID := resolveRoomProjectID(context.Background(), pulseStore, roomID, cfg.ManifoldProjectID)
+	projectID := resolveRoomProjectID(context.Background(), pulseStore, roomID, cfg.MatrixBotUserID, cfg.ManifoldProjectID)
 	response, err := callManifold(httpClient, cfg, roomID, sessionID, projectID, prompt)
 	if err != nil {
 		log.Printf("manifold prompt error (room=%s session=%s): %v", roomID, sessionID, err)

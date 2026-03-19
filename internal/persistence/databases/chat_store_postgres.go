@@ -296,6 +296,39 @@ func (s *pgChatStore) DeleteSession(ctx context.Context, userID *int64, id strin
 	return persistence.ErrNotFound
 }
 
+func (s *pgChatStore) DeleteMessageWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, relatedMessageIDs []string, resetSummary bool) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	cmd, err := tx.Exec(ctx, `DELETE FROM chat_messages WHERE session_id = $1 AND id = $2`, sessionID, messageID)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.ErrNotFound
+	}
+	if err := s.deleteRelatedMessagesTx(ctx, tx, sessionID, relatedMessageIDs); err != nil {
+		return err
+	}
+	if err := s.finalizeChatDeleteTx(ctx, tx, userID, sessionID, resetSummary); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
 func (s *pgChatStore) DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error {
 	if strings.TrimSpace(messageID) == "" {
 		return persistence.ErrNotFound
@@ -343,6 +376,52 @@ LIMIT 1`, sessionID)
 		args = append(args, *userID)
 	}
 	if _, err := tx.Exec(ctx, update, args...); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (s *pgChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool, relatedMessageIDs []string, resetSummary bool) error {
+	if strings.TrimSpace(messageID) == "" {
+		return persistence.ErrNotFound
+	}
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var targetCreated time.Time
+	row := tx.QueryRow(ctx, `SELECT created_at FROM chat_messages WHERE session_id = $1 AND id = $2`, sessionID, messageID)
+	if err := row.Scan(&targetCreated); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return persistence.ErrNotFound
+		}
+		return err
+	}
+
+	cmp := ">"
+	if inclusive {
+		cmp = ">="
+	}
+	query := `
+DELETE FROM chat_messages
+WHERE session_id = $1
+AND (created_at > $2 OR (created_at = $2 AND id ` + cmp + ` $3))`
+	if _, err := tx.Exec(ctx, query, sessionID, targetCreated, messageID); err != nil {
+		return err
+	}
+	if err := s.deleteRelatedMessagesTx(ctx, tx, sessionID, relatedMessageIDs); err != nil {
+		return err
+	}
+	if err := s.finalizeChatDeleteTx(ctx, tx, userID, sessionID, resetSummary); err != nil {
 		return err
 	}
 
@@ -514,6 +593,66 @@ WHERE id = $1`
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (s *pgChatStore) deleteRelatedMessagesTx(ctx context.Context, tx pgx.Tx, sessionID string, relatedMessageIDs []string) error {
+	if len(relatedMessageIDs) == 0 {
+		return nil
+	}
+	for _, relatedID := range relatedMessageIDs {
+		relatedID = strings.TrimSpace(relatedID)
+		if relatedID == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM chat_messages WHERE session_id = $1 AND id = $2`, sessionID, relatedID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *pgChatStore) finalizeChatDeleteTx(ctx context.Context, tx pgx.Tx, userID *int64, sessionID string, resetSummary bool) error {
+	if resetSummary {
+		query := `
+UPDATE chat_sessions
+SET summary = '', summarized_count = 0, updated_at = NOW()
+WHERE id = $1`
+		args := []any{sessionID}
+		if userID != nil {
+			query += ` AND user_id = $2`
+			args = append(args, *userID)
+		}
+		if _, err := tx.Exec(ctx, query, args...); err != nil {
+			return err
+		}
+	}
+
+	var lastContent string
+	row := tx.QueryRow(ctx, `
+SELECT content
+FROM chat_messages
+WHERE session_id = $1
+ORDER BY created_at DESC, id DESC
+LIMIT 1`, sessionID)
+	if err := row.Scan(&lastContent); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		lastContent = ""
+	}
+
+	preview := snippetForPreview(lastContent)
+	update := `UPDATE chat_sessions SET updated_at = NOW(), last_message_preview = $2 WHERE id = $1`
+	args := []any{sessionID, preview}
+	if userID != nil {
+		update += ` AND user_id = $3`
+		args = append(args, *userID)
+	}
+	if _, err := tx.Exec(ctx, update, args...); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *pgChatStore) UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error {

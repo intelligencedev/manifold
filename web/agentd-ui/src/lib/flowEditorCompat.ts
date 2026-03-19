@@ -116,6 +116,7 @@ export function flowV2ToEditorWorkflow(
                 width: typeof node?.width === "number" ? node.width : undefined,
                 height: typeof node?.height === "number" ? node.height : undefined,
                 collapsed: typeof node?.collapsed === "boolean" ? node.collapsed : undefined,
+                label: typeof node?.label === "string" ? node.label : undefined,
               },
             ]),
           )
@@ -137,6 +138,8 @@ export function flowV2ToEditorWorkflow(
             note: note.note,
           }))
         : undefined,
+      edgeStyle:
+        typeof canvas?.edge_style === "string" ? canvas.edge_style : undefined,
     },
   };
 }
@@ -214,6 +217,7 @@ export function editorWorkflowToFlowV2(
                 height:
                   typeof layout.height === "number" ? layout.height : undefined,
                 collapsed: typeof layout.collapsed === "boolean" ? layout.collapsed : undefined,
+                label: layout.label || undefined,
               },
             ]),
           )
@@ -231,6 +235,7 @@ export function editorWorkflowToFlowV2(
         note: note.note,
         color: note.color,
       })),
+      edge_style: workflow.ui?.edgeStyle,
     },
   };
 }

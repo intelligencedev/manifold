@@ -45,6 +45,19 @@ func TestCompileWorkflow(t *testing.T) {
 				t.Fatalf("unexpected node order at %d: got=%q want=%q", i, plan.NodeOrder[i], want[i])
 			}
 		}
+		wantIndegree := map[string]int{
+			"search":    0,
+			"fetch":     1,
+			"summarize": 1,
+		}
+		if len(plan.Indegree) != len(wantIndegree) {
+			t.Fatalf("unexpected indegree size: got=%d want=%d", len(plan.Indegree), len(wantIndegree))
+		}
+		for nodeID, wantDegree := range wantIndegree {
+			if got := plan.Indegree[nodeID]; got != wantDegree {
+				t.Fatalf("unexpected indegree for %s: got=%d want=%d", nodeID, got, wantDegree)
+			}
+		}
 	})
 
 	t.Run("fails for unknown edge target", func(t *testing.T) {

@@ -13,11 +13,12 @@ func TestEvaluateRoomMarksDueTasks(t *testing.T) {
 
 	svc := NewService()
 	now := time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
-	room := persistence.PulseRoom{RoomID: "!room:test", Enabled: true}
+	room := persistence.PulseRoom{RoomID: "!room:test", BotID: "@manibot:matrix.test", Enabled: true}
 	tasks := []persistence.PulseTask{
 		{
 			ID:              "task-due",
 			RoomID:          room.RoomID,
+			BotID:           room.BotID,
 			Title:           "Check inbox",
 			Prompt:          "Review new items",
 			IntervalSeconds: 600,
@@ -27,6 +28,7 @@ func TestEvaluateRoomMarksDueTasks(t *testing.T) {
 		{
 			ID:              "task-wait",
 			RoomID:          room.RoomID,
+			BotID:           room.BotID,
 			Title:           "Review logs",
 			Prompt:          "Check log anomalies",
 			IntervalSeconds: 900,
@@ -35,7 +37,7 @@ func TestEvaluateRoomMarksDueTasks(t *testing.T) {
 		},
 	}
 
-	plan := svc.EvaluateRoom(now, room, tasks)
+	plan := svc.EvaluateRoom(now, room, tasks, room.BotID)
 	if got := len(plan.DueTasks); got != 1 {
 		t.Fatalf("expected 1 due task, got %d", got)
 	}
@@ -58,31 +60,54 @@ func TestBuildPromptIncludesTaskDetails(t *testing.T) {
 
 	svc := NewService()
 	now := time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
-	room := persistence.PulseRoom{RoomID: "!room:test", Enabled: true, ProjectID: "project-1"}
+	room := persistence.PulseRoom{RoomID: "!room:test", BotID: "@manibot:matrix.test", Enabled: true, ProjectID: "project-1"}
 	tasks := []persistence.PulseTask{{
 		ID:              "task-1",
 		RoomID:          room.RoomID,
+		BotID:           room.BotID,
 		Title:           "Prepare summary",
 		Prompt:          "Collect updates and summarize them",
 		IntervalSeconds: 300,
 		Enabled:         true,
 	}}
 
-	plan := svc.EvaluateRoom(now, room, tasks)
+	plan := svc.EvaluateRoom(now, room, tasks, room.BotID)
 	prompt := svc.BuildPrompt(now, plan, 5*time.Minute)
 	checks := []string{
 		"[pulse mode]",
 		"Room ID: !room:test",
+		"Bot ID: @manibot:matrix.test",
 		"Project ID: project-1",
+		"bot_id: @manibot:matrix.test",
 		"title: Prepare summary",
 		"Collect updates and summarize them",
-		"not posted to Matrix automatically",
-		"matrix_room_message",
+		"posted directly to the Matrix room",
+		"response will be sent to the room",
 	}
 	for _, check := range checks {
 		if !strings.Contains(prompt, check) {
 			t.Fatalf("expected prompt to contain %q, got %q", check, prompt)
 		}
+	}
+}
+
+func TestEvaluateRoomFiltersOtherBotsTasks(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService()
+	now := time.Date(2026, 3, 6, 12, 0, 0, 0, time.UTC)
+	room := persistence.PulseRoom{RoomID: "!room:test", BotID: "@gpt_bot:matrix.test", Enabled: true}
+	tasks := []persistence.PulseTask{
+		{ID: "task-gpt", RoomID: room.RoomID, BotID: room.BotID, Title: "GPT task", Prompt: "Do GPT work", IntervalSeconds: 60, Enabled: true},
+		{ID: "task-other", RoomID: room.RoomID, BotID: "@manibot:matrix.test", Title: "Other task", Prompt: "Do code work", IntervalSeconds: 60, Enabled: true},
+	}
+
+	plan := svc.EvaluateRoom(now, room, tasks, room.BotID)
+	if len(plan.Tasks) != 1 {
+		t.Fatalf("expected 1 visible task for bot, got %d", len(plan.Tasks))
+	}
+	if plan.Tasks[0].Task.ID != "task-gpt" {
+		t.Fatalf("expected GPT task, got %q", plan.Tasks[0].Task.ID)
 	}
 }
 

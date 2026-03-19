@@ -256,13 +256,7 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID st
 	}
 
 	// Apply user's tool configuration
-	if !sp.EnableTools {
-		eng.Tools = tools.NewRegistry() // empty registry
-	} else if len(sp.AllowTools) > 0 {
-		eng.Tools = tools.NewFilteredRegistry(a.baseToolRegistry, sp.AllowTools)
-	} else {
-		eng.Tools = a.baseToolRegistry // all tools
-	}
+	eng.Tools = tools.ApplyTopLevelPolicy(a.baseToolRegistry, sp.EnableTools, sp.AllowTools)
 
 	// Apply user's system prompt if set.
 	// This should preserve the user-scoped specialists catalog.
@@ -604,7 +598,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	toolRegistry.Register(cli.NewTool(exec))
-	toolRegistry.Register(web.NewTool(cfg.Web.SearXNGURL))
 	toolRegistry.Register(web.NewScreenshotTool())
 	toolRegistry.Register(web.NewFetchTool(mgr.Search))
 	toolRegistry.Register(patchtool.New(cfg.Workdir))

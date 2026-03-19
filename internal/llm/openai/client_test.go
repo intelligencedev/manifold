@@ -3,8 +3,10 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,33 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/llm"
 )
+
+type rewriteTransport struct {
+	target *url.URL
+	base   http.RoundTripper
+}
+
+func (t rewriteTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.URL.Scheme = t.target.Scheme
+	clone.URL.Host = t.target.Host
+	clone.Host = t.target.Host
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(clone)
+}
+
+func openAICloudTestClient(serverURL string) (*http.Client, error) {
+	target, err := url.Parse(serverURL)
+	if err != nil {
+		return nil, err
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{Timeout: 2 * time.Second}).DialContext
+	return &http.Client{Transport: rewriteTransport{target: target, base: transport}}, nil
+}
 
 func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	// Start a test server that mimics minimal OpenAI Chat Completion response.
@@ -35,6 +64,90 @@ func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	}
 	if msg.Content != "hello" {
 		t.Fatalf("expected hello, got %q", msg.Content)
+	}
+}
+
+func TestChatWithOptions_AppendsWebSearchOptions(t *testing.T) {
+	var payload map[string]any
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hello","tool_calls":[]}}]}`))
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	httpClient, err := openAICloudTestClient(srv.URL)
+	if err != nil {
+		t.Fatalf("test client: %v", err)
+	}
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5-search-api"}
+	cli := New(c, httpClient)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = cli.ChatWithOptions(ctx, []llm.Message{{Role: "user", Content: "hi"}}, []llm.ToolSchema{{
+		Name:        "run_cli",
+		Description: "Execute a command",
+		Parameters:  map[string]any{"type": "object", "properties": map[string]any{"cmd": map[string]any{"type": "string"}}},
+	}}, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tools, ok := payload["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected one regular tool payload, got %#v", payload["tools"])
+	}
+	webSearchOptions, ok := payload["web_search_options"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected web_search_options in payload, got %#v", payload)
+	}
+	if webSearchOptions["search_context_size"] != "medium" {
+		t.Fatalf("expected default search_context_size=medium, got %#v", webSearchOptions)
+	}
+}
+
+func TestChatResponses_AppendsNativeWebSearchTool(t *testing.T) {
+	var payload map[string]any
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp_1","output":[{"type":"message","id":"msg_1","status":"completed","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}}`))
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	httpClient, err := openAICloudTestClient(srv.URL)
+	if err != nil {
+		t.Fatalf("test client: %v", err)
+	}
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5.4", API: "responses"}
+	cli := New(c, httpClient)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = cli.ChatWithOptions(ctx, []llm.Message{{Role: "user", Content: "hi"}}, []llm.ToolSchema{{Name: "run_cli", Parameters: map[string]any{"type": "object", "properties": map[string]any{}}}}, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	tools, ok := payload["tools"].([]any)
+	if !ok || len(tools) != 2 {
+		t.Fatalf("expected function tool plus native web_search, got %#v", payload["tools"])
+	}
+	seenWebSearch := false
+	for _, item := range tools {
+		obj, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if obj["type"] == "web_search" {
+			seenWebSearch = true
+		}
+	}
+	if !seenWebSearch {
+		t.Fatalf("expected responses payload to include native web_search, got %#v", tools)
 	}
 }
 

@@ -12,6 +12,9 @@ import (
 func AdaptSchemas(schemas []llm.ToolSchema) []sdk.ChatCompletionToolUnionParam {
 	out := make([]sdk.ChatCompletionToolUnionParam, 0, len(schemas))
 	for _, s := range schemas {
+		if isNativeWebSearchSchema(s.Name) {
+			continue
+		}
 		def := sdk.FunctionDefinitionParam{
 			Name:        s.Name,
 			Description: sdk.String(s.Description),
@@ -19,6 +22,40 @@ func AdaptSchemas(schemas []llm.ToolSchema) []sdk.ChatCompletionToolUnionParam {
 		}
 		out = append(out, sdk.ChatCompletionFunctionTool(def))
 	}
+	return out
+}
+
+func isNativeWebSearchSchema(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "web_search")
+}
+
+func hasNativeWebSearchSchema(schemas []llm.ToolSchema) bool {
+	for _, schema := range schemas {
+		if isNativeWebSearchSchema(schema.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+func nativeWebSearchSchema() llm.ToolSchema {
+	return llm.ToolSchema{
+		Name:        "web_search",
+		Description: "Search the web for relevant sources.",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}
+}
+
+func appendNativeWebSearchSchema(schemas []llm.ToolSchema) []llm.ToolSchema {
+	if hasNativeWebSearchSchema(schemas) {
+		return schemas
+	}
+	out := make([]llm.ToolSchema, 0, len(schemas)+1)
+	out = append(out, schemas...)
+	out = append(out, nativeWebSearchSchema())
 	return out
 }
 

@@ -110,7 +110,10 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 	} else if strings.TrimSpace(srv.URL) != "" {
 		// Connect via Streamable HTTP transport to remote server
 		httpClient := buildMCPHTTPClient(srv)
-		transport := &mcppkg.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: httpClient}
+		// Some remote MCP servers, including Recorded Future, hang the standalone
+		// session-bound SSE GET stream. Disabling it keeps the standard POST-based
+		// handshake and request/response flow working reliably.
+		transport := &mcppkg.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: httpClient, DisableStandaloneSSE: true}
 		session, err = client.Connect(ctx, transport, nil)
 	} else {
 		return fmt.Errorf("invalid config: neither command nor url provided")

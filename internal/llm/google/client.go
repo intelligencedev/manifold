@@ -566,6 +566,7 @@ func toContents(msgs []llm.Message) ([]*genai.Content, error) {
 					args = map[string]any{"input": string(tc.Args)}
 				}
 				p := genai.NewPartFromFunctionCall(tc.Name, args)
+				p.FunctionCall.ID = tc.ID
 				if sigBytes, ok := decodeThoughtSignature(tc.ThoughtSignature); ok {
 					p.ThoughtSignature = sigBytes
 				}

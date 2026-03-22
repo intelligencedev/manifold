@@ -136,7 +136,7 @@ func TestDispatchOptionsFromDescriptorCarriesIncludeSummary(t *testing.T) {
 	t.Parallel()
 
 	userID := int64(7)
-	opts := dispatchOptionsFromDescriptor(chatTargetDescriptor{IncludeSummary: true}, "hello", "sess-1", &userID)
+	opts := dispatchOptionsFromDescriptor(chatTargetDescriptor{IncludeSummary: true}, "hello", "sess-1", false, &userID)
 	if !opts.IncludeSummary {
 		t.Fatal("expected include summary flag to be preserved")
 	}

@@ -138,6 +138,13 @@ func (p *MCPServerPool) RegisterFromConfig(ctx context.Context, reg tools.Regist
 			continue
 		}
 
+		// Skip remote HTTP servers without a bearer token — they likely require
+		// OAuth which is handled later by RefreshMCPServersOnStartup.
+		if srv.URL != "" && srv.BearerToken == "" {
+			log.Debug().Str("server", srv.Name).Msg("deferring_remote_mcp_server_without_token")
+			continue
+		}
+
 		// For simple mode or non-path-dependent servers: register to shared manager
 		if err := p.shared.RegisterOne(ctx, reg, srv); err != nil {
 			log.Warn().Err(err).Str("server", srv.Name).Msg("shared_mcp_register_failed")

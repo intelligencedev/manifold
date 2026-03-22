@@ -92,6 +92,17 @@ func ensureChatSession(ctx context.Context, store persist.ChatStore, userID *int
 	return store.EnsureSession(ctx, userID, sessionID, "Conversation")
 }
 
+func cleanupEphemeralChatSession(store persist.ChatStore, userID *int64, sessionID string) {
+	if store == nil || strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := store.DeleteSession(ctx, userID, sessionID); err != nil && !errors.Is(err, persist.ErrNotFound) {
+		log.Warn().Err(err).Str("session", sessionID).Msg("cleanup_ephemeral_chat_session_failed")
+	}
+}
+
 func previewSnippet(content string) string {
 	if strings.TrimSpace(content) == "" {
 		return ""

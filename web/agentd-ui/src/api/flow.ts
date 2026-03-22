@@ -116,7 +116,6 @@ async function waitForRunCompletion(
   signal?: AbortSignal,
   onProgress?: (progress: FlowRunProgress) => void,
 ): Promise<FlowV2RunEventsResponse> {
-  const startedAt = Date.now();
   while (true) {
     const resp = await fetch(
       `${flowV2ApiBase}/runs/${encodeURIComponent(runId)}/events`,
@@ -130,9 +129,6 @@ async function waitForRunCompletion(
       activeNodeIds: activeNodeIdsFromEvents(events),
     });
     if (payload.status && payload.status !== "running") return payload;
-    if (Date.now() - startedAt > 120_000) {
-      throw new Error(`run timed out while waiting for completion (${runId})`);
-    }
     await sleepWithSignal(250, signal);
   }
 }

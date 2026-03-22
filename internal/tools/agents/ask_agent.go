@@ -120,6 +120,7 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	// This allows delegated agents to share the same conversation context.
 	sessionID := strings.TrimSpace(args.SessionID)
 	fromContext := false
+	ephemeralSession := false
 	if sessionID == "" {
 		if ctxSID, ok := sandbox.SessionIDFromContext(ctx); ok {
 			sessionID = ctxSID
@@ -130,6 +131,7 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	switch {
 	case sessionID == "":
 		sessionID = uuid.NewString()
+		ephemeralSession = true
 	case !fromContext:
 		// Only convert non-UUID values that came from the LLM args, not from context
 		if _, err := uuid.Parse(sessionID); err != nil {
@@ -155,6 +157,9 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 
 	body := map[string]any{"prompt": args.Prompt, "session_id": sessionID}
+	if ephemeralSession {
+		body["ephemeral_session"] = true
+	}
 	if len(args.History) > 0 {
 		body["history"] = args.History
 	}

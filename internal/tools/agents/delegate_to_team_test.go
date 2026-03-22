@@ -203,3 +203,30 @@ func TestDelegateToTeam_DefaultTimeoutIsApplied(t *testing.T) {
 		t.Fatalf("expected timeout error, got %q", errMsg)
 	}
 }
+
+func TestDelegateToTeam_UnsetSessionUsesEphemeralSession(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":"ok"}`))
+	}))
+	defer srv.Close()
+
+	tool := NewDelegateToTeamTool(srv.Client(), srv.URL, 0)
+	raw, _ := json.Marshal(map[string]any{
+		"team":   "theta",
+		"prompt": "ephemeral please",
+	})
+	_, err := tool.Call(context.Background(), raw)
+	if err != nil {
+		t.Fatalf("call err: %v", err)
+	}
+
+	if ephemeral, ok := gotBody["ephemeral_session"].(bool); !ok || !ephemeral {
+		t.Fatalf("expected ephemeral_session=true, got %#v", gotBody["ephemeral_session"])
+	}
+	if sid, ok := gotBody["session_id"].(string); !ok || sid == "" {
+		t.Fatalf("expected generated session_id, got %#v", gotBody["session_id"])
+	}
+}

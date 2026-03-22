@@ -3,6 +3,7 @@ package mcpclient
 import (
 	"context"
 	"testing"
+	"time"
 
 	"manifold/internal/config"
 
@@ -35,5 +36,12 @@ func TestMCPTool_Name(t *testing.T) {
 	tool := &mcpTool{server: "s", session: nil, tool: &mcppkg.Tool{Name: "t", Description: "d"}}
 	if n := tool.Name(); n == "" {
 		t.Fatalf("empty name")
+	}
+}
+
+func TestBuildMCPHTTPClient_DefaultTimeout(t *testing.T) {
+	client := buildMCPHTTPClient(config.MCPServerConfig{URL: "https://example.com/mcp"})
+	if client.Timeout != 30*time.Second {
+		t.Fatalf("expected default timeout of 30s, got %s", client.Timeout)
 	}
 }

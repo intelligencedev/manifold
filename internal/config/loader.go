@@ -283,6 +283,11 @@ func applyDefaults(cfg *Config) {
 	if cfg.Embedding.Timeout <= 0 {
 		cfg.Embedding.Timeout = 30
 	}
+	for i := range cfg.MCP.Servers {
+		if cfg.MCP.Servers[i].HTTP.TimeoutSeconds <= 0 {
+			cfg.MCP.Servers[i].HTTP.TimeoutSeconds = 30
+		}
+	}
 	if cfg.Databases.Search.Backend == "" {
 		if cfg.Databases.DefaultDSN != "" {
 			cfg.Databases.Search.Backend = "auto"

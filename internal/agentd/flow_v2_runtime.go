@@ -266,7 +266,7 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 
-	launchNode := func(nodeID string) {
+	launchNode := func(nodeID string) bool {
 		node, ok := nodeByID[nodeID]
 		if !ok {
 			stateMu.Lock()
@@ -275,14 +275,18 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 				cancelRun()
 			}
 			stateMu.Unlock()
-			return
+			return false
 		}
 		launched[nodeID] = true
 		go func(node flow.Node) {
-			if guard := strings.TrimSpace(node.Guard); guard != "" {
+			outputsSnapshot := func() map[string]map[string]any {
 				stateMu.RLock()
-				guardValue, guardErr := evalFlowExpression(guard, input, nodeOutputs)
-				stateMu.RUnlock()
+				defer stateMu.RUnlock()
+				return cloneNodeOutputs(nodeOutputs)
+			}()
+
+			if guard := strings.TrimSpace(node.Guard); guard != "" {
+				guardValue, guardErr := evalFlowExpression(guard, input, outputsSnapshot)
 				if guardErr != nil {
 					resultCh <- flowNodeResult{nodeID: node.ID, err: fmt.Errorf("node %s guard: %w", node.ID, guardErr)}
 					return
@@ -300,9 +304,7 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 				Message: "node started",
 			})
 
-			stateMu.RLock()
-			resolvedInputs, err := resolveNodeInputs(node, plan.Incoming[node.ID], nodeOutputs, input)
-			stateMu.RUnlock()
+			resolvedInputs, err := resolveNodeInputs(node, plan.Incoming[node.ID], outputsSnapshot, input)
 			if err != nil {
 				resultCh <- flowNodeResult{nodeID: node.ID, err: err}
 				return
@@ -311,6 +313,7 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 			output, err := a.executeFlowV2NodeWithRetries(runCtx, node, resolvedInputs, reg, toolSet, defaultExec, emit)
 			resultCh <- flowNodeResult{nodeID: node.ID, output: output, err: err}
 		}(node)
+		return true
 	}
 
 	readyQueue := make([]string, 0, len(wf.Nodes))
@@ -338,8 +341,9 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 		for *active < maxConcurrency && len(readyQueue) > 0 {
 			next := readyQueue[0]
 			readyQueue = readyQueue[1:]
-			launchNode(next)
-			*active = *active + 1
+			if launchNode(next) {
+				*active = *active + 1
+			}
 		}
 	}
 
@@ -595,11 +599,22 @@ func resolveNodeInputs(node flow.Node, incoming []flow.Edge, outputs map[string]
 	return resolved, nil
 }
 
+func cloneNodeOutputs(outputs map[string]map[string]any) map[string]map[string]any {
+	cloned := make(map[string]map[string]any, len(outputs))
+	for nodeID, output := range outputs {
+		cloned[nodeID] = cloneMap(output)
+	}
+	return cloned
+}
+
 func evalFlowExpression(expr string, runInput map[string]any, outputs map[string]map[string]any) (any, error) {
 	// Multi-expression: multiple ={{ ... }} blocks separated by newlines.
 	// Evaluate each line independently and concatenate results with newlines.
 	if strings.Count(expr, "={{") > 1 {
 		lines := strings.Split(expr, "\n")
+		if len(lines) <= 1 {
+			goto singleExpression
+		}
 		var parts []string
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
@@ -615,6 +630,7 @@ func evalFlowExpression(expr string, runInput map[string]any, outputs map[string
 		return strings.Join(parts, "\n"), nil
 	}
 
+singleExpression:
 	norm := normalizeFlowExpression(expr)
 	if strings.HasPrefix(norm, "$run.input") {
 		path := strings.TrimPrefix(norm, "$run.input")

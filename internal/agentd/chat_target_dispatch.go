@@ -23,6 +23,7 @@ func workflowLikeTimeout(workflowSeconds, fallbackSeconds int) int {
 type chatTargetDispatchOptions struct {
 	Prompt               string
 	SessionID            string
+	EphemeralSession     bool
 	UserID               *int64
 	IncludeSummary       bool
 	RunContext           context.Context
@@ -119,10 +120,11 @@ func writeChatTargetBuildError(w http.ResponseWriter, build chatEngineBuildResul
 	}
 }
 
-func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sessionID string, userID *int64) chatTargetDispatchOptions {
+func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sessionID string, ephemeralSession bool, userID *int64) chatTargetDispatchOptions {
 	return chatTargetDispatchOptions{
 		Prompt:               prompt,
 		SessionID:            sessionID,
+		EphemeralSession:     ephemeralSession,
 		UserID:               userID,
 		IncludeSummary:       descriptor.IncludeSummary,
 		RunContext:           descriptor.RunContext,
@@ -195,7 +197,7 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 	if runCtx == nil {
 		runCtx = r.Context()
 	}
-	req := chatRunRequest{Prompt: opts.Prompt, SessionID: opts.SessionID}
+	req := chatRunRequest{Prompt: opts.Prompt, SessionID: opts.SessionID, EphemeralSession: opts.EphemeralSession}
 
 	if r.Header.Get("Accept") == "text/event-stream" {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -224,7 +226,7 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 	return true
 }
 
-func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID, systemPromptOverride string, userID *int64, owner int64, fallback chatTargetDescriptor) bool {
+func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID string, ephemeralSession bool, systemPromptOverride string, userID *int64, owner int64, fallback chatTargetDescriptor) bool {
 	descriptor, ok := a.describeChatTarget(target, systemPromptOverride, owner)
 	if !ok {
 		if fallback.Build == nil {
@@ -236,5 +238,5 @@ func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target ch
 	if descriptor.RunContext == nil {
 		descriptor.RunContext = r.Context()
 	}
-	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, prompt, sessionID, userID))
+	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, prompt, sessionID, ephemeralSession, userID))
 }

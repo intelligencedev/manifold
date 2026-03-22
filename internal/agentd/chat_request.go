@@ -13,14 +13,15 @@ import (
 )
 
 type chatRunRequest struct {
-	Prompt       string `json:"prompt"`
-	SessionID    string `json:"session_id,omitempty"`
-	ProjectID    string `json:"project_id,omitempty"`
-	RoomID       string `json:"room_id,omitempty"`
-	BotID        string `json:"bot_id,omitempty"`
-	SystemPrompt string `json:"system_prompt,omitempty"`
-	Image        bool   `json:"image,omitempty"`
-	ImageSize    string `json:"image_size,omitempty"`
+	Prompt           string `json:"prompt"`
+	SessionID        string `json:"session_id,omitempty"`
+	EphemeralSession bool   `json:"ephemeral_session,omitempty"`
+	ProjectID        string `json:"project_id,omitempty"`
+	RoomID           string `json:"room_id,omitempty"`
+	BotID            string `json:"bot_id,omitempty"`
+	SystemPrompt     string `json:"system_prompt,omitempty"`
+	Image            bool   `json:"image,omitempty"`
+	ImageSize        string `json:"image_size,omitempty"`
 }
 
 type chatDispatchTarget struct {

@@ -22,6 +22,8 @@ import (
 	"manifold/internal/version"
 )
 
+const defaultRemoteMCPHTTPTimeout = 30 * time.Second
+
 // Manager holds active MCP client sessions and generated tool wrappers.
 type Manager struct {
 	sessions  map[string]*mcppkg.ClientSession
@@ -334,6 +336,8 @@ func buildMCPHTTPClient(srv config.MCPServerConfig) *http.Client {
 	cli := &http.Client{Transport: rt}
 	if srv.HTTP.TimeoutSeconds > 0 {
 		cli.Timeout = time.Duration(srv.HTTP.TimeoutSeconds) * time.Second
+	} else {
+		cli.Timeout = defaultRemoteMCPHTTPTimeout
 	}
 	return cli
 }

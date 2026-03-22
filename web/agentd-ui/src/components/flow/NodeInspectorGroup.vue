@@ -53,7 +53,7 @@
         >Applied</span
       >
       <button
-        class="rounded px-2 py-1 text-[11px] font-medium transition"
+        class="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition active:scale-95"
         :class="
           showAppliedFeedback
             ? 'bg-emerald-500 text-white shadow-[0_0_0_1px_rgba(16,185,129,0.3)]'
@@ -62,6 +62,7 @@
         :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
         @click="applyChanges"
       >
+        <svg v-if="showAppliedFeedback" class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
         {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
       </button>
     </div>

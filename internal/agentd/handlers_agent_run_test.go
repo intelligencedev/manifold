@@ -113,6 +113,59 @@ func TestAgentRunHandlerUsesSharedDevMockFallback(t *testing.T) {
 	}
 }
 
+func TestAgentRunHandlerDeletesEphemeralSessionAfterSuccess(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	baseProvider := &testhelpers.FakeProvider{Resp: llm.Message{Role: "assistant", Content: "temporary response"}}
+	baseTools := tools.NewRegistry()
+	a := &app{
+		cfg: &config.Config{
+			Workdir:  ".",
+			MaxSteps: 2,
+			OpenAI: config.OpenAIConfig{
+				APIKey: "test",
+				Model:  "orchestrator-model",
+			},
+			LLMClient: config.LLMClientConfig{
+				Provider: "openai",
+				OpenAI: config.OpenAIConfig{
+					APIKey: "test",
+					Model:  "orchestrator-model",
+				},
+			},
+		},
+		llm:              baseProvider,
+		baseToolRegistry: baseTools,
+		chatStore:        chatStore,
+		chatMemory:       memory.NewManager(chatStore, baseProvider, memory.Config{}),
+		runs:             newRunStore(),
+		engine: &agent.Engine{
+			LLM:      baseProvider,
+			Tools:    baseTools,
+			Model:    "orchestrator-model",
+			MaxSteps: 2,
+		},
+	}
+
+	body := bytes.NewBufferString(`{"prompt":"hello","session_id":"ephemeral-sess","ephemeral_session":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/agent/run", body)
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	a.agentRunHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, exists := chatStore.sessions["ephemeral-sess"]; exists {
+		t.Fatalf("expected ephemeral session to be removed after success")
+	}
+	if msgs := chatStore.messages["ephemeral-sess"]; len(msgs) != 0 {
+		t.Fatalf("expected ephemeral session messages to be removed, got %d", len(msgs))
+	}
+}
+
 type agentRunFunctionalTool struct {
 	name string
 	call func(context.Context, json.RawMessage) (any, error)

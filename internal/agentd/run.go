@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -96,6 +98,7 @@ type app struct {
 	userPrefsStore     persist.UserPreferencesStore
 	mcpManager         *mcpclient.Manager
 	mcpPool            *mcpclient.MCPServerPool
+	startupMCPOAuthIDs []int64
 	tokenMetrics       tokenMetricsProvider
 	traceMetrics       *clickhouseTraceMetrics
 	runMetrics         *clickhouseRunMetrics
@@ -356,11 +359,61 @@ func Run() {
 	}
 
 	root := a.wrapWithMiddleware(mux)
+	if len(a.startupMCPOAuthIDs) > 0 {
+		// Use the same base origin as the OAuth redirect_uri so that cookies set
+		// during the bootstrap redirect are on the same host the auth server will
+		// redirect back to (e.g. localhost vs 127.0.0.1 are different cookie origins).
+		oauthBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
+		if oauthBase == "" || oauthBase == a.cfg.Auth.RedirectURL {
+			oauthBase = "http://localhost:32180"
+		}
+		go a.launchStartupMCPOAuthPrompts(oauthBase)
+	}
 
 	log.Info().Msg("agentd listening on :32180")
 	if err := http.ListenAndServe(":32180", root); err != nil {
 		log.Fatal().Err(err).Msg("server failed")
 	}
+}
+
+func (a *app) launchStartupMCPOAuthPrompts(baseURL string) {
+	if len(a.startupMCPOAuthIDs) == 0 {
+		return
+	}
+
+	client := &http.Client{Timeout: time.Second}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(baseURL + "/healthz")
+		if err == nil {
+			resp.Body.Close()
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	for _, serverID := range a.startupMCPOAuthIDs {
+		bootstrapURL := fmt.Sprintf("%s/api/mcp/oauth/bootstrap?serverId=%d", baseURL, serverID)
+		if err := openBrowser(bootstrapURL); err != nil {
+			log.Warn().Err(err).Int64("server_id", serverID).Msg("mcp_startup_oauth_browser_open_failed")
+			continue
+		}
+		log.Info().Int64("server_id", serverID).Msg("mcp_startup_oauth_browser_opened")
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
+func openBrowser(target string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", target)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", target)
+	default:
+		cmd = exec.Command("xdg-open", target)
+	}
+	return cmd.Start()
 }
 
 func loadEnv() error {
@@ -681,7 +734,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(toolRegistry)).Msg("tool_registry_contents")
 
 	mcpMgr := mcpclient.NewManager()
-	ctxInit, cancelInit := context.WithTimeout(ctx, 20*time.Second)
+	ctxInit, cancelInit := context.WithTimeout(ctx, 30*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, baseToolRegistry, cfg.MCP)
 
 	requiresPerUserMCP := false
@@ -708,6 +761,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 			for _, s := range servers {
 				if s.Disabled {
+					continue
+				}
+				if s.URL != "" {
+					log.Debug().Str("server", s.Name).Msg("skipping_remote_db_mcp_server_during_init")
 					continue
 				}
 				cfgSrv := convertToConfig(s)
@@ -755,7 +812,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Register non-path-dependent servers to the pool (shared)
 	// Path-dependent servers are registered per-user on project switch when auth is enabled
-	ctxPool, cancelPool := context.WithTimeout(ctx, 20*time.Second)
+	ctxPool, cancelPool := context.WithTimeout(ctx, 30*time.Second)
 	if err := mcpPool.RegisterFromConfig(ctxPool, baseToolRegistry); err != nil {
 		log.Warn().Err(err).Msg("mcp_pool_registration_failed")
 	}
@@ -1003,8 +1060,11 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// and other dependencies needed for OAuth token refresh.
 	if mgr.MCP != nil {
 		ctxRefresh, cancelRefresh := context.WithTimeout(ctx, 30*time.Second)
-		if err := app.RefreshMCPServersOnStartup(ctxRefresh, systemUserID); err != nil {
+		pendingAuthIDs, err := app.RefreshMCPServersOnStartup(ctxRefresh, systemUserID)
+		if err != nil {
 			log.Warn().Err(err).Msg("mcp_oauth_refresh_on_startup_failed")
+		} else if !cfg.Auth.Enabled {
+			app.startupMCPOAuthIDs = pendingAuthIDs
 		}
 		cancelRefresh()
 	}

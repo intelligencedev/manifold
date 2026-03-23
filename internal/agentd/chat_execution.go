@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -249,6 +250,9 @@ func chatStoreModel(eng *agent.Engine, override string) string {
 }
 
 func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatStreamOptions) {
+	if req.EphemeralSession {
+		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
+	}
 	stream, err := newChatSSEWriter(w)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -308,7 +312,11 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 	result, err := eng.RunStream(ctx, req.Prompt, history)
 	if err != nil {
 		logStreamContextDone(err, r, opts.Endpoint, req.SessionID, req.ProjectID, "")
-		log.Error().Err(err).Msg("agent run error")
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			log.Warn().Err(err).Msg("agent run cancelled")
+		} else {
+			log.Error().Err(err).Msg("agent run error")
+		}
 		if opts.StructuredErrors {
 			stream.write(map[string]string{"type": "error", "data": "(error) " + err.Error()})
 		} else if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
@@ -330,6 +338,9 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 }
 
 func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) {
+	if req.EphemeralSession {
+		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
+	}
 	seconds := opts.TimeoutSeconds
 	if seconds <= 0 {
 		seconds = a.cfg.AgentRunTimeoutSeconds
@@ -344,7 +355,11 @@ func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx con
 
 	result, err := eng.Run(ctx, req.Prompt, history)
 	if err != nil {
-		log.Error().Err(err).Msg("agent run error")
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			log.Warn().Err(err).Msg("agent run cancelled")
+		} else {
+			log.Error().Err(err).Msg("agent run error")
+		}
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		a.runs.updateStatus(runID, "failed", 0)
 		a.commitWorkspace(ctx, checkedOutWorkspace)

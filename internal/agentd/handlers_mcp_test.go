@@ -60,6 +60,14 @@ func buildTestApp(t *testing.T, httpClient *http.Client, store persist.MCPStore)
 	return a
 }
 
+func cookiesByName(rec *httptest.ResponseRecorder) map[string]*http.Cookie {
+	out := make(map[string]*http.Cookie)
+	for _, cookie := range rec.Result().Cookies() {
+		out[cookie.Name] = cookie
+	}
+	return out
+}
+
 // TestMCPCreateAndList verifies basic create + list behaviour.
 func TestMCPCreateAndList(t *testing.T) {
 	store := databases.NewMCPStore(nil) // in-memory
@@ -163,6 +171,43 @@ func TestMCPOAuthStartDynamicRegistration(t *testing.T) {
 	}
 }
 
+func TestMCPOAuthBootstrapRedirectsForStartup(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	srv, err := store.Upsert(context.Background(), 0, persist.MCPServer{Name: "boot", URL: "https://resource.example/data", OAuthClientID: "cid123"})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	transport := func(r *http.Request) *http.Response {
+		switch {
+		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
+			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
+			b, _ := json.Marshal(meta)
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
+		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		default:
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+		}
+	}
+
+	a := buildTestApp(t, newTestHTTPClient(transport), store)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/mcp/oauth/bootstrap?serverId=%d", srv.ID), nil)
+	rec := httptest.NewRecorder()
+	a.mcpOAuthBootstrapHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302 bootstrap redirect, got %d", rec.Code)
+	}
+	location := rec.Header().Get("Location")
+	if !strings.Contains(location, "https://auth.example/authorize") {
+		t.Fatalf("unexpected bootstrap redirect location: %s", location)
+	}
+	if len(cookiesByName(rec)) == 0 {
+		t.Fatal("expected bootstrap flow to set oauth cookies")
+	}
+}
+
 // TestMCPOAuthCallbackTokenExchange simulates completing OAuth code flow.
 func TestMCPOAuthCallbackTokenExchange(t *testing.T) {
 	store := databases.NewMCPStore(nil)
@@ -195,8 +240,8 @@ func TestMCPOAuthCallbackTokenExchange(t *testing.T) {
 	stateVal := strings.Join([]string{state, srv.URL, "0", fmt.Sprintf("%d", srv.ID)}, "|")
 	callbackURL := "http://localhost/api/mcp/oauth/callback?state=" + url.QueryEscape(state) + "&code=authcode123"
 	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
-	req.AddCookie(&http.Cookie{Name: "mcp_oauth_state", Value: stateVal})
-	req.AddCookie(&http.Cookie{Name: "mcp_oauth_pkce", Value: "verifier123"})
+	req.AddCookie(&http.Cookie{Name: mcpOAuthCookieName(mcpOAuthStateCookiePrefix, state), Value: stateVal})
+	req.AddCookie(&http.Cookie{Name: mcpOAuthCookieName(mcpOAuthPKCECookiePrefix, state), Value: "verifier123"})
 	rec := httptest.NewRecorder()
 	a.mcpOAuthCallbackHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -209,6 +254,70 @@ func TestMCPOAuthCallbackTokenExchange(t *testing.T) {
 	}
 	if time.Until(updated.OAuthExpiresAt) <= 0 {
 		t.Fatalf("expiry not set")
+	}
+}
+
+func TestMCPOAuthOverlappingStartsDoNotOverwriteState(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	srv, _ := store.Upsert(context.Background(), 0, persist.MCPServer{Name: "cb", URL: "https://resource.example/data", OAuthClientID: "cid123"})
+
+	transport := func(r *http.Request) *http.Response {
+		switch {
+		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
+			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
+			b, _ := json.Marshal(meta)
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
+		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
+			b := `{"access_token":"atk123","refresh_token":"rtk456","expires_in":3600,"token_type":"Bearer"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		default:
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+		}
+	}
+
+	a := buildTestApp(t, newTestHTTPClient(transport), store)
+	start := a.mcpOAuthStartHandler()
+
+	startFlow := func() (*httptest.ResponseRecorder, string) {
+		body := strings.NewReader(fmt.Sprintf(`{"serverId":%d}`, srv.ID))
+		req := httptest.NewRequest(http.MethodPost, "/api/mcp/oauth/start", body)
+		rec := httptest.NewRecorder()
+		start.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 start, got %d", rec.Code)
+		}
+		var resp map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal start response: %v", err)
+		}
+		redirectURL := resp["redirectUrl"]
+		parsed, err := url.Parse(redirectURL)
+		if err != nil {
+			t.Fatalf("parse redirect url: %v", err)
+		}
+		return rec, parsed.Query().Get("state")
+	}
+
+	firstRec, firstState := startFlow()
+	secondRec, _ := startFlow()
+
+	jar := cookiesByName(firstRec)
+	for name, cookie := range cookiesByName(secondRec) {
+		jar[name] = cookie
+	}
+
+	callbackURL := "http://localhost/api/mcp/oauth/callback?state=" + url.QueryEscape(firstState) + "&code=authcode123"
+	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	for _, cookie := range jar {
+		callbackReq.AddCookie(cookie)
+	}
+	callbackRec := httptest.NewRecorder()
+	a.mcpOAuthCallbackHandler().ServeHTTP(callbackRec, callbackReq)
+	if callbackRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 callback for original state, got %d body=%s", callbackRec.Code, callbackRec.Body.String())
 	}
 }
 

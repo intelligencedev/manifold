@@ -73,7 +73,11 @@ func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, 
 	return sess, nil
 }
 
-func (s *promptHandlerChatStore) DeleteSession(context.Context, *int64, string) error { return nil }
+func (s *promptHandlerChatStore) DeleteSession(_ context.Context, _ *int64, id string) error {
+	delete(s.sessions, id)
+	delete(s.messages, id)
+	return nil
+}
 
 func (s *promptHandlerChatStore) ListMessages(_ context.Context, _ *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
 	msgs := s.messages[sessionID]
@@ -314,7 +318,7 @@ func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=weather", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", false, "", nil, 0, chatTargetDescriptor{})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}
@@ -361,7 +365,7 @@ func TestHandleChatTarget_SSEIncludesQueuedMatrixMessages(t *testing.T) {
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", false, "", nil, 0, chatTargetDescriptor{})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}

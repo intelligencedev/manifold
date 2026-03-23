@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -36,9 +37,178 @@ type mcpServerResponse struct {
 	ProtocolVersion  string            `json:"protocolVersion"`
 	KeepAliveSeconds int               `json:"keepAliveSeconds"`
 	Disabled         bool              `json:"disabled"`
+	OAuthClientID    string            `json:"oauthClientId,omitempty"`
 	Source           string            `json:"source"` // "config" or "db"
 	Status           string            `json:"status"` // "connected", "error", "needs_auth"
 	HasToken         bool              `json:"hasToken"`
+}
+
+type mcpOAuthStartRequest struct {
+	ServerID int64
+	URL      string
+}
+
+const (
+	mcpOAuthCookiePath        = "/api/mcp/oauth"
+	mcpOAuthStateCookiePrefix = "mcp_oauth_state_"
+	mcpOAuthPKCECookiePrefix  = "mcp_oauth_pkce_"
+)
+
+func mcpOAuthCookieName(prefix, state string) string {
+	sum := sha256.Sum256([]byte(state))
+	return prefix + base64.RawURLEncoding.EncodeToString(sum[:])
+}
+
+func mcpOAuthUsesSecureCookies(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
+
+func setMCPOAuthTempCookie(w http.ResponseWriter, name, value string, expires time.Time, secure bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     mcpOAuthCookiePath,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+		Expires:  expires,
+	})
+}
+
+func clearMCPOAuthTempCookie(w http.ResponseWriter, name string, secure bool) {
+	setMCPOAuthTempCookie(w, name, "", time.Unix(0, 0), secure)
+}
+
+func requiresMCPOAuthPrompt(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unauthorized") || strings.Contains(msg, "401") || strings.Contains(msg, "forbidden")
+}
+
+func (a *app) prepareMCPOAuthRedirect(w http.ResponseWriter, r *http.Request, userID int64, req mcpOAuthStartRequest) (string, int, error) {
+	targetURL := req.URL
+	var server *persistence.MCPServer
+	if req.ServerID != 0 {
+		list, _ := a.mcpStore.List(r.Context(), userID)
+		for _, s := range list {
+			if s.ID == req.ServerID {
+				targetURL = s.URL
+				ss := s
+				server = &ss
+				break
+			}
+		}
+	}
+
+	if targetURL == "" {
+		return "", http.StatusBadRequest, fmt.Errorf("url required")
+	}
+	u, err := url.Parse(targetURL)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", http.StatusBadRequest, fmt.Errorf("invalid url")
+	}
+	if u.Scheme != "https" && u.Scheme != "http" {
+		return "", http.StatusBadRequest, fmt.Errorf("unsupported url scheme")
+	}
+	if strings.Contains(u.Host, "..") {
+		return "", http.StatusBadRequest, fmt.Errorf("invalid host")
+	}
+
+	prm, err := a.discoverResourceMetadata(r.Context(), targetURL)
+	if err != nil {
+		return "", http.StatusBadGateway, fmt.Errorf("failed to discover resource metadata: %v", err)
+	}
+	if len(prm.AuthorizationServers) == 0 {
+		return "", http.StatusBadGateway, fmt.Errorf("no authorization servers found for resource")
+	}
+
+	issuer := prm.AuthorizationServers[0]
+	asm, err := a.discoverAuthServerMeta(r.Context(), issuer)
+	if err != nil {
+		return "", http.StatusBadGateway, fmt.Errorf("failed to discover auth server metadata: %v", err)
+	}
+
+	clientID := ""
+	clientSecret := ""
+	if server != nil {
+		clientID = strings.TrimSpace(server.OAuthClientID)
+		clientSecret = strings.TrimSpace(server.OAuthClientSecret)
+	}
+	if clientID == "" {
+		clientID = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_ID"))
+		clientSecret = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_SECRET"))
+	}
+	if clientID == "" && server != nil && asm.RegistrationEndpoint != "" {
+		redirectBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
+		redirectURI := redirectBase + "/api/mcp/oauth/callback"
+		regScopes := prm.ScopesSupported
+		clientIDReg, clientSecretReg, regErr := a.registerOAuthClient(r.Context(), asm.RegistrationEndpoint, server.Name, redirectURI, regScopes)
+		if regErr != nil {
+			return "", http.StatusBadGateway, fmt.Errorf("dynamic registration failed: %v", regErr)
+		}
+		server.OAuthClientID = clientIDReg
+		server.OAuthClientSecret = clientSecretReg
+		if saved, upErr := a.mcpStore.Upsert(r.Context(), userID, *server); upErr == nil {
+			*server = saved
+		}
+		clientID = clientIDReg
+		clientSecret = clientSecretReg
+	}
+	if clientID == "" {
+		return "", http.StatusBadRequest, fmt.Errorf("mcp oauth client id not configured for this server")
+	}
+
+	scopes := prm.ScopesSupported
+	if server != nil && len(server.OAuthScopes) > 0 {
+		scopes = server.OAuthScopes
+	}
+	if len(scopes) == 0 {
+		scopes = []string{"openid", "profile"}
+	}
+
+	verifier, challenge, err := generatePKCE()
+	if err != nil {
+		return "", http.StatusInternalServerError, fmt.Errorf("failed to generate PKCE")
+	}
+
+	redirectBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
+	conf := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  asm.AuthorizationEndpoint,
+			TokenURL: asm.TokenEndpoint,
+		},
+		RedirectURL: redirectBase + "/api/mcp/oauth/callback",
+		Scopes:      scopes,
+	}
+
+	state := uuid.New().String()
+	expiresAt := time.Now().Add(10 * time.Minute)
+	secureCookies := mcpOAuthUsesSecureCookies(r)
+	setMCPOAuthTempCookie(
+		w,
+		mcpOAuthCookieName(mcpOAuthStateCookiePrefix, state),
+		fmt.Sprintf("%s|%s|%d|%d", state, targetURL, userID, req.ServerID),
+		expiresAt,
+		secureCookies,
+	)
+	setMCPOAuthTempCookie(
+		w,
+		mcpOAuthCookieName(mcpOAuthPKCECookiePrefix, state),
+		verifier,
+		expiresAt,
+		secureCookies,
+	)
+
+	authURL := conf.AuthCodeURL(state, oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("resource", targetURL),
+		oauth2.SetAuthURLParam("code_challenge", challenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	)
+	return authURL, http.StatusOK, nil
 }
 
 func (a *app) mcpServersHandler() http.HandlerFunc {
@@ -98,8 +268,17 @@ func (a *app) handleListMCPServers(w http.ResponseWriter, r *http.Request, userI
 
 	out := make([]mcpServerResponse, 0)
 
-	// 2. Add Config servers (read-only view)
+	// Build a set of names that have a DB entry so we can skip the config duplicate.
+	dbNames := make(map[string]bool, len(dbServers))
+	for _, s := range dbServers {
+		dbNames[s.Name] = true
+	}
+
+	// 2. Add Config servers that are NOT already superseded by a DB entry.
 	for _, s := range a.cfg.MCP.Servers {
+		if dbNames[s.Name] {
+			continue // DB entry will be shown instead
+		}
 		out = append(out, mcpServerResponse{
 			Name:             s.Name,
 			Command:          s.Command,
@@ -145,6 +324,7 @@ func (a *app) handleListMCPServers(w http.ResponseWriter, r *http.Request, userI
 			ProtocolVersion:  s.ProtocolVersion,
 			KeepAliveSeconds: s.KeepAliveSeconds,
 			Disabled:         s.Disabled,
+			OAuthClientID:    s.OAuthClientID,
 			Source:           "db",
 			Status:           status,
 			HasToken:         s.OAuthAccessToken != "" || s.BearerToken != "",
@@ -173,14 +353,17 @@ func (a *app) handleCreateMCPServer(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	// Refresh token if needed and trigger connection
-	cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
-	if needsAuth {
-		// Token expired and could not be refreshed - still create server but mark as needing auth
-		fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
-	} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
-		// Log error but don't fail the request
-		fmt.Printf("failed to connect to new MCP server: %v\n", err)
+	// Only attempt connection if the server has a token or is local.
+	// Remote servers without any token need OAuth first.
+	if saved.URL != "" && saved.OAuthAccessToken == "" && saved.BearerToken == "" {
+		fmt.Printf("MCP server %s: remote server needs OAuth, skipping initial connection\n", saved.Name)
+	} else {
+		cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
+		if needsAuth {
+			fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
+		} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
+			fmt.Printf("failed to connect to new MCP server: %v\n", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -202,12 +385,16 @@ func (a *app) handleUpdateMCPServer(w http.ResponseWriter, r *http.Request, user
 		return
 	}
 
-	// Refresh token if needed and reconnect
-	cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
-	if needsAuth {
-		fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
-	} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
-		fmt.Printf("failed to reconnect updated MCP server: %v\n", err)
+	// Only attempt reconnection if the server has a token or is local.
+	if saved.URL != "" && saved.OAuthAccessToken == "" && saved.BearerToken == "" {
+		fmt.Printf("MCP server %s: remote server needs OAuth, skipping reconnection\n", saved.Name)
+	} else {
+		cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
+		if needsAuth {
+			fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
+		} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
+			fmt.Printf("failed to reconnect updated MCP server: %v\n", err)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -257,32 +444,83 @@ func (a *app) refreshAndConvertToConfig(ctx context.Context, s persistence.MCPSe
 	return convertToConfig(refreshed), needsAuth, nil
 }
 
+// seedConfigServersToDBIfMissing ensures that remote MCP servers defined in the
+// config file also have a corresponding DB record (needed for OAuth token storage
+// and the startup browser-auth prompt). Servers already in the DB (matched by
+// name) are left unchanged.
+func (a *app) seedConfigServersToDBIfMissing(ctx context.Context, userID int64, existing []persistence.MCPServer) {
+	if a.mcpStore == nil {
+		return
+	}
+	existingByName := make(map[string]bool, len(existing))
+	for _, s := range existing {
+		existingByName[s.Name] = true
+	}
+	for _, cs := range a.cfg.MCP.Servers {
+		if cs.URL == "" || cs.BearerToken != "" {
+			continue // local or already has static token — skip
+		}
+		if existingByName[cs.Name] {
+			continue // already in DB
+		}
+		srv := persistence.MCPServer{
+			Name:             cs.Name,
+			URL:              cs.URL,
+			Headers:          cs.Headers,
+			Origin:           cs.Origin,
+			ProtocolVersion:  cs.ProtocolVersion,
+			KeepAliveSeconds: cs.KeepAliveSeconds,
+		}
+		if _, err := a.mcpStore.Upsert(ctx, userID, srv); err != nil {
+			fmt.Printf("MCP server %s: failed to seed into DB: %v\n", cs.Name, err)
+		} else {
+			fmt.Printf("MCP server %s: seeded into DB for OAuth flow\n", cs.Name)
+		}
+	}
+}
+
 // RefreshMCPServersOnStartup refreshes OAuth tokens for all stored MCP servers
 // that have expired tokens, and registers them with the MCP manager. This should
 // be called after the app is initialized to restore OAuth-authenticated remote
 // MCP servers on restart.
-func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) error {
+func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) ([]int64, error) {
 	if a.mcpStore == nil {
-		return nil
+		return nil, nil
 	}
 
 	servers, err := a.mcpStore.List(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("failed to list MCP servers: %w", err)
+		return nil, fmt.Errorf("failed to list MCP servers: %w", err)
 	}
+
+	// Seed any config-file remote servers that aren't yet in the DB so they
+	// can participate in the OAuth startup browser-auth prompt.
+	a.seedConfigServersToDBIfMissing(ctx, userID, servers)
+
+	// Re-list after potential seed so new records are included.
+	servers, err = a.mcpStore.List(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to re-list MCP servers after seed: %w", err)
+	}
+	pendingAuthIDs := make([]int64, 0)
 
 	for _, s := range servers {
 		if s.Disabled {
 			continue
 		}
 
-		// Skip servers without OAuth tokens (they don't need refresh)
-		if s.OAuthAccessToken == "" && s.BearerToken == "" {
+		if s.URL == "" {
+			if err := a.mcpManager.RegisterOne(ctx, a.baseToolRegistry, convertToConfig(s)); err != nil {
+				fmt.Printf("MCP server %s: registration failed: %v\n", s.Name, err)
+			}
 			continue
 		}
 
-		// Skip local command-based servers (no OAuth flow needed)
-		if s.URL == "" {
+		if s.OAuthAccessToken == "" && s.BearerToken == "" {
+			// Remote server with no token — skip registration (will fail with
+			// unauthorized/timeout) and mark as needing OAuth.
+			fmt.Printf("MCP server %s: needs OAuth, deferring registration\n", s.Name)
+			pendingAuthIDs = append(pendingAuthIDs, s.ID)
 			continue
 		}
 
@@ -295,6 +533,7 @@ func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) erro
 
 		if needsAuth {
 			fmt.Printf("MCP server %s: OAuth token expired, needs re-authentication\n", s.Name)
+			pendingAuthIDs = append(pendingAuthIDs, s.ID)
 			continue
 		}
 
@@ -306,7 +545,7 @@ func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) erro
 		}
 	}
 
-	return nil
+	return pendingAuthIDs, nil
 }
 
 // OAuth Handlers
@@ -321,197 +560,85 @@ func (a *app) mcpOAuthStartHandler() http.HandlerFunc {
 
 		var req struct {
 			ServerID int64  `json:"serverId"`
-			URL      string `json:"url"` // If new server
+			URL      string `json:"url"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-
-		targetURL := req.URL
-		var server *persistence.MCPServer
-		if req.ServerID != 0 {
-			// Try to find by ID (iterating since we only have List/GetByName)
-			list, _ := a.mcpStore.List(r.Context(), userID)
-			for _, s := range list {
-				if s.ID == req.ServerID {
-					targetURL = s.URL
-					// capture for later use
-					ss := s
-					server = &ss
-					break
-				}
-			}
-		}
-
-		if targetURL == "" {
-			http.Error(w, "url required", http.StatusBadRequest)
-			return
-		}
-		// Validate URL to avoid SSRF / invalid schemes
-		u, err := url.Parse(targetURL)
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			http.Error(w, "invalid url", http.StatusBadRequest)
-			return
-		}
-		if u.Scheme != "https" && u.Scheme != "http" {
-			http.Error(w, "unsupported url scheme", http.StatusBadRequest)
-			return
-		}
-		if strings.Contains(u.Host, "..") {
-			http.Error(w, "invalid host", http.StatusBadRequest)
-			return
-		}
-
-		// 1. Discover Protected Resource Metadata
-		prm, err := a.discoverResourceMetadata(r.Context(), targetURL)
+		authURL, statusCode, err := a.prepareMCPOAuthRedirect(w, r, userID, mcpOAuthStartRequest{ServerID: req.ServerID, URL: req.URL})
 		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to discover resource metadata: %v", err), http.StatusBadGateway)
+			http.Error(w, err.Error(), statusCode)
 			return
 		}
-		if len(prm.AuthorizationServers) == 0 {
-			http.Error(w, "no authorization servers found for resource", http.StatusBadGateway)
-			return
-		}
-
-		// 2. Discover Auth Server Metadata
-		issuer := prm.AuthorizationServers[0] // Pick first
-		asm, err := a.discoverAuthServerMeta(r.Context(), issuer)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to discover auth server metadata: %v", err), http.StatusBadGateway)
-			return
-		}
-
-		// 3. Determine client ID. Preference order:
-		//    a) Stored per-server OAuthClientID
-		//    b) Environment MCP_OAUTH_CLIENT_ID
-		//    c) Dynamic registration (if supported and no ID yet)
-		clientID := ""
-		clientSecret := ""
-		if server != nil {
-			clientID = strings.TrimSpace(server.OAuthClientID)
-			clientSecret = strings.TrimSpace(server.OAuthClientSecret)
-		}
-		if clientID == "" {
-			clientID = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_ID"))
-			clientSecret = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_SECRET"))
-		}
-		// Attempt dynamic client registration if still empty and registration endpoint advertised
-		if clientID == "" && server != nil && asm.RegistrationEndpoint != "" {
-			// Derive canonical redirect URI (base origin + callback path) so registration matches later auth usage.
-			redirectBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
-			redirectURI := redirectBase + "/api/mcp/oauth/callback"
-			// Scopes for registration can leverage resource metadata (fallback later)
-			regScopes := prm.ScopesSupported
-			clientIDReg, clientSecretReg, regErr := a.registerOAuthClient(r.Context(), asm.RegistrationEndpoint, server.Name, redirectURI, regScopes)
-			if regErr != nil {
-				http.Error(w, fmt.Sprintf("dynamic registration failed: %v", regErr), http.StatusBadGateway)
-				return
-			}
-			server.OAuthClientID = clientIDReg
-			server.OAuthClientSecret = clientSecretReg
-			// Persist updated server credentials
-			if saved, upErr := a.mcpStore.Upsert(r.Context(), userID, *server); upErr == nil {
-				*server = saved
-			}
-			clientID = clientIDReg
-			clientSecret = clientSecretReg
-		}
-		if clientID == "" {
-			http.Error(w, "mcp oauth client id not configured for this server", http.StatusBadRequest)
-			return
-		}
-
-		// 4. Determine scopes: prefer stored server OAuthScopes if serverId provided; else resource metadata scopes; else defaults.
-		scopes := prm.ScopesSupported
-		if server != nil && len(server.OAuthScopes) > 0 {
-			scopes = server.OAuthScopes
-		}
-		if len(scopes) == 0 {
-			// Provide sensible defaults; HuggingFace expects standard OIDC scopes.
-			scopes = []string{"openid", "profile"}
-		}
-
-		// PKCE
-		verifier, challenge, err := generatePKCE()
-		if err != nil {
-			http.Error(w, "failed to generate PKCE", http.StatusInternalServerError)
-			return
-		}
-
-		redirectBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
-		conf := &oauth2.Config{
-			ClientID:     clientID,
-			ClientSecret: clientSecret,
-			Endpoint: oauth2.Endpoint{
-				AuthURL:  asm.AuthorizationEndpoint,
-				TokenURL: asm.TokenEndpoint,
-			},
-			RedirectURL: redirectBase + "/api/mcp/oauth/callback",
-			Scopes:      scopes,
-		}
-
-		state := uuid.New().String()
-		// Store state + context (userID, serverURL, serverID) in cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "mcp_oauth_state",
-			Value:    fmt.Sprintf("%s|%s|%d|%d", state, targetURL, userID, req.ServerID),
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			Expires:  time.Now().Add(10 * time.Minute),
-		})
-
-		// Store PKCE verifier in HttpOnly cookie
-		http.SetCookie(w, &http.Cookie{
-			Name:     "mcp_oauth_pkce",
-			Value:    verifier,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			Expires:  time.Now().Add(10 * time.Minute),
-		})
-
-		authURL := conf.AuthCodeURL(state, oauth2.AccessTypeOffline,
-			oauth2.SetAuthURLParam("resource", targetURL),
-			oauth2.SetAuthURLParam("code_challenge", challenge),
-			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-		)
-
 		json.NewEncoder(w).Encode(map[string]string{"redirectUrl": authURL})
+	}
+}
+
+func (a *app) mcpOAuthBootstrapHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if a.cfg.Auth.Enabled {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		serverID, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("serverId")), 10, 64)
+		if err != nil || serverID == 0 {
+			http.Error(w, "serverId required", http.StatusBadRequest)
+			return
+		}
+		authURL, statusCode, err := a.prepareMCPOAuthRedirect(w, r, systemUserID, mcpOAuthStartRequest{ServerID: serverID})
+		if err != nil {
+			http.Error(w, err.Error(), statusCode)
+			return
+		}
+		http.Redirect(w, r, authURL, http.StatusFound)
 	}
 }
 
 func (a *app) mcpOAuthCallbackHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		state := r.URL.Query().Get("state")
+		if state == "" {
+			http.Error(w, "state missing", http.StatusBadRequest)
+			return
+		}
+
+		stateCookieName := mcpOAuthCookieName(mcpOAuthStateCookiePrefix, state)
+		pkceCookieName := mcpOAuthCookieName(mcpOAuthPKCECookiePrefix, state)
+		secureCookies := mcpOAuthUsesSecureCookies(r)
+		defer clearMCPOAuthTempCookie(w, stateCookieName, secureCookies)
+		defer clearMCPOAuthTempCookie(w, pkceCookieName, secureCookies)
+
 		// 1. Verify state
-		cookie, err := r.Cookie("mcp_oauth_state")
+		cookie, err := r.Cookie(stateCookieName)
 		if err != nil {
 			http.Error(w, "state cookie missing", http.StatusBadRequest)
 			return
 		}
 		parts := strings.SplitN(cookie.Value, "|", 4)
-		if len(parts) < 3 {
+		if len(parts) < 4 {
 			http.Error(w, "invalid state cookie", http.StatusBadRequest)
 			return
 		}
 		expectedState, targetURL := parts[0], parts[1]
 		userIDStr := parts[2]
 		var serverID int64
-		if len(parts) >= 4 {
-			if v, err := strconv.ParseInt(parts[3], 10, 64); err == nil {
-				serverID = v
-			}
+		if v, err := strconv.ParseInt(parts[3], 10, 64); err == nil {
+			serverID = v
 		}
 
 		// Load PKCE verifier
-		pkceCookie, err := r.Cookie("mcp_oauth_pkce")
+		pkceCookie, err := r.Cookie(pkceCookieName)
 		if err != nil || pkceCookie.Value == "" {
 			http.Error(w, "pkce verifier missing", http.StatusBadRequest)
 			return
 		}
 
-		if r.URL.Query().Get("state") != expectedState {
+		if state != expectedState {
 			http.Error(w, "state mismatch", http.StatusBadRequest)
 			return
 		}
@@ -598,8 +725,8 @@ func (a *app) mcpOAuthCallbackHandler() http.HandlerFunc {
 					go func(sc persistence.MCPServer) {
 						// Best-effort re-registration; errors logged but not surfaced to user.
 						ctx := context.Background()
-						a.mcpManager.RemoveOne(sc.Name, a.toolRegistry)
-						if err := a.mcpManager.RegisterOne(ctx, a.toolRegistry, convertToConfig(sc)); err != nil {
+						a.mcpManager.RemoveOne(sc.Name, a.baseToolRegistry)
+						if err := a.mcpManager.RegisterOne(ctx, a.baseToolRegistry, convertToConfig(sc)); err != nil {
 							fmt.Printf("mcp oauth re-register failed for %s: %v\n", sc.Name, err)
 						}
 					}(serverCopy)
@@ -636,31 +763,104 @@ type authServerMeta struct {
 	RegistrationEndpoint  string `json:"registration_endpoint"`
 }
 
+// resourceMetadataRE extracts the resource_metadata URL value from a Bearer WWW-Authenticate challenge.
+var resourceMetadataRE = regexp.MustCompile(`(?i)\bresource_metadata\s*=\s*"([^"]+)"`)
+
+func extractResourceMetadataURL(header string) string {
+	m := resourceMetadataRE.FindStringSubmatch(header)
+	if len(m) < 2 {
+		return ""
+	}
+	return m[1]
+}
+
+// discoverResourceMetadata resolves the protected-resource metadata for resourceURL using
+// a three-strategy fallback to handle non-standard server deployments:
+//
+//  1. RFC 9728 §3.3 — probe the resource URL, parse WWW-Authenticate for resource_metadata param
+//  2. RFC 9728 §3   — construct /.well-known/oauth-protected-resource{path} directly
+//  3. Fallback       — hit host-level /.well-known/oauth-authorization-server and synthesise metadata
 func (a *app) discoverResourceMetadata(ctx context.Context, resourceURL string) (*oauthex.ProtectedResourceMetadata, error) {
 	u, err := url.Parse(resourceURL)
 	if err != nil {
 		return nil, err
 	}
-	// Append /.well-known/oauth-protected-resource/{path}
-	// RFC 9728 logic simplified
-	wellKnown := fmt.Sprintf("%s://%s/.well-known/oauth-protected-resource%s", u.Scheme, u.Host, u.Path)
 
+	// Strategy 1: probe the resource URL and extract resource_metadata from WWW-Authenticate.
+	if meta, _ := a.discoverResourceMetadataFromChallenge(ctx, resourceURL); meta != nil {
+		return meta, nil
+	}
+
+	// Strategy 2: RFC 9728 §3 well-known path.
+	wellKnown := fmt.Sprintf("%s://%s/.well-known/oauth-protected-resource%s", u.Scheme, u.Host, u.Path)
 	req, _ := http.NewRequestWithContext(ctx, "GET", wellKnown, nil)
+	if resp, err2 := a.httpClient.Do(req); err2 == nil {
+		defer resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			var meta oauthex.ProtectedResourceMetadata
+			if err3 := json.NewDecoder(resp.Body).Decode(&meta); err3 == nil {
+				return &meta, nil
+			}
+		}
+	}
+
+	// Strategy 3: host-level /.well-known/oauth-authorization-server — synthesise metadata.
+	asMetaURL := fmt.Sprintf("%s://%s/.well-known/oauth-authorization-server", u.Scheme, u.Host)
+	req2, _ := http.NewRequestWithContext(ctx, "GET", asMetaURL, nil)
+	resp2, err2 := a.httpClient.Do(req2)
+	if err2 != nil {
+		return nil, fmt.Errorf("failed to discover resource metadata: no well-known endpoint responded")
+	}
+	defer resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to discover resource metadata: status %d from auth-server well-known", resp2.StatusCode)
+	}
+	var asMeta struct {
+		Issuer string `json:"issuer"`
+	}
+	if err3 := json.NewDecoder(resp2.Body).Decode(&asMeta); err3 != nil || asMeta.Issuer == "" {
+		return nil, fmt.Errorf("failed to discover resource metadata: no issuer in auth-server well-known")
+	}
+	return &oauthex.ProtectedResourceMetadata{
+		Resource:             resourceURL,
+		AuthorizationServers: []string{asMeta.Issuer},
+	}, nil
+}
+
+// discoverResourceMetadataFromChallenge probes resourceURL unauthenticated and extracts the
+// resource_metadata URL from any WWW-Authenticate Bearer challenge (RFC 9728 §3.3).
+func (a *app) discoverResourceMetadataFromChallenge(ctx context.Context, resourceURL string) (*oauthex.ProtectedResourceMetadata, error) {
+	req, _ := http.NewRequestWithContext(ctx, "GET", resourceURL, nil)
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		return nil, nil
 	}
-
-	var meta oauthex.ProtectedResourceMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return nil, err
+	for _, h := range resp.Header.Values("WWW-Authenticate") {
+		metaURL := extractResourceMetadataURL(h)
+		if metaURL == "" {
+			continue
+		}
+		req2, _ := http.NewRequestWithContext(ctx, "GET", metaURL, nil)
+		resp2, err2 := a.httpClient.Do(req2)
+		if err2 != nil {
+			return nil, err2
+		}
+		defer resp2.Body.Close()
+		if resp2.StatusCode != http.StatusOK {
+			// Metadata URL exists but is broken; signal failure so caller falls through.
+			return nil, fmt.Errorf("resource_metadata URL %s returned %d", metaURL, resp2.StatusCode)
+		}
+		var meta oauthex.ProtectedResourceMetadata
+		if err3 := json.NewDecoder(resp2.Body).Decode(&meta); err3 != nil {
+			return nil, err3
+		}
+		return &meta, nil
 	}
-	return &meta, nil
+	return nil, nil
 }
 
 func (a *app) discoverAuthServerMeta(ctx context.Context, issuer string) (*authServerMeta, error) {

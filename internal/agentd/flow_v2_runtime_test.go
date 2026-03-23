@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -351,6 +352,108 @@ func TestExecuteFlowV2RunGuardSkip(t *testing.T) {
 	}
 	if hasRunEvent(events, flow.RunEventTypeNodeStarted) {
 		t.Fatalf("did not expect node_started for skipped node, got %+v", events)
+	}
+}
+
+func TestExecuteFlowV2RunUnknownPlannedNodeFailsWithoutHang(t *testing.T) {
+	t.Parallel()
+
+	reg := newRuntimeStubRegistry(runtimeTestTool{name: "root", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+		return map[string]any{"ok": true}, nil
+	}})
+	a := &app{flowV2: newFlowV2Runtime(nil), baseToolRegistry: reg, toolRegistry: reg}
+	wf := flow.Workflow{
+		ID:      "wf_unknown_node",
+		Name:    "Unknown Node",
+		Trigger: flow.Trigger{Type: flow.TriggerTypeManual},
+		Nodes: []flow.Node{{
+			ID:   "root",
+			Name: "Root",
+			Kind: flow.NodeKindAction,
+			Type: "tool",
+			Tool: "root",
+		}},
+	}
+	edgeToMissing := flow.Edge{
+		Source: flow.PortRef{NodeID: "root", Port: "output"},
+		Target: flow.PortRef{NodeID: "missing", Port: "input"},
+	}
+	plan := &flow.Plan{
+		WorkflowID: wf.ID,
+		NodeOrder:  []string{"root", "missing"},
+		Incoming: map[string][]flow.Edge{
+			"root":    {},
+			"missing": {edgeToMissing},
+		},
+		Outgoing: map[string][]flow.Edge{
+			"root":    {edgeToMissing},
+			"missing": {},
+		},
+		Indegree: map[string]int{
+			"root":    0,
+			"missing": 1,
+		},
+	}
+
+	runID := a.flowV2.createRun(0, wf.ID, nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		a.executeFlowV2Run(context.Background(), 0, runID, wf, plan, nil)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("executeFlowV2Run hung on unknown planned node")
+	}
+
+	events, status, ok := a.flowV2.getRunEvents(0, runID)
+	if !ok {
+		t.Fatal("expected run events")
+	}
+	if status != "failed" {
+		t.Fatalf("expected failed status, got %s with events=%+v", status, events)
+	}
+	if !hasRunEvent(events, flow.RunEventTypeRunFailed) {
+		t.Fatalf("expected run_failed event, got %+v", events)
+	}
+	assertMonotonicSequences(t, events)
+	if got := events[len(events)-1].Error; got != "execution plan referenced unknown node missing" {
+		t.Fatalf("expected unknown node error, got %q", got)
+	}
+	completedIndex := -1
+	failedIndex := -1
+	for idx, event := range events {
+		switch event.Type {
+		case flow.RunEventTypeNodeCompleted:
+			if event.NodeID == "root" && completedIndex < 0 {
+				completedIndex = idx
+			}
+		case flow.RunEventTypeRunFailed:
+			if failedIndex < 0 {
+				failedIndex = idx
+			}
+		}
+	}
+	if completedIndex < 0 || failedIndex < 0 || completedIndex >= failedIndex {
+		t.Fatalf("expected root node to complete before run failure, got %+v", events)
+	}
+}
+
+func TestEvalFlowExpressionSingleLineMultiExpressionReturnsError(t *testing.T) {
+	t.Parallel()
+
+	_, err := evalFlowExpression(
+		"={{ $run.input.first }} ={{ $run.input.second }}",
+		map[string]any{"first": "alpha", "second": "beta"},
+		nil,
+	)
+	if err == nil {
+		t.Fatal("expected unsupported single-line multi-expression error")
+	}
+	if !strings.Contains(err.Error(), "$run.input.first") {
+		t.Fatalf("expected single-line multi-expression to fail fast, got %v", err)
 	}
 }
 

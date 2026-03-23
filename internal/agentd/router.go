@@ -87,6 +87,7 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/mcp/servers", a.mcpServersHandler())
 	mux.HandleFunc("/api/mcp/servers/", a.mcpServerDetailHandler())
 	mux.HandleFunc("/api/mcp/oauth/start", a.mcpOAuthStartHandler())
+	mux.HandleFunc("/api/mcp/oauth/bootstrap", a.mcpOAuthBootstrapHandler())
 	mux.HandleFunc("/api/mcp/oauth/callback", a.mcpOAuthCallbackHandler())
 
 	// Debug/observability endpoints for chat + evolving memory.

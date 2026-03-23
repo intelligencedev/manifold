@@ -123,6 +123,7 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 	// Inherit session_id from context if not explicitly provided by the LLM.
 	sessionID := strings.TrimSpace(args.SessionID)
 	fromContext := false
+	ephemeralSession := false
 	if sessionID == "" {
 		if ctxSID, ok := sandbox.SessionIDFromContext(ctx); ok {
 			sessionID = ctxSID
@@ -133,6 +134,7 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 	switch {
 	case sessionID == "":
 		sessionID = uuid.NewString()
+		ephemeralSession = true
 	case !fromContext:
 		// Only convert non-UUID values that came from the LLM args, not from context
 		if _, err := uuid.Parse(sessionID); err != nil {
@@ -157,6 +159,9 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 	}
 
 	body := map[string]any{"prompt": args.Prompt, "session_id": sessionID}
+	if ephemeralSession {
+		body["ephemeral_session"] = true
+	}
 	if len(args.History) > 0 {
 		body["history"] = args.History
 	}

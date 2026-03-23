@@ -24,7 +24,7 @@ const editorLoading = ref(false);
 const editorSaving = ref(false);
 const editorError = ref("");
 const previewMode = ref<"raw" | "markdown">("raw");
-const leftPaneWidth = ref(38);
+const leftPaneWidth = ref(50);
 const isResizingPanes = ref(false);
 const allowedTextExtensions = [
   ".txt",
@@ -723,7 +723,12 @@ function startPaneResize(event: PointerEvent) {
 
 .projects-splitter {
   position: relative;
+  display: block;
+  height: 100%;
   width: 100%;
+  padding: 0;
+  border: 0;
+  appearance: none;
   cursor: col-resize;
   background: transparent;
 }

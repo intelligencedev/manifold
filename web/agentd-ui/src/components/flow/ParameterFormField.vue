@@ -162,6 +162,22 @@
           />
           <span>{{ schema.description ?? "Enabled" }}</span>
         </label>
+        <DropdownSelect
+          v-else-if="isProjectId"
+          :model-value="selectValue"
+          size="xs"
+          class="w-full min-w-0 text-[11px]"
+          :options="projectDropdownOptions"
+          @update:modelValue="onSelectChange"
+        />
+        <DropdownSelect
+          v-else-if="isSessionId"
+          :model-value="selectValue"
+          size="xs"
+          class="w-full min-w-0 text-[11px]"
+          :options="sessionDropdownOptions"
+          @update:modelValue="onSelectChange"
+        />
         <div v-else class="relative">
           <input
             ref="fieldInputEl"
@@ -202,9 +218,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject, ref } from "vue";
+import { computed, inject, onMounted, ref } from "vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import ExpressionPicker from "@/components/flow/ExpressionPicker.vue";
+import { listProjects } from "@/api/client";
+import { listChatSessions } from "@/api/chat";
 
 defineOptions({ name: "ParameterFormField" });
 
@@ -278,6 +296,57 @@ const isBoolean = computed(() => type.value === "boolean");
 const isNumeric = computed(
   () => type.value === "number" || type.value === "integer",
 );
+
+// Smart dropdowns for project_id and session_id parameters
+const isProjectId = computed(() => props.name === "project_id");
+const isSessionId = computed(() => props.name === "session_id");
+
+const projectItems = ref<{ id: string; name: string }[]>([]);
+const sessionItems = ref<{ id: string; name: string }[]>([]);
+
+const projectDropdownOptions = computed(() => {
+  const opts = [
+    { id: "", label: "(unset)", value: "" },
+    ...projectItems.value.map((p) => ({ id: p.id, label: p.name, value: p.id })),
+  ];
+  // If current value is set but not in the list yet, add it as a fallback
+  const cur = typeof props.modelValue === "string" ? props.modelValue : "";
+  if (cur && !projectItems.value.some((p) => p.id === cur)) {
+    opts.push({ id: cur, label: cur, value: cur });
+  }
+  return opts;
+});
+
+const sessionDropdownOptions = computed(() => {
+  const opts = [
+    { id: "", label: "(unset)", value: "" },
+    ...sessionItems.value.map((s) => ({ id: s.id, label: s.name || s.id, value: s.id })),
+  ];
+  const cur = typeof props.modelValue === "string" ? props.modelValue : "";
+  if (cur && !sessionItems.value.some((s) => s.id === cur)) {
+    opts.push({ id: cur, label: cur, value: cur });
+  }
+  return opts;
+});
+
+onMounted(async () => {
+  if (isProjectId.value) {
+    try {
+      projectItems.value = await listProjects();
+    } catch {
+      // silently fail; field remains a plain string fallback
+    }
+  }
+  if (isSessionId.value) {
+    try {
+      const sessions = await listChatSessions();
+      sessionItems.value = sessions.map((s) => ({ id: s.id, name: s.name || s.id }));
+    } catch {
+      // silently fail
+    }
+  }
+});
+
 const isUnsupported = computed(
   () =>
     !isObject.value &&

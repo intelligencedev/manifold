@@ -330,6 +330,13 @@ func TestToolResponseIsForwarded(t *testing.T) {
 	if thoughtSig == nil {
 		t.Fatalf("expected thoughtSignature on functionCall part")
 	}
+	functionCall, ok := parts2[0].(map[string]any)["functionCall"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected functionCall part, got %#v", parts2[0])
+	}
+	if functionCall["id"] != "c1" {
+		t.Fatalf("expected functionCall id c1, got %#v", functionCall["id"])
+	}
 	// Tool responses should NOT echo thought signatures back; Google guidance is to
 	// include thought signatures only on their original parts (typically model text
 	// and/or functionCall parts). Attaching them to tool responses can cause API

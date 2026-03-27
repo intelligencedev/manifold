@@ -145,9 +145,12 @@ type EvolvingMemory struct {
 
 	// Optional persistent backing store; when set, entries are loaded on
 	// construction and persisted after each mutation.
-	store     EvolvingMemoryStore
-	userID    int64
-	sessionID string
+	store          EvolvingMemoryStore
+	userID         int64
+	sessionID      string
+	persistDelay   time.Duration
+	persistVersion uint64
+	pendingPersist []*MemoryEntry
 
 	callbacks *MemoryCallbacks
 }
@@ -182,9 +185,10 @@ type EvolvingMemoryConfig struct {
 
 	// Optional persistent store. When non-nil, NewEvolvingMemory will load
 	// existing entries for the given userID and persist updates.
-	Store     EvolvingMemoryStore
-	UserID    int64
-	SessionID string
+	Store           EvolvingMemoryStore
+	UserID          int64
+	SessionID       string
+	PersistDebounce time.Duration
 
 	Callbacks *MemoryCallbacks
 }
@@ -227,6 +231,10 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 	if embedFn == nil {
 		embedFn = embedding.EmbedText
 	}
+	persistDelay := cfg.PersistDebounce
+	if persistDelay <= 0 {
+		persistDelay = 250 * time.Millisecond
+	}
 
 	em := &EvolvingMemory{
 		entries:          make([]*MemoryEntry, 0),
@@ -245,6 +253,7 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		store:            cfg.Store,
 		userID:           cfg.UserID,
 		sessionID:        sessionID,
+		persistDelay:     persistDelay,
 		callbacks:        cfg.Callbacks,
 	}
 
@@ -387,7 +396,6 @@ func (em *EvolvingMemory) SearchWithScores(ctx context.Context, query string) ([
 // updateAccessMetrics increments access counts and updates last accessed time.
 func (em *EvolvingMemory) updateAccessMetrics(ids []string) {
 	em.mu.Lock()
-	defer em.mu.Unlock()
 
 	idSet := make(map[string]bool, len(ids))
 	for _, id := range ids {
@@ -401,6 +409,10 @@ func (em *EvolvingMemory) updateAccessMetrics(ids []string) {
 			e.LastAccessedAt = now
 		}
 	}
+	entriesSnapshot := em.snapshotEntriesLocked()
+	em.mu.Unlock()
+
+	em.persistEntriesAsync(entriesSnapshot)
 }
 
 // Synthesize implements C(x_t, R_t): build context from current task + retrieved memories.
@@ -488,9 +500,10 @@ func (em *EvolvingMemory) EvolveEnhanced(
 ) error {
 	start := time.Now()
 	log := observability.LoggerWithTrace(ctx)
-	em.mu.Lock()
+	em.mu.RLock()
 	cb := em.callbacks
-	defer em.mu.Unlock()
+	memorySize := len(em.entries)
+	em.mu.RUnlock()
 
 	// Generate summary via LLM
 	summary, err := em.generateSummary(ctx, input, output, feedback)
@@ -509,7 +522,7 @@ func (em *EvolvingMemory) EvolveEnhanced(
 				Timestamp:  start,
 				Input:      input,
 				Error:      err,
-				MemorySize: len(em.entries),
+				MemorySize: memorySize,
 				DurationMs: time.Since(start).Milliseconds(),
 			})
 		}
@@ -547,9 +560,25 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		CreatedAt: time.Now(),
 	}
 
-	// Smart pruning: check for near-duplicates before adding
+	var mergePlan *smartMergePlan
 	if em.enableSmartPrune {
-		em.smartPruneBeforeAdd(ctx, entry)
+		em.mu.RLock()
+		existingEntries := em.snapshotEntriesLocked()
+		em.mu.RUnlock()
+
+		mergePlan, err = em.prepareSmartMerge(ctx, existingEntries, entry)
+		if err != nil {
+			log.Warn().Err(err).Msg("evolving_memory_prepare_smart_merge_failed")
+			mergePlan = nil
+		}
+	}
+
+	em.mu.Lock()
+	cb = em.callbacks
+
+	// Smart pruning: check for near-duplicates before adding
+	if mergePlan != nil {
+		em.applySmartMergePlan(mergePlan, entry)
 	}
 
 	em.entries = append(em.entries, entry)
@@ -563,13 +592,17 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		log.Info().Int("pruned_to", em.maxSize).Msg("evolving_memory_fifo_pruned")
 	}
 
+	memorySize = len(em.entries)
+	entriesSnapshot := em.snapshotEntriesLocked()
+	em.mu.Unlock()
+
 	if cb != nil && cb.OnEvolve != nil {
 		cb.OnEvolve(&MemoryEvent{
 			Phase:      PhaseEvolve,
 			Timestamp:  start,
 			Input:      input,
 			OutputSize: len(output),
-			MemorySize: len(em.entries),
+			MemorySize: memorySize,
 			DurationMs: time.Since(start).Milliseconds(),
 		})
 	}
@@ -577,15 +610,7 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	// Persist in the background if a store is configured.
 	// Note: systemUserID is 0 in agentd; we still want persistence for it.
 	if em.store != nil {
-		entriesCopy := make([]*MemoryEntry, len(em.entries))
-		copy(entriesCopy, em.entries)
-		go func(entries []*MemoryEntry, uid int64, sid string) {
-			bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := em.store.Save(bgctx, uid, sid, entries); err != nil {
-				observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_persist_failed")
-			}
-		}(entriesCopy, em.userID, em.sessionID)
+		em.persistEntriesAsync(entriesSnapshot)
 	}
 
 	log.Info().
@@ -659,22 +684,33 @@ func containsLower(s, substr string) bool {
 	return false
 }
 
-// smartPruneBeforeAdd checks for near-duplicates and merges them.
-func (em *EvolvingMemory) smartPruneBeforeAdd(ctx context.Context, newEntry *MemoryEntry) {
+type smartMergePlan struct {
+	mergedIDs       []string
+	mergedSummary   string
+	mergedEmbedding []float32
+}
+
+// prepareSmartMerge plans any smart-merge operation using a snapshot of the
+// existing entries so expensive embedding work stays outside the write lock.
+func (em *EvolvingMemory) prepareSmartMerge(ctx context.Context, existingEntries []*MemoryEntry, newEntry *MemoryEntry) (*smartMergePlan, error) {
 	log := observability.LoggerWithTrace(ctx)
 
 	if len(newEntry.Embedding) == 0 {
-		return
+		return nil, nil
 	}
 
 	var toMerge []string
-	for _, existing := range em.entries {
+	mergedSummaries := make([]string, 0, len(existingEntries)+1)
+	for _, existing := range existingEntries {
 		if len(existing.Embedding) == 0 {
 			continue
 		}
 		sim := cosineSimilarity(newEntry.Embedding, existing.Embedding)
 		if sim >= em.pruneThreshold {
 			toMerge = append(toMerge, existing.ID)
+			if existing.Summary != "" {
+				mergedSummaries = append(mergedSummaries, existing.Summary)
+			}
 			log.Debug().
 				Str("existing_id", existing.ID).
 				Float64("similarity", sim).
@@ -682,34 +718,57 @@ func (em *EvolvingMemory) smartPruneBeforeAdd(ctx context.Context, newEntry *Mem
 		}
 	}
 
-	// If near-duplicates found, merge their summaries
-	if len(toMerge) > 0 {
-		// Combine summaries from duplicates into the new entry
-		var mergedSummaries []string
-		for _, id := range toMerge {
-			for _, e := range em.entries {
-				if e.ID == id && e.Summary != "" {
-					mergedSummaries = append(mergedSummaries, e.Summary)
-					break
-				}
-			}
-		}
-		if newEntry.Summary != "" {
-			mergedSummaries = append(mergedSummaries, newEntry.Summary)
-		}
-
-		// Update new entry to indicate merge
-		if len(mergedSummaries) > 1 {
-			newEntry.Metadata["merged_from"] = toMerge
-			newEntry.Metadata["merge_count"] = len(toMerge) + 1
-		}
-
-		// Remove the duplicates
-		em.pruneEntries(toMerge)
-		log.Info().
-			Int("merged_count", len(toMerge)).
-			Msg("evolving_memory_smart_merged")
+	if len(toMerge) == 0 {
+		return nil, nil
 	}
+	if newEntry.Summary != "" {
+		mergedSummaries = append(mergedSummaries, newEntry.Summary)
+	}
+
+	plan := &smartMergePlan{mergedIDs: toMerge}
+	mergedSummary := mergeSummaryText(mergedSummaries)
+	if mergedSummary == "" {
+		return plan, nil
+	}
+
+	plan.mergedSummary = mergedSummary
+	if mergedSummary == newEntry.Summary {
+		return plan, nil
+	}
+
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{mergedSummary})
+	if err != nil {
+		return nil, fmt.Errorf("embed merged summary: %w", err)
+	}
+	if len(vecs) > 0 {
+		plan.mergedEmbedding = vecs[0]
+	}
+
+	return plan, nil
+}
+
+func (em *EvolvingMemory) applySmartMergePlan(plan *smartMergePlan, newEntry *MemoryEntry) {
+	if plan == nil {
+		return
+	}
+	if newEntry.Metadata == nil {
+		newEntry.Metadata = make(map[string]interface{})
+	}
+	if len(plan.mergedIDs) > 0 {
+		newEntry.Metadata["merged_from"] = append([]string(nil), plan.mergedIDs...)
+		newEntry.Metadata["merge_count"] = len(plan.mergedIDs) + 1
+	}
+	if plan.mergedSummary != "" {
+		newEntry.Summary = plan.mergedSummary
+	}
+	if len(plan.mergedEmbedding) > 0 {
+		newEntry.Embedding = append([]float32(nil), plan.mergedEmbedding...)
+	}
+
+	em.pruneEntries(plan.mergedIDs)
+	observability.LoggerWithTrace(context.Background()).Info().
+		Int("merged_count", len(plan.mergedIDs)).
+		Msg("evolving_memory_smart_merged")
 }
 
 // relevanceBasedPrune removes entries based on relevance scores.
@@ -717,17 +776,15 @@ func (em *EvolvingMemory) smartPruneBeforeAdd(ctx context.Context, newEntry *Mem
 func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 	log := observability.LoggerWithTrace(ctx)
 
-	// Update relevance scores based on time decay
 	now := time.Now()
+	filtered := make([]*MemoryEntry, 0, len(em.entries))
 	for _, e := range em.entries {
-		// Calculate days since last access
-		daysSinceAccess := now.Sub(e.LastAccessedAt).Hours() / 24
-		// Apply decay
-		decayFactor := math.Pow(em.relevanceDecay, daysSinceAccess)
-		// Boost by access count (log scale to prevent runaway)
-		accessBoost := 1.0 + 0.1*math.Log1p(float64(e.AccessCount))
-		e.RelevanceScore = e.RelevanceScore * decayFactor * accessBoost
+		e.RelevanceScore = em.computeRelevanceScore(now, e)
+		if e.RelevanceScore >= em.minRelevance {
+			filtered = append(filtered, e)
+		}
 	}
+	em.entries = filtered
 
 	// Sort by relevance score (ascending - lowest first)
 	sort.Slice(em.entries, func(i, j int) bool {
@@ -758,6 +815,29 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 		Msg("evolving_memory_relevance_pruned")
 }
 
+func (em *EvolvingMemory) computeRelevanceScore(now time.Time, entry *MemoryEntry) float64 {
+	if entry == nil {
+		return 0
+	}
+
+	referenceTime := entry.LastAccessedAt
+	if referenceTime.IsZero() {
+		referenceTime = entry.CreatedAt
+	}
+	if referenceTime.IsZero() {
+		referenceTime = now
+	}
+
+	daysSinceAccess := now.Sub(referenceTime).Hours() / 24
+	if daysSinceAccess < 0 {
+		daysSinceAccess = 0
+	}
+
+	decayFactor := math.Pow(em.relevanceDecay, daysSinceAccess)
+	accessBoost := 1.0 + 0.1*math.Log1p(float64(entry.AccessCount))
+	return decayFactor * accessBoost
+}
+
 // generateSummary asks the LLM to distill a key lesson from the experience.
 func (em *EvolvingMemory) generateSummary(ctx context.Context, input, output, feedback string) (string, error) {
 	if em.llm == nil {
@@ -783,6 +863,9 @@ func (em *EvolvingMemory) generateSummary(ctx context.Context, input, output, fe
 
 // GetRecentWindow returns the most recent N entries for ExpRecent.
 func (em *EvolvingMemory) GetRecentWindow() []*MemoryEntry {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+
 	if len(em.entries) == 0 {
 		return nil
 	}
@@ -790,7 +873,7 @@ func (em *EvolvingMemory) GetRecentWindow() []*MemoryEntry {
 	if len(em.entries) > em.windowSz {
 		start = len(em.entries) - em.windowSz
 	}
-	return em.entries[start:]
+	return cloneEntrySlice(em.entries[start:])
 }
 
 // BuildExpRecentContext constructs a compressed summary of recent episodes.
@@ -870,15 +953,10 @@ func (em *EvolvingMemory) ApplyEdits(ctx context.Context, ops []MemoryEditOp) er
 	// Persist after applying edits if backed by a store.
 	// Note: systemUserID is 0 in agentd; we still want persistence for it.
 	if em.store != nil {
-		entriesCopy := make([]*MemoryEntry, len(em.entries))
-		copy(entriesCopy, em.entries)
-		go func(entries []*MemoryEntry, uid int64, sid string) {
-			bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := em.store.Save(bgctx, uid, sid, entries); err != nil {
-				observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_persist_failed")
-			}
-		}(entriesCopy, em.userID, em.sessionID)
+		em.mu.RLock()
+		entriesCopy := em.snapshotEntriesLocked()
+		em.mu.RUnlock()
+		em.persistEntriesAsync(entriesCopy)
 	}
 
 	return nil
@@ -967,5 +1045,104 @@ func (em *EvolvingMemory) updateTag(ids []string, tag string) {
 
 // ExportMemories returns all memory entries for inspection endpoints.
 func (em *EvolvingMemory) ExportMemories() []*MemoryEntry {
-	return em.entries
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+	return em.snapshotEntriesLocked()
+}
+
+func (em *EvolvingMemory) snapshotEntriesLocked() []*MemoryEntry {
+	return cloneEntrySlice(em.entries)
+}
+
+func (em *EvolvingMemory) persistEntriesAsync(entries []*MemoryEntry) {
+	if em.store == nil {
+		return
+	}
+
+	em.mu.Lock()
+	em.pendingPersist = entries
+	em.persistVersion++
+	version := em.persistVersion
+	delay := em.persistDelay
+	uid := em.userID
+	sid := em.sessionID
+	em.mu.Unlock()
+
+	go func(targetVersion uint64) {
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			<-timer.C
+		}
+
+		em.mu.Lock()
+		if em.persistVersion != targetVersion {
+			em.mu.Unlock()
+			return
+		}
+		entries := em.pendingPersist
+		em.pendingPersist = nil
+		em.mu.Unlock()
+
+		bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := em.store.Save(bgctx, uid, sid, entries); err != nil {
+			observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_persist_failed")
+		}
+	}(version)
+}
+
+func mergeSummaryText(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+
+	seen := make(map[string]struct{}, len(parts))
+	merged := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, exists := seen[part]; exists {
+			continue
+		}
+		seen[part] = struct{}{}
+		merged = append(merged, part)
+	}
+
+	return strings.Join(merged, "\n\n")
+}
+
+func cloneEntrySlice(entries []*MemoryEntry) []*MemoryEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	cloned := make([]*MemoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			cloned = append(cloned, nil)
+			continue
+		}
+
+		copyEntry := *entry
+		if entry.Embedding != nil {
+			copyEntry.Embedding = append([]float32(nil), entry.Embedding...)
+		}
+		if entry.Metadata != nil {
+			copyEntry.Metadata = make(map[string]interface{}, len(entry.Metadata))
+			for key, value := range entry.Metadata {
+				copyEntry.Metadata[key] = value
+			}
+		}
+		if entry.StructuredFeedback != nil {
+			feedbackCopy := *entry.StructuredFeedback
+			copyEntry.StructuredFeedback = &feedbackCopy
+		}
+
+		cloned = append(cloned, &copyEntry)
+	}
+
+	return cloned
 }

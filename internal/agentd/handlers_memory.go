@@ -11,7 +11,12 @@ import (
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	"manifold/internal/llm"
+	"manifold/internal/persistence"
 )
+
+type evolvingMemorySessionStore interface {
+	ListSessions(ctx context.Context, userID int64) ([]string, error)
+}
 
 // memoryPlanResponse exposes how chat memory is currently sizing history for a session.
 // It mirrors the heuristics in internal/agent/memory.Manager and Engine.maybeSummarize.
@@ -137,7 +142,49 @@ func (a *app) handleDebugMemorySessions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
+	ownerID := systemUserID
+	if userID != nil {
+		ownerID = *userID
+	}
+	if lister, ok := a.evolvingCfg.Store.(evolvingMemorySessionStore); ok {
+		evolvingSessions, err := lister.ListSessions(r.Context(), ownerID)
+		if err != nil {
+			log.Error().Err(err).Int64("user_id", ownerID).Msg("debug_memory_list_evolving_sessions")
+		} else {
+			sessions = mergeDebugMemorySessions(sessions, evolvingSessions)
+		}
+	}
 	writeJSON(w, http.StatusOK, sessions)
+}
+
+func mergeDebugMemorySessions(sessions []persistence.ChatSession, evolvingSessionIDs []string) []persistence.ChatSession {
+	if len(evolvingSessionIDs) == 0 {
+		return sessions
+	}
+
+	out := append([]persistence.ChatSession(nil), sessions...)
+	seen := make(map[string]struct{}, len(sessions))
+	for _, session := range sessions {
+		id := strings.TrimSpace(session.ID)
+		if id == "" {
+			continue
+		}
+		seen[id] = struct{}{}
+	}
+
+	for _, id := range evolvingSessionIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		out = append(out, persistence.ChatSession{ID: id})
+		seen[id] = struct{}{}
+	}
+
+	return out
 }
 
 func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Request, sessionID string) {

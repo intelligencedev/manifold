@@ -53,6 +53,12 @@
           {{ sessionError }}
         </div>
         <div
+          v-else-if="sessionMissing"
+          class="rounded-4 border border-dashed border-border bg-surface-muted/40 px-3 py-2 text-xs text-subtle-foreground"
+        >
+          No chat summary is available for this session yet.
+        </div>
+        <div
           v-else-if="sessionDebug"
           class="flex flex-col gap-3 rounded-4 border border-border bg-surface-muted/40 p-3 text-xs"
         >
@@ -216,6 +222,7 @@ const expandedEntries = ref<Set<string>>(new Set());
 const sessionDebug = ref<MemorySessionDebug | null>(null);
 const sessionLoading = ref(false);
 const sessionError = ref("");
+const sessionMissing = ref(false);
 
 const evolvingDebug = ref<EvolvingMemoryDebug | null>(null);
 const evolvingLoading = ref(false);
@@ -241,12 +248,17 @@ const sessionDropdownOptions = computed(() => [
 
 async function refreshSessionDebug() {
   sessionError.value = "";
+  sessionMissing.value = false;
   sessionDebug.value = null;
   if (!selectedSessionId.value) return;
   sessionLoading.value = true;
   try {
     sessionDebug.value = await fetchMemorySessionDebug(selectedSessionId.value);
   } catch (err: any) {
+    if (err?.response?.status === 404) {
+      sessionMissing.value = true;
+      return;
+    }
     sessionError.value = err?.message || "Failed to load session memory";
   } finally {
     sessionLoading.value = false;
@@ -275,8 +287,27 @@ async function refreshEvolving() {
 
 onMounted(async () => {
   await refetchSessions();
-  await refreshEvolving();
 });
+
+watch(
+  sessions,
+  (nextSessions) => {
+    if (nextSessions.length === 0) {
+      if (selectedSessionId.value) {
+        selectedSessionId.value = "";
+      }
+      return;
+    }
+
+    const selectedStillExists = nextSessions.some(
+      (session) => session.id === selectedSessionId.value,
+    );
+    if (!selectedStillExists) {
+      selectedSessionId.value = nextSessions[0]?.id || "";
+    }
+  },
+  { immediate: true },
+);
 
 watch(selectedSessionId, () => {
   void refreshSessionDebug();

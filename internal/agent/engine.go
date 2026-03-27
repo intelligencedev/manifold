@@ -183,28 +183,7 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 		return "", err
 	}
 
-	// Store experience in evolving memory if enabled
-	if e.EvolvingMemory != nil {
-		log.Info().Str("user_input", userInput).Int("response_len", len(final)).Msg("evolving_memory_store_triggered")
-		feedback := "success" // default; could be derived from user feedback or evaluation
-		structuredFB := &memory.StructuredFeedback{
-			Type:         memory.FeedbackSuccess,
-			Correct:      true,
-			ProgressRate: 1.0,
-			Message:      "Task completed successfully",
-		}
-		bgCtx := context.Background()
-		if span := trace.SpanFromContext(ctx); span != nil {
-			bgCtx = trace.ContextWithSpanContext(bgCtx, span.SpanContext())
-		}
-		go func(ctx context.Context, input, response, fb string, sfb *memory.StructuredFeedback) {
-			if err := e.EvolvingMemory.EvolveEnhanced(ctx, input, response, fb, sfb, nil, ""); err != nil {
-				log.Error().Err(err).Str("feedback", fb).Msg("evolving_memory_store_failed")
-				return
-			}
-			log.Info().Str("feedback", fb).Bool("has_structured_feedback", sfb != nil).Msg("evolving_memory_stored")
-		}(bgCtx, userInput, final, feedback, structuredFB)
-	}
+	e.storeSuccessfulExperience(ctx, userInput, final)
 
 	return final, nil
 }
@@ -232,7 +211,44 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
-	return e.runStreamLoop(ctx, msgs)
+	final, err := e.runStreamLoop(ctx, msgs)
+	if err != nil {
+		return "", err
+	}
+
+	e.storeSuccessfulExperience(ctx, userInput, final)
+
+	return final, nil
+}
+
+func (e *Engine) storeSuccessfulExperience(ctx context.Context, userInput, final string) {
+	if e.EvolvingMemory == nil {
+		return
+	}
+
+	log := observability.LoggerWithTrace(ctx)
+	log.Info().Str("user_input", userInput).Int("response_len", len(final)).Msg("evolving_memory_store_triggered")
+
+	feedback := "success" // default; could be derived from user feedback or evaluation
+	structuredFB := &memory.StructuredFeedback{
+		Type:         memory.FeedbackSuccess,
+		Correct:      true,
+		ProgressRate: 1.0,
+		Message:      "Task completed successfully",
+	}
+
+	bgCtx := context.Background()
+	if span := trace.SpanFromContext(ctx); span != nil {
+		bgCtx = trace.ContextWithSpanContext(bgCtx, span.SpanContext())
+	}
+
+	go func(ctx context.Context, input, response, fb string, sfb *memory.StructuredFeedback) {
+		if err := e.EvolvingMemory.EvolveEnhanced(ctx, input, response, fb, sfb, nil, ""); err != nil {
+			log.Error().Err(err).Str("feedback", fb).Msg("evolving_memory_store_failed")
+			return
+		}
+		log.Info().Str("feedback", fb).Bool("has_structured_feedback", sfb != nil).Msg("evolving_memory_stored")
+	}(bgCtx, userInput, final, feedback, structuredFB)
 }
 
 // streamHandler implements llm.StreamHandler

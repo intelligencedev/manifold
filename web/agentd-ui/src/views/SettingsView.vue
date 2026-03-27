@@ -242,33 +242,24 @@
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
             </div>
-            <div class="space-y-1">
+            <div class="space-y-1 lg:col-span-2">
               <label
-                for="summary-threshold"
+                for="summary-reserve-buffer"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
-                >Summarize After</label
+                >Reserve Output Tokens</label
               >
               <input
-                id="summary-threshold"
+                id="summary-reserve-buffer"
                 type="number"
                 min="0"
-                v-model.number="agentdSettings.summaryThreshold"
+                v-model.number="agentdSettings.summaryReserveBufferTokens"
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
-            </div>
-            <div class="space-y-1">
-              <label
-                for="summary-keep"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
-                >Keep Last Turns</label
-              >
-              <input
-                id="summary-keep"
-                type="number"
-                min="0"
-                v-model.number="agentdSettings.summaryKeepLast"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
+              <p class="text-xs text-subtle-foreground">
+                Summaries are triggered automatically when the chat approaches the
+                model context window. This reserve keeps token budget available
+                for the model response.
+              </p>
             </div>
           </div>
         </fieldset>
@@ -1052,8 +1043,7 @@ const defaultAgentdSettings: AgentdSettings = {
   openaiSummaryModel: "",
   openaiSummaryUrl: "",
   summaryEnabled: false,
-  summaryThreshold: 40,
-  summaryKeepLast: 12,
+  summaryReserveBufferTokens: 25000,
   embedBaseUrl: "https://api.openai.com",
   embedModel: "text-embedding-3-small",
   embedApiKey: "",
@@ -1131,8 +1121,7 @@ const vectorMetricDropdownOptions = vectorMetricOptions.map((metric) => ({
 }));
 
 type NumericSettingKey =
-  | "summaryThreshold"
-  | "summaryKeepLast"
+  | "summaryReserveBufferTokens"
   | "agentRunTimeoutSeconds"
   | "streamRunTimeoutSeconds"
   | "workflowTimeoutSeconds"
@@ -1143,8 +1132,7 @@ type NumericSettingKey =
 type BooleanSettingKey = "summaryEnabled" | "logPayloads";
 
 const numericSettingKeys: NumericSettingKey[] = [
-  "summaryThreshold",
-  "summaryKeepLast",
+  "summaryReserveBufferTokens",
   "agentRunTimeoutSeconds",
   "streamRunTimeoutSeconds",
   "workflowTimeoutSeconds",
@@ -1184,7 +1172,15 @@ function toBoolean(value: unknown, fallback: boolean): boolean {
 function normalizeAgentdSettings(
   input?: Partial<AgentdSettings>,
 ): AgentdSettings {
-  const merged: AgentdSettings = { ...defaultAgentdSettings, ...(input ?? {}) };
+  const merged = {
+    ...defaultAgentdSettings,
+    ...(input ?? {}),
+  } as AgentdSettings & {
+    summaryThreshold?: unknown;
+    summaryKeepLast?: unknown;
+  };
+  delete merged.summaryThreshold;
+  delete merged.summaryKeepLast;
   for (const key of numericSettingKeys) {
     merged[key] = toNumber(input?.[key], defaultAgentdSettings[key]);
   }
@@ -1218,7 +1214,7 @@ async function saveAgentdSettings() {
   agentdSaveError.value = "";
   agentdSuccess.value = "";
   try {
-    const payload: AgentdSettings = { ...agentdSettings.value };
+    const payload = normalizeAgentdSettings(agentdSettings.value);
     const saved = await updateAgentdSettings(payload);
     // Some servers respond to PUT with 204 No Content. In that case, `saved` will
     // be undefined/empty and we were previously resetting the form back to defaults.

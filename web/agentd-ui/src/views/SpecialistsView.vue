@@ -20,7 +20,7 @@
           </div>
         </div>
 
-        <div role="tablist" aria-label="Specialists and teams" class="mb-4 flex flex-wrap gap-2">
+        <div role="tablist" aria-label="Specialists and teams" class="mb-4 flex items-center gap-2">
           <button
             role="tab"
             :aria-selected="activeListTab === 'specialists' ? 'true' : 'false'"
@@ -45,6 +45,12 @@
             Teams
             <span class="ml-1 text-[11px] text-subtle-foreground">{{ teams.length }}</span>
           </button>
+          <input
+            v-model="searchQuery"
+            type="text"
+            placeholder="Search…"
+            class="w-40 rounded-full border border-border/60 bg-surface-muted/30 px-3 py-1.5 text-xs text-foreground placeholder:text-faint-foreground outline-none transition focus:border-accent/60 focus:ring-1 focus:ring-accent/40"
+          />
         </div>
 
         <div v-show="activeListTab === 'teams'" role="tabpanel" class="mb-6">
@@ -96,7 +102,7 @@
         </div>
 
         <div v-show="activeListTab === 'specialists'" role="tabpanel">
-          <div class="mb-3 flex flex-wrap gap-2">
+          <div class="mb-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
               class="rounded-full border px-3 py-1 text-xs font-semibold transition"
@@ -306,12 +312,17 @@ const specialists = computed<Specialist[]>(() => {
 })
 
 const filteredSpecialists = computed<Specialist[]>(() => {
-  const filter = teamFilter.value
-  if (filter === 'all') return specialists.value
-  if (filter === 'unassigned') {
-    return specialists.value.filter((sp) => !sp.teams || sp.teams.length === 0)
+  let list = specialists.value
+  const query = searchQuery.value.trim().toLowerCase()
+  if (query) {
+    list = list.filter((sp) => sp.name.toLowerCase().includes(query))
   }
-  return specialists.value.filter((sp) => sp.teams?.includes(filter))
+  const filter = teamFilter.value
+  if (filter === 'all') return list
+  if (filter === 'unassigned') {
+    return list.filter((sp) => !sp.teams || sp.teams.length === 0)
+  }
+  return list.filter((sp) => sp.teams?.includes(filter))
 })
 
 const providerOptions = computed(() => {
@@ -329,6 +340,7 @@ const specialistNames = computed(() => specialists.value.filter(sp => !isTeamOrc
 
 const activeListTab = ref<'specialists' | 'teams'>('specialists')
 const teamFilter = ref<'all' | 'unassigned' | string>('all')
+const searchQuery = ref('')
 
 const editingType = ref<'specialist' | 'team' | null>(null)
 const editorInitial = ref<Specialist | null>(null)

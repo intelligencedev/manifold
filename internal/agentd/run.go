@@ -65,6 +65,12 @@ import (
 
 const systemUserID int64 = 0
 
+const (
+	defaultEvolvingPersistDebounce = 250 * time.Millisecond
+	defaultEvolvingSessionTTL      = time.Hour
+	defaultEvolvingJanitorInterval = 15 * time.Minute
+)
+
 type app struct {
 	cfg                *config.Config
 	httpClient         *http.Client
@@ -79,7 +85,9 @@ type app struct {
 	flowV2             *flowV2Runtime
 	evolvingMu         sync.RWMutex
 	userEvolving       map[int64]map[string]*memory.EvolvingMemory
+	evolvingLastUsed   map[int64]map[string]time.Time
 	evolvingCfg        memory.EvolvingMemoryConfig
+	evolvingSessionTTL time.Duration
 	rememMaxInnerSteps int
 	engine             *agent.Engine
 	chatStore          persist.ChatStore
@@ -287,12 +295,14 @@ func (a *app) getOrCreateEvolvingMemoryForSession(userID int64, sessionID string
 	if sessionID == "" {
 		sessionID = "default"
 	}
+	now := time.Now()
 
 	a.evolvingMu.RLock()
 	if a.userEvolving != nil {
 		if sessions := a.userEvolving[userID]; sessions != nil {
 			if em := sessions[sessionID]; em != nil {
 				a.evolvingMu.RUnlock()
+				a.markEvolvingSessionUsed(userID, sessionID, now)
 				return em
 			}
 		}
@@ -304,10 +314,17 @@ func (a *app) getOrCreateEvolvingMemoryForSession(userID int64, sessionID string
 	if a.userEvolving == nil {
 		a.userEvolving = make(map[int64]map[string]*memory.EvolvingMemory)
 	}
+	if a.evolvingLastUsed == nil {
+		a.evolvingLastUsed = make(map[int64]map[string]time.Time)
+	}
 	if a.userEvolving[userID] == nil {
 		a.userEvolving[userID] = make(map[string]*memory.EvolvingMemory)
 	}
+	if a.evolvingLastUsed[userID] == nil {
+		a.evolvingLastUsed[userID] = make(map[string]time.Time)
+	}
 	if em := a.userEvolving[userID][sessionID]; em != nil {
+		a.evolvingLastUsed[userID][sessionID] = now
 		return em
 	}
 	if a.evolvingCfg.LLM == nil {
@@ -318,7 +335,71 @@ func (a *app) getOrCreateEvolvingMemoryForSession(userID int64, sessionID string
 	cfg.SessionID = sessionID
 	em := memory.NewEvolvingMemory(cfg)
 	a.userEvolving[userID][sessionID] = em
+	a.evolvingLastUsed[userID][sessionID] = now
 	return em
+}
+
+func (a *app) markEvolvingSessionUsed(userID int64, sessionID string, now time.Time) {
+	a.evolvingMu.Lock()
+	defer a.evolvingMu.Unlock()
+	if a.evolvingLastUsed == nil {
+		a.evolvingLastUsed = make(map[int64]map[string]time.Time)
+	}
+	if a.evolvingLastUsed[userID] == nil {
+		a.evolvingLastUsed[userID] = make(map[string]time.Time)
+	}
+	a.evolvingLastUsed[userID][sessionID] = now
+}
+
+func (a *app) cleanupExpiredEvolvingSessions(now time.Time) int {
+	if a.evolvingSessionTTL <= 0 {
+		return 0
+	}
+	cutoff := now.Add(-a.evolvingSessionTTL)
+	removed := 0
+
+	a.evolvingMu.Lock()
+	defer a.evolvingMu.Unlock()
+	for userID, sessions := range a.evolvingLastUsed {
+		for sessionID, lastUsed := range sessions {
+			if lastUsed.After(cutoff) {
+				continue
+			}
+			delete(sessions, sessionID)
+			if userSessions := a.userEvolving[userID]; userSessions != nil {
+				delete(userSessions, sessionID)
+				if len(userSessions) == 0 {
+					delete(a.userEvolving, userID)
+				}
+			}
+			removed++
+		}
+		if len(sessions) == 0 {
+			delete(a.evolvingLastUsed, userID)
+		}
+	}
+	return removed
+}
+
+func (a *app) startEvolvingSessionJanitor(ctx context.Context, interval time.Duration) {
+	if interval <= 0 || a.evolvingSessionTTL <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				removed := a.cleanupExpiredEvolvingSessions(time.Now())
+				if removed > 0 {
+					log.Debug().Int("removed", removed).Msg("evolving_memory_sessions_evicted")
+				}
+			}
+		}
+	}()
 }
 
 // Run initialises the agentd server and starts the HTTP listener.
@@ -830,24 +911,33 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	app := &app{
-		cfg:              cfg,
-		httpClient:       httpClient,
-		mgr:              &mgr,
-		llm:              llm,
-		summaryLLM:       summaryLLM,
-		baseToolRegistry: baseToolRegistry,
-		toolRegistry:     toolRegistry,
-		specRegistry:     specReg,
-		userSpecRegs:     map[int64]*specialists.Registry{systemUserID: specReg},
-		runs:             newRunStore(),
-		flowV2:           newFlowV2Runtime(mgr.FlowV2),
-		mcpStore:         mgr.MCP,
-		userPrefsStore:   mgr.UserPreferences,
-		mcpManager:       mcpMgr,
-		mcpPool:          mcpPool,
-		workspaceManager: wsMgr,
-		transitService:   transitSvc,
+		cfg:                cfg,
+		httpClient:         httpClient,
+		mgr:                &mgr,
+		llm:                llm,
+		summaryLLM:         summaryLLM,
+		baseToolRegistry:   baseToolRegistry,
+		toolRegistry:       toolRegistry,
+		specRegistry:       specReg,
+		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: specReg},
+		runs:               newRunStore(),
+		flowV2:             newFlowV2Runtime(mgr.FlowV2),
+		evolvingSessionTTL: defaultEvolvingSessionTTL,
+		mcpStore:           mgr.MCP,
+		userPrefsStore:     mgr.UserPreferences,
+		mcpManager:         mcpMgr,
+		mcpPool:            mcpPool,
+		workspaceManager:   wsMgr,
+		transitService:     transitSvc,
 	}
+	janitorInterval := defaultEvolvingJanitorInterval
+	if cfg.EvolvingMemory.SessionTTLMinutes > 0 {
+		app.evolvingSessionTTL = time.Duration(cfg.EvolvingMemory.SessionTTLMinutes) * time.Minute
+	}
+	if cfg.EvolvingMemory.JanitorIntervalMinutes > 0 {
+		janitorInterval = time.Duration(cfg.EvolvingMemory.JanitorIntervalMinutes) * time.Minute
+	}
+	app.startEvolvingSessionJanitor(ctx, janitorInterval)
 
 	systemPrompt := app.composeSystemPrompt()
 
@@ -889,6 +979,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			EmbeddingConfig:  cfg.Embedding,
 			LLM:              memLLM,
 			Model:            memModel,
+			PersistDebounce:  defaultEvolvingPersistDebounce,
 			MaxSize:          cfg.EvolvingMemory.MaxSize,
 			TopK:             cfg.EvolvingMemory.TopK,
 			WindowSize:       cfg.EvolvingMemory.WindowSize,
@@ -900,12 +991,16 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			Store:            evStore,
 			UserID:           systemUserID,
 		}
+		if cfg.EvolvingMemory.PersistDebounceMs > 0 {
+			app.evolvingCfg.PersistDebounce = time.Duration(cfg.EvolvingMemory.PersistDebounceMs) * time.Millisecond
+		}
 		app.rememMaxInnerSteps = cfg.EvolvingMemory.MaxInnerSteps
 
 		app.engine.EvolvingMemory = memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
 			EmbeddingConfig:  cfg.Embedding,
 			LLM:              memLLM,
 			Model:            memModel,
+			PersistDebounce:  app.evolvingCfg.PersistDebounce,
 			MaxSize:          cfg.EvolvingMemory.MaxSize,
 			TopK:             cfg.EvolvingMemory.TopK,
 			WindowSize:       cfg.EvolvingMemory.WindowSize,
@@ -921,6 +1016,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			Bool("enabled", true).
 			Str("provider", memProvider).
 			Str("model", memModel).
+			Dur("persistDebounce", app.evolvingCfg.PersistDebounce).
+			Dur("sessionTTL", app.evolvingSessionTTL).
+			Dur("janitorInterval", janitorInterval).
 			Int("maxSize", cfg.EvolvingMemory.MaxSize).
 			Int("topK", cfg.EvolvingMemory.TopK).
 			Bool("rag", cfg.EvolvingMemory.EnableRAG).

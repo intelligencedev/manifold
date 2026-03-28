@@ -456,8 +456,7 @@ export interface AgentdSettings {
   openaiSummaryModel: string;
   openaiSummaryUrl: string;
   summaryEnabled: boolean;
-  summaryThreshold: number;
-  summaryKeepLast: number;
+  summaryReserveBufferTokens: number;
 
   embedBaseUrl: string;
   embedModel: string;

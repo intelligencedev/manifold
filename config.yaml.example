@@ -185,6 +185,9 @@ embedding:
 evolvingMemory:
   enabled: false
   provider: openai
+  persistDebounceMs: 250
+  sessionTTLMinutes: 60
+  janitorIntervalMinutes: 15
   llmClient:
     provider: local
     openai:

@@ -14,6 +14,7 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
+	tooldiscovery "manifold/internal/tools/discovery"
 )
 
 func (a *app) statusHandler() http.HandlerFunc {
@@ -216,6 +217,7 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		Model:                      baseModel,
 		SummaryContextWindowTokens: 0,
 		EnableTools:                a.cfg.EnableTools,
+		AutoDiscover:               boolPtr(a.cfg.AutoDiscover),
 		Paused:                     false,
 		AllowTools:                 a.cfg.ToolAllowList,
 		System:                     a.cfg.SystemPrompt,
@@ -244,6 +246,9 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 			out.SummaryContextWindowTokens = sp.SummaryContextWindowTokens
 		}
 		out.EnableTools = sp.EnableTools
+		if sp.AutoDiscover != nil {
+			out.AutoDiscover = boolPtr(*sp.AutoDiscover)
+		}
 		if sp.AllowTools != nil {
 			out.AllowTools = append([]string(nil), sp.AllowTools...)
 		}
@@ -394,7 +399,11 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	}
 	a.engine.Model = currentModel
 
-	a.toolRegistry = tools.ApplyTopLevelPolicy(a.baseToolRegistry, a.cfg.EnableTools, a.cfg.ToolAllowList)
+	if a.cfg.AutoDiscover && a.cfg.EnableTools && a.toolIndex != nil {
+		a.toolRegistry = tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, a.cfg.ToolAllowList, a.cfg.MaxDiscoveredTools)
+	} else {
+		a.toolRegistry = tools.ApplyTopLevelPolicy(a.baseToolRegistry, a.cfg.EnableTools, a.cfg.ToolAllowList)
+	}
 
 	a.engine.Tools = a.toolRegistry
 	// Propagate updated tool registry to the delegator (if present)
@@ -408,6 +417,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		Name:                       specialists.OrchestratorName,
 		Description:                sp.Description,
 		EnableTools:                a.cfg.EnableTools,
+		AutoDiscover:               boolPtr(a.cfg.AutoDiscover),
 		Paused:                     false,
 		AllowTools:                 append([]string(nil), a.cfg.ToolAllowList...),
 		System:                     a.cfg.SystemPrompt,
@@ -438,6 +448,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	}
 	if list, err := a.specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	}
 	a.refreshEngineSystemPrompt()
 	names := make([]string, 0, len(a.toolRegistry.Schemas()))
@@ -450,4 +461,9 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		Strs("tools", names).
 		Msg("tool_registry_contents_updated")
 	return nil
+}
+
+func boolPtr(value bool) *bool {
+	v := value
+	return &v
 }

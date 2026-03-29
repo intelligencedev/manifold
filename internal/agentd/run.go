@@ -46,6 +46,7 @@ import (
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
 	codeevolvetool "manifold/internal/tools/codeevolve"
+	tooldiscovery "manifold/internal/tools/discovery"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
 	"manifold/internal/tools/llmparallel"
@@ -78,6 +79,7 @@ type app struct {
 	llm                llmpkg.Provider
 	baseToolRegistry   tools.Registry
 	toolRegistry       tools.Registry
+	toolIndex          *tooldiscovery.ToolIndex
 	specRegistry       *specialists.Registry
 	specRegMu          sync.RWMutex
 	userSpecRegs       map[int64]*specialists.Registry
@@ -267,7 +269,7 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID st
 	}
 
 	// Apply user's tool configuration
-	eng.Tools = tools.ApplyTopLevelPolicy(a.baseToolRegistry, sp.EnableTools, sp.AllowTools)
+	eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
 
 	// Apply user's system prompt if set.
 	// This should preserve the user-scoped specialists catalog.
@@ -810,10 +812,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// own timeout management via the parent context.
 	toolRegistry.Register(agenttools.NewDelegateToTeamTool(httpClient, "http://127.0.0.1:32180", 0))
 
-	toolRegistry = tools.ApplyTopLevelPolicy(baseToolRegistry, cfg.EnableTools, cfg.ToolAllowList)
-
-	log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(toolRegistry)).Msg("tool_registry_contents")
-
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(ctx, 30*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, baseToolRegistry, cfg.MCP)
@@ -910,6 +908,16 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		mcpPool.StartReaper(ctx, baseToolRegistry, 15*time.Minute, 1*time.Hour)
 	}
 
+	toolIndex := tooldiscovery.NewToolIndex(baseToolRegistry.Schemas())
+	if cfg.AutoDiscover && cfg.EnableTools {
+		toolRegistry = tooldiscovery.NewDiscoverableRegistry(baseToolRegistry, toolIndex, cfg.ToolAllowList, cfg.MaxDiscoveredTools)
+	} else {
+		toolRegistry = tools.ApplyTopLevelPolicy(baseToolRegistry, cfg.EnableTools, cfg.ToolAllowList)
+	}
+	specReg.SetToolDiscovery(toolIndex, cfg.AutoDiscover, cfg.MaxDiscoveredTools)
+
+	log.Info().Bool("enableTools", cfg.EnableTools).Bool("autoDiscover", cfg.AutoDiscover).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(toolRegistry)).Msg("tool_registry_contents")
+
 	app := &app{
 		cfg:                cfg,
 		httpClient:         httpClient,
@@ -918,6 +926,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		summaryLLM:         summaryLLM,
 		baseToolRegistry:   baseToolRegistry,
 		toolRegistry:       toolRegistry,
+		toolIndex:          toolIndex,
 		specRegistry:       specReg,
 		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:               newRunStore(),
@@ -1274,6 +1283,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	}
 	a.refreshEngineSystemPrompt()
 

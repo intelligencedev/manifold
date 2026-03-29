@@ -16,6 +16,7 @@ import (
 	"manifold/internal/llm/google"
 	openaillm "manifold/internal/llm/openai"
 	"manifold/internal/tools"
+	tooldiscovery "manifold/internal/tools/discovery"
 )
 
 // Agent represents a configured specialist bound to a specific endpoint/model.
@@ -27,6 +28,7 @@ type Agent struct {
 	Model                      string
 	SummaryContextWindowTokens int
 	EnableTools                bool
+	AutoDiscover               bool
 	ReasoningEffort            string // optional: "low"|"medium"|"high"
 	ExtraParams                map[string]any
 
@@ -48,6 +50,9 @@ type Registry struct {
 	configs              []config.SpecialistConfig
 	httpClient           *http.Client
 	toolsReg             tools.Registry
+	toolIndex            *tooldiscovery.ToolIndex
+	autoDiscover         bool
+	maxDiscovered        int
 }
 
 // NewRegistry builds a registry from config.SpecialistConfig entries.
@@ -81,6 +86,15 @@ func (r *Registry) SetWorkdir(workdir string) {
 		return
 	}
 	r.workdir = workdir
+	r.rebuildLocked()
+}
+
+func (r *Registry) SetToolDiscovery(index *tooldiscovery.ToolIndex, autoDiscover bool, maxDiscovered int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.toolIndex = index
+	r.autoDiscover = autoDiscover
+	r.maxDiscovered = maxDiscovered
 	r.rebuildLocked()
 }
 
@@ -196,9 +210,17 @@ func (r *Registry) rebuildLocked() {
 		if prov == nil || model == "" {
 			continue
 		}
+		resolvedAutoDiscover := r.autoDiscover
+		if sc.AutoDiscover != nil {
+			resolvedAutoDiscover = *sc.AutoDiscover
+		}
 		var toolsView tools.Registry
 		if sc.EnableTools && r.toolsReg != nil {
-			toolsView = tools.NewFilteredRegistry(r.toolsReg, sc.AllowTools)
+			if resolvedAutoDiscover && r.toolIndex != nil {
+				toolsView = tooldiscovery.NewDiscoverableRegistry(r.toolsReg, r.toolIndex, sc.AllowTools, r.maxDiscovered)
+			} else {
+				toolsView = tools.NewFilteredRegistry(r.toolsReg, sc.AllowTools)
+			}
 		} else {
 			toolsView = nil
 		}
@@ -210,6 +232,9 @@ func (r *Registry) rebuildLocked() {
 			baseSystem := prompts.DefaultSystemPrompt(r.workdir, "")
 			specialistSystem = combineSystemPrompts(baseSystem, specialistSystem)
 		}
+		if resolvedAutoDiscover {
+			specialistSystem = prompts.EnsureToolDiscoveryInstructions(specialistSystem)
+		}
 
 		a := &Agent{
 			Name:                       sc.Name,
@@ -218,6 +243,7 @@ func (r *Registry) rebuildLocked() {
 			Model:                      model,
 			SummaryContextWindowTokens: sc.SummaryContextWindowTokens,
 			EnableTools:                sc.EnableTools,
+			AutoDiscover:               resolvedAutoDiscover,
 			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:                sc.ExtraParams,
 			provider:                   prov,
@@ -246,6 +272,10 @@ func cloneSpecialistConfigs(list []config.SpecialistConfig) []config.SpecialistC
 		clone := sc
 		if len(sc.AllowTools) > 0 {
 			clone.AllowTools = append([]string(nil), sc.AllowTools...)
+		}
+		if sc.AutoDiscover != nil {
+			value := *sc.AutoDiscover
+			clone.AutoDiscover = &value
 		}
 		clone.ExtraHeaders = copyStringMap(sc.ExtraHeaders)
 		clone.ExtraParams = copyAnyMap(sc.ExtraParams)

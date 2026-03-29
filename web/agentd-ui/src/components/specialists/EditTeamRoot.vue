@@ -1,12 +1,17 @@
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <div class="sticky top-0 z-10 border-b border-border/50 bg-surface/90 backdrop-blur-sm">
+    <div
+      class="sticky top-0 z-10 border-b border-border/50 bg-surface/90 backdrop-blur-sm"
+    >
       <div class="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
         <div class="min-w-0">
           <h2 class="text-base font-semibold text-foreground">
             {{ headerTitle }}
           </h2>
-          <p v-if="headerSubtitle" class="mt-0.5 text-xs text-subtle-foreground">
+          <p
+            v-if="headerSubtitle"
+            class="mt-0.5 text-xs text-subtle-foreground"
+          >
             {{ headerSubtitle }}
           </p>
         </div>
@@ -26,7 +31,11 @@
         </div>
       </div>
 
-      <div role="tablist" aria-label="Edit Team" class="flex flex-wrap gap-2 px-4 pb-3">
+      <div
+        role="tablist"
+        aria-label="Edit Team"
+        class="flex flex-wrap gap-2 px-4 pb-3"
+      >
         <button
           v-for="t in tabs"
           :key="t.id"
@@ -49,7 +58,9 @@
       </div>
     </div>
 
-    <div class="flex flex-1 min-h-0 flex-col overflow-auto px-4 pb-6 pt-4 scrollbar-inset">
+    <div
+      class="flex flex-1 min-h-0 flex-col overflow-auto px-4 pb-6 pt-4 scrollbar-inset"
+    >
       <div
         v-if="actionError"
         class="mb-4 rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
@@ -119,8 +130,13 @@
           helper="Each team has a dedicated orchestrator configuration."
         >
           <div class="flex flex-col gap-3">
-            <div class="rounded border border-border/60 bg-surface-muted/20 px-3 py-2 text-sm text-subtle-foreground">
-              Orchestrator name: <span class="font-semibold text-foreground">{{ orchestratorName }}</span>
+            <div
+              class="rounded border border-border/60 bg-surface-muted/20 px-3 py-2 text-sm text-subtle-foreground"
+            >
+              Orchestrator name:
+              <span class="font-semibold text-foreground">{{
+                orchestratorName
+              }}</span>
             </div>
             <div class="grid gap-3 md:grid-cols-2">
               <div class="flex flex-col gap-1">
@@ -163,10 +179,35 @@
                 placeholder="https://…"
               />
             </div>
-            <label class="inline-flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2">
+            <label
+              class="inline-flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+            >
               <span class="text-sm text-foreground">Enable tools</span>
-              <input v-model="orchestratorDraft.enableTools" type="checkbox" class="h-4 w-4" />
+              <input
+                v-model="orchestratorDraft.enableTools"
+                type="checkbox"
+                class="h-4 w-4"
+              />
             </label>
+            <div
+              v-if="orchestratorDraft.enableTools"
+              class="flex flex-col gap-1"
+            >
+              <label
+                for="team-orch-auto-discover"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Auto-discovery</label
+              >
+              <select
+                id="team-orch-auto-discover"
+                v-model="orchestratorDraft.autoDiscoverMode"
+                class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+              >
+                <option value="inherit">Inherit global setting</option>
+                <option value="enabled">Enabled for this orchestrator</option>
+                <option value="disabled">Disabled for this orchestrator</option>
+              </select>
+            </div>
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-allow"
@@ -235,7 +276,7 @@
                 v-model="orchestratorDraft.extraHeadersJson"
                 rows="3"
                 class="w-full resize-y overflow-auto rounded border border-border/60 bg-surface-muted/40 px-3 py-2 font-mono text-sm"
-                placeholder='{}'
+                placeholder="{}"
               ></textarea>
             </div>
             <div class="flex flex-col gap-1">
@@ -249,7 +290,7 @@
                 v-model="orchestratorDraft.extraParamsJson"
                 rows="3"
                 class="w-full resize-y overflow-auto rounded border border-border/60 bg-surface-muted/40 px-3 py-2 font-mono text-sm"
-                placeholder='{}'
+                placeholder="{}"
               ></textarea>
             </div>
           </div>
@@ -276,7 +317,10 @@
               class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
             />
             <div class="rounded-lg border border-border/60 bg-surface">
-              <div v-if="!filteredMembers.length" class="px-3 py-3 text-sm text-subtle-foreground">
+              <div
+                v-if="!filteredMembers.length"
+                class="px-3 py-3 text-sm text-subtle-foreground"
+              >
                 No specialists match your search.
               </div>
               <label
@@ -288,7 +332,12 @@
                   class="mt-1 h-4 w-4 shrink-0"
                   type="checkbox"
                   :checked="selectedMembers.has(name)"
-                  @change="toggleMember(name, ($event.target as HTMLInputElement).checked)"
+                  @change="
+                    toggleMember(
+                      name,
+                      ($event.target as HTMLInputElement).checked,
+                    )
+                  "
                 />
                 <div class="min-w-0">
                   <p class="text-sm font-medium text-foreground">{{ name }}</p>
@@ -300,7 +349,9 @@
       </div>
     </div>
 
-    <div class="sticky bottom-0 z-10 border-t border-border/50 bg-surface/90 backdrop-blur-sm">
+    <div
+      class="sticky bottom-0 z-10 border-t border-border/50 bg-surface/90 backdrop-blur-sm"
+    >
       <div class="flex items-center justify-between gap-3 px-4 py-3">
         <div class="text-xs text-subtle-foreground">
           <span v-if="saving">Saving…</span>
@@ -379,6 +430,7 @@ const orchestratorDraft = reactive({
   baseURL: "",
   apiKey: "",
   enableTools: false,
+  autoDiscoverMode: "inherit" as "inherit" | "enabled" | "disabled",
   allowToolsText: "",
   system: "",
   summaryContextWindowTokens: null as number | null,
@@ -425,6 +477,12 @@ function normalizeAllowTools(value: string): string[] {
     .filter((v) => v);
 }
 
+function normalizeAutoDiscover(
+  value: boolean | null | undefined,
+): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
 function parseJsonSafe<T>(json: string, fallback: T): T {
   try {
     return JSON.parse(json) || fallback;
@@ -449,27 +507,49 @@ const isDirty = computed(() => {
 
   // Compare orchestrator fields
   const orch = baseline.value.orchestrator || ({} as Specialist);
-  if ((orchestratorDraft.provider || defaultProvider.value) !== (orch.provider || defaultProvider.value)) return true;
+  if (
+    (orchestratorDraft.provider || defaultProvider.value) !==
+    (orch.provider || defaultProvider.value)
+  )
+    return true;
   if ((orchestratorDraft.model || "") !== (orch.model || "")) return true;
   if ((orchestratorDraft.baseURL || "") !== (orch.baseURL || "")) return true;
   if ((orchestratorDraft.apiKey || "") !== (orch.apiKey || "")) return true;
   if (orchestratorDraft.enableTools !== !!orch.enableTools) return true;
+  if (
+    normalizeAutoDiscover(orch.autoDiscover) !==
+    (orchestratorDraft.autoDiscoverMode === "enabled"
+      ? true
+      : orchestratorDraft.autoDiscoverMode === "disabled"
+        ? false
+        : null)
+  )
+    return true;
   if ((orchestratorDraft.system || "") !== (orch.system || "")) return true;
-  if ((orchestratorDraft.summaryContextWindowTokens ?? null) !== (orch.summaryContextWindowTokens ?? null)) return true;
+  if (
+    (orchestratorDraft.summaryContextWindowTokens ?? null) !==
+    (orch.summaryContextWindowTokens ?? null)
+  )
+    return true;
 
   // Compare allowTools
-  const currentAllowTools = normalizeAllowTools(orchestratorDraft.allowToolsText).sort();
+  const currentAllowTools = normalizeAllowTools(
+    orchestratorDraft.allowToolsText,
+  ).sort();
   const baselineAllowTools = (orch.allowTools || []).slice().sort();
-  if (JSON.stringify(currentAllowTools) !== JSON.stringify(baselineAllowTools)) return true;
+  if (JSON.stringify(currentAllowTools) !== JSON.stringify(baselineAllowTools))
+    return true;
 
   // Compare extraHeaders and extraParams
   const currentHeaders = parseJsonSafe(orchestratorDraft.extraHeadersJson, {});
   const baselineHeaders = orch.extraHeaders || {};
-  if (JSON.stringify(currentHeaders) !== JSON.stringify(baselineHeaders)) return true;
+  if (JSON.stringify(currentHeaders) !== JSON.stringify(baselineHeaders))
+    return true;
 
   const currentParams = parseJsonSafe(orchestratorDraft.extraParamsJson, {});
   const baselineParams = orch.extraParams || {};
-  if (JSON.stringify(currentParams) !== JSON.stringify(baselineParams)) return true;
+  if (JSON.stringify(currentParams) !== JSON.stringify(baselineParams))
+    return true;
 
   return false;
 });
@@ -485,11 +565,26 @@ function initFromInitial(team: SpecialistTeam) {
   orchestratorDraft.baseURL = orch.baseURL || "";
   orchestratorDraft.apiKey = orch.apiKey || "";
   orchestratorDraft.enableTools = !!orch.enableTools;
+  orchestratorDraft.autoDiscoverMode =
+    normalizeAutoDiscover(orch.autoDiscover) === true
+      ? "enabled"
+      : normalizeAutoDiscover(orch.autoDiscover) === false
+        ? "disabled"
+        : "inherit";
   orchestratorDraft.allowToolsText = (orch.allowTools || []).join(", ");
   orchestratorDraft.system = orch.system || "";
-  orchestratorDraft.summaryContextWindowTokens = orch.summaryContextWindowTokens ?? null;
-  orchestratorDraft.extraHeadersJson = JSON.stringify(orch.extraHeaders || {}, null, 2);
-  orchestratorDraft.extraParamsJson = JSON.stringify(orch.extraParams || {}, null, 2);
+  orchestratorDraft.summaryContextWindowTokens =
+    orch.summaryContextWindowTokens ?? null;
+  orchestratorDraft.extraHeadersJson = JSON.stringify(
+    orch.extraHeaders || {},
+    null,
+    2,
+  );
+  orchestratorDraft.extraParamsJson = JSON.stringify(
+    orch.extraParams || {},
+    null,
+    2,
+  );
 
   applyProviderDefaults();
 
@@ -502,7 +597,8 @@ function applyProviderDefaults() {
   const defaults = props.providerDefaults?.[orchestratorDraft.provider];
   if (!defaults) return;
   if (!orchestratorDraft.model) orchestratorDraft.model = defaults.model || "";
-  if (!orchestratorDraft.baseURL) orchestratorDraft.baseURL = defaults.baseURL || "";
+  if (!orchestratorDraft.baseURL)
+    orchestratorDraft.baseURL = defaults.baseURL || "";
 }
 
 function toggleMember(name: string, enabled: boolean) {
@@ -523,11 +619,18 @@ function buildPayload(): SpecialistTeam {
     baseURL: orchestratorDraft.baseURL || "",
     apiKey: orchestratorDraft.apiKey || "",
     enableTools: orchestratorDraft.enableTools,
+    autoDiscover:
+      orchestratorDraft.autoDiscoverMode === "enabled"
+        ? true
+        : orchestratorDraft.autoDiscoverMode === "disabled"
+          ? false
+          : null,
     paused: false,
     allowTools: normalizeAllowTools(orchestratorDraft.allowToolsText),
     system: orchestratorDraft.system || "",
     description: `Team orchestrator for ${draft.name || "team"}`,
-    summaryContextWindowTokens: orchestratorDraft.summaryContextWindowTokens ?? undefined,
+    summaryContextWindowTokens:
+      orchestratorDraft.summaryContextWindowTokens ?? undefined,
     extraHeaders: parseJsonSafe(orchestratorDraft.extraHeadersJson, {}),
     extraParams: parseJsonSafe(orchestratorDraft.extraParamsJson, {}),
   };

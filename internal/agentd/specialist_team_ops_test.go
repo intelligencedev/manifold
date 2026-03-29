@@ -58,9 +58,10 @@ func TestCreateSpecialistForUserAppliesTeamMemberships(t *testing.T) {
 	}
 
 	saved, status, err := app.createSpecialistForUser(ctx, 11, persistence.Specialist{
-		Name:  "analyst",
-		Model: "gpt-4.1-mini",
-		Teams: []string{"research"},
+		Name:         "analyst",
+		Model:        "gpt-4.1-mini",
+		AutoDiscover: boolPtrTeam(true),
+		Teams:        []string{"research"},
 	})
 	if err != nil {
 		t.Fatalf("createSpecialistForUser: %v", err)
@@ -70,6 +71,9 @@ func TestCreateSpecialistForUserAppliesTeamMemberships(t *testing.T) {
 	}
 	if len(saved.Teams) != 1 || saved.Teams[0] != "research" {
 		t.Fatalf("expected saved team membership, got %#v", saved.Teams)
+	}
+	if saved.AutoDiscover == nil || !*saved.AutoDiscover {
+		t.Fatalf("expected autoDiscover persisted, got %#v", saved.AutoDiscover)
 	}
 
 	memberships := app.teamMembershipsForUser(ctx, 11)
@@ -164,4 +168,9 @@ func newSpecialistTeamTestApp() *app {
 		teamStore:    databases.NewSpecialistTeamsStore(nil),
 		userSpecRegs: map[int64]*specialists.Registry{},
 	}
+}
+
+func boolPtrTeam(value bool) *bool {
+	v := value
+	return &v
 }

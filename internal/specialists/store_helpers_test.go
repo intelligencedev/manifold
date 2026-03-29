@@ -49,7 +49,7 @@ func TestConfigsFromStore(t *testing.T) {
 
 	list := []persistence.Specialist{
 		{Name: OrchestratorName},
-		{Name: "alpha", Provider: "google", Description: "desc", Model: "model"},
+		{Name: "alpha", Provider: "google", Description: "desc", Model: "model", AutoDiscover: boolPtrStore(true)},
 	}
 
 	out := ConfigsFromStore(list)
@@ -59,6 +59,8 @@ func TestConfigsFromStore(t *testing.T) {
 	require.Equal(t, "google", out[0].Provider)
 	require.Equal(t, "desc", out[0].Description)
 	require.Equal(t, "model", out[0].Model)
+	require.NotNil(t, out[0].AutoDiscover)
+	require.True(t, *out[0].AutoDiscover)
 }
 
 func TestSeedStore(t *testing.T) {
@@ -91,4 +93,9 @@ func TestSeedStore_ListError(t *testing.T) {
 	err := SeedStore(context.Background(), store, 0, defaults)
 
 	require.Error(t, err)
+}
+
+func boolPtrStore(value bool) *bool {
+	v := value
+	return &v
 }

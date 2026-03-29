@@ -68,6 +68,12 @@ type Config struct {
 	// Top-level allow list of tool names to expose to the main orchestrator agent.
 	// If empty or omitted, all registered tools are exposed.
 	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`
+	// AutoDiscover enables deferred tool discovery. When enabled, allowTools
+	// becomes the initial bootstrap set and agents can load more tools mid-run.
+	AutoDiscover bool `yaml:"autoDiscover" json:"autoDiscover"`
+	// MaxDiscoveredTools caps how many non-bootstrap tools a single run can load
+	// when auto-discovery is enabled.
+	MaxDiscoveredTools int `yaml:"maxDiscoveredTools" json:"maxDiscoveredTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig `yaml:"embedding" json:"embedding"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
@@ -219,6 +225,9 @@ type SpecialistConfig struct {
 	// API, when set, overrides which API surface to use for this specialist: "completions" or "responses".
 	API         string `yaml:"api" json:"api"`
 	EnableTools bool   `yaml:"enableTools" json:"enableTools"`
+	// AutoDiscover overrides the global auto-discovery setting for this specialist.
+	// Nil means inherit the global default.
+	AutoDiscover *bool `yaml:"autoDiscover" json:"autoDiscover"`
 	// Paused specialists are ignored by the orchestrator and not exposed to tools.
 	Paused bool `yaml:"paused" json:"paused"`
 	// AllowTools is an optional allow-list of tool names exposed to this specialist.

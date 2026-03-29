@@ -21,6 +21,7 @@ func TestApplyOrchestratorConfig_OpenAI(t *testing.T) {
 		APIKey:       "key",
 		Model:        "model",
 		EnableTools:  true,
+		AutoDiscover: boolPtr(true),
 		AllowTools:   []string{"a", "b"},
 		System:       "system",
 		ExtraHeaders: map[string]string{"x": "y"},
@@ -35,6 +36,7 @@ func TestApplyOrchestratorConfig_OpenAI(t *testing.T) {
 	require.Equal(t, "https://example.com", cfg.LLMClient.OpenAI.BaseURL)
 	require.Equal(t, "system", cfg.SystemPrompt)
 	require.True(t, cfg.EnableTools)
+	require.True(t, cfg.AutoDiscover)
 	require.Equal(t, []string{"a", "b"}, cfg.ToolAllowList)
 	require.Equal(t, cfg.LLMClient.OpenAI, cfg.OpenAI)
 	require.Equal(t, map[string]any{"default": 0.1, "temp": 0.2}, cfg.LLMClient.OpenAI.ExtraParams)
@@ -126,4 +128,9 @@ func TestApplyLLMClientOverride_GoogleExtraParams(t *testing.T) {
 
 	require.Equal(t, "google", provider)
 	require.Equal(t, map[string]any{"base": true, "topP": 0.8}, got.Google.ExtraParams)
+}
+
+func boolPtr(value bool) *bool {
+	v := value
+	return &v
 }

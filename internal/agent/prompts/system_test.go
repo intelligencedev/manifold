@@ -1,6 +1,8 @@
 package prompts
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -35,5 +37,39 @@ func TestDefaultSystemPrompt_AppendsOverrideAfterBaseInstructions(t *testing.T) 
 	}
 	if strings.Index(prompt, override) < strings.Index(prompt, "HTML Rendering:") {
 		t.Fatal("expected override to be appended after base instructions")
+	}
+}
+
+func TestCachedSkillsForProjectLoadsMetadata(t *testing.T) {
+	projectDir := t.TempDir()
+	skillPath := filepath.Join(projectDir, ".skills", "pdf-context-builder", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
+		t.Fatalf("mkdir skills dir: %v", err)
+	}
+	content := strings.Join([]string{
+		"---",
+		"name: pdf-context-builder",
+		"description: Extract text and structure from PDF files.",
+		"metadata:",
+		"  short-description: Build PDF context",
+		"---",
+		"# PDF Context Builder",
+	}, "\n")
+	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	cached, err := CachedSkillsForProject(projectDir)
+	if err != nil {
+		t.Fatalf("CachedSkillsForProject: %v", err)
+	}
+	if cached == nil || len(cached.Skills) != 1 {
+		t.Fatalf("expected one cached skill, got %#v", cached)
+	}
+	if cached.Skills[0].Name != "pdf-context-builder" {
+		t.Fatalf("unexpected skill name: %q", cached.Skills[0].Name)
+	}
+	if !strings.Contains(cached.RenderedPrompt, "## Skills") {
+		t.Fatalf("expected rendered prompt, got %q", cached.RenderedPrompt)
 	}
 }

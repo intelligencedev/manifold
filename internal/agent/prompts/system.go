@@ -27,6 +27,22 @@ const memoryInstructions = `
 - If the current request refers to prior discussion, use history to understand context, then answer the current request.
 [/memory]`
 
+const toolDiscoveryInstructions = `
+[tool_discovery]
+- You have a tool_search tool for discovering additional tools during the run.
+- Your visible tool list may only be a bootstrap set. If a capability you need is missing, use tool_search before guessing.
+- Search by capability description (for example: "read files", "search code", "fetch a webpage") or load a known tool by exact name.
+- Tools returned by tool_search become available for subsequent steps in the same run.
+[/tool_discovery]`
+
+const skillDiscoveryInstructions = `
+[skill_discovery]
+- You have a skill_search tool for discovering project skills during the run.
+- Use skill_search when the task may match a reusable workflow or when the user names a skill explicitly.
+- After choosing a skill, open its SKILL.md file and load references, scripts, or assets only as needed.
+- Keep skill loading narrow: start with metadata, then inspect only the selected skill files.
+[/skill_discovery]`
+
 // EnsureMemoryInstructions appends memory system instructions to any system prompt
 // if they are not already present. This ensures all agents (orchestrator, specialists,
 // and delegated agents) receive memory usage guidance.
@@ -35,6 +51,20 @@ func EnsureMemoryInstructions(systemPrompt string) string {
 		return systemPrompt
 	}
 	return systemPrompt + memoryInstructions
+}
+
+func EnsureToolDiscoveryInstructions(systemPrompt string) string {
+	if strings.Contains(systemPrompt, "[tool_discovery]") {
+		return systemPrompt
+	}
+	return systemPrompt + toolDiscoveryInstructions
+}
+
+func EnsureSkillDiscoveryInstructions(systemPrompt string) string {
+	if strings.Contains(systemPrompt, "[skill_discovery]") {
+		return systemPrompt
+	}
+	return systemPrompt + skillDiscoveryInstructions
 }
 
 // DefaultSystemPrompt describes the run_cli tool clearly so the model will use it.
@@ -94,12 +124,11 @@ func combinePromptSections(base, addition string) string {
 	}
 }
 
-// RenderSkillsForProject builds a markdown "## Skills" section from SKILL.md files
-// discovered directly under the project's .skills folder. Only metadata is
-// injected to keep context small. Returns empty string if no skills are found.
-func RenderSkillsForProject(projectDir string) string {
+// CachedSkillsForProject returns cached project skills metadata and rendered prompt.
+// Returns nil,nil when the project has no visible skills.
+func CachedSkillsForProject(projectDir string) (*skills.CachedSkills, error) {
 	if strings.TrimSpace(projectDir) == "" {
-		return ""
+		return nil, nil
 	}
 
 	projectID, gen, skillsGen := readGenerations(projectDir)
@@ -108,7 +137,7 @@ func RenderSkillsForProject(projectDir string) string {
 		cacheKey = projectDir
 	}
 
-	cached, err := skillsCache.GetOrLoad(cacheKey, gen, skillsGen, func() (*skills.CachedSkills, error) {
+	return skillsCache.GetOrLoad(cacheKey, gen, skillsGen, func() (*skills.CachedSkills, error) {
 		outcome := skills.LoadFromDir(projectDir)
 
 		log.Debug().
@@ -133,6 +162,13 @@ func RenderSkillsForProject(projectDir string) string {
 			RenderedPrompt:   prompt,
 		}, nil
 	})
+}
+
+// RenderSkillsForProject builds a markdown "## Skills" section from SKILL.md files
+// discovered directly under the project's .skills folder. Only metadata is
+// injected to keep context small. Returns empty string if no skills are found.
+func RenderSkillsForProject(projectDir string) string {
+	cached, err := CachedSkillsForProject(projectDir)
 
 	if err != nil || cached == nil {
 		if err != nil {

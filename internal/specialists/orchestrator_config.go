@@ -78,6 +78,9 @@ func ApplyOrchestratorConfig(cfg *config.Config, sp persistence.Specialist) stri
 	}
 	cfg.EnableTools = sp.EnableTools
 	cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
+	if sp.AutoDiscover != nil {
+		cfg.AutoDiscover = *sp.AutoDiscover
+	}
 	cfg.SystemPrompt = sp.System
 
 	return provider

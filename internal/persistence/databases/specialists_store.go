@@ -91,6 +91,7 @@ CREATE TABLE IF NOT EXISTS specialists (
 	model TEXT NOT NULL DEFAULT '',
 	summary_context_window_tokens INT NOT NULL DEFAULT 0,
 	enable_tools BOOLEAN NOT NULL DEFAULT false,
+	auto_discover BOOLEAN DEFAULT NULL,
 	paused BOOLEAN NOT NULL DEFAULT false,
 	allow_tools JSONB NOT NULL DEFAULT '[]',
 	reasoning_effort TEXT NOT NULL DEFAULT '',
@@ -113,6 +114,9 @@ ALTER TABLE specialists
 	ADD COLUMN IF NOT EXISTS summary_context_window_tokens INT NOT NULL DEFAULT 0;
 
 ALTER TABLE specialists
+	ADD COLUMN IF NOT EXISTS auto_discover BOOLEAN DEFAULT NULL;
+
+ALTER TABLE specialists
 	DROP CONSTRAINT IF EXISTS specialists_name_key;
 
 CREATE UNIQUE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_id, name);
@@ -121,7 +125,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_
 }
 
 func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Specialist, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider FROM specialists WHERE user_id=$1 ORDER BY LOWER(name)`, userID)
+	rows, err := s.pool.Query(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider FROM specialists WHERE user_id=$1 ORDER BY LOWER(name)`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +134,7 @@ func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Spe
 	for rows.Next() {
 		var sp persistence.Specialist
 		var allow, headers, params []byte
-		if err := rows.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &sp.Provider); err != nil {
+		if err := rows.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &sp.Provider); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(allow, &sp.AllowTools)
@@ -142,10 +146,10 @@ func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Spe
 }
 
 func (s *pgSpecStore) GetByName(ctx context.Context, userID int64, name string) (persistence.Specialist, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
+	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
 	var sp persistence.Specialist
 	var allow, headers, params []byte
-	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &sp.Provider); err != nil {
+	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &sp.Provider); err != nil {
 		return persistence.Specialist{}, false, nil
 	}
 	_ = json.Unmarshal(allow, &sp.AllowTools)
@@ -162,17 +166,17 @@ func (s *pgSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.S
 	headers, _ := json.Marshal(sp.ExtraHeaders)
 	params, _ := json.Marshal(sp.ExtraParams)
 	row := s.pool.QueryRow(ctx, `
-INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 	ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url,
 		api_key=CASE
 			WHEN NULLIF(BTRIM(EXCLUDED.api_key), '') IS NULL THEN specialists.api_key
 			ELSE EXCLUDED.api_key
 		END,
 		model=EXCLUDED.model,
-	summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
+	summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, auto_discover=EXCLUDED.auto_discover, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
 	reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params, provider=EXCLUDED.provider
-RETURNING id;`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, sp.Provider)
+RETURNING id;`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.AutoDiscover, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, sp.Provider)
 	if err := row.Scan(&sp.ID); err != nil {
 		return persistence.Specialist{}, err
 	}

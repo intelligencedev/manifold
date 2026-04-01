@@ -46,6 +46,7 @@ import (
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
 	codeevolvetool "manifold/internal/tools/codeevolve"
+	tooldiscovery "manifold/internal/tools/discovery"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
 	"manifold/internal/tools/llmparallel"
@@ -78,6 +79,7 @@ type app struct {
 	llm                llmpkg.Provider
 	baseToolRegistry   tools.Registry
 	toolRegistry       tools.Registry
+	toolIndex          *tooldiscovery.ToolIndex
 	specRegistry       *specialists.Registry
 	specRegMu          sync.RWMutex
 	userSpecRegs       map[int64]*specialists.Registry
@@ -209,70 +211,48 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID st
 		eng.System = a.composeSystemPromptForUser(ctx, userID)
 	}
 
-	// Attach session-scoped evolving memory/ReMem when configured.
-	// This avoids using a shared system-level memory store across sessions.
-	if a.evolvingCfg.LLM != nil {
-		em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
-		if em != nil {
-			eng.EvolvingMemory = em
-			if a.engine != nil && a.engine.ReMemEnabled {
-				eng.ReMemEnabled = true
-				eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
-					LLM:           a.evolvingCfg.LLM,
-					Model:         a.evolvingCfg.Model,
-					Memory:        em,
-					MaxInnerSteps: a.rememMaxInnerSteps,
-				})
-			}
-		}
-	}
-
-	// For system user or when auth is disabled, use the shared engine config
-	if !a.cfg.Auth.Enabled || userID == systemUserID {
-		return eng
-	}
+	em := a.attachSessionEvolvingMemory(eng, userID, sessionID)
 
 	// Look up user's orchestrator overlay
-	sp, ok, err := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName)
-	if err != nil || !ok {
-		// No per-user orchestrator config; use defaults
-		return eng
-	}
+	if a.cfg.Auth.Enabled && userID != systemUserID {
+		sp, ok, err := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName)
+		if err == nil && ok {
+			// Apply user's LLM overrides (provider/model/extra params).
+			llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
+			userCfg := *a.cfg
+			userCfg.LLMClient = llmCfg
+			if provider == "" || provider == "openai" || provider == "local" {
+				userCfg.OpenAI = llmCfg.OpenAI
+			}
+			if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
+				log.Warn().Err(err).Msg("failed to build per-user llm provider")
+			} else {
+				eng.LLM = userLLM
+			}
+			currentModel := strings.TrimSpace(sp.Model)
+			if currentModel == "" {
+				switch provider {
+				case "anthropic":
+					currentModel = strings.TrimSpace(llmCfg.Anthropic.Model)
+				case "google":
+					currentModel = strings.TrimSpace(llmCfg.Google.Model)
+				default:
+					currentModel = strings.TrimSpace(llmCfg.OpenAI.Model)
+				}
+			}
+			if currentModel != "" {
+				eng.Model = currentModel
+			}
 
-	// Apply user's LLM overrides (provider/model/extra params).
-	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
-	userCfg := *a.cfg
-	userCfg.LLMClient = llmCfg
-	if provider == "" || provider == "openai" || provider == "local" {
-		userCfg.OpenAI = llmCfg.OpenAI
-	}
-	if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
-		log.Warn().Err(err).Msg("failed to build per-user llm provider")
-	} else {
-		eng.LLM = userLLM
-	}
-	currentModel := strings.TrimSpace(sp.Model)
-	if currentModel == "" {
-		switch provider {
-		case "anthropic":
-			currentModel = strings.TrimSpace(llmCfg.Anthropic.Model)
-		case "google":
-			currentModel = strings.TrimSpace(llmCfg.Google.Model)
-		default:
-			currentModel = strings.TrimSpace(llmCfg.OpenAI.Model)
+			// Apply user's tool configuration
+			eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
+
+			// Apply user's system prompt if set.
+			// This should preserve the user-scoped specialists catalog.
+			if sp.System != "" {
+				eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
+			}
 		}
-	}
-	if currentModel != "" {
-		eng.Model = currentModel
-	}
-
-	// Apply user's tool configuration
-	eng.Tools = tools.ApplyTopLevelPolicy(a.baseToolRegistry, sp.EnableTools, sp.AllowTools)
-
-	// Apply user's system prompt if set.
-	// This should preserve the user-scoped specialists catalog.
-	if sp.System != "" {
-		eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
 	}
 
 	// Create a per-request delegator so ask_agent/agent_call uses the
@@ -285,9 +265,51 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID st
 	}
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.cfg.MaxSteps)
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	delegator.SetEvolvingMemory(em)
+	if a.engine != nil && a.engine.ReMemEnabled {
+		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
+	}
 	eng.Delegator = delegator
 
 	return eng
+}
+
+func (a *app) attachSessionEvolvingMemory(eng *agent.Engine, userID int64, sessionID string) *memory.EvolvingMemory {
+	if eng == nil {
+		return nil
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		sessionID = "default"
+	}
+	eng.SessionID = sessionID
+	if a.evolvingCfg.LLM == nil {
+		eng.EvolvingMemory = nil
+		eng.ReMemEnabled = false
+		eng.ReMemController = nil
+		return nil
+	}
+	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
+	if em == nil {
+		eng.EvolvingMemory = nil
+		eng.ReMemEnabled = false
+		eng.ReMemController = nil
+		return nil
+	}
+	eng.EvolvingMemory = em
+	if a.engine != nil && a.engine.ReMemEnabled {
+		eng.ReMemEnabled = true
+		eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
+			LLM:           a.evolvingCfg.LLM,
+			Model:         a.evolvingCfg.Model,
+			Memory:        em,
+			MaxInnerSteps: a.rememMaxInnerSteps,
+		})
+	} else {
+		eng.ReMemEnabled = false
+		eng.ReMemController = nil
+	}
+	return em
 }
 
 func (a *app) getOrCreateEvolvingMemoryForSession(userID int64, sessionID string) *memory.EvolvingMemory {
@@ -810,10 +832,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// own timeout management via the parent context.
 	toolRegistry.Register(agenttools.NewDelegateToTeamTool(httpClient, "http://127.0.0.1:32180", 0))
 
-	toolRegistry = tools.ApplyTopLevelPolicy(baseToolRegistry, cfg.EnableTools, cfg.ToolAllowList)
-
-	log.Info().Bool("enableTools", cfg.EnableTools).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(toolRegistry)).Msg("tool_registry_contents")
-
 	mcpMgr := mcpclient.NewManager()
 	ctxInit, cancelInit := context.WithTimeout(ctx, 30*time.Second)
 	_ = mcpMgr.RegisterFromConfig(ctxInit, baseToolRegistry, cfg.MCP)
@@ -910,6 +928,16 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		mcpPool.StartReaper(ctx, baseToolRegistry, 15*time.Minute, 1*time.Hour)
 	}
 
+	toolIndex := tooldiscovery.NewToolIndex(baseToolRegistry.Schemas())
+	if cfg.AutoDiscover && cfg.EnableTools {
+		toolRegistry = tooldiscovery.NewDiscoverableRegistry(baseToolRegistry, toolIndex, cfg.ToolAllowList, cfg.MaxDiscoveredTools)
+	} else {
+		toolRegistry = tools.ApplyTopLevelPolicy(baseToolRegistry, cfg.EnableTools, cfg.ToolAllowList)
+	}
+	specReg.SetToolDiscovery(toolIndex, cfg.AutoDiscover, cfg.MaxDiscoveredTools)
+
+	log.Info().Bool("enableTools", cfg.EnableTools).Bool("autoDiscover", cfg.AutoDiscover).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(toolRegistry)).Msg("tool_registry_contents")
+
 	app := &app{
 		cfg:                cfg,
 		httpClient:         httpClient,
@@ -918,6 +946,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		summaryLLM:         summaryLLM,
 		baseToolRegistry:   baseToolRegistry,
 		toolRegistry:       toolRegistry,
+		toolIndex:          toolIndex,
 		specRegistry:       specReg,
 		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:               newRunStore(),
@@ -1274,6 +1303,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	}
 	a.refreshEngineSystemPrompt()
 

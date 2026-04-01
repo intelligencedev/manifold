@@ -755,7 +755,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		specOwner := state.Owner
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
@@ -800,7 +800,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 		specOwner := state.Owner
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)

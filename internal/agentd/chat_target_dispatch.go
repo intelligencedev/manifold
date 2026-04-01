@@ -46,11 +46,11 @@ type chatTargetDescriptor struct {
 	JSON                 chatJSONOptions
 }
 
-func (a *app) describeChatTarget(target chatDispatchTarget, systemPromptOverride string, owner int64) (chatTargetDescriptor, bool) {
+func (a *app) describeChatTarget(target chatDispatchTarget, sessionID, systemPromptOverride string, owner int64) (chatTargetDescriptor, bool) {
 	if target.SpecialistName != "" && !strings.EqualFold(target.SpecialistName, specialists.OrchestratorName) {
 		return chatTargetDescriptor{
 			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildSpecialistChatEngine(ctx, target.SpecialistName, systemPromptOverride, owner)
+				return a.buildSpecialistChatEngine(ctx, target.SpecialistName, systemPromptOverride, sessionID, owner)
 			},
 			NotFoundMessage:      "specialist not found",
 			InternalErrorMessage: "specialist registry unavailable",
@@ -75,7 +75,7 @@ func (a *app) describeChatTarget(target chatDispatchTarget, systemPromptOverride
 		teamTimeout := workflowLikeTimeout(a.cfg.WorkflowTimeoutSeconds, a.cfg.AgentRunTimeoutSeconds)
 		return chatTargetDescriptor{
 			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildTeamChatEngine(ctx, target.TeamName, owner)
+				return a.buildTeamChatEngine(ctx, target.TeamName, sessionID, owner)
 			},
 			NotFoundMessage:      "team not found",
 			InternalErrorMessage: "failed to load team",
@@ -227,7 +227,7 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 }
 
 func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID string, ephemeralSession bool, systemPromptOverride string, userID *int64, owner int64, fallback chatTargetDescriptor) bool {
-	descriptor, ok := a.describeChatTarget(target, systemPromptOverride, owner)
+	descriptor, ok := a.describeChatTarget(target, sessionID, systemPromptOverride, owner)
 	if !ok {
 		if fallback.Build == nil {
 			return false

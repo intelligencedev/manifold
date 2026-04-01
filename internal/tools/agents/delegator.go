@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/memory"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
@@ -25,6 +26,10 @@ type Delegator struct {
 	defaultSys     string
 	defaultMaxStep int
 	defaultTimeout time.Duration
+	evolvingMemory *memory.EvolvingMemory
+	reMemLLM       llm.Provider
+	reMemModel     string
+	reMemMaxSteps  int
 }
 
 func NewDelegator(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager, defaultMaxSteps int) *Delegator {
@@ -42,6 +47,16 @@ func (d *Delegator) SetDefaultTimeout(seconds int) {
 // and propagate the change to the delegator without recreating it.
 func (d *Delegator) SetRegistry(reg tools.Registry) {
 	d.reg = reg
+}
+
+func (d *Delegator) SetEvolvingMemory(em *memory.EvolvingMemory) {
+	d.evolvingMemory = em
+}
+
+func (d *Delegator) ConfigureReMem(provider llm.Provider, model string, maxInnerSteps int) {
+	d.reMemLLM = provider
+	d.reMemModel = model
+	d.reMemMaxSteps = maxInnerSteps
 }
 
 func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer agent.AgentTracer) (string, error) {
@@ -114,14 +129,25 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	}
 
 	eng := &agent.Engine{
-		LLM:         prov,
-		Tools:       toolsReg,
-		MaxSteps:    maxSteps,
-		System:      prompts.EnsureMemoryInstructions(system),
-		Model:       model,
-		Delegator:   d,
-		AgentTracer: tracer,
-		AgentDepth:  req.Depth,
+		LLM:            prov,
+		Tools:          toolsReg,
+		MaxSteps:       maxSteps,
+		System:         prompts.EnsureMemoryInstructions(system),
+		Model:          model,
+		SessionID:      req.SessionID,
+		EvolvingMemory: d.evolvingMemory,
+		Delegator:      d,
+		AgentTracer:    tracer,
+		AgentDepth:     req.Depth,
+	}
+	if d.evolvingMemory != nil && d.reMemLLM != nil {
+		eng.ReMemEnabled = true
+		eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
+			LLM:           d.reMemLLM,
+			Model:         d.reMemModel,
+			Memory:        d.evolvingMemory,
+			MaxInnerSteps: d.reMemMaxSteps,
+		})
 	}
 	eng.AttachTokenizer(prov, nil)
 

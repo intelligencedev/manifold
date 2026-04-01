@@ -9,18 +9,18 @@
           Introspect chat summaries and evolving experiences.
         </p>
       </div>
-      <div class="flex items-center gap-2 text-xs">
+      <div class="grid flex-1 grid-cols-2 gap-2 text-xs sm:flex-none sm:max-w-md">
         <DropdownSelect
           v-model="selectedSessionId"
           size="sm"
-          class="min-w-[120px] text-xs"
+          class="min-w-0 text-xs"
           :options="sessionDropdownOptions"
         />
         <input
           v-model="evolvingQuery"
           type="search"
           placeholder="Search evolving memory…"
-          class="ap-input w-40 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground"
+          class="ap-input min-w-0 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground"
           @keyup.enter.prevent="refreshEvolving"
         />
       </div>

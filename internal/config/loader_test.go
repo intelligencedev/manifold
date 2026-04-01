@@ -53,6 +53,8 @@ enableTools: true
 allowTools:
   - run_cli
   - web_fetch
+autoDiscover: true
+maxDiscoveredTools: 7
 summaryEnabled: true
 summaryContextWindowTokens: 32000
 summaryReserveBufferTokens: 25000
@@ -224,6 +226,9 @@ tokenization:
 	if !cfg.EnableTools || len(cfg.ToolAllowList) != 2 {
 		t.Fatalf("unexpected tool config: enabled=%v allow=%v", cfg.EnableTools, cfg.ToolAllowList)
 	}
+	if !cfg.AutoDiscover || cfg.MaxDiscoveredTools != 7 {
+		t.Fatalf("unexpected discovery config: enabled=%v max=%d", cfg.AutoDiscover, cfg.MaxDiscoveredTools)
+	}
 	if cfg.Tokenization.FallbackToHeuristic {
 		t.Fatalf("expected fallbackToHeuristic false")
 	}
@@ -275,6 +280,7 @@ llm_client:
     apiKey: "${SPECIALIST_API_KEY}"
     model: gpt-5-mini
     enableTools: true
+    autoDiscover: true
 routes:
   - name: coder
     contains: [code, refactor]
@@ -288,6 +294,9 @@ routes:
 	}
 	if len(cfg.Specialists) != 1 || cfg.Specialists[0].APIKey != "specialist-secret" {
 		t.Fatalf("unexpected specialists: %+v", cfg.Specialists)
+	}
+	if cfg.Specialists[0].AutoDiscover == nil || !*cfg.Specialists[0].AutoDiscover {
+		t.Fatalf("expected specialist autoDiscover to be true: %+v", cfg.Specialists[0])
 	}
 	if len(cfg.SpecialistRoutes) != 1 || cfg.SpecialistRoutes[0].Name != "coder" {
 		t.Fatalf("unexpected routes: %+v", cfg.SpecialistRoutes)

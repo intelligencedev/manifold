@@ -40,6 +40,7 @@ type DelegateRequest struct {
 	MaxSteps       int
 	TimeoutSeconds int
 	ProjectID      string
+	SessionID      string
 	UserID         int64
 	CallID         string
 	ParentCallID   string

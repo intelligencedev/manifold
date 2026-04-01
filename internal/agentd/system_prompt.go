@@ -10,6 +10,9 @@ import (
 // and appends the current specialists catalog so LLM clients see available names.
 func (a *app) composeSystemPrompt() string {
 	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
+	if a.cfg.AutoDiscover {
+		base = prompts.EnsureToolDiscoveryInstructions(base)
+	}
 	if a.specRegistry != nil {
 		base = a.specRegistry.AppendToSystemPrompt(base)
 	}
@@ -27,6 +30,9 @@ func (a *app) composeSystemPromptForUser(ctx context.Context, userID int64) stri
 
 func (a *app) composeSystemPromptForUserWithOverride(ctx context.Context, userID int64, systemPrompt string) string {
 	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, systemPrompt)
+	if a.cfg.AutoDiscover {
+		base = prompts.EnsureToolDiscoveryInstructions(base)
+	}
 	reg, err := a.specialistsRegistryForUser(ctx, userID)
 	if err != nil || reg == nil {
 		return base

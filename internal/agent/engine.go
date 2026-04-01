@@ -21,11 +21,12 @@ import (
 )
 
 type Engine struct {
-	LLM      llm.Provider
-	Tools    tools.Registry
-	MaxSteps int
-	System   string
-	Model    string // default model name to pass to provider (used for metrics)
+	LLM       llm.Provider
+	Tools     tools.Registry
+	MaxSteps  int
+	System    string
+	Model     string // default model name to pass to provider (used for metrics)
+	SessionID string
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
 	// <= 0 means unbounded (default to len(toolCalls)); 1 preserves sequential behavior.
 	MaxToolParallelism int
@@ -605,6 +606,7 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 		MaxSteps:       args.MaxSteps,
 		TimeoutSeconds: args.TimeoutSeconds,
 		ProjectID:      strings.TrimSpace(args.ProjectID),
+		SessionID:      e.SessionID,
 		UserID:         args.UserID,
 		CallID:         callID,
 		ParentCallID:   tc.ID,

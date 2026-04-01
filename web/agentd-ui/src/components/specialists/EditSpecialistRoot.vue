@@ -209,7 +209,12 @@
                   class="mt-1 h-4 w-4 shrink-0"
                   type="checkbox"
                   :checked="selectedTeamsSet.has(t)"
-                  @change="setTeamSelected(t, ($event.target as HTMLInputElement).checked)"
+                  @change="
+                    setTeamSelected(
+                      t,
+                      ($event.target as HTMLInputElement).checked,
+                    )
+                  "
                 />
                 <div class="min-w-0">
                   <p class="text-sm font-medium text-foreground">{{ t }}</p>
@@ -544,6 +549,29 @@
         </FormSection>
 
         <FormSection
+          v-if="draft.toolPolicy !== 'none'"
+          title="Auto-discovery"
+          helper="Inherit uses the global runtime setting. Enabled lets this specialist expand beyond the bootstrap allow list with tool_search."
+        >
+          <div class="flex flex-col gap-1">
+            <label
+              for="sp-auto-discover"
+              class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+              >Auto-discovery mode</label
+            >
+            <select
+              id="sp-auto-discover"
+              v-model="draft.autoDiscoverMode"
+              class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm text-foreground"
+            >
+              <option value="inherit">Inherit global setting</option>
+              <option value="enabled">Enabled for this specialist</option>
+              <option value="disabled">Disabled for this specialist</option>
+            </select>
+          </div>
+        </FormSection>
+
+        <FormSection
           v-if="draft.toolPolicy === 'allow-list'"
           title="Allowed tools"
           helper="Search and select which tools this specialist may invoke."
@@ -647,7 +675,8 @@
             <label
               for="sp-summary-context"
               class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
-              >Summary context window (tokens)</label>
+              >Summary context window (tokens)</label
+            >
             <input
               id="sp-summary-context"
               v-model="draft.summaryContextWindowTokens"
@@ -840,6 +869,7 @@ import type { FlowEditorTool } from "@/types/flowEditor";
 
 type TabId = "basics" | "prompt" | "tools" | "advanced";
 type ToolPolicy = "none" | "any" | "allow-list";
+type AutoDiscoverMode = "inherit" | "enabled" | "disabled";
 
 const props = withDefaults(
   defineProps<{
@@ -883,6 +913,7 @@ const draft = reactive({
   customBaseURL: "",
   system: "",
   toolPolicy: "none" as ToolPolicy,
+  autoDiscoverMode: "inherit" as AutoDiscoverMode,
 });
 
 const nameLockedAfterSave = ref(false);
@@ -1108,6 +1139,7 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     model: (sp.model || "").trim(),
     summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
+    autoDiscover: typeof sp.autoDiscover === "boolean" ? sp.autoDiscover : null,
     paused: !!sp.paused,
     allowTools,
     system: sp.system || "",
@@ -1127,6 +1159,7 @@ function normalizePayload(sp: Specialist): Specialist {
     model: (sp.model || "").trim(),
     summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
+    autoDiscover: typeof sp.autoDiscover === "boolean" ? sp.autoDiscover : null,
     paused: !!sp.paused,
     apiKey: sp.apiKey || undefined,
     allowTools: Array.isArray(sp.allowTools) ? sp.allowTools : [],
@@ -1207,6 +1240,12 @@ function buildPayloadFromDraft(): Specialist {
   const toolPolicy = draft.toolPolicy;
   const enableTools = toolPolicy !== "none";
   const allow = toolPolicy === "allow-list" ? allowTools.value : [];
+  const autoDiscover =
+    draft.autoDiscoverMode === "enabled"
+      ? true
+      : draft.autoDiscoverMode === "disabled"
+        ? false
+        : null;
 
   const payload: Specialist = {
     // Preserve the existing id (if any) so updates use PUT instead of POST.
@@ -1218,6 +1257,7 @@ function buildPayloadFromDraft(): Specialist {
     baseURL: (baseURL || "").trim(),
     summaryContextWindowTokens: 0,
     enableTools,
+    autoDiscover,
     paused: !!draft.paused,
     allowTools: allow,
     system: draft.system,
@@ -1604,6 +1644,13 @@ function initFromInitial(sp: Specialist) {
     draft.toolPolicy = "any";
     allowTools.value = [];
   }
+
+  draft.autoDiscoverMode =
+    normalized.autoDiscover === true
+      ? "enabled"
+      : normalized.autoDiscover === false
+        ? "disabled"
+        : "inherit";
 
   selectedTeams.value = Array.isArray(normalized.teams)
     ? [...normalized.teams]

@@ -2,10 +2,14 @@ package agentd
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/memory"
 	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
@@ -14,6 +18,8 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
+	tooldiscovery "manifold/internal/tools/discovery"
+	"manifold/internal/workspaces"
 )
 
 func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
@@ -34,7 +40,7 @@ func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "override system", 7)
+	result := app.buildSpecialistChatEngine(ctx, "alpha", "override system", "sess-1", 7)
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -79,7 +85,7 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", 9)
+	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", 9)
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -133,6 +139,258 @@ func TestBuildOrchestratorChatEngineDefaultsMaxSteps(t *testing.T) {
 	if result.Engine.MaxSteps != 8 {
 		t.Fatalf("expected default max steps, got %d", result.Engine.MaxSteps)
 	}
+}
+
+func TestBuildSpecialistChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.AutoDiscover = true
+	app.baseToolRegistry.Register(staticTool{name: "read_file", description: "Read files from disk"})
+	app.toolIndex = tooldiscovery.NewToolIndex(app.baseToolRegistry.Schemas())
+	ctx := sandbox.WithBaseDir(context.Background(), skillProjectDir(t, "pdf-context-builder", "Extract text and structure from PDF files."))
+
+	autoDiscover := true
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:         "alpha",
+		Provider:     "openai",
+		Model:        "gpt-4.1-mini",
+		System:       "specialist system",
+		EnableTools:  true,
+		AutoDiscover: &autoDiscover,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	app.invalidateSpecialistsCache(ctx, 7)
+
+	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-1", 7)
+	if result.Err != nil {
+		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
+	}
+	if strings.Contains(result.Engine.System, "## Skills") {
+		t.Fatalf("expected skill catalog to be deferred, got %q", result.Engine.System)
+	}
+	if !strings.Contains(result.Engine.System, "[skill_discovery]") {
+		t.Fatalf("expected skill discovery instructions, got %q", result.Engine.System)
+	}
+	if !containsTool(result.Engine.Tools, "skill_search") {
+		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+}
+
+func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.AutoDiscover = true
+	app.cfg.EnableTools = false
+	projectDir := skillProjectDir(t, "deploy-runbook", "Deploy the application safely.")
+	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", &workspaces.Workspace{BaseDir: projectDir})
+	if result.Err != nil {
+		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
+	}
+	if !strings.Contains(result.Engine.System, "## Skills") {
+		t.Fatalf("expected inline skills when tools are disabled, got %q", result.Engine.System)
+	}
+	if containsTool(result.Engine.Tools, "skill_search") {
+		t.Fatalf("did not expect skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+}
+
+func TestBuildOrchestratorChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.AutoDiscover = true
+	app.cfg.EnableTools = true
+	app.baseToolRegistry.Register(staticTool{name: "read_file", description: "Read files from disk"})
+	app.toolIndex = tooldiscovery.NewToolIndex(app.baseToolRegistry.Schemas())
+	projectDir := skillProjectDir(t, "incident-response", "Handle production incidents with a runbook.")
+
+	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", &workspaces.Workspace{BaseDir: projectDir})
+	if result.Err != nil {
+		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
+	}
+	if strings.Contains(result.Engine.System, "## Skills") {
+		t.Fatalf("expected deferred skills in orchestrator prompt, got %q", result.Engine.System)
+	}
+	if !strings.Contains(result.Engine.System, "[skill_discovery]") {
+		t.Fatalf("expected skill discovery instructions, got %q", result.Engine.System)
+	}
+	if !containsTool(result.Engine.Tools, "skill_search") {
+		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+}
+
+func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.AutoDiscover = true
+	app.baseToolRegistry.Register(staticTool{name: "read_file", description: "Read files from disk"})
+	app.toolIndex = tooldiscovery.NewToolIndex(app.baseToolRegistry.Schemas())
+	ctx := sandbox.WithBaseDir(context.Background(), skillProjectDir(t, "release-checklist", "Coordinate a production release checklist."))
+
+	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	autoDiscover := true
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:         "ops-orchestrator",
+			Provider:     "openai",
+			EnableTools:  true,
+			AutoDiscover: &autoDiscover,
+			AllowTools:   []string{"read_file"},
+		},
+		Members: []string{"member-a"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", 9)
+	if result.Err != nil {
+		t.Fatalf("buildTeamChatEngine: %v", result.Err)
+	}
+	if strings.Contains(result.Engine.System, "## Skills") {
+		t.Fatalf("expected deferred skills in team prompt, got %q", result.Engine.System)
+	}
+	if !strings.Contains(result.Engine.System, "[skill_discovery]") {
+		t.Fatalf("expected skill discovery instructions, got %q", result.Engine.System)
+	}
+	if !containsTool(result.Engine.Tools, "skill_search") {
+		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+}
+
+func TestBuildSpecialistChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.evolvingCfg = memory.EvolvingMemoryConfig{LLM: app.llm}
+	ctx := sandbox.WithBaseDir(context.Background(), t.TempDir())
+
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		System:      "specialist system",
+		EnableTools: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	app.invalidateSpecialistsCache(ctx, 7)
+
+	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-42", 7)
+	if result.Err != nil {
+		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
+	}
+	if result.Engine.EvolvingMemory == nil {
+		t.Fatal("expected specialist engine evolving memory")
+	}
+	if result.Engine.SessionID != "sess-42" {
+		t.Fatalf("expected session id sess-42, got %q", result.Engine.SessionID)
+	}
+	if result.Engine.Delegator == nil {
+		t.Fatal("expected specialist delegator")
+	}
+}
+
+func TestBuildTeamChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.evolvingCfg = memory.EvolvingMemoryConfig{LLM: app.llm}
+	ctx := context.Background()
+
+	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:        "ops-orchestrator",
+			Provider:    "openai",
+			EnableTools: true,
+		},
+		Members: []string{"member-a"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", 9)
+	if result.Err != nil {
+		t.Fatalf("buildTeamChatEngine: %v", result.Err)
+	}
+	if result.Engine.EvolvingMemory == nil {
+		t.Fatal("expected team engine evolving memory")
+	}
+	if result.Engine.SessionID != "sess-team" {
+		t.Fatalf("expected session id sess-team, got %q", result.Engine.SessionID)
+	}
+	if result.Engine.Delegator == nil {
+		t.Fatal("expected team delegator")
+	}
+}
+
+type staticTool struct {
+	name        string
+	description string
+}
+
+func (t staticTool) Name() string { return t.name }
+
+func (t staticTool) JSONSchema() map[string]any {
+	return map[string]any{
+		"name":        t.name,
+		"description": t.description,
+		"parameters": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}
+}
+
+func (t staticTool) Call(context.Context, json.RawMessage) (any, error) {
+	return map[string]any{"ok": true}, nil
+}
+
+func containsTool(reg tools.Registry, name string) bool {
+	for _, toolName := range tools.SchemaNames(reg) {
+		if toolName == name {
+			return true
+		}
+	}
+	return false
+}
+
+func skillProjectDir(t *testing.T, name, description string) string {
+	t.Helper()
+	projectDir := t.TempDir()
+	skillPath := filepath.Join(projectDir, ".skills", name, "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
+		t.Fatalf("mkdir skills dir: %v", err)
+	}
+	content := strings.Join([]string{
+		"---",
+		"name: " + name,
+		"description: " + description,
+		"metadata:",
+		"  short-description: " + description,
+		"---",
+		"# " + name,
+	}, "\n")
+	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	return projectDir
 }
 
 func newChatEngineBuilderTestApp(t *testing.T) *app {

@@ -27,6 +27,11 @@ logPayloads: false
 
 # Tool execution policy.
 enableTools: true
+# When enabled, allowTools is the bootstrap set and agents can discover
+# additional registered tools at runtime via tool_search.
+autoDiscover: false
+# Caps how many non-bootstrap tools a single run may add when autoDiscover is on.
+maxDiscoveredTools: 12
 allowTools:
   - run_cli
   - apply_patch

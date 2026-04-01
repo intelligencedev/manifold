@@ -253,6 +253,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.MaxSteps <= 0 {
 		cfg.MaxSteps = 8
 	}
+	if cfg.MaxDiscoveredTools <= 0 {
+		cfg.MaxDiscoveredTools = 20
+	}
 	if cfg.AgentRunTimeoutSeconds < 0 {
 		cfg.AgentRunTimeoutSeconds = 0
 	}

@@ -237,16 +237,12 @@ export async function saveProjectFileText(
   name: string,
   content: string,
 ): Promise<void> {
-  await apiClient.post(
-    `/projects/${encodeURIComponent(id)}/files`,
-    content,
-    {
-      params: { path: dirPath, name },
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-      },
+  await apiClient.post(`/projects/${encodeURIComponent(id)}/files`, content, {
+    params: { path: dirPath, name },
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
     },
-  );
+  });
 }
 
 // Build a direct URL to fetch a file's content for preview/download.
@@ -301,6 +297,7 @@ export interface Specialist {
   model: string;
   summaryContextWindowTokens?: number;
   enableTools: boolean;
+  autoDiscover?: boolean | null;
   paused: boolean;
   allowTools?: string[];
   system?: string;

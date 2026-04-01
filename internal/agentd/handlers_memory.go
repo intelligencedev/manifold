@@ -333,7 +333,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (bool, int, error) {
-	descriptor, ok := a.describeChatTarget(target, "", owner)
+	descriptor, ok := a.describeChatTarget(target, sessionID, "", owner)
 	if !ok {
 		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", nil)
 		if build.Err != nil {

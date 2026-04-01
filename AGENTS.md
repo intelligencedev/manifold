@@ -45,6 +45,23 @@ The following Go command-line tools are essential for development, testing, and 
 ## Coding Style & Naming Conventions
 Target Go 1.24.5 and keep files `gofmt` clean with tabs. Maintain import order with `goimports` and keep `golangci-lint run` (via `make lint`) silent. Name packages after their capability, keep filenames lowercase, and export concise CamelCase APIs. Prefer constructor-style functions (e.g., `NewService`) for dependency injection.
 
+### Naming Conventions
+
+- Identifiers: use `camelCase` for unexported names and `PascalCase` for exported names; avoid `snake_case` and `SCREAMING_SNAKE_CASE`.
+- Acronyms and initialisms: keep casing consistent (`APIKey`, `userID`, `HTTPClient`); avoid mixed forms such as `ApiKey` or `userId`.
+- Letters: prefer ASCII identifiers; avoid non-ASCII names unless there is a strong reason.
+- Conflicts: do not use names that clash with Go builtins or imported standard library package names.
+- Type words: usually omit the type from the identifier unless it is needed to distinguish a converted value.
+- Exporting: keep identifiers unexported by default; export only when required by package boundaries or external use.
+- Length: use short names for very local scope and more descriptive names as scope widens.
+- Packages: use lowercase ASCII only; keep names short, descriptive, and usually one word. Multiword package names should be concatenated lowercase with no separator.
+- Packages: avoid standard library package names, invisible prefixes (`.` / `_`), special directories (`vendor`, `testdata`, `internal`), and vague catch-all names such as `util` or `helpers`.
+- Files: prefer a single lowercase word; if a filename is multiword, stay consistent with the surrounding codebase. Avoid special prefixes or suffixes unless intentional.
+- Chatter: avoid repeating the package name in exported functions, types, or methods.
+- Receivers: use a short, consistent receiver name; avoid `this`, `self`, and `me`.
+- Getters and setters: prefer plain method names for getters; use `SetX` for setters.
+- Interfaces: one-method interfaces usually end in `-er`, such as `Reader`, `Writer`, or `Stringer`.
+
 ### **IMPORTANT: Always Format Modified Go Files**
 
 **After editing ANY Go file, you MUST run `go fmt` on that file before considering the task complete.**

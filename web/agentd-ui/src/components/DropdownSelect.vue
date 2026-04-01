@@ -73,13 +73,16 @@ const emit = defineEmits<Emits>();
 const attrs = useAttrs();
 
 // Compute wrapper classes
-const wrapperClass = computed(() => "relative inline-flex items-center");
+const wrapperClass = computed(() => "relative inline-flex min-w-0 items-center");
 
 // Base classes that apply to all dropdowns (use theme tokens for consistency)
 const baseClasses = computed(() =>
   [
     "dropdown-select",
     "appearance-none",
+    "w-full",
+    "min-w-0",
+    "truncate",
     "border",
     "border-white/12",
     "bg-surface/70",

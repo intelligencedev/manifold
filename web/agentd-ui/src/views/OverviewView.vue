@@ -1,44 +1,32 @@
 <template>
   <section class="flex h-full min-h-0 flex-col overflow-y-auto">
-    <Panel
-      title="Overview"
-      description="Live usage, traces, memory, prompt tokens, and agent activity across your deployment."
-    >
-      <template #actions>
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
-          @click="resetLayout"
-        >
-          Reset layout
-        </button>
-      </template>
+    <header class="flex items-center gap-6 px-5 py-2 md:px-6">
+      <dl class="grid flex-1 gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-4">
+        <div v-for="stat in overviewStats" :key="stat.label">
+          <dt
+            class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground"
+          >
+            {{ stat.label }}
+          </dt>
+          <dd class="mt-0.5 text-2xl font-semibold leading-none text-foreground tabular-nums">
+            {{ stat.value }}
+          </dd>
+          <p class="mt-0.5 text-xs text-faint-foreground">
+            {{ stat.secondary }}
+          </p>
+        </div>
+      </dl>
 
-      <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Active Agents"
-          :value="agents.length"
-          secondary="Reporting status"
-        />
-        <MetricCard
-          label="Runs Today"
-          :value="runsToday"
-          :secondary="runsSummary"
-        />
-        <MetricCard
-          label="Recent Runs"
-          :value="recentRuns.length"
-          secondary="Past 24 hours"
-        />
-        <MetricCard
-          label="Specialists"
-          :value="specialistCount"
-          secondary="Available roles"
-        />
-      </div>
-    </Panel>
+      <button
+        type="button"
+        class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:text-accent"
+        @click="resetLayout"
+      >
+        Reset layout
+      </button>
+    </header>
 
-    <div class="min-h-0 flex-1 pb-6">
+    <div class="min-h-0 flex-1 pb-6 pt-1">
       <DashboardGrid
         ref="dashboardGridRef"
         :layout="dashboardLayout"
@@ -85,8 +73,6 @@ import MemoryPanel from "@/components/observability/MemoryPanel.vue";
 import LogsPanel from "@/components/observability/LogsPanel.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
-import Panel from "@/components/ui/Panel.vue";
-import MetricCard from "@/components/ui/MetricCard.vue";
 import {
   fetchAgentRuns,
   fetchAgentStatus,
@@ -167,6 +153,29 @@ const runsToday = computed(
 );
 
 const runsSummary = computed(() => `${runsToday.value} started today`);
+
+const overviewStats = computed(() => [
+  {
+    label: "Active Agents",
+    value: agents.value.length.toLocaleString(),
+    secondary: "Reporting status",
+  },
+  {
+    label: "Runs Today",
+    value: runsToday.value.toLocaleString(),
+    secondary: runsSummary.value,
+  },
+  {
+    label: "Recent Runs",
+    value: recentRuns.value.length.toLocaleString(),
+    secondary: "Past 24 hours",
+  },
+  {
+    label: "Specialists",
+    value: specialistCount.value.toLocaleString(),
+    secondary: "Available roles",
+  },
+]);
 
 const recentRuns = computed(() =>
   runs.value

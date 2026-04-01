@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/memory"
 	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
@@ -39,7 +40,7 @@ func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "override system", 7)
+	result := app.buildSpecialistChatEngine(ctx, "alpha", "override system", "sess-1", 7)
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -84,7 +85,7 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", 9)
+	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", 9)
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -163,7 +164,7 @@ func TestBuildSpecialistChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *test
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "", 7)
+	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-1", 7)
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -251,7 +252,7 @@ func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T)
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", 9)
+	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", 9)
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -263,6 +264,79 @@ func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T)
 	}
 	if !containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+}
+
+func TestBuildSpecialistChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.evolvingCfg = memory.EvolvingMemoryConfig{LLM: app.llm}
+	ctx := sandbox.WithBaseDir(context.Background(), t.TempDir())
+
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		System:      "specialist system",
+		EnableTools: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	app.invalidateSpecialistsCache(ctx, 7)
+
+	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-42", 7)
+	if result.Err != nil {
+		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
+	}
+	if result.Engine.EvolvingMemory == nil {
+		t.Fatal("expected specialist engine evolving memory")
+	}
+	if result.Engine.SessionID != "sess-42" {
+		t.Fatalf("expected session id sess-42, got %q", result.Engine.SessionID)
+	}
+	if result.Engine.Delegator == nil {
+		t.Fatal("expected specialist delegator")
+	}
+}
+
+func TestBuildTeamChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.evolvingCfg = memory.EvolvingMemoryConfig{LLM: app.llm}
+	ctx := context.Background()
+
+	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:        "ops-orchestrator",
+			Provider:    "openai",
+			EnableTools: true,
+		},
+		Members: []string{"member-a"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", 9)
+	if result.Err != nil {
+		t.Fatalf("buildTeamChatEngine: %v", result.Err)
+	}
+	if result.Engine.EvolvingMemory == nil {
+		t.Fatal("expected team engine evolving memory")
+	}
+	if result.Engine.SessionID != "sess-team" {
+		t.Fatalf("expected session id sess-team, got %q", result.Engine.SessionID)
+	}
+	if result.Engine.Delegator == nil {
+		t.Fatal("expected team delegator")
 	}
 }
 

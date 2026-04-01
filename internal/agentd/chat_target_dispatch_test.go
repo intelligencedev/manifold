@@ -76,7 +76,7 @@ func TestDescribeChatTargetPrefersSpecialistOverTeam(t *testing.T) {
 	t.Parallel()
 
 	a := &app{}
-	descriptor, ok := a.describeChatTarget(chatDispatchTarget{SpecialistName: "weather", TeamName: "ops"}, "override", 7)
+	descriptor, ok := a.describeChatTarget(chatDispatchTarget{SpecialistName: "weather", TeamName: "ops"}, "sess-1", "override", 7)
 	if !ok {
 		t.Fatal("expected target descriptor")
 	}
@@ -98,7 +98,7 @@ func TestDescribeChatTargetSkipsOrchestratorSpecialistForTeam(t *testing.T) {
 	t.Parallel()
 
 	a := &app{cfg: &config.Config{WorkflowTimeoutSeconds: 90, AgentRunTimeoutSeconds: 30}}
-	descriptor, ok := a.describeChatTarget(chatDispatchTarget{SpecialistName: specialists.OrchestratorName, TeamName: "ops"}, "", 7)
+	descriptor, ok := a.describeChatTarget(chatDispatchTarget{SpecialistName: specialists.OrchestratorName, TeamName: "ops"}, "sess-1", "", 7)
 	if !ok {
 		t.Fatal("expected team target descriptor")
 	}

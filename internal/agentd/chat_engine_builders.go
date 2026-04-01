@@ -51,7 +51,7 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sess
 	return chatEngineBuildResult{Engine: eng, ModelLabel: eng.Model}
 }
 
-func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride string, owner int64) chatEngineBuildResult {
+func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride, sessionID string, owner int64) chatEngineBuildResult {
 	reg, err := a.specialistsRegistryForUser(ctx, owner)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist registry unavailable: %w", err)}
@@ -89,7 +89,15 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 	}
+	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
 	eng.AttachTokenizer(prov, nil)
+	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.chatMaxSteps())
+	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	delegator.SetEvolvingMemory(em)
+	if eng.ReMemEnabled {
+		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
+	}
+	eng.Delegator = delegator
 
 	return chatEngineBuildResult{
 		Engine:     eng,
@@ -97,7 +105,7 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	}
 }
 
-func (a *app) buildTeamChatEngine(ctx context.Context, name string, owner int64) chatEngineBuildResult {
+func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID string, owner int64) chatEngineBuildResult {
 	if a.teamStore == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("teams unavailable")}
 	}
@@ -154,9 +162,14 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name string, owner int64)
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 	}
+	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
 	eng.AttachTokenizer(userLLM, nil)
 	delegator := agenttools.NewDelegator(eng.Tools, teamReg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	delegator.SetEvolvingMemory(em)
+	if eng.ReMemEnabled {
+		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
+	}
 	eng.Delegator = delegator
 
 	return chatEngineBuildResult{

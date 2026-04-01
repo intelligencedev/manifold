@@ -77,7 +77,8 @@ func EnsureSkillDiscoveryInstructions(systemPrompt string) string {
 func DefaultSystemPrompt(workdir, override string) string {
 	base := fmt.Sprintf(`
 Rules:
-- Plan first, then execute.
+- ALWAYS search for skills AND tools relevant to the topic or request.
+- Once you have gathered the ideal set of skills and tools, create a plan with a checklist.
 - No shell features: no pipelines or redirects; use command + args only.
 - Treat all paths as relative to the locked working directory: %s
 - Never use absolute paths or escape the working directory.
@@ -97,11 +98,6 @@ HTML Rendering:
 - To render HTML in chat, emit raw HTML in the markdown body. Never include comments or non-renderable HTML.
 - Do not fence or indent renderable HTML unless the user wants source code only.
 - For rendered examples, use semantic HTML with a top-level div and inline styles.
-- NEVER nest divs. Prefer simple structures with inline styles for layout and presentation. You can use multiple sibling divs for complex layouts, but do not create nested div structures.
-- Do not add background colors, borders, or other styling that may not fit the user's interface. Focus on clean, semantic HTML that can adapt to different environments.
-- Use SVG with SMIL animations and CSS 3D transforms for dynamic visuals when possible.
-- Never include <script>, event handlers, forms, iframes, or external embeds.
-- If both live output and source are useful, emit raw HTML first, then a fenced html block.
 `, workdir)
 	if trimmed := strings.TrimSpace(override); trimmed != "" {
 		base = combinePromptSections(base, trimmed)

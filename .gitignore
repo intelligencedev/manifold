@@ -83,3 +83,4 @@ docker-compose.manibots.yml
 docker-compose.matrixfold.yml
 docs/backend-rewrite.md
 mcp.yaml
+*.sqlite3

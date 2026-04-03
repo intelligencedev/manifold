@@ -84,3 +84,5 @@ docker-compose.matrixfold.yml
 docs/backend-rewrite.md
 mcp.yaml
 *.sqlite3
+data/code_intelligence.sqlite3-shm
+data/code_intelligence.sqlite3-wal

@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -21,6 +23,7 @@ import (
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	"manifold/internal/config"
+	"manifold/internal/embeddedpg"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
@@ -114,6 +117,7 @@ type app struct {
 	runMetrics         *clickhouseRunMetrics
 	logMetrics         *clickhouseLogMetrics
 	transitService     *transitdomain.Service
+	embeddedRuntime    *embeddedpg.Runtime
 }
 
 type tokenMetricsProvider interface {
@@ -473,9 +477,52 @@ func Run() {
 		go a.launchStartupMCPOAuthPrompts(oauthBase)
 	}
 
-	log.Info().Msg("agentd listening on :32180")
-	if err := http.ListenAndServe(":32180", root); err != nil {
-		log.Fatal().Err(err).Msg("server failed")
+	server := &http.Server{Addr: ":32180", Handler: root}
+	serverErr := make(chan error, 1)
+	go func() {
+		log.Info().Msg("agentd listening on :32180")
+		serverErr <- server.ListenAndServe()
+	}()
+
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var runErr error
+	select {
+	case err := <-serverErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			runErr = err
+		}
+	case <-sigCtx.Done():
+		log.Info().Msg("agentd shutdown requested")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Warn().Err(err).Msg("http server shutdown failed")
+		_ = server.Close()
+	}
+	a.close()
+	if runErr != nil {
+		log.Fatal().Err(runErr).Msg("server failed")
+	}
+}
+
+func (a *app) close() {
+	if a == nil {
+		return
+	}
+	if a.mcpManager != nil {
+		a.mcpManager.Close()
+	}
+	if a.mgr != nil {
+		a.mgr.Close()
+	}
+	if a.embeddedRuntime != nil {
+		if err := a.embeddedRuntime.Stop(); err != nil {
+			log.Warn().Err(err).Msg("stop embedded postgres")
+		}
 	}
 }
 
@@ -729,6 +776,16 @@ func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summa
 }
 
 func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
+	embeddedRuntime, err := embeddedpg.Start(&cfg.Databases)
+	if err != nil {
+		return nil, fmt.Errorf("start embedded postgres: %w", err)
+	}
+	defer func() {
+		if err != nil && embeddedRuntime != nil {
+			_ = embeddedRuntime.Stop()
+		}
+	}()
+
 	httpClient := observability.NewHTTPClient(nil)
 	if len(cfg.OpenAI.ExtraHeaders) > 0 {
 		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
@@ -942,6 +999,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		cfg:                cfg,
 		httpClient:         httpClient,
 		mgr:                &mgr,
+		embeddedRuntime:    embeddedRuntime,
 		llm:                llm,
 		summaryLLM:         summaryLLM,
 		baseToolRegistry:   baseToolRegistry,

@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -91,6 +92,10 @@ func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) 
 		return NewMemoryVector(), nil
 	case "auto":
 		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			if err := ensureVectorExtension(ctx, pool); err != nil {
+				pool.Close()
+				return NewMemoryVector(), nil
+			}
 			return NewPostgresVector(pool, cfg.Dimensions, cfg.Metric), nil
 		}
 		return NewMemoryVector(), nil
@@ -100,6 +105,10 @@ func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) 
 		}
 		pool, err := newPgPool(ctx, dsn)
 		if err != nil {
+			return nil, fmt.Errorf("connect postgres (vector): %w", err)
+		}
+		if err := ensureVectorExtension(ctx, pool); err != nil {
+			pool.Close()
 			return nil, fmt.Errorf("connect postgres (vector): %w", err)
 		}
 		return NewPostgresVector(pool, cfg.Dimensions, cfg.Metric), nil
@@ -308,4 +317,21 @@ func newPgPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 	return pool, nil
+}
+
+func ensureVectorExtension(ctx context.Context, pool *pgxpool.Pool) error {
+	if pool == nil {
+		return errors.New("postgres pool is nil")
+	}
+	if _, err := pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		return fmt.Errorf("enable vector extension: %w", err)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'vector')`).Scan(&exists); err != nil {
+		return fmt.Errorf("check vector type: %w", err)
+	}
+	if !exists {
+		return errors.New("pgvector extension is unavailable")
+	}
+	return nil
 }

@@ -158,6 +158,10 @@ auth:
 
 # Database backends.
 databases:
+  embedded: false # set true to run a bundled PostgreSQL instance locally
+  embeddedPort: 5433
+  embeddedDataDir: "" # defaults to ~/.manifold/embedded-postgres/data
+  embeddedVersion: "18"
   defaultDSN: "${DATABASE_URL}"
   chat:
     backend: postgres # memory | auto | postgres

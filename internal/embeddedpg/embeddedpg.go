@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -36,29 +37,49 @@ func Start(dbCfg *config.DBConfig) (*Runtime, error) {
 		return nil, nil
 	}
 
-	runtimeCfg, err := newRuntimeConfig(*dbCfg)
+	rc, err := newRuntimeConfig(*dbCfg)
 	if err != nil {
 		return nil, err
 	}
 
-	runtime := &Runtime{
-		database: runtimeCfg.database,
-		db:       embeddedpostgres.NewDatabase(runtimeCfg.embedded),
-		dsn:      runtimeCfg.connectionURL(),
+	// Ensure PG binaries are present in the persistent binaries directory.
+	// On the very first run this downloads + extracts via a bootstrap cycle.
+	if err := ensureBinaries(rc); err != nil {
+		return nil, err
 	}
-	if err := runtime.db.Start(); err != nil {
+
+	// Install extensions (idempotent — uses per-extension stamp files).
+	extensions := dbCfg.EmbeddedExtensions
+	if len(extensions) == 0 {
+		extensions = defaultExtensions
+	}
+	installed := installExtensions(
+		rc.binariesPath, rc.cachePath, rc.pgMajor,
+		extensions, dbCfg.EmbeddedExtensionURL,
+	)
+
+	// Start postgres with extensions in place.
+	rt := &Runtime{
+		database: rc.database,
+		db:       embeddedpostgres.NewDatabase(rc.embedded),
+		dsn:      rc.connectionURL(),
+	}
+	if err := rt.db.Start(); err != nil {
 		return nil, fmt.Errorf("start embedded postgres: %w", err)
 	}
 
-	dbCfg.DefaultDSN = runtime.DSN()
-	if needsEmbeddedVectorFallback(dbCfg.Vector.Backend) {
-		log.Warn().Str("backend", dbCfg.Vector.Backend).Msg("embedded postgres does not provide pgvector; forcing vector backend to memory")
+	dbCfg.DefaultDSN = rt.DSN()
+
+	// Only fall back to memory vector if pgvector was not installed.
+	if !installed["pgvector"] && needsEmbeddedVectorFallback(dbCfg.Vector.Backend) {
+		log.Warn().Str("backend", dbCfg.Vector.Backend).
+			Msg("pgvector extension not available; forcing vector backend to memory")
 		dbCfg.Vector.Backend = "memory"
 		dbCfg.Vector.DSN = ""
 	}
 
-	log.Info().Str("dsn", sanitizeDSN(runtime.DSN())).Msg("embedded postgres started")
-	return runtime, nil
+	log.Info().Str("dsn", sanitizeDSN(rt.DSN())).Msg("embedded postgres started")
+	return rt, nil
 }
 
 func (r *Runtime) DSN() string {
@@ -84,12 +105,15 @@ func (r *Runtime) Stop() error {
 }
 
 type runtimeConfig struct {
-	database string
-	host     string
-	password string
-	port     uint32
-	username string
-	embedded embeddedpostgres.Config
+	database     string
+	host         string
+	password     string
+	port         uint32
+	username     string
+	pgMajor      int
+	binariesPath string
+	cachePath    string
+	embedded     embeddedpostgres.Config
 }
 
 func newRuntimeConfig(dbCfg config.DBConfig) (runtimeConfig, error) {
@@ -118,20 +142,27 @@ func newRuntimeConfig(dbCfg config.DBConfig) (runtimeConfig, error) {
 	password := defaultPassword
 	database := defaultDatabase
 
+	binariesPath := filepath.Join(baseDir, fmt.Sprintf("binaries-%s", string(version)))
+	cachePath := filepath.Join(baseDir, "cache")
+
 	return runtimeConfig{
-		database: database,
-		host:     host,
-		password: password,
-		port:     port,
-		username: username,
+		database:     database,
+		host:         host,
+		password:     password,
+		port:         port,
+		username:     username,
+		pgMajor:      pgMajorFromVersion(version),
+		binariesPath: binariesPath,
+		cachePath:    cachePath,
 		embedded: embeddedpostgres.DefaultConfig().
 			Version(version).
 			Port(port).
 			Username(username).
 			Password(password).
 			Database(database).
+			BinariesPath(binariesPath).
 			RuntimePath(filepath.Join(baseDir, "runtime")).
-			CachePath(filepath.Join(baseDir, "cache")).
+			CachePath(cachePath).
 			DataPath(dataDir).
 			StartTimeout(45 * time.Second),
 	}, nil
@@ -195,4 +226,39 @@ func sanitizeDSN(raw string) string {
 		parsed.User = url.UserPassword(parsed.User.Username(), "xxxxx")
 	}
 	return parsed.String()
+}
+
+// ensureBinaries guarantees that the persistent binaries directory is
+// populated. On the very first run, it triggers a bootstrap Start()/Stop()
+// cycle so the library downloads and extracts the PG tarball.
+func ensureBinaries(rc runtimeConfig) error {
+	pgCtl := filepath.Join(rc.binariesPath, "bin", "pg_ctl")
+	if _, err := os.Stat(pgCtl); err == nil {
+		return nil // already prepared
+	}
+
+	log.Info().Str("path", rc.binariesPath).
+		Msg("first run: downloading and preparing PostgreSQL binaries...")
+
+	bootstrap := embeddedpostgres.NewDatabase(rc.embedded)
+	if err := bootstrap.Start(); err != nil {
+		return fmt.Errorf("bootstrap embedded postgres: %w", err)
+	}
+	if err := bootstrap.Stop(); err != nil {
+		log.Warn().Err(err).Msg("bootstrap shutdown warning (non-fatal)")
+	}
+
+	log.Info().Str("path", rc.binariesPath).Msg("PostgreSQL binaries prepared")
+	return nil
+}
+
+// pgMajorFromVersion extracts the major version number from a PostgresVersion
+// string like "18.3.0" → 18.
+func pgMajorFromVersion(v embeddedpostgres.PostgresVersion) int {
+	parts := strings.SplitN(string(v), ".", 2)
+	if len(parts) > 0 {
+		n, _ := strconv.Atoi(parts[0])
+		return n
+	}
+	return 0
 }

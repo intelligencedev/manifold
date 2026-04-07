@@ -162,6 +162,11 @@ databases:
   embeddedPort: 5433
   embeddedDataDir: "" # defaults to ~/.manifold/embedded-postgres/data
   embeddedVersion: "18"
+  embeddedExtensions: # extensions installed into embedded PG (default: pgvector, postgis, pgrouting)
+    - pgvector
+    - postgis
+    - pgrouting
+  embeddedExtensionURL: "" # override for pre-built extension package base URL
   defaultDSN: "${DATABASE_URL}"
   chat:
     backend: postgres # memory | auto | postgres

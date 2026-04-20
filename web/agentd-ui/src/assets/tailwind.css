@@ -44,6 +44,24 @@
     @apply bg-background text-foreground antialiased;
   }
 
+  button {
+    transition:
+      transform 140ms ease,
+      background-color 180ms ease,
+      border-color 180ms ease,
+      color 180ms ease,
+      box-shadow 180ms ease,
+      opacity 180ms ease;
+  }
+
+  button:not(:disabled):active {
+    transform: translateY(1px) scale(0.985);
+  }
+
+  button:disabled {
+    cursor: not-allowed;
+  }
+
   code,
   pre {
     font-family: "Inter", "Inter var", ui-monospace, SFMono-Regular, monospace;

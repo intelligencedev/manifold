@@ -99,12 +99,9 @@
             ></textarea>
           </label>
           <div class="md:col-span-2 flex gap-3 items-center">
-            <button
-              type="submit"
-              class="rounded border border-border/70 px-3 py-2 text-sm font-semibold"
-            >
+            <AppButton type="submit" variant="accent">
               Create experiment
-            </button>
+            </AppButton>
             <span v-if="createMessage" class="text-sm text-subtle-foreground">{{
               createMessage
             }}</span>
@@ -126,12 +123,9 @@
             Launch runs and inspect outcomes.
           </p>
         </div>
-        <button
-          @click="store.loadExperiments"
-          class="rounded border border-border/70 px-3 py-2 text-sm"
-        >
+        <AppButton @click="store.loadExperiments" size="sm">
           Refresh
-        </button>
+        </AppButton>
       </header>
       <div class="flex-1 min-h-0 overflow-auto overscroll-contain pr-1">
         <div
@@ -168,30 +162,68 @@
                   class="rounded border border-border/70 px-3 py-2 text-sm"
                   >Details</RouterLink
                 >
-                <button
+                <AppButton
                   @click="startRun(experiment.id)"
-                  class="rounded border border-border/70 px-3 py-2 text-sm"
+                  variant="accent"
+                  size="sm"
+                  :loading="store.runStarting[experiment.id] ?? false"
+                  :pressed="store.isExperimentRunning(experiment.id)"
                 >
-                  Start run
-                </button>
-                <button
+                  {{
+                    store.runStarting[experiment.id]
+                      ? "Starting run"
+                      : store.isExperimentRunning(experiment.id)
+                        ? "Queue another run"
+                        : "Start run"
+                  }}
+                </AppButton>
+                <AppButton
                   @click="deleteExperiment(experiment.id)"
-                  class="rounded border border-danger/60 text-danger/60 px-3 py-2 text-sm"
+                  variant="danger"
+                  size="sm"
                 >
                   Delete
-                </button>
+                </AppButton>
               </div>
             </div>
-            <div class="text-sm text-subtle-foreground">
-              Created {{ formatDate(experiment.createdAt) }}
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+              <span class="text-subtle-foreground">
+                Created {{ formatDate(experiment.createdAt) }}
+              </span>
+              <span
+                v-if="store.runStarting[experiment.id]"
+                class="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/12 px-2.5 py-1 text-xs font-medium text-foreground"
+              >
+                <span
+                  class="h-2 w-2 animate-pulse rounded-full bg-accent"
+                ></span>
+                Starting run…
+              </span>
+              <span
+                v-else-if="store.isExperimentRunning(experiment.id)"
+                class="inline-flex items-center gap-2 rounded-full border border-warning/35 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
+              >
+                <span
+                  class="h-2 w-2 animate-pulse rounded-full bg-warning"
+                ></span>
+                Run in progress
+              </span>
             </div>
+            <p
+              v-if="runErrors[experiment.id]"
+              class="text-sm text-danger-foreground"
+            >
+              {{ runErrors[experiment.id] }}
+            </p>
             <div class="text-sm">
-              <button
+              <AppButton
                 @click="toggleRuns(experiment.id)"
-                class="text-accent text-sm hover:underline"
+                variant="ghost"
+                size="xs"
+                class="px-0 text-accent hover:bg-transparent hover:text-accent"
               >
                 {{ expandedRun[experiment.id] ? "Hide runs" : "Show runs" }}
-              </button>
+              </AppButton>
             </div>
             <div
               v-if="expandedRun[experiment.id]"
@@ -253,9 +285,10 @@
 
 <script setup lang="ts">
 import { RouterLink } from "vue-router";
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { onMounted, reactive, ref, watch } from "vue";
 import { usePlaygroundStore } from "@/stores/playground";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import AppButton from "@/components/ui/AppButton.vue";
 
 const store = usePlaygroundStore();
 const form = reactive({
@@ -270,6 +303,7 @@ const form = reactive({
 const createMessage = ref("");
 const createError = ref("");
 const expandedRun = reactive<Record<string, boolean>>({});
+const runErrors = reactive<Record<string, string>>({});
 const availableVersions = ref(store.promptVersions[form.promptId] ?? []);
 
 onMounted(async () => {
@@ -340,9 +374,13 @@ function extractErr(err: unknown): string {
 }
 
 async function startRun(experimentId: string) {
-  await store.triggerRun(experimentId);
-  expandedRun[experimentId] = true;
-  await store.refreshExperimentRuns(experimentId);
+  runErrors[experimentId] = "";
+  try {
+    await store.triggerRun(experimentId);
+    expandedRun[experimentId] = true;
+  } catch (err) {
+    runErrors[experimentId] = extractErr(err);
+  }
 }
 
 async function deleteExperiment(id: string) {

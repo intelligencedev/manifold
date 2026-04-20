@@ -59,6 +59,7 @@ export const usePlaygroundStore = defineStore("playground", () => {
   const experimentCache = ref<Record<string, ExperimentSpec>>({});
   const runsByExperiment = ref<Record<string, Run[]>>({});
   const runsLoading = ref<Record<string, boolean>>({});
+  const runStarting = ref<Record<string, boolean>>({});
   const runResultsByRun = ref<Record<string, RunResult[]>>({});
   const runResultsLoading = ref<Record<string, boolean>>({});
   const runPollTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -279,6 +280,7 @@ export const usePlaygroundStore = defineStore("playground", () => {
     experiments.value = experiments.value.filter((e) => e.id !== id);
     delete experimentCache.value[id];
     delete runsByExperiment.value[id];
+    delete runStarting.value[id];
   }
 
   async function refreshExperimentRuns(experimentId: string) {
@@ -295,8 +297,23 @@ export const usePlaygroundStore = defineStore("playground", () => {
   }
 
   async function triggerRun(experimentId: string) {
-    await startExperimentRun(experimentId);
-    await refreshExperimentRuns(experimentId);
+    runStarting.value[experimentId] = true;
+    try {
+      await startExperimentRun(experimentId);
+      await refreshExperimentRuns(experimentId);
+    } finally {
+      runStarting.value[experimentId] = false;
+    }
+  }
+
+  function isExperimentRunning(experimentId: string) {
+    if (runStarting.value[experimentId]) {
+      return true;
+    }
+    const runs = runsByExperiment.value[experimentId] ?? [];
+    return runs.some(
+      (run) => run.status === "pending" || run.status === "running",
+    );
   }
 
   async function ensureRunResults(runId: string) {
@@ -363,6 +380,7 @@ export const usePlaygroundStore = defineStore("playground", () => {
     experimentsError,
     runsByExperiment,
     runsLoading,
+    runStarting,
     runResultsByRun,
     runResultsLoading,
     promptCount,
@@ -386,6 +404,7 @@ export const usePlaygroundStore = defineStore("playground", () => {
     removeExperiment,
     refreshExperimentRuns,
     triggerRun,
+    isExperimentRunning,
     ensureRunResults,
     refreshRunResults,
     clearRunPolling,

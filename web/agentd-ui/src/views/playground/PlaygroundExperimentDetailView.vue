@@ -4,9 +4,7 @@
     class="flex h-full min-h-0 flex-col gap-6 overflow-hidden"
   >
     <!-- Header / Summary -->
-    <section
-      class="space-y-2"
-    >
+    <section class="space-y-2">
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-xl font-semibold">{{ experiment.name }}</h1>
@@ -33,17 +31,44 @@
       <!-- Left column: Variants + Runs list (scrollable) -->
       <div class="flex min-h-0 flex-col gap-6 overflow-hidden">
         <!-- Variants -->
-        <section
-          class="space-y-3"
-        >
+        <section class="space-y-3">
           <header class="flex items-center justify-between">
-            <h2 class="text-lg font-semibold">Variants</h2>
-            <button
+            <div class="flex items-center gap-3">
+              <h2 class="text-lg font-semibold">Variants</h2>
+              <span
+                v-if="isRunStarting"
+                class="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/12 px-2.5 py-1 text-xs font-medium text-foreground"
+              >
+                <span
+                  class="h-2 w-2 animate-pulse rounded-full bg-accent"
+                ></span>
+                Starting run…
+              </span>
+              <span
+                v-else-if="hasActiveRun"
+                class="inline-flex items-center gap-2 rounded-full border border-warning/35 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning"
+              >
+                <span
+                  class="h-2 w-2 animate-pulse rounded-full bg-warning"
+                ></span>
+                Run in progress
+              </span>
+            </div>
+            <AppButton
               @click="startRun"
-              class="rounded border border-border/70 px-3 py-2 text-sm"
+              variant="accent"
+              size="sm"
+              :loading="isRunStarting"
+              :pressed="hasActiveRun"
             >
-              Start run
-            </button>
+              {{
+                isRunStarting
+                  ? "Starting run"
+                  : hasActiveRun
+                    ? "Queue another run"
+                    : "Start run"
+              }}
+            </AppButton>
           </header>
           <div class="max-h-56 overflow-auto pr-1">
             <table class="w-full text-sm">
@@ -70,17 +95,12 @@
         </section>
 
         <!-- Runs -->
-        <section
-          class="flex min-h-0 flex-col gap-3"
-        >
+        <section class="flex min-h-0 flex-col gap-3">
           <header class="flex items-center justify-between">
             <h2 class="text-lg font-semibold">Runs</h2>
-            <button
-              @click="refreshRuns(experimentId)"
-              class="rounded border border-border/70 px-3 py-2 text-sm"
-            >
+            <AppButton @click="refreshRuns(experimentId)" size="sm">
               Refresh
-            </button>
+            </AppButton>
           </header>
           <div class="flex-1 min-h-0 overflow-auto overscroll-contain pr-1">
             <table class="w-full text-sm">
@@ -132,10 +152,7 @@
 
       <!-- Right column: Selected run details and results (scrollable) -->
       <div class="flex min-h-0 flex-col overflow-hidden">
-        <section
-          v-if="selectedRun"
-          class="flex-1 min-h-0 flex flex-col gap-4"
-        >
+        <section v-if="selectedRun" class="flex-1 min-h-0 flex flex-col gap-4">
           <header class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 class="text-lg font-semibold">Run Details</h2>
@@ -144,13 +161,13 @@
               </p>
             </div>
             <div class="flex items-center gap-2">
-              <button
+              <AppButton
                 @click="refreshSelectedRunResults"
-                :disabled="loadingSelectedRunResults"
-                class="rounded border border-border/70 px-3 py-2 text-sm disabled:opacity-60"
+                :loading="loadingSelectedRunResults"
+                size="sm"
               >
                 Refresh results
-              </button>
+              </AppButton>
             </div>
           </header>
 
@@ -333,10 +350,7 @@
             </div>
           </div>
         </section>
-        <section
-          v-else
-          class="text-sm text-subtle-foreground"
-        >
+        <section v-else class="text-sm text-subtle-foreground">
           Select a run to view details.
         </section>
       </div>
@@ -361,12 +375,7 @@
       >
         <header class="flex items-center justify-between">
           <h3 class="text-lg font-semibold">{{ expandedTitle }}</h3>
-          <button
-            @click="closeExpandedText"
-            class="rounded border border-border/70 px-3 py-1 text-sm"
-          >
-            Close
-          </button>
+          <AppButton @click="closeExpandedText" size="sm"> Close </AppButton>
         </header>
         <textarea
           readonly
@@ -383,6 +392,7 @@ import { RouterLink, useRoute, useRouter } from "vue-router";
 import { onMounted, onBeforeUnmount, ref, watch, computed } from "vue";
 import { usePlaygroundStore } from "@/stores/playground";
 import type { ExperimentSpec, Run, RunResult } from "@/api/playground";
+import AppButton from "@/components/ui/AppButton.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -407,6 +417,14 @@ const loadingSelectedRunResults = computed(() => {
   if (!selectedRunId.value) return false;
   return store.runResultsLoading[selectedRunId.value] ?? false;
 });
+
+const isRunStarting = computed(
+  () => store.runStarting[experimentId.value] ?? false,
+);
+
+const hasActiveRun = computed(() =>
+  store.isExperimentRunning(experimentId.value),
+);
 
 const sortedMetrics = computed(() => {
   if (!selectedRun.value?.metrics) return [] as Array<[string, number]>;

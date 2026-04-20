@@ -69,6 +69,10 @@ func TestCachedSkillsForProjectLoadsMetadata(t *testing.T) {
 	if cached.Skills[0].Name != "pdf-context-builder" {
 		t.Fatalf("unexpected skill name: %q", cached.Skills[0].Name)
 	}
+	// Skill paths must be project-relative, never absolute.
+	if filepath.IsAbs(cached.Skills[0].Path) {
+		t.Fatalf("expected relative path, got absolute: %q", cached.Skills[0].Path)
+	}
 	if !strings.Contains(cached.RenderedPrompt, "## Skills") {
 		t.Fatalf("expected rendered prompt, got %q", cached.RenderedPrompt)
 	}

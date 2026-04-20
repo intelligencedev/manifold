@@ -70,6 +70,13 @@ docker compose logs -f pg-manifold manifold
 
 Open <http://localhost:32180>.
 
+Project-local skills:
+
+- Agents load skills only from `.skills/` inside the active project root.
+- Skills are not shared across projects automatically.
+- If a project needs custom skills, create them under that project's `.skills/` folder.
+- This keeps all agent file access relative to the selected project's root path.
+
 Useful endpoints:
 
 - UI and API root: <http://localhost:32180>

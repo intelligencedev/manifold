@@ -39,7 +39,7 @@ func (t *skillSearchTool) Name() string { return "skill_search" }
 func (t *skillSearchTool) JSONSchema() map[string]any {
 	return map[string]any{
 		"name":        t.Name(),
-		"description": "Search project skills by capability description or exact skill name. After selecting a skill, open its SKILL.md file to use it.",
+		"description": "Search project-local skills from the active project's .skills folder by capability description or exact skill name. After selecting a skill, open its SKILL.md file to use it.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{

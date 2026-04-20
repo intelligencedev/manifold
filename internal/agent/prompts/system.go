@@ -37,7 +37,8 @@ const toolDiscoveryInstructions = `
 
 const skillDiscoveryInstructions = `
 [skill_discovery]
-- You have a skill_search tool for discovering project skills during the run.
+- You have a skill_search tool for discovering project-local skills during the run.
+- Skills are loaded only from the active project's .skills folder under the project root.
 - Use skill_search when the task may match a reusable workflow or when the user names a skill explicitly.
 - After choosing a skill, open its SKILL.md file and load references, scripts, or assets only as needed.
 - Keep skill loading narrow: start with metadata, then inspect only the selected skill files.
@@ -183,7 +184,8 @@ func renderSkillsSection(skillsList []skills.Metadata) string {
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
-	b.WriteString("These skills are discovered from the project's .skills folder. Each entry includes a name, description, and file path.\n")
+	b.WriteString("These skills are discovered only from the active project's .skills folder under the project root. Each entry includes a name, description, and relative file path.\n")
+	b.WriteString("Each project must define its own .skills folder; skills are not loaded from outside the project.\n")
 	for _, s := range skillsList {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {

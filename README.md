@@ -51,6 +51,8 @@ Define and configure AI agents, then build your own team of experts.
 
 Configure projects as agent workspaces.
 
+Each project is isolated to its own root path. Agents only load skills from that project's `.skills/` folder, so every project that needs reusable skills must define its own `.skills` directory inside the project root.
+
 ![projects](docs/img/projects.webp)
 
 ### Integrated tools and MCP support

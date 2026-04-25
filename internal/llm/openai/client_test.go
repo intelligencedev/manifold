@@ -494,7 +494,8 @@ func TestSelfHostedSSEHeaderInjection(t *testing.T) {
 }
 
 type testStreamHandler struct {
-	deltas []string
+	deltas   []string
+	thoughts []string
 }
 
 func (h *testStreamHandler) OnDelta(content string) {
@@ -507,10 +508,92 @@ func (h *testStreamHandler) OnToolCall(tc llm.ToolCall) {
 func (h *testStreamHandler) OnImage(llm.GeneratedImage) {
 }
 
-func (h *testStreamHandler) OnThoughtSummary(string) {
+func (h *testStreamHandler) OnThoughtSummary(summary string) {
+	h.thoughts = append(h.thoughts, summary)
 }
 
 func (h *testStreamHandler) OnThoughtSignature(string) {
+}
+
+func TestSelfHostedChatStripsTaggedThoughtContent(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"<|channel>thought\nThe user wants a haiku.\nI should keep it short.\n<channel|>Green leaves in the wind,\nGolden sun warms the cold earth,\nWinter fades away.","tool_calls":[]}}]}`))
+		case "/tokenize":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	msg, err := cli.Chat(ctx, []llm.Message{{Role: "user", Content: "write a haiku"}}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	if strings.Contains(msg.Content, selfHostedThoughtStartMarker) {
+		t.Fatalf("expected tagged thought marker to be stripped, got %q", msg.Content)
+	}
+	if strings.Contains(msg.Content, selfHostedThoughtEndMarker) {
+		t.Fatalf("expected closing thought marker to be stripped, got %q", msg.Content)
+	}
+	if got, want := msg.Content, "Green leaves in the wind,\nGolden sun warms the cold earth,\nWinter fades away."; got != want {
+		t.Fatalf("unexpected visible content:\nwant: %q\n got: %q", want, got)
+	}
+}
+
+func TestSelfHostedChatStreamParsesTaggedThoughtContent(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"<|chan\"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"nel>thought\\nThe user wants a haiku.\\nI should keep it short.\\n<chan\"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"nel|>Green leaves in the wind,\\nGolden sun warms the cold earth,\\nWinter fades away.\"},\"finish_reason\":\"stop\"}]}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		case "/tokenize":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handler := &testStreamHandler{}
+	if err := cli.ChatStream(ctx, []llm.Message{{Role: "user", Content: "write a haiku"}}, nil, "", handler); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+
+	if got, want := strings.Join(handler.deltas, ""), "Green leaves in the wind,\nGolden sun warms the cold earth,\nWinter fades away."; got != want {
+		t.Fatalf("unexpected streamed visible content:\nwant: %q\n got: %q", want, got)
+	}
+	if len(handler.thoughts) == 0 {
+		t.Fatal("expected thought summaries to be emitted")
+	}
+	lastThought := handler.thoughts[len(handler.thoughts)-1]
+	if got, want := lastThought, "The user wants a haiku.\nI should keep it short.\n"; got != want {
+		t.Fatalf("unexpected thought summary:\nwant: %q\n got: %q", want, got)
+	}
+	if strings.Contains(strings.Join(handler.deltas, ""), selfHostedThoughtStartMarker) {
+		t.Fatal("visible stream should not contain tagged thought markers")
+	}
 }
 
 func TestChatImageGeneration(t *testing.T) {

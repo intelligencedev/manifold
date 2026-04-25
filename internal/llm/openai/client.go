@@ -114,6 +114,134 @@ func extractThoughtSignature(raw string) string {
 	return ""
 }
 
+const (
+	selfHostedThoughtStartMarker = "<|channel>thought"
+	selfHostedThoughtEndMarker   = "<channel|>"
+)
+
+type taggedThoughtParseResult struct {
+	visible string
+	thought string
+	tagged  bool
+}
+
+type selfHostedThoughtStreamState struct {
+	raw              strings.Builder
+	emittedVisibleLn int
+	lastThought      string
+}
+
+func trimLeadingSingleLineBreak(value string) string {
+	if strings.HasPrefix(value, "\r\n") {
+		return value[2:]
+	}
+	if strings.HasPrefix(value, "\n") {
+		return value[1:]
+	}
+	return value
+}
+
+func markerSuffixPrefixLen(value, marker string) int {
+	max := len(value)
+	if len(marker) < max {
+		max = len(marker)
+	}
+	for n := max; n > 0; n-- {
+		if strings.HasSuffix(value, marker[:n]) {
+			return n
+		}
+	}
+	return 0
+}
+
+func appendThoughtChunk(dst *strings.Builder, chunk string) {
+	if chunk == "" {
+		return
+	}
+	if dst.Len() > 0 {
+		dst.WriteString("\n\n")
+	}
+	dst.WriteString(chunk)
+}
+
+func parseTaggedThoughtContent(raw string) taggedThoughtParseResult {
+	remaining := raw
+	var visible strings.Builder
+	var thought strings.Builder
+	tagged := false
+
+	for len(remaining) > 0 {
+		startIdx := strings.Index(remaining, selfHostedThoughtStartMarker)
+		if startIdx == -1 {
+			keep := len(remaining) - markerSuffixPrefixLen(remaining, selfHostedThoughtStartMarker)
+			if keep > 0 {
+				visible.WriteString(remaining[:keep])
+			}
+			break
+		}
+
+		tagged = true
+		if startIdx > 0 {
+			visible.WriteString(remaining[:startIdx])
+		}
+
+		remaining = trimLeadingSingleLineBreak(remaining[startIdx+len(selfHostedThoughtStartMarker):])
+		endIdx := strings.Index(remaining, selfHostedThoughtEndMarker)
+		if endIdx == -1 {
+			keep := len(remaining) - markerSuffixPrefixLen(remaining, selfHostedThoughtEndMarker)
+			if keep > 0 {
+				appendThoughtChunk(&thought, remaining[:keep])
+			}
+			break
+		}
+
+		appendThoughtChunk(&thought, remaining[:endIdx])
+		remaining = remaining[endIdx+len(selfHostedThoughtEndMarker):]
+	}
+
+	return taggedThoughtParseResult{
+		visible: visible.String(),
+		thought: thought.String(),
+		tagged:  tagged,
+	}
+}
+
+func stripTaggedThoughtContent(raw string) string {
+	parsed := parseTaggedThoughtContent(raw)
+	if !parsed.tagged {
+		return raw
+	}
+	return parsed.visible
+}
+
+func (s *selfHostedThoughtStreamState) emit(delta string, h llm.StreamHandler, visible *strings.Builder) {
+	if delta == "" {
+		return
+	}
+	s.raw.WriteString(delta)
+	parsed := parseTaggedThoughtContent(s.raw.String())
+	if parsed.thought != "" && parsed.thought != s.lastThought {
+		s.lastThought = parsed.thought
+		if h != nil {
+			h.OnThoughtSummary(parsed.thought)
+		}
+	}
+	if len(parsed.visible) <= s.emittedVisibleLn {
+		return
+	}
+	chunk := parsed.visible[s.emittedVisibleLn:]
+	s.emittedVisibleLn = len(parsed.visible)
+	if chunk == "" {
+		return
+	}
+	if h != nil {
+		h.OnDelta(chunk)
+	}
+	if visible != nil {
+		visible.WriteString(chunk)
+	}
+}
+
 func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = http.DefaultClient
@@ -555,6 +683,9 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	if len(comp.Choices) > 0 {
 		msg := comp.Choices[0].Message
 		out = llm.Message{Role: "assistant", Content: msg.Content}
+		if c.isSelfHosted() {
+			out.Content = stripTaggedThoughtContent(out.Content)
+		}
 		for _, tc := range msg.ToolCalls {
 			switch v := tc.AsAny().(type) {
 			case sdk.ChatCompletionMessageFunctionToolCall:
@@ -693,6 +824,9 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	if len(comp.Choices) > 0 {
 		msg := comp.Choices[0].Message
 		out = llm.Message{Role: "assistant", Content: msg.Content}
+		if c.isSelfHosted() {
+			out.Content = stripTaggedThoughtContent(out.Content)
+		}
 		for _, tc := range msg.ToolCalls {
 			switch v := tc.AsAny().(type) {
 			case sdk.ChatCompletionMessageFunctionToolCall:
@@ -1014,6 +1148,13 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	// Tool calls accumulation
 	toolCalls := make(map[int]*llm.ToolCall)
 	toolCallsFlushed := false
+	var thoughtStream selfHostedThoughtStreamState
+	emitSelfHostedDelta := func(content string) {
+		if content == "" {
+			return
+		}
+		thoughtStream.emit(content, h, &assistantContentBuilder)
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	// Increase buffer in case of large JSON chunks
@@ -1046,8 +1187,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 				// delta.content
 				if delta, ok := ch["delta"].(map[string]any); ok {
 					if s, ok := delta["content"].(string); ok && s != "" {
-						h.OnDelta(s)
-						assistantContentBuilder.WriteString(s)
+						emitSelfHostedDelta(s)
 					}
 					// tool calls accumulation (function.name, function.arguments)
 					if tcs, ok := delta["tool_calls"].([]any); ok {
@@ -1091,8 +1231,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 				// Some servers send message at end; capture for completeness
 				if msg, ok := ch["message"].(map[string]any); ok {
 					if s, ok := msg["content"].(string); ok && s != "" {
-						h.OnDelta(s)
-						assistantContentBuilder.WriteString(s)
+						emitSelfHostedDelta(s)
 					}
 				}
 			}
@@ -1101,14 +1240,12 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 
 		// mlx_lm compatibility: sometimes payload may contain {"response":"..."}
 		if s, ok := m["response"].(string); ok && s != "" {
-			h.OnDelta(s)
-			assistantContentBuilder.WriteString(s)
+			emitSelfHostedDelta(s)
 			continue
 		}
 		// Another possible token key
 		if s, ok := m["token"].(string); ok && s != "" {
-			h.OnDelta(s)
-			assistantContentBuilder.WriteString(s)
+			emitSelfHostedDelta(s)
 			continue
 		}
 	}
@@ -1322,6 +1459,9 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	msg := comp.Choices[0].Message
 	out := llm.Message{Role: "assistant", Content: msg.Content}
 	if c.isSelfHosted() {
+		out.Content = stripTaggedThoughtContent(out.Content)
+	}
+	if c.isSelfHosted() {
 		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
 		completionTokens := c.tokenizeCount(ctx, out.Content)
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, promptTokens+completionTokens)
@@ -1445,6 +1585,9 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	}
 	msg := comp.Choices[0].Message
 	out := llm.Message{Role: "assistant", Content: msg.Content}
+	if c.isSelfHosted() {
+		out.Content = stripTaggedThoughtContent(out.Content)
+	}
 	if c.isSelfHosted() {
 		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
 		completionTokens := c.tokenizeCount(ctx, out.Content)

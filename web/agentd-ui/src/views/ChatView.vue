@@ -913,7 +913,6 @@
                           :key="`${idx}:${summary}`"
                           class="flex gap-2"
                         >
-                          <span aria-hidden="true">💭</span>
                           <div
                             class="chat-markdown min-w-0 flex-1 break-words"
                             v-html="renderMarkdownOrHtml(summary)"

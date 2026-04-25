@@ -17,26 +17,6 @@ import (
 	"manifold/internal/tools/utility"
 )
 
-func TestEnsureBuiltinCodeQAWorkflow(t *testing.T) {
-	t.Parallel()
-
-	a := &app{flowV2: newFlowV2Runtime(nil)}
-	if err := a.ensureBuiltinCodeQAWorkflow(context.Background()); err != nil {
-		t.Fatalf("ensure builtin workflow: %v", err)
-	}
-
-	wf, _, found, err := a.flowV2.getWorkflow(context.Background(), systemUserID, builtinCodeQAPipelineWorkflowID)
-	if err != nil {
-		t.Fatalf("get builtin workflow: %v", err)
-	}
-	if !found {
-		t.Fatal("expected builtin workflow to exist")
-	}
-	if len(wf.Nodes) != 1 || wf.Nodes[0].Tool != "code_qa_optimize" {
-		t.Fatalf("unexpected builtin workflow nodes: %+v", wf.Nodes)
-	}
-}
-
 func TestFlowV2WorkflowDetailHandlerSupportsSlashesInWorkflowID(t *testing.T) {
 	t.Parallel()
 
@@ -44,13 +24,24 @@ func TestFlowV2WorkflowDetailHandlerSupportsSlashesInWorkflowID(t *testing.T) {
 		cfg:    &config.Config{},
 		flowV2: newFlowV2Runtime(nil),
 	}
-	if err := a.ensureBuiltinCodeQAWorkflow(context.Background()); err != nil {
-		t.Fatalf("ensure builtin workflow: %v", err)
+	workflowID := "folder/custom_flow"
+	_, _, err := a.flowV2.upsertWorkflow(context.Background(), systemUserID, flow.Workflow{
+		ID:      workflowID,
+		Name:    "Custom Flow",
+		Trigger: flow.Trigger{Type: flow.TriggerTypeManual},
+		Nodes: []flow.Node{{
+			ID:   "n1",
+			Name: "Step One",
+			Kind: flow.NodeKindData,
+			Type: "set",
+		}},
+	}, flow.WorkflowCanvas{})
+	if err != nil {
+		t.Fatalf("upsert workflow: %v", err)
 	}
 
-	workflowID := url.PathEscape(builtinCodeQAPipelineWorkflowID)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/flows/v2/workflows/"+workflowID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/flows/v2/workflows/"+url.PathEscape(workflowID), nil)
 	a.flowV2WorkflowDetailHandler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for encoded workflow id, got %d body=%s", rec.Code, rec.Body.String())
@@ -59,7 +50,7 @@ func TestFlowV2WorkflowDetailHandlerSupportsSlashesInWorkflowID(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal workflow response: %v", err)
 	}
-	if resp.Workflow.ID != builtinCodeQAPipelineWorkflowID {
+	if resp.Workflow.ID != workflowID {
 		t.Fatalf("unexpected workflow id: %s", resp.Workflow.ID)
 	}
 }

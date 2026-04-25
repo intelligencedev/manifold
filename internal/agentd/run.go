@@ -1281,10 +1281,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		}
 		cancelRefresh()
 	}
-	if err := app.ensureBuiltinCodeQAWorkflow(context.Background()); err != nil {
-		log.Warn().Err(err).Msg("codeqa_builtin_workflow_seed_failed")
-	}
-
 	app.syncWarppTools(context.Background())
 
 	return app, nil

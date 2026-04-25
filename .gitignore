@@ -86,3 +86,4 @@ mcp.yaml
 *.sqlite3
 data/code_intelligence.sqlite3-shm
 data/code_intelligence.sqlite3-wal
+docs/manifold_codeqa_implementation_plan_v1.md

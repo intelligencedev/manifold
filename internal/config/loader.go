@@ -256,6 +256,45 @@ func applyDefaults(cfg *Config) {
 	if cfg.MaxDiscoveredTools <= 0 {
 		cfg.MaxDiscoveredTools = 20
 	}
+	if cfg.CodeQA.ArtifactDir == "" {
+		cfg.CodeQA.ArtifactDir = "codeqa-artifacts"
+	}
+	if cfg.CodeQA.MaxConcurrentRuns <= 0 {
+		cfg.CodeQA.MaxConcurrentRuns = 1
+	}
+	if cfg.CodeQA.MaxGateParallelism <= 0 {
+		cfg.CodeQA.MaxGateParallelism = 2
+	}
+	if cfg.CodeQA.MaxJudgeParallelism <= 0 {
+		cfg.CodeQA.MaxJudgeParallelism = 2
+	}
+	if cfg.CodeQA.DefaultMaxDiffBytes <= 0 {
+		cfg.CodeQA.DefaultMaxDiffBytes = 128 * 1024
+	}
+	if cfg.CodeQA.DefaultMaxChangedFiles <= 0 {
+		cfg.CodeQA.DefaultMaxChangedFiles = 12
+	}
+	if cfg.CodeQA.AcceptThreshold == 0 {
+		cfg.CodeQA.AcceptThreshold = 0.10
+	}
+	if cfg.CodeQA.MinConfidence == 0 {
+		cfg.CodeQA.MinConfidence = 0.70
+	}
+	if strings.TrimSpace(cfg.CodeQA.JudgeModel) == "" {
+		cfg.CodeQA.JudgeModel = cfg.LLMClient.OpenAI.Model
+	}
+	if strings.TrimSpace(cfg.CodeQA.ProposerModel) == "" {
+		cfg.CodeQA.ProposerModel = cfg.CodeQA.JudgeModel
+	}
+	if len(cfg.CodeQA.AllowedCommands) == 0 {
+		cfg.CodeQA.AllowedCommands = []string{"go", "gofmt"}
+	}
+	if len(cfg.CodeQA.HighRiskGlobs) == 0 {
+		cfg.CodeQA.HighRiskGlobs = []string{"**/auth/**", "**/migrations/**", "**/*crypto*", "**/deploy/**", "**/.github/**"}
+	}
+	if len(cfg.CodeQA.ForbiddenGlobs) == 0 {
+		cfg.CodeQA.ForbiddenGlobs = []string{"**/*.pem", "**/*.key", "**/.env*", "**/node_modules/**", "**/dist/**"}
+	}
 	if cfg.AgentRunTimeoutSeconds < 0 {
 		cfg.AgentRunTimeoutSeconds = 0
 	}

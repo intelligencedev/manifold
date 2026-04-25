@@ -368,6 +368,21 @@ llm_client:
 	if cfg.Databases.Search.Backend != "memory" {
 		t.Fatalf("expected default search backend memory, got %q", cfg.Databases.Search.Backend)
 	}
+	if cfg.CodeQA.ArtifactDir != "codeqa-artifacts" {
+		t.Fatalf("expected default codeqa artifact dir, got %q", cfg.CodeQA.ArtifactDir)
+	}
+	if cfg.CodeQA.DefaultMaxDiffBytes != 128*1024 {
+		t.Fatalf("expected default codeqa max diff bytes, got %d", cfg.CodeQA.DefaultMaxDiffBytes)
+	}
+	if cfg.CodeQA.AcceptThreshold != 0.10 {
+		t.Fatalf("expected default codeqa accept threshold, got %v", cfg.CodeQA.AcceptThreshold)
+	}
+	if cfg.CodeQA.MinConfidence != 0.70 {
+		t.Fatalf("expected default codeqa min confidence, got %v", cfg.CodeQA.MinConfidence)
+	}
+	if len(cfg.CodeQA.AllowedCommands) != 2 || cfg.CodeQA.AllowedCommands[0] != "go" || cfg.CodeQA.AllowedCommands[1] != "gofmt" {
+		t.Fatalf("unexpected default codeqa allowed commands: %v", cfg.CodeQA.AllowedCommands)
+	}
 	if !cfg.Tokenization.FallbackToHeuristic {
 		t.Fatalf("expected default tokenization fallback true")
 	}

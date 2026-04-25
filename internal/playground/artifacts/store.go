@@ -35,6 +35,9 @@ func (s *FilesystemStore) Save(_ context.Context, runID string, artifact Artifac
 		return "", fmt.Errorf("ensure dir: %w", err)
 	}
 	path := filepath.Join(s.root, runID, artifact.Name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("ensure nested dir: %w", err)
+	}
 	if err := os.WriteFile(path, artifact.Bytes, 0o644); err != nil {
 		return "", fmt.Errorf("write artifact: %w", err)
 	}

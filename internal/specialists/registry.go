@@ -3,6 +3,7 @@ package specialists
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -100,16 +101,18 @@ func (r *Registry) SetToolDiscovery(index *tooldiscovery.ToolIndex, autoDiscover
 
 func buildProvider(provider string, base config.LLMClientConfig, sc config.SpecialistConfig, httpClient *http.Client) (llm.Provider, string) {
 	hc := httpClient
-	if len(sc.ExtraHeaders) > 0 {
-		if hc == nil {
-			hc = http.DefaultClient
-		}
-		tr := hc.Transport
-		if tr == nil {
-			tr = http.DefaultTransport
-		}
-		hc = &http.Client{Transport: &headerTransport{base: tr, headers: sc.ExtraHeaders}}
+	if hc == nil {
+		hc = http.DefaultClient
 	}
+	tr := hc.Transport
+	if tr == nil {
+		tr = http.DefaultTransport
+	}
+	tr = &specialistTokenizeBypassTransport{base: tr}
+	if len(sc.ExtraHeaders) > 0 {
+		tr = &headerTransport{base: tr, headers: sc.ExtraHeaders}
+	}
+	hc = &http.Client{Transport: tr}
 
 	switch strings.ToLower(provider) {
 	case "google":
@@ -477,10 +480,29 @@ type headerTransport struct {
 	headers map[string]string
 }
 
+type specialistTokenizeBypassTransport struct {
+	base http.RoundTripper
+}
+
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
 	for k, v := range t.headers {
 		r.Header.Set(k, v)
 	}
 	return t.base.RoundTrip(r)
+}
+
+func (t *specialistTokenizeBypassTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req != nil && req.Method == http.MethodPost && strings.HasSuffix(strings.TrimSpace(req.URL.Path), "/tokenize") {
+		body := `{"tokens":[]}`
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Status:        "200 OK",
+			Header:        http.Header{"Content-Type": []string{"application/json"}},
+			Body:          io.NopCloser(strings.NewReader(body)),
+			ContentLength: int64(len(body)),
+			Request:       req,
+		}, nil
+	}
+	return t.base.RoundTrip(req)
 }

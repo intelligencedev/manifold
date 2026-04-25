@@ -306,13 +306,15 @@ func (c *Client) tokenizeCount(ctx context.Context, text string) int {
 	if !c.isSelfHosted() || strings.TrimSpace(text) == "" {
 		return 0
 	}
+	countCtx, cancel := context.WithTimeout(ctx, 250*time.Millisecond)
+	defer cancel()
 	base := strings.TrimSuffix(strings.TrimSpace(c.baseURL), "/")
 	// Always attempt to trim trailing /v1 for constructing /tokenize endpoint
 	base = strings.TrimSuffix(base, "/v1")
 	tokenURL := base + "/tokenize"
 	bodyObj := map[string]any{"content": text}
 	b, _ := json.Marshal(bodyObj)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(countCtx, http.MethodPost, tokenURL, bytes.NewReader(b))
 	if err != nil {
 		return 0
 	}

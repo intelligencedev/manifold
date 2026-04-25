@@ -90,7 +90,6 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 	}
 	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
-	eng.AttachTokenizer(prov, nil)
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 	delegator.SetEvolvingMemory(em)

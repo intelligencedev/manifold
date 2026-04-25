@@ -96,8 +96,30 @@ type Config struct {
 	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
 	// Projects controls per-user projects service behavior.
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
+	// CodeQA configures deterministic and LLM-assisted code quality evaluation.
+	CodeQA CodeQAConfig `yaml:"codeQA" json:"codeQA"`
 	// Tokenization configures accurate token counting for summarization.
 	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
+}
+
+// CodeQAConfig controls the Phase 1 code-quality judge pipeline.
+type CodeQAConfig struct {
+	Enabled                bool     `yaml:"enabled" json:"enabled"`
+	ArtifactDir            string   `yaml:"artifactDir" json:"artifactDir"`
+	MaxConcurrentRuns      int      `yaml:"maxConcurrentRuns" json:"maxConcurrentRuns"`
+	MaxGateParallelism     int      `yaml:"maxGateParallelism" json:"maxGateParallelism"`
+	MaxJudgeParallelism    int      `yaml:"maxJudgeParallelism" json:"maxJudgeParallelism"`
+	DefaultMaxDiffBytes    int      `yaml:"defaultMaxDiffBytes" json:"defaultMaxDiffBytes"`
+	DefaultMaxChangedFiles int      `yaml:"defaultMaxChangedFiles" json:"defaultMaxChangedFiles"`
+	AcceptThreshold        float64  `yaml:"acceptThreshold" json:"acceptThreshold"`
+	MinConfidence          float64  `yaml:"minConfidence" json:"minConfidence"`
+	JudgeModel             string   `yaml:"judgeModel" json:"judgeModel"`
+	ProposerModel          string   `yaml:"proposerModel" json:"proposerModel"`
+	AllowedCommands        []string `yaml:"allowedCommands" json:"allowedCommands"`
+	HighRiskGlobs          []string `yaml:"highRiskGlobs" json:"highRiskGlobs"`
+	ForbiddenGlobs         []string `yaml:"forbiddenGlobs" json:"forbiddenGlobs"`
+	AllowAutoApply         bool     `yaml:"allowAutoApply" json:"allowAutoApply"`
+	AllowCommitAccepted    bool     `yaml:"allowCommitAccepted" json:"allowCommitAccepted"`
 }
 
 // TokenizationConfig controls how tokens are counted for summarization decisions.

@@ -22,6 +22,9 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
+	appcodeqa "manifold/internal/codeqa"
+	codeqaservice "manifold/internal/codeqa/service"
+	codeqastore "manifold/internal/codeqa/store"
 	"manifold/internal/config"
 	"manifold/internal/embeddedpg"
 	"manifold/internal/httpapi"
@@ -49,6 +52,7 @@ import (
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
 	codeevolvetool "manifold/internal/tools/codeevolve"
+	codeqatool "manifold/internal/tools/codeqa"
 	tooldiscovery "manifold/internal/tools/discovery"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
@@ -88,6 +92,8 @@ type app struct {
 	userSpecRegs       map[int64]*specialists.Registry
 	summaryLLM         llmpkg.Provider
 	flowV2             *flowV2Runtime
+	codeQARuntime      *codeQARuntime
+	codeQAService      *codeqaservice.Service
 	evolvingMu         sync.RWMutex
 	userEvolving       map[int64]map[string]*memory.EvolvingMemory
 	evolvingLastUsed   map[int64]map[string]time.Time
@@ -810,6 +816,23 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
+	codeQAOpts := appcodeqa.OptionsFromConfig(cfg.CodeQA, cfg.Workdir)
+	codeQAStore := codeqastore.CodeQAStore(codeqastore.NewMemoryStore())
+	if strings.TrimSpace(cfg.Databases.DefaultDSN) != "" {
+		if pool, poolErr := databases.OpenPool(ctx, cfg.Databases.DefaultDSN); poolErr != nil {
+			log.Warn().Err(poolErr).Msg("codeqa_postgres_pool_open_failed")
+		} else {
+			pgStore := codeqastore.NewPostgresStore(pool)
+			if initErr := pgStore.Init(ctx); initErr != nil {
+				log.Warn().Err(initErr).Msg("codeqa_postgres_store_init_failed")
+				pool.Close()
+			} else {
+				codeQAStore = pgStore
+			}
+		}
+	}
+	codeQARunner := appcodeqa.NewCLICommandRunner(exec, codeQAOpts.AllowedCommands)
+	codeQAService := codeqaservice.New(codeQAOpts, codeQARunner, llm, codeQAStore)
 	toolRegistry.Register(cli.NewTool(exec))
 	toolRegistry.Register(web.NewScreenshotTool())
 	toolRegistry.Register(web.NewFetchTool(mgr.Search))
@@ -838,6 +861,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))
+	toolRegistry.Register(codeqatool.NewJudge(cfg, codeQAService))
+	toolRegistry.Register(codeqatool.NewRun(cfg, codeQAService))
+	toolRegistry.Register(codeqatool.NewOptimize(cfg, codeQAService))
 
 	var transitSvc *transitdomain.Service
 	if cfg.Transit.Enabled && mgr.Transit != nil {
@@ -1009,6 +1035,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:               newRunStore(),
 		flowV2:             newFlowV2Runtime(mgr.FlowV2),
+		codeQARuntime:      newCodeQARuntime(),
+		codeQAService:      codeQAService,
 		evolvingSessionTTL: defaultEvolvingSessionTTL,
 		mcpStore:           mgr.MCP,
 		userPrefsStore:     mgr.UserPreferences,
@@ -1253,6 +1281,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		}
 		cancelRefresh()
 	}
+	if err := app.ensureBuiltinCodeQAWorkflow(context.Background()); err != nil {
+		log.Warn().Err(err).Msg("codeqa_builtin_workflow_seed_failed")
+	}
 
 	app.syncWarppTools(context.Background())
 
@@ -1378,6 +1409,18 @@ func (a *app) initSpecialists(ctx context.Context) error {
 }
 
 func (a *app) wrapWithMiddleware(handler http.Handler) http.Handler {
+	next := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setChatCORSHeaders(w, r, "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		if requested := strings.TrimSpace(r.Header.Get("Access-Control-Request-Headers")); requested != "" {
+			w.Header().Set("Access-Control-Allow-Headers", requested)
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 	if a.cfg.Auth.Enabled && a.authStore != nil {
 		return auth.Middleware(a.authStore, a.cfg.Auth.CookieName, false)(handler)
 	}

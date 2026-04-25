@@ -40,6 +40,8 @@ func newRouter(a *app) *http.ServeMux {
 
 	mux.HandleFunc("/api/projects", a.projectsHandler())
 	mux.HandleFunc("/api/projects/", a.projectDetailHandler())
+	mux.HandleFunc("/api/codeqa/runs", a.codeQARunsHandler())
+	mux.HandleFunc("/api/codeqa/runs/", a.codeQARunDetailHandler())
 
 	mux.HandleFunc("/api/runs", a.runsHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())

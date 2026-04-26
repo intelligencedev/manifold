@@ -4,7 +4,6 @@ import (
 	"manifold/internal/codeqa"
 	"manifold/internal/codeqa/diff"
 	"manifold/internal/codeqa/evolve"
-	"manifold/internal/codeqa/gates"
 	"manifold/internal/codeqa/judge"
 	"manifold/internal/codeqa/store"
 	"manifold/internal/codeqa/workspace"
@@ -16,7 +15,6 @@ type Service struct {
 	opts      codeqa.Options
 	runner    codeqa.CommandRunner
 	packager  *diff.Packager
-	gateRun   *gates.Runner
 	judge     *judge.Engine
 	optimizer *evolve.Optimizer
 	store     store.CodeQAStore
@@ -39,7 +37,6 @@ func New(opts codeqa.Options, runner codeqa.CommandRunner, provider llm.Provider
 		opts:      opts,
 		runner:    runner,
 		packager:  diff.NewPackager(runner, opts),
-		gateRun:   gates.NewRunner(runner, opts.MaxGateParallelism, workspaceFactory, gates.DefaultGoGates()...),
 		judge:     judge.NewEngine(provider, opts.JudgeModel, opts.MaxJudgeParallelism),
 		optimizer: evolve.NewOptimizer(opts, runner, provider),
 		store:     codeQAStore,

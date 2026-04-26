@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"manifold/internal/codeqa"
+	"manifold/internal/codeqa/lang"
 	"manifold/internal/codeqa/workspace"
 )
 
@@ -30,6 +31,45 @@ func NewRunner(runner codeqa.CommandRunner, parallelism int, factory *workspace.
 
 func DefaultGoGates() []Gate {
 	return []Gate{NewGoFmtGate(), NewGoBuildGate(), NewGoVetGate(), NewGoTestGate()}
+}
+
+func GatesForLanguages(languages []lang.Language) []Gate {
+	if len(languages) == 0 {
+		return DefaultGoGates()
+	}
+	gates := make([]Gate, 0, len(languages)*4)
+	seen := map[string]struct{}{}
+	add := func(candidates ...Gate) {
+		for _, gate := range candidates {
+			if _, ok := seen[gate.Name()]; ok {
+				continue
+			}
+			seen[gate.Name()] = struct{}{}
+			gates = append(gates, gate)
+		}
+	}
+	for _, language := range languages {
+		switch language {
+		case lang.Go:
+			add(DefaultGoGates()...)
+		case lang.Python:
+			add(NewPythonRuffFormatGate(), NewPythonRuffCheckGate(), NewPythonPytestGate())
+		case lang.JavaScript:
+			add(NewPrettierCheckGate(), NewESLintGate(), NewNPMTestGate())
+		case lang.TypeScript:
+			add(NewPrettierCheckGate(), NewESLintGate(), NewTypeScriptCheckGate(), NewNPMTestGate())
+		case lang.CSS:
+			add(NewPrettierCheckGate(), NewStylelintGate())
+		case lang.HTML:
+			add(NewPrettierCheckGate(), NewHTMLValidateGate())
+		case lang.Rust:
+			add(NewCargoFmtGate(), NewCargoClippyGate(), NewCargoBuildGate(), NewCargoTestGate())
+		}
+	}
+	if len(gates) == 0 {
+		return DefaultGoGates()
+	}
+	return gates
 }
 
 func (r *Runner) Evaluate(ctx context.Context, repoRoot string, baseRef string, headRef string) ([]codeqa.GateResult, error) {

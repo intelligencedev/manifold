@@ -18,7 +18,7 @@ func (goFmtGate) Name() string { return "go_fmt" }
 
 func (goFmtGate) Run(ctx context.Context, dir string, runner codeqa.CommandRunner) (codeqa.GateResult, error) {
 	if _, err := runner.LookPath("gofmt"); err != nil {
-		return codeqa.GateResult{Name: "go_fmt", OK: false, Stderr: err.Error()}, err
+		return codeqa.GateResult{Name: "go_fmt", OK: false, Stderr: err.Error()}, nil
 	}
 	files := make([]string, 0, 64)
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {

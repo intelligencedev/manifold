@@ -6,14 +6,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"manifold/internal/codeqa"
+	"manifold/internal/codeqa/lang"
 	"manifold/internal/codeqa/workspace"
 )
 
 type fakeRunner struct {
-	run func(ctx context.Context, dir string, req codeqa.CommandRequest) (codeqa.CommandResult, error)
+	run      func(ctx context.Context, dir string, req codeqa.CommandRequest) (codeqa.CommandResult, error)
+	lookPath func(file string) (string, error)
 }
 
 func (f fakeRunner) Run(ctx context.Context, dir string, req codeqa.CommandRequest) (codeqa.CommandResult, error) {
@@ -21,6 +24,9 @@ func (f fakeRunner) Run(ctx context.Context, dir string, req codeqa.CommandReque
 }
 
 func (f fakeRunner) LookPath(file string) (string, error) {
+	if f.lookPath != nil {
+		return f.lookPath(file)
+	}
 	if file == "missing" {
 		return "", errors.New("missing")
 	}
@@ -56,6 +62,93 @@ func TestGoFmtGateDetectsUnformattedFiles(t *testing.T) {
 	}
 	if result.Metrics["unformatted_files"] != 2 {
 		t.Fatalf("expected 2 unformatted files, got %v", result.Metrics)
+	}
+}
+
+func TestGatesForLanguagesDedupesSharedGates(t *testing.T) {
+	gates := GatesForLanguages([]lang.Language{lang.TypeScript, lang.CSS, lang.HTML})
+	names := make([]string, 0, len(gates))
+	for _, gate := range gates {
+		names = append(names, gate.Name())
+	}
+	want := []string{"prettier_check", "eslint", "tsc", "npm_test", "stylelint", "html_validate"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("gate names = %v, want %v", names, want)
+	}
+}
+
+func TestGatesForLanguagesIncludesRust(t *testing.T) {
+	gates := GatesForLanguages([]lang.Language{lang.Rust})
+	names := make([]string, 0, len(gates))
+	for _, gate := range gates {
+		names = append(names, gate.Name())
+	}
+	want := []string{"cargo_fmt", "clippy", "cargo_build", "cargo_test"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("gate names = %v, want %v", names, want)
+	}
+}
+
+func TestPythonRuffCheckGateRunsAgainstPythonFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	writeTestFile(t, tempDir, "app.py", "print('hello')\n")
+	var got codeqa.CommandRequest
+	runner := fakeRunner{run: func(ctx context.Context, dir string, req codeqa.CommandRequest) (codeqa.CommandResult, error) {
+		got = req
+		return codeqa.CommandResult{OK: true, DurationMs: 7}, nil
+	}}
+	result, err := NewPythonRuffCheckGate().Run(t.Context(), tempDir, runner)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !result.OK || result.Name != "ruff_check" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got.Command != "ruff" || !reflect.DeepEqual(got.Args, []string{"check", "app.py"}) {
+		t.Fatalf("unexpected command: %+v", got)
+	}
+}
+
+func TestTypeScriptCheckGateSkipsWithoutTSConfig(t *testing.T) {
+	result, err := NewTypeScriptCheckGate().Run(t.Context(), t.TempDir(), fakeRunner{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !result.OK || !result.Skipped {
+		t.Fatalf("expected skipped pass, got %+v", result)
+	}
+}
+
+func TestPrettierCheckGateFailsWhenNPXMissing(t *testing.T) {
+	tempDir := t.TempDir()
+	writeTestFile(t, tempDir, "app.ts", "const x = 1\n")
+	runner := fakeRunner{lookPath: func(file string) (string, error) {
+		return "", errors.New("missing")
+	}}
+	result, err := NewPrettierCheckGate().Run(t.Context(), tempDir, runner)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.OK {
+		t.Fatalf("expected missing npx to fail the gate, got %+v", result)
+	}
+}
+
+func TestCargoBuildGateRunsCargoBuild(t *testing.T) {
+	var got codeqa.CommandRequest
+	runner := fakeRunner{run: func(ctx context.Context, dir string, req codeqa.CommandRequest) (codeqa.CommandResult, error) {
+		got = req
+		return codeqa.CommandResult{OK: true, DurationMs: 9}, nil
+	}}
+	result, err := NewCargoBuildGate().Run(t.Context(), t.TempDir(), runner)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !result.OK || result.Name != "cargo_build" {
+		t.Fatalf("unexpected result: %+v", result)
+	}
+	if got.Command != "cargo" || !reflect.DeepEqual(got.Args, []string{"build", "--quiet"}) {
+		t.Fatalf("unexpected command: %+v", got)
 	}
 }
 

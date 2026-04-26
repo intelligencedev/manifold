@@ -13,6 +13,8 @@ import (
 
 	"manifold/internal/codeqa"
 	"manifold/internal/codeqa/evolve"
+	"manifold/internal/codeqa/gates"
+	"manifold/internal/codeqa/lang"
 	playartifacts "manifold/internal/playground/artifacts"
 )
 
@@ -193,7 +195,13 @@ func (s *Service) evaluateRunPath(ctx context.Context, userID int64, result *cod
 	}), onEvent); err != nil {
 		return err
 	}
-	gates, err := s.gateRun.Evaluate(ctx, runPath, bundle.BaseRef, bundle.HeadRef)
+	changedPaths := make([]string, 0, len(bundle.Files))
+	for _, file := range bundle.Files {
+		changedPaths = append(changedPaths, file.Path)
+	}
+	detectedLanguages := lang.Detect(runPath, changedPaths)
+	gateRunner := gates.NewRunner(s.runner, s.opts.MaxGateParallelism, s.workspace, gates.GatesForLanguages(detectedLanguages)...)
+	gates, err := gateRunner.Evaluate(ctx, runPath, bundle.BaseRef, bundle.HeadRef)
 	if err != nil {
 		return err
 	}
@@ -203,6 +211,7 @@ func (s *Service) evaluateRunPath(ctx context.Context, userID int64, result *cod
 	}
 	if _, err := s.emitEvent(ctx, userID, result.RunID, codeqa.RunEventGatesCompleted, mergePayload(extra, map[string]any{
 		"gate_count": len(gates),
+		"languages":  detectedLanguages,
 	}), onEvent); err != nil {
 		return err
 	}

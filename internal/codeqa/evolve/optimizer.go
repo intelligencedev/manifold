@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"manifold/internal/codeqa"
+	"manifold/internal/codeqa/lang"
 	"manifold/internal/llm"
 	"manifold/internal/sandbox"
 )
@@ -85,9 +86,7 @@ func (o *Optimizer) GenerateCandidate(ctx context.Context, repoPath string, req 
 	if len(editedFiles) == 0 {
 		return Candidate{}, errors.New("optimizer produced no applicable edits")
 	}
-	if err := o.formatGoFiles(ctx, repoPath, editedFiles); err != nil {
-		return Candidate{}, err
-	}
+	o.formatEditedFiles(ctx, repoPath, editedFiles)
 	if err := o.commitCandidate(ctx, repoPath, iteration, parsed.Summary, editedFiles); err != nil {
 		return Candidate{}, err
 	}
@@ -143,7 +142,7 @@ func (o *Optimizer) buildPrompt(repoPath string, targets []string, objective str
 	var b strings.Builder
 	b.WriteString("You are improving code quality inside a sandboxed git worktree.\n\n")
 	b.WriteString("Return strict JSON only with this schema:\n")
-	b.WriteString("{\n  \"summary\": \"short rationale\",\n  \"edits\": [\n    {\n      \"path\": \"relative/path.go\",\n      \"search\": \"exact existing snippet\",\n      \"replace\": \"replacement snippet\"\n    }\n  ]\n}\n\n")
+	b.WriteString("{\n  \"summary\": \"short rationale\",\n  \"edits\": [\n    {\n      \"path\": \"relative/path.ext\",\n      \"search\": \"exact existing snippet\",\n      \"replace\": \"replacement snippet\"\n    }\n  ]\n}\n\n")
 	b.WriteString("Rules:\n")
 	b.WriteString("- Modify only the provided target files.\n")
 	b.WriteString("- Keep behavior stable unless the objective explicitly says otherwise.\n")
@@ -247,23 +246,40 @@ func (o *Optimizer) applyEdits(repoPath string, edits []proposedEdit) ([]string,
 	return changed, nil
 }
 
-func (o *Optimizer) formatGoFiles(ctx context.Context, repoPath string, editedFiles []string) error {
-	goFiles := make([]string, 0, len(editedFiles))
+func (o *Optimizer) formatEditedFiles(ctx context.Context, repoPath string, editedFiles []string) {
+	byLanguage := map[lang.Language][]string{}
 	for _, rel := range editedFiles {
-		if strings.HasSuffix(rel, ".go") {
-			goFiles = append(goFiles, rel)
+		language := lang.FromPath(rel)
+		if language == "" {
+			continue
 		}
+		byLanguage[language] = append(byLanguage[language], rel)
 	}
-	if len(goFiles) == 0 {
-		return nil
+	o.runFormatter(ctx, repoPath, "gofmt", []string{"-w"}, byLanguage[lang.Go])
+	o.runFormatter(ctx, repoPath, "ruff", []string{"format"}, byLanguage[lang.Python])
+	prettierFiles := append([]string{}, byLanguage[lang.JavaScript]...)
+	prettierFiles = append(prettierFiles, byLanguage[lang.TypeScript]...)
+	prettierFiles = append(prettierFiles, byLanguage[lang.CSS]...)
+	prettierFiles = append(prettierFiles, byLanguage[lang.HTML]...)
+	o.runFormatter(ctx, repoPath, "npx", append([]string{"--no-install", "prettier", "--write"}, prettierFiles...), nil)
+	o.runFormatter(ctx, repoPath, "rustfmt", nil, byLanguage[lang.Rust])
+}
+
+func (o *Optimizer) runFormatter(ctx context.Context, repoPath string, command string, args []string, files []string) {
+	if len(files) == 0 && command != "npx" {
+		return
 	}
-	if _, err := o.runner.LookPath("gofmt"); err != nil {
-		return fmt.Errorf("locate gofmt: %w", err)
+	if command == "npx" {
+		if len(args) <= 3 {
+			return
+		}
+	} else {
+		args = append(args, files...)
 	}
-	if _, err := o.runner.Run(ctx, repoPath, codeqa.CommandRequest{Command: "gofmt", Args: append([]string{"-w"}, goFiles...)}); err != nil {
-		return fmt.Errorf("gofmt candidate: %w", err)
+	if _, err := o.runner.LookPath(command); err != nil {
+		return
 	}
-	return nil
+	_, _ = o.runner.Run(ctx, repoPath, codeqa.CommandRequest{Command: command, Args: args})
 }
 
 func (o *Optimizer) commitCandidate(ctx context.Context, repoPath string, iteration int, summary string, editedFiles []string) error {

@@ -134,22 +134,58 @@ func (p *Packager) changedFiles(ctx context.Context, repoRoot string, baseRef st
 }
 
 func (p *Packager) relatedTests(ctx context.Context, repoRoot string, headRef string, changedPath string) []string {
-	if !strings.HasSuffix(changedPath, ".go") {
+	candidates := relatedTestCandidates(changedPath)
+	if len(candidates) == 0 {
 		return nil
 	}
-	if strings.HasSuffix(changedPath, "_test.go") {
-		return []string{changedPath}
+	found := make([]string, 0, len(candidates))
+	for _, testPath := range candidates {
+		res, err := p.runner.Run(ctx, repoRoot, codeqa.CommandRequest{
+			Command: "git",
+			Args:    []string{"cat-file", "-e", headRef + ":" + testPath},
+			Timeout: 10 * time.Second,
+		})
+		if err == nil && res.OK {
+			found = append(found, testPath)
+		}
 	}
-	testPath := strings.TrimSuffix(changedPath, ".go") + "_test.go"
-	res, err := p.runner.Run(ctx, repoRoot, codeqa.CommandRequest{
-		Command: "git",
-		Args:    []string{"cat-file", "-e", headRef + ":" + testPath},
-		Timeout: 10 * time.Second,
-	})
-	if err != nil || !res.OK {
+	return found
+}
+
+func relatedTestCandidates(changedPath string) []string {
+	ext := strings.ToLower(filepath.Ext(changedPath))
+	dir := filepath.ToSlash(filepath.Dir(changedPath))
+	base := filepath.Base(changedPath)
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
+	if dir == "." {
+		dir = ""
+	}
+	join := func(name string) string {
+		if dir == "" {
+			return name
+		}
+		return dir + "/" + name
+	}
+	switch ext {
+	case ".go":
+		if strings.HasSuffix(changedPath, "_test.go") {
+			return []string{changedPath}
+		}
+		return []string{strings.TrimSuffix(changedPath, ".go") + "_test.go"}
+	case ".py":
+		if strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py") {
+			return []string{changedPath}
+		}
+		return []string{join("test_" + base), join(stem + "_test.py")}
+	case ".js", ".jsx", ".ts", ".tsx":
+		if strings.HasSuffix(stem, ".test") || strings.HasSuffix(stem, ".spec") {
+			return []string{changedPath}
+		}
+		return []string{join(stem + ".test" + ext), join(stem + ".spec" + ext)}
+	default:
+		// .rs intentionally falls through here because Rust tests commonly live inline.
 		return nil
 	}
-	return []string{testPath}
 }
 
 func (p *Packager) repoContext(repoRoot string) string {

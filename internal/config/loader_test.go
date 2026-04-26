@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -380,7 +381,8 @@ llm_client:
 	if cfg.CodeQA.MinConfidence != 0.70 {
 		t.Fatalf("expected default codeqa min confidence, got %v", cfg.CodeQA.MinConfidence)
 	}
-	if len(cfg.CodeQA.AllowedCommands) != 2 || cfg.CodeQA.AllowedCommands[0] != "go" || cfg.CodeQA.AllowedCommands[1] != "gofmt" {
+	defaultCodeQACommands := []string{"go", "gofmt", "ruff", "pytest", "python", "prettier", "eslint", "tsc", "npm", "npx", "stylelint", "html-validate", "cargo", "rustfmt"}
+	if !reflect.DeepEqual(cfg.CodeQA.AllowedCommands, defaultCodeQACommands) {
 		t.Fatalf("unexpected default codeqa allowed commands: %v", cfg.CodeQA.AllowedCommands)
 	}
 	if !cfg.Tokenization.FallbackToHeuristic {

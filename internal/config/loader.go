@@ -287,7 +287,7 @@ func applyDefaults(cfg *Config) {
 		cfg.CodeQA.ProposerModel = cfg.CodeQA.JudgeModel
 	}
 	if len(cfg.CodeQA.AllowedCommands) == 0 {
-		cfg.CodeQA.AllowedCommands = []string{"go", "gofmt"}
+		cfg.CodeQA.AllowedCommands = []string{"go", "gofmt", "ruff", "pytest", "python", "prettier", "eslint", "tsc", "npm", "npx", "stylelint", "html-validate", "cargo", "rustfmt"}
 	}
 	if len(cfg.CodeQA.HighRiskGlobs) == 0 {
 		cfg.CodeQA.HighRiskGlobs = []string{"**/auth/**", "**/migrations/**", "**/*crypto*", "**/deploy/**", "**/.github/**"}

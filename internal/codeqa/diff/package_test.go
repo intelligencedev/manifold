@@ -59,6 +59,32 @@ func TestPackagerBuildFiltersAndTruncates(t *testing.T) {
 	}
 }
 
+func TestRelatedTestCandidatesSupportsMultipleLanguages(t *testing.T) {
+	t.Parallel()
+	tests := map[string][]string{
+		"foo/foo.go":       {"foo/foo_test.go"},
+		"foo/foo_test.go":  {"foo/foo_test.go"},
+		"pkg/app.py":       {"pkg/test_app.py", "pkg/app_test.py"},
+		"pkg/test_app.py":  {"pkg/test_app.py"},
+		"web/app.ts":       {"web/app.test.ts", "web/app.spec.ts"},
+		"web/app.test.ts":  {"web/app.test.ts"},
+		"web/view.jsx":     {"web/view.test.jsx", "web/view.spec.jsx"},
+		"styles/main.css":  nil,
+		"templates/a.html": nil,
+		"src/lib.rs":       nil,
+	}
+	for path, want := range tests {
+		path, want := path, want
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+			got := relatedTestCandidates(path)
+			if strings.Join(got, ",") != strings.Join(want, ",") {
+				t.Fatalf("relatedTestCandidates(%q) = %v, want %v", path, got, want)
+			}
+		})
+	}
+}
+
 func initGitRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

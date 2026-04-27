@@ -117,7 +117,19 @@ func extractThoughtSignature(raw string) string {
 const (
 	selfHostedThoughtStartMarker = "<|channel>thought"
 	selfHostedThoughtEndMarker   = "<channel|>"
+	selfHostedThinkStartMarker   = "<think>"
+	selfHostedThinkEndMarker     = "</think>"
 )
+
+type thoughtTemplate struct {
+	start string
+	end   string
+}
+
+var selfHostedThoughtTemplates = []thoughtTemplate{
+	{start: selfHostedThoughtStartMarker, end: selfHostedThoughtEndMarker},
+	{start: selfHostedThinkStartMarker, end: selfHostedThinkEndMarker},
+}
 
 type taggedThoughtParseResult struct {
 	visible string
@@ -129,6 +141,31 @@ type selfHostedThoughtStreamState struct {
 	raw              strings.Builder
 	emittedVisibleLn int
 	lastThought      string
+	reasoning        strings.Builder
+}
+
+func extractSelfHostedReasoningContent(raw any) string {
+	switch value := raw.(type) {
+	case string:
+		return value
+	case []any:
+		var out strings.Builder
+		for _, item := range value {
+			part := extractSelfHostedReasoningContent(item)
+			if part == "" {
+				continue
+			}
+			out.WriteString(part)
+		}
+		return out.String()
+	case map[string]any:
+		for _, key := range []string{"reasoning_content", "reasoningContent", "text", "content", "value", "token"} {
+			if nested, ok := value[key]; ok {
+				return extractSelfHostedReasoningContent(nested)
+			}
+		}
+	}
+	return ""
 }
 
 func trimLeadingSingleLineBreak(value string) string {
@@ -171,24 +208,43 @@ func parseTaggedThoughtContent(raw string) taggedThoughtParseResult {
 	tagged := false
 
 	for len(remaining) > 0 {
-		startIdx := strings.Index(remaining, selfHostedThoughtStartMarker)
-		if startIdx == -1 {
-			keep := len(remaining) - markerSuffixPrefixLen(remaining, selfHostedThoughtStartMarker)
+		templateIdx := -1
+		startIdx := -1
+		for idx, template := range selfHostedThoughtTemplates {
+			candidate := strings.Index(remaining, template.start)
+			if candidate == -1 {
+				continue
+			}
+			if startIdx == -1 || candidate < startIdx {
+				startIdx = candidate
+				templateIdx = idx
+			}
+		}
+		if templateIdx == -1 {
+			keep := len(remaining)
+			for _, template := range selfHostedThoughtTemplates {
+				prefixLen := markerSuffixPrefixLen(remaining, template.start)
+				candidateKeep := len(remaining) - prefixLen
+				if candidateKeep < keep {
+					keep = candidateKeep
+				}
+			}
 			if keep > 0 {
 				visible.WriteString(remaining[:keep])
 			}
 			break
 		}
+		template := selfHostedThoughtTemplates[templateIdx]
 
 		tagged = true
 		if startIdx > 0 {
 			visible.WriteString(remaining[:startIdx])
 		}
 
-		remaining = trimLeadingSingleLineBreak(remaining[startIdx+len(selfHostedThoughtStartMarker):])
-		endIdx := strings.Index(remaining, selfHostedThoughtEndMarker)
+		remaining = trimLeadingSingleLineBreak(remaining[startIdx+len(template.start):])
+		endIdx := strings.Index(remaining, template.end)
 		if endIdx == -1 {
-			keep := len(remaining) - markerSuffixPrefixLen(remaining, selfHostedThoughtEndMarker)
+			keep := len(remaining) - markerSuffixPrefixLen(remaining, template.end)
 			if keep > 0 {
 				appendThoughtChunk(&thought, remaining[:keep])
 			}
@@ -196,7 +252,7 @@ func parseTaggedThoughtContent(raw string) taggedThoughtParseResult {
 		}
 
 		appendThoughtChunk(&thought, remaining[:endIdx])
-		remaining = remaining[endIdx+len(selfHostedThoughtEndMarker):]
+		remaining = remaining[endIdx+len(template.end):]
 	}
 
 	return taggedThoughtParseResult{
@@ -239,6 +295,35 @@ func (s *selfHostedThoughtStreamState) emit(delta string, h llm.StreamHandler, v
 	}
 	if visible != nil {
 		visible.WriteString(chunk)
+	}
+}
+
+func (s *selfHostedThoughtStreamState) emitReasoning(reasoning string, h llm.StreamHandler) {
+	if reasoning == "" {
+		return
+	}
+	next := reasoning
+	current := s.reasoning.String()
+	if current != "" {
+		switch {
+		case reasoning == current:
+			return
+		case len(reasoning) > len(current) && strings.HasPrefix(reasoning, current):
+			next = reasoning
+		case len(reasoning) < len(current) && strings.HasPrefix(current, reasoning):
+			return
+		default:
+			next = current + reasoning
+		}
+	}
+	if next == s.lastThought {
+		return
+	}
+	s.reasoning.Reset()
+	s.reasoning.WriteString(next)
+	s.lastThought = next
+	if h != nil {
+		h.OnThoughtSummary(next)
 	}
 }
 
@@ -1188,6 +1273,12 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 			if ch, ok := choices[0].(map[string]any); ok {
 				// delta.content
 				if delta, ok := ch["delta"].(map[string]any); ok {
+					if reasoning := extractSelfHostedReasoningContent(delta["reasoning_content"]); reasoning != "" {
+						thoughtStream.emitReasoning(reasoning, h)
+					}
+					if reasoning := extractSelfHostedReasoningContent(delta["reasoningContent"]); reasoning != "" {
+						thoughtStream.emitReasoning(reasoning, h)
+					}
 					if s, ok := delta["content"].(string); ok && s != "" {
 						emitSelfHostedDelta(s)
 					}
@@ -1232,6 +1323,12 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 				}
 				// Some servers send message at end; capture for completeness
 				if msg, ok := ch["message"].(map[string]any); ok {
+					if reasoning := extractSelfHostedReasoningContent(msg["reasoning_content"]); reasoning != "" {
+						thoughtStream.emitReasoning(reasoning, h)
+					}
+					if reasoning := extractSelfHostedReasoningContent(msg["reasoningContent"]); reasoning != "" {
+						thoughtStream.emitReasoning(reasoning, h)
+					}
 					if s, ok := msg["content"].(string); ok && s != "" {
 						emitSelfHostedDelta(s)
 					}

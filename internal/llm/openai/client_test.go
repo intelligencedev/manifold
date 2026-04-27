@@ -596,6 +596,163 @@ func TestSelfHostedChatStreamParsesTaggedThoughtContent(t *testing.T) {
 	}
 }
 
+func TestSelfHostedChatStripsThinkBlockContent(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"<think>Need a short answer.\nKeep it direct.</think>Visible answer.","tool_calls":[]}}]}`))
+		case "/tokenize":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	msg, err := cli.Chat(ctx, []llm.Message{{Role: "user", Content: "say hi"}}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	if strings.Contains(msg.Content, selfHostedThinkStartMarker) || strings.Contains(msg.Content, selfHostedThinkEndMarker) {
+		t.Fatalf("expected think markers to be stripped, got %q", msg.Content)
+	}
+	if got, want := msg.Content, "Visible answer."; got != want {
+		t.Fatalf("unexpected visible content:\nwant: %q\n got: %q", want, got)
+	}
+}
+
+func TestSelfHostedChatStreamParsesThinkBlocks(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"<th\"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ink>Need a short answer.\\nKeep it direct.</th\"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ink>Visible answer.\"},\"finish_reason\":\"stop\"}]}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		case "/tokenize":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handler := &testStreamHandler{}
+	if err := cli.ChatStream(ctx, []llm.Message{{Role: "user", Content: "say hi"}}, nil, "", handler); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+
+	if got, want := strings.Join(handler.deltas, ""), "Visible answer."; got != want {
+		t.Fatalf("unexpected streamed visible content:\nwant: %q\n got: %q", want, got)
+	}
+	if len(handler.thoughts) == 0 {
+		t.Fatal("expected think block summary to be emitted")
+	}
+	lastThought := handler.thoughts[len(handler.thoughts)-1]
+	if got, want := lastThought, "Need a short answer.\nKeep it direct."; got != want {
+		t.Fatalf("unexpected thought summary:\nwant: %q\n got: %q", want, got)
+	}
+	joined := strings.Join(handler.deltas, "")
+	if strings.Contains(joined, selfHostedThinkStartMarker) || strings.Contains(joined, selfHostedThinkEndMarker) {
+		t.Fatal("visible stream should not contain think block markers")
+	}
+}
+
+func TestSelfHostedChatStreamUsesMessageReasoningContent(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{},\"message\":{\"reasoning_content\":\"First reasoning pass\",\"content\":\"Visible answer.\"},\"finish_reason\":\"stop\"}]}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		case "/tokenize":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handler := &testStreamHandler{}
+	if err := cli.ChatStream(ctx, []llm.Message{{Role: "user", Content: "say hi"}}, nil, "", handler); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+
+	if got, want := strings.Join(handler.deltas, ""), "Visible answer."; got != want {
+		t.Fatalf("unexpected streamed visible content:\nwant: %q\n got: %q", want, got)
+	}
+	if len(handler.thoughts) == 0 {
+		t.Fatal("expected reasoning_content to be emitted as thought summary")
+	}
+	if got, want := handler.thoughts[len(handler.thoughts)-1], "First reasoning pass"; got != want {
+		t.Fatalf("unexpected reasoning summary:\nwant: %q\n got: %q", want, got)
+	}
+}
+
+func TestSelfHostedChatStreamAccumulatesReasoningContentTokens(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"Thinking \"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"through \"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"the answer\",\"content\":\"Visible answer.\"},\"finish_reason\":\"stop\"}]}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		case "/tokenize":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handler := &testStreamHandler{}
+	if err := cli.ChatStream(ctx, []llm.Message{{Role: "user", Content: "say hi"}}, nil, "", handler); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+
+	if got, want := strings.Join(handler.deltas, ""), "Visible answer."; got != want {
+		t.Fatalf("unexpected streamed visible content:\nwant: %q\n got: %q", want, got)
+	}
+	if len(handler.thoughts) < 3 {
+		t.Fatalf("expected incremental thought updates, got %d", len(handler.thoughts))
+	}
+	if got, want := handler.thoughts[len(handler.thoughts)-1], "Thinking through the answer"; got != want {
+		t.Fatalf("unexpected accumulated reasoning summary:\nwant: %q\n got: %q", want, got)
+	}
+}
+
 func TestChatImageGeneration(t *testing.T) {
 	t.Parallel()
 	var gotPath string

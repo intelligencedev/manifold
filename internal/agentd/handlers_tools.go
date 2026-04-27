@@ -36,6 +36,18 @@ type logMetricsResponse struct {
 	Logs          []LogEntry `json:"logs"`
 }
 
+type memoryMetricsResponse struct {
+	Timestamp       int64                `json:"timestamp"`
+	WindowSeconds   int64                `json:"windowSeconds,omitempty"`
+	Source          string               `json:"source"`
+	Totals          memoryMetricTotals   `json:"totals"`
+	Latency         memoryLatencyMetrics `json:"latency"`
+	Sizes           []memorySizeMetric   `json:"sizes"`
+	PrunedByReason  []memoryReasonMetric `json:"prunedByReason"`
+	EvolvesByResult []memoryResultMetric `json:"evolvesByResult"`
+	Warnings        []string             `json:"warnings,omitempty"`
+}
+
 func (a *app) metricsTokensHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var uid int64 = systemUserID
@@ -106,6 +118,65 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 		}
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Warn().Err(err).Msg("failed to encode token metrics response")
+		}
+	}
+}
+
+func (a *app) metricsMemoryHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var uid int64 = systemUserID
+		if a.cfg.Auth.Enabled {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			uid = u.ID
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		window, err := parseWindowParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if window < 0 {
+			http.Error(w, "window must be positive", http.StatusBadRequest)
+			return
+		}
+
+		resp := memoryMetricsResponse{
+			Timestamp: time.Now().Unix(),
+			Source:    "none",
+		}
+		if window > 0 {
+			resp.WindowSeconds = int64(window.Seconds())
+		}
+		if a.memoryMetrics != nil {
+			snapshot, appliedWindow, err := a.memoryMetrics.MemoryMetrics(r.Context(), uid, window)
+			if err != nil {
+				log.Warn().Err(err).Msg("memory metrics query failed")
+			} else {
+				resp.Source = a.memoryMetrics.Source()
+				resp.Totals = snapshot.Totals
+				resp.Latency = snapshot.Latency
+				resp.Sizes = snapshot.Sizes
+				resp.PrunedByReason = snapshot.PrunedByReason
+				resp.EvolvesByResult = snapshot.EvolvesByResult
+				resp.Warnings = snapshot.Warnings
+				if appliedWindow > 0 {
+					resp.WindowSeconds = int64(appliedWindow.Seconds())
+				}
+			}
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Warn().Err(err).Msg("failed to encode memory metrics response")
 		}
 	}
 }

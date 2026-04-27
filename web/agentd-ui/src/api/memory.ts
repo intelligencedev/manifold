@@ -33,6 +33,10 @@ export interface EvolvingMemoryEntry {
   summary: string;
   raw_trace?: string;
   metadata?: Record<string, any>;
+  memory_type?: string;
+  strategy_card?: string;
+  scope?: string;
+  access_count?: number;
   created_at: string;
 }
 
@@ -50,6 +54,25 @@ export interface EvolvingMemoryDebug {
   recentWindow: EvolvingMemoryEntry[];
   lastQuery?: string;
   retrieved?: ScoredEvolvingMemoryEntry[];
+}
+
+export interface MemoryScoreExplanation {
+  entry: EvolvingMemoryEntry;
+  similarity: number;
+  decay: number;
+  qualityWeight: number;
+  accessBoost: number;
+  composite: number;
+  mmrPenalty: number;
+  finalScore: number;
+}
+
+export interface EvolvingMemoryExplainDebug {
+  enabled: boolean;
+  query?: string;
+  userID?: number;
+  sessionID?: string;
+  explanations?: MemoryScoreExplanation[];
 }
 
 // List sessions via the debug API so Overview's Memory panel
@@ -98,6 +121,21 @@ export async function fetchEvolvingMemory(
     {
       params: Object.keys(params).length ? params : undefined,
     },
+  );
+  return data;
+}
+
+export async function fetchEvolvingMemoryExplain(
+  query: string,
+  sessionId?: string,
+): Promise<EvolvingMemoryExplainDebug> {
+  const params: Record<string, string> = { query };
+  if (sessionId) {
+    params.session_id = sessionId;
+  }
+  const { data } = await apiClient.get<EvolvingMemoryExplainDebug>(
+    "/debug/memory/explain",
+    { params },
   );
   return data;
 }

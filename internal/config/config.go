@@ -475,10 +475,13 @@ type EvolvingMemoryConfig struct {
 	Model                  string          `yaml:"model" json:"model"`                                   // LLM model for summarization
 
 	// Smart pruning options (advanced)
-	EnableSmartPrune bool    `yaml:"enableSmartPrune" json:"enableSmartPrune"` // enable similarity-based dedup & relevance pruning
-	PruneThreshold   float64 `yaml:"pruneThreshold" json:"pruneThreshold"`     // similarity threshold for duplicate detection (default 0.95)
-	RelevanceDecay   float64 `yaml:"relevanceDecay" json:"relevanceDecay"`     // daily decay factor for relevance (default 0.99)
-	MinRelevance     float64 `yaml:"minRelevance" json:"minRelevance"`         // minimum relevance to avoid pruning (default 0.1)
+	EnableSmartPrune            bool    `yaml:"enableSmartPrune" json:"enableSmartPrune"`                       // enable similarity-based dedup & relevance pruning
+	PruneThreshold              float64 `yaml:"pruneThreshold" json:"pruneThreshold"`                           // similarity threshold for duplicate detection (default 0.95)
+	RelevanceDecay              float64 `yaml:"relevanceDecay" json:"relevanceDecay"`                           // daily decay factor for relevance (default 0.99)
+	MinRelevance                float64 `yaml:"minRelevance" json:"minRelevance"`                               // minimum relevance to avoid pruning (default 0.1)
+	PruneQualityFloor           int     `yaml:"pruneQualityFloor" json:"pruneQualityFloor"`                     // protect successful frequently reused memories (default 3)
+	PromotionAccessThreshold    int     `yaml:"promotionAccessThreshold" json:"promotionAccessThreshold"`       // promote successful procedural memories after N accesses (default 5)
+	StoreJanitorIntervalMinutes int     `yaml:"storeJanitorIntervalMinutes" json:"storeJanitorIntervalMinutes"` // durable expired-memory sweep cadence (default 60)
 }
 
 // TransitConfig configures the shared durable memory system.

@@ -8,7 +8,7 @@ This directory contains the implementation of the **Evolving Memory** system bas
   - `MemoryEntry`: Structured experience storage
   - `EvolvingMemory`: Main memory manager with retrieval and evolution
   - ExpRAG and ExpRecent implementations
-  
+
 - **remem.go**: Think-Act-Refine controller
   - `ReMemController`: Advanced reasoning loop with active memory editing
   - THINK, ACT, REFINE action modes
@@ -67,25 +67,29 @@ engine := &agent.Engine{
 ## How It Works
 
 ### Search Phase (R)
+
 1. Embed incoming query using configured embedding service
 2. Compute cosine similarity against all stored memory entries
 3. Return top-k most similar experiences
 
 ### Synthesis Phase (C)
+
 1. Format retrieved experiences into structured template
 2. Inject into LLM context alongside current task
 3. Include both successful and failed past attempts
 
 ### Evolve Phase (U)
+
 1. After task completion, store new experience
 2. Generate LLM summary of key lessons learned
 3. Embed and index for future retrieval
 4. Prune oldest entries if exceeding maxSize
 
 ### ReMem Loop
-1. **THINK**: Model decomposes task internally (private reasoning)
-2. **REFINE**: Model prunes/merges/reorganizes memory entries
-3. **ACT**: Model produces final output (terminates loop)
+
+1. **THINK**: Model writes concise operational notes about relevant memories and cleanup needs
+2. **REFINE**: Model prunes/merges/reorganizes retrieved memory entries with explicit reasons
+3. **ACT**: Model finishes memory preparation and hands off to the main agent loop
 
 ## Configuration
 
@@ -113,11 +117,13 @@ go test -bench=. ./internal/agent/memory/...
 ## Limitations
 
 Current implementation:
+
 - Memory is in-memory only (not persisted across restarts)
 - Single-agent memory (not shared across instances)
 - Requires external embedding service
 
 Future enhancements planned:
+
 - Persistent storage backend (Postgres)
 - Distributed memory via vector database
 - Advanced pruning strategies (importance scoring, time decay)
@@ -125,6 +131,6 @@ Future enhancements planned:
 
 ## References
 
-- Paper: https://arxiv.org/pdf/2511.20857
+- Paper: [Evolving Memory](https://arxiv.org/pdf/2511.20857)
 - Embedding model: BGE-base or nomic-embed-text (recommended)
 - Similarity metric: Cosine similarity (standard for RAG systems)

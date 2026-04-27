@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"manifold/internal/config"
 	"manifold/internal/embedding"
@@ -15,6 +17,7 @@ import (
 	"manifold/internal/observability"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 // PhaseType represents the phases of the Search → Synthesis → Evolve loop.
@@ -74,6 +77,35 @@ const (
 	MemoryEpisodic   MemoryType = "episodic"   // Specific task episodes
 )
 
+// MemoryScope controls whether a memory is session-local or promoted for reuse
+// across a user's sessions.
+type MemoryScope string
+
+const (
+	MemoryScopeSession MemoryScope = "session"
+	MemoryScopeUser    MemoryScope = "user"
+	MemoryScopeTenant  MemoryScope = "tenant"
+)
+
+const (
+	maxStoredInputBytes    = 8 * 1024
+	maxStoredOutputBytes   = 4 * 1024
+	maxStoredRawTraceBytes = 16 * 1024
+
+	defaultPromotionAccessThreshold = 5
+	defaultPruneQualityFloor        = 3
+	defaultMemoryJanitorInterval    = time.Hour
+)
+
+var (
+	proceduralMemoryPattern = regexp.MustCompile(`(?i)\b(?:how\s+to|steps|procedure|workflow|strategy|algorithm|method|approach|technique|process|when\s+confronted|do\s+this|avoid|pattern)\b`)
+	factualMemoryPattern    = regexp.MustCompile(`(?i)\b(?:what\s+is|define|meaning\s+of|value\s+of|answer\s+is|result\s+is|equals|fact)\b`)
+	emailPattern            = regexp.MustCompile(`(?i)\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b`)
+	awsAccessKeyPattern     = regexp.MustCompile(`\b(?:AKIA|ASIA)[A-Z0-9]{16}\b`)
+	jwtPattern              = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)
+	apiKeyPattern           = regexp.MustCompile(`(?i)\b(?:sk|pk|rk|ghp|gho|github_pat|xox[baprs]|AIza)[A-Za-z0-9_\-]{16,}\b`)
+)
+
 // StructuredFeedback provides detailed feedback signals beyond simple success/failure.
 type StructuredFeedback struct {
 	Type         FeedbackType `json:"type"`
@@ -101,6 +133,8 @@ type MemoryEntry struct {
 	StructuredFeedback *StructuredFeedback `json:"structured_feedback,omitempty"` // Detailed feedback
 	MemoryType         MemoryType          `json:"memory_type"`                   // Factual vs procedural
 	StrategyCard       string              `json:"strategy_card,omitempty"`       // Reusable strategy pattern
+	Scope              MemoryScope         `json:"scope,omitempty"`               // session/user/tenant promotion scope
+	ExpiresAt          *time.Time          `json:"expires_at,omitempty"`          // optional retention expiry
 	AccessCount        int                 `json:"access_count"`                  // For relevance-based pruning
 	LastAccessedAt     time.Time           `json:"last_accessed_at"`              // For recency-based pruning
 	RelevanceScore     float64             `json:"relevance_score"`               // Cumulative relevance metric
@@ -113,11 +147,71 @@ type ScoredMemoryEntry struct {
 	Score float64      `json:"score"`
 }
 
+// MemoryScoreExplanation exposes the ranking components used by debug APIs.
+type MemoryScoreExplanation struct {
+	Entry         *MemoryEntry `json:"entry"`
+	Similarity    float64      `json:"similarity"`
+	Decay         float64      `json:"decay"`
+	QualityWeight float64      `json:"qualityWeight"`
+	AccessBoost   float64      `json:"accessBoost"`
+	Composite     float64      `json:"composite"`
+	MMRPenalty    float64      `json:"mmrPenalty"`
+	FinalScore    float64      `json:"finalScore"`
+}
+
+// RankingWeights controls how dense similarity is blended with memory quality,
+// recency, and usage signals during retrieval.
+type RankingWeights struct {
+	DecayHalfLifeDays float64
+	SuccessWeight     float64
+	FailureWeight     float64
+	PartialWeight     float64
+	AccessCountWeight float64
+}
+
+type embeddingCacheEntry struct {
+	vec       []float32
+	expiresAt time.Time
+	lastUsed  time.Time
+}
+
 // EvolvingMemoryStore defines a persistence backend for evolving memory.
 // Implementations should be safe for concurrent use.
 type EvolvingMemoryStore interface {
 	Load(ctx context.Context, userID int64, sessionID string) ([]*MemoryEntry, error)
 	Save(ctx context.Context, userID int64, sessionID string, entries []*MemoryEntry) error
+}
+
+// EvolvingMemoryDeltaStore is an optional extension for stores that can persist
+// only changed rows instead of rewriting the entire session snapshot.
+type EvolvingMemoryDeltaStore interface {
+	Upsert(ctx context.Context, userID int64, sessionID string, entries []*MemoryEntry) error
+	Delete(ctx context.Context, userID int64, sessionID string, ids []string) error
+	TouchAccess(ctx context.Context, ids []string, at time.Time) error
+}
+
+// EvolvingMemorySearchStore is an optional extension for stores that can run
+// vector retrieval close to the data instead of requiring an in-process scan.
+type EvolvingMemorySearchStore interface {
+	SearchTopK(ctx context.Context, userID int64, sessionID string, queryVec []float32, k int) ([]ScoredMemoryEntry, error)
+}
+
+// EvolvingMemoryKeywordStore is an optional extension for lexical retrieval.
+// It complements dense embeddings for exact identifiers, paths, and error codes.
+type EvolvingMemoryKeywordStore interface {
+	KeywordSearch(ctx context.Context, userID int64, sessionID string, query string, k int) ([]ScoredMemoryEntry, error)
+}
+
+// EvolvingMemoryPromotionStore is an optional extension for stores that can
+// promote high-quality procedural memories beyond one session.
+type EvolvingMemoryPromotionStore interface {
+	PromoteToUserScope(ctx context.Context, userID int64, entryID string) error
+}
+
+// EvolvingMemoryJanitorStore is an optional extension for stores that can purge
+// expired memories without loading the full session.
+type EvolvingMemoryJanitorStore interface {
+	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 }
 
 // EvolvingMemory implements the Search → Synthesis → Evolve loop from the paper.
@@ -138,10 +232,21 @@ type EvolvingMemory struct {
 	enableRAG bool
 
 	// Similarity-based pruning configuration (from paper analysis)
-	pruneThreshold   float64 // similarity threshold for auto-pruning duplicates
-	relevanceDecay   float64 // decay factor for relevance scores over time
-	minRelevance     float64 // minimum relevance to keep entry during pruning
-	enableSmartPrune bool    // enable similarity-based pruning
+	pruneThreshold           float64 // similarity threshold for auto-pruning duplicates
+	relevanceDecay           float64 // decay factor for relevance scores over time
+	minRelevance             float64 // minimum relevance to keep entry during pruning
+	enableSmartPrune         bool    // enable similarity-based pruning
+	rankingWeights           RankingWeights
+	mmrLambda                float64
+	promotionAccessThreshold int
+	pruneQualityFloor        int
+	janitorInterval          time.Duration
+	metrics                  *MemoryMetrics
+
+	queryCacheMu  sync.Mutex
+	queryCache    map[string]embeddingCacheEntry
+	queryCacheTTL time.Duration
+	queryCacheMax int
 
 	// Optional persistent backing store; when set, entries are loaded on
 	// construction and persisted after each mutation.
@@ -151,6 +256,8 @@ type EvolvingMemory struct {
 	persistDelay   time.Duration
 	persistVersion uint64
 	pendingPersist []*MemoryEntry
+	dirtyIDs       map[string]struct{}
+	deletedIDs     map[string]struct{}
 
 	callbacks *MemoryCallbacks
 }
@@ -178,10 +285,19 @@ type EvolvingMemoryConfig struct {
 	EnableRAG       bool // enable ExpRAG retrieval
 
 	// Similarity-based pruning configuration
-	PruneThreshold   float64 // default 0.95 - entries above this similarity are candidates for merge
-	RelevanceDecay   float64 // default 0.99 - daily decay factor for relevance scores
-	MinRelevance     float64 // default 0.1 - entries below this relevance may be pruned
-	EnableSmartPrune bool    // default false - enable intelligent pruning
+	PruneThreshold           float64 // default 0.95 - entries above this similarity are candidates for merge
+	RelevanceDecay           float64 // default 0.99 - daily decay factor for relevance scores
+	MinRelevance             float64 // default 0.1 - entries below this relevance may be pruned
+	EnableSmartPrune         bool    // default false - enable intelligent pruning
+	RankingWeights           RankingWeights
+	MMRLambda                float64 // default 0.7
+	PromotionAccessThreshold int
+	PruneQualityFloor        int
+	JanitorInterval          time.Duration
+	Metrics                  *MemoryMetrics
+
+	QueryEmbeddingCacheTTL  time.Duration // default 5 minutes
+	QueryEmbeddingCacheSize int           // default 128
 
 	// Optional persistent store. When non-nil, NewEvolvingMemory will load
 	// existing entries for the given userID and persist updates.
@@ -221,6 +337,33 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 	if minRelevance <= 0 {
 		minRelevance = 0.1
 	}
+	rankingWeights := normalizeRankingWeights(cfg.RankingWeights)
+	mmrLambda := cfg.MMRLambda
+	if mmrLambda <= 0 || mmrLambda > 1 {
+		mmrLambda = 0.7
+	}
+	queryCacheTTL := cfg.QueryEmbeddingCacheTTL
+	if queryCacheTTL <= 0 {
+		queryCacheTTL = 5 * time.Minute
+	}
+	queryCacheMax := cfg.QueryEmbeddingCacheSize
+	if queryCacheMax <= 0 {
+		queryCacheMax = 128
+	}
+	promotionAccessThreshold := cfg.PromotionAccessThreshold
+	if promotionAccessThreshold <= 0 {
+		promotionAccessThreshold = defaultPromotionAccessThreshold
+	}
+	pruneQualityFloor := cfg.PruneQualityFloor
+	if pruneQualityFloor <= 0 {
+		pruneQualityFloor = defaultPruneQualityFloor
+	}
+	janitorInterval := cfg.JanitorInterval
+	if janitorInterval < 0 {
+		janitorInterval = 0
+	} else if janitorInterval == 0 {
+		janitorInterval = defaultMemoryJanitorInterval
+	}
 
 	sessionID := strings.TrimSpace(cfg.SessionID)
 	if sessionID == "" {
@@ -237,24 +380,35 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 	}
 
 	em := &EvolvingMemory{
-		entries:          make([]*MemoryEntry, 0),
-		embedCfg:         cfg.EmbeddingConfig,
-		embedFn:          embedFn,
-		llm:              cfg.LLM,
-		model:            cfg.Model,
-		maxSize:          maxSz,
-		topK:             topK,
-		windowSz:         windowSz,
-		enableRAG:        cfg.EnableRAG,
-		pruneThreshold:   pruneThreshold,
-		relevanceDecay:   relevanceDecay,
-		minRelevance:     minRelevance,
-		enableSmartPrune: cfg.EnableSmartPrune,
-		store:            cfg.Store,
-		userID:           cfg.UserID,
-		sessionID:        sessionID,
-		persistDelay:     persistDelay,
-		callbacks:        cfg.Callbacks,
+		entries:                  make([]*MemoryEntry, 0),
+		embedCfg:                 cfg.EmbeddingConfig,
+		embedFn:                  embedFn,
+		llm:                      cfg.LLM,
+		model:                    cfg.Model,
+		maxSize:                  maxSz,
+		topK:                     topK,
+		windowSz:                 windowSz,
+		enableRAG:                cfg.EnableRAG,
+		pruneThreshold:           pruneThreshold,
+		relevanceDecay:           relevanceDecay,
+		minRelevance:             minRelevance,
+		enableSmartPrune:         cfg.EnableSmartPrune,
+		rankingWeights:           rankingWeights,
+		mmrLambda:                mmrLambda,
+		promotionAccessThreshold: promotionAccessThreshold,
+		pruneQualityFloor:        pruneQualityFloor,
+		janitorInterval:          janitorInterval,
+		metrics:                  cfg.Metrics,
+		queryCache:               make(map[string]embeddingCacheEntry),
+		queryCacheTTL:            queryCacheTTL,
+		queryCacheMax:            queryCacheMax,
+		store:                    cfg.Store,
+		userID:                   cfg.UserID,
+		sessionID:                sessionID,
+		persistDelay:             persistDelay,
+		dirtyIDs:                 make(map[string]struct{}),
+		deletedIDs:               make(map[string]struct{}),
+		callbacks:                cfg.Callbacks,
 	}
 
 	// If a store is provided, preload entries for the configured user.
@@ -265,7 +419,18 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 			if len(entries) > em.maxSize {
 				entries = entries[len(entries)-em.maxSize:]
 			}
-			em.entries = entries
+			for _, entry := range entries {
+				if entry != nil {
+					entry.Embedding = normalizeVector(entry.Embedding)
+					if entry.Scope == "" {
+						entry.Scope = MemoryScopeSession
+					}
+				}
+			}
+			em.entries = filterExpiredEntries(entries, time.Now())
+		}
+		if janitorInterval > 0 {
+			em.startStoreJanitor(janitorInterval)
 		}
 	}
 
@@ -299,12 +464,13 @@ func (em *EvolvingMemory) Search(ctx context.Context, query string) ([]*MemoryEn
 func (em *EvolvingMemory) SearchWithScores(ctx context.Context, query string) ([]ScoredMemoryEntry, error) {
 	start := time.Now()
 	em.mu.RLock()
-	entries := make([]*MemoryEntry, len(em.entries))
-	copy(entries, em.entries)
+	entries := filterExpiredEntries(em.snapshotEntriesLocked(), time.Now())
 	cb := em.callbacks
 	em.mu.RUnlock()
 
-	if len(entries) == 0 {
+	_, hasServerSearch := em.store.(EvolvingMemorySearchStore)
+	_, hasKeywordSearch := em.store.(EvolvingMemoryKeywordStore)
+	if len(entries) == 0 && !hasServerSearch && !hasKeywordSearch {
 		if cb != nil && cb.OnSearch != nil {
 			cb.OnSearch(&MemoryEvent{
 				Phase:      PhaseSearch,
@@ -319,8 +485,7 @@ func (em *EvolvingMemory) SearchWithScores(ctx context.Context, query string) ([
 
 	log := observability.LoggerWithTrace(ctx)
 
-	// Embed the query
-	vecs, err := em.embedFn(ctx, em.embedCfg, []string{query})
+	queryVec, err := em.embedQuery(ctx, query)
 	if err != nil {
 		log.Error().Err(err).Msg("evolving_memory_embed_query_failed")
 		if cb != nil && cb.OnSearch != nil {
@@ -335,37 +500,58 @@ func (em *EvolvingMemory) SearchWithScores(ctx context.Context, query string) ([
 		}
 		return nil, fmt.Errorf("embed query: %w", err)
 	}
-	queryVec := vecs[0]
 
-	// Score all entries by cosine similarity
-	type scoredLocal struct {
-		entry *MemoryEntry
-		score float64
+	denseCandidates := make([]ScoredMemoryEntry, 0, len(entries))
+	fetchK := em.searchFetchK()
+	if searchStore, ok := em.store.(EvolvingMemorySearchStore); ok {
+		storeCandidates, err := searchStore.SearchTopK(ctx, em.userID, em.sessionID, queryVec, fetchK)
+		if err != nil {
+			log.Warn().Err(err).Msg("evolving_memory_store_search_failed")
+		} else {
+			denseCandidates = storeCandidates
+		}
 	}
-	scores := make([]scoredLocal, 0, len(entries))
-	for _, e := range entries {
-		if len(e.Embedding) == 0 {
+
+	if len(denseCandidates) == 0 {
+		denseCandidates = make([]ScoredMemoryEntry, 0, len(entries))
+		for _, e := range entries {
+			if len(e.Embedding) == 0 {
+				continue
+			}
+			sim := dotProduct(queryVec, e.Embedding)
+			denseCandidates = append(denseCandidates, ScoredMemoryEntry{Entry: e, Score: sim})
+		}
+	}
+
+	keywordCandidates := em.keywordCandidates(ctx, query, entries, fetchK, log)
+	candidates := denseCandidates
+	if len(keywordCandidates) > 0 {
+		candidates = rrfFuse([][]ScoredMemoryEntry{denseCandidates, keywordCandidates}, fetchK, 60)
+	}
+
+	// Score all entries with dense similarity plus quality, recency, and access signals.
+	now := time.Now()
+	for i, candidate := range candidates {
+		if candidate.Entry == nil {
 			continue
 		}
-		sim := cosineSimilarity(queryVec, e.Embedding)
-		scores = append(scores, scoredLocal{entry: e, score: sim})
+		candidates[i].Score = em.compositeScore(candidate.Score, candidate.Entry, now)
 	}
 
 	// Sort descending by score
-	sort.Slice(scores, func(i, j int) bool {
-		return scores[i].score > scores[j].score
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].Score > candidates[j].Score
 	})
 
-	// Return top-k
 	k := em.topK
-	if k > len(scores) {
-		k = len(scores)
+	if k > len(candidates) {
+		k = len(candidates)
 	}
-	out := make([]ScoredMemoryEntry, k)
+	out := applyMMR(candidates, k, em.mmrLambda)
+
 	retrievedIDs := make([]string, k)
 	for i := 0; i < k; i++ {
-		out[i] = ScoredMemoryEntry{Entry: scores[i].entry, Score: scores[i].score}
-		retrievedIDs[i] = scores[i].entry.ID
+		retrievedIDs[i] = out[i].Entry.ID
 	}
 
 	// Update access metrics for retrieved entries (async to not block search)
@@ -388,9 +574,112 @@ func (em *EvolvingMemory) SearchWithScores(ctx context.Context, query string) ([
 			RelevanceInfo: relevance,
 		})
 	}
+	if em.metrics != nil {
+		em.metrics.RecordSearch(ctx, time.Since(start), len(out), len(entries), em.userID, em.sessionID)
+	}
 
 	log.Debug().Int("candidates", len(entries)).Int("top_k", k).Msg("evolving_memory_search")
 	return out, nil
+}
+
+// ExplainSearch returns the same high-level retrieval candidates as SearchWithScores,
+// plus the ranking components used to score and diversify them. It does not update
+// access counters.
+func (em *EvolvingMemory) ExplainSearch(ctx context.Context, query string) ([]MemoryScoreExplanation, error) {
+	em.mu.RLock()
+	entries := filterExpiredEntries(em.snapshotEntriesLocked(), time.Now())
+	em.mu.RUnlock()
+
+	queryVec, err := em.embedQuery(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+	fetchK := em.searchFetchK()
+	candidates := make([]ScoredMemoryEntry, 0, len(entries))
+	if searchStore, ok := em.store.(EvolvingMemorySearchStore); ok {
+		if storeCandidates, err := searchStore.SearchTopK(ctx, em.userID, em.sessionID, queryVec, fetchK); err == nil {
+			candidates = storeCandidates
+		}
+	}
+	if len(candidates) == 0 {
+		for _, entry := range entries {
+			if entry == nil || len(entry.Embedding) == 0 {
+				continue
+			}
+			candidates = append(candidates, ScoredMemoryEntry{Entry: entry, Score: dotProduct(queryVec, entry.Embedding)})
+		}
+	}
+
+	now := time.Now()
+	explanations := make([]MemoryScoreExplanation, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Entry == nil {
+			continue
+		}
+		components := em.scoreComponents(candidate.Score, candidate.Entry, now)
+		explanations = append(explanations, components)
+	}
+	sort.Slice(explanations, func(i, j int) bool {
+		return explanations[i].Composite > explanations[j].Composite
+	})
+	if len(explanations) > fetchK {
+		explanations = explanations[:fetchK]
+	}
+	selected := make([]MemoryScoreExplanation, 0, em.topK)
+	used := make([]bool, len(explanations))
+	for len(selected) < em.topK && len(selected) < len(explanations) {
+		bestIdx := -1
+		bestScore := math.Inf(-1)
+		for i, candidate := range explanations {
+			if used[i] || candidate.Entry == nil {
+				continue
+			}
+			maxSimilarity := 0.0
+			for _, chosen := range selected {
+				if chosen.Entry != nil {
+					maxSimilarity = math.Max(maxSimilarity, dotProduct(candidate.Entry.Embedding, chosen.Entry.Embedding))
+				}
+			}
+			candidate.MMRPenalty = maxSimilarity
+			candidate.FinalScore = em.mmrLambda*candidate.Composite - (1-em.mmrLambda)*maxSimilarity
+			if bestIdx == -1 || candidate.FinalScore > bestScore {
+				bestIdx = i
+				bestScore = candidate.FinalScore
+				explanations[i] = candidate
+			}
+		}
+		if bestIdx == -1 {
+			break
+		}
+		used[bestIdx] = true
+		selected = append(selected, explanations[bestIdx])
+	}
+	return selected, nil
+}
+
+func (em *EvolvingMemory) searchFetchK() int {
+	fetchK := em.topK * 4
+	if fetchK < em.topK {
+		fetchK = em.topK
+	}
+	if fetchK <= 0 {
+		fetchK = 4
+	}
+	return fetchK
+}
+
+func (em *EvolvingMemory) keywordCandidates(ctx context.Context, query string, entries []*MemoryEntry, k int, log *zerolog.Logger) []ScoredMemoryEntry {
+	if keywordStore, ok := em.store.(EvolvingMemoryKeywordStore); ok {
+		storeCandidates, err := keywordStore.KeywordSearch(ctx, em.userID, em.sessionID, query, k)
+		if err != nil {
+			if log != nil {
+				log.Warn().Err(err).Msg("evolving_memory_keyword_search_failed")
+			}
+		} else if len(storeCandidates) > 0 {
+			return storeCandidates
+		}
+	}
+	return inMemoryKeywordSearch(entries, query, k)
 }
 
 // updateAccessMetrics increments access counts and updates last accessed time.
@@ -407,11 +696,25 @@ func (em *EvolvingMemory) updateAccessMetrics(ids []string) {
 		if idSet[e.ID] {
 			e.AccessCount++
 			e.LastAccessedAt = now
+			if em.shouldPromoteToUserScopeLocked(e) {
+				e.Scope = MemoryScopeUser
+				em.markDirtyLocked(e.ID)
+				if promotionStore, ok := em.store.(EvolvingMemoryPromotionStore); ok {
+					em.promoteToUserScopeAsync(promotionStore, e.ID)
+				}
+			}
 		}
 	}
-	entriesSnapshot := em.snapshotEntriesLocked()
+	var entriesSnapshot []*MemoryEntry
+	if _, ok := em.store.(EvolvingMemoryDeltaStore); !ok {
+		entriesSnapshot = em.snapshotEntriesLocked()
+	}
 	em.mu.Unlock()
 
+	if deltaStore, ok := em.store.(EvolvingMemoryDeltaStore); ok {
+		em.touchAccessAsync(deltaStore, ids, now)
+		return
+	}
 	em.persistEntriesAsync(entriesSnapshot)
 }
 
@@ -438,15 +741,22 @@ func (em *EvolvingMemory) Synthesize(ctx context.Context, currentTask string, re
 
 	var result string
 	result += "## Past Relevant Experiences\n\n"
-	result += "Below are similar tasks from your memory. Use them to avoid mistakes and reuse successful strategies.\n\n"
 
-	for i, entry := range retrieved {
-		result += fmt.Sprintf("### Experience %d\n", i+1)
-		result += formatExperience(entry) + "\n\n"
+	successes, cautions := partitionRetrievedByOutcome(retrieved)
+	if len(successes) > 0 {
+		result += "## Strategies That Worked\n\n"
+		for i, entry := range successes {
+			result += fmt.Sprintf("### Experience %d\n", i+1)
+			result += formatExperience(entry) + "\n\n"
+		}
 	}
-
-	result += "## Current Task\n"
-	result += currentTask + "\n"
+	if len(cautions) > 0 {
+		result += "## Mistakes to Avoid\n\n"
+		for i, entry := range cautions {
+			result += fmt.Sprintf("### Experience %d\n", i+1)
+			result += formatExperience(entry) + "\n\n"
+		}
+	}
 
 	if cb != nil && cb.OnSynthesized != nil {
 		retrievedIDs := make([]string, 0, len(retrieved))
@@ -506,6 +816,8 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	em.mu.RUnlock()
 
 	// Generate summary via LLM
+	input = limitUTF8Bytes(redactPII(input), maxStoredInputBytes)
+	output = limitUTF8Bytes(redactPII(output), maxStoredOutputBytes)
 	summary, err := em.generateSummary(ctx, input, output, feedback)
 	if err != nil {
 		log.Warn().Err(err).Msg("evolving_memory_summarize_failed")
@@ -526,6 +838,9 @@ func (em *EvolvingMemory) EvolveEnhanced(
 				DurationMs: time.Since(start).Milliseconds(),
 			})
 		}
+		if em.metrics != nil {
+			em.metrics.RecordEvolve(ctx, "error", memorySize, em.userID, em.sessionID)
+		}
 		return fmt.Errorf("embed input: %w", err)
 	}
 
@@ -539,6 +854,7 @@ func (em *EvolvingMemory) EvolveEnhanced(
 			rawTrace += fmt.Sprintf("Step %d: %s\n", i+1, t)
 		}
 	}
+	rawTrace = limitUTF8Bytes(redactPII(rawTrace), maxStoredRawTraceBytes)
 
 	entry := &MemoryEntry{
 		ID:                 uuid.New().String(),
@@ -547,9 +863,10 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		Feedback:           feedback,
 		Summary:            summary,
 		RawTrace:           rawTrace,
-		Embedding:          vecs[0],
+		Embedding:          normalizeVector(vecs[0]),
 		MemoryType:         memType,
 		StrategyCard:       strategyCard,
+		Scope:              MemoryScopeSession,
 		StructuredFeedback: structuredFB,
 		AccessCount:        0,
 		LastAccessedAt:     time.Now(),
@@ -578,17 +895,26 @@ func (em *EvolvingMemory) EvolveEnhanced(
 
 	// Smart pruning: check for near-duplicates before adding
 	if mergePlan != nil {
-		em.applySmartMergePlan(mergePlan, entry)
+		em.applySmartMergePlan(ctx, mergePlan, entry)
 	}
 
 	em.entries = append(em.entries, entry)
+	em.markDirtyLocked(entry.ID)
 
 	// Apply relevance-based pruning if enabled and over capacity
 	if em.enableSmartPrune && len(em.entries) > em.maxSize {
 		em.relevanceBasedPrune(ctx)
 	} else if len(em.entries) > em.maxSize {
 		// Fallback to FIFO pruning
+		removed := em.entries[:len(em.entries)-em.maxSize]
+		removedIDs := make([]string, 0, len(removed))
+		for _, removedEntry := range removed {
+			if removedEntry != nil {
+				removedIDs = append(removedIDs, removedEntry.ID)
+			}
+		}
 		em.entries = em.entries[len(em.entries)-em.maxSize:]
+		em.markDeletedLocked(removedIDs)
 		log.Info().Int("pruned_to", em.maxSize).Msg("evolving_memory_fifo_pruned")
 	}
 
@@ -605,6 +931,9 @@ func (em *EvolvingMemory) EvolveEnhanced(
 			MemorySize: memorySize,
 			DurationMs: time.Since(start).Milliseconds(),
 		})
+	}
+	if em.metrics != nil {
+		em.metrics.RecordEvolve(ctx, "success", memorySize, em.userID, em.sessionID)
 	}
 
 	// Persist in the background if a store is configured.
@@ -627,61 +956,17 @@ func (em *EvolvingMemory) classifyMemoryType(input, output, summary string) Memo
 	// Simple heuristic-based classification
 	// In production, this could use an LLM call for more accurate classification
 
-	// Check for procedural indicators
-	proceduralKeywords := []string{
-		"how to", "steps", "procedure", "workflow", "strategy",
-		"algorithm", "method", "approach", "technique", "process",
-		"when confronted", "do this", "avoid", "pattern",
-	}
 	combined := input + " " + output + " " + summary
-	for _, kw := range proceduralKeywords {
-		if containsIgnoreCase(combined, kw) {
-			return MemoryProcedural
-		}
+	if proceduralMemoryPattern.MatchString(combined) {
+		return MemoryProcedural
 	}
 
-	// Check for factual indicators
-	factualKeywords := []string{
-		"what is", "define", "meaning of", "value of",
-		"answer is", "result is", "equals", "fact",
-	}
-	for _, kw := range factualKeywords {
-		if containsIgnoreCase(combined, kw) {
-			return MemoryFactual
-		}
+	if factualMemoryPattern.MatchString(combined) {
+		return MemoryFactual
 	}
 
 	// Default to episodic (specific task instance)
 	return MemoryEpisodic
-}
-
-// containsIgnoreCase checks if s contains substr (case-insensitive).
-func containsIgnoreCase(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		(s == substr ||
-			len(s) > 0 && len(substr) > 0 &&
-				containsLower(toLower(s), toLower(substr)))
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := range s {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
-}
-
-func containsLower(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 type smartMergePlan struct {
@@ -705,7 +990,7 @@ func (em *EvolvingMemory) prepareSmartMerge(ctx context.Context, existingEntries
 		if len(existing.Embedding) == 0 {
 			continue
 		}
-		sim := cosineSimilarity(newEntry.Embedding, existing.Embedding)
+		sim := dotProduct(newEntry.Embedding, existing.Embedding)
 		if sim >= em.pruneThreshold {
 			toMerge = append(toMerge, existing.ID)
 			if existing.Summary != "" {
@@ -747,7 +1032,7 @@ func (em *EvolvingMemory) prepareSmartMerge(ctx context.Context, existingEntries
 	return plan, nil
 }
 
-func (em *EvolvingMemory) applySmartMergePlan(plan *smartMergePlan, newEntry *MemoryEntry) {
+func (em *EvolvingMemory) applySmartMergePlan(ctx context.Context, plan *smartMergePlan, newEntry *MemoryEntry) {
 	if plan == nil {
 		return
 	}
@@ -762,13 +1047,16 @@ func (em *EvolvingMemory) applySmartMergePlan(plan *smartMergePlan, newEntry *Me
 		newEntry.Summary = plan.mergedSummary
 	}
 	if len(plan.mergedEmbedding) > 0 {
-		newEntry.Embedding = append([]float32(nil), plan.mergedEmbedding...)
+		newEntry.Embedding = normalizeVector(plan.mergedEmbedding)
 	}
 
 	em.pruneEntries(plan.mergedIDs)
-	observability.LoggerWithTrace(context.Background()).Info().
+	observability.LoggerWithTrace(ctx).Info().
 		Int("merged_count", len(plan.mergedIDs)).
 		Msg("evolving_memory_smart_merged")
+	if em.metrics != nil {
+		em.metrics.RecordSmartMerge(ctx, len(plan.mergedIDs))
+	}
 }
 
 // relevanceBasedPrune removes entries based on relevance scores.
@@ -778,31 +1066,43 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 
 	now := time.Now()
 	filtered := make([]*MemoryEntry, 0, len(em.entries))
+	protected := make([]*MemoryEntry, 0)
+	removedIDs := make([]string, 0)
 	for _, e := range em.entries {
+		if em.isProtectedByQualityFloor(e) {
+			protected = append(protected, e)
+			continue
+		}
 		e.RelevanceScore = em.computeRelevanceScore(now, e)
 		if e.RelevanceScore >= em.minRelevance {
 			filtered = append(filtered, e)
+		} else {
+			removedIDs = append(removedIDs, e.ID)
 		}
 	}
-	em.entries = filtered
+	em.entries = append(protected, filtered...)
 
-	// Sort by relevance score (ascending - lowest first)
-	sort.Slice(em.entries, func(i, j int) bool {
-		return em.entries[i].RelevanceScore < em.entries[j].RelevanceScore
+	// Sort pruneable entries by relevance score (ascending - lowest first)
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].RelevanceScore < filtered[j].RelevanceScore
 	})
 
 	// Calculate how many to remove
-	toRemove := len(em.entries) - em.maxSize
+	toRemove := len(protected) + len(filtered) - em.maxSize
 	if toRemove <= 0 {
+		em.entries = append(protected, filtered...)
 		return
 	}
 
 	// Remove lowest relevance entries
-	var removedIDs []string
-	for i := 0; i < toRemove && i < len(em.entries); i++ {
-		removedIDs = append(removedIDs, em.entries[i].ID)
+	if toRemove > len(filtered) {
+		toRemove = len(filtered)
 	}
-	em.entries = em.entries[toRemove:]
+	for i := 0; i < toRemove; i++ {
+		removedIDs = append(removedIDs, filtered[i].ID)
+	}
+	em.entries = append(protected, filtered[toRemove:]...)
+	em.markDeletedLocked(removedIDs)
 
 	// Re-sort by creation time to maintain temporal order
 	sort.Slice(em.entries, func(i, j int) bool {
@@ -813,6 +1113,16 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 		Int("removed_count", len(removedIDs)).
 		Int("remaining", len(em.entries)).
 		Msg("evolving_memory_relevance_pruned")
+	if em.metrics != nil && len(removedIDs) > 0 {
+		em.metrics.RecordPruned(ctx, "relevance", len(removedIDs))
+	}
+}
+
+func (em *EvolvingMemory) isProtectedByQualityFloor(entry *MemoryEntry) bool {
+	if entry == nil || em.pruneQualityFloor <= 0 || entry.AccessCount < em.pruneQualityFloor {
+		return false
+	}
+	return entry.StructuredFeedback != nil && entry.StructuredFeedback.Type == FeedbackSuccess
 }
 
 func (em *EvolvingMemory) computeRelevanceScore(now time.Time, entry *MemoryEntry) float64 {
@@ -838,14 +1148,140 @@ func (em *EvolvingMemory) computeRelevanceScore(now time.Time, entry *MemoryEntr
 	return decayFactor * accessBoost
 }
 
+func normalizeRankingWeights(weights RankingWeights) RankingWeights {
+	if weights.DecayHalfLifeDays <= 0 {
+		weights.DecayHalfLifeDays = 30
+	}
+	if weights.SuccessWeight <= 0 {
+		weights.SuccessWeight = 1.2
+	}
+	if weights.FailureWeight <= 0 {
+		weights.FailureWeight = 0.6
+	}
+	if weights.PartialWeight <= 0 {
+		weights.PartialWeight = 0.9
+	}
+	if weights.AccessCountWeight <= 0 {
+		weights.AccessCountWeight = 0.1
+	}
+	return weights
+}
+
+func (em *EvolvingMemory) embedQuery(ctx context.Context, query string) ([]float32, error) {
+	now := time.Now()
+	em.queryCacheMu.Lock()
+	if cached, ok := em.queryCache[query]; ok && now.Before(cached.expiresAt) {
+		cached.lastUsed = now
+		em.queryCache[query] = cached
+		vec := append([]float32(nil), cached.vec...)
+		em.queryCacheMu.Unlock()
+		return vec, nil
+	}
+	em.queryCacheMu.Unlock()
+
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{query})
+	if err != nil {
+		return nil, err
+	}
+	if len(vecs) == 0 {
+		return nil, fmt.Errorf("empty query embedding")
+	}
+	vec := normalizeVector(vecs[0])
+	em.storeQueryEmbedding(query, vec, now)
+	return vec, nil
+}
+
+func (em *EvolvingMemory) storeQueryEmbedding(query string, vec []float32, now time.Time) {
+	if em.queryCacheMax <= 0 || em.queryCacheTTL <= 0 {
+		return
+	}
+	em.queryCacheMu.Lock()
+	defer em.queryCacheMu.Unlock()
+
+	if len(em.queryCache) >= em.queryCacheMax {
+		var oldestKey string
+		var oldest time.Time
+		for key, cached := range em.queryCache {
+			if oldestKey == "" || cached.lastUsed.Before(oldest) {
+				oldestKey = key
+				oldest = cached.lastUsed
+			}
+		}
+		delete(em.queryCache, oldestKey)
+	}
+
+	em.queryCache[query] = embeddingCacheEntry{
+		vec:       append([]float32(nil), vec...),
+		expiresAt: now.Add(em.queryCacheTTL),
+		lastUsed:  now,
+	}
+}
+
+func (em *EvolvingMemory) compositeScore(sim float64, entry *MemoryEntry, now time.Time) float64 {
+	return em.scoreComponents(sim, entry, now).Composite
+}
+
+func (em *EvolvingMemory) scoreComponents(sim float64, entry *MemoryEntry, now time.Time) MemoryScoreExplanation {
+	weights := em.rankingWeights
+	referenceTime := entry.LastAccessedAt
+	if referenceTime.IsZero() {
+		referenceTime = entry.CreatedAt
+	}
+	if referenceTime.IsZero() {
+		referenceTime = now
+	}
+	ageDays := now.Sub(referenceTime).Hours() / 24
+	if ageDays < 0 {
+		ageDays = 0
+	}
+	decay := math.Pow(0.5, ageDays/weights.DecayHalfLifeDays)
+	accessBoost := 1 + weights.AccessCountWeight*math.Log1p(float64(entry.AccessCount))
+	quality := qualityWeight(entry.StructuredFeedback, weights)
+	composite := sim * decay * quality * accessBoost
+	return MemoryScoreExplanation{
+		Entry:         entry,
+		Similarity:    sim,
+		Decay:         decay,
+		QualityWeight: quality,
+		AccessBoost:   accessBoost,
+		Composite:     composite,
+		FinalScore:    composite,
+	}
+}
+
+func qualityWeight(feedback *StructuredFeedback, weights RankingWeights) float64 {
+	if feedback == nil {
+		return 1
+	}
+	switch feedback.Type {
+	case FeedbackSuccess:
+		return weights.SuccessWeight
+	case FeedbackFailure:
+		return weights.FailureWeight
+	case FeedbackPartial, FeedbackInProgress:
+		return weights.PartialWeight
+	default:
+		return 1
+	}
+}
+
 // generateSummary asks the LLM to distill a key lesson from the experience.
 func (em *EvolvingMemory) generateSummary(ctx context.Context, input, output, feedback string) (string, error) {
 	if em.llm == nil {
 		return "", fmt.Errorf("no LLM provider configured")
 	}
 
-	sys := "You are a concise summarizer. Extract the key lesson or strategy from this task experience. Keep it under 100 words."
-	user := fmt.Sprintf("Task: %s\nOutcome: %s\nSolution: %s\n\nWhat's the key lesson?",
+	sys := `You are a concise experience summarizer. Extract a reusable memory from this task experience.
+
+Return only a short summary under 100 words. Preserve:
+- task pattern
+- outcome
+- reusable lesson or strategy
+- mistake or risk to avoid
+- when the lesson should not be applied
+
+Do not include secrets, credentials, private user data, or transient one-off details.`
+	user := fmt.Sprintf("Task: %s\nOutcome: %s\nSolution: %s\n\nWrite the reusable memory summary.",
 		truncate(input, 300), feedback, truncate(output, 200))
 
 	msgs := []llm.Message{
@@ -909,11 +1345,240 @@ func cosineSimilarity(a, b []float32) float64 {
 	return dot / (math.Sqrt(magA) * math.Sqrt(magB))
 }
 
+func normalizeVector(v []float32) []float32 {
+	if len(v) == 0 {
+		return nil
+	}
+	var mag float64
+	for _, x := range v {
+		mag += float64(x) * float64(x)
+	}
+	if mag == 0 {
+		return append([]float32(nil), v...)
+	}
+	scale := 1 / math.Sqrt(mag)
+	out := make([]float32, len(v))
+	for i, x := range v {
+		out[i] = float32(float64(x) * scale)
+	}
+	return out
+}
+
+func dotProduct(a, b []float32) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var dot float64
+	for i := range a {
+		dot += float64(a[i]) * float64(b[i])
+	}
+	return dot
+}
+
+func applyMMR(candidates []ScoredMemoryEntry, k int, lambda float64) []ScoredMemoryEntry {
+	if k <= 0 || len(candidates) == 0 {
+		return nil
+	}
+	if k > len(candidates) {
+		k = len(candidates)
+	}
+	if lambda <= 0 || lambda > 1 {
+		lambda = 0.7
+	}
+
+	selected := make([]ScoredMemoryEntry, 0, k)
+	used := make([]bool, len(candidates))
+	for len(selected) < k {
+		bestIdx := -1
+		bestScore := math.Inf(-1)
+		for i, candidate := range candidates {
+			if used[i] || candidate.Entry == nil {
+				continue
+			}
+			maxSimilarity := 0.0
+			for _, chosen := range selected {
+				if chosen.Entry == nil {
+					continue
+				}
+				if sim := dotProduct(candidate.Entry.Embedding, chosen.Entry.Embedding); sim > maxSimilarity {
+					maxSimilarity = sim
+				}
+			}
+			mmrScore := lambda*candidate.Score - (1-lambda)*maxSimilarity
+			if bestIdx == -1 || mmrScore > bestScore {
+				bestIdx = i
+				bestScore = mmrScore
+			}
+		}
+		if bestIdx == -1 {
+			break
+		}
+		used[bestIdx] = true
+		selected = append(selected, candidates[bestIdx])
+	}
+	return selected
+}
+
+func inMemoryKeywordSearch(entries []*MemoryEntry, query string, k int) []ScoredMemoryEntry {
+	terms := keywordTerms(query)
+	if len(terms) == 0 || len(entries) == 0 || k <= 0 {
+		return nil
+	}
+	scores := make([]ScoredMemoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		textTerms := keywordTerms(strings.Join([]string{entry.Input, entry.Summary, entry.StrategyCard}, " "))
+		if len(textTerms) == 0 {
+			continue
+		}
+		matches := 0
+		for term := range terms {
+			if _, ok := textTerms[term]; ok {
+				matches++
+			}
+		}
+		if matches == 0 {
+			continue
+		}
+		scores = append(scores, ScoredMemoryEntry{Entry: entry, Score: float64(matches) / float64(len(terms))})
+	}
+	sort.Slice(scores, func(i, j int) bool {
+		return scores[i].Score > scores[j].Score
+	})
+	if k > len(scores) {
+		k = len(scores)
+	}
+	return scores[:k]
+}
+
+func keywordTerms(text string) map[string]struct{} {
+	fields := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.' || r == '/')
+	})
+	terms := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		field = strings.Trim(field, "._-/")
+		if len(field) < 2 {
+			continue
+		}
+		terms[field] = struct{}{}
+	}
+	return terms
+}
+
+func rrfFuse(rankings [][]ScoredMemoryEntry, k int, constant int) []ScoredMemoryEntry {
+	if k <= 0 || len(rankings) == 0 {
+		return nil
+	}
+	if constant <= 0 {
+		constant = 60
+	}
+	type fusedCandidate struct {
+		entry *MemoryEntry
+		score float64
+	}
+	fused := make(map[string]fusedCandidate)
+	for _, ranking := range rankings {
+		for rank, candidate := range ranking {
+			if candidate.Entry == nil || candidate.Entry.ID == "" {
+				continue
+			}
+			key := candidate.Entry.ID
+			current := fused[key]
+			if current.entry == nil {
+				current.entry = candidate.Entry
+			}
+			current.score += 1 / float64(constant+rank+1)
+			fused[key] = current
+		}
+	}
+	if len(fused) == 0 {
+		return nil
+	}
+	out := make([]ScoredMemoryEntry, 0, len(fused))
+	maxScore := 0.0
+	for _, candidate := range fused {
+		if candidate.score > maxScore {
+			maxScore = candidate.score
+		}
+		out = append(out, ScoredMemoryEntry{Entry: candidate.entry, Score: candidate.score})
+	}
+	if maxScore > 0 {
+		for i := range out {
+			out[i].Score /= maxScore
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Score > out[j].Score
+	})
+	if k > len(out) {
+		k = len(out)
+	}
+	return out[:k]
+}
+
+func partitionRetrievedByOutcome(retrieved []*MemoryEntry) ([]*MemoryEntry, []*MemoryEntry) {
+	successes := make([]*MemoryEntry, 0, len(retrieved))
+	cautions := make([]*MemoryEntry, 0, len(retrieved))
+	for _, entry := range retrieved {
+		if entry == nil {
+			continue
+		}
+		if entry.StructuredFeedback != nil && entry.StructuredFeedback.Type == FeedbackFailure {
+			cautions = append(cautions, entry)
+			continue
+		}
+		if entry.StructuredFeedback != nil && (entry.StructuredFeedback.Type == FeedbackPartial || entry.StructuredFeedback.Type == FeedbackInProgress) {
+			cautions = append(cautions, entry)
+			continue
+		}
+		if strings.EqualFold(entry.Feedback, string(FeedbackFailure)) || strings.EqualFold(entry.Feedback, string(FeedbackPartial)) {
+			cautions = append(cautions, entry)
+			continue
+		}
+		successes = append(successes, entry)
+	}
+	return successes, cautions
+}
+
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+func limitUTF8Bytes(s string, maxBytes int) string {
+	if maxBytes <= 0 || len(s) <= maxBytes {
+		return s
+	}
+	truncated := s[:maxBytes]
+	for !utf8.ValidString(truncated) && len(truncated) > 0 {
+		truncated = truncated[:len(truncated)-1]
+	}
+	return truncated
+}
+
+func redactPII(s string) string {
+	if s == "" {
+		return s
+	}
+	replacers := []struct {
+		pattern     *regexp.Regexp
+		replacement string
+	}{
+		{emailPattern, "[REDACTED_EMAIL]"},
+		{awsAccessKeyPattern, "[REDACTED_AWS_KEY]"},
+		{jwtPattern, "[REDACTED_JWT]"},
+		{apiKeyPattern, "[REDACTED_API_KEY]"},
+	}
+	out := s
+	for _, replacer := range replacers {
+		out = replacer.pattern.ReplaceAllString(out, replacer.replacement)
+	}
+	return out
 }
 
 // MemoryEditOp represents a memory editing operation for ReMem's REFINE phase.
@@ -922,27 +1587,39 @@ type MemoryEditOp struct {
 	IDs        []string `json:"ids"`         // entry IDs to operate on
 	NewSummary string   `json:"new_summary"` // for MERGE
 	Tag        string   `json:"tag"`         // for UPDATE_TAG
+	Reason     string   `json:"reason"`      // short rationale for audit/debugging
 }
 
 // ApplyEdits applies memory editing operations (for ReMem REFINE phase).
 func (em *EvolvingMemory) ApplyEdits(ctx context.Context, ops []MemoryEditOp) error {
 	log := observability.LoggerWithTrace(ctx)
+	changed := false
 
 	for _, op := range ops {
 		switch op.Type {
 		case "PRUNE":
+			em.mu.Lock()
 			em.pruneEntries(op.IDs)
+			em.mu.Unlock()
+			changed = true
 			log.Info().Strs("ids", op.IDs).Msg("evolving_memory_pruned_entries")
 
 		case "MERGE":
+			em.mu.Lock()
 			if err := em.mergeEntries(ctx, op.IDs, op.NewSummary); err != nil {
+				em.mu.Unlock()
 				log.Error().Err(err).Msg("evolving_memory_merge_failed")
 				return err
 			}
+			em.mu.Unlock()
+			changed = true
 			log.Info().Strs("ids", op.IDs).Msg("evolving_memory_merged_entries")
 
 		case "UPDATE_TAG":
+			em.mu.Lock()
 			em.updateTag(op.IDs, op.Tag)
+			em.mu.Unlock()
+			changed = true
 			log.Info().Strs("ids", op.IDs).Str("tag", op.Tag).Msg("evolving_memory_updated_tag")
 
 		default:
@@ -952,7 +1629,7 @@ func (em *EvolvingMemory) ApplyEdits(ctx context.Context, ops []MemoryEditOp) er
 
 	// Persist after applying edits if backed by a store.
 	// Note: systemUserID is 0 in agentd; we still want persistence for it.
-	if em.store != nil {
+	if changed && em.store != nil {
 		em.mu.RLock()
 		entriesCopy := em.snapshotEntriesLocked()
 		em.mu.RUnlock()
@@ -976,6 +1653,7 @@ func (em *EvolvingMemory) pruneEntries(ids []string) {
 		}
 	}
 	em.entries = filtered
+	em.markDeletedLocked(ids)
 }
 
 // mergeEntries combines multiple entries into one with a new summary.
@@ -999,13 +1677,27 @@ func (em *EvolvingMemory) mergeEntries(ctx context.Context, ids []string, newSum
 		return fmt.Errorf("no entries found to merge")
 	}
 
-	// Create merged entry (use first entry's input/output, new summary)
+	representative := selectRepresentativeEntry(toMerge)
+	structuredFeedback := bestStructuredFeedback(toMerge)
+	feedback := "merged"
+	if structuredFeedback != nil && structuredFeedback.Type != "" {
+		feedback = string(structuredFeedback.Type)
+	}
+
 	merged := &MemoryEntry{
-		ID:       uuid.New().String(),
-		Input:    toMerge[0].Input,
-		Output:   toMerge[0].Output,
-		Feedback: "merged",
-		Summary:  newSummary,
+		ID:                 uuid.New().String(),
+		Input:              representative.Input,
+		Output:             representative.Output,
+		Feedback:           feedback,
+		Summary:            newSummary,
+		RawTrace:           longestRawTrace(toMerge),
+		MemoryType:         mergedMemoryType(toMerge),
+		StrategyCard:       mergeStrategyCards(toMerge),
+		Scope:              mergedMemoryScope(toMerge),
+		StructuredFeedback: structuredFeedback,
+		AccessCount:        mergedAccessCount(toMerge),
+		LastAccessedAt:     latestAccessedAt(toMerge),
+		RelevanceScore:     bestRelevanceScore(toMerge),
 		Metadata: map[string]interface{}{
 			"merged_from": ids,
 		},
@@ -1017,13 +1709,141 @@ func (em *EvolvingMemory) mergeEntries(ctx context.Context, ids []string, newSum
 	if err != nil {
 		return fmt.Errorf("embed merged entry: %w", err)
 	}
-	merged.Embedding = vecs[0]
+	merged.Embedding = normalizeVector(vecs[0])
 
 	// Remove old entries and add merged
 	em.pruneEntries(ids)
 	em.entries = append(em.entries, merged)
+	em.markDirtyLocked(merged.ID)
 
 	return nil
+}
+
+func mergedMemoryScope(entries []*MemoryEntry) MemoryScope {
+	for _, entry := range entries {
+		if entry != nil && entry.Scope == MemoryScopeUser {
+			return MemoryScopeUser
+		}
+	}
+	return MemoryScopeSession
+}
+
+func selectRepresentativeEntry(entries []*MemoryEntry) *MemoryEntry {
+	if len(entries) == 0 {
+		return &MemoryEntry{}
+	}
+	representative := entries[0]
+	bestRank := feedbackRank(representative.StructuredFeedback)
+	for _, entry := range entries[1:] {
+		rank := feedbackRank(entry.StructuredFeedback)
+		if rank > bestRank || rank == bestRank && len(entry.Output) > len(representative.Output) {
+			representative = entry
+			bestRank = rank
+		}
+	}
+	return representative
+}
+
+func bestStructuredFeedback(entries []*MemoryEntry) *StructuredFeedback {
+	var best *StructuredFeedback
+	bestRank := -1
+	for _, entry := range entries {
+		if entry == nil || entry.StructuredFeedback == nil {
+			continue
+		}
+		rank := feedbackRank(entry.StructuredFeedback)
+		if rank > bestRank {
+			copyFeedback := *entry.StructuredFeedback
+			best = &copyFeedback
+			bestRank = rank
+		}
+	}
+	return best
+}
+
+func feedbackRank(feedback *StructuredFeedback) int {
+	if feedback == nil {
+		return 0
+	}
+	switch feedback.Type {
+	case FeedbackSuccess:
+		return 4
+	case FeedbackPartial, FeedbackInProgress:
+		return 3
+	case FeedbackFailure:
+		return 1
+	default:
+		return 2
+	}
+}
+
+func longestRawTrace(entries []*MemoryEntry) string {
+	var longest string
+	for _, entry := range entries {
+		if entry != nil && len(entry.RawTrace) > len(longest) {
+			longest = entry.RawTrace
+		}
+	}
+	return longest
+}
+
+func mergeStrategyCards(entries []*MemoryEntry) string {
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry != nil && entry.StrategyCard != "" {
+			parts = append(parts, entry.StrategyCard)
+		}
+	}
+	return mergeSummaryText(parts)
+}
+
+func mergedMemoryType(entries []*MemoryEntry) MemoryType {
+	foundFactual := false
+	for _, entry := range entries {
+		if entry == nil {
+			continue
+		}
+		switch entry.MemoryType {
+		case MemoryProcedural:
+			return MemoryProcedural
+		case MemoryFactual:
+			foundFactual = true
+		}
+	}
+	if foundFactual {
+		return MemoryFactual
+	}
+	return MemoryEpisodic
+}
+
+func mergedAccessCount(entries []*MemoryEntry) int {
+	total := 0
+	for _, entry := range entries {
+		if entry != nil {
+			total += entry.AccessCount
+		}
+	}
+	return total
+}
+
+func latestAccessedAt(entries []*MemoryEntry) time.Time {
+	var latest time.Time
+	for _, entry := range entries {
+		if entry != nil && entry.LastAccessedAt.After(latest) {
+			latest = entry.LastAccessedAt
+		}
+	}
+	return latest
+}
+
+func bestRelevanceScore(entries []*MemoryEntry) float64 {
+	best := 0.0
+	for _, entry := range entries {
+		if entry != nil && entry.RelevanceScore > best {
+			best = entry.RelevanceScore
+		}
+	}
+	return best
 }
 
 // updateTag modifies metadata tags on entries.
@@ -1039,6 +1859,7 @@ func (em *EvolvingMemory) updateTag(ids []string, tag string) {
 				e.Metadata = make(map[string]interface{})
 			}
 			e.Metadata["tag"] = tag
+			em.markDirtyLocked(e.ID)
 		}
 	}
 }
@@ -1050,12 +1871,76 @@ func (em *EvolvingMemory) ExportMemories() []*MemoryEntry {
 	return em.snapshotEntriesLocked()
 }
 
+func (em *EvolvingMemory) shouldPromoteToUserScopeLocked(entry *MemoryEntry) bool {
+	if entry == nil || entry.Scope == MemoryScopeUser || em.promotionAccessThreshold <= 0 {
+		return false
+	}
+	if entry.AccessCount < em.promotionAccessThreshold || entry.MemoryType != MemoryProcedural {
+		return false
+	}
+	return entry.StructuredFeedback != nil && entry.StructuredFeedback.Correct && entry.StructuredFeedback.Type == FeedbackSuccess
+}
+
+func (em *EvolvingMemory) promoteToUserScopeAsync(store EvolvingMemoryPromotionStore, entryID string) {
+	if store == nil || strings.TrimSpace(entryID) == "" {
+		return
+	}
+	go func() {
+		bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := store.PromoteToUserScope(bgctx, em.userID, entryID); err != nil {
+			observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_promote_failed")
+		}
+	}()
+}
+
+func (em *EvolvingMemory) startStoreJanitor(interval time.Duration) {
+	store, ok := em.store.(EvolvingMemoryJanitorStore)
+	if !ok || interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			bgctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			removed, err := store.DeleteExpired(bgctx, time.Now().UTC())
+			cancel()
+			if err != nil {
+				observability.LoggerWithTrace(context.Background()).Error().Err(err).Msg("evolving_memory_expired_delete_failed")
+				continue
+			}
+			if removed > 0 && em.metrics != nil {
+				em.metrics.RecordPruned(context.Background(), "expired", int(removed))
+			}
+		}
+	}()
+}
+
+func filterExpiredEntries(entries []*MemoryEntry, now time.Time) []*MemoryEntry {
+	if len(entries) == 0 {
+		return entries
+	}
+	out := entries[:0]
+	for _, entry := range entries {
+		if entry == nil || (entry.ExpiresAt != nil && !entry.ExpiresAt.After(now)) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
 func (em *EvolvingMemory) snapshotEntriesLocked() []*MemoryEntry {
 	return cloneEntrySlice(em.entries)
 }
 
 func (em *EvolvingMemory) persistEntriesAsync(entries []*MemoryEntry) {
 	if em.store == nil {
+		return
+	}
+	if _, ok := em.store.(EvolvingMemoryDeltaStore); ok {
+		em.persistDirtyEntriesAsync()
 		return
 	}
 
@@ -1092,6 +1977,131 @@ func (em *EvolvingMemory) persistEntriesAsync(entries []*MemoryEntry) {
 	}(version)
 }
 
+func (em *EvolvingMemory) persistDirtyEntriesAsync() {
+	em.mu.Lock()
+	if len(em.dirtyIDs) == 0 && len(em.deletedIDs) == 0 {
+		em.mu.Unlock()
+		return
+	}
+	em.persistVersion++
+	version := em.persistVersion
+	delay := em.persistDelay
+	uid := em.userID
+	sid := em.sessionID
+	em.mu.Unlock()
+
+	go func(targetVersion uint64) {
+		if delay > 0 {
+			timer := time.NewTimer(delay)
+			defer timer.Stop()
+			<-timer.C
+		}
+
+		em.mu.Lock()
+		if em.persistVersion != targetVersion {
+			em.mu.Unlock()
+			return
+		}
+		dirtyIDs := em.dirtyIDs
+		deletedIDs := em.deletedIDs
+		em.dirtyIDs = make(map[string]struct{})
+		em.deletedIDs = make(map[string]struct{})
+		entries := em.entriesForIDsLocked(dirtyIDs)
+		idsToDelete := stringSetKeys(deletedIDs)
+		em.mu.Unlock()
+
+		deltaStore, ok := em.store.(EvolvingMemoryDeltaStore)
+		if !ok {
+			return
+		}
+
+		bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if len(entries) > 0 {
+			if err := deltaStore.Upsert(bgctx, uid, sid, entries); err != nil {
+				observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_delta_upsert_failed")
+				return
+			}
+		}
+		if len(idsToDelete) > 0 {
+			if err := deltaStore.Delete(bgctx, uid, sid, idsToDelete); err != nil {
+				observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_delta_delete_failed")
+			}
+		}
+	}(version)
+}
+
+func (em *EvolvingMemory) touchAccessAsync(deltaStore EvolvingMemoryDeltaStore, ids []string, at time.Time) {
+	if len(ids) == 0 {
+		return
+	}
+	idsCopy := append([]string(nil), ids...)
+	go func() {
+		bgctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := deltaStore.TouchAccess(bgctx, idsCopy, at); err != nil {
+			observability.LoggerWithTrace(bgctx).Error().Err(err).Msg("evolving_memory_touch_access_failed")
+		}
+	}()
+}
+
+func (em *EvolvingMemory) markDirtyLocked(id string) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	if em.dirtyIDs == nil {
+		em.dirtyIDs = make(map[string]struct{})
+	}
+	em.dirtyIDs[id] = struct{}{}
+	delete(em.deletedIDs, id)
+}
+
+func (em *EvolvingMemory) markDeletedLocked(ids []string) {
+	if len(ids) == 0 {
+		return
+	}
+	if em.deletedIDs == nil {
+		em.deletedIDs = make(map[string]struct{})
+	}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		delete(em.dirtyIDs, id)
+		em.deletedIDs[id] = struct{}{}
+	}
+}
+
+func (em *EvolvingMemory) entriesForIDsLocked(ids map[string]struct{}) []*MemoryEntry {
+	if len(ids) == 0 {
+		return nil
+	}
+	entries := make([]*MemoryEntry, 0, len(ids))
+	for _, entry := range em.entries {
+		if entry == nil {
+			continue
+		}
+		if _, ok := ids[entry.ID]; ok {
+			entries = append(entries, cloneEntry(entry))
+		}
+	}
+	return entries
+}
+
+func stringSetKeys(set map[string]struct{}) []string {
+	if len(set) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 func mergeSummaryText(parts []string) string {
 	if len(parts) == 0 {
 		return ""
@@ -1121,28 +2131,38 @@ func cloneEntrySlice(entries []*MemoryEntry) []*MemoryEntry {
 
 	cloned := make([]*MemoryEntry, 0, len(entries))
 	for _, entry := range entries {
-		if entry == nil {
-			cloned = append(cloned, nil)
-			continue
-		}
-
-		copyEntry := *entry
-		if entry.Embedding != nil {
-			copyEntry.Embedding = append([]float32(nil), entry.Embedding...)
-		}
-		if entry.Metadata != nil {
-			copyEntry.Metadata = make(map[string]interface{}, len(entry.Metadata))
-			for key, value := range entry.Metadata {
-				copyEntry.Metadata[key] = value
-			}
-		}
-		if entry.StructuredFeedback != nil {
-			feedbackCopy := *entry.StructuredFeedback
-			copyEntry.StructuredFeedback = &feedbackCopy
-		}
-
-		cloned = append(cloned, &copyEntry)
+		cloned = append(cloned, cloneEntry(entry))
 	}
 
 	return cloned
+}
+
+func cloneEntry(entry *MemoryEntry) *MemoryEntry {
+	if entry == nil {
+		return nil
+	}
+
+	copyEntry := *entry
+	if entry.Embedding != nil {
+		copyEntry.Embedding = append([]float32(nil), entry.Embedding...)
+	}
+	if entry.Metadata != nil {
+		copyEntry.Metadata = make(map[string]interface{}, len(entry.Metadata))
+		for key, value := range entry.Metadata {
+			copyEntry.Metadata[key] = value
+		}
+	}
+	if entry.StructuredFeedback != nil {
+		feedbackCopy := *entry.StructuredFeedback
+		copyEntry.StructuredFeedback = &feedbackCopy
+	}
+	if entry.ExpiresAt != nil {
+		expiresCopy := *entry.ExpiresAt
+		copyEntry.ExpiresAt = &expiresCopy
+	}
+	if copyEntry.Scope == "" {
+		copyEntry.Scope = MemoryScopeSession
+	}
+
+	return &copyEntry
 }

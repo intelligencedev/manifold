@@ -54,6 +54,14 @@ type debugMemoryEvolvingResponse struct {
 	Retrieved    []memory.ScoredMemoryEntry `json:"retrieved,omitempty"`
 }
 
+type debugMemoryExplainResponse struct {
+	Enabled      bool                            `json:"enabled"`
+	Query        string                          `json:"query,omitempty"`
+	UserID       int64                           `json:"userID,omitempty"`
+	SessionID    string                          `json:"sessionID,omitempty"`
+	Explanations []memory.MemoryScoreExplanation `json:"explanations,omitempty"`
+}
+
 // debugMemoryHandler serves read-only observability for chat and evolving memory.
 // All endpoints are nested under /debug/memory and require authentication when
 // auth is enabled.
@@ -100,6 +108,7 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 				"entries":  "/debug/memory/entries",
 				"plan":     "/debug/memory/plan",
 				"evolving": "/debug/memory/evolving",
+				"explain":  "/debug/memory/explain",
 			})
 			return
 		}
@@ -120,6 +129,9 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 		case path == "evolving":
 			// Evolving memory / ReMem introspection
 			a.handleDebugMemoryEvolving(w, r)
+		case path == "explain":
+			// Evolving memory score breakdown for a query
+			a.handleDebugMemoryExplain(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -446,4 +458,58 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (a *app) handleDebugMemoryExplain(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	query := strings.TrimSpace(q.Get("query"))
+	if query == "" {
+		http.Error(w, "query is required", http.StatusBadRequest)
+		return
+	}
+
+	userID := systemUserID
+	if a.cfg.Auth.Enabled {
+		uid, err := a.requireUserID(r)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID = uid
+	} else if rawUser := strings.TrimSpace(q.Get("user")); rawUser != "" {
+		uid, err := strconv.ParseInt(rawUser, 10, 64)
+		if err != nil {
+			http.Error(w, "user must be an integer", http.StatusBadRequest)
+			return
+		}
+		userID = uid
+	}
+
+	sessionID := strings.TrimSpace(q.Get("session"))
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(q.Get("session_id"))
+	}
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
+	if em == nil {
+		writeJSON(w, http.StatusOK, debugMemoryExplainResponse{Enabled: false, Query: query, UserID: userID, SessionID: sessionID})
+		return
+	}
+
+	explanations, err := em.ExplainSearch(r.Context(), query)
+	if err != nil {
+		log.Error().Err(err).Str("query", query).Msg("debug_memory_explain_failed")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, debugMemoryExplainResponse{
+		Enabled:      true,
+		Query:        query,
+		UserID:       userID,
+		SessionID:    sessionID,
+		Explanations: explanations,
+	})
 }

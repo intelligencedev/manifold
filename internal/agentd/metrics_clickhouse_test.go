@@ -36,3 +36,23 @@ func TestBuildAttributeExpr(t *testing.T) {
 		t.Fatalf("expected attribute expression to fail for spaces")
 	}
 }
+
+func TestDeriveMetricTableName(t *testing.T) {
+	cases := []struct {
+		base string
+		kind string
+		want string
+	}{
+		{base: "metrics_sum", kind: "gauge", want: "metrics_gauge"},
+		{base: "otel.metrics_sum", kind: "histogram", want: "otel.metrics_histogram"},
+		{base: "metrics", kind: "gauge", want: "metrics_gauge"},
+		{base: "otel.metrics", kind: "histogram", want: "otel.metrics_histogram"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.base+"/"+tc.kind, func(t *testing.T) {
+			if got := deriveMetricTableName(tc.base, tc.kind); got != tc.want {
+				t.Fatalf("expected %q, got %q", tc.want, got)
+			}
+		})
+	}
+}

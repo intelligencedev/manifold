@@ -14,6 +14,7 @@ func TestStoredMemoryEntryRoundTrip(t *testing.T) {
 
 	createdAt := time.Now().UTC().Truncate(time.Microsecond)
 	lastAccessedAt := createdAt.Add(5 * time.Minute)
+	expiresAt := createdAt.Add(24 * time.Hour)
 	entry := &memory.MemoryEntry{
 		ID:             uuid.NewString(),
 		Input:          "input",
@@ -26,6 +27,8 @@ func TestStoredMemoryEntryRoundTrip(t *testing.T) {
 		CreatedAt:      createdAt,
 		MemoryType:     memory.MemoryProcedural,
 		StrategyCard:   "When confronted with X, do Y.",
+		Scope:          memory.MemoryScopeUser,
+		ExpiresAt:      &expiresAt,
 		AccessCount:    4,
 		LastAccessedAt: lastAccessedAt,
 		RelevanceScore: 1.25,
@@ -51,6 +54,8 @@ func TestStoredMemoryEntryRoundTrip(t *testing.T) {
 	record.RawTrace = entry.RawTrace
 	record.MemoryType = string(entry.MemoryType)
 	record.StrategyCard = entry.StrategyCard
+	record.Scope = string(entry.Scope)
+	record.ExpiresAt = entry.ExpiresAt
 	record.AccessCount = entry.AccessCount
 	record.RelevanceScore = entry.RelevanceScore
 	record.CreatedAt = entry.CreatedAt
@@ -68,6 +73,12 @@ func TestStoredMemoryEntryRoundTrip(t *testing.T) {
 	}
 	if decoded.StrategyCard != entry.StrategyCard {
 		t.Fatalf("expected strategy card %q, got %q", entry.StrategyCard, decoded.StrategyCard)
+	}
+	if decoded.Scope != entry.Scope {
+		t.Fatalf("expected scope %q, got %q", entry.Scope, decoded.Scope)
+	}
+	if decoded.ExpiresAt == nil || !decoded.ExpiresAt.Equal(expiresAt) {
+		t.Fatalf("expected expires_at %v, got %v", expiresAt, decoded.ExpiresAt)
 	}
 	if decoded.AccessCount != entry.AccessCount {
 		t.Fatalf("expected access count %d, got %d", entry.AccessCount, decoded.AccessCount)
@@ -87,6 +98,9 @@ func TestStoredMemoryEntryRoundTrip(t *testing.T) {
 	if decoded.Metadata["domain"] != entry.Metadata["domain"] {
 		t.Fatalf("expected metadata to round-trip, got %#v", decoded.Metadata)
 	}
+	if record.EmbeddingVector != "[1,2,3]" {
+		t.Fatalf("expected embedding vector literal, got %q", record.EmbeddingVector)
+	}
 }
 
 func TestEncodeStoredMemoryEntryDefaultsLastAccessedAt(t *testing.T) {
@@ -99,6 +113,18 @@ func TestEncodeStoredMemoryEntryDefaultsLastAccessedAt(t *testing.T) {
 	}
 	if !record.LastAccessedAt.Equal(createdAt) {
 		t.Fatalf("expected last accessed default to created_at, got %v want %v", record.LastAccessedAt, createdAt)
+	}
+}
+
+func TestEncodeStoredMemoryEntryOmitsEmptyEmbeddingVector(t *testing.T) {
+	t.Parallel()
+
+	record, err := encodeStoredMemoryEntry(&memory.MemoryEntry{CreatedAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatalf("encodeStoredMemoryEntry failed: %v", err)
+	}
+	if record.EmbeddingVector != "" {
+		t.Fatalf("expected empty embedding vector literal, got %q", record.EmbeddingVector)
 	}
 }
 
@@ -133,5 +159,33 @@ func TestPrepareStoredMemoryEntriesRejectsInvalidID(t *testing.T) {
 	_, _, err := prepareStoredMemoryEntries([]*memory.MemoryEntry{{ID: "not-a-uuid"}})
 	if err == nil {
 		t.Fatal("expected invalid UUID error")
+	}
+}
+
+func TestParseUUIDStringsSkipsEmptyAndRejectsInvalid(t *testing.T) {
+	t.Parallel()
+
+	id := uuid.New()
+	parsed, err := parseUUIDStrings([]string{"", "  ", id.String()})
+	if err != nil {
+		t.Fatalf("parseUUIDStrings failed: %v", err)
+	}
+	if len(parsed) != 1 || parsed[0] != id {
+		t.Fatalf("expected parsed ID %s, got %#v", id, parsed)
+	}
+
+	if _, err := parseUUIDStrings([]string{"not-a-uuid"}); err == nil {
+		t.Fatal("expected invalid UUID error")
+	}
+}
+
+func TestNormalizeMemorySessionID(t *testing.T) {
+	t.Parallel()
+
+	if got := normalizeMemorySessionID("  "); got != "default" {
+		t.Fatalf("expected default session, got %q", got)
+	}
+	if got := normalizeMemorySessionID(" custom "); got != "custom" {
+		t.Fatalf("expected trimmed session, got %q", got)
 	}
 }

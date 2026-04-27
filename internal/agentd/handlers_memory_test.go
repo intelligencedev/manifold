@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"manifold/internal/agent/memory"
 	"manifold/internal/config"
@@ -16,6 +17,52 @@ import (
 
 type stubDebugEvolvingStore struct {
 	sessionIDs []string
+}
+
+func TestHandleDebugMemoryExplainReturnsScoreComponents(t *testing.T) {
+	t.Parallel()
+
+	em := memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
+		EmbedFn: func(_ context.Context, _ config.EmbeddingConfig, texts []string) ([][]float32, error) {
+			out := make([][]float32, len(texts))
+			for i := range texts {
+				out[i] = []float32{1, 0}
+			}
+			return out, nil
+		},
+		TopK: 1,
+	})
+	if err := em.EvolveEnhanced(context.Background(), "explain query", "ok", "success", &memory.StructuredFeedback{Type: memory.FeedbackSuccess}, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+
+	a := &app{
+		cfg: &config.Config{},
+		userEvolving: map[int64]map[string]*memory.EvolvingMemory{
+			systemUserID: {"default": em},
+		},
+		evolvingLastUsed: map[int64]map[string]time.Time{
+			systemUserID: {"default": time.Now()},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/debug/memory/explain?query=explain+query", nil)
+	a.handleDebugMemoryExplain(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp debugMemoryExplainResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !resp.Enabled || len(resp.Explanations) != 1 {
+		t.Fatalf("expected one explanation, got %#v", resp)
+	}
+	if resp.Explanations[0].Similarity == 0 || resp.Explanations[0].Composite == 0 {
+		t.Fatalf("expected score components, got %#v", resp.Explanations[0])
+	}
 }
 
 func (s *stubDebugEvolvingStore) Load(_ context.Context, _ int64, _ string) ([]*memory.MemoryEntry, error) {

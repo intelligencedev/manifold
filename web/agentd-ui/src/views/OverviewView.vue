@@ -45,6 +45,10 @@
           <MemoryPanel />
         </template>
 
+        <template #item-memory-metrics>
+          <MemoryMetricsPanel />
+        </template>
+
         <template #item-logs>
           <LogsPanel />
         </template>
@@ -70,6 +74,7 @@ import DashboardGrid, {
 import TokenUsagePanel from "@/components/observability/TokenUsagePanel.vue";
 import TracesPanel from "@/components/observability/TracesPanel.vue";
 import MemoryPanel from "@/components/observability/MemoryPanel.vue";
+import MemoryMetricsPanel from "@/components/observability/MemoryMetricsPanel.vue";
 import LogsPanel from "@/components/observability/LogsPanel.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
@@ -92,10 +97,11 @@ const dashboardLayout = ref<GridItemConfig[]>([
   { i: "traces", x: 0, y: 4, w: 8, h: 5, minW: 4, minH: 4 },
   // Recent Runs - sidebar
   { i: "runs", x: 8, y: 4, w: 4, h: 5, minW: 3, minH: 3 },
-  // Memory - full width
-  { i: "memory", x: 0, y: 9, w: 12, h: 4, minW: 4, minH: 3 },
+  // Evolving memory metrics + inspector
+  { i: "memory-metrics", x: 0, y: 9, w: 5, h: 5, minW: 4, minH: 4 },
+  { i: "memory", x: 5, y: 9, w: 7, h: 5, minW: 4, minH: 4 },
   // Logs - full width
-  { i: "logs", x: 0, y: 13, w: 12, h: 4, minW: 4, minH: 3 },
+  { i: "logs", x: 0, y: 14, w: 12, h: 4, minW: 4, minH: 3 },
 ]);
 
 const { data: agentData } = useQuery({

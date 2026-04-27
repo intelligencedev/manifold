@@ -198,10 +198,10 @@ embedding:
 # Search -> Synthesis -> Evolve memory.
 evolvingMemory:
   enabled: false
-  provider: openai
   persistDebounceMs: 250
-  sessionTTLMinutes: 60
+  sessionTTLMinutes: 120
   janitorIntervalMinutes: 15
+  storeJanitorIntervalMinutes: 60
   llmClient:
     provider: local
     openai:
@@ -213,17 +213,19 @@ evolvingMemory:
       api: completions
       extraHeaders: {}
       extraParams: {}
-  maxSize: 1000
+  maxSize: 2000
   topK: 4
   windowSize: 20
   enableRAG: true
   reMemEnabled: false
-  maxInnerSteps: 5
+  maxInnerSteps: 3
   model: gpt-4o-mini
-  enableSmartPrune: false
-  pruneThreshold: 0.95
+  enableSmartPrune: true
+  pruneThreshold: 0.97
   relevanceDecay: 0.99
-  minRelevance: 0.1
+  minRelevance: 0.05
+  pruneQualityFloor: 3
+  promotionAccessThreshold: 5
 
 # Shared durable memory.
 transit:

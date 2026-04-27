@@ -65,6 +65,65 @@ export async function fetchTokenMetrics(
   return response.data;
 }
 
+export interface MemoryMetricTotals {
+  searches: number;
+  hits: number;
+  avgHitsPerSearch: number;
+  evolves: number;
+  evolveErrors: number;
+  smartMerges: number;
+  pruned: number;
+}
+
+export interface MemoryLatencyMetrics {
+  avgMs?: number;
+}
+
+export interface MemorySizeMetric {
+  user: string;
+  session: string;
+  size: number;
+}
+
+export interface MemoryReasonMetric {
+  reason: string;
+  count: number;
+}
+
+export interface MemoryResultMetric {
+  result: string;
+  count: number;
+}
+
+export interface MemoryMetricsResponse {
+  timestamp: number;
+  windowSeconds?: number;
+  source?: string;
+  totals: MemoryMetricTotals;
+  latency: MemoryLatencyMetrics;
+  sizes: MemorySizeMetric[];
+  prunedByReason: MemoryReasonMetric[];
+  evolvesByResult: MemoryResultMetric[];
+  warnings?: string[];
+}
+
+export interface MemoryMetricsParams {
+  window?: string;
+  windowSeconds?: number;
+}
+
+export async function fetchMemoryMetrics(
+  params?: MemoryMetricsParams,
+): Promise<MemoryMetricsResponse> {
+  const response = await apiClient.get<MemoryMetricsResponse>(
+    "/metrics/memory",
+    {
+      params,
+    },
+  );
+  return response.data;
+}
+
 export interface TraceMetricRow {
   traceId?: string;
   name: string;

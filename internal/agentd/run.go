@@ -119,6 +119,7 @@ type app struct {
 	mcpPool            *mcpclient.MCPServerPool
 	startupMCPOAuthIDs []int64
 	tokenMetrics       tokenMetricsProvider
+	memoryMetrics      memoryMetricsProvider
 	traceMetrics       *clickhouseTraceMetrics
 	runMetrics         *clickhouseRunMetrics
 	logMetrics         *clickhouseLogMetrics
@@ -1090,21 +1091,26 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			evStore = mgr.EvolvingMemory
 		}
 
+		storeJanitorInterval := time.Duration(cfg.EvolvingMemory.StoreJanitorIntervalMinutes) * time.Minute
 		app.evolvingCfg = memory.EvolvingMemoryConfig{
-			EmbeddingConfig:  cfg.Embedding,
-			LLM:              memLLM,
-			Model:            memModel,
-			PersistDebounce:  defaultEvolvingPersistDebounce,
-			MaxSize:          cfg.EvolvingMemory.MaxSize,
-			TopK:             cfg.EvolvingMemory.TopK,
-			WindowSize:       cfg.EvolvingMemory.WindowSize,
-			EnableRAG:        cfg.EvolvingMemory.EnableRAG,
-			EnableSmartPrune: cfg.EvolvingMemory.EnableSmartPrune,
-			PruneThreshold:   cfg.EvolvingMemory.PruneThreshold,
-			RelevanceDecay:   cfg.EvolvingMemory.RelevanceDecay,
-			MinRelevance:     cfg.EvolvingMemory.MinRelevance,
-			Store:            evStore,
-			UserID:           systemUserID,
+			EmbeddingConfig:          cfg.Embedding,
+			LLM:                      memLLM,
+			Model:                    memModel,
+			PersistDebounce:          defaultEvolvingPersistDebounce,
+			MaxSize:                  cfg.EvolvingMemory.MaxSize,
+			TopK:                     cfg.EvolvingMemory.TopK,
+			WindowSize:               cfg.EvolvingMemory.WindowSize,
+			EnableRAG:                cfg.EvolvingMemory.EnableRAG,
+			EnableSmartPrune:         cfg.EvolvingMemory.EnableSmartPrune,
+			PruneThreshold:           cfg.EvolvingMemory.PruneThreshold,
+			RelevanceDecay:           cfg.EvolvingMemory.RelevanceDecay,
+			MinRelevance:             cfg.EvolvingMemory.MinRelevance,
+			PruneQualityFloor:        cfg.EvolvingMemory.PruneQualityFloor,
+			PromotionAccessThreshold: cfg.EvolvingMemory.PromotionAccessThreshold,
+			JanitorInterval:          storeJanitorInterval,
+			Metrics:                  memory.NewMemoryMetrics(),
+			Store:                    evStore,
+			UserID:                   systemUserID,
 		}
 		if cfg.EvolvingMemory.PersistDebounceMs > 0 {
 			app.evolvingCfg.PersistDebounce = time.Duration(cfg.EvolvingMemory.PersistDebounceMs) * time.Millisecond
@@ -1112,20 +1118,24 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		app.rememMaxInnerSteps = cfg.EvolvingMemory.MaxInnerSteps
 
 		app.engine.EvolvingMemory = memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
-			EmbeddingConfig:  cfg.Embedding,
-			LLM:              memLLM,
-			Model:            memModel,
-			PersistDebounce:  app.evolvingCfg.PersistDebounce,
-			MaxSize:          cfg.EvolvingMemory.MaxSize,
-			TopK:             cfg.EvolvingMemory.TopK,
-			WindowSize:       cfg.EvolvingMemory.WindowSize,
-			EnableRAG:        cfg.EvolvingMemory.EnableRAG,
-			EnableSmartPrune: cfg.EvolvingMemory.EnableSmartPrune,
-			PruneThreshold:   cfg.EvolvingMemory.PruneThreshold,
-			RelevanceDecay:   cfg.EvolvingMemory.RelevanceDecay,
-			MinRelevance:     cfg.EvolvingMemory.MinRelevance,
-			Store:            evStore,
-			UserID:           systemUserID,
+			EmbeddingConfig:          cfg.Embedding,
+			LLM:                      memLLM,
+			Model:                    memModel,
+			PersistDebounce:          app.evolvingCfg.PersistDebounce,
+			MaxSize:                  cfg.EvolvingMemory.MaxSize,
+			TopK:                     cfg.EvolvingMemory.TopK,
+			WindowSize:               cfg.EvolvingMemory.WindowSize,
+			EnableRAG:                cfg.EvolvingMemory.EnableRAG,
+			EnableSmartPrune:         cfg.EvolvingMemory.EnableSmartPrune,
+			PruneThreshold:           cfg.EvolvingMemory.PruneThreshold,
+			RelevanceDecay:           cfg.EvolvingMemory.RelevanceDecay,
+			MinRelevance:             cfg.EvolvingMemory.MinRelevance,
+			PruneQualityFloor:        cfg.EvolvingMemory.PruneQualityFloor,
+			PromotionAccessThreshold: cfg.EvolvingMemory.PromotionAccessThreshold,
+			JanitorInterval:          storeJanitorInterval,
+			Metrics:                  app.evolvingCfg.Metrics,
+			Store:                    evStore,
+			UserID:                   systemUserID,
 		})
 		log.Info().
 			Bool("enabled", true).
@@ -1251,6 +1261,12 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		log.Warn().Err(err).Msg("clickhouse metrics disabled")
 	} else if tm != nil {
 		app.tokenMetrics = tm
+	}
+
+	if mm, err := newClickHouseMemoryMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
+		log.Warn().Err(err).Msg("clickhouse memory metrics disabled")
+	} else if mm != nil {
+		app.memoryMetrics = mm
 	}
 
 	if chTraces, err := newClickHouseTraceMetrics(ctx, cfg.Obs.ClickHouse); err != nil {

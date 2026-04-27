@@ -1,467 +1,314 @@
-# Evolving Memory System
+# Evolving Memory
 
-This document describes the evolving memory system integrated into the agent engine, based on the paper ["Evo-Memory: Benchmarking LLM Agent Test-time Learning with Self-Evolving Memory"](https://arxiv.org/abs/2511.20857).
+Evolving memory is Manifold's experience-reuse system for agent runs. It stores compact lessons from completed tasks, retrieves relevant past experiences for new tasks, and maintains the memory corpus over time.
 
-## Overview
+It is separate from chat summarization. Chat summarization keeps conversation history small enough for the model context. Evolving memory stores reusable task experience so future runs can avoid repeated mistakes and reuse successful strategies.
 
-The evolving memory system implements several key capabilities from the paper:
+## Runtime Flow
 
-1. **Search → Synthesis → Evolve Loop**: Self-evolving memory that continuously improves through experience
-2. **ExpRAG (Experience Retrieval & Aggregation)**: Similarity-based retrieval of past successful/failed experiences  
-3. **ExpRecent**: Sliding window of recent task experiences for sequential learning
-4. **ReMem (Think-Act-Refine)**: Advanced controller that actively edits and maintains memory quality
-5. **Memory Type Classification**: Distinguishes between factual, procedural, and episodic memories
-6. **Smart Pruning**: Similarity-based deduplication and relevance-based memory management
-7. **Strategy Cards**: Reusable strategy patterns extracted from successful experiences
+At runtime the engine uses a Search -> Synthesis -> Evolve loop:
 
-## Architecture
+1. **Search**: embed the current task and retrieve relevant memories.
+2. **Synthesis**: format retrieved memories into context for the main agent.
+3. **Evolve**: after the run, summarize the experience and store it with feedback, type, scope, strategy-card data, and embedding.
 
-```
-      +-----------+        +-----------+        +-----------+
-x_t ->|  Search R |--R_t-> | Synthesis |--C_t-> |  LLM  F   |--> ŷ_t
-      +-----------+        +-----------+        +-----------+
-             ^                                         |
-             |                                         v
-             |             +-----------------------------+
-             +-------------|      Evolve U: M_t -> M_{t+1}|
-                           +-----------------------------+
-```
+When ReMem is enabled, a short memory-preparation loop runs before the main agent answers. ReMem may inspect retrieved memories and request safe maintenance edits, but it is not the final answering agent.
 
-## Configuration
+## Current Capabilities
 
-The evolving memory system uses the shared `embedding` configuration from `config.yaml`. If you want to keep credentials out of YAML, reference them with `${VAR}` and define those in `.env` or the host environment.
+- ExpRecent: recent in-process task window.
+- ExpRAG: embedding-based experience retrieval.
+- Hybrid retrieval: pgvector nearest-neighbor search plus PostgreSQL full-text keyword search when the Postgres store is available.
+- Ranking: dense similarity blended with recency decay, structured feedback quality, access-count boost, and MMR diversification.
+- Memory types: `factual`, `procedural`, and `episodic`.
+- Strategy cards: compact reusable strategies generated for non-trivial ReMem traces.
+- Scope promotion: successful procedural memories can be promoted from `session` scope to `user` scope after repeated retrieval.
+- Smart pruning: duplicate merge and relevance-based pruning, while protecting frequently reused successful memories.
+- Persistence: optional Postgres-backed `evolving_memories` table with pgvector and full-text indexes.
+- Observability: debug endpoints, UI inspector, score explanations, and OTel metrics surfaced from ClickHouse.
 
-Configure evolving memory directly in `config.yaml`:
+## Recommended Configuration
 
-```yaml
-# Evolving memory configuration
-evolvingMemory:
-  enabled: true              # Enable the evolving memory system
-  provider: openai           # Optional override: openai, anthropic, google, or local
-  # Optional dedicated provider config for evolving memory only.
-  # This is the way to give memory its own local baseURL or credentials.
-  # llmClient:
-  #   provider: local
-  #   openai:
-  #     baseURL: http://localhost:11434/v1
-  #     model: qwen-memory
-  #     api: completions
-  maxSize: 1000              # Maximum number of memory entries to retain
-  topK: 4                    # Number of similar experiences to retrieve
-  windowSize: 20             # Size of sliding window for ExpRecent
-  enableRAG: true            # Enable ExpRAG similarity-based retrieval
-  reMemEnabled: false        # Enable Think-Act-Refine mode (advanced)
-  maxInnerSteps: 5           # Maximum THINK/REFINE loops in ReMem mode
-  model: "gpt-4o-mini"       # Model for memory summarization
-  # Smart pruning (advanced)
-  enableSmartPrune: true     # Enable similarity-based dedup & relevance pruning
-  pruneThreshold: 0.95       # Similarity threshold for duplicate detection (0.0-1.0)
-  relevanceDecay: 0.99       # Daily decay factor for relevance scores (0.0-1.0)
-  minRelevance: 0.1          # Minimum relevance to avoid pruning (0.0-1.0)
-
-# Embedding service configuration (required for evolving memory)
-embedding:
-  baseURL: "https://api.openai.com"
-  model: "text-embedding-3-small"
-  apiKey: "${EMBED_API_KEY}"
-  apiHeader: "Authorization"
-  headers: {}
-  path: "/v1/embeddings"
-  timeoutSeconds: 30
-```
-
-## Memory Entry Structure
-
-Each memory entry contains comprehensive information about task experiences:
-
-```go
-type MemoryEntry struct {
-    ID                 string                 // Unique identifier
-    Input              string                 // x_i: Original task/query
-    Output             string                 // ŷ_i: Model's response
-    Feedback           string                 // f_i: Success/failure signal (legacy)
-    Summary            string                 // LLM-generated key lesson
-    RawTrace           string                 // Detailed reasoning trace
-    Embedding          []float32              // Vector for similarity search
-    Metadata           map[string]interface{} // Timestamp, domain, tags
-    CreatedAt          time.Time
-
-    // Enhanced fields (from paper review)
-    StructuredFeedback *StructuredFeedback    // Detailed feedback metrics
-    MemoryType         MemoryType             // factual | procedural | episodic
-    StrategyCard       string                 // Reusable strategy pattern
-    AccessCount        int                    // For relevance-based pruning
-    LastAccessedAt     time.Time              // For recency-based pruning
-    RelevanceScore     float64                // Cumulative relevance metric
-}
-```
-
-### Structured Feedback
-
-The system supports detailed feedback beyond simple success/failure:
-
-```go
-type StructuredFeedback struct {
-    Type         FeedbackType  // success | failure | partial | in_progress
-    Correct      bool          // Binary correctness flag
-    ProgressRate float64       // 0.0-1.0 for multi-turn tasks
-    StepsUsed    int           // Actual steps taken
-    StepsOptimal int           // Optimal steps (if known)
-    Message      string        // Human-readable feedback
-}
-```
-
-### Memory Types
-
-The paper emphasizes distinguishing between different types of memory:
-
-| Type | Description | Example |
-|------|-------------|---------|
-| `factual` | Facts, data, static knowledge ("What") | "The capital of France is Paris" |
-| `procedural` | Strategies, workflows, how-to ("How") | "When solving quadratic equations, use the quadratic formula" |
-| `episodic` | Specific task episodes | "User asked about weather, I used the API tool" |
-
-## Usage Modes
-
-### 1. ExpRecent (Lightweight)
-
-Maintains a sliding window of recent task experiences:
+For an active local development agent with Postgres persistence and embeddings enabled:
 
 ```yaml
 evolvingMemory:
   enabled: true
-  windowSize: 20
-  enableRAG: false
-```
 
-- Keeps the most recent N tasks in memory
-- Injects compressed summaries into context
-- Minimal overhead, good for sequential tasks
-- No embedding service required
+  # Persistence and session lifecycle.
+  persistDebounceMs: 250
+  sessionTTLMinutes: 120
+  janitorIntervalMinutes: 15
+  storeJanitorIntervalMinutes: 60
 
-### 2. ExpRAG (Recommended)
-
-Retrieves similar past experiences via embedding similarity:
-
-```yaml
-evolvingMemory:
-  enabled: true
-  enableRAG: true
+  # Retrieval.
+  maxSize: 2000
   topK: 4
-  maxSize: 1000
-```
+  windowSize: 20
+  enableRAG: true
 
-- Embeds each task and stores in memory
-- Retrieves top-k similar experiences at runtime
-- Learns from both successes and failures
-- Requires embedding service
-- Tracks access patterns for relevance scoring
+  # ReMem memory-preparation loop.
+  reMemEnabled: true
+  maxInnerSteps: 3
 
-### Dedicated Memory Provider
-
-If you want evolving memory to use a different provider endpoint than the main chat orchestrator, configure a dedicated client under `evolvingMemory.llmClient`:
-
-```yaml
-evolvingMemory:
-  enabled: true
+  # Dedicated memory LLM. Use an OpenAI-compatible local endpoint if desired.
   llmClient:
     provider: local
     openai:
+      apiKey: ""
       baseURL: http://localhost:11434/v1
       model: qwen-memory
+      summaryBaseURL: http://localhost:11434/v1
+      summaryModel: qwen-memory
       api: completions
+      extraHeaders: {}
+      extraParams: {}
+
+  # Legacy shorthand still works, but llmClient is preferred when present.
+  model: gpt-4o-mini
+
+  # Smart pruning.
+  enableSmartPrune: true
+  pruneThreshold: 0.97
+  relevanceDecay: 0.99
+  minRelevance: 0.05
+  pruneQualityFloor: 3
+  promotionAccessThreshold: 5
 ```
 
-The legacy `evolvingMemory.provider` and `evolvingMemory.model` fields still work as shorthand overrides, but `evolvingMemory.llmClient` takes precedence when present.
+The example config keeps `enabled: false` and `reMemEnabled: false` so new installs stay opt-in. Enable them deliberately after embeddings, database connectivity, and the memory model are working.
 
-### 3. ReMem (Advanced)
+## Required Supporting Config
 
-Full Think-Act-Refine controller with active memory editing:
+### Embeddings
+
+`enableRAG: true` requires the shared `embedding` block. The same embedding service is used by vector features and evolving memory.
 
 ```yaml
-evolvingMemory:
-  enabled: true
-  enableRAG: true
-  reMemEnabled: true
-  maxInnerSteps: 5
+embedding:
+  baseURL: https://api.openai.com
+  model: text-embedding-3-small
+  apiKey: "${EMBED_API_KEY}"
+  apiHeader: Authorization
+  headers: {}
+  path: /v1/embeddings
+  timeoutSeconds: 30
 ```
 
-**Actions:**
-- **THINK**: Internal reasoning and task decomposition
-- **REFINE_MEMORY**: Prune, merge, or reorganize memories
-- **ACT**: Final output (ends the inner loop)
+The Postgres memory store creates an `embedding_vec vector(N)` column when `databases.vector.dimensions` is set. Keep that dimension aligned with the configured embedding model.
 
-**Memory Operations:**
-- `PRUNE`: Remove low-quality or irrelevant entries
-- `MERGE`: Combine similar experiences with new summary
-- `UPDATE_TAG`: Add metadata tags for filtering
+### Postgres Persistence
 
-## Strategy Cards
-
-Strategy cards are reusable patterns extracted from successful task executions:
-
-```
-When confronted with <pattern>, do <strategy>. Avoid <mistakes>.
-```
-
-Example:
-```
-When confronted with a quadratic equation, apply the quadratic formula 
-(-b ± √(b²-4ac))/2a. Avoid forgetting to check for complex roots when 
-the discriminant is negative.
-```
-
-Strategy cards are automatically generated by the ReMem controller and stored with each memory entry for future reference.
-
-## Smart Pruning
-
-The system includes intelligent memory management:
-
-### Similarity-Based Deduplication
-- Before adding new entries, checks for near-duplicates (similarity > 0.95)
-- Automatically merges duplicate experiences
-- Preserves unique insights while reducing redundancy
-
-### Relevance-Based Pruning
-When memory exceeds `maxSize`, entries are pruned based on:
-1. **Access frequency**: More accessed memories score higher
-2. **Recency**: Recently accessed memories get priority
-3. **Time decay**: Relevance scores decay over time (default: 1% daily)
-
-Configuration defaults (programmatic):
-```go
-PruneThreshold:   0.95   // Similarity threshold for duplicate detection
-RelevanceDecay:   0.99   // Daily decay factor for relevance scores
-MinRelevance:     0.1    // Minimum relevance to avoid pruning
-EnableSmartPrune: false  // Also available as evolvingMemory.enableSmartPrune in config.yaml
-```
-
-## Task Similarity Metrics
-
-The system can analyze memory for task similarity patterns:
-
-```go
-metrics, _ := evolvingMem.ComputeTaskSimilarityMetrics(ctx)
-// Returns:
-// - AverageSimilarity: Mean pairwise similarity (0.0-1.0)
-// - ClusterRatio: Higher = more similar/clustered tasks
-// - DomainDistribution: Count by domain
-// - TypeDistribution: Count by memory type
-// - PruningRecommendation: Actionable advice
-```
-
-Higher task similarity correlates with better memory effectiveness, as similar tasks benefit more from experience reuse.
-
-## Integration
-
-The memory system integrates seamlessly with the existing agent engine and **automatically uses your existing embedding service configuration**:
-
-```go
-import "manifold/internal/agent/memory"
-
-// Initialize evolving memory - uses cfg.Embedding from config.yaml
-memCfg := memory.EvolvingMemoryConfig{
-  EmbeddingConfig:  cfg.Embedding,  // Reuses the shared embedding config
-    LLM:              llmProvider,
-    Model:            cfg.EvolvingMemory.Model,
-    MaxSize:          cfg.EvolvingMemory.MaxSize,
-    TopK:             cfg.EvolvingMemory.TopK,
-    WindowSize:       cfg.EvolvingMemory.WindowSize,
-    EnableRAG:        cfg.EvolvingMemory.EnableRAG,
-    // Smart pruning options (programmatic)
-    EnableSmartPrune: true,
-    PruneThreshold:   0.95,
-    RelevanceDecay:   0.99,
-    MinRelevance:     0.1,
-}
-evolvingMem := memory.NewEvolvingMemory(memCfg)
-
-// Create agent engine with memory
-engine := &agent.Engine{
-    LLM:            llmProvider,
-    Tools:          toolRegistry,
-    EvolvingMemory: evolvingMem,
-    // ... other config
-}
-
-// Memory is automatically used during Run()
-response, err := engine.Run(ctx, userInput, history)
-```
-
-**Key Points:**
-- Uses the same embedding service as pgvector and vector search
-- No separate embedding setup required
-- Works with any embedding dimension (384, 768, 1024, 1536, etc.)
-- Embeddings are cached in memory with each entry
-- Access metrics are tracked automatically for relevance scoring
-
-## ReMem Controller Usage
-
-For advanced Think-Act-Refine mode with strategy card generation:
-
-```go
-// Initialize ReMem controller
-reMemCtrl := memory.NewReMemController(memory.ReMemConfig{
-    Memory:        evolvingMem,
-    LLM:           llmProvider,
-    Model:         "gpt-4",
-    MaxInnerSteps: 5,
-})
-
-// Execute with Think-Act-Refine loop
-result, trace, err := reMemCtrl.Execute(ctx, task, tools)
-
-// Store experience with structured feedback and strategy card
-reMemCtrl.StoreExperienceEnhanced(ctx, task, result, "success", &memory.StructuredFeedback{
-    Type:         memory.FeedbackSuccess,
-    Correct:      true,
-    ProgressRate: 1.0,
-    StepsUsed:    3,
-    StepsOptimal: 3,
-    Message:      "Task completed efficiently",
-}, trace)
-```
-
-## Filtering by Memory Type
-
-Retrieve memories by type for targeted recall:
-
-```go
-// Get only procedural memories (strategies, how-to)
-procedural := evolvingMem.GetProceduralMemories()
-
-// Get only factual memories (facts, data)
-factual := evolvingMem.GetFactualMemories()
-
-// Search filtered by type
-results, _ := evolvingMem.SearchByType(ctx, "solve equation", memory.MemoryProcedural)
-```
-
-## Memory Statistics
-
-Get aggregate statistics about the memory store:
-
-```go
-stats := evolvingMem.GetMemoryStats()
-// Returns map with:
-// - total_entries: int
-// - max_size: int
-// - type_distribution: map[MemoryType]int
-// - total_accesses: int
-// - avg_accesses_per_entry: float64
-// - entries_with_strategy_card: int
-// - entries_with_structured_feedback: int
-```
-
-## Benefits
-
-Based on the paper's empirical results:
-
-1. **Improved Success Rate**: 15-25% higher success on multi-turn tasks (Table 2)
-2. **Reduced Steps**: Fewer iterations needed to solve tasks (Figure 5)
-3. **Better Generalization**: Learns patterns from past experiences
-4. **Self-Improvement**: Memory quality evolves over time
-5. **Task Similarity Correlation**: Higher gains on similar task clusters (Figure 4)
-
-## Performance Considerations
-
-1. **Embedding Latency**: Each memory operation requires embedding calls
-   - Uses your existing embedding service (same as pgvector/vector search)
-   - Embedding dimensions are determined by your configured model
-   - Access tracking is async to not block searches
-
-2. **Memory Size**: Keep maxSize reasonable (100-1000 entries)
-   - Larger memory = slower retrieval (O(n) similarity comparison)
-   - Smart pruning helps maintain quality over quantity
-   - Relevance-based pruning keeps frequently-used memories
-
-3. **Vector Dimensions**: The system is dimension-agnostic
-   - Works with any embedding dimension (384, 768, 1024, 1536, etc.)
-   - Evolving memory stores embeddings as `[]float32` of variable length
-
-4. **ReMem Overhead**: Think-Act-Refine adds 2-5 extra LLM calls per task
-   - Use for complex reasoning tasks only
-   - Start with ExpRAG, upgrade to ReMem if needed
-   - Strategy card generation adds one additional LLM call
-
-## Example Workflow
-
-1. User submits task
-2. Agent searches memory for similar past experiences (top-k=4)
-3. Access counts updated for retrieved memories (async)
-4. Memory type classification applied (factual/procedural/episodic)
-5. Synthesizes context from retrieved memories with strategy cards
-6. LLM generates response using augmented context
-7. Agent stores new experience with:
-   - LLM-generated summary
-   - Strategy card (if ReMem enabled)
-   - Structured feedback (if provided)
-   - Automatic memory type classification
-8. Smart pruning: near-duplicates merged, low-relevance entries removed
-
-## Debugging
-
-Enable detailed logging:
+Evolving memory uses the default database DSN when available:
 
 ```yaml
-logLevel: "debug"
+databases:
+  defaultDSN: "${DATABASE_URL}"
+  vector:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+    dimensions: 1536
+    metric: cosine
 ```
 
-Look for these log messages:
-- `evolving_memory_search`: Retrieval operation with candidate count
-- `evolving_memory_entry_added`: New experience stored (includes memory_type, has_strategy_card)
-- `evolving_memory_smart_merged`: Duplicate detection merged entries
-- `evolving_memory_relevance_pruned`: Entries removed by relevance scoring
-- `evolving_memory_fifo_pruned`: Fallback FIFO pruning when smart prune disabled
-- `remem_action`: ReMem controller action (THINK/REFINE_MEMORY/ACT)
-- `remem_think`: Internal reasoning trace
-- `remem_refine`: Memory edit operations applied
+If no default Postgres DSN is available, evolving memory still works in process, but memories will not survive restarts.
 
-## API Reference
+Apply the SQL migrations under `deploy/postgres/migrations/` before production use. Agentd has defensive table/index initialization, but that initialization is not a replacement for managing schema migrations in deployed environments.
 
-### EvolvingMemory Methods
+Relevant migration files:
 
-| Method | Description |
-|--------|-------------|
-| `Search(ctx, query)` | Retrieve top-k similar memories |
-| `SearchWithScores(ctx, query)` | Search with similarity scores |
-| `SearchByType(ctx, query, type)` | Search filtered by memory type |
-| `Synthesize(ctx, task, memories)` | Build context from memories |
-| `Evolve(ctx, input, output, feedback)` | Store new experience (basic) |
-| `EvolveEnhanced(ctx, ...)` | Store with structured feedback & strategy |
-| `GetRecentWindow()` | Get ExpRecent sliding window |
-| `GetProceduralMemories()` | Filter procedural memories |
-| `GetFactualMemories()` | Filter factual memories |
-| `ComputeTaskSimilarityMetrics(ctx)` | Analyze task similarity |
-| `GetMemoryStats()` | Get aggregate statistics |
-| `ApplyEdits(ctx, ops)` | Apply PRUNE/MERGE/UPDATE_TAG |
-| `ExportMemories()` | Export all entries |
-| `ImportMemories(entries)` | Import entries |
+- `20260427_evolving_memory_pgvector.sql`
+- `20260427_evolving_memory_phase7.sql`
+- `20260427_evolving_memory_hybrid_search.sql`
 
-### ReMemController Methods
+## Configuration Reference
 
-| Method | Description |
-|--------|-------------|
-| `Execute(ctx, task, tools)` | Run Think-Act-Refine loop |
-| `StoreExperience(ctx, ...)` | Store with basic feedback |
-| `StoreExperienceEnhanced(ctx, ...)` | Store with structured feedback |
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `enabled` | `false` | Enables evolving memory for agent runs. |
+| `llmClient` | unset | Dedicated provider configuration for memory summarization, ReMem, and strategy-card generation. Preferred over legacy shorthand fields. |
+| `provider` | unset | Legacy provider override. Use `llmClient.provider` for new configs. |
+| `model` | inherited/resolved | Legacy model shorthand for memory summarization/ReMem when `llmClient` does not provide one. |
+| `persistDebounceMs` | `250` | Debounces async persistence writes after memory changes. Lower values persist sooner; higher values reduce write churn. |
+| `sessionTTLMinutes` | `60` | Evicts idle in-process per-session memory objects after this many minutes. This does not delete durable rows. |
+| `janitorIntervalMinutes` | `15` | How often agentd scans idle in-process session memories for eviction. |
+| `storeJanitorIntervalMinutes` | `60` | How often the durable store janitor removes rows whose `expires_at` has passed. |
+| `maxSize` | `1000` | Maximum entries retained per in-memory memory instance. Smart pruning or FIFO pruning runs when this is exceeded. |
+| `topK` | `4` | Number of memories injected for a task after ranking and MMR diversification. |
+| `windowSize` | `20` | Size of the ExpRecent sliding window used for recent experience context. |
+| `enableRAG` | `false` unless configured | Enables embedding-based retrieval. Requires a working embedding service. |
+| `reMemEnabled` | `false` | Enables the ReMem memory-preparation loop before the main agent run. |
+| `maxInnerSteps` | `5` | Maximum ReMem THINK/REFINE iterations before forcing ACT. `3` is a good operational default. |
+| `enableSmartPrune` | `false` | Enables duplicate merging and relevance-based pruning. |
+| `pruneThreshold` | `0.95` | Cosine similarity threshold above which entries are treated as near-duplicates for merge/prune decisions. Higher values are less aggressive. |
+| `relevanceDecay` | `0.99` | Daily relevance decay factor used during pruning. Lower values age out old memories faster. |
+| `minRelevance` | `0.1` | Entries below this relevance can be pruned when smart pruning is active. Lower values retain more old memories. |
+| `pruneQualityFloor` | `3` | Protects successful memories with at least this many accesses from relevance pruning. |
+| `promotionAccessThreshold` | `5` | Promotes successful procedural session memories to user scope after this many accesses. |
 
-## Persistence
+Internally, retrieval also uses ranking weights and an MMR lambda. These are currently code-level defaults, not YAML configuration keys.
 
-Memory entries can be persisted via the `EvolvingMemoryStore` interface:
+## Retrieval and Ranking
+
+When `enableRAG` is enabled, the engine embeds the current task and searches memory.
+
+With Postgres persistence, search uses:
+
+- pgvector cosine search against `embedding_vec`
+- full-text keyword search over `input`, `summary`, and `strategy_card`
+- reciprocal-rank fusion when both search modes return candidates
+
+Candidates are then rescored using:
+
+- embedding similarity
+- recency decay based on `last_accessed_at` or `created_at`
+- structured feedback quality (`success` boosts, `failure` lowers)
+- access-count boost for frequently reused memories
+- MMR diversification to avoid returning several near-identical memories
+
+Search updates access counters asynchronously. Repeated successful procedural memories can move from `session` scope to `user` scope so they are available across that user's future sessions.
+
+## Memory Entry Shape
+
+Each memory stores the task, result, distilled lesson, retrieval data, feedback, and lifecycle metadata:
 
 ```go
-type EvolvingMemoryStore interface {
-    Load(ctx context.Context, userID int64) ([]*MemoryEntry, error)
-    Save(ctx context.Context, userID int64, entries []*MemoryEntry) error
+type MemoryEntry struct {
+    ID                 string
+    Input              string
+    Output             string
+    Feedback           string
+    Summary            string
+    RawTrace           string
+    Embedding          []float32
+    Metadata           map[string]interface{}
+    CreatedAt          time.Time
+
+    StructuredFeedback *StructuredFeedback
+    MemoryType         MemoryType
+    StrategyCard       string
+    Scope              MemoryScope
+    ExpiresAt          *time.Time
+    AccessCount        int
+    LastAccessedAt     time.Time
+    RelevanceScore     float64
 }
 ```
 
-A PostgreSQL implementation is available in `internal/persistence/databases/evolving_memory_store_postgres.go`.
+Stored text is bounded before persistence to avoid saving very large payloads. The summarizer and strategy-card prompts also instruct the model not to include secrets, credentials, private user data, or transient one-off details.
 
-## References
+## ReMem
 
-- Paper: [Evo-Memory: Benchmarking LLM Agent Test-time Learning with Self-Evolving Memory](https://arxiv.org/abs/2511.20857)
-- Implementation follows the paper's Search → Synthesis → Evolve pattern
-- ExpRAG and ReMem baselines from Section 3.2 and 3.3
-- Memory type distinction from paper's "conversational recall vs experience reuse" (Figure 1)
+ReMem is a memory controller, not the final user-facing answer path. It runs before the main agent and returns one of these JSON actions:
+
+- `THINK`: short operational notes about the task and retrieved memories.
+- `REFINE_MEMORY`: maintenance edits for retrieved memory IDs.
+- `ACT`: finish memory preparation and hand off to the main agent.
+
+Supported edit operations are:
+
+- `PRUNE`: remove an obsolete, misleading, or unsafe memory.
+- `MERGE`: combine redundant memories that share the same reusable lesson.
+- `UPDATE_TAG`: add metadata tags when a memory looks useful but should not be removed.
+
+Use `reMemEnabled: true` only with a model that reliably emits valid JSON. If logs show repeated `remem_json_parse_failed_fallback_to_act`, disable ReMem or use a stronger memory model.
+
+## Pruning and Retention
+
+When smart pruning is enabled, the memory system:
+
+1. Merges near-duplicates using `pruneThreshold`.
+2. Computes relevance from recency and access count.
+3. Removes low-relevance entries when above `maxSize`.
+4. Protects successful frequently accessed memories according to `pruneQualityFloor`.
+
+When smart pruning is disabled, the fallback behavior is FIFO pruning once `maxSize` is exceeded.
+
+`sessionTTLMinutes` only evicts idle in-process memory objects. It does not delete durable memories. Durable deletion only happens for entries with an expired `expires_at`, through the store janitor.
+
+## Observability
+
+### Debug Endpoints
+
+The debug handler is available at both `/debug/memory` and `/api/debug/memory`.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/debug/memory` | Lists available debug subroutes. |
+| `GET /api/debug/memory/sessions` | Lists chat sessions plus sessions that only have evolving memory. |
+| `GET /api/debug/memory/sessions/{id}` | Shows chat summary, context messages, and memory plan for a session. |
+| `GET /api/debug/memory/entries` | Lists chat memory entries with filtering and pagination. |
+| `GET /api/debug/memory/plan` | Shows the derived chat memory budget plan. |
+| `GET /api/debug/memory/evolving?session_id=...&query=...` | Shows evolving-memory state, recent window, and optional retrieved memories. |
+| `GET /api/debug/memory/explain?session_id=...&query=...` | Shows ranking components for retrieved memories. |
+
+When auth is enabled, these endpoints require the current authenticated user and use that user's memory namespace.
+
+### Metrics
+
+The memory metrics endpoint is:
+
+```text
+GET /api/metrics/memory?window=24h
+GET /api/metrics/memory?windowSeconds=3600
+```
+
+It reports:
+
+- search count
+- retrieved hit count and average hits per search
+- average search latency
+- evolve/write attempts by result
+- evolve errors
+- latest memory size by user/session
+- smart merge count
+- pruned entries by reason
+
+Metrics are emitted via OpenTelemetry instruments and queried from ClickHouse when `obs.clickhouse` is configured. Without ClickHouse, the endpoint returns `source: "none"`.
+
+Metric names:
+
+- `evolving_memory_search_latency_seconds`
+- `evolving_memory_search_total`
+- `evolving_memory_search_hits`
+- `evolving_memory_evolve_total`
+- `evolving_memory_size`
+- `evolving_memory_smart_merge_total`
+- `evolving_memory_pruned_total`
+
+The Agentd UI Overview page includes a memory metrics panel and a memory inspector panel.
+
+## Troubleshooting
+
+Set `logLevel: debug` while diagnosing memory behavior.
+
+Useful log messages:
+
+- `evolving_memory_search`: retrieval ran and returned candidates.
+- `evolving_memory_embed_query_failed`: the embedding service failed or returned invalid data.
+- `evolving_memory_entry_added`: a new memory was stored.
+- `evolving_memory_smart_merged`: duplicate memories were merged.
+- `evolving_memory_relevance_pruned`: relevance pruning removed entries.
+- `evolving_memory_fifo_pruned`: fallback FIFO pruning removed entries.
+- `remem_action`: ReMem selected THINK, REFINE_MEMORY, or ACT.
+- `remem_json_parse_failed_fallback_to_act`: the ReMem model did not return valid JSON.
+
+Common fixes:
+
+- If searches fail, verify `embedding.baseURL`, `embedding.path`, `embedding.model`, and API credentials.
+- If Postgres vector search fails, confirm `pgvector` is installed and the migrations were applied with a dimensioned `vector(N)` column.
+- If memory is lost after restart, verify `databases.defaultDSN` points to Postgres and agentd can connect during startup.
+- If ReMem is slow or noisy, reduce `maxInnerSteps` to `3`, disable ReMem, or use a stronger instruction-following memory model.
+- If too many duplicates accumulate, enable smart pruning and keep `pruneThreshold` around `0.95` to `0.97`.
+- If useful old memories disappear too quickly, lower pruning aggressiveness by reducing `minRelevance` or increasing `maxSize`.
+
+## Related Files
+
+- Runtime implementation: `internal/agent/memory/evolving.go`
+- ReMem controller: `internal/agent/memory/remem.go`
+- Metrics instruments: `internal/agent/memory/metrics.go`
+- Agentd wiring: `internal/agentd/run.go`
+- Debug endpoints: `internal/agentd/handlers_memory.go`
+- Metrics endpoint: `internal/agentd/memory_metrics_clickhouse.go`
+- Postgres store: `internal/persistence/databases/evolving_memory_store_postgres.go`
+- Example config: `config.yaml.example`

@@ -177,7 +177,7 @@ func buildChatStore(ctx context.Context, backend, dsn string) (persistence.ChatS
 }
 
 func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, chatDSN string) error {
-	configureDefaultPostgresStores(ctx, m, cfg.DefaultDSN)
+	configureDefaultPostgresStores(ctx, m, cfg)
 
 	m.FlowV2 = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresFlowV2Store)
 	if err := initStore(ctx, "flow v2 store", m.FlowV2); err != nil {
@@ -221,17 +221,17 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 	return nil
 }
 
-func configureDefaultPostgresStores(ctx context.Context, m *Manager, defaultDSN string) {
-	if defaultDSN == "" {
+func configureDefaultPostgresStores(ctx context.Context, m *Manager, cfg config.DBConfig) {
+	if cfg.DefaultDSN == "" {
 		return
 	}
 
-	pool := openOptionalPostgresPool(ctx, defaultDSN)
+	pool := openOptionalPostgresPool(ctx, cfg.DefaultDSN)
 	if pool == nil {
 		return
 	}
 
-	m.EvolvingMemory = NewPostgresEvolvingMemoryStore(pool)
+	m.EvolvingMemory = NewPostgresEvolvingMemoryStoreWithDimensions(pool, cfg.Vector.Dimensions)
 	if store, ok := m.EvolvingMemory.(interface{ Init(context.Context) error }); ok {
 		_ = store.Init(ctx)
 	}

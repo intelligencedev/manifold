@@ -2,7 +2,9 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +16,24 @@ import (
 // mockLLMProvider is a simple mock for testing.
 type mockLLMProvider struct {
 	response string
+}
+
+type countingEmbedder struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (c *countingEmbedder) embed(ctx context.Context, cfg config.EmbeddingConfig, texts []string) ([][]float32, error) {
+	c.mu.Lock()
+	c.calls++
+	c.mu.Unlock()
+	return testEmbedFn(ctx, cfg, texts)
+}
+
+func (c *countingEmbedder) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.calls
 }
 
 func (m *mockLLMProvider) Chat(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
@@ -73,6 +93,187 @@ func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {
 	ctxStr := em.Synthesize(ctx, "current task", res)
 	if ctxStr == "" {
 		t.Fatalf("expected synthesized context")
+	}
+	if strings.Contains(ctxStr, "## Current Task") {
+		t.Fatalf("synthesized context should not duplicate current task: %s", ctxStr)
+	}
+}
+
+func TestGenerateSummaryPromptRequestsReusableMemory(t *testing.T) {
+	t.Parallel()
+
+	provider := &recordingLLMProvider{responses: []string{"summary"}}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: testEmbedFn,
+		LLM:     provider,
+		Model:   "test-model",
+	})
+
+	summary, err := em.generateSummary(context.Background(), "task", "output", "success")
+	if err != nil {
+		t.Fatalf("generateSummary failed: %v", err)
+	}
+	if summary != "summary" {
+		t.Fatalf("expected provider response, got %q", summary)
+	}
+	systemPrompt := provider.lastSystemMessage()
+	for _, want := range []string{
+		"task pattern",
+		"reusable lesson or strategy",
+		"mistake or risk to avoid",
+		"when the lesson should not be applied",
+		"Do not include secrets",
+	} {
+		if !strings.Contains(systemPrompt, want) {
+			t.Fatalf("expected summary prompt to contain %q, got %q", want, systemPrompt)
+		}
+	}
+}
+
+func TestSearchCompositeScorePrefersSuccessfulRecentMemory(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: testEmbedFn,
+		TopK:    1,
+		RankingWeights: RankingWeights{
+			DecayHalfLifeDays: 30,
+			SuccessWeight:     1.5,
+			FailureWeight:     0.2,
+			PartialWeight:     0.8,
+			AccessCountWeight: 0.1,
+		},
+	})
+
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{
+		{
+			ID:                 "failed",
+			Embedding:          []float32{1, 0},
+			StructuredFeedback: &StructuredFeedback{Type: FeedbackFailure},
+			LastAccessedAt:     time.Now(),
+		},
+		{
+			ID:                 "success",
+			Embedding:          []float32{0.95, 0.05},
+			StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess},
+			LastAccessedAt:     time.Now(),
+		},
+	}
+	em.mu.Unlock()
+
+	em.embedFn = func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+		return [][]float32{{1, 0}}, nil
+	}
+
+	results, err := em.SearchWithScores(ctx, "same query")
+	if err != nil {
+		t.Fatalf("SearchWithScores failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %d", len(results))
+	}
+	if results[0].Entry.ID != "success" {
+		t.Fatalf("expected success to outrank slightly more similar failure, got %q", results[0].Entry.ID)
+	}
+}
+
+func TestApplyMMRDiversifiesTopK(t *testing.T) {
+	t.Parallel()
+
+	candidates := []ScoredMemoryEntry{
+		{Entry: &MemoryEntry{ID: "near-1", Embedding: []float32{1, 0}}, Score: 0.99},
+		{Entry: &MemoryEntry{ID: "near-2", Embedding: []float32{1, 0}}, Score: 0.98},
+		{Entry: &MemoryEntry{ID: "diverse", Embedding: []float32{0, 1}}, Score: 0.8},
+	}
+
+	selected := applyMMR(candidates, 2, 0.7)
+	if len(selected) != 2 {
+		t.Fatalf("expected two selected candidates, got %d", len(selected))
+	}
+	if selected[0].Entry.ID != "near-1" || selected[1].Entry.ID != "diverse" {
+		t.Fatalf("expected MMR to choose the best match and a diverse second result, got %q and %q", selected[0].Entry.ID, selected[1].Entry.ID)
+	}
+}
+
+func TestSynthesizeGroupsSuccessesAndFailures(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn})
+	retrieved := []*MemoryEntry{
+		{
+			ID:                 "ok",
+			Input:              "fixed build",
+			Output:             "ran tests",
+			Feedback:           string(FeedbackSuccess),
+			StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess},
+		},
+		{
+			ID:                 "bad",
+			Input:              "skipped tests",
+			Output:             "regression",
+			Feedback:           string(FeedbackFailure),
+			StructuredFeedback: &StructuredFeedback{Type: FeedbackFailure},
+		},
+	}
+
+	got := em.Synthesize(context.Background(), "current task", retrieved)
+	if !strings.Contains(got, "## Strategies That Worked") {
+		t.Fatalf("expected success section, got %s", got)
+	}
+	if !strings.Contains(got, "## Mistakes to Avoid") {
+		t.Fatalf("expected failure section, got %s", got)
+	}
+	if strings.Contains(got, "## Current Task") || strings.Contains(got, "current task") {
+		t.Fatalf("expected synthesized context to omit current task, got %s", got)
+	}
+}
+
+func TestClassifyMemoryTypeUsesWholeWords(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn})
+
+	if got := em.classifyMemoryType("factory reset failed", "output", "summary"); got != MemoryEpisodic {
+		t.Fatalf("expected factory not to match factual keyword, got %q", got)
+	}
+	if got := em.classifyMemoryType("how to retry flaky tests", "output", "summary"); got != MemoryProcedural {
+		t.Fatalf("expected procedural classification, got %q", got)
+	}
+	if got := em.classifyMemoryType("what is the cache key", "output", "summary"); got != MemoryFactual {
+		t.Fatalf("expected factual classification, got %q", got)
+	}
+}
+
+func TestSearchCachesQueryEmbeddings(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	counting := &countingEmbedder{}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:                 counting.embed,
+		QueryEmbeddingCacheTTL:  time.Minute,
+		QueryEmbeddingCacheSize: 4,
+		TopK:                    1,
+	})
+
+	vecs, err := testEmbedFn(ctx, config.EmbeddingConfig{}, []string{"same task"})
+	if err != nil {
+		t.Fatalf("test embed failed: %v", err)
+	}
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{ID: "entry", Embedding: normalizeVector(vecs[0])}}
+	em.mu.Unlock()
+
+	if _, err := em.Search(ctx, "same task"); err != nil {
+		t.Fatalf("first search failed: %v", err)
+	}
+	if _, err := em.Search(ctx, "same task"); err != nil {
+		t.Fatalf("second search failed: %v", err)
+	}
+	if got := counting.count(); got != 1 {
+		t.Fatalf("expected one embedding call for repeated query, got %d", got)
 	}
 }
 
@@ -283,6 +484,80 @@ func (s *recordingEvolvingMemoryStore) Save(_ context.Context, _ int64, _ string
 	return nil
 }
 
+type recordingDeltaEvolvingMemoryStore struct {
+	saveCh    chan []*MemoryEntry
+	upsertCh  chan []*MemoryEntry
+	deleteCh  chan []string
+	touchCh   chan []string
+	promoteCh chan string
+}
+
+type recordingSearchEvolvingMemoryStore struct {
+	searchQueries  chan []float32
+	keywordQueries chan string
+	results        []ScoredMemoryEntry
+	keywordResults []ScoredMemoryEntry
+}
+
+func (s *recordingSearchEvolvingMemoryStore) Load(context.Context, int64, string) ([]*MemoryEntry, error) {
+	return nil, nil
+}
+
+func (s *recordingSearchEvolvingMemoryStore) Save(context.Context, int64, string, []*MemoryEntry) error {
+	return nil
+}
+
+func (s *recordingSearchEvolvingMemoryStore) SearchTopK(_ context.Context, _ int64, _ string, queryVec []float32, _ int) ([]ScoredMemoryEntry, error) {
+	s.searchQueries <- append([]float32(nil), queryVec...)
+	return s.results, nil
+}
+
+func (s *recordingSearchEvolvingMemoryStore) KeywordSearch(_ context.Context, _ int64, _ string, query string, _ int) ([]ScoredMemoryEntry, error) {
+	if s.keywordQueries != nil {
+		s.keywordQueries <- query
+	}
+	return s.keywordResults, nil
+}
+
+func newRecordingDeltaEvolvingMemoryStore() *recordingDeltaEvolvingMemoryStore {
+	return &recordingDeltaEvolvingMemoryStore{
+		saveCh:    make(chan []*MemoryEntry, 2),
+		upsertCh:  make(chan []*MemoryEntry, 4),
+		deleteCh:  make(chan []string, 4),
+		touchCh:   make(chan []string, 4),
+		promoteCh: make(chan string, 4),
+	}
+}
+
+func (s *recordingDeltaEvolvingMemoryStore) Load(context.Context, int64, string) ([]*MemoryEntry, error) {
+	return nil, nil
+}
+
+func (s *recordingDeltaEvolvingMemoryStore) Save(_ context.Context, _ int64, _ string, entries []*MemoryEntry) error {
+	s.saveCh <- cloneEntrySlice(entries)
+	return nil
+}
+
+func (s *recordingDeltaEvolvingMemoryStore) Upsert(_ context.Context, _ int64, _ string, entries []*MemoryEntry) error {
+	s.upsertCh <- cloneEntrySlice(entries)
+	return nil
+}
+
+func (s *recordingDeltaEvolvingMemoryStore) Delete(_ context.Context, _ int64, _ string, ids []string) error {
+	s.deleteCh <- append([]string(nil), ids...)
+	return nil
+}
+
+func (s *recordingDeltaEvolvingMemoryStore) TouchAccess(_ context.Context, ids []string, _ time.Time) error {
+	s.touchCh <- append([]string(nil), ids...)
+	return nil
+}
+
+func (s *recordingDeltaEvolvingMemoryStore) PromoteToUserScope(_ context.Context, _ int64, entryID string) error {
+	s.promoteCh <- entryID
+	return nil
+}
+
 type queuedMockLLMProvider struct {
 	responses []string
 	mu        sync.Mutex
@@ -358,6 +633,177 @@ func TestSearchPersistsAccessMetrics(t *testing.T) {
 	}
 }
 
+func TestSearchUsesTouchAccessForDeltaStore(t *testing.T) {
+	t.Parallel()
+
+	store := newRecordingDeltaEvolvingMemoryStore()
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:   testEmbedFn,
+		Store:     store,
+		UserID:    1,
+		SessionID: "delta-search-session",
+	})
+
+	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"same task"})
+	if err != nil {
+		t.Fatalf("testEmbedFn failed: %v", err)
+	}
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{
+		ID:        "entry-1",
+		Input:     "same task",
+		Output:    "result",
+		Feedback:  "success",
+		Embedding: normalizeVector(vecs[0]),
+		CreatedAt: time.Now().UTC(),
+	}}
+	em.mu.Unlock()
+
+	results, err := em.Search(context.Background(), "same task")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %d", len(results))
+	}
+
+	select {
+	case touched := <-store.touchCh:
+		if len(touched) != 1 || touched[0] != "entry-1" {
+			t.Fatalf("expected touch for entry-1, got %#v", touched)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for touch access")
+	}
+
+	select {
+	case saved := <-store.saveCh:
+		t.Fatalf("expected delta store search to avoid full save, got %#v", saved)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestSearchUsesServerSideStoreWhenLocalEntriesEmpty(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingSearchEvolvingMemoryStore{
+		searchQueries: make(chan []float32, 1),
+		results: []ScoredMemoryEntry{{
+			Entry: &MemoryEntry{
+				ID:                 "server-entry",
+				Input:              "server task",
+				Embedding:          []float32{1, 0},
+				StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess},
+			},
+			Score: 0.8,
+		}},
+	}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: testEmbedFn,
+		Store:   store,
+		TopK:    1,
+	})
+	em.embedFn = func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+		return [][]float32{{1, 0}}, nil
+	}
+
+	results, err := em.Search(context.Background(), "server query")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != "server-entry" {
+		t.Fatalf("expected server-side result, got %#v", results)
+	}
+
+	select {
+	case query := <-store.searchQueries:
+		if len(query) != 2 || query[0] != 1 || query[1] != 0 {
+			t.Fatalf("expected normalized query vector, got %#v", query)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for server-side search")
+	}
+}
+
+func TestSearchFusesDenseAndKeywordStoreResults(t *testing.T) {
+	t.Parallel()
+
+	dense := &MemoryEntry{ID: "dense", Input: "semantic match", Embedding: []float32{1, 0}}
+	keyword := &MemoryEntry{ID: "keyword", Input: "error E_BUSY in worker", Embedding: []float32{0, 1}}
+	store := &recordingSearchEvolvingMemoryStore{
+		searchQueries:  make(chan []float32, 1),
+		keywordQueries: make(chan string, 1),
+		results:        []ScoredMemoryEntry{{Entry: dense, Score: 0.9}},
+		keywordResults: []ScoredMemoryEntry{{Entry: keyword, Score: 1.0}},
+	}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: testEmbedFn,
+		Store:   store,
+		TopK:    2,
+	})
+	em.embedFn = func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+		return [][]float32{{1, 0}}, nil
+	}
+
+	results, err := em.Search(context.Background(), "E_BUSY")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected two fused results, got %d", len(results))
+	}
+	seen := map[string]bool{results[0].ID: true, results[1].ID: true}
+	if !seen["dense"] || !seen["keyword"] {
+		t.Fatalf("expected dense and keyword results, got %#v", results)
+	}
+
+	select {
+	case query := <-store.keywordQueries:
+		if query != "E_BUSY" {
+			t.Fatalf("expected keyword query E_BUSY, got %q", query)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for keyword search")
+	}
+}
+
+func TestInMemoryKeywordSearchFindsEntityHeavyMemory(t *testing.T) {
+	t.Parallel()
+
+	entries := []*MemoryEntry{
+		{ID: "generic", Input: "fix background worker", Summary: "retry transient failures"},
+		{ID: "entity", Input: "debug error code E_BUSY in worker", StrategyCard: "Check lock contention."},
+	}
+	results := inMemoryKeywordSearch(entries, "E_BUSY", 4)
+	if len(results) != 1 {
+		t.Fatalf("expected one keyword result, got %d", len(results))
+	}
+	if results[0].Entry.ID != "entity" {
+		t.Fatalf("expected entity-heavy memory, got %q", results[0].Entry.ID)
+	}
+}
+
+func TestRRFFuseCombinesRankedLists(t *testing.T) {
+	t.Parallel()
+
+	a := &MemoryEntry{ID: "a"}
+	b := &MemoryEntry{ID: "b"}
+	c := &MemoryEntry{ID: "c"}
+	fused := rrfFuse([][]ScoredMemoryEntry{
+		{{Entry: a, Score: 0.9}, {Entry: b, Score: 0.8}},
+		{{Entry: b, Score: 1.0}, {Entry: c, Score: 0.7}},
+	}, 3, 60)
+	if len(fused) != 3 {
+		t.Fatalf("expected three fused results, got %d", len(fused))
+	}
+	if fused[0].Entry.ID != "b" {
+		t.Fatalf("expected item appearing in both lists to rank first, got %q", fused[0].Entry.ID)
+	}
+	if fused[0].Score != 1 {
+		t.Fatalf("expected normalized top fused score 1, got %f", fused[0].Score)
+	}
+}
+
 func TestSmartMergeReembedsMergedSummary(t *testing.T) {
 	t.Parallel()
 
@@ -400,9 +846,85 @@ func TestSmartMergeReembedsMergedSummary(t *testing.T) {
 		t.Fatalf("expected merged embedding length %d, got %d", len(wantEmbedding[0]), len(merged.Embedding))
 	}
 	for i := range wantEmbedding[0] {
-		if merged.Embedding[i] != wantEmbedding[0][i] {
-			t.Fatalf("expected merged embedding %v, got %v", wantEmbedding[0], merged.Embedding)
+		wantNormalized := normalizeVector(wantEmbedding[0])
+		if merged.Embedding[i] != wantNormalized[i] {
+			t.Fatalf("expected merged embedding %v, got %v", wantNormalized, merged.Embedding)
 		}
+	}
+}
+
+func TestMergeEntriesPreservesBestSignals(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn})
+	now := time.Now().UTC()
+	em.entries = []*MemoryEntry{
+		{
+			ID:                 "failure",
+			Input:              "bad input",
+			Output:             "failed output",
+			Feedback:           string(FeedbackFailure),
+			StructuredFeedback: &StructuredFeedback{Type: FeedbackFailure, Correct: false, Message: "failed"},
+			StrategyCard:       "Avoid skipping validation.",
+			RawTrace:           "short",
+			MemoryType:         MemoryEpisodic,
+			AccessCount:        2,
+			LastAccessedAt:     now.Add(-time.Hour),
+			RelevanceScore:     0.5,
+		},
+		{
+			ID:                 "success",
+			Input:              "good input",
+			Output:             "successful detailed output",
+			Feedback:           string(FeedbackSuccess),
+			StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess, Correct: true, Message: "worked"},
+			StrategyCard:       "Run validation first.",
+			RawTrace:           "longer trace with useful details",
+			MemoryType:         MemoryProcedural,
+			AccessCount:        3,
+			LastAccessedAt:     now,
+			RelevanceScore:     0.9,
+		},
+	}
+
+	if err := em.mergeEntries(context.Background(), []string{"failure", "success"}, "merged lesson"); err != nil {
+		t.Fatalf("mergeEntries failed: %v", err)
+	}
+
+	if len(em.entries) != 1 {
+		t.Fatalf("expected one merged entry, got %d", len(em.entries))
+	}
+	merged := em.entries[0]
+	if merged.Feedback != string(FeedbackSuccess) {
+		t.Fatalf("expected success feedback to win, got %q", merged.Feedback)
+	}
+	if merged.StructuredFeedback == nil || merged.StructuredFeedback.Type != FeedbackSuccess || !merged.StructuredFeedback.Correct {
+		t.Fatalf("expected successful structured feedback, got %#v", merged.StructuredFeedback)
+	}
+	if merged.Output != "successful detailed output" {
+		t.Fatalf("expected representative successful output, got %q", merged.Output)
+	}
+	if !strings.Contains(merged.StrategyCard, "Avoid skipping validation.") || !strings.Contains(merged.StrategyCard, "Run validation first.") {
+		t.Fatalf("expected unioned strategy cards, got %q", merged.StrategyCard)
+	}
+	if merged.RawTrace != "longer trace with useful details" {
+		t.Fatalf("expected richer raw trace, got %q", merged.RawTrace)
+	}
+	if merged.MemoryType != MemoryProcedural {
+		t.Fatalf("expected procedural memory type, got %q", merged.MemoryType)
+	}
+	if merged.AccessCount != 5 {
+		t.Fatalf("expected summed access count 5, got %d", merged.AccessCount)
+	}
+	if !merged.LastAccessedAt.Equal(now) {
+		t.Fatalf("expected latest access time, got %s", merged.LastAccessedAt)
+	}
+	if merged.RelevanceScore != 0.9 {
+		t.Fatalf("expected best relevance 0.9, got %f", merged.RelevanceScore)
+	}
+	mergedFrom, ok := merged.Metadata["merged_from"].([]string)
+	if !ok || len(mergedFrom) != 2 {
+		t.Fatalf("expected merged_from metadata with both IDs, got %#v", merged.Metadata["merged_from"])
 	}
 }
 
@@ -437,6 +959,303 @@ func TestPersistEntriesAsyncCoalescesRapidUpdates(t *testing.T) {
 	case extra := <-store.saveCh:
 		t.Fatalf("expected only one coalesced save, got extra %#v", extra)
 	case <-time.After(120 * time.Millisecond):
+	}
+}
+
+func TestDeltaPersistenceUpsertsDirtyEntries(t *testing.T) {
+	t.Parallel()
+
+	store := newRecordingDeltaEvolvingMemoryStore()
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:          testEmbedFn,
+		LLM:              &mockLLMProvider{response: "delta lesson"},
+		Model:            "test-model",
+		Store:            store,
+		UserID:           2,
+		SessionID:        "delta-upsert-session",
+		PersistDebounce:  10 * time.Millisecond,
+		EnableSmartPrune: false,
+	})
+
+	if err := em.EvolveEnhanced(context.Background(), "new input", "new output", "success", nil, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+
+	select {
+	case upserted := <-store.upsertCh:
+		if len(upserted) != 1 {
+			t.Fatalf("expected one upserted entry, got %d", len(upserted))
+		}
+		if upserted[0].Input != "new input" {
+			t.Fatalf("expected dirty entry to be upserted, got %#v", upserted[0])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for delta upsert")
+	}
+
+	select {
+	case saved := <-store.saveCh:
+		t.Fatalf("expected delta store evolve to avoid full save, got %#v", saved)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestDeltaPersistenceDeletesPrunedEntries(t *testing.T) {
+	t.Parallel()
+
+	store := newRecordingDeltaEvolvingMemoryStore()
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:         testEmbedFn,
+		Store:           store,
+		UserID:          3,
+		SessionID:       "delta-delete-session",
+		PersistDebounce: 10 * time.Millisecond,
+	})
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{ID: "entry-to-delete", Input: "old"}}
+	em.mu.Unlock()
+
+	if err := em.ApplyEdits(context.Background(), []MemoryEditOp{{Type: "PRUNE", IDs: []string{"entry-to-delete"}}}); err != nil {
+		t.Fatalf("ApplyEdits failed: %v", err)
+	}
+
+	select {
+	case deleted := <-store.deleteCh:
+		if len(deleted) != 1 || deleted[0] != "entry-to-delete" {
+			t.Fatalf("expected deleted entry ID, got %#v", deleted)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for delta delete")
+	}
+}
+
+func TestRedactPIIRemovesKnownSecretPatterns(t *testing.T) {
+	t.Parallel()
+
+	input := "email user@example.com aws AKIA1234567890ABCDEF jwt eyJhbGciOiJIUzI1NiJ9.aaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbb key sk-abcdefghijklmnopqrstuvwxyz123456"
+	redacted := redactPII(input)
+	for _, forbidden := range []string{"user@example.com", "AKIA1234567890ABCDEF", "eyJhbGciOiJIUzI1NiJ9", "sk-abcdefghijklmnopqrstuvwxyz123456"} {
+		if strings.Contains(redacted, forbidden) {
+			t.Fatalf("expected %q to be redacted from %q", forbidden, redacted)
+		}
+	}
+}
+
+func TestEvolveEnhancedRedactsPIIAtWriteTime(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: testEmbedFn,
+		LLM:     &mockLLMProvider{response: "lesson"},
+		Model:   "test-model",
+	})
+	trace := []string{"used token eyJhbGciOiJIUzI1NiJ9.aaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbb"}
+	if err := em.EvolveEnhanced(context.Background(), "contact user@example.com", "key AKIA1234567890ABCDEF", "success", nil, trace, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+	entries := em.ExportMemories()
+	if len(entries) != 1 {
+		t.Fatalf("expected one memory, got %d", len(entries))
+	}
+	joined := entries[0].Input + entries[0].Output + entries[0].RawTrace
+	for _, forbidden := range []string{"user@example.com", "AKIA1234567890ABCDEF", "eyJhbGciOiJIUzI1NiJ9"} {
+		if strings.Contains(joined, forbidden) {
+			t.Fatalf("expected stored fields to redact %q: %#v", forbidden, entries[0])
+		}
+	}
+}
+
+func TestRelevancePruneKeepsSuccessfulQualityFloor(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:           testEmbedFn,
+		MaxSize:           1,
+		EnableSmartPrune:  true,
+		PruneQualityFloor: 3,
+	})
+	now := time.Now().UTC()
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{
+		{
+			ID:                 "protected",
+			Input:              "old but useful",
+			StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess, Correct: true},
+			MemoryType:         MemoryProcedural,
+			AccessCount:        3,
+			CreatedAt:          now.Add(-365 * 24 * time.Hour),
+			LastAccessedAt:     now.Add(-365 * 24 * time.Hour),
+		},
+		{
+			ID:             "unprotected",
+			Input:          "new but unused",
+			CreatedAt:      now,
+			LastAccessedAt: now,
+		},
+	}
+	em.relevanceBasedPrune(context.Background())
+	remaining := em.entries
+	em.mu.Unlock()
+
+	if len(remaining) != 1 || remaining[0].ID != "protected" {
+		t.Fatalf("expected quality-floor protected memory to remain, got %#v", remaining)
+	}
+}
+
+func TestSearchPromotesSuccessfulProceduralMemory(t *testing.T) {
+	t.Parallel()
+
+	store := newRecordingDeltaEvolvingMemoryStore()
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:                  testEmbedFn,
+		Store:                    store,
+		UserID:                   42,
+		SessionID:                "promotion-session",
+		TopK:                     1,
+		PromotionAccessThreshold: 5,
+	})
+	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"promote me"})
+	if err != nil {
+		t.Fatalf("embed failed: %v", err)
+	}
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{
+		ID:                 "promote-entry",
+		Input:              "promote me",
+		Embedding:          normalizeVector(vecs[0]),
+		MemoryType:         MemoryProcedural,
+		Scope:              MemoryScopeSession,
+		AccessCount:        4,
+		StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess, Correct: true},
+	}}
+	em.mu.Unlock()
+
+	if _, err := em.Search(context.Background(), "promote me"); err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	select {
+	case promoted := <-store.promoteCh:
+		if promoted != "promote-entry" {
+			t.Fatalf("expected promote-entry promotion, got %q", promoted)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for promotion")
+	}
+}
+
+func TestSearchFiltersExpiredEntries(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn, TopK: 2})
+	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"live", "expired"})
+	if err != nil {
+		t.Fatalf("embed failed: %v", err)
+	}
+	expiredAt := time.Now().Add(-time.Minute)
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{
+		{ID: "live", Input: "live", Embedding: normalizeVector(vecs[0])},
+		{ID: "expired", Input: "expired", Embedding: normalizeVector(vecs[1]), ExpiresAt: &expiredAt},
+	}
+	em.mu.Unlock()
+
+	results, err := em.Search(context.Background(), "expired")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != "live" {
+		t.Fatalf("expected only live memory, got %#v", results)
+	}
+}
+
+func TestExplainSearchIncludesScoreComponents(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn, TopK: 1})
+	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"component query"})
+	if err != nil {
+		t.Fatalf("embed failed: %v", err)
+	}
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{
+		ID:                 "entry",
+		Input:              "component query",
+		Embedding:          normalizeVector(vecs[0]),
+		AccessCount:        2,
+		StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess},
+	}}
+	em.mu.Unlock()
+
+	explanations, err := em.ExplainSearch(context.Background(), "component query")
+	if err != nil {
+		t.Fatalf("ExplainSearch failed: %v", err)
+	}
+	if len(explanations) != 1 {
+		t.Fatalf("expected one explanation, got %d", len(explanations))
+	}
+	got := explanations[0]
+	if got.Entry.ID != "entry" || got.Similarity == 0 || got.Decay == 0 || got.QualityWeight == 0 || got.AccessBoost == 0 || got.Composite == 0 {
+		t.Fatalf("expected populated score components, got %#v", got)
+	}
+}
+
+func TestConcurrentSearchEvolveAndApplyEdits(t *testing.T) {
+	ctx := context.Background()
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:          testEmbedFn,
+		LLM:              &mockLLMProvider{response: "lesson"},
+		Model:            "test-model",
+		TopK:             3,
+		EnableSmartPrune: false,
+	})
+	if err := em.EvolveEnhanced(ctx, "initial", "ok", "success", nil, nil, ""); err != nil {
+		t.Fatalf("initial evolve failed: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		idx := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				_, _ = em.Search(ctx, "initial")
+				_ = em.ApplyEdits(ctx, []MemoryEditOp{{Type: "UPDATE_TAG", IDs: []string{"missing"}, Tag: "tag"}})
+				_ = em.EvolveEnhanced(ctx, fmt.Sprintf("task-%d-%d", idx, j), "ok", "success", nil, nil, "")
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestEvolveEnhancedCapsStoredFieldSizes(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: testEmbedFn,
+		LLM:     &mockLLMProvider{response: "lesson"},
+		Model:   "test-model",
+	})
+
+	longInput := strings.Repeat("i", maxStoredInputBytes+100)
+	longOutput := strings.Repeat("o", maxStoredOutputBytes+100)
+	longTraceStep := strings.Repeat("t", maxStoredRawTraceBytes+100)
+	if err := em.EvolveEnhanced(context.Background(), longInput, longOutput, "success", nil, []string{longTraceStep}, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+
+	entries := em.ExportMemories()
+	if len(entries) != 1 {
+		t.Fatalf("expected one entry, got %d", len(entries))
+	}
+	if len(entries[0].Input) > maxStoredInputBytes {
+		t.Fatalf("expected capped input, got %d bytes", len(entries[0].Input))
+	}
+	if len(entries[0].Output) > maxStoredOutputBytes {
+		t.Fatalf("expected capped output, got %d bytes", len(entries[0].Output))
+	}
+	if len(entries[0].RawTrace) > maxStoredRawTraceBytes {
+		t.Fatalf("expected capped raw trace, got %d bytes", len(entries[0].RawTrace))
 	}
 }
 

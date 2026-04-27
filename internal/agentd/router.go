@@ -68,6 +68,7 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/teams/", a.teamDetailHandler())
 
 	mux.HandleFunc("/api/metrics/tokens", a.metricsTokensHandler())
+	mux.HandleFunc("/api/metrics/memory", a.metricsMemoryHandler())
 	mux.HandleFunc("/api/metrics/traces", a.metricsTracesHandler())
 	mux.HandleFunc("/api/metrics/logs", a.metricsLogsHandler())
 	// Agentd configuration (GET + POST/PUT/PATCH)

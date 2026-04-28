@@ -25,7 +25,7 @@ When ReMem is enabled, a short memory-preparation loop runs before the main agen
 - Scope promotion: successful procedural memories can be promoted from `session` scope to `user` scope after repeated retrieval.
 - Smart pruning: duplicate merge and relevance-based pruning, while protecting frequently reused successful memories.
 - Persistence: optional Postgres-backed `evolving_memories` table with pgvector and full-text indexes.
-- Observability: debug endpoints, UI inspector, score explanations, and OTel metrics surfaced from ClickHouse.
+- Observability: debug endpoints, UI inspector, score explanations, local process metrics, and optional ClickHouse-backed historical metrics.
 
 ## Recommended Configuration
 
@@ -264,7 +264,7 @@ It reports:
 - smart merge count
 - pruned entries by reason
 
-Metrics are emitted via OpenTelemetry instruments and queried from ClickHouse when `obs.clickhouse` is configured. Without ClickHouse, the endpoint returns `source: "none"`.
+Metrics are emitted via OpenTelemetry instruments and are also mirrored into bounded process-local telemetry when `obs.local.enabled` is true. The endpoint prefers ClickHouse when `obs.clickhouse.dsn` is configured and falls back to `source: "process"` when running without ClickHouse. If both local telemetry and ClickHouse are disabled, it returns `source: "none"`.
 
 Metric names:
 
@@ -309,6 +309,6 @@ Common fixes:
 - Metrics instruments: `internal/agent/memory/metrics.go`
 - Agentd wiring: `internal/agentd/run.go`
 - Debug endpoints: `internal/agentd/handlers_memory.go`
-- Metrics endpoint: `internal/agentd/memory_metrics_clickhouse.go`
+- Metrics endpoint: `internal/agentd/memory_metrics_clickhouse.go` and `internal/agentd/process_metrics.go`
 - Postgres store: `internal/persistence/databases/evolving_memory_store_postgres.go`
 - Example config: `config.yaml.example`

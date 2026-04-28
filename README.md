@@ -100,6 +100,25 @@ docker compose up -d pg-manifold manifold
 
 Then open <http://localhost:32180>.
 
+### Self-contained host run
+
+Manifold can also run without external database or telemetry services when you build `agentd` locally. Enable the embedded Postgres runtime and keep ClickHouse/OTLP unset:
+
+```yaml
+databases:
+  embedded: true
+  defaultDSN: ""
+
+obs:
+  otlp: ""
+  local:
+    enabled: true
+  clickhouse:
+    dsn: ""
+```
+
+With that configuration, `agentd` starts a bundled PostgreSQL process for durable state and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
+
 For the full deployment walkthrough, see:
 
 - [QUICKSTART.md](./QUICKSTART.md)

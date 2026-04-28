@@ -74,6 +74,10 @@ func newClickHouseTraceMetrics(ctx context.Context, cfg config.ClickHouseConfig)
 	return &clickhouseTraceMetrics{conn: conn, table: table, timeout: timeout}, nil
 }
 
+func (c *clickhouseTraceMetrics) Source() string {
+	return "clickhouse"
+}
+
 func (c *clickhouseTraceMetrics) Traces(ctx context.Context, window time.Duration, limit int) ([]llmpkg.TraceSnapshot, time.Duration, error) {
 	if c == nil || c.conn == nil {
 		return nil, 0, errors.New("clickhouse connection is nil")

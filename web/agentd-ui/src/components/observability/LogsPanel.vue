@@ -30,6 +30,12 @@
             :options="levelDropdownOptions"
           />
         </label>
+        <span
+          class="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+          :title="sourceTitle"
+        >
+          {{ sourceLabel }}
+        </span>
       </div>
     </div>
 
@@ -115,10 +121,14 @@ const levelDropdownOptions = [
 ];
 
 const {
+  data,
   isLoading: logsLoading,
   isError: logsError,
   logRows,
 } = useLogMetrics(selectedRange);
+
+const sourceLabel = computed(() => formatSource(data.value?.source));
+const sourceTitle = computed(() => sourceTooltip(data.value?.source));
 
 const filteredLogs = computed(() => {
   if (selectedLevel.value === "all") return logRows.value;
@@ -166,5 +176,17 @@ function toDate(value: string | number) {
   const parsed = Date.parse(value);
   if (!Number.isNaN(parsed)) return new Date(parsed);
   return new Date();
+}
+
+function formatSource(source?: string) {
+  if (source === "clickhouse") return "ClickHouse";
+  if (source === "process") return "Local";
+  return "Disabled";
+}
+
+function sourceTooltip(source?: string) {
+  if (source === "clickhouse") return "Persistent telemetry from ClickHouse.";
+  if (source === "process") return "Bounded process-local telemetry. Resets when agentd restarts.";
+  return "No telemetry provider is enabled.";
 }
 </script>

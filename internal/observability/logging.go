@@ -19,6 +19,8 @@ var otelWriterEnabled bool
 // currentLogWriter stores the underlying io.Writer for the global logger.
 // This allows EnableOTelLogging to wrap it with a MultiWriter.
 var currentLogWriter io.Writer
+var otelLogWriter io.Writer
+var sideLogWriter io.Writer
 
 // InitLogger initializes zerolog with sane defaults. If logPath is non-empty,
 // logs are also written to that file (append mode). If opening the file fails,
@@ -37,7 +39,7 @@ func InitLogger(logPath string, level string) {
 		}
 	}
 	currentLogWriter = w // Store for later use by EnableOTelLogging
-	log.Logger = log.Output(w).With().Timestamp().Logger()
+	rebuildLoggerOutput()
 	// Parse level
 	level = strings.ToLower(strings.TrimSpace(level))
 	if level == "warning" {
@@ -62,12 +64,30 @@ func EnableOTelLogging(serviceName string) {
 		return
 	}
 	otelWriter := NewOTelWriter(serviceName)
-	// Create a multi-writer that writes to both existing output and OTLP
-	baseWriter := currentLogWriter
-	if baseWriter == nil {
-		baseWriter = os.Stdout
-	}
-	multi := io.MultiWriter(baseWriter, otelWriter)
-	log.Logger = log.Output(multi).With().Timestamp().Logger()
+	otelLogWriter = otelWriter
+	rebuildLoggerOutput()
 	otelWriterEnabled = true
+}
+
+// AddLogWriter adds a best-effort side-channel writer to the global zerolog
+// output while preserving the existing logger sink.
+func AddLogWriter(writer io.Writer) {
+	sideLogWriter = writer
+	rebuildLoggerOutput()
+}
+
+func rebuildLoggerOutput() {
+	writers := make([]io.Writer, 0, 3)
+	if currentLogWriter != nil {
+		writers = append(writers, currentLogWriter)
+	} else {
+		writers = append(writers, os.Stdout)
+	}
+	if otelLogWriter != nil {
+		writers = append(writers, otelLogWriter)
+	}
+	if sideLogWriter != nil {
+		writers = append(writers, sideLogWriter)
+	}
+	log.Logger = log.Output(io.MultiWriter(writers...)).With().Timestamp().Logger()
 }

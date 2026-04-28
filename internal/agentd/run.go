@@ -118,11 +118,11 @@ type app struct {
 	mcpManager         *mcpclient.Manager
 	mcpPool            *mcpclient.MCPServerPool
 	startupMCPOAuthIDs []int64
-	tokenMetrics       tokenMetricsProvider
-	memoryMetrics      memoryMetricsProvider
-	traceMetrics       *clickhouseTraceMetrics
+	tokenMetrics       []tokenMetricsProvider
+	memoryMetrics      []memoryMetricsProvider
+	traceMetrics       []traceMetricsProvider
 	runMetrics         *clickhouseRunMetrics
-	logMetrics         *clickhouseLogMetrics
+	logMetrics         []logMetricsProvider
 	transitService     *transitdomain.Service
 	embeddedRuntime    *embeddedpg.Runtime
 }
@@ -1248,6 +1248,23 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, err
 	}
 
+	if cfg.Obs.Local.IsEnabled() {
+		metricsWindow := time.Duration(cfg.Obs.Local.MetricsWindowMinutes) * time.Minute
+		memory.ConfigureLocalTelemetry(memory.LocalTelemetryConfig{
+			Enabled:   true,
+			MaxEvents: cfg.Obs.Local.MaxLogs,
+			Retention: metricsWindow,
+		})
+		processLogs := newProcessLogMetrics(cfg.Obs.Local.MaxLogs)
+		observability.AddLogWriter(processLogs)
+		app.tokenMetrics = append(app.tokenMetrics, processTokenMetrics{})
+		app.memoryMetrics = append(app.memoryMetrics, processMemoryMetrics{})
+		app.traceMetrics = append(app.traceMetrics, processTraceMetrics{})
+		app.logMetrics = append(app.logMetrics, processLogs)
+	} else {
+		memory.ConfigureLocalTelemetry(memory.LocalTelemetryConfig{Enabled: false})
+	}
+
 	// Ensure ClickHouse tables exist before initializing metrics providers.
 	if strings.TrimSpace(cfg.Obs.ClickHouse.DSN) == "" {
 		log.Warn().Msg("clickhouse dashboard queries disabled: CLICKHOUSE_DSN is not set")
@@ -1260,26 +1277,26 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if tm, err := newClickHouseTokenMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
 		log.Warn().Err(err).Msg("clickhouse metrics disabled")
 	} else if tm != nil {
-		app.tokenMetrics = tm
+		app.tokenMetrics = append([]tokenMetricsProvider{tm}, app.tokenMetrics...)
 	}
 
 	if mm, err := newClickHouseMemoryMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
 		log.Warn().Err(err).Msg("clickhouse memory metrics disabled")
 	} else if mm != nil {
-		app.memoryMetrics = mm
+		app.memoryMetrics = append([]memoryMetricsProvider{mm}, app.memoryMetrics...)
 	}
 
 	if chTraces, err := newClickHouseTraceMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
 		log.Warn().Err(err).Msg("clickhouse trace queries disabled")
 	} else if chTraces != nil {
-		app.traceMetrics = chTraces
+		app.traceMetrics = append([]traceMetricsProvider{chTraces}, app.traceMetrics...)
 		app.runMetrics = newClickHouseRunMetrics(chTraces)
 	}
 
 	if chLogs, err := newClickHouseLogMetrics(ctx, cfg.Obs.ClickHouse); err != nil {
 		log.Warn().Err(err).Msg("clickhouse log queries disabled")
 	} else if chLogs != nil {
-		app.logMetrics = chLogs
+		app.logMetrics = append([]logMetricsProvider{chLogs}, app.logMetrics...)
 	}
 
 	_ = mcpMgr // ensure lifetime; manager currently long-lived

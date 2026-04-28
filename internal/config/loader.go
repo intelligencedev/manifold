@@ -211,6 +211,21 @@ func applyDefaults(cfg *Config) {
 	if cfg.Obs.Environment == "" {
 		cfg.Obs.Environment = "dev"
 	}
+	if cfg.Obs.Local.MetricsWindowMinutes <= 0 {
+		cfg.Obs.Local.MetricsWindowMinutes = 60
+	}
+	if cfg.Obs.Local.MetricsBucketSeconds <= 0 {
+		cfg.Obs.Local.MetricsBucketSeconds = 30
+	}
+	if cfg.Obs.Local.MaxLogs <= 0 {
+		cfg.Obs.Local.MaxLogs = 5000
+	}
+	if cfg.Obs.Local.MaxTraces <= 0 {
+		cfg.Obs.Local.MaxTraces = 1000
+	}
+	if cfg.Obs.Local.MaxSpansPerTrace <= 0 {
+		cfg.Obs.Local.MaxSpansPerTrace = 256
+	}
 	if cfg.Obs.ClickHouse.MetricsTable == "" {
 		cfg.Obs.ClickHouse.MetricsTable = "metrics"
 	}

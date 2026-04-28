@@ -9,15 +9,23 @@
           Search, write, pruning, and size signals from telemetry
         </p>
       </div>
-      <label class="flex items-center gap-2 text-xs text-foreground">
-        <span>Time Range</span>
-        <DropdownSelect
-          v-model="selectedRange"
-          size="sm"
-          class="text-xs"
-          :options="timeRangeDropdownOptions"
-        />
-      </label>
+      <div class="flex flex-wrap items-center justify-end gap-3 text-xs">
+        <label class="flex items-center gap-2 text-foreground">
+          <span>Time Range</span>
+          <DropdownSelect
+            v-model="selectedRange"
+            size="sm"
+            class="text-xs"
+            :options="timeRangeDropdownOptions"
+          />
+        </label>
+        <span
+          class="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+          :title="sourceTitle"
+        >
+          {{ sourceLabel }}
+        </span>
+      </div>
     </header>
 
     <div class="mt-4 min-h-0 flex-1 overflow-hidden">
@@ -154,6 +162,9 @@ const hasNoData = computed(
     sizeRows.value.length === 0,
 );
 
+const sourceLabel = computed(() => formatSource(data.value?.source));
+const sourceTitle = computed(() => sourceTooltip(data.value?.source));
+
 const kpis = computed(() => [
   {
     label: "Searches",
@@ -176,6 +187,18 @@ const kpis = computed(() => [
     detail: `${formatNumber(totals.value.pruned)} pruned · ${formatNumber(totals.value.smartMerges)} merged`,
   },
 ]);
+
+function formatSource(source?: string) {
+  if (source === "clickhouse") return "ClickHouse";
+  if (source === "process") return "Local";
+  return "Disabled";
+}
+
+function sourceTooltip(source?: string) {
+  if (source === "clickhouse") return "Persistent telemetry from ClickHouse.";
+  if (source === "process") return "Bounded process-local telemetry. Resets when agentd restarts.";
+  return "No telemetry provider is enabled.";
+}
 
 const MetricBreakdown = defineComponent({
   name: "MetricBreakdown",

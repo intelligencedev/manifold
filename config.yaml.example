@@ -101,10 +101,25 @@ obs:
   serviceName: manifold
   serviceVersion: 0.0.1
   environment: local
+  # Optional OTLP export endpoint. Leave empty when running without an
+  # OpenTelemetry Collector; the dashboard will still use local process
+  # telemetry when obs.local.enabled is true.
   # Use bare host:port here. The current OTLP HTTP exporter code appends
   # the default /v1/{traces,metrics,logs} paths for collector endpoints.
-  otlp: localhost:4318
+  otlp: ""
+  # Local process telemetry is enabled by default and backs the dashboard when
+  # ClickHouse is not configured or unavailable. It is bounded and resets when
+  # agentd restarts.
+  local:
+    enabled: true
+    metricsWindowMinutes: 60
+    metricsBucketSeconds: 30
+    maxLogs: 5000
+    maxTraces: 1000
+    maxSpansPerTrace: 256
   clickhouse:
+    # Optional persistent telemetry backend. Keep CLICKHOUSE_DSN empty for a
+    # self-contained install that does not run ClickHouse.
     dsn: "${CLICKHOUSE_DSN}"
     database: otel
     metricsTable: metrics_sum
@@ -158,7 +173,11 @@ auth:
 
 # Database backends.
 databases:
-  embedded: false # set true to run a bundled PostgreSQL instance locally
+  # Docker Compose users can keep embedded=false and use pg-manifold through
+  # DATABASE_URL. Host-run users can set embedded=true and leave DATABASE_URL
+  # empty; agentd will start a bundled local PostgreSQL and wire its DSN into
+  # all database-backed stores at startup.
+  embedded: false
   embeddedPort: 5433
   embeddedDataDir: "" # defaults to ~/.manifold/embedded-postgres/data
   embeddedVersion: "18"

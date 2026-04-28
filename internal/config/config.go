@@ -291,7 +291,21 @@ type ObsConfig struct {
 	ServiceVersion string           `yaml:"serviceVersion" json:"serviceVersion"`
 	Environment    string           `yaml:"environment" json:"environment"`
 	OTLP           string           `yaml:"otlp" json:"otlp"`
+	Local          LocalObsConfig   `yaml:"local" json:"local"`
 	ClickHouse     ClickHouseConfig `yaml:"clickhouse" json:"clickhouse"`
+}
+
+type LocalObsConfig struct {
+	Enabled              *bool `yaml:"enabled" json:"enabled"`
+	MetricsWindowMinutes int   `yaml:"metricsWindowMinutes" json:"metricsWindowMinutes"`
+	MetricsBucketSeconds int   `yaml:"metricsBucketSeconds" json:"metricsBucketSeconds"`
+	MaxLogs              int   `yaml:"maxLogs" json:"maxLogs"`
+	MaxTraces            int   `yaml:"maxTraces" json:"maxTraces"`
+	MaxSpansPerTrace     int   `yaml:"maxSpansPerTrace" json:"maxSpansPerTrace"`
+}
+
+func (c LocalObsConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 type WebConfig struct {

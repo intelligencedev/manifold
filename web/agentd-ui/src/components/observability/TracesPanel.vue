@@ -21,6 +21,12 @@
             :options="timeRangeDropdownOptions"
           />
         </label>
+        <span
+          class="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+          :title="sourceTitle"
+        >
+          {{ sourceLabel }}
+        </span>
       </div>
     </div>
 
@@ -93,7 +99,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import {
   TOKEN_METRIC_TIME_RANGES,
   type MetricsTimeRangeValue,
@@ -110,8 +116,24 @@ const timeRangeDropdownOptions = TOKEN_METRIC_TIME_RANGES.map((option) => ({
 }));
 
 const {
+  data,
   isLoading: tracesLoading,
   isError: tracesError,
   traceRows,
 } = useTraceMetrics(selectedRange);
+
+const sourceLabel = computed(() => formatSource(data.value?.source));
+const sourceTitle = computed(() => sourceTooltip(data.value?.source));
+
+function formatSource(source?: string) {
+  if (source === "clickhouse") return "ClickHouse";
+  if (source === "process") return "Local";
+  return "Disabled";
+}
+
+function sourceTooltip(source?: string) {
+  if (source === "clickhouse") return "Persistent telemetry from ClickHouse.";
+  if (source === "process") return "Bounded process-local telemetry. Resets when agentd restarts.";
+  return "No telemetry provider is enabled.";
+}
 </script>

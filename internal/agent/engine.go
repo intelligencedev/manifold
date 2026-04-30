@@ -10,23 +10,40 @@ import (
 	"sync/atomic"
 	"time"
 
+	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
+	"manifold/internal/policy"
 	"manifold/internal/tools"
 	"manifold/internal/tools/tts"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type Engine struct {
-	LLM       llm.Provider
-	Tools     tools.Registry
-	MaxSteps  int
-	System    string
-	Model     string // default model name to pass to provider (used for metrics)
-	SessionID string
+	LLM             llm.Provider
+	Tools           tools.Registry
+	MaxSteps        int
+	System          string
+	Model           string // default model name to pass to provider (used for metrics)
+	SessionID       string
+	ProjectID       string
+	ObjectiveID     string
+	UserID          int64
+	AgentRole       string
+	BeliefStore     belief.Store
+	BeliefDistiller belief.Distiller
+	BeliefRetriever belief.Retriever
+	BeliefGraph     belief.Graph
+	// BeliefMaxBeliefsPerPrompt bounds belief-memory prompt injection.
+	BeliefMaxBeliefsPerPrompt int
+	// BeliefPromptTokenBudget bounds the prompt section generated from belief memory.
+	BeliefPromptTokenBudget  int
+	BeliefPromotionThreshold float64
+	PolicyEnforcer           policy.Enforcer
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
 	// <= 0 means unbounded (default to len(toolCalls)); 1 preserves sequential behavior.
 	MaxToolParallelism int
@@ -158,13 +175,23 @@ func (e *Engine) countMessagesTokens(ctx context.Context, msgs []llm.Message) in
 // Run executes the agent loop until the model produces a final answer.
 func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Message) (string, error) {
 	log := observability.LoggerWithTrace(ctx)
+	startedAt := time.Now().UTC()
+	var final string
+	var err error
+	var evolvingEntryID string
+	defer func() {
+		e.recordRunEpisode(ctx, startedAt, final, err, evolvingEntryID)
+	}()
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller
 	if e.ReMemEnabled && e.ReMemController != nil {
-		return e.runWithReMem(ctx, userInput, history)
+		final, err = e.runWithReMem(ctx, userInput, history)
+		return final, err
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
+	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 
 	// Augment with evolving memory (ExpRAG or ExpRecent)
 	if e.EvolvingMemory != nil {
@@ -179,25 +206,36 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
-	final, err := e.runLoop(ctx, msgs)
+	final, err = e.runLoop(ctx, msgs)
 	if err != nil {
 		return "", err
 	}
 
-	e.storeSuccessfulExperience(ctx, userInput, final)
+	evolvingEntryID = e.storeSuccessfulExperience(ctx, userInput, final)
 
 	return final, nil
 }
 
 // RunStream executes the agent loop with streaming support
 func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.Message) (string, error) {
+	startedAt := time.Now().UTC()
+	var final string
+	var err error
+	var evolvingEntryID string
+	defer func() {
+		e.recordRunEpisode(ctx, startedAt, final, err, evolvingEntryID)
+	}()
+
 	// If ReMem mode is enabled, use Think-Act-Refine controller
 	// Note: streaming with ReMem may need special handling for THINK/REFINE steps
 	if e.ReMemEnabled && e.ReMemController != nil {
-		return e.runWithReMem(ctx, userInput, history)
+		final, err = e.runWithReMem(ctx, userInput, history)
+		return final, err
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
+	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 
 	// Augment with evolving memory (ExpRAG or ExpRecent)
 	if e.EvolvingMemory != nil {
@@ -212,19 +250,140 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
-	final, err := e.runStreamLoop(ctx, msgs)
+	final, err = e.runStreamLoop(ctx, msgs)
 	if err != nil {
 		return "", err
 	}
 
-	e.storeSuccessfulExperience(ctx, userInput, final)
+	evolvingEntryID = e.storeSuccessfulExperience(ctx, userInput, final)
 
 	return final, nil
 }
 
-func (e *Engine) storeSuccessfulExperience(ctx context.Context, userInput, final string) {
-	if e.EvolvingMemory == nil {
+func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, final string, runErr error, evolvingEntryID string) {
+	if e == nil || e.BeliefStore == nil {
 		return
+	}
+	projectID := belief.NormalizeProjectID(e.ProjectID)
+	objectiveID := strings.TrimSpace(e.ObjectiveID)
+	if objectiveID == "" {
+		return
+	}
+	now := time.Now().UTC()
+	outcome := "success"
+	outcomeSignal := "implicit_success"
+	metadata := map[string]any{"finalLength": len(final)}
+	if runErr != nil {
+		outcome = "error"
+		outcomeSignal = "runtime_error"
+		metadata["error"] = runErr.Error()
+	}
+	agentRole := strings.TrimSpace(e.AgentRole)
+	if agentRole == "" {
+		agentRole = "orchestrator"
+	}
+	scope, err := e.BeliefStore.EnsureScope(ctx, belief.Scope{
+		TenantID: e.UserID,
+		Kind:     belief.ScopeKindObjective,
+		Path:     projectID + "/" + objectiveID,
+		Label:    objectiveID,
+		Metadata: map[string]any{"projectId": projectID, "objectiveId": objectiveID},
+	})
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("belief_episode_scope_failed")
+		return
+	}
+	episode, err := e.BeliefStore.UpsertEpisode(ctx, belief.Episode{
+		TenantID:        e.UserID,
+		ScopeID:         scope.ID,
+		ProjectID:       projectID,
+		ObjectiveID:     objectiveID,
+		SessionID:       strings.TrimSpace(e.SessionID),
+		AgentRole:       agentRole,
+		UserID:          e.UserID,
+		StartedAt:       startedAt,
+		EndedAt:         &now,
+		Outcome:         outcome,
+		OutcomeSignal:   outcomeSignal,
+		EvolvingEntryID: strings.TrimSpace(evolvingEntryID),
+		Metadata:        metadata,
+	})
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("belief_episode_store_failed")
+		return
+	}
+	e.distillBeliefs(ctx, episode, final)
+}
+
+func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, final string) {
+	if e == nil || e.BeliefStore == nil || e.BeliefDistiller == nil {
+		return
+	}
+	candidates, err := e.BeliefDistiller.Distill(ctx, belief.DistillationInput{
+		Episode: episode,
+		Summary: final,
+		Signals: map[string]any{
+			"outcome":       episode.Outcome,
+			"outcomeSignal": episode.OutcomeSignal,
+		},
+	})
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("belief_distillation_failed")
+		return
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	applied, err := belief.ApplyCandidates(ctx, e.BeliefStore, episode, candidates)
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("belief_candidate_apply_failed")
+		return
+	}
+	e.promoteEligibleBeliefs(ctx, applied)
+	observability.LoggerWithTrace(ctx).Info().Int("candidate_count", len(candidates)).Str("episode_id", episode.ID).Msg("belief_distillation_applied")
+}
+
+func (e *Engine) promoteEligibleBeliefs(ctx context.Context, items []belief.Belief) {
+	if e == nil || e.BeliefStore == nil || len(items) == 0 {
+		return
+	}
+	projectID := belief.NormalizeProjectID(e.ProjectID)
+	if projectID == "" {
+		return
+	}
+	projectScope, err := e.BeliefStore.EnsureScope(ctx, belief.Scope{
+		TenantID: e.UserID,
+		Kind:     belief.ScopeKindProject,
+		Path:     projectID,
+		Label:    projectID,
+		Metadata: map[string]any{"projectId": projectID},
+	})
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("belief_project_scope_failed")
+		return
+	}
+	threshold := e.BeliefPromotionThreshold
+	if threshold <= 0 {
+		threshold = 0.80
+	}
+	service := belief.LifecycleService{Store: e.BeliefStore, Graph: e.BeliefGraph, Policy: belief.PromotionPolicy{ConfidenceThreshold: threshold, MinEvidenceFor: 2, ScopeWideningDecay: 0.85}}
+	promoted := 0
+	for _, item := range items {
+		if result, err := service.Promote(ctx, belief.PromotionRequest{TenantID: item.TenantID, BeliefID: item.ID, ToScope: projectScope, Reason: "automatic objective corroboration"}); err != nil {
+			observability.LoggerWithTrace(ctx).Debug().Err(err).Str("belief_id", item.ID).Msg("belief_promotion_skipped")
+		} else {
+			promoted++
+			observability.LoggerWithTrace(ctx).Info().Str("belief_id", item.ID).Str("promoted_belief_id", result.Belief.ID).Float64("confidence_after", result.Belief.Confidence).Msg("belief_promoted")
+		}
+	}
+	if promoted > 0 {
+		observability.LoggerWithTrace(ctx).Info().Int("promoted", promoted).Int("candidates", len(items)).Msg("belief_promotion_complete")
+	}
+}
+
+func (e *Engine) storeSuccessfulExperience(ctx context.Context, userInput, final string) string {
+	if e.EvolvingMemory == nil {
+		return ""
 	}
 
 	log := observability.LoggerWithTrace(ctx)
@@ -242,6 +401,8 @@ func (e *Engine) storeSuccessfulExperience(ctx context.Context, userInput, final
 	if span := trace.SpanFromContext(ctx); span != nil {
 		bgCtx = trace.ContextWithSpanContext(bgCtx, span.SpanContext())
 	}
+	entryID := uuid.NewString()
+	bgCtx = memory.WithEntryID(bgCtx, entryID)
 
 	go func(ctx context.Context, input, response, fb string, sfb *memory.StructuredFeedback) {
 		if err := e.EvolvingMemory.EvolveEnhanced(ctx, input, response, fb, sfb, nil, ""); err != nil {
@@ -250,6 +411,7 @@ func (e *Engine) storeSuccessfulExperience(ctx context.Context, userInput, final
 		}
 		log.Info().Str("feedback", fb).Bool("has_structured_feedback", sfb != nil).Msg("evolving_memory_stored")
 	}(bgCtx, userInput, final, feedback, structuredFB)
+	return entryID
 }
 
 // streamHandler implements llm.StreamHandler
@@ -545,6 +707,18 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 }
 
 func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Message {
+	decision := e.evaluateToolPolicy(ctx, tc)
+	if !decision.Allowed {
+		payload, _ := json.Marshal(map[string]any{"ok": false, "error": "tool call blocked by policy", "policy_id": decision.RecordID, "message": decision.Message})
+		if e.OnTool != nil {
+			e.OnTool(tc.Name, tc.Args, payload, tc.ID)
+		}
+		return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
+	}
+	if len(decision.Annotations) > 0 {
+		observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).Strs("policy_annotations", decision.Annotations).Strs("policy_ids", decision.MatchedIDs).Msg("policy_tool_call_annotated")
+	}
+
 	// Handle agent delegation as a first-class engine feature (not a tool).
 	if e.Delegator != nil && isAgentCall(tc.Name) {
 		payload := e.runDelegatedAgent(ctx, tc)
@@ -563,6 +737,29 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
 	}
 	return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
+}
+
+func (e *Engine) evaluateToolPolicy(ctx context.Context, tc llm.ToolCall) policy.Decision {
+	if e == nil || e.PolicyEnforcer == nil {
+		return policy.Decision{Allowed: true}
+	}
+	decision, err := e.PolicyEnforcer.Evaluate(ctx, policy.EvaluationRequest{
+		TenantID:    e.UserID,
+		UserID:      e.UserID,
+		ProjectID:   e.ProjectID,
+		ObjectiveID: e.ObjectiveID,
+		Role:        e.AgentRole,
+		ToolName:    tc.Name,
+		Args:        tc.Args,
+	})
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("tool", tc.Name).Msg("policy_tool_call_evaluation_failed")
+		return policy.Decision{Allowed: true}
+	}
+	if !decision.Allowed {
+		observability.LoggerWithTrace(ctx).Warn().Str("tool", tc.Name).Str("policy_id", decision.RecordID).Str("message", decision.Message).Msg("policy_tool_call_blocked")
+	}
+	return decision
 }
 
 func isAgentCall(name string) bool {
@@ -594,6 +791,14 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 	if strings.TrimSpace(args.Prompt) == "" {
 		return []byte(`{"ok":false,"error":"prompt is required"}`)
 	}
+	projectID := strings.TrimSpace(args.ProjectID)
+	if projectID == "" {
+		projectID = strings.TrimSpace(e.ProjectID)
+	}
+	userID := args.UserID
+	if userID == 0 {
+		userID = e.UserID
+	}
 	callID := tc.ID
 	if strings.TrimSpace(callID) == "" {
 		callID = fmt.Sprintf("agent-%d", time.Now().UnixNano())
@@ -605,9 +810,10 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 		EnableTools:    args.EnableTools,
 		MaxSteps:       args.MaxSteps,
 		TimeoutSeconds: args.TimeoutSeconds,
-		ProjectID:      strings.TrimSpace(args.ProjectID),
+		ProjectID:      projectID,
+		ObjectiveID:    strings.TrimSpace(e.ObjectiveID),
 		SessionID:      e.SessionID,
-		UserID:         args.UserID,
+		UserID:         userID,
 		CallID:         callID,
 		ParentCallID:   tc.ID,
 		Depth:          e.AgentDepth + 1,
@@ -972,6 +1178,108 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 	return msgs
 }
 
+func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
+	if e == nil || e.BeliefRetriever == nil {
+		return msgs
+	}
+	objectiveID := strings.TrimSpace(e.ObjectiveID)
+	if objectiveID == "" || e.UserID == 0 {
+		return msgs
+	}
+	log := observability.LoggerWithTrace(ctx)
+	startedAt := time.Now()
+	results, err := e.BeliefRetriever.Retrieve(ctx, belief.RetrievalRequest{
+		TenantID:    e.UserID,
+		UserID:      e.UserID,
+		ProjectID:   e.ProjectID,
+		ObjectiveID: objectiveID,
+		SessionID:   e.SessionID,
+		Role:        e.AgentRole,
+		Query:       userInput,
+		Limit:       e.BeliefMaxBeliefsPerPrompt,
+	})
+	latency := time.Since(startedAt)
+	if err != nil {
+		log.Warn().Err(err).Dur("latency", latency).Msg("belief_memory_retrieval_failed")
+		return msgs
+	}
+	log.Info().Int("results", len(results)).Dur("latency", latency).Msg("belief_memory_retrieved")
+	contextBlock := belief.BuildPromptSection(results, belief.PromptOptions{
+		MaxBeliefs: e.BeliefMaxBeliefsPerPrompt,
+		MaxTokens:  e.BeliefPromptTokenBudget,
+	})
+	if strings.TrimSpace(contextBlock.Text) == "" {
+		log.Debug().Msg("belief_memory_no_context_skipping_augmentation")
+		return msgs
+	}
+	beliefSelected, ragSelected := countBySource(contextBlock.Selected)
+	log.Info().
+		Int("selected", len(contextBlock.Selected)).
+		Int("selected_belief", beliefSelected).
+		Int("selected_rag", ragSelected).
+		Int("overflow", len(contextBlock.Overflow)).
+		Int("tokens", contextBlock.TokenEstimate).
+		Msg("belief_memory_appending_to_system")
+	return appendToSystemMessage(msgs, contextBlock.Text)
+}
+
+func countBySource(results []belief.SearchResult) (beliefCount, ragCount int) {
+	for _, result := range results {
+		if result.Belief.Metadata == nil {
+			beliefCount++
+			continue
+		}
+		switch src, _ := result.Belief.Metadata["source"].(string); src {
+		case "rag":
+			ragCount++
+		default:
+			beliefCount++
+		}
+	}
+	return beliefCount, ragCount
+}
+
+func (e *Engine) augmentWithPolicyContext(ctx context.Context, _ string, msgs []llm.Message) []llm.Message {
+	if e == nil || e.PolicyEnforcer == nil {
+		return msgs
+	}
+	provider, ok := e.PolicyEnforcer.(policy.ContextProvider)
+	if !ok {
+		return msgs
+	}
+	records, err := provider.PromptContext(ctx, policy.EvaluationRequest{
+		TenantID:    e.UserID,
+		UserID:      e.UserID,
+		ProjectID:   e.ProjectID,
+		ObjectiveID: e.ObjectiveID,
+		Role:        e.AgentRole,
+	})
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("policy_prompt_context_failed")
+		return msgs
+	}
+	section := policy.BuildPromptSection(records)
+	if strings.TrimSpace(section) == "" {
+		return msgs
+	}
+	observability.LoggerWithTrace(ctx).Info().Int("policy_context_items", len(records)).Msg("policy_prompt_context_appended")
+	return appendToSystemMessage(msgs, section)
+}
+
+func appendToSystemMessage(msgs []llm.Message, section string) []llm.Message {
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return msgs
+	}
+	for i, msg := range msgs {
+		if msg.Role == "system" {
+			msgs[i].Content += "\n\n" + section
+			return msgs
+		}
+	}
+	return append([]llm.Message{{Role: "system", Content: section}}, msgs...)
+}
+
 // runWithReMem executes the Think-Act-Refine pre-processing, then continues with the main agent loop.
 // ReMem is a memory-management phase that refines memories before answering, NOT a replacement for the main loop.
 func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []llm.Message) (string, error) {
@@ -989,6 +1297,7 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 
 	// Now run the main agent loop with (potentially refined) memories
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 
 	// Augment with evolving memory (which may have been refined by ReMem)
 	if e.EvolvingMemory != nil {

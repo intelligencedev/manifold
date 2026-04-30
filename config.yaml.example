@@ -254,6 +254,25 @@ transit:
   maxBatchSize: 100
   enableVectorSearch: true
 
+# Shared belief memory foundations. Phase 0 keeps all runtime behavior disabled
+# while the store, schema, and interfaces are available for incremental rollout.
+beliefMemory:
+  enabled: false
+  enableDistillation: false
+  enableRetrieval: false
+  enableConstraintEnforcement: false
+  maxBeliefsPerPrompt: 5
+  maxEvidencePerBelief: 3
+  defaultConfidence: 0.5
+  promotionThreshold: 0.8
+  # Optional: blend RAG document retrieval into the belief prompt block as a
+  # delimited "Retrieved Evidence (untrusted)" sub-section. Disabled by default;
+  # requires the RAG service to be configured (see embedding/RAG settings).
+  enableRAGEvidence: false
+  maxRAGEvidencePerPrompt: 3
+  ragRetrievalK: 8
+  ragMinScore: 0.0
+
 # Speech helpers.
 tts:
   baseURL: https://api.openai.com/v1

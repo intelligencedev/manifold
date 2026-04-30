@@ -112,6 +112,7 @@ const navigation = [
   { label: "Playground", to: "/playground" },
   { label: "Flow", to: "/flow" },
   { label: "Code QA", to: "/codeqa" },
+  { label: "Beliefs", to: "/beliefs" },
   { label: "Settings", to: "/settings" },
 ];
 

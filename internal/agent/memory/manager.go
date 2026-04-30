@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"manifold/internal/llm"
 	"manifold/internal/observability"
@@ -123,6 +124,7 @@ type Manager struct {
 	maxSummaryChunkTokens  int
 	contextWindowTokens    int
 	useResponsesCompaction bool
+	compactionUnavailable  atomic.Bool
 }
 
 // Introspection helpers used by debug/observability surfaces.
@@ -515,7 +517,8 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	if maxTail < m.minKeepLastMessages {
 		maxTail = m.minKeepLastMessages
 	}
-	forceByCount := !m.useResponsesCompaction && maxTail > 0 && total > maxTail
+	compactionEnabled := m.responsesCompactionEnabled()
+	forceByCount := !compactionEnabled && maxTail > 0 && total > maxTail
 
 	estimated := 0
 	for _, msg := range messages {
@@ -523,7 +526,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	}
 	if !forceByCount && estimated <= budget {
 		// Compaction mode: compact after milestones, not every turn.
-		if m.useResponsesCompaction {
+		if compactionEnabled {
 			delta := total - session.SummarizedCount
 			if delta <= 0 {
 				return session.Summary, session.SummarizedCount, nil
@@ -548,7 +551,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	// we prefer to compact the full eligible delta so the compaction blob fully
 	// represents prior state.
 	minTail := m.minKeepLastMessages
-	if m.useResponsesCompaction {
+	if compactionEnabled {
 		minTail = 0
 	} else {
 		if minTail <= 0 {
@@ -644,7 +647,7 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 	existing := decodeDualSummary(existingSummary)
 	log := observability.LoggerWithTrace(ctx)
 
-	if m.useResponsesCompaction {
+	if m.responsesCompactionEnabled() {
 		// Run both compaction and plain text summarization in parallel.
 		// This ensures we have a plain text fallback if the user switches to a non-OpenAI model.
 		var (
@@ -709,6 +712,10 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 		return existingSummary, err
 	}
 	return plainRes, nil
+}
+
+func (m *Manager) responsesCompactionEnabled() bool {
+	return m.useResponsesCompaction && !m.compactionUnavailable.Load()
 }
 
 // plainSummarize generates a plain text summary of the conversation chunk.
@@ -1005,6 +1012,10 @@ func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chun
 
 	item, err := compactor.Compact(ctx, msgs, m.summaryModel, prev)
 	if err != nil {
+		if isCompactionEndpointUnavailable(err) {
+			m.compactionUnavailable.Store(true)
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("responses_compaction_disabled")
+		}
 		return existingSummary, err
 	}
 	if item == nil || strings.TrimSpace(item.EncryptedContent) == "" {
@@ -1015,6 +1026,17 @@ func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chun
 		return existingSummary, fmt.Errorf("responses compaction encode failed")
 	}
 	return encoded, nil
+}
+
+func isCompactionEndpointUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "404") ||
+		strings.Contains(msg, "not found") ||
+		strings.Contains(msg, "not_found") ||
+		strings.Contains(msg, "responses api required for compaction")
 }
 
 func decodeCompactionSummary(summary string) (llm.CompactionItem, bool) {

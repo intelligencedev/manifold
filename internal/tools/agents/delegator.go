@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
+	"manifold/internal/policy"
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
@@ -20,16 +22,24 @@ import (
 // rather than the tool registry. It supports tracing nested interactions so
 // UIs can render sub-agent activity.
 type Delegator struct {
-	reg            tools.Registry
-	specReg        *specialists.Registry
-	wsMgr          workspaces.WorkspaceManager
-	defaultSys     string
-	defaultMaxStep int
-	defaultTimeout time.Duration
-	evolvingMemory *memory.EvolvingMemory
-	reMemLLM       llm.Provider
-	reMemModel     string
-	reMemMaxSteps  int
+	reg             tools.Registry
+	specReg         *specialists.Registry
+	wsMgr           workspaces.WorkspaceManager
+	defaultSys      string
+	defaultMaxStep  int
+	defaultTimeout  time.Duration
+	evolvingMemory  *memory.EvolvingMemory
+	reMemLLM        llm.Provider
+	reMemModel      string
+	reMemMaxSteps   int
+	beliefStore     belief.Store
+	beliefDistiller belief.Distiller
+	beliefRetriever belief.Retriever
+	beliefGraph     belief.Graph
+	beliefMaxItems  int
+	beliefMaxTokens int
+	beliefThreshold float64
+	policyEnforcer  policy.Enforcer
 }
 
 func NewDelegator(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager, defaultMaxSteps int) *Delegator {
@@ -57,6 +67,29 @@ func (d *Delegator) ConfigureReMem(provider llm.Provider, model string, maxInner
 	d.reMemLLM = provider
 	d.reMemModel = model
 	d.reMemMaxSteps = maxInnerSteps
+}
+
+func (d *Delegator) SetBeliefMemory(store belief.Store) {
+	d.beliefStore = store
+}
+
+func (d *Delegator) SetBeliefDistiller(distiller belief.Distiller) {
+	d.beliefDistiller = distiller
+}
+
+func (d *Delegator) SetBeliefRetriever(retriever belief.Retriever, maxItems, maxTokens int) {
+	d.beliefRetriever = retriever
+	d.beliefMaxItems = maxItems
+	d.beliefMaxTokens = maxTokens
+}
+
+func (d *Delegator) SetBeliefLifecycle(graph belief.Graph, promotionThreshold float64) {
+	d.beliefGraph = graph
+	d.beliefThreshold = promotionThreshold
+}
+
+func (d *Delegator) SetPolicyEnforcer(enforcer policy.Enforcer) {
+	d.policyEnforcer = enforcer
 }
 
 func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer agent.AgentTracer) (string, error) {
@@ -129,16 +162,28 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	}
 
 	eng := &agent.Engine{
-		LLM:            prov,
-		Tools:          toolsReg,
-		MaxSteps:       maxSteps,
-		System:         prompts.EnsureMemoryInstructions(system),
-		Model:          model,
-		SessionID:      req.SessionID,
-		EvolvingMemory: d.evolvingMemory,
-		Delegator:      d,
-		AgentTracer:    tracer,
-		AgentDepth:     req.Depth,
+		LLM:                       prov,
+		Tools:                     toolsReg,
+		MaxSteps:                  maxSteps,
+		System:                    prompts.EnsureMemoryInstructions(system),
+		Model:                     model,
+		SessionID:                 req.SessionID,
+		ProjectID:                 req.ProjectID,
+		ObjectiveID:               req.ObjectiveID,
+		UserID:                    req.UserID,
+		AgentRole:                 req.AgentName,
+		BeliefStore:               d.beliefStore,
+		BeliefDistiller:           d.beliefDistiller,
+		BeliefRetriever:           d.beliefRetriever,
+		BeliefGraph:               d.beliefGraph,
+		BeliefMaxBeliefsPerPrompt: d.beliefMaxItems,
+		BeliefPromptTokenBudget:   d.beliefMaxTokens,
+		BeliefPromotionThreshold:  d.beliefThreshold,
+		PolicyEnforcer:            d.policyEnforcer,
+		EvolvingMemory:            d.evolvingMemory,
+		Delegator:                 d,
+		AgentTracer:               tracer,
+		AgentDepth:                req.Depth,
 	}
 	if d.evolvingMemory != nil && d.reMemLLM != nil {
 		eng.ReMemEnabled = true

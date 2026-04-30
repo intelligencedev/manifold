@@ -295,6 +295,27 @@ func applyDefaults(cfg *Config) {
 	if cfg.CodeQA.MinConfidence == 0 {
 		cfg.CodeQA.MinConfidence = 0.70
 	}
+	if cfg.BeliefMemory.MaxBeliefsPerPrompt <= 0 {
+		cfg.BeliefMemory.MaxBeliefsPerPrompt = 5
+	}
+	if cfg.BeliefMemory.MaxEvidencePerBelief <= 0 {
+		cfg.BeliefMemory.MaxEvidencePerBelief = 3
+	}
+	if cfg.BeliefMemory.DefaultConfidence == 0 {
+		cfg.BeliefMemory.DefaultConfidence = 0.50
+	}
+	if cfg.BeliefMemory.PromotionThreshold == 0 {
+		cfg.BeliefMemory.PromotionThreshold = 0.80
+	}
+	if cfg.BeliefMemory.MaxRAGEvidencePerPrompt <= 0 {
+		cfg.BeliefMemory.MaxRAGEvidencePerPrompt = 3
+	}
+	if cfg.BeliefMemory.RAGRetrievalK <= 0 {
+		cfg.BeliefMemory.RAGRetrievalK = 8
+	}
+	if cfg.BeliefMemory.RAGMinScore < 0 {
+		cfg.BeliefMemory.RAGMinScore = 0
+	}
 	if strings.TrimSpace(cfg.CodeQA.JudgeModel) == "" {
 		cfg.CodeQA.JudgeModel = cfg.LLMClient.OpenAI.Model
 	}
@@ -454,6 +475,12 @@ func validateConfig(cfg *Config) error {
 		if strings.Contains(binary, "/") || strings.Contains(binary, "\\") {
 			return fmt.Errorf("exec.blockBinaries must contain bare binary names only (no paths): %q", binary)
 		}
+	}
+	if cfg.BeliefMemory.DefaultConfidence < 0 || cfg.BeliefMemory.DefaultConfidence > 1 {
+		return fmt.Errorf("beliefMemory.defaultConfidence must be between 0 and 1 (got %g)", cfg.BeliefMemory.DefaultConfidence)
+	}
+	if cfg.BeliefMemory.PromotionThreshold < 0 || cfg.BeliefMemory.PromotionThreshold > 1 {
+		return fmt.Errorf("beliefMemory.promotionThreshold must be between 0 and 1 (got %g)", cfg.BeliefMemory.PromotionThreshold)
 	}
 
 	return nil

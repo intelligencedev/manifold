@@ -80,6 +80,8 @@ type Config struct {
 	EvolvingMemory EvolvingMemoryConfig `yaml:"evolvingMemory" json:"evolvingMemory"`
 	// Transit configures the shared durable memory system.
 	Transit TransitConfig `yaml:"transit" json:"transit"`
+	// BeliefMemory configures shared belief-memory foundations.
+	BeliefMemory BeliefMemoryConfig `yaml:"beliefMemory" json:"beliefMemory"`
 	// TTS configures text-to-speech defaults and endpoint.
 	TTS TTSConfig `yaml:"tts" json:"tts"`
 	// STT configures speech-to-text defaults and endpoint.
@@ -120,6 +122,26 @@ type CodeQAConfig struct {
 	ForbiddenGlobs         []string `yaml:"forbiddenGlobs" json:"forbiddenGlobs"`
 	AllowAutoApply         bool     `yaml:"allowAutoApply" json:"allowAutoApply"`
 	AllowCommitAccepted    bool     `yaml:"allowCommitAccepted" json:"allowCommitAccepted"`
+}
+
+// BeliefMemoryConfig controls the shared belief-memory subsystem.
+type BeliefMemoryConfig struct {
+	Enabled                     bool    `yaml:"enabled" json:"enabled"`
+	EnableDistillation          bool    `yaml:"enableDistillation" json:"enableDistillation"`
+	EnableRetrieval             bool    `yaml:"enableRetrieval" json:"enableRetrieval"`
+	EnableConstraintEnforcement bool    `yaml:"enableConstraintEnforcement" json:"enableConstraintEnforcement"`
+	MaxBeliefsPerPrompt         int     `yaml:"maxBeliefsPerPrompt" json:"maxBeliefsPerPrompt"`
+	MaxEvidencePerBelief        int     `yaml:"maxEvidencePerBelief" json:"maxEvidencePerBelief"`
+	DefaultConfidence           float64 `yaml:"defaultConfidence" json:"defaultConfidence"`
+	PromotionThreshold          float64 `yaml:"promotionThreshold" json:"promotionThreshold"`
+	// EnableRAGEvidence blends RAG retrieval results into the belief router as a
+	// dedicated evidence lane. Hard/soft constraints, approved policies, and
+	// scoped beliefs continue to take precedence; RAG hits are surfaced as a
+	// clearly delimited untrusted-evidence block in the prompt.
+	EnableRAGEvidence       bool    `yaml:"enableRAGEvidence" json:"enableRAGEvidence"`
+	MaxRAGEvidencePerPrompt int     `yaml:"maxRAGEvidencePerPrompt" json:"maxRAGEvidencePerPrompt"`
+	RAGRetrievalK           int     `yaml:"ragRetrievalK" json:"ragRetrievalK"`
+	RAGMinScore             float64 `yaml:"ragMinScore" json:"ragMinScore"`
 }
 
 // TokenizationConfig controls how tokens are counted for summarization decisions.

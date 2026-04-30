@@ -318,7 +318,7 @@ func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=weather", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", "", "", false, "", nil, 0, chatTargetDescriptor{})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}
@@ -365,7 +365,7 @@ func TestHandleChatTarget_SSEIncludesQueuedMatrixMessages(t *testing.T) {
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", "", "", false, "", nil, 0, chatTargetDescriptor{})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}

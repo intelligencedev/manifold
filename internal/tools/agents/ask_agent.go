@@ -100,13 +100,14 @@ func (t *AskAgentTool) JSONSchema() map[string]any {
 
 func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
-		To        string        `json:"to"`
-		Prompt    string        `json:"prompt"`
-		History   []llm.Message `json:"history"`
-		TimeoutMS int           `json:"timeout_ms"`
-		SessionID string        `json:"session_id"`
-		ProjectID string        `json:"project_id"`
-		RoomID    string        `json:"room_id"`
+		To          string        `json:"to"`
+		Prompt      string        `json:"prompt"`
+		History     []llm.Message `json:"history"`
+		TimeoutMS   int           `json:"timeout_ms"`
+		SessionID   string        `json:"session_id"`
+		ProjectID   string        `json:"project_id"`
+		ObjectiveID string        `json:"objective_id"`
+		RoomID      string        `json:"room_id"`
 	}
 	// Handle empty or nil JSON gracefully
 	if len(raw) == 0 {
@@ -149,6 +150,12 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 			projectID = ctxPID
 		}
 	}
+	objectiveID := strings.TrimSpace(args.ObjectiveID)
+	if objectiveID == "" {
+		if ctxOID, ok := sandbox.ObjectiveIDFromContext(ctx); ok {
+			objectiveID = ctxOID
+		}
+	}
 	roomID := strings.TrimSpace(args.RoomID)
 	if roomID == "" {
 		if ctxRID, ok := sandbox.RoomIDFromContext(ctx); ok {
@@ -165,6 +172,9 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 	if projectID != "" {
 		body["project_id"] = projectID
+	}
+	if objectiveID != "" {
+		body["objective_id"] = objectiveID
 	}
 	if roomID != "" {
 		body["room_id"] = roomID

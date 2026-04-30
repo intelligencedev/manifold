@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	appcodeqa "manifold/internal/codeqa"
@@ -27,6 +28,7 @@ import (
 	codeqastore "manifold/internal/codeqa/store"
 	"manifold/internal/config"
 	"manifold/internal/embeddedpg"
+	"manifold/internal/embedding"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
@@ -43,8 +45,10 @@ import (
 	"manifold/internal/playground/provider"
 	playgroundregistry "manifold/internal/playground/registry"
 	"manifold/internal/playground/worker"
+	"manifold/internal/policy"
 	"manifold/internal/projects"
 	"manifold/internal/rag/embedder"
+	"manifold/internal/rag/retrieve"
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/skills"
 	"manifold/internal/specialists"
@@ -125,6 +129,7 @@ type app struct {
 	logMetrics         []logMetricsProvider
 	transitService     *transitdomain.Service
 	embeddedRuntime    *embeddedpg.Runtime
+	ragService         *ragservice.Service
 }
 
 type tokenMetricsProvider interface {
@@ -206,11 +211,12 @@ func (a *app) cloneEngine() *agent.Engine {
 // cloneEngineForUser returns a shallow copy of the base engine with user-specific
 // orchestrator settings applied (particularly the tool allowlist). This enables
 // per-user orchestrator configurations.
-func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID string) *agent.Engine {
+func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, projectID, objectiveID string) *agent.Engine {
 	eng := a.cloneEngine()
 	if eng == nil {
 		return nil
 	}
+	a.configureBeliefRunState(eng, userID, sessionID, projectID, objectiveID, "orchestrator")
 
 	// Ensure the specialists catalog in the system prompt is user-scoped.
 	// The base engine prompt is composed with the system (user=0) specialists
@@ -277,12 +283,131 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID st
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.cfg.MaxSteps)
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 	delegator.SetEvolvingMemory(em)
+	delegator.SetBeliefMemory(eng.BeliefStore)
+	delegator.SetBeliefDistiller(eng.BeliefDistiller)
+	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
+	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
+	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
 	if a.engine != nil && a.engine.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	eng.Delegator = delegator
 
 	return eng
+}
+
+func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID, projectID, objectiveID, agentRole string) {
+	if eng == nil {
+		return
+	}
+	eng.UserID = userID
+	eng.SessionID = strings.TrimSpace(sessionID)
+	eng.ProjectID = belief.NormalizeProjectID(projectID)
+	eng.ObjectiveID = strings.TrimSpace(objectiveID)
+	eng.AgentRole = strings.TrimSpace(agentRole)
+	if a.cfg != nil && a.cfg.BeliefMemory.Enabled && a.mgr != nil {
+		eng.BeliefStore = a.mgr.Belief
+		eng.BeliefGraph = a.mgr.Graph
+		eng.BeliefPromotionThreshold = a.cfg.BeliefMemory.PromotionThreshold
+		if a.cfg.BeliefMemory.EnableDistillation {
+			eng.BeliefDistiller = a.newBeliefDistiller()
+		} else {
+			eng.BeliefDistiller = nil
+		}
+		if a.cfg.BeliefMemory.EnableRetrieval {
+			base := belief.NewGraphEnrichedRetriever(a.mgr.Belief, a.mgr.Graph, 2)
+			eng.BeliefRetriever = a.applyRAGEvidenceBlend(base)
+			eng.BeliefMaxBeliefsPerPrompt = a.cfg.BeliefMemory.MaxBeliefsPerPrompt
+			eng.BeliefPromptTokenBudget = a.cfg.BeliefMemory.MaxBeliefsPerPrompt * 140
+		} else {
+			eng.BeliefRetriever = nil
+			eng.BeliefMaxBeliefsPerPrompt = 0
+			eng.BeliefPromptTokenBudget = 0
+		}
+		if a.cfg.BeliefMemory.EnableConstraintEnforcement && a.transitService != nil {
+			eng.PolicyEnforcer = policy.NewTransitEnforcer(a.transitService)
+		} else {
+			eng.PolicyEnforcer = nil
+		}
+	} else {
+		eng.BeliefStore = nil
+		eng.BeliefDistiller = nil
+		eng.BeliefRetriever = nil
+		eng.BeliefGraph = nil
+		eng.BeliefMaxBeliefsPerPrompt = 0
+		eng.BeliefPromptTokenBudget = 0
+		eng.BeliefPromotionThreshold = 0
+		eng.PolicyEnforcer = nil
+	}
+}
+
+func (a *app) newBeliefDistiller() belief.Distiller {
+	if a == nil || a.cfg == nil || strings.TrimSpace(a.cfg.Embedding.BaseURL) == "" || strings.TrimSpace(a.cfg.Embedding.Model) == "" {
+		return belief.SimpleDistiller{}
+	}
+	cfg := a.cfg.Embedding
+	return belief.SimpleDistiller{Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
+		return embedding.EmbedText(ctx, cfg, texts)
+	}}
+}
+
+// applyRAGEvidenceBlend wraps a primary belief Retriever with a RAG-backed
+// EvidenceSource when the runtime has a RAG service configured and the feature
+// is enabled. Returns the inner retriever unchanged when blending is disabled.
+func (a *app) applyRAGEvidenceBlend(inner belief.Retriever) belief.Retriever {
+	if a == nil || a.cfg == nil || !a.cfg.BeliefMemory.EnableRAGEvidence {
+		return inner
+	}
+	if a.ragService == nil {
+		return inner
+	}
+	rag := a.ragService
+	k := a.cfg.BeliefMemory.RAGRetrievalK
+	maxItems := a.cfg.BeliefMemory.MaxRAGEvidencePerPrompt
+	minScore := a.cfg.BeliefMemory.RAGMinScore
+	source := belief.RAGEvidenceSource{
+		K:        k,
+		MinScore: minScore,
+		MaxItems: maxItems,
+		Retriever: func(ctx context.Context, query, tenant string, filter map[string]string, k int) ([]belief.RAGEvidenceItem, error) {
+			resp, err := rag.Retrieve(ctx, query, retrieve.RetrieveOptions{
+				K:              k,
+				Tenant:         tenant,
+				Filter:         filter,
+				UseRRF:         true,
+				IncludeSnippet: true,
+				Diversify:      true,
+			})
+			if err != nil {
+				return nil, err
+			}
+			items := make([]belief.RAGEvidenceItem, 0, len(resp.Items))
+			for _, item := range resp.Items {
+				var title, url string
+				if item.Metadata != nil {
+					title = item.Metadata["title"]
+					url = item.Metadata["url"]
+				}
+				if title == "" {
+					title = item.Doc.Title
+				}
+				if url == "" {
+					url = item.Doc.URL
+				}
+				items = append(items, belief.RAGEvidenceItem{
+					ID:      item.ID,
+					DocID:   item.DocID,
+					Score:   item.Score,
+					Title:   title,
+					URL:     url,
+					Snippet: item.Snippet,
+					Text:    item.Text,
+				})
+			}
+			return items, nil
+		},
+	}
+	return belief.NewBlendedRetriever(inner, maxItems, source)
 }
 
 func (a *app) attachSessionEvolvingMemory(eng *agent.Engine, userID int64, sessionID string) *memory.EvolvingMemory {
@@ -859,6 +984,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
+	// Reuse a single shared RAG service for runtime use (belief router, etc.).
+	runtimeRAGService := ragservice.New(mgr, ragservice.WithEmbedder(emb))
 
 	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))
@@ -1045,6 +1172,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		mcpPool:            mcpPool,
 		workspaceManager:   wsMgr,
 		transitService:     transitSvc,
+		ragService:         runtimeRAGService,
 	}
 	janitorInterval := defaultEvolvingJanitorInterval
 	if cfg.EvolvingMemory.SessionTTLMinutes > 0 {

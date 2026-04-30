@@ -34,6 +34,11 @@ const router = createRouter({
       component: () => import("@/views/CodeQaView.vue"),
     },
     {
+      path: "/beliefs",
+      name: "beliefs",
+      component: () => import("@/views/BeliefsView.vue"),
+    },
+    {
       path: "/settings",
       name: "settings",
       component: () => import("@/views/SettingsView.vue"),

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -263,4 +264,28 @@ func providerSupportsCompaction(provider llm.Provider) bool {
 	}
 	_, ok := provider.(llm.CompactionProvider)
 	return ok
+}
+
+func summaryEndpointSupportsResponsesCompaction(providerName, api, summaryBaseURL string) bool {
+	providerName = strings.TrimSpace(providerName)
+	if providerName != "" && !strings.EqualFold(providerName, "openai") {
+		return false
+	}
+	if !strings.EqualFold(api, "responses") {
+		return false
+	}
+	return isOpenAIResponsesCompactionBaseURL(summaryBaseURL)
+}
+
+func isOpenAIResponsesCompactionBaseURL(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return true
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "api.openai.com"
 }

@@ -12,6 +12,7 @@ type baseDirCtxKey struct{}
 // Context keys for session and project identifiers.
 type sessionIDCtxKey struct{}
 type projectIDCtxKey struct{}
+type objectiveIDCtxKey struct{}
 type roomIDCtxKey struct{}
 type botIDCtxKey struct{}
 type matrixOutboxCtxKey struct{}
@@ -91,6 +92,14 @@ func WithProjectID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, projectIDCtxKey{}, id)
 }
 
+// WithObjectiveID attaches the current objective identifier to ctx.
+func WithObjectiveID(ctx context.Context, id string) context.Context {
+	if ctx == nil {
+		return context.WithValue(context.Background(), objectiveIDCtxKey{}, id)
+	}
+	return context.WithValue(ctx, objectiveIDCtxKey{}, id)
+}
+
 // WithRoomID attaches a Matrix room identifier to ctx.
 func WithRoomID(ctx context.Context, id string) context.Context {
 	if ctx == nil {
@@ -136,6 +145,20 @@ func ProjectIDFromContext(ctx context.Context) (string, bool) {
 		return "", false
 	}
 	if v := ctx.Value(projectIDCtxKey{}); v != nil {
+		if s, ok := v.(string); ok && s != "" {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// ObjectiveIDFromContext returns the objective ID previously set with
+// WithObjectiveID. The boolean is false if no value is present.
+func ObjectiveIDFromContext(ctx context.Context) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	if v := ctx.Value(objectiveIDCtxKey{}); v != nil {
 		if s, ok := v.(string); ok && s != "" {
 			return s, true
 		}

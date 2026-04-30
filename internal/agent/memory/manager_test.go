@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -26,6 +27,7 @@ func (s *stubLLM) ChatStream(ctx context.Context, msgs []llm.Message, tools []ll
 
 type stubCompactor struct {
 	item  llm.CompactionItem
+	err   error
 	calls int
 }
 
@@ -39,6 +41,9 @@ func (s *stubCompactor) ChatStream(ctx context.Context, msgs []llm.Message, tool
 
 func (s *stubCompactor) Compact(ctx context.Context, msgs []llm.Message, model string, previous *llm.CompactionItem) (*llm.CompactionItem, error) {
 	s.calls++
+	if s.err != nil {
+		return nil, s.err
+	}
 	return &s.item, nil
 }
 
@@ -450,6 +455,44 @@ func TestSummarizeChunkFormatsToolMessages(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "AAAAA") || !strings.Contains(prompt, "BBBBB") {
 		t.Fatalf("expected head and tail content in prompt, got %q", prompt)
+	}
+}
+
+func TestSummarizeChunkDisablesUnavailableCompactionEndpoint(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+	compactor := &stubCompactor{
+		err: errors.New(`POST "http://localhost:11434/v1/responses/compact": 404 Not Found {"type":"not_found_error"}`),
+	}
+	manager := NewManager(store, compactor, Config{
+		Enabled:                true,
+		SummaryModel:           "stub",
+		UseResponsesCompaction: true,
+	})
+	chunk := []persistence.ChatMessage{
+		{Role: "user", Content: "remember that local summary providers do not implement compact"},
+	}
+
+	summary, err := manager.summarizeChunk(ctx, "", chunk)
+	if err != nil {
+		t.Fatalf("summarizeChunk: %v", err)
+	}
+	if summary != "unused" {
+		t.Fatalf("expected plain summary fallback, got %q", summary)
+	}
+	if compactor.calls != 1 {
+		t.Fatalf("expected one compaction attempt, got %d", compactor.calls)
+	}
+
+	summary, err = manager.summarizeChunk(ctx, summary, chunk)
+	if err != nil {
+		t.Fatalf("summarizeChunk after disable: %v", err)
+	}
+	if summary != "unused" {
+		t.Fatalf("expected plain summary after compaction disable, got %q", summary)
+	}
+	if compactor.calls != 1 {
+		t.Fatalf("expected compaction to remain disabled, got %d calls", compactor.calls)
 	}
 }
 

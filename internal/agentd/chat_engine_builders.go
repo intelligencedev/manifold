@@ -34,8 +34,8 @@ func (a *app) chatMaxSteps() int {
 	return 8
 }
 
-func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sessionID, systemPromptOverride string, checkedOutWorkspace *workspaces.Workspace) chatEngineBuildResult {
-	eng := a.cloneEngineForUser(ctx, owner, sessionID)
+func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sessionID, projectID, objectiveID, systemPromptOverride string, checkedOutWorkspace *workspaces.Workspace) chatEngineBuildResult {
+	eng := a.cloneEngineForUser(ctx, owner, sessionID, projectID, objectiveID)
 	if eng == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("agent unavailable")}
 	}
@@ -51,7 +51,7 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sess
 	return chatEngineBuildResult{Engine: eng, ModelLabel: eng.Model}
 }
 
-func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride, sessionID string, owner int64) chatEngineBuildResult {
+func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride, sessionID, projectID, objectiveID string, owner int64) chatEngineBuildResult {
 	reg, err := a.specialistsRegistryForUser(ctx, owner)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist registry unavailable: %w", err)}
@@ -89,10 +89,16 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 	}
+	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
 	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 	delegator.SetEvolvingMemory(em)
+	delegator.SetBeliefMemory(eng.BeliefStore)
+	delegator.SetBeliefDistiller(eng.BeliefDistiller)
+	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
+	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
+	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
@@ -104,7 +110,7 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	}
 }
 
-func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID string, owner int64) chatEngineBuildResult {
+func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectID, objectiveID string, owner int64) chatEngineBuildResult {
 	if a.teamStore == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("teams unavailable")}
 	}
@@ -161,11 +167,17 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID string, o
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
 	}
+	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
 	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
 	eng.AttachTokenizer(userLLM, nil)
 	delegator := agenttools.NewDelegator(eng.Tools, teamReg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 	delegator.SetEvolvingMemory(em)
+	delegator.SetBeliefMemory(eng.BeliefStore)
+	delegator.SetBeliefDistiller(eng.BeliefDistiller)
+	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
+	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
+	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}

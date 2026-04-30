@@ -18,6 +18,7 @@ import (
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
+	"manifold/internal/sandbox"
 	"manifold/internal/workspaces"
 )
 
@@ -753,15 +754,17 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		}
 		r = state.Request
 		specOwner := state.Owner
+		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
+		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
 			return
 		}
 	}
@@ -798,15 +801,17 @@ func (a *app) promptHandler() http.HandlerFunc {
 		}
 		r = state.Request
 		specOwner := state.Owner
+		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
+		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
 			return
 		}
 	}

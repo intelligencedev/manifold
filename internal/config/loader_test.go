@@ -178,6 +178,15 @@ transit:
   defaultListLimit: 100
   maxBatchSize: 100
   enableVectorSearch: true
+beliefMemory:
+  enabled: true
+  enableDistillation: true
+  enableRetrieval: true
+  enableConstraintEnforcement: false
+  maxBeliefsPerPrompt: 6
+  maxEvidencePerBelief: 4
+  defaultConfidence: 0.55
+  promotionThreshold: 0.82
 tts:
   baseURL: https://api.openai.com/v1
   model: gpt-4o-mini-tts
@@ -229,6 +238,15 @@ tokenization:
 	}
 	if !cfg.AutoDiscover || cfg.MaxDiscoveredTools != 7 {
 		t.Fatalf("unexpected discovery config: enabled=%v max=%d", cfg.AutoDiscover, cfg.MaxDiscoveredTools)
+	}
+	if !cfg.BeliefMemory.Enabled || !cfg.BeliefMemory.EnableDistillation || !cfg.BeliefMemory.EnableRetrieval {
+		t.Fatalf("unexpected belief memory toggles: %+v", cfg.BeliefMemory)
+	}
+	if cfg.BeliefMemory.MaxBeliefsPerPrompt != 6 || cfg.BeliefMemory.MaxEvidencePerBelief != 4 {
+		t.Fatalf("unexpected belief memory limits: %+v", cfg.BeliefMemory)
+	}
+	if cfg.BeliefMemory.DefaultConfidence != 0.55 || cfg.BeliefMemory.PromotionThreshold != 0.82 {
+		t.Fatalf("unexpected belief memory thresholds: %+v", cfg.BeliefMemory)
 	}
 	if cfg.Tokenization.FallbackToHeuristic {
 		t.Fatalf("expected fallbackToHeuristic false")

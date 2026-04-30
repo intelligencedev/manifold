@@ -34,6 +34,7 @@ func TestChatRunRequestNormalize(t *testing.T) {
 	req := chatRunRequest{
 		SessionID:    "  ",
 		ProjectID:    "  project-1  ",
+		ObjectiveID:  " objective-1 ",
 		RoomID:       " room-1 ",
 		BotID:        " @gpt_bot:matrix.example.com ",
 		SystemPrompt: "  custom system  ",
@@ -47,6 +48,9 @@ func TestChatRunRequestNormalize(t *testing.T) {
 	}
 	if req.ProjectID != "project-1" {
 		t.Fatalf("expected trimmed project id, got %q", req.ProjectID)
+	}
+	if req.ObjectiveID != "objective-1" {
+		t.Fatalf("expected trimmed objective id, got %q", req.ObjectiveID)
 	}
 	if req.RoomID != "room-1" {
 		t.Fatalf("expected trimmed room id, got %q", req.RoomID)

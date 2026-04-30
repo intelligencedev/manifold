@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 
+	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
 	"manifold/internal/persistence"
 	"manifold/internal/transit"
@@ -71,6 +72,7 @@ type Manager struct {
 	UserPreferences persistence.UserPreferencesStore
 	Pulse           persistence.PulseStore
 	Transit         transit.Store
+	Belief          belief.Store
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -86,6 +88,7 @@ func (m Manager) Close() {
 	closeIfPossible(m.UserPreferences)
 	closeIfPossible(m.Pulse)
 	closeIfPossible(m.Transit)
+	closeIfPossible(m.Belief)
 }
 
 func closeIfPossible(value any) {

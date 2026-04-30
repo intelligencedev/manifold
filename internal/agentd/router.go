@@ -101,6 +101,10 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/debug/memory/", a.debugMemoryHandler())
 	mux.HandleFunc("/api/debug/memory", a.debugMemoryHandler())
 	mux.HandleFunc("/api/debug/memory/", a.debugMemoryHandler())
+	mux.HandleFunc("/debug/beliefs", a.debugBeliefsHandler())
+	mux.HandleFunc("/debug/beliefs/", a.debugBeliefsHandler())
+	mux.HandleFunc("/api/debug/beliefs", a.debugBeliefsHandler())
+	mux.HandleFunc("/api/debug/beliefs/", a.debugBeliefsHandler())
 
 	return mux
 }

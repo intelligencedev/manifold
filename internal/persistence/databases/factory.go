@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"manifold/internal/agent/belief"
 	"manifold/internal/config"
 	"manifold/internal/persistence"
 
@@ -215,6 +216,13 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 
 	m.Transit = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresTransitStore)
 	if err := initStore(ctx, "transit store", m.Transit); err != nil {
+		return err
+	}
+
+	m.Belief = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) belief.Store {
+		return NewBeliefStoreWithDimensions(pool, cfg.Vector.Dimensions)
+	})
+	if err := initStore(ctx, "belief store", m.Belief); err != nil {
 		return err
 	}
 

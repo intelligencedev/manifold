@@ -262,6 +262,29 @@ type EvolvingMemory struct {
 	callbacks *MemoryCallbacks
 }
 
+type entryIDContextKey struct{}
+
+// WithEntryID reserves the ID EvolveEnhanced should use for the next memory entry.
+func WithEntryID(ctx context.Context, id string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(id) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, entryIDContextKey{}, strings.TrimSpace(id))
+}
+
+func entryIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if value, ok := ctx.Value(entryIDContextKey{}).(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
 // Introspection helpers for debug APIs.
 
 // TopK returns the configured top-k retrieval size.
@@ -856,8 +879,12 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	}
 	rawTrace = limitUTF8Bytes(redactPII(rawTrace), maxStoredRawTraceBytes)
 
+	entryID := entryIDFromContext(ctx)
+	if entryID == "" {
+		entryID = uuid.New().String()
+	}
 	entry := &MemoryEntry{
-		ID:                 uuid.New().String(),
+		ID:                 entryID,
 		Input:              input,
 		Output:             output,
 		Feedback:           feedback,

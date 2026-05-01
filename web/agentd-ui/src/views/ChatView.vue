@@ -282,9 +282,6 @@
               >
                 {{ labelForRole(message.role) }}
               </span>
-              <span class="text-xs text-faint-foreground">{{
-                formatTimestamp(message.createdAt)
-              }}</span>
               <span
                 v-if="shouldShowResponseTimer(message)"
                 class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
@@ -3438,7 +3435,8 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   border-bottom-right-radius: 0.5rem;
   overflow-x: auto;
   padding: 0.75rem;
-  background-color: rgb(var(--color-surface-muted) / 0.9);
+  background-color: rgb(var(--color-surface-muted) / 0.78);
+  border-color: rgb(var(--color-surface-muted) / 0.78);
   max-width: 100%;
 }
 
@@ -3447,6 +3445,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   white-space: pre;
   max-width: 100%;
   overflow-x: auto;
+  background: transparent !important;
 }
 /* Code block wrapper and toolbar */
 .chat-markdown :deep(.md-codeblock) {

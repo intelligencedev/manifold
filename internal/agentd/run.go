@@ -1025,7 +1025,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			return llm
 		}
 	}
-	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.OpenAI.Model, newProv))
+	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.ImageTool.Model, cfg.ImageTool.BaseURL, newProv))
 
 	// Initialize workspace manager (local filesystem only).
 	wsMgr := workspaces.NewManager(cfg)

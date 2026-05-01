@@ -29,11 +29,12 @@ type DescribeTool struct {
 	Provider       llm.Provider
 	Workdir        string
 	DefaultModel   string
+	DefaultBaseURL string
 	NewWithBaseURL ProviderFactory
 }
 
-func NewDescribeTool(p llm.Provider, workdir, defaultModel string, f ProviderFactory) *DescribeTool {
-	return &DescribeTool{Provider: p, Workdir: workdir, DefaultModel: defaultModel, NewWithBaseURL: f}
+func NewDescribeTool(p llm.Provider, workdir, defaultModel, defaultBaseURL string, f ProviderFactory) *DescribeTool {
+	return &DescribeTool{Provider: p, Workdir: workdir, DefaultModel: defaultModel, DefaultBaseURL: defaultBaseURL, NewWithBaseURL: f}
 }
 
 func (t *DescribeTool) Name() string { return "describe_image" }
@@ -173,17 +174,21 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxProvider := tools.ProviderFromContext(ctx); ctxProvider != nil {
 		p = ctxProvider
 	}
-	// If caller requested a baseURL override, build a new provider using the
-	// supplied factory so the tool uses the correct base URL and headers.
-	if args.BaseURL != "" && t.NewWithBaseURL != nil {
-		if np := t.NewWithBaseURL(args.BaseURL); np != nil {
+	// If caller or config requested a baseURL override, build a new provider using
+	// the supplied factory so the tool uses the correct base URL and headers.
+	baseURL := strings.TrimSpace(args.BaseURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(t.DefaultBaseURL)
+	}
+	if baseURL != "" && t.NewWithBaseURL != nil {
+		if np := t.NewWithBaseURL(baseURL); np != nil {
 			p = np
 		}
 	}
-	model := args.Model
-	// Don't fallback to t.DefaultModel - let the provider use its own default model
-	// This ensures that when providers are propagated from context (specialists/agents),
-	// tools use the same model as the invoking agent/specialist.
+	model := strings.TrimSpace(args.Model)
+	if model == "" {
+		model = strings.TrimSpace(t.DefaultModel)
+	}
 
 	// Try to use OpenAI-specific image attachment method if available
 	if openaiClient, ok := p.(*openai.Client); ok {

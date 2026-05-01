@@ -76,6 +76,8 @@ type Config struct {
 	MaxDiscoveredTools int `yaml:"maxDiscoveredTools" json:"maxDiscoveredTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig `yaml:"embedding" json:"embedding"`
+	// ImageTool configures defaults for the describe_image tool.
+	ImageTool ImageToolConfig `yaml:"imageTool" json:"imageTool"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
 	EvolvingMemory EvolvingMemoryConfig `yaml:"evolvingMemory" json:"evolvingMemory"`
 	// Transit configures the shared durable memory system.
@@ -492,6 +494,14 @@ type EmbeddingConfig struct {
 	Headers   map[string]string `yaml:"headers" json:"headers"`     // optional additional headers
 	Path      string            `yaml:"path" json:"path"`           // default: /v1/embeddings
 	Timeout   int               `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+}
+
+// ImageToolConfig configures the describe_image tool defaults.
+type ImageToolConfig struct {
+	// BaseURL overrides the LLM endpoint used by describe_image. Empty means use the invoking provider endpoint.
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	// Model overrides the LLM model used by describe_image. Empty means use the invoking provider model.
+	Model string `yaml:"model" json:"model"`
 }
 
 // EvolvingMemoryConfig configures the Search-Synthesis-Evolve memory system.

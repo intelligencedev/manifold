@@ -214,6 +214,13 @@ embedding:
   path: /v1/embeddings
   timeoutSeconds: 30
 
+# Optional defaults for the describe_image tool. Leave blank to use the
+# invoking agent/specialist endpoint and model; per-tool-call base_url/model
+# arguments still override these values.
+imageTool:
+  baseURL: ""
+  model: ""
+
 # Search -> Synthesis -> Evolve memory.
 evolvingMemory:
   enabled: false

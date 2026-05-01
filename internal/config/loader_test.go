@@ -152,6 +152,9 @@ embedding:
     X-Embed-Trace: abc123
   path: /v1/embeddings
   timeoutSeconds: 30
+imageTool:
+  baseURL: http://localhost:11434/v1
+  model: llava:latest
 evolvingMemory:
   enabled: true
   provider: openai
@@ -229,6 +232,9 @@ tokenization:
 	}
 	if cfg.Embedding.Headers["X-Embed-Trace"] != "abc123" {
 		t.Fatalf("unexpected embedding headers: %+v", cfg.Embedding.Headers)
+	}
+	if cfg.ImageTool.BaseURL != "http://localhost:11434/v1" || cfg.ImageTool.Model != "llava:latest" {
+		t.Fatalf("unexpected image tool config: %+v", cfg.ImageTool)
 	}
 	if cfg.EvolvingMemory.LLMClient.Provider != "local" {
 		t.Fatalf("unexpected evolving memory provider: %q", cfg.EvolvingMemory.LLMClient.Provider)

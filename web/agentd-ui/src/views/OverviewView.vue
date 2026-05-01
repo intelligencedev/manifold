@@ -50,7 +50,10 @@
         </template>
 
         <template #item-logs>
-          <LogsPanel />
+          <LogsPanel
+            :selected-log-id="selectedLogId"
+            @select-log="openLogDetail"
+          />
         </template>
 
         <template #item-agents>
@@ -62,6 +65,13 @@
         </template>
       </DashboardGrid>
     </div>
+
+    <LogDetailDrawer
+      :open="Boolean(selectedLogId)"
+      :log-id="selectedLogId"
+      :window="selectedLogWindow"
+      @close="closeLogDetail"
+    />
   </section>
 </template>
 
@@ -76,6 +86,7 @@ import TracesPanel from "@/components/observability/TracesPanel.vue";
 import MemoryPanel from "@/components/observability/MemoryPanel.vue";
 import MemoryMetricsPanel from "@/components/observability/MemoryMetricsPanel.vue";
 import LogsPanel from "@/components/observability/LogsPanel.vue";
+import LogDetailDrawer from "@/components/observability/LogDetailDrawer.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
 import {
@@ -83,8 +94,11 @@ import {
   fetchAgentStatus,
   listSpecialists,
 } from "@/api/client";
+import type { MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
 
 const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>();
+const selectedLogId = ref<string | null>(null);
+const selectedLogWindow = ref<MetricsTimeRangeValue>("1h");
 
 // Define default dashboard layout
 // 12 columns grid, row height = 80px + 16px margin = 96px per row
@@ -211,5 +225,14 @@ function onLayoutChange(newLayout: GridItemConfig[]) {
 
 function resetLayout() {
   dashboardGridRef.value?.resetLayout();
+}
+
+function openLogDetail(payload: { id: string; window: MetricsTimeRangeValue }) {
+  selectedLogId.value = payload.id;
+  selectedLogWindow.value = payload.window;
+}
+
+function closeLogDetail() {
+  selectedLogId.value = null;
 }
 </script>

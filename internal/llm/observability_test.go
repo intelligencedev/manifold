@@ -1,9 +1,17 @@
 package llm
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func resetTokenMetricsStateForTest() {
@@ -168,4 +176,78 @@ func TestTraceRetentionAndLimit(t *testing.T) {
 	if traces[0].Name == "too-old" {
 		t.Fatalf("expected old trace to be evicted by retention")
 	}
+}
+
+func TestLogRedactedPromptSetsRawAttributeOnlyWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	exporter := tracetest.NewInMemoryExporter()
+	provider := newTestTracerProvider(exporter)
+	defer func() { _ = provider.Shutdown(context.Background()) }()
+
+	prevProvider := tracerProviderForTest(provider)
+	defer tracerProviderForTest(prevProvider)
+
+	msgs := []Message{{Role: "system", Content: "sys"}, {Role: "user", Content: "hello"}}
+
+	ConfigureLogging(true, false, 0)
+	ctx, span := StartRequestSpan(context.Background(), "chat", "gpt-5", 0, len(msgs))
+	LogRedactedPrompt(ctx, msgs)
+	span.SetStatus(codes.Ok, "")
+	span.End()
+
+	spans := exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	if _, ok := findSpanAttr(spans[0].Attributes, "llm.prompt_raw"); ok {
+		t.Fatal("did not expect raw prompt attribute when raw prompt logging is disabled")
+	}
+
+	exporter.Reset()
+	ConfigureLogging(true, true, 0)
+	ctx, span = StartRequestSpan(context.Background(), "chat", "gpt-5", 0, len(msgs))
+	LogRedactedPrompt(ctx, msgs)
+	span.SetStatus(codes.Ok, "")
+	span.End()
+
+	spans = exporter.GetSpans()
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span after reset, got %d", len(spans))
+	}
+	raw, ok := findSpanAttr(spans[0].Attributes, "llm.prompt_raw")
+	if !ok {
+		t.Fatal("expected raw prompt attribute when raw prompt logging is enabled")
+	}
+	var decoded []Message
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		t.Fatalf("expected raw prompt payload to be valid JSON, got error: %v", err)
+	}
+	if len(decoded) != 2 || decoded[0].Content != "sys" || decoded[1].Content != "hello" {
+		t.Fatalf("unexpected raw prompt payload: %+v", decoded)
+	}
+
+	ConfigureLogging(false, false, 0)
+}
+
+func newTestTracerProvider(exporter *tracetest.InMemoryExporter) *sdktrace.TracerProvider {
+	return sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+}
+
+func tracerProviderForTest(provider *sdktrace.TracerProvider) *sdktrace.TracerProvider {
+	current := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	if existing, ok := current.(*sdktrace.TracerProvider); ok {
+		return existing
+	}
+	return nil
+}
+
+func findSpanAttr(attrs []attribute.KeyValue, key string) (string, bool) {
+	for _, attr := range attrs {
+		if string(attr.Key) == key {
+			return attr.Value.AsString(), true
+		}
+	}
+	return "", false
 }

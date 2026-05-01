@@ -22,6 +22,7 @@ import (
 var (
 	mu                   sync.RWMutex
 	enablePayloadLogging = false
+	enableRawPromptLogs  = false
 	truncateBytes        = 0 // 0 means no truncation
 )
 
@@ -295,10 +296,11 @@ func sortTokenTotals(totals []TokenTotal) {
 
 // ConfigureLogging sets global behavior for prompt/response logging.
 // Call this once at startup with values from the main config.
-func ConfigureLogging(enable bool, truncate int) {
+func ConfigureLogging(enable bool, rawPrompts bool, truncate int) {
 	mu.Lock()
 	defer mu.Unlock()
 	enablePayloadLogging = enable
+	enableRawPromptLogs = enable && rawPrompts
 	truncateBytes = truncate
 }
 
@@ -318,16 +320,16 @@ func StartRequestSpan(ctx context.Context, operation string, model string, tools
 	return ctx, span
 }
 
-func shouldLog() (bool, int) {
+func shouldLog() (bool, bool, int) {
 	mu.RLock()
 	defer mu.RUnlock()
-	return enablePayloadLogging, truncateBytes
+	return enablePayloadLogging, enableRawPromptLogs, truncateBytes
 }
 
 // LogRedactedPrompt logs a redacted copy of the prompt/messages at debug level using the observability helpers.
 // If global logging is disabled this is a no-op. Very large payloads are truncated according to configuration.
 func LogRedactedPrompt(ctx context.Context, msgs []Message) {
-	if ok, t := shouldLog(); !ok {
+	if ok, rawPrompts, t := shouldLog(); !ok {
 		return
 	} else {
 		log := observability.LoggerWithTrace(ctx)
@@ -339,6 +341,11 @@ func LogRedactedPrompt(ctx context.Context, msgs []Message) {
 			}
 		}
 		if b, err := json.Marshal(msgs); err == nil {
+			if rawPrompts {
+				if span := trace.SpanFromContext(ctx); span != nil {
+					span.SetAttributes(attribute.String("llm.prompt_raw", formatLoggedPayload(b, t)))
+				}
+			}
 			red := observability.RedactJSON(b)
 			if t > 0 && len(red) > t {
 				previewObj := map[string]any{"truncated": true, "preview": string(red[:t])}
@@ -354,6 +361,16 @@ func LogRedactedPrompt(ctx context.Context, msgs []Message) {
 			tt.Debug().Msg("llm_request")
 		}
 	}
+}
+
+func formatLoggedPayload(payload []byte, truncate int) string {
+	if truncate > 0 && len(payload) > truncate {
+		previewObj := map[string]any{"truncated": true, "preview": string(payload[:truncate])}
+		if encoded, err := json.Marshal(previewObj); err == nil {
+			return string(encoded)
+		}
+	}
+	return string(payload)
 }
 
 func buildPromptPreview(msgs []Message) string {
@@ -382,7 +399,7 @@ func buildPromptPreview(msgs []Message) string {
 // LogRedactedResponse logs a redacted copy of the response payload at debug level.
 // If global logging is disabled this is a no-op. Very large payloads are truncated according to configuration.
 func LogRedactedResponse(ctx context.Context, resp any) {
-	if ok, t := shouldLog(); !ok {
+	if ok, _, t := shouldLog(); !ok {
 		return
 	} else {
 		log := observability.LoggerWithTrace(ctx)

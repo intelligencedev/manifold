@@ -37,9 +37,10 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 		Environment:     cfg.Obs.Environment,
 		OTLPEndpoint:    cfg.Obs.OTLP,
 
-		LogPath:     cfg.LogPath,
-		LogLevel:    cfg.LogLevel,
-		LogPayloads: cfg.LogPayloads,
+		LogPath:       cfg.LogPath,
+		LogLevel:      cfg.LogLevel,
+		LogPayloads:   cfg.LogPayloads,
+		LogRawPrompts: cfg.LogRawPrompts,
 
 		SearXNGURL:    cfg.Web.SearXNGURL,
 		WebSearXNGURL: cfg.Web.SearXNGURL,
@@ -159,6 +160,7 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 		cfg.LogLevel = settings.LogLevel
 	}
 	cfg.LogPayloads = settings.LogPayloads
+	cfg.LogRawPrompts = settings.LogRawPrompts
 
 	if settings.WebSearXNGURL != "" {
 		cfg.Web.SearXNGURL = settings.WebSearXNGURL
@@ -290,6 +292,7 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	}
 
 	setNestedMapValue(root, []string{"logPayloads"}, settings.LogPayloads)
+	setNestedMapValue(root, []string{"logRawPrompts"}, settings.LogRawPrompts)
 	if settings.LogPath != "" {
 		setNestedMapValue(root, []string{"logPath"}, settings.LogPath)
 	}

@@ -14,12 +14,16 @@ import (
 
 // LogEntry represents a single log entry returned to the UI.
 type LogEntry struct {
-	Timestamp int64  `json:"timestamp"`
-	Level     string `json:"level"`
-	Message   string `json:"message"`
-	Service   string `json:"service,omitempty"`
-	TraceID   string `json:"traceId,omitempty"`
-	SpanID    string `json:"spanId,omitempty"`
+	ID                 string            `json:"id"`
+	Timestamp          int64             `json:"timestamp"`
+	Level              string            `json:"level"`
+	Message            string            `json:"message"`
+	Service            string            `json:"service,omitempty"`
+	TraceID            string            `json:"traceId,omitempty"`
+	SpanID             string            `json:"spanId,omitempty"`
+	Tags               []string          `json:"tags,omitempty"`
+	Attributes         map[string]string `json:"attributes,omitempty"`
+	ResourceAttributes map[string]string `json:"resourceAttributes,omitempty"`
 }
 
 type clickhouseLogMetrics struct {
@@ -134,18 +138,112 @@ LIMIT ?
 			lvl = "info"
 		}
 		msg := strings.TrimSpace(message)
-		out = append(out, LogEntry{
+		entry := LogEntry{
 			Timestamp: ts.Unix(),
 			Level:     lvl,
 			Message:   msg,
 			Service:   strings.TrimSpace(service),
 			TraceID:   strings.TrimSpace(traceID),
 			SpanID:    strings.TrimSpace(spanID),
-		})
+		}
+		populateLogEntryMeta(&entry)
+		out = append(out, entry)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
 	}
 
 	return out, window, nil
+}
+
+func (c *clickhouseLogMetrics) LogDetail(ctx context.Context, window time.Duration, id string) (*LogEntry, time.Duration, error) {
+	if c == nil || c.conn == nil {
+		return nil, 0, errors.New("clickhouse connection is nil")
+	}
+	if window <= 0 {
+		window = 24 * time.Hour
+	}
+	needle := strings.TrimSpace(id)
+	if needle == "" {
+		return nil, window, nil
+	}
+
+	start := time.Now().Add(-window)
+	query := fmt.Sprintf(`
+SELECT
+  Timestamp,
+  SeverityText,
+  COALESCE(NULLIF(Body, ''), LogAttributes['message'], LogAttributes['msg']) AS body,
+  ServiceName,
+  TraceId,
+  SpanId,
+  LogAttributes,
+  ResourceAttributes
+FROM %s
+WHERE Timestamp >= ?
+  AND (ServiceName = 'manifold' OR ResourceAttributes['service.instance.id'] = 'manifold')
+ORDER BY Timestamp DESC
+LIMIT 1000
+`, c.table)
+
+	execCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	rows, err := c.conn.Query(execCtx, query, start)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			ts                 time.Time
+			level              string
+			message            string
+			service            string
+			traceID            string
+			spanID             string
+			attributes         map[string]string
+			resourceAttributes map[string]string
+		)
+		if err := rows.Scan(&ts, &level, &message, &service, &traceID, &spanID, &attributes, &resourceAttributes); err != nil {
+			return nil, 0, err
+		}
+		entry := LogEntry{
+			Timestamp:          ts.Unix(),
+			Level:              strings.ToLower(strings.TrimSpace(level)),
+			Message:            strings.TrimSpace(message),
+			Service:            strings.TrimSpace(service),
+			TraceID:            strings.TrimSpace(traceID),
+			SpanID:             strings.TrimSpace(spanID),
+			Attributes:         cleanStringMap(attributes),
+			ResourceAttributes: cleanStringMap(resourceAttributes),
+		}
+		populateLogEntryMeta(&entry)
+		if entry.ID == needle {
+			return &entry, window, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return nil, window, nil
+}
+
+func cleanStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cleaned := make(map[string]string, len(values))
+	for key, value := range values {
+		trimmedKey := strings.TrimSpace(key)
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedKey == "" || trimmedValue == "" {
+			continue
+		}
+		cleaned[trimmedKey] = trimmedValue
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+	return cleaned
 }

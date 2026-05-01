@@ -36,6 +36,13 @@ type logMetricsResponse struct {
 	Logs          []LogEntry `json:"logs"`
 }
 
+type logDetailResponse struct {
+	Timestamp     int64     `json:"timestamp"`
+	WindowSeconds int64     `json:"windowSeconds,omitempty"`
+	Source        string    `json:"source"`
+	Log           *LogEntry `json:"log,omitempty"`
+}
+
 type memoryMetricsResponse struct {
 	Timestamp       int64                `json:"timestamp"`
 	WindowSeconds   int64                `json:"windowSeconds,omitempty"`
@@ -305,6 +312,61 @@ func (a *app) metricsLogsHandler() http.HandlerFunc {
 
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Warn().Err(err).Msg("failed to encode log metrics response")
+		}
+	}
+}
+
+func (a *app) metricsLogDetailHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.cfg.Auth.Enabled {
+			_, ok := auth.CurrentUser(r.Context())
+			if !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		window, err := parseWindowParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		logID := strings.TrimSpace(r.URL.Query().Get("id"))
+		if logID == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+
+		resp := logDetailResponse{
+			Timestamp: time.Now().Unix(),
+			Source:    "none",
+		}
+		for _, provider := range a.logMetrics {
+			if provider == nil {
+				continue
+			}
+			entry, applied, err := provider.LogDetail(r.Context(), window, logID)
+			if err != nil {
+				log.Warn().Err(err).Msg("log detail query failed")
+				continue
+			}
+			resp.Log = entry
+			resp.Source = provider.Source()
+			if applied > 0 {
+				resp.WindowSeconds = int64(applied.Seconds())
+			}
+			break
+		}
+
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Warn().Err(err).Msg("failed to encode log detail response")
 		}
 	}
 }

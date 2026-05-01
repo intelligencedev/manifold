@@ -577,6 +577,19 @@
                 >Log LLM Payloads</label
               >
             </div>
+            <div class="space-y-1 flex items-center gap-2 lg:col-span-2">
+              <input
+                id="log-raw-prompts"
+                type="checkbox"
+                class="h-4 w-4"
+                v-model="agentdSettings.logRawPrompts"
+              />
+              <label
+                for="log-raw-prompts"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Log Raw LLM Prompts</label
+              >
+            </div>
           </div>
         </fieldset>
       </template>
@@ -1063,6 +1076,7 @@ const defaultAgentdSettings: AgentdSettings = {
   logPath: "",
   logLevel: "info",
   logPayloads: true,
+  logRawPrompts: false,
   searxngUrl: "http://localhost:8080",
   webSearxngUrl: "http://localhost:8080",
   databaseUrl: "",
@@ -1129,7 +1143,7 @@ type NumericSettingKey =
   | "outputTruncateBytes"
   | "vectorDimensions";
 
-type BooleanSettingKey = "summaryEnabled" | "logPayloads";
+type BooleanSettingKey = "summaryEnabled" | "logPayloads" | "logRawPrompts";
 
 const numericSettingKeys: NumericSettingKey[] = [
   "summaryReserveBufferTokens",
@@ -1143,6 +1157,7 @@ const numericSettingKeys: NumericSettingKey[] = [
 const booleanSettingKeys: BooleanSettingKey[] = [
   "summaryEnabled",
   "logPayloads",
+  "logRawPrompts",
 ];
 
 function toNumber(value: unknown, fallback: number): number {

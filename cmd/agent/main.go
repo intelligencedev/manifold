@@ -79,7 +79,7 @@ func run(cfg *config.Config, query string, maxSteps int, specialistName string) 
 	}
 
 	// Configure global LLM payload logging/truncation before creating providers.
-	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
+	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.LogRawPrompts, cfg.OutputTruncateByte)
 
 	embeddedRuntime, err := embeddedpg.Start(&cfg.Databases)
 	if err != nil {

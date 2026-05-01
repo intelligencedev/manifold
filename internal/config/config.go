@@ -39,6 +39,7 @@ type Config struct {
 	LogPath            string     `yaml:"logPath" json:"logPath"`
 	LogLevel           string     `yaml:"logLevel" json:"logLevel"`
 	LogPayloads        bool       `yaml:"logPayloads" json:"logPayloads"`
+	LogRawPrompts      bool       `yaml:"logRawPrompts" json:"logRawPrompts"`
 	Exec               ExecConfig `yaml:"exec" json:"exec"`
 	// LLMClient controls which LLM provider to use and holds provider-specific settings.
 	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`

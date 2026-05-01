@@ -52,7 +52,7 @@
       >
         Failed to load logs.
       </div>
-      <div v-else class="flex h-full flex-col">
+        <div v-else class="flex h-full flex-col">
         <div
           v-if="!filteredLogs.length"
           class="rounded-2xl border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
@@ -61,13 +61,16 @@
         </div>
         <div v-else class="flex-1 overflow-y-auto pr-1">
           <div class="space-y-1">
-            <div
+            <button
               v-for="(log, index) in filteredLogs"
               :key="log.key || index"
+              type="button"
               :class="[
-                'flex gap-3 leading-relaxed hover:bg-muted/10 px-2 py-1 rounded',
+                'flex w-full items-start gap-3 rounded-xl px-2 py-2 text-left leading-relaxed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 hover:bg-muted/10',
+                isSelected(log) ? 'bg-muted/20 ring-1 ring-border/80' : '',
                 getLogLevelClass(log.level),
               ]"
+              @click="selectLog(log)"
             >
               <span class="text-faint-foreground shrink-0">
                 {{ formatTimestamp(log.timestamp) }}
@@ -78,8 +81,14 @@
               >
                 {{ log.level || "info" }}
               </span>
-              <span class="text-foreground break-all">{{ log.message }}</span>
-            </div>
+              <span class="min-w-0 flex-1 text-foreground break-all">{{ log.message }}</span>
+              <span
+                v-if="log.service"
+                class="shrink-0 rounded-full border border-border/70 bg-muted/20 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+              >
+                {{ log.service }}
+              </span>
+            </button>
           </div>
         </div>
         <p class="mt-3 text-xs text-faint-foreground">
@@ -101,7 +110,18 @@ import {
   TOKEN_METRIC_TIME_RANGES,
   type MetricsTimeRangeValue,
 } from "@/composables/observability/useTokenMetrics";
-import { useLogMetrics } from "@/composables/observability/useLogMetrics";
+import {
+  useLogMetrics,
+  type LogDisplayRow,
+} from "@/composables/observability/useLogMetrics";
+
+const props = defineProps<{
+  selectedLogId?: string | null;
+}>();
+
+const emit = defineEmits<{
+  selectLog: [payload: { id: string; window: MetricsTimeRangeValue }];
+}>();
 
 const selectedRange = ref<MetricsTimeRangeValue>("1h");
 const selectedLevel = ref("all");
@@ -136,6 +156,15 @@ const filteredLogs = computed(() => {
     (log) => normalizeLevel(log.level) === selectedLevel.value,
   );
 });
+
+function selectLog(log: LogDisplayRow) {
+  if (!log.id) return;
+  emit("selectLog", { id: log.id, window: selectedRange.value });
+}
+
+function isSelected(log: LogDisplayRow) {
+  return Boolean(props.selectedLogId) && log.id === props.selectedLogId;
+}
 
 function getLogLevelClass(level: string) {
   const normalized = normalizeLevel(level);

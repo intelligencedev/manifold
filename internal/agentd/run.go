@@ -923,7 +923,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
 	}
 
-	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
+	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.LogRawPrompts, cfg.OutputTruncateByte)
 	llm, err := llmproviders.Build(*cfg, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("build llm provider: %w", err)

@@ -24,6 +24,7 @@ workflowTimeoutSeconds: 0
 logPath: manifold.log
 logLevel: info
 logPayloads: false
+logRawPrompts: false
 
 # Tool execution policy.
 enableTools: true

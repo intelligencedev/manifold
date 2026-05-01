@@ -2,7 +2,11 @@ package agentd
 
 import (
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +23,7 @@ type traceMetricsProvider interface {
 
 type logMetricsProvider interface {
 	Logs(ctx context.Context, window time.Duration, limit int) ([]LogEntry, time.Duration, error)
+	LogDetail(ctx context.Context, window time.Duration, id string) (*LogEntry, time.Duration, error)
 	Source() string
 }
 
@@ -132,10 +137,38 @@ func (p *processLogMetrics) Logs(_ context.Context, window time.Duration, limit 
 	return out, window, nil
 }
 
+func (p *processLogMetrics) LogDetail(_ context.Context, window time.Duration, id string) (*LogEntry, time.Duration, error) {
+	if p == nil {
+		return nil, 0, nil
+	}
+	if window <= 0 {
+		window = 24 * time.Hour
+	}
+	needle := strings.TrimSpace(id)
+	if needle == "" {
+		return nil, window, nil
+	}
+	cutoff := time.Now().Add(-window).Unix()
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for index := len(p.logs) - 1; index >= 0; index-- {
+		entry := p.logs[index]
+		if entry.Timestamp < cutoff {
+			continue
+		}
+		if entry.ID == needle {
+			copyEntry := entry
+			return &copyEntry, window, nil
+		}
+	}
+	return nil, window, nil
+}
+
 func parseProcessLogEntry(data []byte) LogEntry {
 	var raw map[string]any
 	entry := LogEntry{Timestamp: time.Now().Unix(), Level: "info", Service: "manifold", Message: strings.TrimSpace(string(data))}
 	if err := json.Unmarshal(data, &raw); err != nil {
+		populateLogEntryMeta(&entry)
 		return entry
 	}
 	if rawTime, ok := raw["time"].(string); ok {
@@ -160,5 +193,130 @@ func parseProcessLogEntry(data []byte) LogEntry {
 	if spanID, ok := raw["span_id"].(string); ok {
 		entry.SpanID = spanID
 	}
+	entry.Attributes = normalizeLogAttributes(raw, map[string]struct{}{
+		"time":     {},
+		"level":    {},
+		"message":  {},
+		"msg":      {},
+		"service":  {},
+		"trace_id": {},
+		"span_id":  {},
+	})
+	populateLogEntryMeta(&entry)
 	return entry
+}
+
+func populateLogEntryMeta(entry *LogEntry) {
+	if entry == nil {
+		return
+	}
+	entry.Level = strings.ToLower(strings.TrimSpace(entry.Level))
+	if entry.Level == "" {
+		entry.Level = "info"
+	}
+	entry.Message = strings.TrimSpace(entry.Message)
+	entry.Service = strings.TrimSpace(entry.Service)
+	entry.TraceID = strings.TrimSpace(entry.TraceID)
+	entry.SpanID = strings.TrimSpace(entry.SpanID)
+	entry.ID = buildLogEntryID(entry.Timestamp, entry.Level, entry.Message, entry.Service, entry.TraceID, entry.SpanID)
+	entry.Tags = buildLogTags(*entry)
+}
+
+func buildLogEntryID(timestamp int64, level, message, service, traceID, spanID string) string {
+	h := sha1.New()
+	_, _ = h.Write([]byte(fmt.Sprintf("%d|%s|%s|%s|%s|%s", timestamp, level, service, traceID, spanID, message)))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func normalizeLogAttributes(raw map[string]any, exclude map[string]struct{}) map[string]string {
+	if len(raw) == 0 {
+		return nil
+	}
+	attrs := make(map[string]string, len(raw))
+	for key, value := range raw {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		if _, skip := exclude[trimmedKey]; skip {
+			continue
+		}
+		if formatted := stringifyLogValue(value); formatted != "" {
+			attrs[trimmedKey] = formatted
+		}
+	}
+	if len(attrs) == 0 {
+		return nil
+	}
+	return attrs
+}
+
+func stringifyLogValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	case json.RawMessage:
+		return strings.TrimSpace(string(typed))
+	case float64:
+		return strings.TrimSpace(fmt.Sprintf("%v", typed))
+	case float32:
+		return strings.TrimSpace(fmt.Sprintf("%v", typed))
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, bool:
+		return strings.TrimSpace(fmt.Sprintf("%v", typed))
+	default:
+		encoded, err := json.Marshal(typed)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(string(encoded))
+	}
+}
+
+func buildLogTags(entry LogEntry) []string {
+	tags := make([]string, 0, 12)
+	seen := make(map[string]struct{})
+	appendTag := func(key, value string) {
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		if key == "" || value == "" {
+			return
+		}
+		tag := key + ":" + value
+		if _, ok := seen[tag]; ok {
+			return
+		}
+		seen[tag] = struct{}{}
+		tags = append(tags, tag)
+	}
+	appendTag("level", entry.Level)
+	appendTag("service", entry.Service)
+	appendTag("trace_id", entry.TraceID)
+	appendTag("span_id", entry.SpanID)
+	for key, value := range entry.ResourceAttributes {
+		if shouldTagAttribute(key, value) {
+			appendTag(key, value)
+		}
+	}
+	for key, value := range entry.Attributes {
+		if shouldTagAttribute(key, value) {
+			appendTag(key, value)
+		}
+	}
+	sort.Strings(tags)
+	return tags
+}
+
+func shouldTagAttribute(key, value string) bool {
+	trimmedKey := strings.ToLower(strings.TrimSpace(key))
+	trimmedValue := strings.TrimSpace(value)
+	if trimmedKey == "" || trimmedValue == "" {
+		return false
+	}
+	switch trimmedKey {
+	case "prompt", "prompt_raw", "response", "prompt_preview":
+		return false
+	}
+	return len(trimmedValue) <= 120
 }

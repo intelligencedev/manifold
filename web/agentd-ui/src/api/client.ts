@@ -162,12 +162,14 @@ export async function fetchTraceMetrics(
 }
 
 export interface LogMetricsRow {
+  id: string;
   timestamp: number;
   level: string;
   message: string;
   service?: string;
   traceId?: string;
   spanId?: string;
+  tags?: string[];
 }
 
 export interface LogMetricsResponse {
@@ -189,6 +191,47 @@ export async function fetchLogMetrics(
   const response = await apiClient.get<LogMetricsResponse>("/metrics/logs", {
     params,
   });
+  return response.data;
+}
+
+export interface LogDetail {
+  id: string;
+  timestamp: number;
+  level: string;
+  message: string;
+  service?: string;
+  traceId?: string;
+  spanId?: string;
+  tags?: string[];
+  attributes?: Record<string, string>;
+  resourceAttributes?: Record<string, string>;
+}
+
+export interface LogDetailResponse {
+  timestamp: number;
+  windowSeconds?: number;
+  source?: string;
+  log?: LogDetail;
+}
+
+export interface LogDetailParams {
+  window?: string;
+  windowSeconds?: number;
+}
+
+export async function fetchLogDetail(
+  id: string,
+  params?: LogDetailParams,
+): Promise<LogDetailResponse> {
+  const response = await apiClient.get<LogDetailResponse>(
+    "/metrics/logs/detail",
+    {
+      params: {
+        ...params,
+        id,
+      },
+    },
+  );
   return response.data;
 }
 
@@ -537,6 +580,7 @@ export interface AgentdSettings {
   logPath: string;
   logLevel: string;
   logPayloads: boolean;
+  logRawPrompts: boolean;
 
   searxngUrl: string;
   webSearxngUrl: string;

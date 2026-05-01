@@ -33,9 +33,10 @@ type agentdSettings struct {
 	Environment     string `json:"environment"`
 	OTLPEndpoint    string `json:"otelExporterOtlpEndpoint"`
 
-	LogPath     string `json:"logPath"`
-	LogLevel    string `json:"logLevel"`
-	LogPayloads bool   `json:"logPayloads"`
+	LogPath       string `json:"logPath"`
+	LogLevel      string `json:"logLevel"`
+	LogPayloads   bool   `json:"logPayloads"`
+	LogRawPrompts bool   `json:"logRawPrompts"`
 
 	SearXNGURL    string `json:"searxngUrl"`
 	WebSearXNGURL string `json:"webSearxngUrl"`

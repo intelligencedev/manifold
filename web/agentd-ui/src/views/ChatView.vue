@@ -265,8 +265,8 @@
           <article
             v-for="message in chatMessages"
             :key="message.id"
-            class="relative max-w-[72ch] glass-surface rounded-[var(--radius,18px)] border border-white/12 p-5"
-            :class="message.role === 'user' ? 'ml-auto' : ''"
+            class="relative max-w-[72ch] rounded-[var(--radius,18px)] p-5"
+            :class="message.role === 'user' ? 'ml-auto glass-surface border border-white/12' : 'mx-auto'"
           >
             <header class="flex flex-wrap items-center gap-2">
               <template v-if="message.role === 'assistant'">
@@ -3432,7 +3432,10 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .chat-markdown :deep(pre.hljs) {
-  border-radius: 0.5rem;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
   overflow-x: auto;
   padding: 0.75rem;
   background-color: rgb(var(--color-surface-muted) / 0.9);

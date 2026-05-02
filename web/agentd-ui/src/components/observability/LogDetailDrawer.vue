@@ -1,6 +1,6 @@
 <template>
   <Teleport to="body">
-    <Transition name="drawer-overlay">
+    <Transition name="drawer">
       <div
         v-if="open"
         class="fixed inset-0 z-50"
@@ -10,15 +10,13 @@
       >
         <button
           type="button"
-          class="absolute inset-0 bg-black/35 backdrop-blur-[1px]"
+          class="drawer-backdrop absolute inset-0 bg-black/35 backdrop-blur-[1px]"
           aria-label="Close log detail"
           @click="closeDrawer"
         />
 
-        <Transition name="drawer-panel">
           <aside
-            v-if="open"
-            class="absolute inset-y-0 right-0 flex w-full max-w-[720px] flex-col border-l border-border/70 bg-surface shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
+            class="drawer-panel absolute inset-y-0 right-0 flex w-full max-w-[720px] flex-col border-l border-border/70 bg-surface shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
           >
         <header class="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4 md:px-6">
           <div class="space-y-1">
@@ -193,8 +191,7 @@
             </section>
           </div>
         </div>
-        </aside>
-        </Transition>
+          </aside>
       </div>
     </Transition>
   </Teleport>
@@ -356,28 +353,28 @@ function formatPromptContent(value: unknown): string {
 }
 </script>
 
-<style scoped>
-/* Overlay fade */
-.drawer-overlay-enter-active,
-.drawer-overlay-leave-active {
+<style>
+/* Backdrop fades */
+.drawer-enter-active .drawer-backdrop,
+.drawer-leave-active .drawer-backdrop {
   transition: opacity 0.25s ease;
 }
-.drawer-overlay-enter-from,
-.drawer-overlay-leave-to {
+.drawer-enter-from .drawer-backdrop,
+.drawer-leave-to .drawer-backdrop {
   opacity: 0;
 }
 
-/* Panel slide from right */
-.drawer-panel-enter-active,
-.drawer-panel-leave-active {
-  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+/* Panel slides in/out from the right */
+.drawer-enter-active .drawer-panel,
+.drawer-leave-active .drawer-panel {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.drawer-panel-enter-from,
-.drawer-panel-leave-to {
+.drawer-enter-from .drawer-panel,
+.drawer-leave-to .drawer-panel {
   transform: translateX(100%);
 }
-.drawer-panel-enter-to,
-.drawer-panel-leave-from {
+.drawer-enter-to .drawer-panel,
+.drawer-leave-from .drawer-panel {
   transform: translateX(0);
 }
 </style>

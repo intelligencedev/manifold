@@ -1,7 +1,7 @@
 <template>
   <section class="flex h-full min-h-0 flex-col overflow-y-auto">
-    <header class="flex items-center gap-6 px-5 py-2 md:px-6">
-      <dl class="grid flex-1 gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-4">
+    <header class="flex items-center gap-6 px-6 py-2">
+      <dl class="grid flex-1 grid-cols-4 gap-x-6 gap-y-1">
         <div v-for="stat in overviewStats" :key="stat.label">
           <dt
             class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground"

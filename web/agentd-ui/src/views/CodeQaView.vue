@@ -1,7 +1,7 @@
 <template>
   <section class="flex h-full min-h-0 flex-col gap-5 overflow-hidden">
     <!-- Slim functional page header. No hero, no marketing copy. -->
-    <header class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <header class="flex items-center justify-between gap-3">
       <div class="min-w-0">
         <h1 class="text-2xl font-semibold text-foreground">Code QA</h1>
         <p class="text-sm text-subtle-foreground">
@@ -13,7 +13,7 @@
           v-model="search"
           type="search"
           placeholder="Search runs"
-          class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground placeholder:text-faint-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40 sm:w-64"
+          class="w-64 rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground placeholder:text-faint-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
         />
         <button
           type="button"
@@ -29,7 +29,7 @@
     <!-- Inline launch form: only visible on demand, single compact row. -->
     <form
       v-if="formOpen"
-      class="grid gap-3 rounded-xl border border-border/60 bg-surface-muted/30 p-4 md:grid-cols-[2fr_2fr_1fr_1fr_auto]"
+      class="grid grid-cols-[2fr_2fr_1fr_1fr_auto] gap-3 rounded-xl border border-border/60 bg-surface-muted/30 p-4"
       @submit.prevent="launchRun"
     >
       <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-subtle-foreground">
@@ -68,7 +68,7 @@
           class="rounded-md border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground placeholder:text-faint-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
         />
       </label>
-      <div class="flex flex-col items-stretch justify-end gap-2 md:flex-row md:items-center">
+      <div class="flex items-center justify-end gap-2">
         <label class="flex items-center gap-2 text-xs text-subtle-foreground">
           <input v-model="draft.include_repo_context" type="checkbox" class="h-4 w-4 rounded border-border/60" />
           Repo context
@@ -81,11 +81,11 @@
           {{ startMutation.isPending.value ? "Starting…" : "Start run" }}
         </button>
       </div>
-      <p v-if="startError" class="text-xs text-danger md:col-span-5">{{ startError }}</p>
+      <p v-if="startError" class="col-span-5 text-xs text-danger">{{ startError }}</p>
     </form>
 
     <!-- Two-column working surface: runs rail + run detail. -->
-    <div class="grid min-h-0 flex-1 gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+    <div class="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-5">
       <!-- Runs rail -->
       <aside class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-surface-muted/20">
         <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
@@ -156,7 +156,7 @@
             </div>
           </div>
 
-          <dl class="mt-4 grid gap-4 sm:grid-cols-4">
+          <dl class="mt-4 grid grid-cols-4 gap-4">
             <div>
               <dt class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground">
                 Quality Δ
@@ -276,7 +276,7 @@
           </section>
 
           <!-- JUDGES -->
-          <section v-else-if="detailTab === 'judges'" role="tabpanel" class="grid gap-3 md:grid-cols-2">
+          <section v-else-if="detailTab === 'judges'" role="tabpanel" class="grid grid-cols-2 gap-3">
             <article
               v-for="judge in selectedRun.judges"
               :key="judge.judge_id"
@@ -309,7 +309,7 @@
             </article>
             <div
               v-if="!selectedRun.judges.length"
-              class="rounded-lg border border-dashed border-border/60 px-3 py-8 text-center text-xs text-subtle-foreground md:col-span-2"
+              class="col-span-2 rounded-lg border border-dashed border-border/60 px-3 py-8 text-center text-xs text-subtle-foreground"
             >
               No judges recorded.
             </div>

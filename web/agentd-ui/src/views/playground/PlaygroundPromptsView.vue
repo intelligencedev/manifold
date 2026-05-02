@@ -7,8 +7,8 @@
           Define a prompt template and optional metadata.
         </p>
       </header>
-      <form class="grid gap-3 md:grid-cols-2" @submit.prevent="handleCreate">
-        <label class="flex flex-col text-sm md:col-span-1">
+      <form class="grid grid-cols-2 gap-3" @submit.prevent="handleCreate">
+        <label class="flex flex-col text-sm">
           <span class="text-subtle-foreground mb-1">Name</span>
           <input
             v-model="form.name"
@@ -16,7 +16,7 @@
             class="rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
           />
         </label>
-        <label class="flex flex-col text-sm md:col-span-1">
+        <label class="flex flex-col text-sm">
           <span class="text-subtle-foreground mb-1"
             >Tags (comma separated)</span
           >
@@ -26,7 +26,7 @@
             class="rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
           />
         </label>
-        <label class="flex flex-col text-sm md:col-span-2">
+        <label class="col-span-2 flex flex-col text-sm">
           <span class="text-subtle-foreground mb-1">Description</span>
           <textarea
             v-model="form.description"
@@ -34,7 +34,7 @@
             class="rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
           ></textarea>
         </label>
-        <div class="md:col-span-2 flex gap-3">
+        <div class="col-span-2 flex gap-3">
           <button
             type="submit"
             class="rounded border border-border/70 px-3 py-2 text-sm font-semibold"

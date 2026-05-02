@@ -8,10 +8,10 @@
     </div>
 
     <!-- list/edit layout; nested areas scroll but view itself doesn't -->
-    <div class="flex flex-1 min-h-0 flex-col gap-6 xl:flex-row">
+    <div class="flex min-h-0 flex-1 flex-row gap-6">
       <!-- left: card grid -->
       <div
-        class="scrollbar-inset min-w-0 min-h-0 overflow-auto xl:w-1/2 xl:pr-6 xl:border-r xl:border-border/60"
+        class="scrollbar-inset min-h-0 min-w-0 w-1/2 overflow-auto border-r border-border/60 pr-6"
       >
         <div class="mb-4 flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold">Specialists & Teams</h2>
@@ -221,7 +221,7 @@
           >
             No specialists match this filter.
           </div>
-          <div v-else class="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
+          <div v-else class="grid grid-cols-2 gap-4">
             <GlassCard
               v-for="s in filteredSpecialists"
               :key="s.name"
@@ -352,7 +352,7 @@
       </div>
 
       <!-- right: editor -->
-      <div class="min-w-0 min-h-0 xl:w-1/2 xl:pl-6">
+      <div class="min-h-0 min-w-0 w-1/2 pl-6">
         <GlassCard
           v-if="editingType === 'specialist'"
           flat

@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <section class="grid gap-4 md:grid-cols-3">
+    <section class="grid grid-cols-3 gap-4">
       <article class="p-1">
         <h2 class="text-sm text-subtle-foreground">Prompts</h2>
         <p class="mt-2 text-3xl font-semibold">{{ store.promptCount }}</p>

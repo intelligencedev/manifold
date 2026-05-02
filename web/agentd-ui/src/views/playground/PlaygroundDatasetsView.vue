@@ -1,17 +1,17 @@
 <template>
-  <!-- Responsive layout: stack on small screens with a sized upload card; split columns on large screens -->
+  <!-- Desktop layout: split upload/list columns, or a full-height detail view. -->
   <div
     :class="[
-      'flex h-full min-h-0 flex-col gap-6 overflow-hidden',
+      'h-full min-h-0 gap-6 overflow-hidden',
       selectedDatasetId
-        ? ''
-        : 'lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]',
+        ? 'flex flex-col'
+        : 'grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)]',
     ]"
   >
-    <!-- Upload card: cap height on small screens so it never pushes past the viewport; full height on large screens -->
+    <!-- Upload card. -->
     <section
       v-if="!selectedDatasetId"
-      class="flex min-h-0 max-h-[50vh] flex-col overflow-hidden lg:h-full lg:max-h-none"
+      class="flex h-full min-h-0 flex-col overflow-hidden"
     >
       <header class="mb-4">
         <h2 class="text-lg font-semibold">Upload Dataset</h2>
@@ -20,7 +20,7 @@
         </p>
       </header>
       <div class="flex-1 overflow-auto overscroll-contain pr-1">
-        <form class="grid gap-3 md:grid-cols-2" @submit.prevent="handleCreate">
+        <form class="grid grid-cols-2 gap-3" @submit.prevent="handleCreate">
           <label class="text-sm">
             <span class="text-subtle-foreground mb-1">Name</span>
             <input
@@ -38,7 +38,7 @@
               class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
             />
           </label>
-          <label class="text-sm md:col-span-2">
+          <label class="col-span-2 text-sm">
             <span class="text-subtle-foreground mb-1">Description</span>
             <textarea
               v-model="form.description"
@@ -46,7 +46,7 @@
               class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
             ></textarea>
           </label>
-          <label class="text-sm md:col-span-2">
+          <label class="col-span-2 text-sm">
             <span class="text-subtle-foreground mb-1">Rows (JSON array)</span>
             <textarea
               v-model="form.rows"
@@ -57,7 +57,7 @@
 ]'
             ></textarea>
           </label>
-          <div class="md:col-span-2 flex gap-3 items-center pb-2">
+          <div class="col-span-2 flex items-center gap-3 pb-2">
             <button
               type="submit"
               class="rounded border border-border/70 px-3 py-2 text-sm font-semibold"
@@ -75,14 +75,14 @@
       </div>
     </section>
 
-    <!-- Right column (list/detail): consumes remaining height in stacked layout -->
-    <div class="flex min-h-0 flex-1 flex-col lg:h-full">
+    <!-- Right column (list/detail). -->
+    <div class="flex h-full min-h-0 flex-1 flex-col">
       <section
         v-if="!selectedDatasetId"
-        class="flex min-h-0 flex-1 flex-col overflow-hidden lg:h-full"
+        class="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       >
         <header
-          class="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between"
+          class="mb-4 flex items-center justify-between gap-2"
         >
           <div>
             <h2 class="text-lg font-semibold">Datasets</h2>
@@ -169,11 +169,11 @@
 
       <section
         v-else
-        class="grid min-h-0 flex-1 grid-rows-[auto,1fr] gap-4 overflow-hidden lg:h-full"
+        class="grid h-full min-h-0 flex-1 grid-rows-[auto,1fr] gap-4 overflow-hidden"
       >
         <!-- Sticky header row -->
         <header
-          class="ap-hairline-b sticky top-0 z-10 grid grid-cols-1 items-start gap-3 pb-3 lg:grid-cols-[1fr_auto]"
+          class="ap-hairline-b sticky top-0 z-10 grid grid-cols-[1fr_auto] items-start gap-3 pb-3"
         >
           <div class="flex items-start gap-3">
             <button
@@ -226,10 +226,10 @@
         <div v-else class="min-h-0 flex-1 overflow-hidden">
           <div
             v-if="selectedDataset"
-            class="grid h-full min-h-0 grid-cols-1 gap-4 lg:grid-cols-12"
+            class="grid h-full min-h-0 grid-cols-12 gap-4"
           >
             <!-- Properties card (left) -->
-            <div class="col-span-12 flex min-h-0 flex-col lg:col-span-4">
+            <div class="col-span-4 flex min-h-0 flex-col">
               <div
                 class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30"
               >
@@ -294,7 +294,7 @@
             </div>
 
             <!-- Rows card (right) -->
-            <div class="col-span-12 flex min-h-0 flex-col lg:col-span-8">
+            <div class="col-span-8 flex min-h-0 flex-col">
               <div
                 class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30"
               >

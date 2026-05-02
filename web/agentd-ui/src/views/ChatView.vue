@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full flex-1 min-h-0 overflow-hidden gap-4 lg:gap-0 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)_260px] overflow-hidden chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="hidden h-full min-h-0 lg:flex flex-col gap-3 overflow-hidden p-4 lg:border-r lg:border-border/60 lg:pr-5"
+        class="flex h-full min-h-0 flex-col gap-3 overflow-hidden border-r border-border/60 p-4 pr-5"
       >
         <header class="flex items-center justify-between gap-2">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -161,7 +161,7 @@
 
       <!-- Chat pane -->
       <section
-        class="relative flex h-full min-h-0 flex-col overflow-hidden chat-pane xl:px-5"
+        class="relative flex h-full min-h-0 flex-col overflow-hidden px-5 chat-pane"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 pb-4 pt-1"
@@ -525,7 +525,7 @@
               </div>
 
               <div
-                class="flex flex-wrap items-center gap-2 sm:gap-3 sm:flex-nowrap"
+                class="flex items-center gap-3"
               >
                 <textarea
                   ref="composer"
@@ -834,7 +834,7 @@
 
       <!-- Participants sidebar -->
       <aside
-        class="hidden h-full min-h-0 xl:flex xl:flex-col xl:border-l xl:border-border/60 xl:pl-5 text-sm text-subtle-foreground chat-side"
+        class="flex h-full min-h-0 flex-col border-l border-border/60 pl-5 text-sm text-subtle-foreground chat-side"
       >
         <div ref="sidePanelsPane" class="flex min-h-0 flex-1 flex-col">
           <div

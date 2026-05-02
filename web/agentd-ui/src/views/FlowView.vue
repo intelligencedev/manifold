@@ -123,12 +123,10 @@
       </div>
     </section>
 
-    <div
-      class="flex flex-1 min-h-0 flex-col gap-4 overflow-auto lg:flex-row lg:items-stretch lg:overflow-hidden"
-    >
-      <aside class="min-w-0 lg:w-72">
+    <div class="flex min-h-0 flex-1 flex-row items-stretch gap-4 overflow-hidden">
+      <aside class="w-72 min-w-0">
         <div
-          class="glass-surface ap-hover flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl !p-4 lg:h-full"
+          class="glass-surface ap-hover flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl !p-4"
         >
           <!-- Conditional: Node Configuration when a single node is selected, else show Tool Palette -->
           <template
@@ -168,7 +166,7 @@
                 }}</span>
               </div>
             </div>
-            <div class="min-w-0 overflow-y-auto overflow-x-hidden pr-1 lg:flex-1 lg:min-h-0">
+            <div class="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
               <NodeInspectorStep
                 v-if="selectedNode.type === 'flowStep'"
                 :node-id="selectedNode.id"
@@ -228,7 +226,7 @@
               </button>
             </div>
             <div
-              class="mt-3 max-h-[40vh] space-y-3 overflow-y-auto pr-1 lg:flex-1 lg:min-h-0 lg:max-h-none"
+              class="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
             >
               <div class="space-y-2">
                 <h3

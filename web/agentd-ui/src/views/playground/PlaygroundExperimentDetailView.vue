@@ -26,7 +26,7 @@
 
     <!-- Two-column content area -->
     <div
-      class="flex-1 min-h-0 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"
+      class="grid min-h-0 flex-1 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-6"
     >
       <!-- Left column: Variants + Runs list (scrollable) -->
       <div class="flex min-h-0 flex-col gap-6 overflow-hidden">
@@ -171,7 +171,7 @@
             </div>
           </header>
 
-          <div class="grid gap-3 text-sm md:grid-cols-2">
+          <div class="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p>
                 <span class="text-subtle-foreground">Started:</span>
@@ -247,7 +247,7 @@
                     <span>Provider: {{ result.providerName ?? "—" }}</span>
                   </div>
                 </header>
-                <div class="grid gap-3 md:grid-cols-2">
+                <div class="grid grid-cols-2 gap-3">
                   <div>
                     <div class="flex items-center justify-between">
                       <h4
@@ -291,7 +291,7 @@
                     >
                   </div>
                 </div>
-                <div class="grid gap-3 md:grid-cols-2">
+                <div class="grid grid-cols-2 gap-3">
                   <div>
                     <h4
                       class="text-xs font-semibold text-subtle-foreground uppercase tracking-wide"

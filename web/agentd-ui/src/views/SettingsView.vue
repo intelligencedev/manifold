@@ -112,7 +112,7 @@
           <legend class="text-sm font-semibold text-foreground">
             Application (Client)
           </legend>
-          <div class="grid gap-4 sm:grid-cols-2">
+          <div class="grid gap-4 grid-cols-2">
             <div class="space-y-1">
               <label
                 for="api-url"
@@ -151,7 +151,7 @@
           <p class="text-xs text-subtle-foreground">
             High level runtime identifiers used for telemetry & logs.
           </p>
-          <div class="grid gap-4 sm:grid-cols-3">
+          <div class="grid gap-4 grid-cols-3">
             <div class="space-y-1">
               <label
                 for="otel-service"
@@ -213,8 +213,8 @@
               >Enable rolling summaries</label
             >
           </div>
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div class="space-y-1 lg:col-span-2">
+          <div class="grid gap-4 grid-cols-4">
+            <div class="space-y-1 col-span-2">
               <label
                 for="summary-model"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -228,7 +228,7 @@
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
             </div>
-            <div class="space-y-1 lg:col-span-2">
+            <div class="space-y-1 col-span-2">
               <label
                 for="summary-url"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -242,7 +242,7 @@
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
             </div>
-            <div class="space-y-1 lg:col-span-2">
+            <div class="space-y-1 col-span-2">
               <label
                 for="summary-reserve-buffer"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -271,8 +271,8 @@
           <legend class="text-sm font-semibold text-foreground">
             Embedding Provider
           </legend>
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div class="space-y-1 lg:col-span-3">
+          <div class="grid gap-4 grid-cols-3">
+            <div class="space-y-1 col-span-3">
               <label
                 for="embed-base"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -328,7 +328,7 @@
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
             </div>
-            <div class="space-y-1 lg:col-span-3">
+            <div class="space-y-1 col-span-3">
               <label
                 for="embed-key"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -343,7 +343,7 @@
               />
             </div>
 
-            <div class="space-y-1 lg:col-span-3">
+            <div class="space-y-1 col-span-3">
               <label
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
                 >Additional Headers</label
@@ -415,7 +415,7 @@
           <legend class="text-sm font-semibold text-foreground">
             Timeouts (seconds)
           </legend>
-          <div class="grid gap-4 sm:grid-cols-3">
+          <div class="grid gap-4 grid-cols-3">
             <div class="space-y-1">
               <label
                 for="timeout-agent"
@@ -464,8 +464,8 @@
           <legend class="text-sm font-semibold text-foreground">
             Execution Safety
           </legend>
-          <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-4">
-            <div class="space-y-1 lg:col-span-2">
+          <div class="grid gap-4 grid-cols-4">
+            <div class="space-y-1 col-span-2">
               <label
                 for="block-binaries"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -517,8 +517,8 @@
           <legend class="text-sm font-semibold text-foreground">
             Telemetry
           </legend>
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div class="space-y-1 lg:col-span-2">
+          <div class="grid gap-4 grid-cols-4">
+            <div class="space-y-1 col-span-2">
               <label
                 for="otel-endpoint"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -536,8 +536,8 @@
         </fieldset>
         <fieldset class="space-y-4">
           <legend class="text-sm font-semibold text-foreground">Logging</legend>
-          <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-            <div class="space-y-1 lg:col-span-2">
+          <div class="grid gap-4 grid-cols-5">
+            <div class="space-y-1 col-span-2">
               <label
                 for="log-path"
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -564,7 +564,7 @@
                 class="w-full"
               />
             </div>
-            <div class="space-y-1 flex items-center gap-2 lg:col-span-2">
+            <div class="space-y-1 flex items-center gap-2 col-span-2">
               <input
                 id="log-payloads"
                 type="checkbox"
@@ -577,7 +577,7 @@
                 >Log LLM Payloads</label
               >
             </div>
-            <div class="space-y-1 flex items-center gap-2 lg:col-span-2">
+            <div class="space-y-1 flex items-center gap-2 col-span-2">
               <input
                 id="log-raw-prompts"
                 type="checkbox"
@@ -600,7 +600,7 @@
           <legend class="text-sm font-semibold text-foreground">
             Web Search
           </legend>
-          <div class="grid gap-4 sm:grid-cols-2">
+          <div class="grid gap-4 grid-cols-2">
             <div class="space-y-1">
               <label
                 for="searxng-url"
@@ -639,7 +639,7 @@
           <legend class="text-sm font-semibold text-foreground">
             Primary Connections
           </legend>
-          <div class="grid gap-4 sm:grid-cols-3">
+          <div class="grid gap-4 grid-cols-3">
             <div class="space-y-1">
               <label
                 for="database-url"
@@ -685,7 +685,7 @@
           <legend class="text-sm font-semibold text-foreground">
             Search Database
           </legend>
-          <div class="grid gap-4 sm:grid-cols-3">
+          <div class="grid gap-4 grid-cols-3">
             <div class="space-y-1">
               <label
                 for="search-backend"
@@ -732,7 +732,7 @@
           <legend class="text-sm font-semibold text-foreground">
             Vector Database
           </legend>
-          <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+          <div class="grid gap-4 grid-cols-5">
             <div class="space-y-1">
               <label
                 for="vector-backend"
@@ -806,7 +806,7 @@
           <legend class="text-sm font-semibold text-foreground">
             Graph Database
           </legend>
-          <div class="grid gap-4 sm:grid-cols-2">
+          <div class="grid gap-4 grid-cols-2">
             <div class="space-y-1">
               <label
                 for="graph-backend"

@@ -1,10 +1,10 @@
 <template>
-  <!-- Responsive, non-overflowing layout: stack on small screens; split columns on large -->
+  <!-- Desktop split layout. -->
   <div
-    class="flex h-full min-h-0 flex-col gap-6 overflow-hidden lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"
+    class="grid h-full min-h-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-6 overflow-hidden"
   >
     <section
-      class="flex min-h-0 max-h-[55vh] flex-col overflow-hidden space-y-3 lg:h-full lg:max-h-none"
+      class="flex h-full min-h-0 flex-col space-y-3 overflow-hidden"
     >
       <header>
         <h2 class="text-lg font-semibold">New Experiment</h2>
@@ -14,7 +14,7 @@
       </header>
       <div class="flex-1 overflow-auto overscroll-contain pr-1">
         <form
-          class="grid gap-3 md:grid-cols-2"
+          class="grid grid-cols-2 gap-3"
           @submit.prevent="handleCreateExperiment"
         >
           <label class="text-sm">
@@ -90,7 +90,7 @@
               class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
             />
           </label>
-          <label class="text-sm md:col-span-2">
+          <label class="col-span-2 text-sm">
             <span class="text-subtle-foreground mb-1">Notes</span>
             <textarea
               v-model="form.notes"
@@ -98,7 +98,7 @@
               class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
             ></textarea>
           </label>
-          <div class="md:col-span-2 flex gap-3 items-center">
+          <div class="col-span-2 flex items-center gap-3">
             <AppButton type="submit" variant="accent">
               Create experiment
             </AppButton>
@@ -114,7 +114,7 @@
     </section>
 
     <section
-      class="flex min-h-0 flex-1 flex-col overflow-hidden gap-4 lg:h-full"
+      class="flex h-full min-h-0 flex-col gap-4 overflow-hidden"
     >
       <header class="flex items-center justify-between">
         <div>
@@ -147,7 +147,7 @@
             class="rounded-xl border border-border/60 bg-surface-muted/60 p-4 space-y-2"
           >
             <div
-              class="flex flex-col md:flex-row md:items-center md:justify-between gap-2"
+              class="flex items-center justify-between gap-2"
             >
               <div>
                 <h3 class="text-base font-semibold">{{ experiment.name }}</h3>

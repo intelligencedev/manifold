@@ -1,8 +1,6 @@
 <template>
   <section class="space-y-10">
-    <header
-      class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
-    >
+    <header class="flex items-center justify-between gap-4">
       <div>
         <h1 class="text-2xl font-semibold text-foreground">Runs</h1>
         <p class="text-sm text-subtle-foreground">
@@ -14,7 +12,7 @@
           v-model="search"
           type="search"
           placeholder="Search by prompt or run id"
-          class="w-full rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground placeholder:text-faint-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40 sm:w-72"
+          class="w-72 rounded-lg border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm text-foreground placeholder:text-faint-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
         />
         <button
           class="rounded-lg border border-border/70 px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:border-border"

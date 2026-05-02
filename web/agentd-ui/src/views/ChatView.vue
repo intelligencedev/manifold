@@ -323,28 +323,24 @@
                 class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
               >
                 <div
-                  v-if="shouldShowResponseStatus(message)"
-                  class="response-status"
-                  :class="responseStatusClasses"
+                  v-if="shouldShowRunActivity(message)"
+                  class="run-activity"
+                  :class="runActivityClasses"
                 >
-                  <div class="response-status__dot"></div>
-                  <div class="response-status__body">
-                    <p class="response-status__title">
-                      {{ responseStatus?.title }}
-                    </p>
-                    <p
-                      v-if="responseStatus?.detail"
-                      class="response-status__detail"
-                    >
-                      {{ responseStatus.detail }}
-                    </p>
-                  </div>
-                  <span
-                    class="response-status__pill"
-                    :class="responseStatusPillClasses"
-                  >
-                    {{ responseStatus?.stateLabel }}
-                  </span>
+                  <header class="run-activity-header">
+                    <div>
+                      <p class="run-activity-title">
+                        {{ runActivityTitle }}
+                      </p>
+                      <p class="run-activity-detail">
+                        {{ runActivityDetail }}
+                      </p>
+                    </div>
+                    <span class="run-activity-pill" :class="runActivityPillClasses">
+                      {{ runActivityStateLabel }}
+                    </span>
+                  </header>
+
                 </div>
                 <p v-if="message.title" class="font-semibold text-foreground">
                   {{ message.title }}
@@ -849,38 +845,55 @@
               <div class="flex min-h-0 flex-1 flex-col">
                 <header class="flex items-center justify-between">
                   <h2 class="text-sm font-semibold text-foreground">
-                    Active specialist
+                    Specialist activity
                   </h2>
-                  <span class="text-[11px] text-faint-foreground"
-                    >Live view</span
-                  >
+                  <span class="text-[11px] text-faint-foreground">
+                    {{ runActivitySidebarLabel }}
+                  </span>
                 </header>
-                <div class="mt-2 flex min-h-0 flex-1 flex-col">
-                  <div
-                    class="active-specialist-card"
-                    :class="activeSpecialistCardClasses"
-                  >
-                    <div class="active-specialist-avatar">
-                      <span>{{ activeSpecialistInitials }}</span>
-                    </div>
-                    <div class="active-specialist-body">
-                      <p class="active-specialist-name">
-                        {{ activeSpecialistName }}
-                      </p>
-                      <p class="active-specialist-model">
-                        {{
-                          activeSpecialistModel
-                            ? `${activeSpecialistModel}`
-                            : "Model pending"
-                        }}
-                      </p>
+                <div class="mt-2 flex min-h-0 flex-1 flex-col gap-3">
+                  <div class="activity-monitor-list">
+                    <button
+                      v-for="item in runActivityItems"
+                      :key="item.id"
+                      type="button"
+                      class="activity-monitor-row"
+                      :class="activityMonitorRowClasses(item)"
+                      @click="selectActivity(item.id)"
+                    >
+                      <span class="activity-monitor-avatar">{{ item.initials }}</span>
+                      <span class="activity-monitor-body">
+                        <span class="activity-monitor-title">
+                          <span class="activity-monitor-name">{{ item.name }}</span>
+                          <span class="activity-monitor-status" :class="activityStatusClasses(item)">
+                            {{ item.statusLabel }}
+                          </span>
+                        </span>
+                        <span class="activity-monitor-detail">
+                          {{ activityInlineDetail(item) }}
+                        </span>
+                      </span>
+                    </button>
+                    <div
+                      v-if="!runActivityItems.length"
+                      class="activity-monitor-empty"
+                    >
+                      No specialist activity yet.
                     </div>
                   </div>
 
-                  <div class="mt-3 flex min-h-0 flex-1 flex-col">
-                    <header class="flex items-center justify-between">
+                  <div class="activity-detail-panel">
+                    <header class="activity-detail-header">
+                      <div class="min-w-0">
+                        <p class="activity-detail-title">
+                          {{ selectedActivityItem?.name || "No specialist selected" }}
+                        </p>
+                        <p class="activity-detail-subtitle">
+                          {{ selectedActivityItem?.model || "Model pending" }}
+                        </p>
+                      </div>
                       <div
-                        v-if="displayedThoughtSummaries.length"
+                        v-if="selectedActivityThoughtSummaries.length"
                         class="flex items-center gap-2"
                       >
                         <button
@@ -891,6 +904,7 @@
                           {{ copiedThoughtSummaries ? "Copied" : "Copy" }}
                         </button>
                         <button
+                          v-if="selectedActivityItem?.isOrchestrator"
                           type="button"
                           class="text-[11px] text-faint-foreground hover:text-foreground"
                           @click="chat.clearThoughtSummaries()"
@@ -900,28 +914,82 @@
                       </div>
                     </header>
 
-                    <div
-                      ref="thoughtStreamPane"
-                      class="mt-2 flex-1 min-h-0 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
-                    >
-                      <div
-                        v-if="!displayedThoughtSummaries.length"
-                        class="text-[11px] text-faint-foreground"
-                      >
-                        No thought summaries yet.
-                      </div>
-                      <ul v-else class="space-y-1 text-[12px] text-foreground">
-                        <li
-                          v-for="(summary, idx) in displayedThoughtSummaries"
-                          :key="`${idx}:${summary}`"
-                          class="flex gap-2"
-                        >
+                    <div ref="thoughtStreamPane" class="activity-detail-scroll">
+                      <template v-if="selectedActivityItem">
+                        <section class="activity-detail-section">
+                          <h3 class="activity-detail-section-title">
+                            Thought summaries
+                          </h3>
                           <div
-                            class="chat-markdown min-w-0 flex-1 break-words"
-                            v-html="renderMarkdownOrHtml(summary)"
+                            v-if="!selectedActivityThoughtSummaries.length"
+                            class="activity-detail-empty"
+                          >
+                            No thought summaries yet.
+                          </div>
+                          <ul v-else class="space-y-2 text-[12px] text-foreground">
+                            <li
+                              v-for="(summary, idx) in selectedActivityThoughtSummaries"
+                              :key="`${selectedActivityItem.id}:summary:${idx}:${summary}`"
+                              class="activity-thought-item"
+                            >
+                              <div
+                                class="chat-markdown min-w-0 flex-1 break-words"
+                                v-html="renderMarkdownOrHtml(summary)"
+                              ></div>
+                            </li>
+                          </ul>
+                        </section>
+
+                        <section
+                          v-if="selectedActivityItem.response"
+                          class="activity-detail-section"
+                        >
+                          <h3 class="activity-detail-section-title">
+                            Response stream
+                          </h3>
+                          <div
+                            class="chat-markdown activity-response"
+                            v-html="renderMarkdownOrHtml(selectedActivityItem.response)"
                           ></div>
-                        </li>
-                      </ul>
+                        </section>
+
+                        <section
+                          v-if="selectedActivityItem.toolEntries.length"
+                          class="activity-detail-section"
+                        >
+                          <h3 class="activity-detail-section-title">
+                            Tool activity
+                          </h3>
+                          <ul class="activity-tool-list">
+                            <li
+                              v-for="entry in selectedActivityItem.toolEntries"
+                              :key="entry.id"
+                              class="activity-tool-item"
+                            >
+                              <p class="activity-tool-title">
+                                {{ entry.title || "Tool" }}
+                              </p>
+                              <pre v-if="entry.args" class="activity-tool-pre">{{ entry.args }}</pre>
+                              <pre v-if="entry.data" class="activity-tool-pre">{{ entry.data }}</pre>
+                            </li>
+                          </ul>
+                        </section>
+
+                        <section
+                          v-if="selectedActivityItem.error"
+                          class="activity-detail-section"
+                        >
+                          <h3 class="activity-detail-section-title">
+                            Error
+                          </h3>
+                          <p class="activity-error-text">
+                            {{ selectedActivityItem.error }}
+                          </p>
+                        </section>
+                      </template>
+                      <div v-else class="activity-detail-empty">
+                        Specialist streams will appear here as they start.
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -993,6 +1061,9 @@
                         }}
                       </p>
                     </div>
+                    <span class="participant-status">
+                      {{ participantStatusLabel(participant.name) }}
+                    </span>
                   </li>
                 </ul>
               </div>
@@ -1132,6 +1203,7 @@ const messagesPane = ref<HTMLDivElement | null>(null);
 const composer = ref<HTMLTextAreaElement | null>(null);
 const copiedMessageId = ref<string | null>(null);
 const copiedThoughtSummaries = ref(false);
+const selectedActivityId = ref<string | null>(null);
 const autoScrollEnabled = ref(true);
 const lastScrollTop = ref(0);
 // Attachments state for composer
@@ -1549,15 +1621,6 @@ const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
-// Combined thought summaries: show delegated agent's thoughts when one is running,
-// otherwise show orchestrator thoughts
-const displayedThoughtSummaries = computed(() => {
-  const running = latestRunningAgentThread.value;
-  if (running && running.thoughtSummaries?.length) {
-    return running.thoughtSummaries;
-  }
-  return activeThoughtSummaries.value;
-});
 const toolActivityMsById = ref<Record<string, number>>({});
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
@@ -1680,12 +1743,24 @@ function shouldShowResponseTimer(message: ChatMessage) {
   return message.id in responseElapsedMsByMessageId.value;
 }
 
-type ResponseStatusState = "running" | "done" | "error";
-type ResponseStatus = {
-  title: string;
-  detail: string;
-  state: ResponseStatusState;
-  stateLabel: string;
+type ActivityStatus = "running" | "done" | "error" | "idle";
+type SpecialistActivityItem = {
+  id: string;
+  name: string;
+  model: string;
+  status: ActivityStatus;
+  statusLabel: string;
+  description: string;
+  initials: string;
+  thoughtSummaries: string[];
+  response: string;
+  toolEntries: AgentThread["entries"];
+  error: string;
+  startedAt: string;
+  finishedAt?: string;
+  updatedAt: number;
+  depth: number;
+  isOrchestrator: boolean;
 };
 type Participant = {
   name: string;
@@ -1709,152 +1784,221 @@ function agentThreadTimestamp(thread: AgentThread) {
   return safeTimestampMs(stamp);
 }
 
-function responseStateLabel(state: ResponseStatusState) {
+function activityStateLabel(state: ActivityStatus) {
   switch (state) {
     case "running":
-      return "Running";
+      return "Live";
     case "done":
       return "Complete";
     case "error":
       return "Error";
     default:
-      return "Running";
+      return "Ready";
   }
 }
 
-function statusFromTool(tool: ChatMessage): ResponseStatus {
-  const state: ResponseStatusState = tool.error
-    ? "error"
-    : tool.streaming
-      ? "running"
-      : "done";
-  const name = (tool.title || "Tool").trim() || "Tool";
-  const title =
-    state === "running"
-      ? `Using ${name}...`
-      : state === "done"
-        ? `Used ${name}`
-        : `${name} failed`;
-  const argDetail = tool.toolArgs ? snippet(tool.toolArgs) : "";
-  return {
-    title,
-    detail: argDetail ? `Args: ${argDetail}` : "Tool call",
-    state,
-    stateLabel: responseStateLabel(state),
-  };
+function initialsForName(name: string) {
+  const parts = (name || "Agent").split(/[\s_-]+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
 
-function statusFromThread(thread: AgentThread): ResponseStatus {
-  const state = thread.status;
+function latestThreadEntry(thread: AgentThread) {
+  return thread.entries[thread.entries.length - 1] || null;
+}
+
+function activityDescriptionForThread(thread: AgentThread) {
+  const latestEntry = latestThreadEntry(thread);
+  if (thread.error) return thread.error;
+  if (latestEntry?.type === "tool") {
+    return latestEntry.title ? `Tool: ${latestEntry.title}` : "Using a tool";
+  }
+  const latestThought = thread.thoughtSummaries[thread.thoughtSummaries.length - 1];
+  if (latestThought) return snippet(latestThought, 96);
+  if (thread.content) return snippet(thread.content, 96);
+  if (thread.prompt) return snippet(thread.prompt, 96);
+  return thread.status === "running" ? "Working" : "No details yet";
+}
+
+function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
   const name = (thread.agent || "Delegated agent").trim() || "Delegated agent";
-  const title =
-    state === "running"
-      ? `Delegating to ${name}...`
-      : state === "done"
-        ? `${name} responded`
-        : `${name} error`;
-  const detail = thread.model ? `Model ${thread.model}` : "Delegation";
+  const status = thread.status as ActivityStatus;
+  const toolEntries = thread.entries.filter((entry) => entry.type === "tool");
   return {
-    title,
-    detail,
-    state,
-    stateLabel: responseStateLabel(state),
+    id: thread.callId,
+    name,
+    model: (thread.model || "").trim(),
+    status,
+    statusLabel: activityStateLabel(status),
+    description: activityDescriptionForThread(thread),
+    initials: initialsForName(name),
+    thoughtSummaries: thread.thoughtSummaries || [],
+    response: thread.content || "",
+    toolEntries,
+    error: thread.error || "",
+    startedAt: thread.startedAt,
+    finishedAt: thread.finishedAt,
+    updatedAt: agentThreadTimestamp(thread),
+    depth: thread.depth,
+    isOrchestrator: false,
   };
 }
 
-const latestToolMessage = computed(() => {
+function orchestratorActivityItem(): SpecialistActivityItem {
+  const { agentName, agentModel } = resolveAgentContext();
   const assistant = lastAssistant.value;
-  if (!assistant) return null;
-  const cutoff = safeTimestampMs(assistant.createdAt);
-  let latest: ChatMessage | null = null;
-  let latestStamp = 0;
-  for (const tool of toolMessages.value) {
-    const createdStamp = safeTimestampMs(tool.createdAt);
-    if (createdStamp < cutoff) continue;
-    const activityStamp =
-      toolActivityMsById.value[tool.id] || createdStamp || 0;
-    if (!latest || activityStamp >= latestStamp) {
-      latest = tool;
-      latestStamp = activityStamp;
-    }
+  const status: ActivityStatus = assistant?.error
+    ? "error"
+    : isStreaming.value
+      ? "running"
+      : assistant?.content
+        ? "done"
+        : "idle";
+  const latestThought = activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
+  return {
+    id: "orchestrator",
+    name: agentName || "orchestrator",
+    model: agentModel || "",
+    status,
+    statusLabel: activityStateLabel(status),
+    description: latestThought
+      ? snippet(latestThought, 96)
+      : assistant?.content
+        ? snippet(assistant.content, 96)
+        : status === "running"
+          ? "Coordinating response"
+          : "Ready",
+    initials: initialsForName(agentName || "orchestrator"),
+    thoughtSummaries: activeThoughtSummaries.value,
+    response: assistant?.content || "",
+    toolEntries: [],
+    error: assistant?.error || "",
+    startedAt: assistant?.createdAt || new Date().toISOString(),
+    finishedAt: status === "done" ? assistant?.createdAt : undefined,
+    updatedAt: assistant ? safeTimestampMs(assistant.createdAt) || Date.now() : Date.now(),
+    depth: 0,
+    isOrchestrator: true,
+  };
+}
+
+const runActivityItems = computed<SpecialistActivityItem[]>(() => {
+  const items = agentThreads.value.map(activityItemFromThread);
+  const shouldShowOrchestrator =
+    activeThoughtSummaries.value.length > 0 ||
+    (isStreaming.value && items.length === 0);
+  if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
+
+  return items.sort((a, b) => {
+    if (a.status === "running" && b.status !== "running") return -1;
+    if (a.status !== "running" && b.status === "running") return 1;
+    return b.updatedAt - a.updatedAt;
+  });
+});
+
+const runActivityCounts = computed(() => {
+  const counts = { running: 0, done: 0, error: 0, idle: 0 };
+  for (const item of runActivityItems.value) counts[item.status] += 1;
+  return counts;
+});
+
+const runActivityState = computed<ActivityStatus>(() => {
+  if (runActivityCounts.value.error > 0) return "error";
+  if (runActivityCounts.value.running > 0 || isStreaming.value) return "running";
+  if (runActivityCounts.value.done > 0) return "done";
+  return "idle";
+});
+
+const runActivityStateLabel = computed(() =>
+  activityStateLabel(runActivityState.value),
+);
+
+const runActivityTitle = computed(() => {
+  const count = runActivityItems.value.length;
+  if (!count) return "Drafting response";
+  if (runActivityCounts.value.running > 0) {
+    return `${runActivityCounts.value.running} specialist${runActivityCounts.value.running === 1 ? "" : "s"} working`;
   }
-  return latest;
+  if (runActivityCounts.value.error > 0) return "Specialist work needs attention";
+  return `${count} specialist${count === 1 ? "" : "s"} complete`;
 });
 
-const latestAgentThread = computed(() => {
-  if (!agentThreads.value.length) return null;
-  return agentThreads.value.reduce((latest, thread) =>
-    agentThreadTimestamp(thread) >= agentThreadTimestamp(latest)
-      ? thread
-      : latest,
+const runActivityDetail = computed(() => {
+  const parts = [];
+  if (runActivityCounts.value.done) parts.push(`${runActivityCounts.value.done} complete`);
+  if (runActivityCounts.value.running) parts.push(`${runActivityCounts.value.running} running`);
+  if (runActivityCounts.value.error) parts.push(`${runActivityCounts.value.error} error`);
+  return parts.length ? parts.join(" / ") : "Synthesizing output";
+});
+
+const runActivitySidebarLabel = computed(() => {
+  const count = runActivityItems.value.length;
+  if (!count) return "Idle";
+  return `${count} thread${count === 1 ? "" : "s"}`;
+});
+
+const runActivityClasses = computed(() => ({
+  "run-activity--running": runActivityState.value === "running",
+  "run-activity--done": runActivityState.value === "done",
+  "run-activity--error": runActivityState.value === "error",
+}));
+
+const runActivityPillClasses = computed(() => ({
+  "run-activity-pill--running": runActivityState.value === "running",
+  "run-activity-pill--done": runActivityState.value === "done",
+  "run-activity-pill--error": runActivityState.value === "error",
+}));
+
+const selectedActivityItem = computed(() => {
+  const selected = selectedActivityId.value;
+  return (
+    runActivityItems.value.find((item) => item.id === selected) ||
+    runActivityItems.value[0] ||
+    null
   );
 });
 
-const latestRunningAgentThread = computed(() => {
-  const running = agentThreads.value.filter(
-    (thread) => thread.status === "running",
-  );
-  if (!running.length) return null;
-  return running.reduce((latest, thread) =>
-    agentThreadTimestamp(thread) >= agentThreadTimestamp(latest)
-      ? thread
-      : latest,
-  );
-});
+const selectedActivityThoughtSummaries = computed(
+  () => selectedActivityItem.value?.thoughtSummaries || [],
+);
 
-const responseStatus = computed<ResponseStatus | null>(() => {
-  const assistant = lastAssistant.value;
-  if (!assistant || !assistant.streaming) return null;
-
-  const tool = latestToolMessage.value;
-  const thread = latestAgentThread.value;
-  const toolTs = tool
-    ? toolActivityMsById.value[tool.id] || safeTimestampMs(tool.createdAt)
-    : 0;
-  const threadTs = thread ? agentThreadTimestamp(thread) : 0;
-  const toolRunning = tool?.streaming ?? false;
-  const threadRunning = thread?.status === "running";
-
-  if (tool && toolRunning && !threadRunning) return statusFromTool(tool);
-  if (thread && threadRunning && !toolRunning) return statusFromThread(thread);
-  if (toolTs || threadTs) {
-    if (tool && toolTs >= threadTs) return statusFromTool(tool);
-    if (thread) return statusFromThread(thread);
-  }
-
-  return {
-    title: "Drafting response",
-    detail: "Synthesizing output",
-    state: "running",
-    stateLabel: "Working",
-  };
-});
-
-const responseStatusClasses = computed(() => {
-  const state = responseStatus.value?.state || "running";
-  return {
-    "response-status--running": state === "running",
-    "response-status--done": state === "done",
-    "response-status--error": state === "error",
-  };
-});
-
-const responseStatusPillClasses = computed(() => {
-  const state = responseStatus.value?.state || "running";
-  return {
-    "response-status__pill--running": state === "running",
-    "response-status__pill--done": state === "done",
-    "response-status__pill--error": state === "error",
-  };
-});
-
-function shouldShowResponseStatus(message: ChatMessage) {
+function shouldShowRunActivity(message: ChatMessage) {
   return (
     message.role === "assistant" &&
     message.id === lastAssistantId.value &&
-    message.streaming &&
-    Boolean(responseStatus.value)
+    (message.streaming || runActivityItems.value.length > 0)
   );
+}
+
+function selectActivity(id: string) {
+  selectedActivityId.value = id;
+}
+
+function activityInlineDetail(item: SpecialistActivityItem) {
+  const bits = [];
+  if (item.model) bits.push(item.model);
+  if (item.toolEntries.length) {
+    bits.push(`${item.toolEntries.length} tool${item.toolEntries.length === 1 ? "" : "s"}`);
+  }
+  if (item.description) bits.push(item.description);
+  return bits.join(" / ") || "No details yet";
+}
+
+function activityStatusClasses(item: SpecialistActivityItem) {
+  return {
+    "activity-status--running": item.status === "running",
+    "activity-status--done": item.status === "done",
+    "activity-status--error": item.status === "error",
+    "activity-status--idle": item.status === "idle",
+  };
+}
+
+function activityMonitorRowClasses(item: SpecialistActivityItem) {
+  return {
+    "activity-monitor-row--selected": selectedActivityItem.value?.id === item.id,
+    "activity-monitor-row--running": item.status === "running",
+    "activity-monitor-row--error": item.status === "error",
+  };
 }
 
 const participantList = computed<Participant[]>(() => {
@@ -1910,49 +2054,20 @@ const participantList = computed<Participant[]>(() => {
   return list;
 });
 
-const activeSpecialistName = computed(() => {
-  const running = latestRunningAgentThread.value;
-  if (running?.agent) return running.agent.trim();
-  const selected = (selectedSpecialist.value || "orchestrator").trim();
-  return selected || "orchestrator";
-});
-
-const activeSpecialistModel = computed(() => {
-  const running = latestRunningAgentThread.value;
-  if (running?.model) return running.model.trim();
-  const key = activeSpecialistName.value.toLowerCase();
-  if (key === "orchestrator") {
-    const teamModel = (
-      selectedTeamConfig.value?.orchestrator?.model || ""
-    ).trim();
-    if (teamModel) return teamModel;
-    return sessionAgentDefaults.value.model || "";
-  }
-  const spec = specialistsByName.value.get(key);
-  if (spec?.model) return spec.model.trim();
-  return "";
-});
-
-const activeSpecialistInitials = computed(() => {
-  const name = activeSpecialistName.value || "Agent";
-  const parts = name.split(/[\s_-]+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-});
-
-const activeSpecialistCardClasses = computed(() => ({
-  "active-specialist-card--live": isStreaming.value,
-  "active-specialist-card--delegated": Boolean(latestRunningAgentThread.value),
-}));
-
 function participantIsActive(name: string) {
-  return name.trim().toLowerCase() === activeSpecialistName.value.toLowerCase();
+  const key = name.trim().toLowerCase();
+  return runActivityItems.value.some(
+    (item) => item.status === "running" && item.name.toLowerCase() === key,
+  );
 }
 
 function participantStatusLabel(name: string) {
-  if (!isStreaming.value) return "Idle";
-  return participantIsActive(name) ? "Live" : "Ready";
+  const key = name.trim().toLowerCase();
+  const item = runActivityItems.value.find(
+    (activity) => activity.name.toLowerCase() === key,
+  );
+  if (!item) return isStreaming.value ? "Ready" : "Idle";
+  return item.statusLabel;
 }
 
 function participantRowClasses(name: string) {
@@ -2131,7 +2246,24 @@ function handlePanelSplitterPointerUp() {
 
 watch(
   () =>
-    displayedThoughtSummaries.value.map((summary) => summary.length).join(":"),
+    runActivityItems.value.map((item) => item.id).join(":"),
+  () => {
+    if (
+      selectedActivityId.value &&
+      runActivityItems.value.some((item) => item.id === selectedActivityId.value)
+    ) {
+      return;
+    }
+    selectedActivityId.value = runActivityItems.value[0]?.id || null;
+  },
+  { immediate: true },
+);
+
+watch(
+  () =>
+    selectedActivityThoughtSummaries.value
+      .map((summary) => summary.length)
+      .join(":"),
   () => {
     nextTick(() => {
       if (!thoughtStreamPane.value) return;
@@ -2581,7 +2713,7 @@ async function deleteChatMessage(message: ChatMessage) {
 }
 
 function copyThoughtSummaries() {
-  const summaries = displayedThoughtSummaries.value || [];
+  const summaries = selectedActivityThoughtSummaries.value || [];
   if (!summaries.length) return;
 
   const text = summaries
@@ -2703,10 +2835,13 @@ function formatTimestamp(value?: string) {
   return timeFormatter.format(date);
 }
 
-function snippet(content: string) {
+function snippet(content: string, maxLength = 80) {
   if (!content) return "";
   const trimmed = content.replace(/\s+/g, " ").trim();
-  return trimmed.length > 80 ? `${trimmed.slice(0, 77)}…` : trimmed;
+  const safeLength = Math.max(4, maxLength);
+  return trimmed.length > safeLength
+    ? `${trimmed.slice(0, safeLength - 3)}...`
+    : trimmed;
 }
 
 function handleComposerKeydown(event: KeyboardEvent) {
@@ -3091,57 +3226,222 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.18);
 }
 
-.active-specialist-card {
+.activity-monitor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.activity-monitor-row {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  border-radius: 0.9rem;
-  border: 1px solid rgb(var(--color-border) / 0.6);
-  background: rgb(var(--color-surface-muted) / 0.94);
-  box-shadow: 0 18px 35px -30px rgb(0 0 0 / 0.6);
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.65rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(var(--color-border) / 0.55);
+  background: rgb(var(--color-surface-muted) / 0.88);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
-.active-specialist-card--live {
-  border-color: rgb(var(--color-accent) / 0.4);
-  box-shadow: 0 20px 40px -28px rgb(var(--color-accent) / 0.35);
+.activity-monitor-row:hover,
+.activity-monitor-row--selected {
+  border-color: rgb(var(--color-accent) / 0.5);
+  background: rgb(var(--color-accent) / 0.1);
 }
 
-.active-specialist-card--delegated {
-  background: rgb(var(--color-accent) / 0.12);
+.activity-monitor-row--running {
+  box-shadow: inset 3px 0 0 rgb(var(--color-accent));
 }
 
-.active-specialist-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
+.activity-monitor-row--error {
+  box-shadow: inset 3px 0 0 rgb(var(--color-danger));
+}
+
+.activity-monitor-avatar {
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  font-size: 0.85rem;
-  font-weight: 700;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.65rem;
+  border: 1px solid rgb(var(--color-border) / 0.65);
+  background: rgb(var(--color-accent) / 0.2);
   color: rgb(var(--color-foreground));
-  background: rgb(var(--color-accent) / 0.28);
-  border: 1px solid rgb(var(--color-border) / 0.6);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
-.active-specialist-body {
+.activity-monitor-body {
   min-width: 0;
   flex: 1;
 }
 
-.active-specialist-name {
-  font-weight: 600;
+.activity-monitor-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.activity-monitor-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 650;
   color: rgb(var(--color-foreground));
+}
+
+.activity-monitor-status,
+.participant-status {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.55);
+  padding: 0.15rem 0.45rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: rgb(var(--color-subtle-foreground));
+  background: rgb(var(--color-surface) / 0.9);
+}
+
+.activity-monitor-detail {
+  display: block;
+  margin-top: 0.2rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.72rem;
+  line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.active-specialist-model {
-  margin-top: 0.15rem;
-  font-size: 0.75rem;
+.activity-monitor-empty,
+.activity-detail-empty {
+  padding: 0.75rem;
+  border: 1px dashed rgb(var(--color-border) / 0.65);
+  border-radius: 0.75rem;
   color: rgb(var(--color-subtle-foreground));
-  white-space: normal;
+  font-size: 0.78rem;
+}
+
+.activity-detail-panel {
+  margin-top: 0.8rem;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.activity-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.activity-detail-title {
+  min-width: 0;
+  color: rgb(var(--color-foreground));
+  font-size: 0.88rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-detail-subtitle {
+  margin-top: 0.12rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.72rem;
+}
+
+.activity-detail-scroll {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.activity-detail-section {
+  border-top: 1px solid rgb(var(--color-border) / 0.5);
+  padding-top: 0.7rem;
+}
+
+.activity-detail-section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.activity-detail-section-title {
+  margin-bottom: 0.45rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.activity-thought-item,
+.activity-response,
+.activity-tool-item,
+.activity-error-text {
+  border-radius: 0.65rem;
+  border: 1px solid rgb(var(--color-border) / 0.55);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  padding: 0.65rem;
+}
+
+.activity-thought-item {
+  margin-bottom: 0.45rem;
+  color: rgb(var(--color-foreground));
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.activity-response,
+.activity-tool-pre {
+  color: rgb(var(--color-foreground));
+  font-size: 0.74rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.activity-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.activity-tool-title {
+  margin-bottom: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: rgb(var(--color-foreground));
+}
+
+.activity-tool-pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.activity-error-text {
+  color: rgb(var(--color-danger));
+  font-size: 0.76rem;
+  line-height: 1.45;
 }
 
 .participant-list {
@@ -3203,99 +3503,95 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   white-space: normal;
 }
 
-.response-status {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 0.85rem;
-  border-radius: 0.9rem;
+.run-activity {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 0.85rem;
   border: 1px solid rgb(var(--color-border) / 0.6);
   background: rgb(var(--color-surface-muted) / 0.92);
   box-shadow: 0 14px 32px -24px rgb(0 0 0 / 0.6);
 }
 
-.response-status__dot {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 999px;
-  background: rgb(var(--color-accent));
+.run-activity-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+  align-items: center;
 }
 
-.response-status__body {
+.run-activity-title {
   min-width: 0;
-  flex: 1;
-}
-
-.response-status__title {
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: rgb(var(--color-foreground));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.response-status__detail {
-  margin-top: 0.1rem;
-  font-size: 0.75rem;
-  color: rgb(var(--color-subtle-foreground));
-}
-
-.response-status__pill {
-  flex-shrink: 0;
-  font-size: 0.62rem;
+  font-size: 0.9rem;
   font-weight: 700;
-  text-transform: uppercase;
+  color: rgb(var(--color-foreground));
+}
+
+.run-activity-detail {
+  grid-column: 1 / 2;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.74rem;
+}
+
+.run-activity-pill {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  flex-shrink: 0;
+  align-self: start;
+  font-size: 0.62rem;
+  font-weight: 800;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  border: 1px solid transparent;
+  border: 1px solid rgb(var(--color-border) / 0.55);
+  color: rgb(var(--color-subtle-foreground));
+  background: rgb(var(--color-surface) / 0.88);
 }
 
-.response-status--running {
+.run-activity--running {
   border-color: rgb(var(--color-accent) / 0.35);
 }
 
-.response-status--running .response-status__dot {
-  background: rgb(var(--color-accent));
-  box-shadow: 0 0 0 6px rgb(var(--color-accent) / 0.18);
-  animation: statusPulse 1.8s ease-in-out infinite;
+.run-activity--done {
+  border-color: rgb(var(--color-success) / 0.35);
 }
 
-.response-status__pill--running {
+.run-activity--error {
+  border-color: rgb(var(--color-danger) / 0.35);
+}
+
+.activity-status--running,
+.run-activity-pill--running {
   border-color: rgb(var(--color-accent) / 0.4);
   color: rgb(var(--color-accent));
   background: rgb(var(--color-accent) / 0.12);
 }
 
-.response-status--done {
-  border-color: rgb(var(--color-success) / 0.35);
+.activity-status--running {
+  animation: statusPulse 1.8s ease-in-out infinite;
 }
 
-.response-status--done .response-status__dot {
-  background: rgb(var(--color-success));
-  box-shadow: 0 0 0 6px rgb(var(--color-success) / 0.18);
-}
-
-.response-status__pill--done {
+.activity-status--done,
+.run-activity-pill--done {
   border-color: rgb(var(--color-success) / 0.35);
   color: rgb(var(--color-success));
   background: rgb(var(--color-success) / 0.12);
 }
 
-.response-status--error {
-  border-color: rgb(var(--color-danger) / 0.35);
-}
-
-.response-status--error .response-status__dot {
-  background: rgb(var(--color-danger));
-  box-shadow: 0 0 0 6px rgb(var(--color-danger) / 0.2);
-}
-
-.response-status__pill--error {
+.activity-status--error,
+.run-activity-pill--error {
   border-color: rgb(var(--color-danger) / 0.4);
   color: rgb(var(--color-danger));
   background: rgb(var(--color-danger) / 0.12);
+}
+
+.activity-status--idle {
+  border-color: rgb(var(--color-warning) / 0.35);
+  color: rgb(var(--color-warning));
+  background: rgb(var(--color-warning) / 0.12);
 }
 
 @keyframes statusPulse {

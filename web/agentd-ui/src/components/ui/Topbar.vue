@@ -1,5 +1,5 @@
 <template>
-  <header :class="wrapperClasses">
+  <header :class="wrapperClasses" style="border: none !important;">
     <div class="grid grid-cols-[auto_1fr_auto] items-center gap-3 md:gap-4">
       <div class="flex items-center gap-3 min-w-0">
         <slot name="logo" />
@@ -29,8 +29,8 @@ type TopbarProps = {
 const props = defineProps<TopbarProps>();
 
 const wrapperClasses = computed(() => [
-  "glass-surface border border-white/10 shadow-[0_12px_60px_rgba(0,0,0,0.35)]",
-  "px-4 py-3 md:px-6 md:py-4 rounded-[var(--radius-lg,26px)] backdrop-saturate-150",
+  "glass-surface",
+  "px-4 py-3 md:px-6 md:py-4 border-none",
   "w-full",
   props.sticky === false ? "" : "sticky top-0 z-30",
 ]);

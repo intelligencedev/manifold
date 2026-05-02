@@ -1,22 +1,25 @@
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="fixed inset-0 z-50"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="log-detail-title"
-    >
-      <button
-        type="button"
-        class="absolute inset-0 bg-black/35 backdrop-blur-[1px]"
-        aria-label="Close log detail"
-        @click="closeDrawer"
-      />
-
-      <aside
-        class="absolute inset-y-0 right-0 flex w-full max-w-[720px] flex-col border-l border-border/70 bg-surface shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
+    <Transition name="drawer-overlay">
+      <div
+        v-if="open"
+        class="fixed inset-0 z-50"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="log-detail-title"
       >
+        <button
+          type="button"
+          class="absolute inset-0 bg-black/35 backdrop-blur-[1px]"
+          aria-label="Close log detail"
+          @click="closeDrawer"
+        />
+
+        <Transition name="drawer-panel">
+          <aside
+            v-if="open"
+            class="absolute inset-y-0 right-0 flex w-full max-w-[720px] flex-col border-l border-border/70 bg-surface shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
+          >
         <header class="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4 md:px-6">
           <div class="space-y-1">
             <p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-subtle-foreground">
@@ -190,8 +193,10 @@
             </section>
           </div>
         </div>
-      </aside>
-    </div>
+        </aside>
+        </Transition>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -350,3 +355,29 @@ function formatPromptContent(value: unknown): string {
   return value == null ? "" : String(value);
 }
 </script>
+
+<style scoped>
+/* Overlay fade */
+.drawer-overlay-enter-active,
+.drawer-overlay-leave-active {
+  transition: opacity 0.25s ease;
+}
+.drawer-overlay-enter-from,
+.drawer-overlay-leave-to {
+  opacity: 0;
+}
+
+/* Panel slide from right */
+.drawer-panel-enter-active,
+.drawer-panel-leave-active {
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.drawer-panel-enter-from,
+.drawer-panel-leave-to {
+  transform: translateX(100%);
+}
+.drawer-panel-enter-to,
+.drawer-panel-leave-from {
+  transform: translateX(0);
+}
+</style>

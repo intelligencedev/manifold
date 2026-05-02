@@ -262,141 +262,147 @@
             </p>
           </div>
 
-          <article
+          <div
             v-for="message in chatMessages"
             :key="message.id"
-            class="relative max-w-[72ch] rounded-[var(--radius,18px)] p-5"
-            :class="message.role === 'user' ? 'ml-auto glass-surface border border-white/12' : 'mx-auto'"
+            class="group/msg relative flex w-full flex-col"
+            :class="message.role === 'user' ? 'items-end' : 'items-center'"
           >
-            <header class="flex flex-wrap items-center gap-2">
-              <template v-if="message.role === 'assistant'">
-                <span
-                  class="rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent"
-                >
-                  {{ agentNameFor(message) }}
-                </span>
-              </template>
-              <span
-                v-else
-                class="rounded-full bg-surface-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
-              >
-                {{ labelForRole(message.role) }}
-              </span>
-              <span
-                v-if="shouldShowResponseTimer(message)"
-                class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
-                :class="
-                  message.streaming
-                    ? 'border-accent/30 bg-accent/10 text-accent'
-                    : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
-                "
-                :title="
-                  message.streaming
-                    ? 'Response time (running)'
-                    : 'Response time'
-                "
-              >
-                {{ formatDuration(responseElapsedMs(message.id)) }}
-              </span>
-              <span
-                v-if="message.streaming"
-                class="flex items-center gap-1 text-xs text-accent"
-              >
-                <span
-                  class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
-                ></span>
-                Streaming
-              </span>
-              <span
-                v-if="message.error"
-                class="rounded bg-danger px-2 py-0.5 text-[11px] text-danger-foreground font-semibold"
-              >
-                {{ message.error }}
-              </span>
-            </header>
-
-            <div
-              class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
+            <article
+              class="relative w-full max-w-[72ch] rounded-[var(--radius,18px)] p-5"
+              :class="message.role === 'user' ? 'glass-surface border border-white/12' : ''"
             >
-              <div
-                v-if="shouldShowResponseStatus(message)"
-                class="response-status"
-                :class="responseStatusClasses"
-              >
-                <div class="response-status__dot"></div>
-                <div class="response-status__body">
-                  <p class="response-status__title">
-                    {{ responseStatus?.title }}
-                  </p>
-                  <p
-                    v-if="responseStatus?.detail"
-                    class="response-status__detail"
+              <header class="flex flex-wrap items-center gap-2">
+                <template v-if="message.role === 'assistant'">
+                  <span
+                    class="rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent"
                   >
-                    {{ responseStatus.detail }}
-                  </p>
-                </div>
+                    {{ agentNameFor(message) }}
+                  </span>
+                </template>
                 <span
-                  class="response-status__pill"
-                  :class="responseStatusPillClasses"
+                  v-else
+                  class="rounded-full bg-surface-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
                 >
-                  {{ responseStatus?.stateLabel }}
+                  {{ labelForRole(message.role) }}
                 </span>
-              </div>
-              <p v-if="message.title" class="font-semibold text-foreground">
-                {{ message.title }}
-              </p>
-              <pre
-                v-if="message.toolArgs"
-                class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
-                >{{ message.toolArgs }}</pre
-              >
-              <!-- Thought summaries are streamed into the Active Specialist panel. -->
-              <div
-                v-if="message.content"
-                class="chat-markdown"
-                v-html="renderMarkdownOrHtml(message.content)"
-              ></div>
-              <div v-if="message.attachments?.length" class="space-y-2">
-                <div
-                  v-if="message.attachments.some((a) => a.kind === 'image')"
-                  class="flex gap-2 overflow-x-auto pb-1"
+                <span
+                  v-if="shouldShowResponseTimer(message)"
+                  class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
+                  :class="
+                    message.streaming
+                      ? 'border-accent/30 bg-accent/10 text-accent'
+                      : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
+                  "
+                  :title="
+                    message.streaming
+                      ? 'Response time (running)'
+                      : 'Response time'
+                  "
                 >
-                  <img
-                    v-for="img in message.attachments.filter(
-                      (a) => a.kind === 'image',
-                    )"
-                    :key="img.id"
-                    :src="img.previewUrl"
-                    :alt="img.name"
-                    class="h-16 w-16 rounded object-cover border border-border cursor-zoom-in"
-                    @click="openImageModal(img)"
-                  />
-                </div>
-                <div
-                  v-if="message.attachments.some((a) => a.kind === 'text')"
-                  class="flex flex-wrap gap-2"
+                  {{ formatDuration(responseElapsedMs(message.id)) }}
+                </span>
+                <span
+                  v-if="message.streaming"
+                  class="flex items-center gap-1 text-xs text-accent"
                 >
                   <span
-                    v-for="t in message.attachments.filter(
-                      (a) => a.kind === 'text',
-                    )"
-                    :key="t.id"
-                    class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px]"
+                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                  ></span>
+                  Streaming
+                </span>
+                <span
+                  v-if="message.error"
+                  class="rounded bg-danger px-2 py-0.5 text-[11px] text-danger-foreground font-semibold"
+                >
+                  {{ message.error }}
+                </span>
+              </header>
+
+              <div
+                class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
+              >
+                <div
+                  v-if="shouldShowResponseStatus(message)"
+                  class="response-status"
+                  :class="responseStatusClasses"
+                >
+                  <div class="response-status__dot"></div>
+                  <div class="response-status__body">
+                    <p class="response-status__title">
+                      {{ responseStatus?.title }}
+                    </p>
+                    <p
+                      v-if="responseStatus?.detail"
+                      class="response-status__detail"
+                    >
+                      {{ responseStatus.detail }}
+                    </p>
+                  </div>
+                  <span
+                    class="response-status__pill"
+                    :class="responseStatusPillClasses"
                   >
-                    <span class="max-w-[180px] truncate">{{ t.name }}</span>
+                    {{ responseStatus?.stateLabel }}
                   </span>
                 </div>
+                <p v-if="message.title" class="font-semibold text-foreground">
+                  {{ message.title }}
+                </p>
+                <pre
+                  v-if="message.toolArgs"
+                  class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
+                  >{{ message.toolArgs }}</pre
+                >
+                <!-- Thought summaries are streamed into the Active Specialist panel. -->
+                <div
+                  v-if="message.content"
+                  class="chat-markdown"
+                  v-html="renderMarkdownOrHtml(message.content)"
+                ></div>
+                <div v-if="message.attachments?.length" class="space-y-2">
+                  <div
+                    v-if="message.attachments.some((a) => a.kind === 'image')"
+                    class="flex gap-2 overflow-x-auto pb-1"
+                  >
+                    <img
+                      v-for="img in message.attachments.filter(
+                        (a) => a.kind === 'image',
+                      )"
+                      :key="img.id"
+                      :src="img.previewUrl"
+                      :alt="img.name"
+                      class="h-16 w-16 rounded object-cover border border-border cursor-zoom-in"
+                      @click="openImageModal(img)"
+                    />
+                  </div>
+                  <div
+                    v-if="message.attachments.some((a) => a.kind === 'text')"
+                    class="flex flex-wrap gap-2"
+                  >
+                    <span
+                      v-for="t in message.attachments.filter(
+                        (a) => a.kind === 'text',
+                      )"
+                      :key="t.id"
+                      class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px]"
+                    >
+                      <span class="max-w-[180px] truncate">{{ t.name }}</span>
+                    </span>
+                  </div>
+                </div>
+                <audio
+                  v-if="message.audioUrl"
+                  :src="message.audioUrl"
+                  controls
+                  class="w-full"
+                ></audio>
               </div>
-              <audio
-                v-if="message.audioUrl"
-                :src="message.audioUrl"
-                controls
-                class="w-full"
-              ></audio>
-            </div>
+            </article>
 
-            <footer
-              class="mt-3 flex flex-wrap items-center justify-end gap-1 text-xs text-subtle-foreground"
+            <!-- Action toolbar: outside article, visible only on hover -->
+            <div
+              class="flex items-center gap-1 text-xs text-subtle-foreground mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150"
             >
               <button
                 v-if="message.role === 'assistant'"
@@ -451,8 +457,8 @@
               >
                 <SolarTrashIcon class="h-4 w-4" />
               </button>
-            </footer>
-          </article>
+            </div>
+          </div>
         </div>
 
         <button

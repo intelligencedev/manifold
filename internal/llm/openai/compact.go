@@ -161,5 +161,3 @@ func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionI
 
 	return items, strings.Join(sys, "\n\n")
 }
-
-// Tokenizer returns a ResponsesTokenizer for accurate token counting.

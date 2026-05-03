@@ -186,8 +186,7 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		return true
 	}
 
-	targetSupportsCompaction := providerSupportsCompaction(build.Engine.LLM)
-	history, summary, err := a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, targetSupportsCompaction)
+	history, summary, err := a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model)
 	if err != nil {
 		if err == persist.ErrForbidden {
 			http.Error(w, "forbidden", http.StatusForbidden)

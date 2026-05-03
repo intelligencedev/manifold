@@ -68,7 +68,7 @@ func NewGraphEnrichedRetriever(store Store, graph Graph, maxNeighbors int) Retri
 }
 
 func (r StoreRetriever) Retrieve(ctx context.Context, request RetrievalRequest) ([]SearchResult, error) {
-	if r.Store == nil || request.TenantID == 0 {
+	if r.Store == nil {
 		return nil, nil
 	}
 	limit := request.Limit

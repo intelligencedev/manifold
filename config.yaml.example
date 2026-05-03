@@ -54,13 +54,24 @@ exec:
     - mount
     - umount
 
-# Chat summarization.
-summaryEnabled: true
-summaryContextWindowTokens: 32000
-summaryReserveBufferTokens: 25000
-summaryMinKeepLastMessages: 4
-summaryMaxKeepLastMessages: 12
-summaryMaxSummaryChunkTokens: 4096
+# Chat summarization. This LLM is independent from the primary runtime LLM so
+# plain text summaries remain portable when switching providers.
+summary:
+  enabled: true
+  contextWindowTokens: 32000
+  reserveBufferTokens: 25000
+  minKeepLastMessages: 4
+  maxKeepLastMessages: 12
+  maxSummaryChunkTokens: 4096
+  llm_client:
+    provider: openai
+    openai:
+      apiKey: "${OPENAI_API_KEY}"
+      baseURL: https://api.openai.com/v1
+      model: gpt-5-nano
+      api: completions
+      extraHeaders: {}
+      extraParams: {}
 
 # Primary LLM provider configuration.
 llm_client:
@@ -70,8 +81,6 @@ llm_client:
     apiKey: "${OPENAI_API_KEY}"
     baseURL: https://api.openai.com/v1
     model: gpt-5-mini
-    summaryBaseURL: https://api.openai.com/v1
-    summaryModel: gpt-5-nano
     # completions | responses
     api: completions
     extraHeaders: {}
@@ -235,8 +244,6 @@ evolvingMemory:
       apiKey: ""
       baseURL: http://localhost:11434/v1
       model: qwen-memory
-      summaryBaseURL: http://localhost:11434/v1
-      summaryModel: qwen-memory
       api: completions
       extraHeaders: {}
       extraParams: {}

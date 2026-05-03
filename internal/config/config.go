@@ -7,6 +7,8 @@ type Config struct {
 	SystemPrompt string `yaml:"systemPrompt" json:"systemPrompt"`
 	// Rolling summarization config: enable and tuning knobs (token-based only)
 	SummaryEnabled bool `yaml:"summaryEnabled" json:"summaryEnabled"`
+	// Summary configures rolling chat summaries independently from the primary LLM.
+	Summary SummaryConfig `yaml:"summary" json:"summary"`
 	// SummaryContextWindowTokens sets the context window size (in tokens) used for
 	// chat-memory budgeting and summarization triggering.
 	//
@@ -188,6 +190,17 @@ type STTConfig struct {
 type ExecConfig struct {
 	BlockBinaries     []string `yaml:"blockBinaries" json:"blockBinaries"`
 	MaxCommandSeconds int      `yaml:"maxCommandSeconds" json:"maxCommandSeconds"`
+}
+
+// SummaryConfig controls rolling chat summaries and their dedicated LLM client.
+type SummaryConfig struct {
+	Enabled               bool            `yaml:"enabled" json:"enabled"`
+	ContextWindowTokens   int             `yaml:"contextWindowTokens" json:"contextWindowTokens"`
+	ReserveBufferTokens   int             `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
+	MinKeepLastMessages   int             `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
+	MaxKeepLastMessages   int             `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
+	MaxSummaryChunkTokens int             `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	LLMClient             LLMClientConfig `yaml:"llm_client" json:"llmClient"`
 }
 
 // LLMClientConfig selects the LLM provider and holds provider-specific configs.

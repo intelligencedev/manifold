@@ -81,6 +81,37 @@ func TestStoreRetrieverScopeWalkRanksNarrowerBeliefs(t *testing.T) {
 	}
 }
 
+func TestStoreRetrieverAllowsSystemTenant(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now().UTC()
+	store := &retrievalTestStore{
+		scopes: map[string]Scope{
+			"objective/project-1/objective-1": {ID: "scope-objective", TenantID: 0, Kind: ScopeKindObjective, Path: "project-1/objective-1"},
+		},
+		beliefs: map[string][]Belief{
+			"scope-objective": {{ID: "system-belief", TenantID: 0, ScopeID: "scope-objective", Statement: "Transit should load system tenant beliefs.", StatementHash: "system", Confidence: 0.8, EvidenceFor: 2, Status: BeliefStatusActive, LastObserved: &now}},
+		},
+	}
+
+	results, err := NewStoreRetriever(store).Retrieve(context.Background(), RetrievalRequest{
+		TenantID:    0,
+		ProjectID:   "project-1",
+		ObjectiveID: "objective-1",
+		Query:       "Transit",
+		Limit:       2,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if len(results) != 1 || results[0].Belief.ID != "system-belief" {
+		t.Fatalf("expected system tenant belief result, got %+v", results)
+	}
+	if len(store.queries) != 1 || store.queries[0].TenantID != 0 {
+		t.Fatalf("expected tenant 0 storage query, got %+v", store.queries)
+	}
+}
+
 func TestBuildPromptSectionAppliesBudgets(t *testing.T) {
 	t.Parallel()
 

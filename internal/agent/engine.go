@@ -1183,7 +1183,7 @@ func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, 
 		return msgs
 	}
 	objectiveID := strings.TrimSpace(e.ObjectiveID)
-	if objectiveID == "" || e.UserID == 0 {
+	if objectiveID == "" {
 		return msgs
 	}
 	log := observability.LoggerWithTrace(ctx)

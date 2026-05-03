@@ -259,11 +259,7 @@ func (a *app) requireUserID(r *http.Request) (int64, error) {
 // interface, which is required for using OpenAI Responses API compaction summaries.
 // Non-OpenAI providers (Anthropic, Google, etc.) do not support compaction.
 func providerSupportsCompaction(provider llm.Provider) bool {
-	if provider == nil {
-		return false
-	}
-	_, ok := provider.(llm.CompactionProvider)
-	return ok
+	return llm.ProviderSupportsCompaction(provider)
 }
 
 func summaryEndpointSupportsResponsesCompaction(providerName, api, summaryBaseURL string) bool {

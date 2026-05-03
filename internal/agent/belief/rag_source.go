@@ -47,9 +47,9 @@ type RAGEvidenceSource struct {
 }
 
 // Retrieve fulfils EvidenceSource. Returns nil when the source is unconfigured
-// or the request lacks the tenant/query needed to scope a safe RAG query.
+// or the request lacks the query needed to scope a useful RAG query.
 func (r RAGEvidenceSource) Retrieve(ctx context.Context, request RetrievalRequest) ([]SearchResult, error) {
-	if r.Retriever == nil || request.TenantID == 0 {
+	if r.Retriever == nil {
 		return nil, nil
 	}
 	query := strings.TrimSpace(request.Query)
@@ -226,17 +226,11 @@ func ensureMetadata(result *SearchResult) {
 }
 
 func tenantToken(tenantID int64) string {
-	if tenantID == 0 {
-		return ""
-	}
 	return formatInt(tenantID)
 }
 
 func buildRAGFilter(request RetrievalRequest) map[string]string {
-	filter := map[string]string{}
-	if request.TenantID != 0 {
-		filter["tenant_id"] = formatInt(request.TenantID)
-	}
+	filter := map[string]string{"tenant_id": formatInt(request.TenantID)}
 	if pid := strings.TrimSpace(request.ProjectID); pid != "" {
 		filter["project_id"] = pid
 	}

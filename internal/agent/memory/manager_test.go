@@ -251,7 +251,7 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 		ContextWindowTokens: 50, // Smaller than total tokens to trigger summarization
 		SummaryModel:        "stub",
 	})
-	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", false)
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", nil, "")
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
@@ -319,7 +319,7 @@ func TestBuildContextForProvider_DoesNotOrphanToolMessagesInTail(t *testing.T) {
 		SummaryModel:        "stub",
 	})
 
-	history, _, err := manager.BuildContextForProvider(ctx, nil, "sess", false)
+	history, _, err := manager.BuildContextForProvider(ctx, nil, "sess", nil, "")
 	if err != nil {
 		t.Fatalf("BuildContextForProvider: %v", err)
 	}
@@ -362,15 +362,14 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 	// Context window = 50, reserve buffer = 5, budget = 45
 	// This should trigger summarization
 	manager := NewManager(store, compactor, Config{
-		Enabled:                true,
-		ReserveBufferTokens:    5,
-		MinKeepLastMessages:    2,
-		ContextWindowTokens:    50, // Smaller than total tokens to trigger summarization
-		SummaryModel:           "stub",
-		UseResponsesCompaction: true,
+		Enabled:             true,
+		ReserveBufferTokens: 5,
+		MinKeepLastMessages: 2,
+		ContextWindowTokens: 50, // Smaller than total tokens to trigger summarization
+		SummaryModel:        "stub",
 	})
 
-	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", true)
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", compactor, "stub")
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
@@ -407,10 +406,9 @@ func TestSummarizeChunkFormatsToolMessages(t *testing.T) {
 	store := newStubChatStore()
 	recorder := &recordingLLM{response: "summary"}
 	manager := NewManager(store, recorder, Config{
-		Enabled:                true,
-		SummaryModel:           "stub",
-		MaxSummaryChunkTokens:  40,
-		UseResponsesCompaction: false,
+		Enabled:               true,
+		SummaryModel:          "stub",
+		MaxSummaryChunkTokens: 40,
 	})
 
 	assistantPayload := map[string]any{
@@ -436,7 +434,7 @@ func TestSummarizeChunkFormatsToolMessages(t *testing.T) {
 	_, err = manager.summarizeChunk(ctx, "", []persistence.ChatMessage{
 		{Role: "assistant", Content: string(assistantRaw)},
 		{Role: "tool", Content: string(toolRaw)},
-	})
+	}, nil, "")
 	if err != nil {
 		t.Fatalf("summarizeChunk: %v", err)
 	}
@@ -465,15 +463,14 @@ func TestSummarizeChunkDisablesUnavailableCompactionEndpoint(t *testing.T) {
 		err: errors.New(`POST "http://localhost:11434/v1/responses/compact": 404 Not Found {"type":"not_found_error"}`),
 	}
 	manager := NewManager(store, compactor, Config{
-		Enabled:                true,
-		SummaryModel:           "stub",
-		UseResponsesCompaction: true,
+		Enabled:      true,
+		SummaryModel: "stub",
 	})
 	chunk := []persistence.ChatMessage{
 		{Role: "user", Content: "remember that local summary providers do not implement compact"},
 	}
 
-	summary, err := manager.summarizeChunk(ctx, "", chunk)
+	summary, err := manager.summarizeChunk(ctx, "", chunk, compactor, "stub")
 	if err != nil {
 		t.Fatalf("summarizeChunk: %v", err)
 	}
@@ -484,7 +481,7 @@ func TestSummarizeChunkDisablesUnavailableCompactionEndpoint(t *testing.T) {
 		t.Fatalf("expected one compaction attempt, got %d", compactor.calls)
 	}
 
-	summary, err = manager.summarizeChunk(ctx, summary, chunk)
+	summary, err = manager.summarizeChunk(ctx, summary, chunk, compactor, "stub")
 	if err != nil {
 		t.Fatalf("summarizeChunk after disable: %v", err)
 	}
@@ -525,7 +522,7 @@ func TestManagerBuildContextForcesSummaryWhenTailTooLong(t *testing.T) {
 		SummaryModel:        "stub",
 	})
 
-	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", false)
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", nil, "")
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}

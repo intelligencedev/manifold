@@ -27,7 +27,7 @@ func TestResolveEvolvingMemoryLLMUsesDedicatedLLMClient(t *testing.T) {
 		},
 	}
 
-	provider, model, providerName, err := resolveEvolvingMemoryLLM(cfg, nil, nil, nil)
+	provider, model, providerName, err := resolveEvolvingMemoryLLM(cfg, nil, nil, "", nil)
 	if err != nil {
 		t.Fatalf("resolveEvolvingMemoryLLM() error: %v", err)
 	}

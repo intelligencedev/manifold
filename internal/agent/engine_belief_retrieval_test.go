@@ -75,3 +75,35 @@ func TestRunInjectsBoundedBeliefMemory(t *testing.T) {
 		t.Fatalf("expected overflow belief to be omitted, got %q", system)
 	}
 }
+
+func TestRunInjectsBeliefMemoryForSystemUser(t *testing.T) {
+	t.Parallel()
+
+	provider := &captureMessageProvider{}
+	retriever := &staticBeliefRetriever{results: []belief.SearchResult{
+		{Belief: belief.Belief{Statement: "System-user memory is available.", Confidence: 0.9, EvidenceFor: 2}, Scope: belief.Scope{Kind: belief.ScopeKindObjective, Path: "project-1/objective-1"}},
+	}}
+	eng := &Engine{
+		LLM:                       provider,
+		Tools:                     tools.NewRegistry(),
+		MaxSteps:                  1,
+		System:                    "base system",
+		UserID:                    0,
+		ProjectID:                 "project-1",
+		ObjectiveID:               "objective-1",
+		SessionID:                 "session-1",
+		BeliefRetriever:           retriever,
+		BeliefMaxBeliefsPerPrompt: 3,
+		BeliefPromptTokenBudget:   200,
+	}
+
+	if _, err := eng.Run(context.Background(), "Transit", nil); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if retriever.request.TenantID != 0 || retriever.request.UserID != 0 {
+		t.Fatalf("expected system-user retrieval request, got %+v", retriever.request)
+	}
+	if len(provider.messages) == 0 || !strings.Contains(provider.messages[0].Content, "System-user memory is available") {
+		t.Fatalf("expected belief memory to be injected for system user, got %#v", provider.messages)
+	}
+}

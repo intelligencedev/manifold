@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"syscall"
 	"time"
@@ -36,6 +37,25 @@ type Client struct {
 	httpClient  *http.Client
 	api         string // "completions" (default) or "responses"
 	apiKey      string // Stored for raw HTTP requests (e.g., Gemini)
+}
+
+// SupportsCompaction reports whether this OpenAI client is configured for the
+// native Responses compaction endpoint. OpenAI-compatible local endpoints often
+// implement /responses but not /responses/compact, so only the official OpenAI
+// API is auto-enabled here.
+func (c *Client) SupportsCompaction() bool {
+	if c == nil || !strings.EqualFold(c.api, "responses") {
+		return false
+	}
+	base := strings.TrimSpace(c.baseURL)
+	if base == "" {
+		return true
+	}
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return strings.EqualFold(parsed.Hostname(), "api.openai.com")
 }
 
 // ImageAttachment represents a single image attachment to include in a user message.

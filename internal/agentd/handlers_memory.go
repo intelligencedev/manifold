@@ -221,7 +221,7 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 	if userID != nil {
 		owner = *userID
 	}
-	targetSupportsCompaction, statusCode, err := a.debugMemoryTargetSupportsCompaction(r.Context(), owner, sessionID, resolveChatDispatchTarget(r.URL.Query()))
+	targetProvider, targetModel, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(r.URL.Query()))
 	if err != nil {
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
@@ -235,7 +235,7 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -319,7 +319,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 	if userID != nil {
 		owner = *userID
 	}
-	targetSupportsCompaction, statusCode, err := a.debugMemoryTargetSupportsCompaction(r.Context(), owner, sessionID, resolveChatDispatchTarget(q))
+	targetProvider, targetModel, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(q))
 	if err != nil {
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
@@ -333,7 +333,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -344,7 +344,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plan)
 }
 
-func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (bool, int, error) {
+func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (llm.Provider, string, int, error) {
 	descriptor, ok := a.describeChatTarget(target, sessionID, "", "", "", owner)
 	if !ok {
 		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", "", "", nil)
@@ -353,9 +353,9 @@ func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int
 			if statusCode == 0 {
 				statusCode = http.StatusInternalServerError
 			}
-			return false, statusCode, build.Err
+			return nil, "", statusCode, build.Err
 		}
-		return providerSupportsCompaction(build.Engine.LLM), 0, nil
+		return build.Engine.LLM, build.Engine.Model, 0, nil
 	}
 
 	build := descriptor.Build(ctx)
@@ -364,9 +364,14 @@ func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
 		}
-		return false, statusCode, build.Err
+		return nil, "", statusCode, build.Err
 	}
-	return providerSupportsCompaction(build.Engine.LLM), 0, nil
+	return build.Engine.LLM, build.Engine.Model, 0, nil
+}
+
+func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (bool, int, error) {
+	provider, _, statusCode, err := a.debugMemoryTargetProvider(ctx, owner, sessionID, target)
+	return providerSupportsCompaction(provider), statusCode, err
 }
 
 func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message) memoryPlanResponse {

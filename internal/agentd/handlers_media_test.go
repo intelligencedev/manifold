@@ -24,8 +24,13 @@ func TestVisionClientSelectionSupportsCompaction(t *testing.T) {
 	}{
 		{
 			name: "openai supports compaction",
-			sel:  visionClientSelection{OpenAI: openaillm.New(config.OpenAIConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", Model: "gpt-5.4"}, nil)},
+			sel:  visionClientSelection{OpenAI: openaillm.New(config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5.4", API: "responses"}, nil)},
 			want: true,
+		},
+		{
+			name: "local openai-compatible endpoint does not support compaction",
+			sel:  visionClientSelection{OpenAI: openaillm.New(config.OpenAIConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", Model: "gpt-5.4", API: "responses"}, nil)},
+			want: false,
 		},
 		{
 			name: "anthropic does not support compaction",

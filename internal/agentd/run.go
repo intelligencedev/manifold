@@ -851,7 +851,7 @@ func llmClientHasExplicitModel(cfg config.LLMClientConfig, providerName string) 
 	}
 }
 
-func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summaryLLM llmpkg.Provider, httpClient *http.Client) (llmpkg.Provider, string, string, error) {
+func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summaryLLM llmpkg.Provider, summaryModel string, httpClient *http.Client) (llmpkg.Provider, string, string, error) {
 	if hasLLMClientOverride(cfg.EvolvingMemory.LLMClient) {
 		llmCfg := mergeLLMClientConfig(cfg.LLMClient, cfg.EvolvingMemory.LLMClient)
 		if providerName := strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.Provider)); providerName != "" && strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider) == "" {
@@ -901,10 +901,21 @@ func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summa
 	if memModel != "" {
 		return mainLLM, memModel, strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
 	}
-	if summaryLLM != nil && strings.TrimSpace(cfg.OpenAI.SummaryModel) != "" {
-		return summaryLLM, strings.TrimSpace(cfg.OpenAI.SummaryModel), "openai-summary", nil
+	if summaryLLM != nil && strings.TrimSpace(summaryModel) != "" {
+		return summaryLLM, strings.TrimSpace(summaryModel), "summary", nil
 	}
 	return mainLLM, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+}
+
+func buildSummaryLLM(cfg *config.Config, httpClient *http.Client) (llmpkg.Provider, string, error) {
+	if !cfg.Summary.Enabled {
+		return nil, "", nil
+	}
+	provider, err := llmproviders.BuildFromLLMClientConfig(cfg.Summary.LLMClient, httpClient)
+	if err != nil {
+		return nil, "", err
+	}
+	return provider, resolveLLMClientModel(cfg.Summary.LLMClient), nil
 }
 
 func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
@@ -928,10 +939,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build llm provider: %w", err)
 	}
-	summaryCfg := cfg.OpenAI
-	summaryCfg.Model = cfg.OpenAI.SummaryModel
-	summaryCfg.BaseURL = cfg.OpenAI.SummaryBaseURL
-	summaryLLM := openaillm.New(summaryCfg, httpClient)
+	summaryLLM, summaryModel, err := buildSummaryLLM(cfg, httpClient)
+	if err != nil {
+		return nil, fmt.Errorf("build summary llm provider: %w", err)
+	}
 
 	toolRegistry := tools.NewRegistryWithLogging(cfg.LogPayloads)
 	baseToolRegistry := toolRegistry
@@ -1209,7 +1220,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	// Initialize evolving memory if enabled
 	if cfg.EvolvingMemory.Enabled {
-		memLLM, memModel, memProvider, err := resolveEvolvingMemoryLLM(cfg, llm, summaryLLM, httpClient)
+		memLLM, memModel, memProvider, err := resolveEvolvingMemoryLLM(cfg, llm, summaryLLM, summaryModel, httpClient)
 		if err != nil {
 			return nil, fmt.Errorf("build evolving memory llm provider: %w", err)
 		}
@@ -1302,26 +1313,23 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	// Even if the underlying model supports very large context windows (e.g. GPT-5),
 	// we intentionally cap the default budgeting window so the orchestrator doesn't
 	// receive an excessively long raw transcript every turn.
-	summaryCtxSize, _ := llmpkg.ContextSize(cfg.OpenAI.SummaryModel)
-	if cfg.SummaryContextWindowTokens > 0 {
-		summaryCtxSize = cfg.SummaryContextWindowTokens
+	summaryCtxSize, _ := llmpkg.ContextSize(summaryModel)
+	if cfg.Summary.ContextWindowTokens > 0 {
+		summaryCtxSize = cfg.Summary.ContextWindowTokens
 	} else {
 		const defaultSummaryContextWindowCap = 32_000
 		if summaryCtxSize <= 0 || summaryCtxSize > defaultSummaryContextWindowCap {
 			summaryCtxSize = defaultSummaryContextWindowCap
 		}
 	}
-	useResponsesCompaction := (cfg.LLMClient.Provider == "" || cfg.LLMClient.Provider == "openai") &&
-		strings.EqualFold(cfg.OpenAI.API, "responses")
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
-		Enabled:                cfg.SummaryEnabled,
-		ReserveBufferTokens:    cfg.SummaryReserveBufferTokens,
-		MinKeepLastMessages:    cfg.SummaryMinKeepLastMessages,
-		MaxKeepLastMessages:    cfg.SummaryMaxKeepLastMessages,
-		MaxSummaryChunkTokens:  cfg.SummaryMaxSummaryChunkTokens,
-		ContextWindowTokens:    summaryCtxSize,
-		SummaryModel:           cfg.OpenAI.SummaryModel,
-		UseResponsesCompaction: useResponsesCompaction,
+		Enabled:               cfg.Summary.Enabled,
+		ReserveBufferTokens:   cfg.Summary.ReserveBufferTokens,
+		MinKeepLastMessages:   cfg.Summary.MinKeepLastMessages,
+		MaxKeepLastMessages:   cfg.Summary.MaxKeepLastMessages,
+		MaxSummaryChunkTokens: cfg.Summary.MaxSummaryChunkTokens,
+		ContextWindowTokens:   summaryCtxSize,
+		SummaryModel:          summaryModel,
 	})
 
 	if mgr.Playground == nil {

@@ -197,7 +197,7 @@ func TestDebugMemoryTargetSupportsCompactionTeamOverride(t *testing.T) {
 func newDebugMemoryTestApp(t *testing.T) *app {
 	t.Helper()
 	app := newChatEngineBuilderTestApp(t)
-	provider := openaillm.New(config.OpenAIConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", Model: "gpt-5.4"}, nil)
+	provider := openaillm.New(config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5.4", API: "responses"}, nil)
 	app.llm = provider
 	app.engine.LLM = provider
 	return app

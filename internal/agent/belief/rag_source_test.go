@@ -78,14 +78,36 @@ func TestRAGEvidenceSourceSkipsWhenUnconfigured(t *testing.T) {
 	}
 
 	source.Retriever = func(context.Context, string, string, map[string]string, int) ([]RAGEvidenceItem, error) {
-		t.Fatalf("retriever should not be invoked without tenant or query")
+		t.Fatalf("retriever should not be invoked without query")
 		return nil, nil
-	}
-	if r, _ := source.Retrieve(context.Background(), RetrievalRequest{TenantID: 0, Query: "x"}); len(r) != 0 {
-		t.Fatalf("expected zero results when tenant missing")
 	}
 	if r, _ := source.Retrieve(context.Background(), RetrievalRequest{TenantID: 1, Query: "   "}); len(r) != 0 {
 		t.Fatalf("expected zero results when query empty")
+	}
+}
+
+func TestRAGEvidenceSourceAllowsSystemTenant(t *testing.T) {
+	t.Parallel()
+
+	var capturedTenant string
+	var capturedFilter map[string]string
+	source := RAGEvidenceSource{
+		Retriever: func(_ context.Context, _ string, tenant string, filter map[string]string, _ int) ([]RAGEvidenceItem, error) {
+			capturedTenant = tenant
+			capturedFilter = filter
+			return []RAGEvidenceItem{{ID: "system", DocID: "doc-0", Score: 0.7, Snippet: "system tenant evidence"}}, nil
+		},
+	}
+
+	results, err := source.Retrieve(context.Background(), RetrievalRequest{TenantID: 0, ProjectID: "project-x", Query: "system"})
+	if err != nil {
+		t.Fatalf("Retrieve returned error: %v", err)
+	}
+	if capturedTenant != "0" || capturedFilter["tenant_id"] != "0" || capturedFilter["project_id"] != "project-x" {
+		t.Fatalf("unexpected system tenant scoping: tenant=%q filter=%+v", capturedTenant, capturedFilter)
+	}
+	if len(results) != 1 || results[0].Belief.TenantID != 0 {
+		t.Fatalf("expected system tenant evidence result, got %+v", results)
 	}
 }
 

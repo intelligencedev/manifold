@@ -12,8 +12,11 @@ import (
 
 func currentAgentdSettings(cfg *config.Config) agentdSettings {
 	return agentdSettings{
-		OpenAISummaryModel:         cfg.OpenAI.SummaryModel,
-		OpenAISummaryURL:           cfg.OpenAI.SummaryBaseURL,
+		OpenAISummaryModel:         cfg.Summary.LLMClient.OpenAI.Model,
+		OpenAISummaryURL:           cfg.Summary.LLMClient.OpenAI.BaseURL,
+		SummaryProvider:            cfg.Summary.LLMClient.Provider,
+		SummaryModel:               resolveLLMClientModel(cfg.Summary.LLMClient),
+		SummaryURL:                 cfg.Summary.LLMClient.OpenAI.BaseURL,
 		SummaryEnabled:             cfg.SummaryEnabled,
 		SummaryReserveBufferTokens: cfg.SummaryReserveBufferTokens,
 
@@ -83,18 +86,39 @@ func normalizeAgentdSettings(settings agentdSettings) agentdSettings {
 	return settings
 }
 
+func applySummaryModel(cfg *config.Config, model string) {
+	providerName := strings.ToLower(strings.TrimSpace(cfg.Summary.LLMClient.Provider))
+	switch providerName {
+	case "anthropic":
+		cfg.Summary.LLMClient.Anthropic.Model = model
+	case "google":
+		cfg.Summary.LLMClient.Google.Model = model
+	default:
+		cfg.Summary.LLMClient.OpenAI.Model = model
+	}
+}
+
 func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
 
-	if settings.OpenAISummaryModel != "" {
-		cfg.OpenAI.SummaryModel = settings.OpenAISummaryModel
+	if settings.SummaryProvider != "" {
+		cfg.Summary.LLMClient.Provider = settings.SummaryProvider
 	}
-	if settings.OpenAISummaryURL != "" {
-		cfg.OpenAI.SummaryBaseURL = settings.OpenAISummaryURL
+	if settings.SummaryModel != "" {
+		applySummaryModel(cfg, settings.SummaryModel)
+	} else if settings.OpenAISummaryModel != "" {
+		applySummaryModel(cfg, settings.OpenAISummaryModel)
+	}
+	if settings.SummaryURL != "" {
+		cfg.Summary.LLMClient.OpenAI.BaseURL = settings.SummaryURL
+	} else if settings.OpenAISummaryURL != "" {
+		cfg.Summary.LLMClient.OpenAI.BaseURL = settings.OpenAISummaryURL
 	}
 	cfg.SummaryEnabled = settings.SummaryEnabled
+	cfg.Summary.Enabled = settings.SummaryEnabled
 	if settings.SummaryReserveBufferTokens != 0 {
 		cfg.SummaryReserveBufferTokens = settings.SummaryReserveBufferTokens
+		cfg.Summary.ReserveBufferTokens = settings.SummaryReserveBufferTokens
 	}
 
 	if settings.EmbedBaseURL != "" {
@@ -225,15 +249,22 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
 	setNestedMapValue(root, []string{"summaryEnabled"}, settings.SummaryEnabled)
+	setNestedMapValue(root, []string{"summary", "enabled"}, settings.SummaryEnabled)
 	if settings.SummaryReserveBufferTokens != 0 {
 		setNestedMapValue(root, []string{"summaryReserveBufferTokens"}, settings.SummaryReserveBufferTokens)
+		setNestedMapValue(root, []string{"summary", "reserveBufferTokens"}, settings.SummaryReserveBufferTokens)
 	}
 
-	if settings.OpenAISummaryModel != "" {
-		setNestedMapValue(root, []string{"llm_client", "openai", "summaryModel"}, settings.OpenAISummaryModel)
+	if settings.SummaryProvider != "" {
+		setNestedMapValue(root, []string{"summary", "llm_client", "provider"}, settings.SummaryProvider)
 	}
-	if settings.OpenAISummaryURL != "" {
-		setNestedMapValue(root, []string{"llm_client", "openai", "summaryBaseURL"}, settings.OpenAISummaryURL)
+	summaryModel := firstNonEmptyTrimmed(settings.SummaryModel, settings.OpenAISummaryModel)
+	if summaryModel != "" {
+		setNestedMapValue(root, []string{"summary", "llm_client", "openai", "model"}, summaryModel)
+	}
+	summaryURL := firstNonEmptyTrimmed(settings.SummaryURL, settings.OpenAISummaryURL)
+	if summaryURL != "" {
+		setNestedMapValue(root, []string{"summary", "llm_client", "openai", "baseURL"}, summaryURL)
 	}
 
 	if settings.EmbedBaseURL != "" {

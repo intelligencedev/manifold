@@ -104,8 +104,6 @@ type Config struct {
 	ContextWindowTokens int `yaml:"contextWindowTokens" json:"contextWindowTokens"`
 
 	SummaryModel string `yaml:"summaryModel" json:"summaryModel"`
-	// UseResponsesCompaction enables the Responses API compaction endpoint when supported.
-	UseResponsesCompaction bool `yaml:"useResponsesCompaction" json:"useResponsesCompaction"`
 }
 
 // Manager coordinates persistence-backed chat memory with rolling summaries so that
@@ -118,13 +116,12 @@ type Manager struct {
 	enabled bool
 
 	// Token-based summarization fields
-	reserveBufferTokens    int
-	minKeepLastMessages    int
-	maxKeepLastMessages    int
-	maxSummaryChunkTokens  int
-	contextWindowTokens    int
-	useResponsesCompaction bool
-	compactionUnavailable  atomic.Bool
+	reserveBufferTokens   int
+	minKeepLastMessages   int
+	maxKeepLastMessages   int
+	maxSummaryChunkTokens int
+	contextWindowTokens   int
+	compactionUnavailable atomic.Bool
 }
 
 // Introspection helpers used by debug/observability surfaces.
@@ -147,16 +144,15 @@ func (m *Manager) MaxSummaryChunkTokens() int { return m.maxSummaryChunkTokens }
 // NewManager returns a chat memory manager.
 func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) *Manager {
 	m := &Manager{
-		store:                  store,
-		summary:                provider,
-		summaryModel:           cfg.SummaryModel,
-		enabled:                cfg.Enabled && provider != nil,
-		reserveBufferTokens:    cfg.ReserveBufferTokens,
-		minKeepLastMessages:    cfg.MinKeepLastMessages,
-		maxKeepLastMessages:    cfg.MaxKeepLastMessages,
-		maxSummaryChunkTokens:  cfg.MaxSummaryChunkTokens,
-		contextWindowTokens:    cfg.ContextWindowTokens,
-		useResponsesCompaction: cfg.UseResponsesCompaction,
+		store:                 store,
+		summary:               provider,
+		summaryModel:          cfg.SummaryModel,
+		enabled:               cfg.Enabled && provider != nil,
+		reserveBufferTokens:   cfg.ReserveBufferTokens,
+		minKeepLastMessages:   cfg.MinKeepLastMessages,
+		maxKeepLastMessages:   cfg.MaxKeepLastMessages,
+		maxSummaryChunkTokens: cfg.MaxSummaryChunkTokens,
+		contextWindowTokens:   cfg.ContextWindowTokens,
 	}
 	if m.reserveBufferTokens <= 0 {
 		m.reserveBufferTokens = defaultReserveBuffer
@@ -183,15 +179,15 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 
 // BuildContextForProvider assembles the conversation history that should be sent to the
 // orchestrator by combining a persisted summary (if any) with the most recent chat turns.
-// The targetSupportsCompaction parameter indicates whether the target LLM provider supports
-// OpenAI Responses API compaction. If false and the stored summary uses compaction format
-// (encrypted_content), the summary will be treated as unavailable for this request.
+// If targetProvider supports native compaction, the manager stores and reuses
+// provider-native compacted state alongside its plain text summary.
 // Returns the messages and a SummaryResult indicating if summarization was triggered.
-func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, sessionID string, targetSupportsCompaction bool) ([]llm.Message, *SummaryResult, error) {
+func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, sessionID string, targetProvider llm.Provider, targetModel string) ([]llm.Message, *SummaryResult, error) {
 	log := observability.LoggerWithTrace(ctx)
 	if sessionID == "" {
 		return nil, nil, nil
 	}
+	targetCompactor, targetSupportsCompaction := llm.ProviderCompactor(targetProvider)
 
 	messages, err := m.store.ListMessages(ctx, userID, sessionID, 0)
 	if err != nil {
@@ -218,7 +214,7 @@ func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, se
 	var summaryResult *SummaryResult
 
 	if m.enabled {
-		updatedSummary, updatedCount, result := m.ensureSummary(ctx, userID, session, messages)
+		updatedSummary, updatedCount, result := m.ensureSummary(ctx, userID, session, messages, targetCompactor, targetModel)
 		if updatedSummary != "" || updatedCount != summarizedCount {
 			summary = updatedSummary
 			summarizedCount = updatedCount
@@ -479,7 +475,7 @@ func adjustIndexForToolDeps(msgs []persistence.ChatMessage, start, cutIndex int)
 	return earliestNeeded
 }
 
-func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session persistence.ChatSession, messages []persistence.ChatMessage) (string, int, *SummaryResult) {
+func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session persistence.ChatSession, messages []persistence.ChatMessage, targetCompactor llm.CompactionProvider, targetModel string) (string, int, *SummaryResult) {
 	if !m.enabled || m.summary == nil {
 		return session.Summary, session.SummarizedCount, nil
 	}
@@ -517,7 +513,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	if maxTail < m.minKeepLastMessages {
 		maxTail = m.minKeepLastMessages
 	}
-	compactionEnabled := m.responsesCompactionEnabled()
+	compactionEnabled := m.responsesCompactionEnabled(targetCompactor)
 	forceByCount := !compactionEnabled && maxTail > 0 && total > maxTail
 
 	estimated := 0
@@ -623,7 +619,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		SummarizedCount: len(chunk),
 	}
 
-	summary, err := m.summarizeChunk(ctx, session.Summary, chunk)
+	summary, err := m.summarizeChunk(ctx, session.Summary, chunk, targetCompactor, targetModel)
 	if err != nil {
 		log.Error().Err(err).Str("session", session.ID).Msg("chat_summary_failed")
 		return session.Summary, summarizedCount, result
@@ -638,7 +634,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	return summary, target, result
 }
 
-func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, chunk []persistence.ChatMessage) (string, error) {
+func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, chunk []persistence.ChatMessage, targetCompactor llm.CompactionProvider, targetModel string) (string, error) {
 	if m.summary == nil {
 		return existingSummary, fmt.Errorf("llm provider unavailable")
 	}
@@ -647,7 +643,7 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 	existing := decodeDualSummary(existingSummary)
 	log := observability.LoggerWithTrace(ctx)
 
-	if m.responsesCompactionEnabled() {
+	if m.responsesCompactionEnabled(targetCompactor) {
 		// Run both compaction and plain text summarization in parallel.
 		// This ensures we have a plain text fallback if the user switches to a non-OpenAI model.
 		var (
@@ -663,7 +659,7 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 		// Goroutine 1: Compaction summarization (OpenAI Responses API)
 		go func() {
 			defer wg.Done()
-			res, err := m.compactChunk(ctx, existing.Compaction, chunk)
+			res, err := m.compactChunk(ctx, targetCompactor, targetModel, existing.Compaction, chunk)
 			if err != nil {
 				compactionErr = err
 				log.Warn().Err(err).Msg("compaction_summarization_failed")
@@ -714,8 +710,8 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 	return plainRes, nil
 }
 
-func (m *Manager) responsesCompactionEnabled() bool {
-	return m.useResponsesCompaction && !m.compactionUnavailable.Load()
+func (m *Manager) responsesCompactionEnabled(targetCompactor llm.CompactionProvider) bool {
+	return targetCompactor != nil && !m.compactionUnavailable.Load()
 }
 
 // plainSummarize generates a plain text summary of the conversation chunk.
@@ -945,11 +941,13 @@ func estimateMessagesTokens(msgs []llm.Message) int {
 	return est
 }
 
-func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chunk []persistence.ChatMessage) (string, error) {
-	compactor, ok := m.summary.(llm.CompactionProvider)
-	if !ok {
+func (m *Manager) compactChunk(ctx context.Context, compactor llm.CompactionProvider, targetModel string, existingSummary string, chunk []persistence.ChatMessage) (string, error) {
+	if compactor == nil {
 		observability.LoggerWithTrace(ctx).Warn().Msg("responses_compaction_unavailable")
 		return existingSummary, nil
+	}
+	if strings.TrimSpace(targetModel) == "" {
+		targetModel = m.summaryModel
 	}
 
 	var prev *llm.CompactionItem
@@ -1010,7 +1008,7 @@ func (m *Manager) compactChunk(ctx context.Context, existingSummary string, chun
 		msgs = msgs[1:]
 	}
 
-	item, err := compactor.Compact(ctx, msgs, m.summaryModel, prev)
+	item, err := compactor.Compact(ctx, msgs, targetModel, prev)
 	if err != nil {
 		if isCompactionEndpointUnavailable(err) {
 			m.compactionUnavailable.Store(true)

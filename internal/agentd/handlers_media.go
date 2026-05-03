@@ -33,15 +33,19 @@ type visionClientSelection struct {
 }
 
 func (v visionClientSelection) supportsCompaction() bool {
+	return providerSupportsCompaction(v.provider())
+}
+
+func (v visionClientSelection) provider() llmpkg.Provider {
 	switch {
 	case v.OpenAI != nil:
-		return providerSupportsCompaction(v.OpenAI)
+		return v.OpenAI
 	case v.Anthropic != nil:
-		return providerSupportsCompaction(v.Anthropic)
+		return v.Anthropic
 	case v.Google != nil:
-		return providerSupportsCompaction(v.Google)
+		return v.Google
 	default:
-		return false
+		return nil
 	}
 }
 
@@ -151,8 +155,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			return
 		}
 
-		targetSupportsCompaction := visionSel.supportsCompaction()
-		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
+		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, visionSel.provider(), visionSel.Model)
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)

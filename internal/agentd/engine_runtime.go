@@ -45,6 +45,7 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 	// base prompt with the correct catalog.
 	if a.cfg.Auth.Enabled && userID != systemUserID {
 		eng.System = a.composeSystemPromptForUser(ctx, userID)
+		eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
 	}
 
 	em := a.attachSessionEvolvingMemory(eng, userID, sessionID)
@@ -87,6 +88,7 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 			// This should preserve the user-scoped specialists catalog.
 			if sp.System != "" {
 				eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
+				eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
 			}
 		}
 	}

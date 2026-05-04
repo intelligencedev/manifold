@@ -9,20 +9,23 @@ import (
 )
 
 type Engine struct {
-	LLM             llm.Provider
-	Tools           tools.Registry
-	MaxSteps        int
-	System          string
-	Model           string // default model name to pass to provider (used for metrics)
-	SessionID       string
-	ProjectID       string
-	ObjectiveID     string
-	UserID          int64
-	AgentRole       string
-	BeliefStore     belief.Store
-	BeliefDistiller belief.Distiller
-	BeliefRetriever belief.Retriever
-	BeliefGraph     belief.Graph
+	LLM      llm.Provider
+	Tools    tools.Registry
+	MaxSteps int
+	System   string
+	// UserPromptContext is prepended to the current user prompt for dynamic
+	// runtime context that should not perturb provider system-prompt caches.
+	UserPromptContext string
+	Model             string // default model name to pass to provider (used for metrics)
+	SessionID         string
+	ProjectID         string
+	ObjectiveID       string
+	UserID            int64
+	AgentRole         string
+	BeliefStore       belief.Store
+	BeliefDistiller   belief.Distiller
+	BeliefRetriever   belief.Retriever
+	BeliefGraph       belief.Graph
 	// BeliefMaxBeliefsPerPrompt bounds belief-memory prompt injection.
 	BeliefMaxBeliefsPerPrompt int
 	// BeliefPromptTokenBudget bounds the prompt section generated from belief memory.

@@ -47,7 +47,9 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sess
 	}
 	enableTools, autoDiscover := a.chatOrchestratorToolConfig(ctx, owner)
 	eng.System = a.ensureChatDiscoveryInstructions(eng.System, enableTools, autoDiscover)
-	eng.Tools, eng.System = a.applyChatSkillsMode(eng.Tools, eng.System, a.chatProjectDir(ctx, checkedOutWorkspace), enableTools, autoDiscover)
+	var skillsContext string
+	eng.Tools, eng.System, skillsContext = a.applyChatSkillsMode(eng.Tools, eng.System, a.chatProjectDir(ctx, checkedOutWorkspace), enableTools, autoDiscover)
+	eng.UserPromptContext = combineUserPromptContext(eng.UserPromptContext, skillsContext)
 	return chatEngineBuildResult{Engine: eng, ModelLabel: eng.Model}
 }
 
@@ -75,13 +77,15 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		systemPrompt = prompts.EnsureMemoryInstructions(override)
 	}
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, sp.AutoDiscover)
-	toolReg, systemPrompt = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, sp.AutoDiscover)
+	var skillsContext string
+	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, sp.AutoDiscover)
 
 	eng := &agent.Engine{
 		LLM:                          prov,
 		Tools:                        toolReg,
 		MaxSteps:                     a.chatMaxSteps(),
 		System:                       systemPrompt,
+		UserPromptContext:            combineUserPromptContext(sp.UserPromptContext, skillsContext),
 		Model:                        sp.Model,
 		ContextWindowTokens:          a.chatSummaryContextSize(sp.SummaryContextWindowTokens, sp.Model),
 		SummaryEnabled:               a.cfg.SummaryEnabled,
@@ -152,14 +156,14 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 	systemPrompt := prompts.DefaultSystemPrompt(a.cfg.Workdir, basePrompt)
 	resolvedAutoDiscover := a.resolveAutoDiscover(sp.AutoDiscover)
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, resolvedAutoDiscover)
-	toolReg, systemPrompt = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, resolvedAutoDiscover)
-	systemPrompt = teamReg.AppendToSystemPrompt(systemPrompt)
-
+	var skillsContext string
+	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, resolvedAutoDiscover)
 	eng := &agent.Engine{
 		LLM:                          userLLM,
 		Tools:                        toolReg,
 		MaxSteps:                     a.chatMaxSteps(),
 		System:                       systemPrompt,
+		UserPromptContext:            combineUserPromptContext(teamReg.UserPromptContext(), skillsContext),
 		Model:                        currentModel,
 		ContextWindowTokens:          a.chatSummaryContextSize(sp.SummaryContextWindowTokens, currentModel),
 		SummaryEnabled:               a.cfg.SummaryEnabled,
@@ -242,25 +246,32 @@ func (a *app) ensureChatDiscoveryInstructions(systemPrompt string, enableTools b
 	return systemPrompt
 }
 
-func (a *app) applyChatSkillsMode(toolReg tools.Registry, systemPrompt, projectDir string, enableTools, autoDiscover bool) (tools.Registry, string) {
+func (a *app) applyChatSkillsMode(toolReg tools.Registry, systemPrompt, projectDir string, enableTools, autoDiscover bool) (tools.Registry, string, string) {
 	if strings.TrimSpace(projectDir) == "" {
-		return toolReg, systemPrompt
+		return toolReg, systemPrompt, ""
 	}
 	if !enableTools || !autoDiscover {
-		if skillsSection := prompts.RenderSkillsForProject(projectDir); skillsSection != "" {
-			systemPrompt += "\n\n" + skillsSection
-		}
-		return toolReg, systemPrompt
+		return toolReg, systemPrompt, prompts.RenderSkillsForProject(projectDir)
 	}
 	cached, err := prompts.CachedSkillsForProject(projectDir)
 	if err != nil || cached == nil || len(cached.Skills) == 0 {
-		return toolReg, systemPrompt
+		return toolReg, systemPrompt, ""
 	}
 	systemPrompt = prompts.EnsureSkillDiscoveryInstructions(systemPrompt)
 	if toolReg == nil {
 		toolReg = tools.NewRegistry()
 	}
-	return tools.NewOverlayRegistry(toolReg, newSkillSearchTool(projectDir)), systemPrompt
+	return tools.NewOverlayRegistry(toolReg, newSkillSearchTool(projectDir)), systemPrompt, ""
+}
+
+func combineUserPromptContext(parts ...string) string {
+	sections := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			sections = append(sections, trimmed)
+		}
+	}
+	return strings.Join(sections, "\n\n")
 }
 
 func (a *app) chatOrchestratorToolConfig(ctx context.Context, owner int64) (bool, bool) {

@@ -26,6 +26,7 @@ type Agent struct {
 	Name                       string
 	Description                string
 	System                     string
+	UserPromptContext          string
 	Model                      string
 	SummaryContextWindowTokens int
 	EnableTools                bool
@@ -259,7 +260,7 @@ func (r *Registry) rebuildLocked() {
 	addendum := buildSystemPromptAddendum(agents)
 	if addendum != "" {
 		for _, a := range agents {
-			a.System = combineSystemPrompts(a.System, addendum)
+			a.UserPromptContext = addendum
 		}
 	}
 	r.agents = agents
@@ -323,6 +324,14 @@ func (r *Registry) AppendToSystemPrompt(base string) string {
 	addition := r.systemPromptAddendum
 	r.mu.RUnlock()
 	return combineSystemPrompts(base, addition)
+}
+
+// UserPromptContext returns the registry's specialist catalog as dynamic
+// context suitable for prepending to the current user prompt.
+func (r *Registry) UserPromptContext() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.systemPromptAddendum
 }
 
 // Get returns the named specialist.
@@ -411,7 +420,28 @@ func (a *Agent) buildMessages(history []llm.Message, user string) []llm.Message 
 	if strings.TrimSpace(user) != "" {
 		msgs = append(msgs, llm.Message{Role: "user", Content: user})
 	}
+	msgs = prependToCurrentUserMessage(msgs, a.UserPromptContext)
 	return msgs
+}
+
+func prependToCurrentUserMessage(msgs []llm.Message, section string) []llm.Message {
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return msgs
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != "user" {
+			continue
+		}
+		content := strings.TrimSpace(msgs[i].Content)
+		if content == "" {
+			msgs[i].Content = section
+		} else {
+			msgs[i].Content = section + "\n\n" + msgs[i].Content
+		}
+		return msgs
+	}
+	return append(msgs, llm.Message{Role: "user", Content: section})
 }
 
 func (a *Agent) mergedExtraParams() map[string]any {

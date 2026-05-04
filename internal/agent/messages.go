@@ -36,31 +36,38 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 		msgs = append(msgs, llm.Message{Role: "system", Content: system})
 	}
 
+	var userPromptContext []string
+
 	// When we have both history and a new user message, annotate them
 	// to make it clear which is context vs the current request.
 	hasHistory := len(history) > 0
 	hasUser := strings.TrimSpace(user) != ""
 
 	if hasHistory {
-		// Clone history and annotate the first message with context marker
-		annotatedHistory := make([]llm.Message, len(history))
-		copy(annotatedHistory, history)
+		// Clone history and annotate the first message with context marker.
+		// Synthetic system messages in history (conversation summaries, provider
+		// continuation rules, etc.) are moved into the current user prompt so the
+		// runtime system prompt remains cache-stable across turns.
+		annotatedHistory := make([]llm.Message, 0, len(history))
+		for _, msg := range history {
+			if msg.Role == "system" {
+				if section := strings.TrimSpace(msg.Content); section != "" {
+					userPromptContext = append(userPromptContext, section)
+				}
+				continue
+			}
+			annotatedHistory = append(annotatedHistory, msg)
+		}
 
 		// Prepend context marker to first history message
-		if annotatedHistory[0].Role == "user" {
-			annotatedHistory[0] = llm.Message{
-				Role:    annotatedHistory[0].Role,
-				Content: historyContextPrefix + annotatedHistory[0].Content,
-			}
+		if len(annotatedHistory) > 0 && annotatedHistory[0].Role == "user" {
+			annotatedHistory[0].Content = historyContextPrefix + annotatedHistory[0].Content
 		} else if len(annotatedHistory) > 1 {
 			// If first message isn't user (e.g., it's a system message already processed),
 			// find the first user message in history
 			for i := range annotatedHistory {
 				if annotatedHistory[i].Role == "user" {
-					annotatedHistory[i] = llm.Message{
-						Role:    annotatedHistory[i].Role,
-						Content: historyContextPrefix + annotatedHistory[i].Content,
-					}
+					annotatedHistory[i].Content = historyContextPrefix + annotatedHistory[i].Content
 					break
 				}
 			}
@@ -74,8 +81,33 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 			// Annotate current request to distinguish from history
 			content = currentRequestPrefix + user
 		}
+		if len(userPromptContext) > 0 {
+			content = strings.Join(userPromptContext, "\n\n") + "\n\n" + content
+		}
 		msgs = append(msgs, llm.Message{Role: "user", Content: content})
+	} else if len(userPromptContext) > 0 {
+		msgs = append(msgs, llm.Message{Role: "user", Content: strings.Join(userPromptContext, "\n\n")})
 	}
 
 	return msgs
+}
+
+func PrependToCurrentUserMessage(msgs []llm.Message, section string) []llm.Message {
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return msgs
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != "user" {
+			continue
+		}
+		content := strings.TrimSpace(msgs[i].Content)
+		if content == "" {
+			msgs[i].Content = section
+		} else {
+			msgs[i].Content = section + "\n\n" + msgs[i].Content
+		}
+		return msgs
+	}
+	return append(msgs, llm.Message{Role: "user", Content: section})
 }

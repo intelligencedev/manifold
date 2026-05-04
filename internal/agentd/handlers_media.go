@@ -15,6 +15,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	agentpkg "manifold/internal/agent"
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	llmpkg "manifold/internal/llm"
@@ -198,9 +199,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			atts = append(atts, imgAtt{mime: mt, b64: base64.StdEncoding.EncodeToString(data)})
 		}
 
-		msgs := make([]llmpkg.Message, 0, len(history)+1)
-		msgs = append(msgs, history...)
-		msgs = append(msgs, llmpkg.Message{Role: "user", Content: prompt})
+		msgs := agentpkg.BuildInitialLLMMessages("", prompt, history)
 
 		vSeconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, vDur := withMaybeTimeout(r.Context(), vSeconds)

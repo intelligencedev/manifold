@@ -83,7 +83,10 @@ func TestRunInjectsSoftPolicyContext(t *testing.T) {
 	if _, err := eng.Run(context.Background(), "deploy", nil); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	if len(provider.messages) == 0 || !strings.Contains(provider.messages[0].Content, "## Runtime Policy Context") || !strings.Contains(provider.messages[0].Content, "Prefer reviewer confirmation") {
-		t.Fatalf("expected soft policy context in system prompt, got %#v", provider.messages)
+	if len(provider.messages) < 2 || provider.messages[1].Role != "user" || !strings.Contains(provider.messages[1].Content, "## Runtime Policy Context") || !strings.Contains(provider.messages[1].Content, "Prefer reviewer confirmation") {
+		t.Fatalf("expected soft policy context in user prompt, got %#v", provider.messages)
+	}
+	if strings.Contains(provider.messages[0].Content, "## Runtime Policy Context") {
+		t.Fatalf("did not expect soft policy context in system prompt, got %#v", provider.messages)
 	}
 }

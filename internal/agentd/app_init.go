@@ -347,6 +347,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		MaxSteps:                     cfg.MaxSteps,
 		MaxToolParallelism:           cfg.MaxToolParallelism,
 		System:                       systemPrompt,
+		UserPromptContext:            app.composeUserPromptContext(),
 		Model:                        cfg.OpenAI.Model,
 		ContextWindowTokens:          ctxSize,
 		SummaryEnabled:               cfg.SummaryEnabled,

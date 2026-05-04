@@ -55,11 +55,14 @@ func TestInvalidateSpecialistsCacheRefreshesSystemPrompt(t *testing.T) {
 
 	app.invalidateSpecialistsCache(context.Background(), systemUserID)
 
-	if got := app.engine.System; !strings.Contains(got, "alpha: desc") {
-		t.Fatalf("expected system prompt to include specialist, got %q", got)
+	if got := app.engine.UserPromptContext; !strings.Contains(got, "alpha: desc") {
+		t.Fatalf("expected user prompt context to include specialist, got %q", got)
 	}
-	if got := app.engine.System; !strings.Contains(got, "Available specialists you can invoke:") {
-		t.Fatalf("expected system prompt to include catalog header, got %q", got)
+	if got := app.engine.UserPromptContext; !strings.Contains(got, "Available specialists you can invoke:") {
+		t.Fatalf("expected user prompt context to include catalog header, got %q", got)
+	}
+	if got := app.engine.System; strings.Contains(got, "alpha: desc") {
+		t.Fatalf("did not expect specialist catalog in system prompt, got %q", got)
 	}
 }
 
@@ -83,12 +86,16 @@ func TestComposeSystemPromptForUserScopesCatalog(t *testing.T) {
 		specStore:        &stubSpecialistsStore{list: []persistence.Specialist{{UserID: 123, Name: "user", Description: "user desc", Model: "m"}}},
 	}
 
-	// Non-system users should see only their catalog.
+	// Non-system users should see only their catalog in user prompt context.
 	prompt := app.composeSystemPromptForUser(context.Background(), 123)
-	if strings.Contains(prompt, "sys: sys desc") {
-		t.Fatalf("expected non-system prompt to exclude system catalog, got %q", prompt)
+	ctx := app.composeUserPromptContextForUser(context.Background(), 123)
+	if strings.Contains(prompt, "sys: sys desc") || strings.Contains(prompt, "user: user desc") {
+		t.Fatalf("expected system prompt to exclude catalogs, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "user: user desc") {
-		t.Fatalf("expected non-system prompt to include user catalog, got %q", prompt)
+	if strings.Contains(ctx, "sys: sys desc") {
+		t.Fatalf("expected non-system context to exclude system catalog, got %q", ctx)
+	}
+	if !strings.Contains(ctx, "user: user desc") {
+		t.Fatalf("expected non-system context to include user catalog, got %q", ctx)
 	}
 }

@@ -64,15 +64,18 @@ func TestRunInjectsBoundedBeliefMemory(t *testing.T) {
 	if retriever.request.TenantID != 7 || retriever.request.ProjectID != "project-1" || retriever.request.ObjectiveID != "objective-1" {
 		t.Fatalf("unexpected retrieval request: %+v", retriever.request)
 	}
-	if len(provider.messages) == 0 || provider.messages[0].Role != "system" {
-		t.Fatalf("expected captured system message, got %#v", provider.messages)
+	if len(provider.messages) < 2 || provider.messages[1].Role != "user" {
+		t.Fatalf("expected captured user message, got %#v", provider.messages)
 	}
-	system := provider.messages[0].Content
-	if !strings.Contains(system, "## Shared Belief Memory") || !strings.Contains(system, "Transit stores active coordination state") {
-		t.Fatalf("expected belief memory section in system prompt, got %q", system)
+	userPrompt := provider.messages[1].Content
+	if !strings.Contains(userPrompt, "## Shared Belief Memory") || !strings.Contains(userPrompt, "Transit stores active coordination state") {
+		t.Fatalf("expected belief memory section in user prompt, got %q", userPrompt)
 	}
-	if strings.Contains(system, "Overflow belief") {
-		t.Fatalf("expected overflow belief to be omitted, got %q", system)
+	if strings.Contains(provider.messages[0].Content, "## Shared Belief Memory") {
+		t.Fatalf("did not expect belief memory section in system prompt, got %q", provider.messages[0].Content)
+	}
+	if strings.Contains(userPrompt, "Overflow belief") {
+		t.Fatalf("expected overflow belief to be omitted, got %q", userPrompt)
 	}
 }
 
@@ -103,7 +106,7 @@ func TestRunInjectsBeliefMemoryForSystemUser(t *testing.T) {
 	if retriever.request.TenantID != 0 || retriever.request.UserID != 0 {
 		t.Fatalf("expected system-user retrieval request, got %+v", retriever.request)
 	}
-	if len(provider.messages) == 0 || !strings.Contains(provider.messages[0].Content, "System-user memory is available") {
-		t.Fatalf("expected belief memory to be injected for system user, got %#v", provider.messages)
+	if len(provider.messages) < 2 || provider.messages[1].Role != "user" || !strings.Contains(provider.messages[1].Content, "System-user memory is available") {
+		t.Fatalf("expected belief memory to be injected for system user prompt, got %#v", provider.messages)
 	}
 }

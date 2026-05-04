@@ -190,8 +190,11 @@ func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
-	if !strings.Contains(result.Engine.System, "## Skills") {
-		t.Fatalf("expected inline skills when tools are disabled, got %q", result.Engine.System)
+	if !strings.Contains(result.Engine.UserPromptContext, "## Skills") {
+		t.Fatalf("expected inline skills in user prompt context when tools are disabled, got %q", result.Engine.UserPromptContext)
+	}
+	if strings.Contains(result.Engine.System, "## Skills") {
+		t.Fatalf("did not expect inline skills in system prompt, got %q", result.Engine.System)
 	}
 	if containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("did not expect skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))

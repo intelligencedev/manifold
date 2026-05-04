@@ -23,6 +23,7 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 
 	// Now run the main agent loop with (potentially refined) memories
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	msgs = PrependToCurrentUserMessage(msgs, e.UserPromptContext)
 	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 
 	// Augment with evolving memory (which may have been refined by ReMem)

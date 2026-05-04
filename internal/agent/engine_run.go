@@ -26,6 +26,7 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	msgs = PrependToCurrentUserMessage(msgs, e.UserPromptContext)
 	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
 	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 
@@ -70,6 +71,7 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	msgs = PrependToCurrentUserMessage(msgs, e.UserPromptContext)
 	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
 	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 

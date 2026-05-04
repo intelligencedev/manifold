@@ -58,6 +58,7 @@ autoDiscover: true
 maxDiscoveredTools: 7
 summaryEnabled: true
 summaryContextWindowTokens: 32000
+summaryPlainTextContextWindowTokens: 8192
 summaryReserveBufferTokens: 25000
 summaryMinKeepLastMessages: 4
 summaryMaxKeepLastMessages: 12
@@ -223,6 +224,9 @@ tokenization:
 	}
 	if cfg.LLMClient.OpenAI.API != "responses" {
 		t.Fatalf("unexpected openai api: %q", cfg.LLMClient.OpenAI.API)
+	}
+	if cfg.Summary.PlainTextContextWindowTokens != 8192 || cfg.SummaryPlainTextContextWindowTokens != 8192 {
+		t.Fatalf("unexpected plain text summary context config: nested=%d top=%d", cfg.Summary.PlainTextContextWindowTokens, cfg.SummaryPlainTextContextWindowTokens)
 	}
 	if cfg.Auth.ClientSecret != "test-auth-secret" {
 		t.Fatalf("expected expanded auth client secret, got %q", cfg.Auth.ClientSecret)

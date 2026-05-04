@@ -12,13 +12,14 @@ import (
 
 func currentAgentdSettings(cfg *config.Config) agentdSettings {
 	return agentdSettings{
-		OpenAISummaryModel:         cfg.Summary.LLMClient.OpenAI.Model,
-		OpenAISummaryURL:           cfg.Summary.LLMClient.OpenAI.BaseURL,
-		SummaryProvider:            cfg.Summary.LLMClient.Provider,
-		SummaryModel:               resolveLLMClientModel(cfg.Summary.LLMClient),
-		SummaryURL:                 cfg.Summary.LLMClient.OpenAI.BaseURL,
-		SummaryEnabled:             cfg.SummaryEnabled,
-		SummaryReserveBufferTokens: cfg.SummaryReserveBufferTokens,
+		OpenAISummaryModel:                  cfg.Summary.LLMClient.OpenAI.Model,
+		OpenAISummaryURL:                    cfg.Summary.LLMClient.OpenAI.BaseURL,
+		SummaryProvider:                     cfg.Summary.LLMClient.Provider,
+		SummaryModel:                        resolveLLMClientModel(cfg.Summary.LLMClient),
+		SummaryURL:                          cfg.Summary.LLMClient.OpenAI.BaseURL,
+		SummaryEnabled:                      cfg.SummaryEnabled,
+		SummaryPlainTextContextWindowTokens: cfg.Summary.PlainTextContextWindowTokens,
+		SummaryReserveBufferTokens:          cfg.SummaryReserveBufferTokens,
 
 		EmbedBaseURL:    cfg.Embedding.BaseURL,
 		EmbedModel:      cfg.Embedding.Model,
@@ -116,6 +117,10 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 	cfg.SummaryEnabled = settings.SummaryEnabled
 	cfg.Summary.Enabled = settings.SummaryEnabled
+	if settings.SummaryPlainTextContextWindowTokens != 0 {
+		cfg.SummaryPlainTextContextWindowTokens = settings.SummaryPlainTextContextWindowTokens
+		cfg.Summary.PlainTextContextWindowTokens = settings.SummaryPlainTextContextWindowTokens
+	}
 	if settings.SummaryReserveBufferTokens != 0 {
 		cfg.SummaryReserveBufferTokens = settings.SummaryReserveBufferTokens
 		cfg.Summary.ReserveBufferTokens = settings.SummaryReserveBufferTokens
@@ -250,6 +255,10 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 
 	setNestedMapValue(root, []string{"summaryEnabled"}, settings.SummaryEnabled)
 	setNestedMapValue(root, []string{"summary", "enabled"}, settings.SummaryEnabled)
+	if settings.SummaryPlainTextContextWindowTokens != 0 {
+		setNestedMapValue(root, []string{"summaryPlainTextContextWindowTokens"}, settings.SummaryPlainTextContextWindowTokens)
+		setNestedMapValue(root, []string{"summary", "plainTextContextWindowTokens"}, settings.SummaryPlainTextContextWindowTokens)
+	}
 	if settings.SummaryReserveBufferTokens != 0 {
 		setNestedMapValue(root, []string{"summaryReserveBufferTokens"}, settings.SummaryReserveBufferTokens)
 		setNestedMapValue(root, []string{"summary", "reserveBufferTokens"}, settings.SummaryReserveBufferTokens)

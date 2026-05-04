@@ -15,6 +15,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	llmpkg "manifold/internal/llm"
 	anthropicllm "manifold/internal/llm/anthropic"
@@ -155,7 +156,10 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			return
 		}
 
-		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, visionSel.provider(), visionSel.Model)
+		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, visionSel.provider(), visionSel.Model, memory.SummaryPolicy{
+			TargetContextWindowTokens:    a.chatSummaryContextSize(0, visionSel.Model),
+			PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
+		})
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)

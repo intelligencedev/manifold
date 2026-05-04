@@ -221,7 +221,7 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 	if userID != nil {
 		owner = *userID
 	}
-	targetProvider, targetModel, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(r.URL.Query()))
+	targetProvider, targetModel, targetContextWindowTokens, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(r.URL.Query()))
 	if err != nil {
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
@@ -235,7 +235,8 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel)
+	policy := memory.SummaryPolicy{TargetContextWindowTokens: targetContextWindowTokens, PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens}
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel, policy)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -243,11 +244,11 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Derive a lightweight plan for this session using token-aware heuristics.
-	plan := a.deriveMemoryPlan(sess, ctxMsgs)
+	plan := a.deriveMemoryPlan(sess, ctxMsgs, policy)
 
 	resp := debugMemorySessionResponse{
 		Session:         sess,
-		Summary:         sess.Summary,
+		Summary:         memory.PlainTextSummary(sess.Summary),
 		SummarizedCount: sess.SummarizedCount,
 		Messages:        ctxMsgs,
 		Plan:            plan,
@@ -319,7 +320,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 	if userID != nil {
 		owner = *userID
 	}
-	targetProvider, targetModel, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(q))
+	targetProvider, targetModel, targetContextWindowTokens, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(q))
 	if err != nil {
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
@@ -333,18 +334,19 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel)
+	policy := memory.SummaryPolicy{TargetContextWindowTokens: targetContextWindowTokens, PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens}
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel, policy)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	plan := a.deriveMemoryPlan(sess, ctxMsgs)
+	plan := a.deriveMemoryPlan(sess, ctxMsgs, policy)
 	writeJSON(w, http.StatusOK, plan)
 }
 
-func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (llm.Provider, string, int, error) {
+func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (llm.Provider, string, int, int, error) {
 	descriptor, ok := a.describeChatTarget(target, sessionID, "", "", "", owner)
 	if !ok {
 		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", "", "", nil)
@@ -353,9 +355,9 @@ func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessio
 			if statusCode == 0 {
 				statusCode = http.StatusInternalServerError
 			}
-			return nil, "", statusCode, build.Err
+			return nil, "", 0, statusCode, build.Err
 		}
-		return build.Engine.LLM, build.Engine.Model, 0, nil
+		return build.Engine.LLM, build.Engine.Model, build.Engine.ContextWindowTokens, 0, nil
 	}
 
 	build := descriptor.Build(ctx)
@@ -364,17 +366,17 @@ func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessio
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
 		}
-		return nil, "", statusCode, build.Err
+		return nil, "", 0, statusCode, build.Err
 	}
-	return build.Engine.LLM, build.Engine.Model, 0, nil
+	return build.Engine.LLM, build.Engine.Model, build.Engine.ContextWindowTokens, 0, nil
 }
 
 func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (bool, int, error) {
-	provider, _, statusCode, err := a.debugMemoryTargetProvider(ctx, owner, sessionID, target)
+	provider, _, _, statusCode, err := a.debugMemoryTargetProvider(ctx, owner, sessionID, target)
 	return providerSupportsCompaction(provider), statusCode, err
 }
 
-func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message) memoryPlanResponse {
+func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message, policy memory.SummaryPolicy) memoryPlanResponse {
 	// We approximate the tail as everything except the first summary/system message
 	total := len(msgs)
 	tailStart := 0
@@ -390,7 +392,10 @@ func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message) memoryPlanResponse {
 		estTail += len([]rune(strings.TrimSpace(m.Content)))/4 + 1
 	}
 
-	ctxTokens := a.chatMemory.ContextWindowTokens()
+	ctxTokens := policy.TargetContextWindowTokens
+	if ctxTokens <= 0 {
+		ctxTokens = a.chatMemory.ContextWindowTokens()
+	}
 	if ctxTokens <= 0 {
 		ctxTokens = 128_000
 	}

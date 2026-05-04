@@ -465,13 +465,14 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		}
 	}
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
-		Enabled:               cfg.Summary.Enabled,
-		ReserveBufferTokens:   cfg.Summary.ReserveBufferTokens,
-		MinKeepLastMessages:   cfg.Summary.MinKeepLastMessages,
-		MaxKeepLastMessages:   cfg.Summary.MaxKeepLastMessages,
-		MaxSummaryChunkTokens: cfg.Summary.MaxSummaryChunkTokens,
-		ContextWindowTokens:   summaryCtxSize,
-		SummaryModel:          summaryModel,
+		Enabled:                      cfg.Summary.Enabled,
+		ReserveBufferTokens:          cfg.Summary.ReserveBufferTokens,
+		MinKeepLastMessages:          cfg.Summary.MinKeepLastMessages,
+		MaxKeepLastMessages:          cfg.Summary.MaxKeepLastMessages,
+		MaxSummaryChunkTokens:        cfg.Summary.MaxSummaryChunkTokens,
+		PlainTextContextWindowTokens: cfg.Summary.PlainTextContextWindowTokens,
+		ContextWindowTokens:          summaryCtxSize,
+		SummaryModel:                 summaryModel,
 	})
 
 	if mgr.Playground == nil {

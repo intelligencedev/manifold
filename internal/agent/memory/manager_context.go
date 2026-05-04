@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, sessionID string, targetProvider llm.Provider, targetModel string) ([]llm.Message, *SummaryResult, error) {
+func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, sessionID string, targetProvider llm.Provider, targetModel string, policy SummaryPolicy) ([]llm.Message, *SummaryResult, error) {
 	log := observability.LoggerWithTrace(ctx)
 	if sessionID == "" {
 		return nil, nil, nil
@@ -42,7 +42,7 @@ func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, se
 	var summaryResult *SummaryResult
 
 	if m.enabled {
-		updatedSummary, updatedCount, result := m.ensureSummary(ctx, userID, session, messages, targetCompactor, targetModel)
+		updatedSummary, updatedCount, result := m.ensureSummary(ctx, userID, session, messages, targetCompactor, targetModel, policy)
 		if updatedSummary != "" || updatedCount != summarizedCount {
 			summary = updatedSummary
 			summarizedCount = updatedCount
@@ -57,10 +57,7 @@ func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, se
 	if m.enabled {
 		// Token-based approach: choose the tail based on available token budget
 		// (context window minus reserve buffer).
-		ctxSize := m.contextWindowTokens
-		if ctxSize <= 0 {
-			ctxSize = 32_000 // Conservative default for memory budgeting
-		}
+		ctxSize := m.resolveTargetContextWindowTokens(policy, targetModel)
 		reserveBuffer := m.reserveBufferTokens
 		if reserveBuffer <= 0 {
 			reserveBuffer = defaultReserveBuffer

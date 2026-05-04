@@ -59,6 +59,9 @@ exec:
 summary:
   enabled: true
   contextWindowTokens: 32000
+  # Optional global plain-text summary trigger budget. Set to 0 to fall back
+  # to the configured summary model's context size.
+  plainTextContextWindowTokens: 0
   reserveBufferTokens: 25000
   minKeepLastMessages: 4
   maxKeepLastMessages: 12

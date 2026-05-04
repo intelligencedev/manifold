@@ -261,6 +261,25 @@
                 for the model response.
               </p>
             </div>
+            <div class="space-y-1 col-span-2">
+              <label
+                for="summary-plain-text-context-window"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Plain Summary Context Window</label
+              >
+              <input
+                id="summary-plain-text-context-window"
+                type="number"
+                min="0"
+                v-model.number="agentdSettings.summaryPlainTextContextWindowTokens"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+              <p class="text-xs text-subtle-foreground">
+                Optional global trigger budget for portable plain-text summaries.
+                Lower values force earlier summarization for summary-only models;
+                0 falls back to the summary model context size.
+              </p>
+            </div>
           </div>
         </fieldset>
       </template>
@@ -1056,6 +1075,7 @@ const defaultAgentdSettings: AgentdSettings = {
   openaiSummaryModel: "",
   openaiSummaryUrl: "",
   summaryEnabled: false,
+  summaryPlainTextContextWindowTokens: 0,
   summaryReserveBufferTokens: 25000,
   embedBaseUrl: "https://api.openai.com",
   embedModel: "text-embedding-3-small",
@@ -1135,6 +1155,7 @@ const vectorMetricDropdownOptions = vectorMetricOptions.map((metric) => ({
 }));
 
 type NumericSettingKey =
+  | "summaryPlainTextContextWindowTokens"
   | "summaryReserveBufferTokens"
   | "agentRunTimeoutSeconds"
   | "streamRunTimeoutSeconds"
@@ -1146,6 +1167,7 @@ type NumericSettingKey =
 type BooleanSettingKey = "summaryEnabled" | "logPayloads" | "logRawPrompts";
 
 const numericSettingKeys: NumericSettingKey[] = [
+  "summaryPlainTextContextWindowTokens",
   "summaryReserveBufferTokens",
   "agentRunTimeoutSeconds",
   "streamRunTimeoutSeconds",

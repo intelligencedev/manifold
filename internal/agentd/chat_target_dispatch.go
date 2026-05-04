@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"manifold/internal/agent/memory"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
@@ -186,7 +187,10 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		return true
 	}
 
-	history, summary, err := a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model)
+	history, summary, err := a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
+		TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
+		PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
+	})
 	if err != nil {
 		if err == persist.ErrForbidden {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -196,6 +200,7 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return true
 	}
+	build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
 
 	runCtx := opts.RunContext
 	if runCtx == nil {

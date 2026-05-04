@@ -121,6 +121,44 @@ func TestHandleDebugMemorySessionsIncludesEvolvingOnlySessions(t *testing.T) {
 	}
 }
 
+func TestHandleDebugMemorySessionDetailReturnsPlainSummary(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	chatStore.sessions["sess-plain"] = persistence.ChatSession{
+		ID:              "sess-plain",
+		Name:            "Plain Summary Session",
+		Summary:         `{"compaction":"{\"type\":\"compaction\",\"encrypted_content\":\"opaque\"}","plain":"plain summary text"}`,
+		SummarizedCount: 2,
+	}
+	chatStore.messages["sess-plain"] = []persistence.ChatMessage{
+		{Role: "user", Content: "first message"},
+		{Role: "assistant", Content: "second message"},
+	}
+
+	app := newDebugMemoryTestApp(t)
+	app.cfg.Auth.Enabled = false
+	app.chatStore = chatStore
+	app.chatMemory = memory.NewManager(chatStore, nil, memory.Config{Enabled: false, ContextWindowTokens: 1024, ReserveBufferTokens: 64})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/debug/memory/sessions/sess-plain", nil)
+
+	app.handleDebugMemorySessionDetail(rec, req, "sess-plain")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp debugMemorySessionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Summary != "plain summary text" {
+		t.Fatalf("expected plain summary text, got %q", resp.Summary)
+	}
+}
+
 func TestDebugMemoryTargetSupportsCompactionDefaultOrchestrator(t *testing.T) {
 	t.Parallel()
 

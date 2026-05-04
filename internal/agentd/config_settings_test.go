@@ -30,11 +30,12 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 
 	cfg := &config.Config{}
 	settings := agentdSettings{
-		SearXNGURL:    "https://legacy.example",
-		WebSearXNGURL: "https://web.example",
-		DatabaseURL:   "postgres://legacy",
-		DBURL:         "postgres://dburl",
-		PostgresDSN:   "postgres://canonical",
+		SearXNGURL:                          "https://legacy.example",
+		WebSearXNGURL:                       "https://web.example",
+		DatabaseURL:                         "postgres://legacy",
+		DBURL:                               "postgres://dburl",
+		PostgresDSN:                         "postgres://canonical",
+		SummaryPlainTextContextWindowTokens: 8192,
 	}
 
 	if err := applyAgentdSettings(cfg, settings); err != nil {
@@ -49,6 +50,9 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 	}
 	if currentAgentdSettings(cfg).PostgresDSN != "postgres://canonical" {
 		t.Fatalf("expected GET projection to mirror canonical DSN")
+	}
+	if cfg.Summary.PlainTextContextWindowTokens != 8192 {
+		t.Fatalf("expected plain text summary context tokens, got %d", cfg.Summary.PlainTextContextWindowTokens)
 	}
 }
 
@@ -67,12 +71,13 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 
 	root := map[string]any{}
 	applyAgentdSettingsYAML(root, agentdSettings{
-		SearXNGURL:    "https://legacy.example",
-		WebSearXNGURL: "https://web.example",
-		DatabaseURL:   "postgres://legacy",
-		DBURL:         "postgres://dburl",
-		PostgresDSN:   "postgres://canonical",
-		BlockBinaries: "git, rg",
+		SearXNGURL:                          "https://legacy.example",
+		WebSearXNGURL:                       "https://web.example",
+		DatabaseURL:                         "postgres://legacy",
+		DBURL:                               "postgres://dburl",
+		PostgresDSN:                         "postgres://canonical",
+		SummaryPlainTextContextWindowTokens: 8192,
+		BlockBinaries:                       "git, rg",
 	})
 
 	web, ok := root["web"].(map[string]any)
@@ -86,6 +91,10 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 	execCfg, ok := root["exec"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected exec config in YAML map")
+	}
+	summaryCfg, ok := root["summary"].(map[string]any)
+	if !ok || summaryCfg["plainTextContextWindowTokens"] != 8192 {
+		t.Fatalf("expected plain text summary tokens in YAML map, got %#v", root["summary"])
 	}
 	binaries, ok := execCfg["blockBinaries"].([]string)
 	if !ok || len(binaries) != 2 || binaries[0] != "git" || binaries[1] != "rg" {

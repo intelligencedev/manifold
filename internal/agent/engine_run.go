@@ -38,7 +38,7 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	}
 
 	// Possibly summarize older history to avoid unbounded token growth.
-	if e.SummaryEnabled {
+	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
@@ -82,7 +82,7 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	}
 
 	// Possibly summarize older history to avoid unbounded token growth.
-	if e.SummaryEnabled {
+	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 

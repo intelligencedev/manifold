@@ -31,7 +31,7 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 	}
 
 	// Possibly summarize older history
-	if e.SummaryEnabled {
+	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 

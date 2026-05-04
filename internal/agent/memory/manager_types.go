@@ -68,6 +68,13 @@ func decodeDualSummary(summary string) dualSummary {
 	return dualSummary{Plain: trimmed}
 }
 
+// PlainTextSummary returns the plain-text portion of a persisted summary.
+// Dual summaries expose their plain fallback, legacy plain summaries are
+// returned as-is, and compaction-only summaries intentionally resolve to empty.
+func PlainTextSummary(summary string) string {
+	return strings.TrimSpace(decodeDualSummary(summary).Plain)
+}
+
 // SummaryResult contains metadata about summarization that occurred during BuildContext.
 // Callers can use this to notify users (e.g., via SSE events) when summarization happens.
 type SummaryResult struct {
@@ -83,6 +90,15 @@ type SummaryResult struct {
 	SummarizedCount int
 }
 
+// SummaryPolicy describes the resolved budgeting inputs for a single target
+// dispatch. The target context window tracks the active orchestrator/
+// specialist/team model, while the plain-text summary context window tracks the
+// dedicated summary model used for plain fallback summaries.
+type SummaryPolicy struct {
+	TargetContextWindowTokens    int
+	PlainTextContextWindowTokens int
+}
+
 // Config tunes how chat history should be summarized before being sent to the LLM.
 // All summarization is now token-based using a reserve buffer pattern.
 type Config struct {
@@ -90,10 +106,11 @@ type Config struct {
 
 	// ReserveBufferTokens reserves tokens for output (including reasoning tokens
 	// for reasoning models). OpenAI recommends ~25,000 for reasoning models.
-	ReserveBufferTokens   int `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
-	MinKeepLastMessages   int `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
-	MaxKeepLastMessages   int `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
-	MaxSummaryChunkTokens int `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	ReserveBufferTokens          int `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
+	MinKeepLastMessages          int `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
+	MaxKeepLastMessages          int `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
+	MaxSummaryChunkTokens        int `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	PlainTextContextWindowTokens int `yaml:"plainTextContextWindowTokens" json:"plainTextContextWindowTokens"`
 	// ContextWindowTokens can be pre-computed by the caller; if 0, ContextSize
 	// is used as a fallback.
 	ContextWindowTokens int `yaml:"contextWindowTokens" json:"contextWindowTokens"`
@@ -111,12 +128,13 @@ type Manager struct {
 	enabled bool
 
 	// Token-based summarization fields
-	reserveBufferTokens   int
-	minKeepLastMessages   int
-	maxKeepLastMessages   int
-	maxSummaryChunkTokens int
-	contextWindowTokens   int
-	compactionUnavailable atomic.Bool
+	reserveBufferTokens          int
+	minKeepLastMessages          int
+	maxKeepLastMessages          int
+	maxSummaryChunkTokens        int
+	plainTextContextWindowTokens int
+	contextWindowTokens          int
+	compactionUnavailable        atomic.Bool
 }
 
 // Introspection helpers used by debug/observability surfaces.
@@ -135,5 +153,9 @@ func (m *Manager) MinKeepLastMessages() int { return m.minKeepLastMessages }
 // MaxSummaryChunkTokens returns the maximum token budget used when building
 // summary chunks.
 func (m *Manager) MaxSummaryChunkTokens() int { return m.maxSummaryChunkTokens }
+
+// PlainTextContextWindowTokens returns the approximate context window used for
+// plain-text summary budgeting.
+func (m *Manager) PlainTextContextWindowTokens() int { return m.plainTextContextWindowTokens }
 
 // NewManager returns a chat memory manager.

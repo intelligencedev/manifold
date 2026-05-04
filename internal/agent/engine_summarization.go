@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+func (e *Engine) consumeSkipInitialSummarization() bool {
+	if !e.SkipInitialSummarization {
+		return false
+	}
+	e.SkipInitialSummarization = false
+	return true
+}
+
 func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.Message {
 	if len(msgs) == 0 {
 		return msgs
@@ -224,6 +232,7 @@ func (e *Engine) buildSummarizedMessages(
 	user := "Summarize the following conversation:\n\n" + b.String()
 
 	summReq := []llm.Message{{Role: "system", Content: sys}, {Role: "user", Content: user}}
+	summReq = e.enforceContextBudget(ctx, summReq)
 	sumMsg, err := e.LLM.Chat(ctx, summReq, nil, e.model())
 	if err != nil {
 		observability.LoggerWithTrace(ctx).Error().Err(err).Msg("summary_failed")

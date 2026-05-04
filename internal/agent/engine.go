@@ -45,6 +45,9 @@ type Engine struct {
 	ContextWindowTokens int
 	// Rolling summarization configuration (token-based only)
 	SummaryEnabled bool
+	// SkipInitialSummarization suppresses the engine's first pre-run summary pass
+	// for a single run when chat memory already summarized the persisted history.
+	SkipInitialSummarization bool
 	// SummaryReserveBufferTokens is the number of tokens to reserve for model output
 	// (including reasoning tokens). OpenAI recommends ~25,000 for reasoning models.
 	// Default: 25000.

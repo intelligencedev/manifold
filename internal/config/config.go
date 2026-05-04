@@ -9,6 +9,10 @@ type Config struct {
 	SummaryEnabled bool `yaml:"summaryEnabled" json:"summaryEnabled"`
 	// Summary configures rolling chat summaries independently from the primary LLM.
 	Summary SummaryConfig `yaml:"summary" json:"summary"`
+	// SummaryPlainTextContextWindowTokens optionally overrides the context window
+	// budget used to trigger plain-text rolling summaries. When 0, runtime code
+	// must derive an effective budget from the active target and summary model.
+	SummaryPlainTextContextWindowTokens int `yaml:"summaryPlainTextContextWindowTokens" json:"summaryPlainTextContextWindowTokens"`
 	// SummaryContextWindowTokens sets the context window size (in tokens) used for
 	// chat-memory budgeting and summarization triggering.
 	//
@@ -194,13 +198,14 @@ type ExecConfig struct {
 
 // SummaryConfig controls rolling chat summaries and their dedicated LLM client.
 type SummaryConfig struct {
-	Enabled               bool            `yaml:"enabled" json:"enabled"`
-	ContextWindowTokens   int             `yaml:"contextWindowTokens" json:"contextWindowTokens"`
-	ReserveBufferTokens   int             `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
-	MinKeepLastMessages   int             `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
-	MaxKeepLastMessages   int             `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
-	MaxSummaryChunkTokens int             `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
-	LLMClient             LLMClientConfig `yaml:"llm_client" json:"llmClient"`
+	Enabled                      bool            `yaml:"enabled" json:"enabled"`
+	ContextWindowTokens          int             `yaml:"contextWindowTokens" json:"contextWindowTokens"`
+	PlainTextContextWindowTokens int             `yaml:"plainTextContextWindowTokens" json:"plainTextContextWindowTokens"`
+	ReserveBufferTokens          int             `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
+	MinKeepLastMessages          int             `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
+	MaxKeepLastMessages          int             `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
+	MaxSummaryChunkTokens        int             `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	LLMClient                    LLMClientConfig `yaml:"llm_client" json:"llmClient"`
 }
 
 // LLMClientConfig selects the LLM provider and holds provider-specific configs.

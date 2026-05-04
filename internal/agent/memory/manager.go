@@ -7,15 +7,16 @@ import (
 
 func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) *Manager {
 	m := &Manager{
-		store:                 store,
-		summary:               provider,
-		summaryModel:          cfg.SummaryModel,
-		enabled:               cfg.Enabled && provider != nil,
-		reserveBufferTokens:   cfg.ReserveBufferTokens,
-		minKeepLastMessages:   cfg.MinKeepLastMessages,
-		maxKeepLastMessages:   cfg.MaxKeepLastMessages,
-		maxSummaryChunkTokens: cfg.MaxSummaryChunkTokens,
-		contextWindowTokens:   cfg.ContextWindowTokens,
+		store:                        store,
+		summary:                      provider,
+		summaryModel:                 cfg.SummaryModel,
+		enabled:                      cfg.Enabled && provider != nil,
+		reserveBufferTokens:          cfg.ReserveBufferTokens,
+		minKeepLastMessages:          cfg.MinKeepLastMessages,
+		maxKeepLastMessages:          cfg.MaxKeepLastMessages,
+		maxSummaryChunkTokens:        cfg.MaxSummaryChunkTokens,
+		plainTextContextWindowTokens: cfg.PlainTextContextWindowTokens,
+		contextWindowTokens:          cfg.ContextWindowTokens,
 	}
 	if m.reserveBufferTokens <= 0 {
 		m.reserveBufferTokens = defaultReserveBuffer
@@ -35,6 +36,11 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 	if m.contextWindowTokens <= 0 && cfg.SummaryModel != "" {
 		if size, _ := llm.ContextSize(cfg.SummaryModel); size > 0 {
 			m.contextWindowTokens = size
+		}
+	}
+	if m.plainTextContextWindowTokens <= 0 && cfg.SummaryModel != "" {
+		if size, _ := llm.ContextSize(cfg.SummaryModel); size > 0 {
+			m.plainTextContextWindowTokens = size
 		}
 	}
 	return m

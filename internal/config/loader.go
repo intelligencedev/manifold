@@ -540,6 +540,12 @@ func applySummaryDefaults(cfg *Config) {
 	if cfg.SummaryContextWindowTokens == 0 {
 		cfg.SummaryContextWindowTokens = cfg.Summary.ContextWindowTokens
 	}
+	if cfg.Summary.PlainTextContextWindowTokens == 0 {
+		cfg.Summary.PlainTextContextWindowTokens = cfg.SummaryPlainTextContextWindowTokens
+	}
+	if cfg.SummaryPlainTextContextWindowTokens == 0 {
+		cfg.SummaryPlainTextContextWindowTokens = cfg.Summary.PlainTextContextWindowTokens
+	}
 	if cfg.Summary.ReserveBufferTokens == 0 {
 		cfg.Summary.ReserveBufferTokens = cfg.SummaryReserveBufferTokens
 	}

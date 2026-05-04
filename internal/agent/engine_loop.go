@@ -26,6 +26,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		}
 		log.Info().Strs("tools_sent_to_llm", toolNames).Msg("engine_tools_before_chat")
 
+		msgs = e.enforceContextBudget(ctx, msgs)
 		msg, err := e.LLM.Chat(ctx, msgs, schemas, e.model())
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("engine_step_error")
@@ -111,6 +112,7 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 		}
 		log.Info().Strs("tools_sent_to_llm_stream", toolNames).Msg("engine_tools_before_stream")
 
+		msgs = e.enforceContextBudget(ctx, msgs)
 		if err := e.LLM.ChatStream(ctx, msgs, schemas, e.model(), handler); err != nil {
 			log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
 			return "", err

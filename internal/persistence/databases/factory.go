@@ -55,6 +55,17 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error)
 		return Manager{}, err
 	}
 
+	m.SpecialistActivity, err = buildSpecialistActivityStore(ctx, cfg.Chat.Backend, chatDSN)
+	if err != nil {
+		return Manager{}, err
+	}
+	if m.SpecialistActivity == nil {
+		m.SpecialistActivity = NewMemorySpecialistActivityStore()
+	}
+	if err := initStore(ctx, "specialist activity store", m.SpecialistActivity); err != nil {
+		return Manager{}, err
+	}
+
 	if err := initializeDefaultStores(ctx, &m, cfg, chatDSN); err != nil {
 		return Manager{}, err
 	}
@@ -174,6 +185,29 @@ func buildChatStore(ctx context.Context, backend, dsn string) (persistence.ChatS
 		return NewPostgresChatStore(pool), nil
 	default:
 		return nil, fmt.Errorf("unsupported chat backend: %s", backend)
+	}
+}
+
+func buildSpecialistActivityStore(ctx context.Context, backend, dsn string) (persistence.SpecialistActivityStore, error) {
+	switch backend {
+	case "", "memory", "none", "disabled":
+		return NewMemorySpecialistActivityStore(), nil
+	case "auto":
+		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			return NewPostgresSpecialistActivityStore(pool), nil
+		}
+		return NewMemorySpecialistActivityStore(), nil
+	case "postgres", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("specialist activity backend postgres requires DSN")
+		}
+		pool, err := newPgPool(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (specialist activity): %w", err)
+		}
+		return NewPostgresSpecialistActivityStore(pool), nil
+	default:
+		return nil, fmt.Errorf("unsupported specialist activity backend: %s", backend)
 	}
 }
 

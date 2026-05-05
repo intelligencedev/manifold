@@ -323,24 +323,28 @@
                 class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
               >
                 <div
-                  v-if="shouldShowRunActivity(message)"
-                  class="run-activity"
-                  :class="runActivityClasses"
+                  v-if="shouldShowDirectActivity(message)"
+                  class="direct-activity"
                 >
-                  <header class="run-activity-header">
-                    <div>
-                      <p class="run-activity-title">
-                        {{ runActivityTitle }}
-                      </p>
-                      <p class="run-activity-detail">
-                        {{ runActivityDetail }}
-                      </p>
-                    </div>
-                    <span class="run-activity-pill" :class="runActivityPillClasses">
-                      {{ runActivityStateLabel }}
+                  <div
+                    v-if="message.activityToolTitle"
+                    class="direct-activity-row"
+                  >
+                    <span class="direct-activity-label">Tool</span>
+                    <span class="direct-activity-value">
+                      {{ message.activityToolTitle }}
                     </span>
-                  </header>
-
+                  </div>
+                  <div
+                    v-if="shouldShowDirectThought(message)"
+                    class="direct-activity-thought"
+                  >
+                    <span class="direct-activity-label">Thought summary</span>
+                    <div
+                      class="chat-markdown direct-activity-summary"
+                      v-html="renderMarkdownOrHtml(message.activityThoughtSummary || '')"
+                    ></div>
+                  </div>
                 </div>
                 <p v-if="message.title" class="font-semibold text-foreground">
                   {{ message.title }}
@@ -832,188 +836,8 @@
       <aside
         class="flex h-full min-h-0 flex-col border-l border-border/60 pl-5 text-sm text-subtle-foreground chat-side"
       >
-        <div ref="sidePanelsPane" class="flex min-h-0 flex-1 flex-col">
-          <div
-            ref="activeSpecialistPane"
-            class="min-h-0"
-            :style="activeSpecialistPaneStyle"
-          >
-            <GlassCard
-              flat
-              class="flex h-full flex-col overflow-hidden"
-            >
-              <div class="flex min-h-0 flex-1 flex-col">
-                <header class="flex items-center justify-between">
-                  <h2 class="text-sm font-semibold text-foreground">
-                    Specialist activity
-                  </h2>
-                  <span class="text-[11px] text-faint-foreground">
-                    {{ runActivitySidebarLabel }}
-                  </span>
-                </header>
-                <div class="mt-2 flex min-h-0 flex-1 flex-col gap-3">
-                  <div class="activity-monitor-list">
-                    <button
-                      v-for="item in runActivityItems"
-                      :key="item.id"
-                      type="button"
-                      class="activity-monitor-row"
-                      :class="activityMonitorRowClasses(item)"
-                      @click="selectActivity(item.id)"
-                    >
-                      <span class="activity-monitor-avatar">{{ item.initials }}</span>
-                      <span class="activity-monitor-body">
-                        <span class="activity-monitor-title">
-                          <span class="activity-monitor-name">{{ item.name }}</span>
-                          <span class="activity-monitor-status" :class="activityStatusClasses(item)">
-                            {{ item.statusLabel }}
-                          </span>
-                        </span>
-                        <span class="activity-monitor-detail">
-                          {{ activityInlineDetail(item) }}
-                        </span>
-                      </span>
-                    </button>
-                    <div
-                      v-if="!runActivityItems.length"
-                      class="activity-monitor-empty"
-                    >
-                      No specialist activity yet.
-                    </div>
-                  </div>
-
-                  <div class="activity-detail-panel">
-                    <header class="activity-detail-header">
-                      <div class="min-w-0">
-                        <p class="activity-detail-title">
-                          {{ selectedActivityItem?.name || "No specialist selected" }}
-                        </p>
-                        <p class="activity-detail-subtitle">
-                          {{ selectedActivityItem?.model || "Model pending" }}
-                        </p>
-                      </div>
-                      <div
-                        v-if="selectedActivityThoughtSummaries.length"
-                        class="flex items-center gap-2"
-                      >
-                        <button
-                          type="button"
-                          class="text-[11px] text-faint-foreground hover:text-foreground"
-                          @click="copyThoughtSummaries()"
-                        >
-                          {{ copiedThoughtSummaries ? "Copied" : "Copy" }}
-                        </button>
-                        <button
-                          v-if="selectedActivityItem?.isOrchestrator"
-                          type="button"
-                          class="text-[11px] text-faint-foreground hover:text-foreground"
-                          @click="chat.clearThoughtSummaries()"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </header>
-
-                    <div ref="thoughtStreamPane" class="activity-detail-scroll">
-                      <template v-if="selectedActivityItem">
-                        <section class="activity-detail-section">
-                          <h3 class="activity-detail-section-title">
-                            Thought summaries
-                          </h3>
-                          <div
-                            v-if="!selectedActivityThoughtSummaries.length"
-                            class="activity-detail-empty"
-                          >
-                            No thought summaries yet.
-                          </div>
-                          <ul v-else class="space-y-2 text-[12px] text-foreground">
-                            <li
-                              v-for="(summary, idx) in selectedActivityThoughtSummaries"
-                              :key="`${selectedActivityItem.id}:summary:${idx}:${summary}`"
-                              class="activity-thought-item"
-                            >
-                              <div
-                                class="chat-markdown min-w-0 flex-1 break-words"
-                                v-html="renderMarkdownOrHtml(summary)"
-                              ></div>
-                            </li>
-                          </ul>
-                        </section>
-
-                        <section
-                          v-if="selectedActivityItem.response"
-                          class="activity-detail-section"
-                        >
-                          <h3 class="activity-detail-section-title">
-                            Response stream
-                          </h3>
-                          <div
-                            class="chat-markdown activity-response"
-                            v-html="renderMarkdownOrHtml(selectedActivityItem.response)"
-                          ></div>
-                        </section>
-
-                        <section
-                          v-if="selectedActivityItem.toolEntries.length"
-                          class="activity-detail-section"
-                        >
-                          <h3 class="activity-detail-section-title">
-                            Tool activity
-                          </h3>
-                          <ul class="activity-tool-list">
-                            <li
-                              v-for="entry in selectedActivityItem.toolEntries"
-                              :key="entry.id"
-                              class="activity-tool-item"
-                            >
-                              <p class="activity-tool-title">
-                                {{ entry.title || "Tool" }}
-                              </p>
-                              <pre v-if="entry.args" class="activity-tool-pre">{{ entry.args }}</pre>
-                              <pre v-if="entry.data" class="activity-tool-pre">{{ entry.data }}</pre>
-                            </li>
-                          </ul>
-                        </section>
-
-                        <section
-                          v-if="selectedActivityItem.error"
-                          class="activity-detail-section"
-                        >
-                          <h3 class="activity-detail-section-title">
-                            Error
-                          </h3>
-                          <p class="activity-error-text">
-                            {{ selectedActivityItem.error }}
-                          </p>
-                        </section>
-                      </template>
-                      <div v-else class="activity-detail-empty">
-                        Specialist streams will appear here as they start.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </GlassCard>
-          </div>
-
-          <div
-            ref="panelSplitter"
-            class="panel-splitter"
-            :class="{ 'panel-splitter--dragging': isPanelSplitterDragging }"
-            role="separator"
-            aria-orientation="horizontal"
-            @pointerdown="handlePanelSplitterPointerDown"
-          >
-            <span class="panel-splitter__line"></span>
-            <span class="panel-splitter__handle"></span>
-          </div>
-
-          <GlassCard
-            flat
-            class="flex min-h-0 flex-1 flex-col overflow-hidden"
-            :style="participantsPaneStyle"
-          >
+        <div class="flex min-h-0 flex-1 flex-col">
+          <GlassCard flat class="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div class="flex min-h-0 flex-1 flex-col">
               <header class="flex items-center justify-between">
                 <h2 class="text-sm font-semibold text-foreground">
@@ -1044,26 +868,39 @@
                   <li
                     v-for="participant in participantList"
                     :key="participant.name"
-                    class="participant-row"
-                    :class="participantRowClasses(participant.name)"
+                    class="participant-list-item"
                   >
-                    <span
-                      class="participant-dot"
-                      :class="participantDotClasses(participant.name)"
-                    ></span>
-                    <div class="participant-body">
-                      <p class="participant-name">{{ participant.name }}</p>
-                      <p class="participant-model">
-                        {{
-                          participant.model
-                            ? `${participant.model}`
-                            : "Model pending"
-                        }}
-                      </p>
-                    </div>
-                    <span class="participant-status">
-                      {{ participantStatusLabel(participant.name) }}
-                    </span>
+                      <button
+                        type="button"
+                        class="participant-row"
+                        :class="participantRowClasses(participant.name)"
+                        :aria-label="`Open activity for ${participant.name}`"
+                        @click="openParticipantActivity(participant.name)"
+                      >
+                        <span
+                          class="participant-dot"
+                          :class="participantDotClasses(participant.name)"
+                        ></span>
+                        <span class="participant-body">
+                          <span class="participant-name">{{ participant.name }}</span>
+                          <span class="participant-model">
+                            {{
+                              participant.model
+                                ? `${participant.model}`
+                                : "Model pending"
+                            }}
+                          </span>
+                        </span>
+                        <span class="participant-status">
+                          {{ participantStatusLabel(participant.name) }}
+                        </span>
+                        <span
+                          v-if="participantActivityItems(participant.name).length"
+                          class="participant-activity-action"
+                        >
+                          View activity
+                        </span>
+                      </button>
                   </li>
                 </ul>
               </div>
@@ -1072,6 +909,125 @@
         </div>
       </aside>
     </section>
+
+    <div
+      v-if="selectedParticipantActivityName"
+      class="activity-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`${selectedParticipantActivity?.name || 'Specialist'} activity`"
+      @click.self="closeParticipantActivity"
+    >
+      <div class="activity-modal">
+        <header class="activity-modal-header">
+          <div class="min-w-0">
+            <p class="activity-modal-title">
+              {{ selectedParticipantActivity?.name || "Specialist activity" }}
+            </p>
+            <p class="activity-modal-model">
+              {{ selectedParticipantActivity?.model || "Model pending" }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="activity-modal-close"
+            aria-label="Close specialist activity"
+            @click="closeParticipantActivity"
+          >
+            Close
+          </button>
+        </header>
+
+        <div
+          ref="participantActivityPane"
+          class="activity-detail-scroll activity-modal-scroll"
+          @scroll="handleActivityPaneScroll"
+        >
+          <section
+            v-for="item in selectedParticipantActivityItems"
+            :key="item.id"
+            class="activity-detail-section"
+          >
+            <div v-if="item.toolEntries.length">
+              <h3 class="activity-detail-section-title">
+                Tool activity
+              </h3>
+              <ul class="activity-tool-list">
+                <li
+                  v-for="entry in item.toolEntries"
+                  :key="entry.id"
+                  class="activity-tool-item"
+                >
+                  <p class="activity-tool-title">
+                    {{ entry.title || "Tool" }}
+                  </p>
+                </li>
+              </ul>
+            </div>
+
+            <div
+              v-if="item.thoughtSummaries.length"
+              class="activity-detail-subsection"
+            >
+              <h3 class="activity-detail-section-title">
+                Thought summaries
+              </h3>
+              <ul class="activity-thought-list text-foreground">
+                <li
+                  v-for="(summary, idx) in item.thoughtSummaries"
+                  :key="`${item.id}:summary:${idx}:${summary}`"
+                  class="activity-thought-item"
+                >
+                  <div
+                    class="chat-markdown min-w-0 flex-1 break-words"
+                    v-html="renderMarkdownOrHtml(summary)"
+                  ></div>
+                </li>
+              </ul>
+            </div>
+
+            <div
+              v-if="item.response"
+              class="activity-detail-subsection"
+            >
+              <h3 class="activity-detail-section-title">
+                Response stream
+              </h3>
+              <div
+                class="chat-markdown activity-response"
+                v-html="renderMarkdownOrHtml(item.response)"
+              ></div>
+            </div>
+
+            <div
+              v-if="item.error"
+              class="activity-detail-subsection"
+            >
+              <h3 class="activity-detail-section-title">
+                Error
+              </h3>
+              <p class="activity-error-text">
+                {{ item.error }}
+              </p>
+            </div>
+
+            <div
+              v-if="!item.toolEntries.length && !item.thoughtSummaries.length && !item.response && !item.error"
+              class="activity-detail-empty"
+            >
+              No activity details yet.
+            </div>
+          </section>
+
+          <div
+            v-if="!selectedParticipantActivityItems.length"
+            class="activity-detail-empty"
+          >
+            No specialist activity yet.
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1206,6 +1162,8 @@ const copiedThoughtSummaries = ref(false);
 const selectedActivityId = ref<string | null>(null);
 const autoScrollEnabled = ref(true);
 const lastScrollTop = ref(0);
+const activityAutoScrollEnabled = ref(true);
+const activityLastScrollTop = ref(0);
 // Attachments state for composer
 const fileInput = ref<HTMLInputElement | null>(null);
 const pendingAttachments = ref<ChatAttachment[]>([]);
@@ -1242,21 +1200,8 @@ const selectedSessionIds = ref<string[]>([]);
 const showBulkDeleteDialog = ref(false);
 const bulkDeletePending = ref(false);
 const bulkDeleteError = ref("");
-const sidePanelsPane = ref<HTMLElement | null>(null);
-const activeSpecialistPane = ref<HTMLElement | null>(null);
-const panelSplitter = ref<HTMLElement | null>(null);
-const activeSpecialistPaneHeight = ref<number | null>(null);
-const panelSplitAuto = ref(true);
-const isPanelSplitterDragging = ref(false);
-const PANEL_MIN_HEIGHT = 160;
-const panelContainerHeight = ref(0);
-const panelSplitterHeight = ref(12);
-let panelDragStartY = 0;
-let panelDragStartHeight = 0;
-let panelPointerId: number | null = null;
-let previousBodyCursor: string | null = null;
-let previousBodyUserSelect: string | null = null;
-let panelResizeObserver: ResizeObserver | null = null;
+const participantActivityPane = ref<HTMLElement | null>(null);
+const selectedParticipantActivityName = ref<string | null>(null);
 
 // Specialists dropdown state
 const { data: specialistsData } = useQuery({
@@ -1629,21 +1574,6 @@ const sessionAgentDefaults = computed(() =>
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
 );
-const activeSpecialistPaneStyle = computed(() => {
-  const style: Record<string, string> = {
-    minHeight: `${PANEL_MIN_HEIGHT}px`,
-  };
-  if (panelSplitAuto.value) {
-    style.flex = "1 1 0";
-  } else if (activeSpecialistPaneHeight.value !== null) {
-    style.height = `${activeSpecialistPaneHeight.value}px`;
-    style.flex = "0 0 auto";
-  }
-  return style;
-});
-const participantsPaneStyle = computed(() => ({
-  minHeight: `${PANEL_MIN_HEIGHT}px`,
-}));
 const sessionMessageCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {};
   for (const session of sessions.value) {
@@ -1896,6 +1826,10 @@ const runActivityItems = computed<SpecialistActivityItem[]>(() => {
   });
 });
 
+const visibleParticipantActivityItems = computed(() =>
+  runActivityItems.value.filter((item) => !item.isOrchestrator),
+);
+
 const runActivityCounts = computed(() => {
   const counts = { running: 0, done: 0, error: 0, idle: 0 };
   for (const item of runActivityItems.value) counts[item.status] += 1;
@@ -1952,8 +1886,8 @@ const runActivityPillClasses = computed(() => ({
 const selectedActivityItem = computed(() => {
   const selected = selectedActivityId.value;
   return (
-    runActivityItems.value.find((item) => item.id === selected) ||
-    runActivityItems.value[0] ||
+    visibleParticipantActivityItems.value.find((item) => item.id === selected) ||
+    visibleParticipantActivityItems.value[0] ||
     null
   );
 });
@@ -1962,26 +1896,65 @@ const selectedActivityThoughtSummaries = computed(
   () => selectedActivityItem.value?.thoughtSummaries || [],
 );
 
-function shouldShowRunActivity(message: ChatMessage) {
+function shouldShowDirectActivity(message: ChatMessage) {
   return (
     message.role === "assistant" &&
-    message.id === lastAssistantId.value &&
-    (message.streaming || runActivityItems.value.length > 0)
+    Boolean(message.activityToolTitle || shouldShowDirectThought(message))
+  );
+}
+
+function shouldShowDirectThought(message: ChatMessage) {
+  return Boolean(
+    message.activityThoughtSummary &&
+      !message.activityResponseStarted &&
+      !message.content,
   );
 }
 
 function selectActivity(id: string) {
   selectedActivityId.value = id;
+  activityAutoScrollEnabled.value = true;
+  activityLastScrollTop.value = 0;
+  scrollActivityPaneToBottom({ force: true });
 }
 
-function activityInlineDetail(item: SpecialistActivityItem) {
-  const bits = [];
-  if (item.model) bits.push(item.model);
-  if (item.toolEntries.length) {
-    bits.push(`${item.toolEntries.length} tool${item.toolEntries.length === 1 ? "" : "s"}`);
-  }
-  if (item.description) bits.push(item.description);
-  return bits.join(" / ") || "No details yet";
+function participantActivityItems(name: string) {
+  const key = name.trim().toLowerCase();
+  return visibleParticipantActivityItems.value.filter(
+    (item) => item.name.toLowerCase() === key,
+  );
+}
+
+function participantActivityKey(name: string) {
+  return name.trim().toLowerCase();
+}
+
+const selectedParticipantActivity = computed(() => {
+  const key = selectedParticipantActivityName.value;
+  if (!key) return null;
+  return (
+    participantList.value.find(
+      (participant) => participantActivityKey(participant.name) === key,
+    ) || null
+  );
+});
+
+const selectedParticipantActivityItems = computed(() => {
+  const participant = selectedParticipantActivity.value;
+  return participant ? participantActivityItems(participant.name) : [];
+});
+
+function openParticipantActivity(name: string) {
+  selectedParticipantActivityName.value = participantActivityKey(name);
+  activityAutoScrollEnabled.value = true;
+  activityLastScrollTop.value = 0;
+  nextTick(() => {
+    scrollActivityPaneToBottom({ force: true, behavior: "auto" });
+  });
+}
+
+function closeParticipantActivity() {
+  selectedParticipantActivityName.value = null;
 }
 
 function activityStatusClasses(item: SpecialistActivityItem) {
@@ -2056,14 +2029,20 @@ const participantList = computed<Participant[]>(() => {
 
 function participantIsActive(name: string) {
   const key = name.trim().toLowerCase();
-  return runActivityItems.value.some(
+  if (key === "orchestrator") {
+    return runActivityState.value === "running";
+  }
+  return visibleParticipantActivityItems.value.some(
     (item) => item.status === "running" && item.name.toLowerCase() === key,
   );
 }
 
 function participantStatusLabel(name: string) {
   const key = name.trim().toLowerCase();
-  const item = runActivityItems.value.find(
+  if (key === "orchestrator") {
+    return runActivityStateLabel.value;
+  }
+  const item = visibleParticipantActivityItems.value.find(
     (activity) => activity.name.toLowerCase() === key,
   );
   if (!item) return isStreaming.value ? "Ready" : "Idle";
@@ -2163,112 +2142,38 @@ watch(
   { flush: "post" },
 );
 
-const thoughtStreamPane = ref<HTMLElement | null>(null);
-
-function updateSidePanelMetrics() {
-  const container = sidePanelsPane.value;
-  if (!container) return;
-  panelContainerHeight.value = container.getBoundingClientRect().height;
-  const splitterEl = panelSplitter.value;
-  if (splitterEl) {
-    const measured = splitterEl.getBoundingClientRect().height;
-    if (measured) panelSplitterHeight.value = measured;
-  }
-}
-
-function clampActiveSpecialistPaneHeight(height: number) {
-  const containerHeight = panelContainerHeight.value;
-  const splitterHeight = panelSplitterHeight.value;
-  if (!containerHeight) return height;
-  const maxHeight = Math.max(
-    PANEL_MIN_HEIGHT,
-    containerHeight - splitterHeight - PANEL_MIN_HEIGHT,
-  );
-  return Math.min(Math.max(height, PANEL_MIN_HEIGHT), maxHeight);
-}
-
-function defaultActiveSpecialistPaneHeight() {
-  const containerHeight = panelContainerHeight.value;
-  const splitterHeight = panelSplitterHeight.value;
-  if (!containerHeight) return null;
-  const available = containerHeight - splitterHeight;
-  if (!Number.isFinite(available) || available <= 0) return null;
-  return clampActiveSpecialistPaneHeight(available / 2);
-}
-
-function stopPanelSplitterDrag() {
-  if (!isPanelSplitterDragging.value || !isBrowser) return;
-  isPanelSplitterDragging.value = false;
-  if (panelPointerId !== null && panelSplitter.value?.releasePointerCapture) {
-    panelSplitter.value.releasePointerCapture(panelPointerId);
-  }
-  panelPointerId = null;
-  document.body.style.cursor = previousBodyCursor || "";
-  document.body.style.userSelect = previousBodyUserSelect || "";
-  window.removeEventListener("pointermove", handlePanelSplitterPointerMove);
-  window.removeEventListener("pointerup", handlePanelSplitterPointerUp);
-  window.removeEventListener("pointercancel", handlePanelSplitterPointerUp);
-}
-
-function handlePanelSplitterPointerDown(event: PointerEvent) {
-  if (event.button !== 0) return;
-  if (!isBrowser || !sidePanelsPane.value || !activeSpecialistPane.value)
-    return;
-  event.preventDefault();
-  panelSplitAuto.value = false;
-  updateSidePanelMetrics();
-  isPanelSplitterDragging.value = true;
-  panelDragStartY = event.clientY;
-  panelDragStartHeight =
-    activeSpecialistPane.value.getBoundingClientRect().height;
-  panelPointerId = event.pointerId;
-  panelSplitter.value?.setPointerCapture?.(event.pointerId);
-  previousBodyCursor = document.body.style.cursor;
-  previousBodyUserSelect = document.body.style.userSelect;
-  document.body.style.cursor = "row-resize";
-  document.body.style.userSelect = "none";
-  window.addEventListener("pointermove", handlePanelSplitterPointerMove);
-  window.addEventListener("pointerup", handlePanelSplitterPointerUp);
-  window.addEventListener("pointercancel", handlePanelSplitterPointerUp);
-}
-
-function handlePanelSplitterPointerMove(event: PointerEvent) {
-  if (!isPanelSplitterDragging.value) return;
-  const delta = event.clientY - panelDragStartY;
-  activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
-    panelDragStartHeight + delta,
-  );
-}
-
-function handlePanelSplitterPointerUp() {
-  stopPanelSplitterDrag();
-}
-
 watch(
   () =>
-    runActivityItems.value.map((item) => item.id).join(":"),
+    visibleParticipantActivityItems.value.map((item) => item.id).join(":"),
   () => {
     if (
       selectedActivityId.value &&
-      runActivityItems.value.some((item) => item.id === selectedActivityId.value)
+      visibleParticipantActivityItems.value.some(
+        (item) => item.id === selectedActivityId.value,
+      )
     ) {
       return;
     }
-    selectedActivityId.value = runActivityItems.value[0]?.id || null;
+    selectedActivityId.value = visibleParticipantActivityItems.value[0]?.id || null;
   },
   { immediate: true },
 );
 
 watch(
   () =>
-    selectedActivityThoughtSummaries.value
-      .map((summary) => summary.length)
+    visibleParticipantActivityItems.value
+      .map((item) =>
+        [
+          item.id,
+          item.thoughtSummaries.map((summary) => summary.length).join(","),
+          item.response.length,
+          item.toolEntries.length,
+          item.error || "",
+        ].join("/"),
+      )
       .join(":"),
   () => {
-    nextTick(() => {
-      if (!thoughtStreamPane.value) return;
-      thoughtStreamPane.value.scrollTop = thoughtStreamPane.value.scrollHeight;
-    });
+    scrollActivityPaneToBottom();
   },
   { flush: "post" },
 );
@@ -2318,38 +2223,10 @@ onMounted(() => {
   nextTick(() => {
     autoSizeComposer();
     scrollMessagesToBottom({ force: true, behavior: "auto" });
-    updateSidePanelMetrics();
-    if (activeSpecialistPane.value) {
-      const defaultHeight = defaultActiveSpecialistPaneHeight();
-      if (defaultHeight !== null) {
-        activeSpecialistPaneHeight.value = defaultHeight;
-        panelSplitAuto.value = true;
-      }
-    }
-    if (isBrowser && "ResizeObserver" in window && sidePanelsPane.value) {
-      panelResizeObserver = new ResizeObserver(() => {
-        updateSidePanelMetrics();
-        if (panelSplitAuto.value) {
-          const defaultHeight = defaultActiveSpecialistPaneHeight();
-          if (defaultHeight !== null) {
-            activeSpecialistPaneHeight.value = defaultHeight;
-            return;
-          }
-        }
-        if (activeSpecialistPaneHeight.value !== null) {
-          activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
-            activeSpecialistPaneHeight.value,
-          );
-        }
-      });
-      panelResizeObserver.observe(sidePanelsPane.value);
-    }
   });
 });
 
 onBeforeUnmount(() => {
-  stopPanelSplitterDrag();
-  panelResizeObserver?.disconnect();
   stopAllResponseTimers();
   if (isBrowser && previousBodyOverflow !== null) {
     document.body.style.overflow = previousBodyOverflow;
@@ -2918,22 +2795,34 @@ type ScrollToBottomOptions = {
   behavior?: ScrollBehavior;
 };
 
+function scrollPaneToBottom(
+  container: HTMLElement | null,
+  enabledRef: { value: boolean },
+  options: ScrollToBottomOptions = {},
+) {
+  if (!container) return;
+  if (!options.force && !enabledRef.value) {
+    return;
+  }
+
+  const behavior = options.behavior ?? (options.force ? "smooth" : "auto");
+  const target = Math.max(container.scrollHeight - container.clientHeight, 0);
+  container.scrollTo({ top: target, behavior });
+
+  if (options.force) {
+    enabledRef.value = true;
+  }
+}
+
 function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
   nextTick(() => {
-    const container = messagesPane.value;
-    if (!container) return;
+    scrollPaneToBottom(messagesPane.value, autoScrollEnabled, options);
+  });
+}
 
-    if (!options.force && !autoScrollEnabled.value) {
-      return;
-    }
-
-    const behavior = options.behavior ?? (options.force ? "smooth" : "auto");
-    const target = Math.max(container.scrollHeight - container.clientHeight, 0);
-    container.scrollTo({ top: target, behavior });
-
-    if (options.force) {
-      autoScrollEnabled.value = true;
-    }
+function scrollActivityPaneToBottom(options: ScrollToBottomOptions = {}) {
+  nextTick(() => {
+    scrollPaneToBottom(participantActivityPane.value, activityAutoScrollEnabled, options);
   });
 }
 
@@ -2944,30 +2833,40 @@ function isNearBottom(container: HTMLElement) {
 }
 
 function handleMessagesScroll(event: Event) {
+  handlePaneScroll(event, autoScrollEnabled, lastScrollTop);
+}
+
+function handleActivityPaneScroll(event: Event) {
+  handlePaneScroll(event, activityAutoScrollEnabled, activityLastScrollTop);
+}
+
+function handlePaneScroll(
+  event: Event,
+  enabledRef: { value: boolean },
+  lastTopRef: { value: number },
+) {
   const container = event.target as HTMLElement | null;
   if (!container) return;
   if (container.scrollHeight <= container.clientHeight) {
-    autoScrollEnabled.value = true;
-    lastScrollTop.value = 0;
+    enabledRef.value = true;
+    lastTopRef.value = 0;
     return;
   }
 
   const currentTop = container.scrollTop;
-  const delta = currentTop - lastScrollTop.value;
-  lastScrollTop.value = currentTop;
+  const delta = currentTop - lastTopRef.value;
+  lastTopRef.value = currentTop;
 
   if (delta < -1) {
-    // User scrolls upward: stop auto-scroll immediately.
-    autoScrollEnabled.value = false;
+    enabledRef.value = false;
     return;
   }
 
   const nearBottom = isNearBottom(container);
   if (nearBottom) {
-    autoScrollEnabled.value = true;
+    enabledRef.value = true;
   } else if (delta > 0) {
-    // User scrolls down but not at bottom yet; keep auto-scroll off.
-    autoScrollEnabled.value = false;
+    enabledRef.value = false;
   }
 }
 
@@ -3176,131 +3075,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   min-height: 0;
 }
 
-.panel-splitter {
-  position: relative;
-  height: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: row-resize;
-  touch-action: none;
-  user-select: none;
-}
-
-.panel-splitter__line {
-  width: 100%;
-  height: 1px;
-  border-radius: 999px;
-  background: rgb(var(--color-border) / 0.6);
-  transition:
-    background 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.panel-splitter:hover .panel-splitter__line,
-.panel-splitter--dragging .panel-splitter__line {
-  background: rgb(var(--color-accent));
-}
-
-.panel-splitter__handle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 3.5rem;
-  height: 0.4rem;
-  transform: translate(-50%, -50%);
-  border-radius: 9999px;
-  background: rgb(var(--color-surface-muted));
-  border: 1px solid rgb(var(--color-border));
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.panel-splitter:hover .panel-splitter__handle,
-.panel-splitter--dragging .panel-splitter__handle {
-  border-color: rgb(var(--color-accent));
-  background: rgb(var(--color-surface));
-  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.18);
-}
-
-.activity-monitor-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.activity-monitor-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.7rem;
-  width: 100%;
-  padding: 0.65rem;
-  border-radius: 0.75rem;
-  border: 1px solid rgb(var(--color-border) / 0.55);
-  background: rgb(var(--color-surface-muted) / 0.88);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.activity-monitor-row:hover,
-.activity-monitor-row--selected {
-  border-color: rgb(var(--color-accent) / 0.5);
-  background: rgb(var(--color-accent) / 0.1);
-}
-
-.activity-monitor-row--running {
-  box-shadow: inset 3px 0 0 rgb(var(--color-accent));
-}
-
-.activity-monitor-row--error {
-  box-shadow: inset 3px 0 0 rgb(var(--color-danger));
-}
-
-.activity-monitor-avatar {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.65rem;
-  border: 1px solid rgb(var(--color-border) / 0.65);
-  background: rgb(var(--color-accent) / 0.2);
-  color: rgb(var(--color-foreground));
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.activity-monitor-body {
-  min-width: 0;
-  flex: 1;
-}
-
-.activity-monitor-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-}
-
-.activity-monitor-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.82rem;
-  font-weight: 650;
-  color: rgb(var(--color-foreground));
-}
-
-.activity-monitor-status,
 .participant-status {
   flex: 0 0 auto;
   border-radius: 999px;
@@ -3313,18 +3087,55 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   background: rgb(var(--color-surface) / 0.9);
 }
 
-.activity-monitor-detail {
-  display: block;
-  margin-top: 0.2rem;
+.direct-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  border-radius: 0.8rem;
+  border: 1px solid rgb(var(--color-border) / 0.58);
+  background: rgb(var(--color-surface-muted) / 0.62);
+  padding: 0.75rem;
+}
+
+.direct-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.direct-activity-label {
+  flex: 0 0 auto;
   color: rgb(var(--color-subtle-foreground));
-  font-size: 0.72rem;
-  line-height: 1.35;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.direct-activity-value {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: rgb(var(--color-foreground));
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
-.activity-monitor-empty,
+.direct-activity-thought {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.direct-activity-summary {
+  color: rgb(var(--color-foreground));
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .activity-detail-empty {
   padding: 0.75rem;
   border: 1px dashed rgb(var(--color-border) / 0.65);
@@ -3333,39 +3144,8 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 0.78rem;
 }
 
-.activity-detail-panel {
-  margin-top: 0.8rem;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.activity-detail-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.6rem;
-}
-
-.activity-detail-title {
-  min-width: 0;
-  color: rgb(var(--color-foreground));
-  font-size: 0.88rem;
-  font-weight: 650;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.activity-detail-subtitle {
-  margin-top: 0.12rem;
-  color: rgb(var(--color-subtle-foreground));
-  font-size: 0.72rem;
-}
-
 .activity-detail-scroll {
+  height: 100%;
   min-height: 0;
   overflow: auto;
   display: flex;
@@ -3375,7 +3155,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .activity-detail-section {
   border-top: 1px solid rgb(var(--color-border) / 0.5);
-  padding-top: 0.7rem;
+  padding-top: 1rem;
 }
 
 .activity-detail-section:first-child {
@@ -3383,10 +3163,15 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding-top: 0;
 }
 
+.activity-detail-subsection {
+  min-height: 0;
+  margin-top: 1.15rem;
+}
+
 .activity-detail-section-title {
-  margin-bottom: 0.45rem;
+  margin-bottom: 0.62rem;
   color: rgb(var(--color-subtle-foreground));
-  font-size: 0.66rem;
+  font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -3403,18 +3188,22 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .activity-thought-item {
-  margin-bottom: 0.45rem;
   color: rgb(var(--color-foreground));
-  font-size: 0.76rem;
-  line-height: 1.5;
+  font-size: 0.72rem;
+  line-height: 1.42;
   white-space: pre-wrap;
 }
 
-.activity-response,
-.activity-tool-pre {
+.activity-thought-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.activity-response {
   color: rgb(var(--color-foreground));
-  font-size: 0.74rem;
-  line-height: 1.5;
+  font-size: 0.71rem;
+  line-height: 1.42;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -3422,26 +3211,21 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .activity-tool-list {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.55rem;
+  margin-bottom: 0.2rem;
 }
 
 .activity-tool-title {
   margin-bottom: 0.35rem;
-  font-size: 0.74rem;
+  font-size: 0.7rem;
   font-weight: 650;
   color: rgb(var(--color-foreground));
 }
 
-.activity-tool-pre {
-  margin: 0;
-  padding: 0;
-  background: transparent;
-}
-
 .activity-error-text {
   color: rgb(var(--color-danger));
-  font-size: 0.76rem;
-  line-height: 1.45;
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .participant-list {
@@ -3449,20 +3233,38 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   flex-direction: column;
 }
 
-.participant-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.75rem;
+.participant-list-item {
   border-bottom: 1px solid rgb(var(--color-border) / 0.4);
 }
 
-.participant-row:last-child {
+.participant-list-item:last-child {
   border-bottom: none;
 }
 
+.participant-row {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.participant-row:hover,
+.participant-row:focus-visible {
+  background: rgb(var(--color-surface-muted) / 0.65);
+  outline: none;
+}
+
 .participant-row--active {
-  border-color: rgb(var(--color-accent) / 0.4);
+  background: rgb(var(--color-accent) / 0.08);
 }
 
 .participant-dot {
@@ -3488,6 +3290,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .participant-name {
+  display: block;
   font-size: 0.82rem;
   font-weight: 600;
   color: rgb(var(--color-foreground));
@@ -3497,10 +3300,97 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .participant-model {
+  display: block;
   margin-top: 0.1rem;
   font-size: 0.7rem;
   color: rgb(var(--color-subtle-foreground));
-  white-space: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.participant-activity-action {
+  flex: 0 0 auto;
+  color: rgb(var(--color-accent));
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.activity-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgb(0 0 0 / 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.activity-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(68rem, 94vw);
+  height: min(44rem, 88vh);
+  border-radius: 0.95rem;
+  border: 1px solid rgb(var(--color-border) / 0.72);
+  background: rgb(var(--color-surface) / 0.98);
+  box-shadow: 0 28px 80px -36px rgb(0 0 0 / 0.9);
+  overflow: hidden;
+}
+
+.activity-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.58);
+}
+
+.activity-modal-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--color-foreground));
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.activity-modal-model {
+  margin-top: 0.2rem;
+  max-width: 44rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.76rem;
+}
+
+.activity-modal-close {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.72);
+  background: rgb(var(--color-surface-muted) / 0.8);
+  color: rgb(var(--color-foreground));
+  padding: 0.35rem 0.7rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.activity-modal-close:hover,
+.activity-modal-close:focus-visible {
+  border-color: rgb(var(--color-accent) / 0.7);
+  outline: none;
+}
+
+.activity-modal-scroll {
+  flex: 1;
+  padding: 1rem 1.1rem 1.2rem;
 }
 
 .run-activity {

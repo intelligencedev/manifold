@@ -36,6 +36,9 @@ export interface ChatMessage {
   agentName?: string;
   agentModel?: string;
   model?: string;
+  activityToolTitle?: string;
+  activityThoughtSummary?: string;
+  activityResponseStarted?: boolean;
 }
 
 export interface ChatSessionMeta {
@@ -73,4 +76,35 @@ export interface AgentThread {
   startedAt: string;
   finishedAt?: string;
   error?: string;
+}
+
+export interface SpecialistActivityEntry {
+  id: string;
+  type: string;
+  title?: string;
+  content?: string;
+  args?: string;
+  data?: string;
+  createdAt: string;
+}
+
+export interface SpecialistActivityRecord {
+  id: string;
+  sessionId: string;
+  userId?: number;
+  runId?: string;
+  callId: string;
+  parentCallId?: string;
+  agent: string;
+  model?: string;
+  prompt?: string;
+  depth: number;
+  status: "running" | "done" | "error" | "idle";
+  content?: string;
+  entries?: SpecialistActivityEntry[];
+  thoughtSummaries?: string[];
+  error?: string;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt?: string;
 }

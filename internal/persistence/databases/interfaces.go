@@ -60,19 +60,20 @@ type GraphDB interface {
 
 // Manager holds concrete database backends resolved from configuration.
 type Manager struct {
-	Search          FullTextSearch
-	Vector          VectorStore
-	Graph           GraphDB
-	Chat            persistence.ChatStore
-	EvolvingMemory  memory.EvolvingMemoryStore
-	Playground      *PlaygroundStore
-	FlowV2          persistence.FlowV2WorkflowStore
-	MCP             persistence.MCPStore
-	Projects        persistence.ProjectsStore
-	UserPreferences persistence.UserPreferencesStore
-	Pulse           persistence.PulseStore
-	Transit         transit.Store
-	Belief          belief.Store
+	Search             FullTextSearch
+	Vector             VectorStore
+	Graph              GraphDB
+	Chat               persistence.ChatStore
+	SpecialistActivity persistence.SpecialistActivityStore
+	EvolvingMemory     memory.EvolvingMemoryStore
+	Playground         *PlaygroundStore
+	FlowV2             persistence.FlowV2WorkflowStore
+	MCP                persistence.MCPStore
+	Projects           persistence.ProjectsStore
+	UserPreferences    persistence.UserPreferencesStore
+	Pulse              persistence.PulseStore
+	Transit            transit.Store
+	Belief             belief.Store
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -81,6 +82,7 @@ func (m Manager) Close() {
 	closeIfPossible(m.Vector)
 	closeIfPossible(m.Graph)
 	closeIfPossible(m.Chat)
+	closeIfPossible(m.SpecialistActivity)
 	closeIfPossible(m.EvolvingMemory)
 	closeIfPossible(m.Playground)
 	closeIfPossible(m.MCP)

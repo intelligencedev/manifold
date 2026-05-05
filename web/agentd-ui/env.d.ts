@@ -12,6 +12,7 @@ declare module "*.vue" {
 
 interface ImportMetaEnv {
   readonly VITE_AGENT_API_BASE_URL: string;
+  readonly VITE_MANIFOLD_FEATURE_GATE?: string;
 }
 
 interface ImportMeta {

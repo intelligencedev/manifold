@@ -102,15 +102,27 @@ onMounted(async () => {
   }
 });
 
-const navigation = [
+interface NavigationItem {
+  label: string;
+  to: string;
+}
+
+const betaNavigation: NavigationItem[] =
+  import.meta.env.VITE_MANIFOLD_FEATURE_GATE === "beta"
+    ? [
+        { label: "Code QA", to: "/codeqa" },
+        { label: "Beliefs", to: "/beliefs" },
+      ]
+    : [];
+
+const navigation: NavigationItem[] = [
   { label: "Overview", to: "/" },
   { label: "Projects", to: "/projects" },
   { label: "Specialists", to: "/specialists" },
   { label: "Chat", to: "/chat" },
   { label: "Playground", to: "/playground" },
   { label: "Flow", to: "/flow" },
-  { label: "Code QA", to: "/codeqa" },
-  { label: "Beliefs", to: "/beliefs" },
+  ...betaNavigation,
   { label: "Settings", to: "/settings" },
 ];
 

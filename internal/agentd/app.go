@@ -56,6 +56,7 @@ type app struct {
 	rememMaxInnerSteps int
 	engine             *agent.Engine
 	chatStore          persist.ChatStore
+	activityStore      persist.SpecialistActivityStore
 	chatMemory         *memory.Manager
 	runs               *runStore
 	playgroundHandler  http.Handler

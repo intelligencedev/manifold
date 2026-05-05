@@ -123,3 +123,18 @@ For the full deployment walkthrough, see:
 
 - [QUICKSTART.md](./QUICKSTART.md)
 - [docs/deployment.md](./docs/deployment.md)
+
+## Developers
+
+### Frontend feature gates
+
+`make build-manifold` builds `agentd` with the embedded frontend using the stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
+
+To build the same backend and embedded frontend with beta UI links enabled, use either command:
+
+```bash
+make build-manifold-beta
+make build-manifold FEATURE_GATE=beta
+```
+
+The build passes `FEATURE_GATE` through to Vite as `VITE_MANIFOLD_FEATURE_GATE`.

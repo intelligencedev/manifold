@@ -452,6 +452,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if app.chatStore == nil {
 		return nil, fmt.Errorf("chat store not initialized")
 	}
+	app.activityStore = mgr.SpecialistActivity
+	if app.activityStore == nil {
+		return nil, fmt.Errorf("specialist activity store not initialized")
+	}
 	// Derive a context window for chat-memory budgeting.
 	// Even if the underlying model supports very large context windows (e.g. GPT-5),
 	// we intentionally cap the default budgeting window so the orchestrator doesn't

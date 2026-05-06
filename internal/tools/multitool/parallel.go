@@ -220,7 +220,19 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 			}
 
 			start := time.Now()
-			payload, err := reg.Dispatch(dispatchCtx, name, argsPayload)
+			var (
+				payload []byte
+				err     error
+			)
+			if dispatcher := tools.NestedToolDispatcherFromContext(dispatchCtx); dispatcher != nil {
+				if handledPayload, handled := dispatcher(dispatchCtx, name, argsPayload, callID); handled {
+					payload = handledPayload
+				} else {
+					payload, err = reg.Dispatch(dispatchCtx, name, argsPayload)
+				}
+			} else {
+				payload, err = reg.Dispatch(dispatchCtx, name, argsPayload)
+			}
 			elapsed := time.Since(start)
 			res := callResult{
 				RecipientName: spec.RecipientName,

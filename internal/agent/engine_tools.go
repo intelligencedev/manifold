@@ -82,6 +82,21 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 		if e.LLM != nil {
 			dispatchCtx = tools.WithProvider(ctx, e.LLM)
 		}
+		dispatchCtx = tools.WithNestedToolDispatcher(dispatchCtx, func(childCtx context.Context, name string, raw json.RawMessage, toolCallID string) ([]byte, bool) {
+			if e.Delegator == nil || !isAgentCall(name) {
+				return nil, false
+			}
+			id := strings.TrimSpace(toolCallID)
+			if id == "" {
+				id = e.nextToolCallID()
+			}
+			payload := e.runDelegatedAgent(childCtx, llm.ToolCall{
+				ID:   id,
+				Name: name,
+				Args: raw,
+			})
+			return payload, true
+		})
 
 		if tc.Name == "text_to_speech" && e.OnTool != nil {
 			var raw map[string]any

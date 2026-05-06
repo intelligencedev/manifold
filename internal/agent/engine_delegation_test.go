@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"manifold/internal/llm"
+	"manifold/internal/tools"
+	"manifold/internal/tools/multitool"
 )
 
 type captureDelegator struct {
@@ -58,5 +60,55 @@ func TestRunDelegatedAgentCarriesSessionID(t *testing.T) {
 	}
 	if string(payload) == "" {
 		t.Fatal("expected payload from delegated run")
+	}
+}
+
+type tracingDelegator struct {
+	req DelegateRequest
+}
+
+func (d *tracingDelegator) Run(ctx context.Context, req DelegateRequest, tracer AgentTracer) (string, error) {
+	d.req = req
+	if tracer != nil {
+		tracer.Trace(AgentTrace{Type: "agent_start", Agent: req.AgentName, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth})
+	}
+	return "delegated", nil
+}
+
+type captureTracer struct {
+	events []AgentTrace
+}
+
+func (t *captureTracer) Trace(ev AgentTrace) {
+	t.events = append(t.events, ev)
+}
+
+func TestParallelToolAgentCallUsesDelegationTracer(t *testing.T) {
+	t.Parallel()
+
+	reg := tools.NewRegistry()
+	reg.Register(multitool.NewParallel(reg))
+	delegator := &tracingDelegator{}
+	tracer := &captureTracer{}
+	eng := &Engine{Tools: reg, Delegator: delegator, AgentTracer: tracer, SessionID: "sess-parallel", UserID: 42}
+
+	raw := json.RawMessage(`{"tool_uses":[{"recipient_name":"functions.agent_call","tool_call_id":"child-agent-1","parameters":{"agent_name":"writer","prompt":"write a haiku"}}]}`)
+	eng.dispatchTools(context.Background(), nil, []llm.ToolCall{{
+		ID:   "parallel-1",
+		Name: multitool.ToolName,
+		Args: raw,
+	}})
+
+	if delegator.req.AgentName != "writer" {
+		t.Fatalf("expected delegated agent writer, got %q", delegator.req.AgentName)
+	}
+	if delegator.req.ParentCallID != "child-agent-1" {
+		t.Fatalf("expected child tool id as parent call id, got %q", delegator.req.ParentCallID)
+	}
+	if len(tracer.events) != 1 {
+		t.Fatalf("expected one trace event, got %#v", tracer.events)
+	}
+	if tracer.events[0].ParentCallID != "child-agent-1" {
+		t.Fatalf("expected traced parent call id child-agent-1, got %q", tracer.events[0].ParentCallID)
 	}
 }

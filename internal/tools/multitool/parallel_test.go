@@ -391,3 +391,32 @@ func TestParallelToolVisibleInFilteredRegistryWhenAllowListed(t *testing.T) {
 	filtered := tools.NewFilteredRegistry(reg, []string{pt.Name()})
 	require.Contains(t, tools.SchemaNames(filtered), pt.Name())
 }
+
+func TestParallelToolUsesNestedToolDispatcher(t *testing.T) {
+	reg := tools.NewRegistry()
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	raw := json.RawMessage(`{"tool_uses":[{"recipient_name":"functions.agent_call","tool_call_id":"child-1","parameters":{"prompt":"write"}}]}`)
+	ctx := tools.WithNestedToolDispatcher(context.Background(), func(ctx context.Context, name string, raw json.RawMessage, toolCallID string) ([]byte, bool) {
+		require.Equal(t, "agent_call", name)
+		require.Equal(t, "child-1", toolCallID)
+		return []byte(`{"ok":true,"output":"nested"}`), true
+	})
+
+	payload, err := reg.Dispatch(ctx, pt.Name(), raw)
+	require.NoError(t, err)
+
+	var parsed struct {
+		OK      bool `json:"ok"`
+		Results []struct {
+			Payload json.RawMessage `json:"payload"`
+			Error   string          `json:"error"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.True(t, parsed.OK)
+	require.Len(t, parsed.Results, 1)
+	require.Empty(t, parsed.Results[0].Error)
+	require.JSONEq(t, `{"ok":true,"output":"nested"}`, string(parsed.Results[0].Payload))
+}

@@ -24,6 +24,12 @@ type Registry interface {
 }
 
 type dispatchRegistryContextKey struct{}
+type nestedToolDispatcherContextKey struct{}
+
+// NestedToolDispatcher can handle a tool call launched from inside another
+// tool. It returns handled=false when the caller should fall back to normal
+// registry dispatch.
+type NestedToolDispatcher func(ctx context.Context, name string, raw json.RawMessage, toolCallID string) (payload []byte, handled bool)
 
 // WithDispatchRegistry records the active registry view for composite tools
 // that dispatch other tools internally.
@@ -42,6 +48,24 @@ func DispatchRegistryFromContext(ctx context.Context) Registry {
 	}
 	reg, _ := ctx.Value(dispatchRegistryContextKey{}).(Registry)
 	return reg
+}
+
+// WithNestedToolDispatcher records a dispatcher used by composite tools that
+// need engine-level handling for nested calls such as agent delegation.
+func WithNestedToolDispatcher(ctx context.Context, dispatcher NestedToolDispatcher) context.Context {
+	if ctx == nil || dispatcher == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, nestedToolDispatcherContextKey{}, dispatcher)
+}
+
+// NestedToolDispatcherFromContext returns the active nested dispatcher, if any.
+func NestedToolDispatcherFromContext(ctx context.Context) NestedToolDispatcher {
+	if ctx == nil {
+		return nil
+	}
+	dispatcher, _ := ctx.Value(nestedToolDispatcherContextKey{}).(NestedToolDispatcher)
+	return dispatcher
 }
 
 type defaultRegistry struct {
